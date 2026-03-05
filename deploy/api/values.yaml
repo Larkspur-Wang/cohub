@@ -1,0 +1,46 @@
+# 请填写后再部署
+# 如需重新生成可参考 values.template.yaml
+
+# ========== 基础 ==========
+NAMESPACE: "netaverses"
+APP_NAME: "netaverses-api"
+
+# ========== 镜像 ==========
+IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-api"
+IMAGE_TAG: "latest"
+IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_SECRET: ""
+
+# ========== 服务端口 ==========
+SERVICE_PORT: "8787"
+CONTAINER_PORT: "8787"
+
+# ========== 副本与资源 ==========
+REPLICAS: "1"
+REQUEST_CPU: "100m"
+REQUEST_MEMORY: "128Mi"
+LIMIT_CPU: "500m"
+LIMIT_MEMORY: "512Mi"
+
+# ========== 健康检查 ==========
+LIVENESS_PATH: "/healthz"
+LIVENESS_INITIAL_DELAY: "20"
+LIVENESS_PERIOD: "10"
+LIVENESS_TIMEOUT: "2"
+LIVENESS_FAILURE_THRESHOLD: "3"
+READINESS_PATH: "/healthz"
+READINESS_INITIAL_DELAY: "5"
+READINESS_PERIOD: "5"
+READINESS_TIMEOUT: "2"
+READINESS_FAILURE_THRESHOLD: "3"
+
+# ========== API 配置 ==========
+PORT: "8787"
+AUTH_BASE_URL: "https://api.talesofai.com"
+GITEA_BASE_URL: "https://gitea.netaverses.cc/"
+WEB_ORIGIN: "https://www.netaverses.cc"
+TOKEN_COOKIE_NAME: "netaverses_token"
+
+# ========== 路由配置 ==========
+ROUTE_ENABLED: "true"
+API_HOSTNAME: "api.netaverses.cc"

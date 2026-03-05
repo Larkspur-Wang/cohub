@@ -24,7 +24,7 @@
 
 ```bash
 # 进入 gitea 目录
-cd gitea
+cd deploy/gitea
 
 # 复制模板文件
 cp values.template.yaml values.yaml

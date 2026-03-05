@@ -27,7 +27,16 @@ Netaverses 是一个面向 **workspace（工作空间）** 的托管与分享平
 
 ```
 netaverses/
-└── gitea/                      # Gitea 部署配置（Helm values、脚本、文档）
+├── .github/
+│   └── workflows/            # GitHub Actions CI/CD 配置
+│       └── api-docker-build-push.yml
+├── apps/
+│   ├── api/                  # Netaverses API（Hono BFF）
+│   │   ├── Dockerfile
+│   │   ├── src/
+│   │   └── package.json
+│   └── web/                  # Netaverses Web（SvelteKit 前端）
+└── gitea/                    # Gitea 部署配置（Helm values、脚本、文档）
     ├── README.md
     ├── PARAMETERS.md
     ├── OPTIONAL_FEATURES.md
@@ -38,7 +47,73 @@ netaverses/
     └── undeploy.sh
 ```
 
-> 后续会增加 `web/`、`infra/` 等目录用于承载自研 Web 与更多基础设施组件。
+## 本地开发
+
+### 前置要求
+
+- Node.js 22+
+- pnpm 9.12.1+
+
+### 安装依赖
+
+```bash
+pnpm install
+```
+
+### 开发模式
+
+```bash
+# 启动所有应用（api + web）
+pnpm dev
+
+# 或单独启动
+cd apps/api && pnpm dev
+cd apps/web && pnpm dev
+```
+
+### 构建
+
+```bash
+# 构建所有应用
+pnpm build
+
+# 或单独构建 API
+cd apps/api && pnpm build
+```
+
+### 代码检查
+
+```bash
+# Lint
+pnpm lint
+
+# 类型检查
+pnpm typecheck
+```
+
+## CI/CD
+
+本项目使用 GitHub Actions 进行自动化构建和镜像推送：
+
+- **api-docker-build-push.yml**: 自动构建 API 镜像并推送到阿里云镜像仓库
+  - 触发条件：push 到 main 分支、打 tag (v*)、或手动触发
+  - 流程：安装依赖 → Lint → Typecheck → 构建 → Docker 镜像构建推送
+
+### 配置 Secrets
+
+在 GitHub 仓库设置中添加以下 Secrets：
+
+- `ALIYUN_USERNAME`: 阿里云镜像仓库用户名
+- `ALIYUN_PASSWORD`: 阿里云镜像仓库密码
+
+## 部署目标
+
+- Alibaba Cloud ACK（Kubernetes）
+- 建议配套：
+  - 独立数据库（PostgreSQL 优先）
+  - 持久化存储（PVC 或对象存储方案）
+  - Ingress + TLS
+  - 备份策略（DB + repo 数据）
 
 ## 快速开始（部署 Gitea）
 
@@ -53,15 +128,6 @@ cp secrets.template.yaml secrets.yaml
 ```
 
 更多细节请参考：[`gitea/README.md`](./gitea/README.md)
-
-## 部署目标
-
-- Alibaba Cloud ACK（Kubernetes）
-- 建议配套：
-  - 独立数据库（PostgreSQL 优先）
-  - 持久化存储（PVC 或对象存储方案）
-  - Ingress + TLS
-  - 备份策略（DB + repo 数据）
 
 ## 路线图（简版）
 

@@ -1,0 +1,33 @@
+:root {
+  --bg: #12141a;
+  --panel: #1a1f29;
+  --panel-soft: #202632;
+  --text: #e5e7eb;
+  --text-soft: #98a2b3;
+  --border: #2b3342;
+  --accent: #6f8cff;
+  --accent-soft: #2a3b73;
+  --danger: #ef4444;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
