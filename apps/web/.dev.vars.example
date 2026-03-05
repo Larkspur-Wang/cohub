@@ -1,0 +1,2 @@
+# For `pnpm -C apps/web preview` (wrangler dev)
+BFF_ORIGIN=http://localhost:8787

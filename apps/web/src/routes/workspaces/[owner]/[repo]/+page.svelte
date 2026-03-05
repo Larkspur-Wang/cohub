@@ -24,8 +24,8 @@
 
   const owner = $derived(data.owner);
   const repo = $derived(data.repo);
-  const ref = $state<string | undefined>(data.workspace?.default_branch);
-  const workspaceTitle = $state(data.workspace?.full_name ?? `${owner}/${repo}`);
+  const ref = $derived(data.workspace?.default_branch);
+  const workspaceTitle = $derived(data.workspace?.full_name ?? `${data.owner}/${data.repo}`);
 
   let rootNodes = $state<TreeNode[]>([]);
   let selectedPath = $state("");

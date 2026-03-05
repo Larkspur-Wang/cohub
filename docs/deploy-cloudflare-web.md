@@ -23,7 +23,10 @@
 
 ```bash
 pnpm i
-pnpm -C apps/web build
+
+# 准备本地 worker 环境变量
+cp apps/web/.dev.vars.example apps/web/.dev.vars
+
 pnpm -C apps/web preview
 ```
 
@@ -32,5 +35,10 @@ pnpm -C apps/web preview
 ```bash
 pnpm i
 pnpm -C apps/web build
+
+# Production
 pnpm -C apps/web wrangler deploy
+
+# Staging
+pnpm -C apps/web wrangler deploy --env staging
 ```

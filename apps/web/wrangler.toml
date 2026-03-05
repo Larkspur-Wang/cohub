@@ -1,14 +1,19 @@
 name = "netaverses-web"
 main = ".svelte-kit/cloudflare/_worker.js"
 compatibility_date = "2025-03-05"
+compatibility_flags = ["nodejs_compat"]
 
 [assets]
 directory = ".svelte-kit/cloudflare/assets"
 binding = "ASSETS"
 
+# Production defaults (deploy without --env)
 [vars]
-# Server-side: points to the Hono BFF running on Alibaba Cloud (ACK)
 BFF_ORIGIN = "https://api.netaverses.cc"
 
-# Client-side: optional. If set to empty, the browser will call same-origin /api/*
-# VITE_API_BASE_URL = ""
+# Staging environment
+[env.staging]
+name = "netaverses-web-staging"
+
+[env.staging.vars]
+BFF_ORIGIN = "https://api-staging.netaverses.cc"
