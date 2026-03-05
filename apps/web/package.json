@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"deploy": "wrangler deploy",
 		"preview": "pnpm build && wrangler dev",
 		"prepare": "svelte-kit sync || echo ''",
 		"lint": "biome lint .",
