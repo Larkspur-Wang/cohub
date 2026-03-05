@@ -13,8 +13,8 @@
 
 当前我们拆了两个环境（两个 Worker Script 名称）：
 
-- Production：`netaverses-web`（默认 `wrangler deploy`）
-- Staging：`netaverses-web-staging`（`wrangler deploy --env staging`）
+- Production：`netaverses-web`（GitHub Actions 选择 `production`）
+- Staging：`netaverses-web-staging`（GitHub Actions 选择 `staging`）
 
 两者都需要配置：
 
@@ -24,7 +24,13 @@
 
 > 说明：`BFF_ORIGIN` 也可以在 `apps/web/wrangler.toml` 里配置（已提供默认值）。
 
-## 3) 手动部署命令
+## 3) GitHub Actions 手动部署
+
+在 GitHub Actions 页面选择 `Web Deploy to Cloudflare Workers` → `Run workflow`，然后选择：
+- **production**：部署到生产环境
+- **staging**：部署到预发环境
+
+## 4) 本地手动部署命令
 
 ```bash
 # Production

@@ -32,6 +32,14 @@ pnpm -C apps/web preview
 
 ## 构建与部署
 
+### GitHub Actions（推荐）
+
+在 GitHub Actions 页面选择 `Web Deploy to Cloudflare Workers` → `Run workflow`，然后选择环境：
+- **production**：部署到生产环境
+- **staging**：部署到预发环境
+
+### 本地手动部署
+
 ```bash
 pnpm i
 
