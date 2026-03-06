@@ -26,6 +26,14 @@
   const ref = $derived(data.workspace?.default_branch);
   const workspaceTitle = $derived(data.workspace?.full_name ?? `${data.owner}/${data.repo}`);
 
+  // 初始化状态
+  let rootNodes = $state<TreeNode[]>([]);
+  let selectedPath = $state("");
+  let fileContent = $state("");
+  let markdownHtml = $state<string>("");
+  let fileLoading = $state(false);
+  let error = $state<string | null>(null);
+
   const toNode = (entry: WorkspaceEntry): TreeNode => ({
     ...entry,
     children: [],
@@ -144,15 +152,8 @@
     await selectFile(node.path);
   };
 
-  // 初始化状态
-  let rootNodes = $state<TreeNode[]>(data.initialTreeEntries.map(toNode));
-  let selectedPath = $state("");
-  let fileContent = $state("");
-  let markdownHtml = $state<string>("");
-  let fileLoading = $state(false);
-  let error = $state<string | null>(null);
-
-  // 初始化：选择默认文件
+  // 初始化：SSR 数据转换和默认文件选择
+  rootNodes = data.initialTreeEntries.map(toNode);
   const initDefaultFile = async () => {
     const defaultFile = pickDefaultFile(rootNodes);
     if (defaultFile) {
@@ -164,9 +165,7 @@
     }
   };
 
-  onMount(() => {
-    initDefaultFile();
-  });
+  initDefaultFile();
 
 </script>
 
