@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-
   import { getFile, getTree, getWorkspace } from "$lib/api";
   import ChatPanel from "$lib/components/ChatPanel.svelte";
   import FileTree from "$lib/components/FileTree.svelte";
@@ -26,14 +25,6 @@
   const repo = $derived(data.repo);
   const ref = $derived(data.workspace?.default_branch);
   const workspaceTitle = $derived(data.workspace?.full_name ?? `${data.owner}/${data.repo}`);
-
-  let rootNodes = $state<TreeNode[]>([]);
-  let selectedPath = $state("");
-  let fileContent = $state("");
-  let markdownHtml = $state("");
-  let fileLoading = $state(false);
-  let pageLoading = $state(true);
-  let error = $state<string | null>(null);
 
   const toNode = (entry: WorkspaceEntry): TreeNode => ({
     ...entry,
@@ -153,20 +144,30 @@
     await selectFile(node.path);
   };
 
-  onMount(async () => {
-    // SSR 已经提供了初始数据，只需要选择默认文件并渲染
-    rootNodes = data.initialTreeEntries.map(toNode);
+  // 初始化状态
+  let rootNodes = $state<TreeNode[]>(data.initialTreeEntries.map(toNode));
+  let selectedPath = $state("");
+  let fileContent = $state("");
+  let markdownHtml = $state<string>("");
+  let fileLoading = $state(false);
+  let error = $state<string | null>(null);
+
+  // 初始化：选择默认文件
+  const initDefaultFile = async () => {
     const defaultFile = pickDefaultFile(rootNodes);
     if (defaultFile) {
       await selectFile(defaultFile);
     } else if (data.readmeContent) {
-      // 如果 SSR 预加载了 README，直接使用
       fileContent = data.readmeContent.content;
       markdownHtml = await renderMarkdown(data.readmeContent.content);
       selectedPath = "README.md";
     }
-    pageLoading = false;
+  };
+
+  onMount(() => {
+    initDefaultFile();
   });
+
 </script>
 
 <main class="workspace-page">
@@ -175,9 +176,7 @@
     <span>{ref ? `branch: ${ref}` : ""}</span>
   </header>
 
-  {#if pageLoading}
-    <p class="status">Loading workspace...</p>
-  {:else if error && rootNodes.length === 0}
+  {#if error && rootNodes.length === 0}
     <p class="status error">{error}</p>
   {:else}
     <section class="layout">
