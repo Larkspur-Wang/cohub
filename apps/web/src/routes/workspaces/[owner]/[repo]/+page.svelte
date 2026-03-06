@@ -152,20 +152,23 @@
     await selectFile(node.path);
   };
 
-  // 初始化：SSR 数据转换和默认文件选择
+  // 初始化：直接使用 SSR 数据
   rootNodes = data.initialTreeEntries.map(toNode);
-  const initDefaultFile = async () => {
+
+  // 如果有 SSR 预加载的 README，直接渲染
+  if (data.readmeContent) {
+    fileContent = data.readmeContent.content;
+    renderMarkdown(data.readmeContent.content).then((html) => {
+      markdownHtml = html;
+    });
+    selectedPath = "README.md";
+  } else {
+    // 否则选择第一个文件
     const defaultFile = pickDefaultFile(rootNodes);
     if (defaultFile) {
-      await selectFile(defaultFile);
-    } else if (data.readmeContent) {
-      fileContent = data.readmeContent.content;
-      markdownHtml = await renderMarkdown(data.readmeContent.content);
-      selectedPath = "README.md";
+      selectFile(defaultFile);
     }
-  };
-
-  initDefaultFile();
+  }
 
 </script>
 
