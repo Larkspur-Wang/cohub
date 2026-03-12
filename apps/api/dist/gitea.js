@@ -24,6 +24,50 @@ const giteaGet = async (path) => {
 export const getRepository = async (owner, repo) => {
     return giteaGet(`/repos/${owner}/${repo}`);
 };
+export const createRepository = async (token, name, isPrivate = true) => {
+    const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/repos`, {
+        method: "POST",
+        headers: {
+            Authorization: `token ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            name,
+            private: isPrivate,
+            auto_init: false
+        })
+    });
+    if (response.status === 409) {
+        return { name, alreadyExists: true };
+    }
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Gitea create repo error: ${response.status} ${text}`);
+    }
+    return response.json();
+};
+export const addSshKey = async (token, key, title) => {
+    const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/keys`, {
+        method: "POST",
+        headers: {
+            Authorization: `token ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            key,
+            title,
+            read_only: false
+        })
+    });
+    if (response.status === 422) {
+        return { alreadyExists: true };
+    }
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Gitea add SSH key error: ${response.status} ${text}`);
+    }
+    return response.json();
+};
 export const getDirectoryEntries = async (owner, repo, path, ref) => {
     const encodedPath = path
         .split("/")

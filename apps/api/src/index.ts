@@ -4,7 +4,7 @@ import { Hono } from "hono";
 
 import { clearTokenCookie, fetchAuthUser, getTokenFromRequest, setTokenCookie } from "./auth.js";
 import { assertRequiredConfig, config } from "./config.js";
-import { getDirectoryEntries, getFileContent, getRepository } from "./gitea.js";
+import { getDirectoryEntries, getFileContent, getRepository, createRepository, addSshKey } from "./gitea.js";
 
 type Variables = {
   token: string | null;
@@ -66,6 +66,46 @@ app.get("/api/me", async (c) => {
   }
 
   return c.json(user);
+});
+
+app.get("/v1/user/", async (c) => {
+  const token = c.req.header("x-token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+  const user = await fetchAuthUser(token);
+  if (!user) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+  return c.json(user);
+});
+
+app.post("/api/v1/user/repos", async (c) => {
+  const token = c.req.header("x-token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+  const body = await c.req.json<{ name: string; private?: boolean }>();
+  try {
+    const repo = await createRepository(token, body.name, body.private ?? true);
+    return c.json(repo);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
+  }
+});
+
+app.post("/api/v1/user/keys", async (c) => {
+  const token = c.req.header("x-token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+  const body = await c.req.json<{ key: string; title: string }>();
+  try {
+    const key = await addSshKey(token, body.key, body.title);
+    return c.json(key);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
+  }
 });
 
 app.get("/api/workspaces/:owner/:repo", async (c) => {
