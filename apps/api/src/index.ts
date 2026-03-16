@@ -4,7 +4,15 @@ import { Hono } from "hono";
 
 import { clearTokenCookie, fetchAuthUser, getTokenFromRequest, setTokenCookie } from "./auth.js";
 import { assertRequiredConfig, config } from "./config.js";
-import { getDirectoryEntries, getFileContent, getRepository, createRepository, addSshKey } from "./gitea.js";
+import {
+  getDirectoryEntries,
+  getFileContent,
+  getRepository,
+  createRepository,
+  addSshKey,
+  createAnonymousRepository,
+  addDeployKeyToRepo
+} from "./gitea.js";
 
 type Variables = {
   token: string | null;
@@ -103,6 +111,35 @@ app.post("/api/v1/user/keys", async (c) => {
   try {
     const key = await addSshKey(token, body.key, body.title);
     return c.json(key);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
+  }
+});
+
+// Anonymous share init: create repo under anonymous org and add per-repo deploy key
+app.post("/api/v1/share/init", async (c) => {
+  try {
+    const body = await c.req.json<{ name?: string; publicKey: string }>();
+    const name = (body.name || "ws-share").toLowerCase().replace(/[^a-z0-9-_]/g, "-");
+    if (!body.publicKey || typeof body.publicKey !== "string") {
+      return c.json({ message: "publicKey is required" }, 400);
+    }
+
+    // To avoid collisions, add a short random suffix
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const repoName = `${name}-${suffix}`;
+
+    const repo = await createAnonymousRepository(repoName);
+
+    // org name here must match your Gitea org that holds anonymous repos
+    const owner = repo.owner.username;
+
+    await addDeployKeyToRepo(owner, repo.name, body.publicKey, `ws-share-${suffix}`);
+
+    return c.json({
+      sshUrl: repo.ssh_url,
+      webUrl: repo.html_url
+    });
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }

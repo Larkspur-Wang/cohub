@@ -20,6 +20,21 @@ type GiteaFileResponse = {
   size: number;
 };
 
+type GiteaRepository = {
+  name: string;
+  owner: {
+    username: string;
+  };
+  ssh_url: string;
+  html_url: string;
+};
+
+type GiteaDeployKey = {
+  id: number;
+  key: string;
+  read_only: boolean;
+};
+
 const createGiteaHeaders = () => {
   if (!config.giteaToken) {
     return undefined;
@@ -42,6 +57,29 @@ const giteaGet = async <T>(path: string) => {
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Gitea API error: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as T;
+};
+
+const giteaPost = async <T>(path: string, body: unknown) => {
+  const headers = createGiteaHeaders();
+  if (!headers) {
+    throw new Error("GITEA_TOKEN is not configured");
+  }
+
+  const response = await fetch(`${config.giteaBaseUrl}/api/v1${path}`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea API POST error: ${response.status} ${text}`);
   }
 
   return (await response.json()) as T;
@@ -101,6 +139,29 @@ export const addSshKey = async (token: string, key: string, title: string) => {
   }
 
   return response.json();
+};
+
+export const createAnonymousRepository = async (name: string): Promise<GiteaRepository> => {
+  const repo = await giteaPost<GiteaRepository>("/orgs/anonymous/repos", {
+    name,
+    private: false,
+    auto_init: false
+  });
+  return repo;
+};
+
+export const addDeployKeyToRepo = async (
+  owner: string,
+  repo: string,
+  key: string,
+  title: string
+): Promise<GiteaDeployKey> => {
+  const deployKey = await giteaPost<GiteaDeployKey>(`/repos/${owner}/${repo}/keys`, {
+    key,
+    title,
+    read_only: false
+  });
+  return deployKey;
 };
 
 export const getDirectoryEntries = async (
