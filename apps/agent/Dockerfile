@@ -32,9 +32,8 @@ WORKDIR /app
 
 # 仅拷贝依赖描述
 COPY apps/agent/package.json ./
-# 如果 agent 依赖了 monorepo 的其他 package，需要额外处理。
-# 但既然你说 /app 就是 agent 项目，我们假设它目前是自完备的。
-RUN pnpm install
+# 安装所有依赖（包括 devDependencies，用于编译）
+RUN NODE_ENV=development pnpm install
 
 # 拷贝 agent 源码
 COPY apps/agent/ ./
