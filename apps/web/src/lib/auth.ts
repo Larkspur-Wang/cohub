@@ -1,28 +1,24 @@
-import { clearAuthToken, getMe, setAuthToken } from "$lib/api";
+import { browser } from '$app/environment';
+import { writable } from 'svelte/store';
 
-export type HubUser = {
-  id?: number;
-  uuid?: string;
-  nick_name?: string;
-  phone_num?: string;
-  avatar_url?: string;
-  [key: string]: unknown;
-};
+const TOKEN_KEY = 'neta_token';
 
-export const fetchCurrentUser = async () => {
-  try {
-    const user = await getMe();
-    return user as HubUser;
-  } catch {
-    return null;
-  }
-};
+// Initial value from localStorage
+const initialToken = browser ? localStorage.getItem(TOKEN_KEY) : null;
 
-export const loginWithToken = async (token: string) => {
-  const result = (await setAuthToken(token)) as { user: HubUser };
-  return result.user;
-};
+export const token = writable<string | null>(initialToken);
 
-export const logout = async () => {
-  await clearAuthToken();
-};
+// Subscribe to changes and update localStorage
+if (browser) {
+    token.subscribe((value) => {
+        if (value) {
+            localStorage.setItem(TOKEN_KEY, value);
+        } else {
+            localStorage.removeItem(TOKEN_KEY);
+        }
+    });
+}
+
+export function logout() {
+    token.set(null);
+}

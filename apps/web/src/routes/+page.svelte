@@ -1,193 +1,96 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
-  import { onMount } from "svelte";
+  import { mockWorlds } from '$lib/mock';
+  import { fade, fly } from 'svelte/transition';
 
-  import { fetchCurrentUser, loginWithToken, logout, type HubUser } from "$lib/auth";
-
-  let tokenInput = $state("");
-  // biome-ignore lint/style/useConst: Svelte state with bind:value cannot be const
-  let ownerInput = $state("");
-  // biome-ignore lint/style/useConst: Svelte state with bind:value cannot be const
-  let repoInput = $state("");
-  let currentUser = $state<HubUser | null>(null);
-  let message = $state("Checking login state...");
-  let loading = $state(true);
-
-  const refreshUser = async () => {
-    loading = true;
-    const user = await fetchCurrentUser();
-    currentUser = user;
-    message = user ? "Token 已生效，可直接进入 workspace。" : "未登录，请先输入已有 x-token。";
-    loading = false;
-  };
-
-  onMount(async () => {
-    await refreshUser();
-  });
-
-  const submitToken = async () => {
-    const token = tokenInput.trim();
-    if (!token) {
-      message = "请输入 token";
-      return;
-    }
-
-    try {
-      const user = await loginWithToken(token);
-      currentUser = user;
-      tokenInput = "";
-      message = "登录成功";
-    } catch {
-      message = "token 校验失败，请确认是否有效";
-      currentUser = null;
-    }
-  };
-
-  const clearLogin = async () => {
-    await logout();
-    currentUser = null;
-    message = "已退出";
-  };
-
-  const goWorkspace = async () => {
-    const owner = ownerInput.trim();
-    const repo = repoInput.trim();
-    if (!owner || !repo) {
-      message = "请输入 owner/repo";
-      return;
-    }
-
-    await goto(`/workspaces/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
-  };
+  // Hero feature world
+  const featuredWorld = mockWorlds[0];
 </script>
 
-<main class="home">
-  <section class="card">
-    <h1>Netaverses Workspace Hub</h1>
-    <p class="sub">Phase 1: Hono BFF + Gitea Public Workspace + Obsidian-like Layout</p>
+<div class="max-w-7xl mx-auto px-6 pt-16 pb-24">
+  <!-- Hero Section -->
+  <div class="relative rounded-[3rem] overflow-hidden bg-brand shadow-2xl p-8 lg:p-20 group min-h-[600px] flex flex-col justify-end">
+    <!-- Background Decor -->
+    <div class="absolute inset-0 z-0">
+      <img src={featuredWorld.image} alt={featuredWorld.name} class="w-full h-full object-cover opacity-60 mix-blend-overlay group-hover:scale-110 transition-transform duration-1000" />
+      <div class="absolute inset-0 bg-gradient-to-t from-brand via-brand/40 to-transparent"></div>
+    </div>
 
-    {#if loading}
-      <p class="hint">Loading...</p>
-    {:else}
-      <p class="hint">{message}</p>
-    {/if}
+    <!-- Content -->
+    <div class="relative z-10 max-w-2xl" in:fly={{ y: 50, duration: 800 }}>
+      <div class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-md text-white text-xs font-black uppercase tracking-[0.2em] rounded-full mb-8 border border-white/20">
+        <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+        Featured World
+      </div>
+      
+      <h1 class="text-6xl lg:text-8xl font-black text-white leading-tight mb-6 tracking-tighter drop-shadow-2xl">
+        Enter the <br/> <span class="text-white/80">{featuredWorld.name}</span>
+      </h1>
+      
+      <p class="text-xl lg:text-2xl text-white/80 font-serif italic mb-10 leading-relaxed max-w-xl">
+        "{featuredWorld.description}"
+      </p>
 
-    <div class="group">
-      <label for="token">Existing x-token</label>
-      <input id="token" bind:value={tokenInput} placeholder="paste x-token" type="password" />
-      <div class="actions">
-        <button onclick={submitToken} type="button">Login with token</button>
-        <button class="ghost" onclick={clearLogin} type="button">Logout</button>
+      <div class="flex flex-wrap gap-4">
+        <a 
+          href="/worlds/{featuredWorld.id}" 
+          class="px-10 py-5 bg-white text-brand text-lg font-black rounded-2xl shadow-xl hover:shadow-white/20 hover:-translate-y-1 active:translate-y-0 transition-all flex items-center gap-3 group/btn"
+        >
+          <span>Start Session</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7-7 7" />
+          </svg>
+        </a>
+        <a 
+          href="/worlds" 
+          class="px-10 py-5 bg-white/10 backdrop-blur-md text-white border-2 border-white/20 text-lg font-black rounded-2xl hover:bg-white/20 transition-all"
+        >
+          Browse All Worlds
+        </a>
       </div>
     </div>
 
-    <div class="group">
-      <label for="workspace-owner">Open workspace</label>
-      <div class="inline">
-        <input id="workspace-owner" bind:value={ownerInput} placeholder="owner" type="text" />
-        <span>/</span>
-        <input id="workspace-repo" bind:value={repoInput} placeholder="repo" type="text" />
+    <!-- Decorative floating info -->
+    <div class="absolute top-20 right-20 hidden lg:block" in:fade={{ delay: 400 }}>
+        <div class="bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-2xl rotate-3 hover:rotate-0 transition-transform cursor-default">
+            <div class="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 mb-2">Protocol</div>
+            <div class="text-3xl font-black text-white">World Studio</div>
+        </div>
+    </div>
+  </div>
+
+  <!-- Quick Explore Section -->
+  <div class="mt-24">
+    <div class="flex items-center justify-between mb-12">
+      <div>
+        <h2 class="text-4xl font-black text-gray-800 tracking-tight">Public Worlds</h2>
+        <p class="mt-2 text-gray-400 font-medium">Curated worlds waiting for a story.</p>
       </div>
-      <button onclick={goWorkspace} type="button">Open</button>
+      <a href="/worlds" class="font-black text-brand hover:underline underline-offset-8">Explore All →</a>
     </div>
 
-    {#if currentUser}
-      <div class="profile">
-        <strong>Current User</strong>
-        <p>{currentUser.nick_name ?? currentUser.uuid ?? "Unknown"}</p>
-      </div>
-    {/if}
-  </section>
-</main>
-
-<style>
-  .home {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-  }
-
-  .card {
-    width: min(640px, 100%);
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 24px;
-  }
-
-  .sub {
-    margin-top: 8px;
-    color: var(--text-soft);
-    font-size: 14px;
-  }
-
-  .hint {
-    color: var(--text-soft);
-    font-size: 13px;
-  }
-
-  .group {
-    margin-top: 18px;
-    display: grid;
-    gap: 8px;
-  }
-
-  label {
-    font-size: 13px;
-    color: var(--text-soft);
-  }
-
-  input {
-    width: 100%;
-    background: #121722;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    padding: 10px 12px;
-  }
-
-  .inline {
-    display: grid;
-    gap: 8px;
-    align-items: center;
-    grid-template-columns: 1fr auto 1fr;
-  }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  button {
-    background: var(--accent);
-    color: #fff;
-    border: 0;
-    border-radius: 8px;
-    padding: 9px 12px;
-    cursor: pointer;
-  }
-
-  button.ghost {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text);
-  }
-
-  .profile {
-    margin-top: 16px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-    font-size: 13px;
-  }
-
-  .profile p {
-    margin: 6px 0 0;
-    color: var(--text-soft);
-  }
-</style>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      {#each mockWorlds as world}
+        <a href="/worlds/{world.id}" class="group bg-white rounded-3xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-500">
+          <div class="aspect-[4/3] overflow-hidden">
+            <img src={world.image} alt={world.name} class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+          </div>
+          <div class="p-8">
+            <h3 class="text-2xl font-black text-gray-800 mb-2 group-hover:text-brand transition-colors">{world.name}</h3>
+            <p class="text-sm text-gray-400 font-medium line-clamp-2 leading-relaxed">{world.description}</p>
+          </div>
+        </a>
+      {/each}
+      
+      <!-- Placeholder Create Card -->
+      <button class="bg-gray-50 border-4 border-dashed border-gray-100 rounded-3xl p-12 flex flex-col items-center justify-center text-gray-300 hover:border-brand/20 hover:text-brand/40 transition-all cursor-not-allowed group">
+        <div class="w-16 h-16 rounded-full bg-white flex items-center justify-center mb-6 shadow-sm group-hover:scale-110 transition-transform">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+        </div>
+        <span class="font-black text-xl tracking-tight">Create New World</span>
+        <span class="text-xs mt-2 uppercase tracking-widest font-black opacity-40">Coming Soon</span>
+      </button>
+    </div>
+  </div>
+</div>
