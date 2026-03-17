@@ -12,7 +12,7 @@ const redis = new Redis(REDIS_URL);
 const pubClient = redis.duplicate();
 const subClient = redis.duplicate();
 
-const STREAM_KEY_IN = `session:${SESSION_ID}:in`;   // 后端 -> Sandbox 的指令流
+const STREAM_KEY_IN = `session:${SESSION_ID}:in`; // 后端 -> Sandbox 的指令流
 const STREAM_KEY_OUT = `session:${SESSION_ID}:out`; // Sandbox -> 后端的输出流
 
 console.log(`[Supervisor] Starting for Session: ${SESSION_ID}`);
@@ -21,15 +21,18 @@ console.log(`[Supervisor] Workspace: ${WORKSPACE_DIR}`);
 /**
  * 将输出写回 Redis Stream
  */
-async function sendOutput(type: string, data: any) {
+async function sendOutput(type: string, data: unknown) {
   try {
     const payload = typeof data === "string" ? data : JSON.stringify(data);
     await pubClient.xadd(
       STREAM_KEY_OUT,
       "*",
-      "type", type,
-      "data", payload,
-      "timestamp", Date.now().toString()
+      "type",
+      type,
+      "data",
+      payload,
+      "timestamp",
+      Date.now().toString(),
     );
   } catch (err) {
     console.error("[Supervisor] Failed to send output to Redis:", err);
@@ -44,7 +47,7 @@ function startAgent() {
 
   const agentProcess = spawn("pi", ["--mode", "rpc", "--no-session"], {
     cwd: WORKSPACE_DIR,
-    env: { ...process.env }, 
+    env: { ...process.env },
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -96,9 +99,9 @@ const activeProcess = startAgent();
 /**
  * 向 Agent 发送 RPC 指令
  */
-function sendToAgent(command: any) {
+function sendToAgent(command: unknown) {
   if (activeProcess.stdin && !activeProcess.stdin.destroyed) {
-    activeProcess.stdin.write(JSON.stringify(command) + "\n");
+    activeProcess.stdin.write(`${JSON.stringify(command)}\n`);
   }
 }
 
@@ -110,36 +113,49 @@ async function listenForCommands() {
 
   while (true) {
     try {
-      const result = await subClient.xread("BLOCK", 5000, "STREAMS", STREAM_KEY_IN, lastId);
-      
+      const result = await subClient.xread(
+        "BLOCK",
+        5000,
+        "STREAMS",
+        STREAM_KEY_IN,
+        lastId,
+      );
+
       if (result) {
-        const [stream, messages] = result[0]!;
+        const [stream, messages] = result[0];
+        if (!stream || !messages) continue;
+
         for (const message of messages) {
           const [id, fields] = message;
+          if (!id || !fields) continue;
+
           lastId = id;
 
           const payload = parseRedisHash(fields);
-          
+
           if (payload.action === "prompt") {
             console.log(`[Supervisor] Received prompt: ${payload.text}`);
             sendToAgent({ type: "prompt", message: payload.text });
           } else if (payload.action === "abort") {
-            console.log(`[Supervisor] Received abort command`);
+            console.log("[Supervisor] Received abort command");
             sendToAgent({ type: "abort" });
           } else if (payload.action === "rpc") {
             // 允许后端直接发自定义 RPC 报文
             try {
-              const rpcCmd = JSON.parse(payload.data!);
+              const rpcCmd = JSON.parse(payload.data);
               sendToAgent(rpcCmd);
             } catch (e) {
-              console.error("[Supervisor] Invalid RPC command payload:", payload.data);
+              console.error(
+                "[Supervisor] Invalid RPC command payload:",
+                payload.data,
+              );
             }
           }
         }
       }
     } catch (err) {
       console.error("[Supervisor] Error reading from stream:", err);
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1000));
     }
   }
 }
@@ -147,7 +163,11 @@ async function listenForCommands() {
 function parseRedisHash(fields: string[]): Record<string, string> {
   const obj: Record<string, string> = {};
   for (let i = 0; i < fields.length; i += 2) {
-    obj[fields[i]!] = fields[i + 1]!;
+    const key = fields[i];
+    const value = fields[i + 1];
+    if (key !== undefined && value !== undefined) {
+      obj[key] = value;
+    }
   }
   return obj;
 }

@@ -21,3 +21,18 @@ export type WorkspaceFile = {
   encoding: string;
   content: string;
 };
+
+export type World = {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+};
+
+export type Agent = {
+  id: string;
+  name: string;
+  description: string;
+  avatar: string;
+  personality: string;
+};

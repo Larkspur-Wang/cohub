@@ -8,18 +8,11 @@
       "**/.wrangler/**"
     ]
   },
-  "organizeImports": {
-    "enabled": true
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2
-  },
   "linter": {
-    "enabled": true,
     "rules": {
-      "recommended": true
+      "style": {
+        "useConst": "off"
+      }
     }
   }
 }
