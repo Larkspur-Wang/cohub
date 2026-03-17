@@ -15,7 +15,8 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY apps/agent/package.json ./
 
 # 安装所有依赖（包括 devDependencies）
-RUN pnpm install
+# 使用 hoisted node-linker 确保依赖正确链接
+RUN pnpm config set node-linker hoisted && pnpm install
 
 # 拷贝源码并构建
 COPY apps/agent/ ./
@@ -54,7 +55,7 @@ WORKDIR /app
 
 # 4. 拷贝依赖描述并安装生产依赖
 COPY apps/agent/package.json ./
-RUN pnpm install --prod
+RUN pnpm config set node-linker hoisted && pnpm install --prod
 
 # 5. 从构建阶段拷贝编译产物
 COPY --from=builder /app/dist ./dist
