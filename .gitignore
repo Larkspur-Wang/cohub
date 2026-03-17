@@ -1,5 +1,7 @@
 node_modules/
 dist/
 
+configs/pi
+
 # Environment variables
 .env
