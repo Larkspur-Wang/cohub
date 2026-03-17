@@ -9,47 +9,37 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # 1. 安装基础系统工具、Python 和多媒体/字体依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
-    wget \
-    jq \
-    ca-certificates \
-    python3 \
-    python3-pip \
-    python3-venv \
-    ffmpeg \
-    imagemagick \
-    libimage-exiftool-perl \
-    unzip \
-    vim \
-    tree \
-    tmux \
-    htop \
-    xz-utils \
+    curl git wget jq ca-certificates \
+    python3 python3-pip python3-venv \
+    ffmpeg imagemagick libimage-exiftool-perl \
+    unzip vim tree tmux htop xz-utils \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置 Python 软链接
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 
-# 2. 全局安装 pnpm 和 tsx
-RUN npm install -g pnpm tsx typescript
+# 2. 全局安装 pnpm
+RUN npm install -g pnpm
 
-# 3. 安装 Playwright 浏览器及其系统依赖
+# 3. 安装 Playwright 浏览器及其系统依赖 (官方推荐方式)
 RUN mkdir -p /ms-playwright && \
     npx -y playwright@1.58.2 install chromium --with-deps
 
-# 4. 准备项目代码 (不再维护 monorepo 结构，/app 即为项目根目录)
+# 4. 准备项目代码
+# 我们直接将 apps/agent 的内容拷贝到 /app
 WORKDIR /app
 
-# 仅拷贝项目所需的依赖描述并安装
-COPY package.json ./
-# 注意：在构建时需要确保 pnpm-lock.yaml 存在或生成，这里假设从 apps/agent 目录构建或拷贝
-# 如果是从项目根目录构建，需要使用 COPY apps/agent/package.json ./
+# 仅拷贝依赖描述
+COPY apps/agent/package.json ./
+# 如果 agent 依赖了 monorepo 的其他 package，需要额外处理。
+# 但既然你说 /app 就是 agent 项目，我们假设它目前是自完备的。
 RUN pnpm install
 
-# 拷贝源代码并编译
-COPY . .
+# 拷贝 agent 源码
+COPY apps/agent/ ./
+
+# 编译代码 (只运行当前目录下的 build)
 RUN pnpm run build
 
 # 5. 设置沙盒运行时的工作目录
