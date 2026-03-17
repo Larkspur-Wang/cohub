@@ -54,7 +54,7 @@
           onclick={openSelection}
           class="w-full bg-brand text-white text-lg font-bold py-5 rounded-2xl shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-1 active:translate-y-0 transition-all cursor-pointer flex items-center justify-center gap-3 group"
         >
-          <span>Start Simulation</span>
+          <span>Start Session</span>
           <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
           </svg>
@@ -120,7 +120,7 @@
         disabled={!selectedAgentId}
         class="flex-[1.5] py-4 bg-brand text-white font-bold rounded-xl shadow-lg hover:shadow-brand/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
       >
-        Confirm Simulation
+        Confirm Session
       </button>
     </div>
   </div>
