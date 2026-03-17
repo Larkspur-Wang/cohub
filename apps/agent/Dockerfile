@@ -32,8 +32,8 @@ WORKDIR /app
 
 # 仅拷贝依赖描述
 COPY apps/agent/package.json ./
-# 安装所有依赖（包括 devDependencies，用于编译）
-RUN NODE_ENV=development pnpm install
+# 安装所有依赖（--prod=false 确保安装 devDependencies）
+RUN pnpm install --prod=false
 
 # 拷贝 agent 源码
 COPY apps/agent/ ./
