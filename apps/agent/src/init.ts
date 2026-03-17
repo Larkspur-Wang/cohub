@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { env } from "./env.js";
+import { GLOBAL_PI_CONFIG_REPO, env } from "./env.js";
 import { setSessionStatus } from "./redis.js";
 
 async function runGitClone(repositoryUrl: string, targetDir: string) {
@@ -47,21 +47,17 @@ export async function initializeContainer() {
     throw error;
   }
 
-  // Clone global config to ~/.pi if configured
-  if (env.GITEA_CONFIG_URL) {
-    const piDir = join(process.env.HOME || "/root", ".pi");
-    try {
-      console.log(
-        `[Init] Cloning global config from ${env.GITEA_CONFIG_URL} to ${piDir}...`,
-      );
-      // Remove existing .pi dir if any to ensure fresh clone
-      await rm(piDir, { recursive: true, force: true });
-      await runGitClone(env.GITEA_CONFIG_URL, piDir);
-      console.log("[Init] Global config cloned successfully.");
-    } catch (error) {
-      console.error("[Init] Failed to clone global config:", error);
-      throw error;
-    }
+  const piDir = join(process.env.HOME || "/root", ".pi");
+  try {
+    console.log(
+      `[Init] Cloning global config from ${GLOBAL_PI_CONFIG_REPO} to ${piDir}...`,
+    );
+    await rm(piDir, { recursive: true, force: true });
+    await runGitClone(GLOBAL_PI_CONFIG_REPO, piDir);
+    console.log("[Init] Global config cloned successfully.");
+  } catch (error) {
+    console.error("[Init] Failed to clone global config:", error);
+    throw error;
   }
 
   console.log("[Init] Container initialization completed.");

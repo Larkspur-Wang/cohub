@@ -3,7 +3,6 @@ type SandboxPodTemplateVariables = {
   USER_ID: string;
   RUNTIME_IMAGE: string;
   REDIS_URL: string;
-  GITEA_CONFIG_URL?: string;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -31,24 +30,6 @@ function assertRedisUrl(value: string) {
 
   if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
     throw new Error("REDIS_URL must use redis:// or rediss://");
-  }
-}
-
-function assertOptionalHttpUrl(value: string | undefined, fieldName: string) {
-  if (!value) {
-    return;
-  }
-
-  let url: URL;
-
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`${fieldName} must be a valid URL`);
-  }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`${fieldName} must use http:// or https://`);
   }
 }
 
@@ -82,7 +63,6 @@ export const SANDBOX_POD_TEMPLATE = {
         env: [
           { name: "SESSION_ID", value: "${SESSION_ID}" },
           { name: "REDIS_URL", value: "${REDIS_URL}" },
-          { name: "GITEA_CONFIG_URL", value: "${GITEA_CONFIG_URL}" },
           { name: "WORKSPACE_DIR", value: "/workspace" },
         ],
         volumeMounts: [
@@ -112,7 +92,6 @@ export function validateSandboxPodTemplateVariables(
   assertK8sSafeName(variables.USER_ID, "USER_ID");
   assertRuntimeImage(variables.RUNTIME_IMAGE);
   assertRedisUrl(variables.REDIS_URL);
-  assertOptionalHttpUrl(variables.GITEA_CONFIG_URL, "GITEA_CONFIG_URL");
   return variables;
 }
 

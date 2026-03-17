@@ -1,13 +1,19 @@
 import { z } from "zod";
 
-const redisUrlSchema = z.string().url().refine((value) => {
-  try {
-    const url = new URL(value);
-    return url.protocol === "redis:" || url.protocol === "rediss:";
-  } catch {
-    return false;
-  }
-}, "REDIS_URL must use redis:// or rediss://");
+const redisUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "redis:" || url.protocol === "rediss:";
+    } catch {
+      return false;
+    }
+  }, "REDIS_URL must use redis:// or rediss://");
+
+export const GLOBAL_PI_CONFIG_REPO =
+  "https://gitea.netaverses.cc/global/configs.git";
 
 export const EnvSchema = z.object({
   SESSION_ID: z
@@ -25,7 +31,6 @@ export const EnvSchema = z.object({
       message: "WORKSPACE_DIR must be an absolute path",
     })
     .default("/workspace"),
-  GITEA_CONFIG_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -26,7 +26,10 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   try {
     await setSessionStatus(status);
   } catch (error) {
-    console.error("[Supervisor] Failed to update session status on shutdown:", error);
+    console.error(
+      "[Supervisor] Failed to update session status on shutdown:",
+      error,
+    );
   }
 
   try {

@@ -13,6 +13,14 @@ import {
   createAnonymousRepository,
   addDeployKeyToRepo
 } from "./gitea.js";
+import {
+  abortSession,
+  createSession,
+  enqueueSessionPrompt,
+  getSessionById,
+  launchSessionSandbox,
+  waitForSessionRunning,
+} from "./sessions.js";
 
 type Variables = {
   token: string | null;
@@ -188,6 +196,124 @@ app.get("/api/workspaces/:owner/:repo/file", async (c) => {
   }
 
   return c.json(file);
+});
+
+app.post("/api/sessions", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const body = (await c.req
+    .json<{
+      worldId?: string;
+      agentId?: string;
+      title?: string;
+    }>()
+    .catch(() => ({}))) as {
+    worldId?: string;
+    agentId?: string;
+    title?: string;
+  };
+
+  const session = await createSession({
+    userUuid: user.uuid,
+    worldId: body.worldId ?? null,
+    agentId: body.agentId ?? null,
+    title: body.title ?? null,
+  });
+
+  await launchSessionSandbox({
+    sessionId: session.id,
+    userUuid: user.uuid,
+  });
+
+  const ready = await waitForSessionRunning(session.id);
+
+  return c.json({
+    session,
+    ready,
+  });
+});
+
+app.get("/api/sessions/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  return c.json(session);
+});
+
+app.post("/api/sessions/:id/messages", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req.json<{
+    text: string;
+    images?: Array<{ url: string }>;
+  }>();
+
+  if (!body.text?.trim()) {
+    return c.json({ message: "text is required" }, 400);
+  }
+
+  await enqueueSessionPrompt({
+    sessionId: session.id,
+    message: {
+      text: body.text,
+      images: body.images,
+    },
+  });
+
+  return c.json({ ok: true });
+});
+
+app.post("/api/sessions/:id/abort", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  await abortSession(session.id);
+  return c.json({ ok: true });
 });
 
 app.onError((error, c) => {

@@ -4,6 +4,9 @@ export type AppConfig = {
   giteaToken?: string;
   webOrigin?: string;
   tokenCookieName: string;
+  redisUrl: string;
+  k8sNamespace: string;
+  sandboxRuntimeImage: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -13,7 +16,10 @@ export const config: AppConfig = {
   giteaBaseUrl: normalizeBaseUrl(process.env.GITEA_BASE_URL ?? ""),
   giteaToken: process.env.GITEA_TOKEN,
   webOrigin: process.env.WEB_ORIGIN,
-  tokenCookieName: process.env.TOKEN_COOKIE_NAME ?? "x_token"
+  tokenCookieName: process.env.TOKEN_COOKIE_NAME ?? "x_token",
+  redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
+  k8sNamespace: process.env.K8S_NAMESPACE ?? "default",
+  sandboxRuntimeImage: process.env.SANDBOX_RUNTIME_IMAGE ?? "netaverses-agent:latest",
 };
 
 export const assertRequiredConfig = () => {
@@ -22,5 +28,11 @@ export const assertRequiredConfig = () => {
   }
   if (!config.authBaseUrl) {
     throw new Error("Missing required env: AUTH_BASE_URL");
+  }
+  if (!config.redisUrl) {
+    throw new Error("Missing required env: REDIS_URL");
+  }
+  if (!config.sandboxRuntimeImage) {
+    throw new Error("Missing required env: SANDBOX_RUNTIME_IMAGE");
   }
 };

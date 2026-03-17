@@ -73,7 +73,10 @@ async function moveToDeadLetterQueue(rawMessage: string, reason: string) {
       }),
     );
   } catch (error) {
-    console.error("[Redis] Failed to push message to dead letter queue:", error);
+    console.error(
+      "[Redis] Failed to push message to dead letter queue:",
+      error,
+    );
   }
 }
 
