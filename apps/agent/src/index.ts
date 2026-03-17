@@ -122,7 +122,10 @@ async function listenForCommands() {
       );
 
       if (result) {
-        const [stream, messages] = result[0];
+        const streamResult = result[0];
+        if (!streamResult) continue;
+
+        const [stream, messages] = streamResult;
         if (!stream || !messages) continue;
 
         for (const message of messages) {
@@ -142,7 +145,7 @@ async function listenForCommands() {
           } else if (payload.action === "rpc") {
             // 允许后端直接发自定义 RPC 报文
             try {
-              const rpcCmd = JSON.parse(payload.data);
+              const rpcCmd = JSON.parse(payload.data ?? "");
               sendToAgent(rpcCmd);
             } catch (e) {
               console.error(
