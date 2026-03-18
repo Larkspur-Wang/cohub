@@ -1,7 +1,8 @@
+const RUNTIME_IMAGE = "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-agent:latest";
+
 type SandboxPodTemplateVariables = {
   SESSION_ID: string;
   USER_ID: string;
-  RUNTIME_IMAGE: string;
   REDIS_URL: string;
 };
 
@@ -10,12 +11,6 @@ function assertK8sSafeName(value: string, fieldName: string) {
     throw new Error(
       `${fieldName} must be 1-63 chars of lowercase letters, numbers, or hyphens`,
     );
-  }
-}
-
-function assertRuntimeImage(value: string) {
-  if (!/^[a-z0-9./:_-]{1,255}$/.test(value)) {
-    throw new Error("RUNTIME_IMAGE contains invalid characters");
   }
 }
 
@@ -49,7 +44,7 @@ export const SANDBOX_POD_TEMPLATE = {
     containers: [
       {
         name: "runtime",
-        image: "${RUNTIME_IMAGE}",
+        image: RUNTIME_IMAGE,
         resources: {
           limits: {
             cpu: "1",
@@ -90,7 +85,6 @@ export function validateSandboxPodTemplateVariables(
 ) {
   assertK8sSafeName(variables.SESSION_ID, "SESSION_ID");
   assertK8sSafeName(variables.USER_ID, "USER_ID");
-  assertRuntimeImage(variables.RUNTIME_IMAGE);
   assertRedisUrl(variables.REDIS_URL);
   return variables;
 }

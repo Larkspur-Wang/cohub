@@ -55,6 +55,7 @@ echo -e "${BLUE}║   Workspace API 部署脚本             ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "netaverses-sessions" --dry-run=client -o yaml | kubectl apply -f -
 
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml${NC}"
@@ -112,6 +113,7 @@ render_template manifests/service.tmpl.yaml rendered/service.yaml
 
 kubectl apply -f rendered/configmap.yaml
 kubectl apply -f rendered/service.yaml
+kubectl apply -f manifests/rbac.yaml
 kubectl apply -f rendered/deployment.yaml
 
 if [ "$ROUTE_ENABLED" = "true" ]; then

@@ -8,6 +8,8 @@ import { k8sCoreApi } from "./k8s.js";
 import { getSessionInputQueueKey, getSessionMetaKey, redis } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 
+const K8S_NAMESPACE = "netaverses-sessions";
+
 export const createSession = async (input: {
   userUuid: string;
   worldId?: string | null;
@@ -45,11 +47,10 @@ export const launchSessionSandbox = async (input: {
     SESSION_ID: input.sessionId,
     USER_ID: input.userUuid,
     REDIS_URL: config.redisUrl,
-    RUNTIME_IMAGE: config.sandboxRuntimeImage,
   }) as V1Pod;
 
   await k8sCoreApi.createNamespacedPod({
-    namespace: config.k8sNamespace,
+    namespace: K8S_NAMESPACE,
     body: pod,
   });
 

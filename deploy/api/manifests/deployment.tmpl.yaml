@@ -15,6 +15,7 @@ spec:
       labels:
         app.kubernetes.io/name: __APP_NAME__
     spec:
+      serviceAccountName: __APP_NAME__
 __IMAGE_PULL_SECRETS_BLOCK__
       containers:
         - name: __APP_NAME__

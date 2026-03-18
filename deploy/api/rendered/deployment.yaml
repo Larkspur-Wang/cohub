@@ -15,6 +15,7 @@ spec:
       labels:
         app.kubernetes.io/name: netaverses-api
     spec:
+      serviceAccountName: netaverses-api
       containers:
         - name: netaverses-api
           image: registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-api:latest
