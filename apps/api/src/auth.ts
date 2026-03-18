@@ -3,6 +3,8 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { config } from "./config.js";
 
+const TOKEN_COOKIE_NAME = "neta_token";
+
 const parseBearer = (value?: string | null) => {
   if (!value) {
     return null;
@@ -25,11 +27,11 @@ export const getTokenFromRequest = (c: Context) => {
     return tokenFromBearer;
   }
 
-  return getCookie(c, config.tokenCookieName) ?? null;
+  return getCookie(c, TOKEN_COOKIE_NAME) ?? null;
 };
 
 export const setTokenCookie = (c: Context, token: string) => {
-  setCookie(c, config.tokenCookieName, token, {
+  setCookie(c, TOKEN_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "Lax",
     path: "/",
@@ -38,7 +40,7 @@ export const setTokenCookie = (c: Context, token: string) => {
 };
 
 export const clearTokenCookie = (c: Context) => {
-  deleteCookie(c, config.tokenCookieName, {
+  deleteCookie(c, TOKEN_COOKIE_NAME, {
     path: "/"
   });
 };

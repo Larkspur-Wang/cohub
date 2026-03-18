@@ -3,7 +3,6 @@ export type AppConfig = {
   giteaBaseUrl: string;
   giteaToken?: string;
   webOrigin?: string;
-  tokenCookieName: string;
   redisUrl: string;
   k8sNamespace: string;
   sandboxRuntimeImage: string;
@@ -16,7 +15,6 @@ export const config: AppConfig = {
   giteaBaseUrl: normalizeBaseUrl(process.env.GITEA_BASE_URL ?? ""),
   giteaToken: process.env.GITEA_TOKEN,
   webOrigin: process.env.WEB_ORIGIN,
-  tokenCookieName: process.env.TOKEN_COOKIE_NAME ?? "x_token",
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   k8sNamespace: process.env.K8S_NAMESPACE ?? "default",
   sandboxRuntimeImage: process.env.SANDBOX_RUNTIME_IMAGE ?? "netaverses-agent:latest",
