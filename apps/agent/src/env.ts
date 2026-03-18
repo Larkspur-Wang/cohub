@@ -12,7 +12,7 @@ const redisUrlSchema = z
     }
   }, "REDIS_URL must use redis:// or rediss://");
 
-export const GLOBAL_PI_CONFIG_REPO =
+export const GLOBAL_CONFIG_REPO =
   "https://gitea.netaverses.cc/global/configs.git";
 
 export const EnvSchema = z.object({
