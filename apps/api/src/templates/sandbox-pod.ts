@@ -73,7 +73,7 @@ export const SANDBOX_POD_TEMPLATE = {
       {
         name: "workspace-storage",
         persistentVolumeClaim: {
-          claimName: "netaverses-nas-pvc",
+          claimName: "netaverses-agent-pvc",
         },
       },
     ],

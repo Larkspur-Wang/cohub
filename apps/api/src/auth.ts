@@ -57,7 +57,7 @@ export type AuthUserProfile = {
 export const fetchAuthUser = async (token: string) => {
   const response = await fetch(`${config.authBaseUrl}/v1/user/`, {
     headers: {
-      "neta-token": token
+      "x-token": token
     }
   });
 
