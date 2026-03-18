@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
-const TOKEN_KEY = 'neta_token';
+const TOKEN_KEY = 'neta-token';
 
 // Initial value from localStorage
 const initialToken = browser ? localStorage.getItem(TOKEN_KEY) : null;

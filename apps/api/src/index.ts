@@ -39,7 +39,7 @@ app.use(
   cors({
     origin: config.webOrigin ?? "*",
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "x-token", "Authorization"],
+    allowHeaders: ["Content-Type", "neta-token", "Authorization"],
     credentials: true
   })
 );
@@ -86,7 +86,7 @@ app.get("/api/me", async (c) => {
 });
 
 app.get("/v1/user/", async (c) => {
-  const token = c.req.header("x-token");
+  const token = c.req.header("neta-token");
   if (!token) {
     return c.json({ message: "unauthorized" }, 401);
   }
@@ -98,7 +98,7 @@ app.get("/v1/user/", async (c) => {
 });
 
 app.post("/api/v1/user/repos", async (c) => {
-  const token = c.req.header("x-token");
+  const token = c.req.header("neta-token");
   if (!token) {
     return c.json({ message: "unauthorized" }, 401);
   }
@@ -112,7 +112,7 @@ app.post("/api/v1/user/repos", async (c) => {
 });
 
 app.post("/api/v1/user/keys", async (c) => {
-  const token = c.req.header("x-token");
+  const token = c.req.header("neta-token");
   if (!token) {
     return c.json({ message: "unauthorized" }, 401);
   }

@@ -39,7 +39,7 @@ PORT: "8787"
 AUTH_BASE_URL: "https://api.talesofai.com"
 GITEA_BASE_URL: "https://gitea.netaverses.cc/"
 WEB_ORIGIN: "https://www.netaverses.cc"
-TOKEN_COOKIE_NAME: "netaverses_token"
+TOKEN_COOKIE_NAME: "neta-token"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"

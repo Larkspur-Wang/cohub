@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { config } from "./config.js";
 
-const TOKEN_COOKIE_NAME = "neta_token";
+const TOKEN_COOKIE_NAME = "neta-token";
 
 const parseBearer = (value?: string | null) => {
   if (!value) {
@@ -17,7 +17,7 @@ const parseBearer = (value?: string | null) => {
 };
 
 export const getTokenFromRequest = (c: Context) => {
-  const tokenFromHeader = c.req.header("x-token");
+  const tokenFromHeader = c.req.header("neta-token");
   if (tokenFromHeader) {
     return tokenFromHeader;
   }
@@ -57,7 +57,7 @@ export type AuthUserProfile = {
 export const fetchAuthUser = async (token: string) => {
   const response = await fetch(`${config.authBaseUrl}/v1/user/`, {
     headers: {
-      "x-token": token
+      "neta-token": token
     }
   });
 
