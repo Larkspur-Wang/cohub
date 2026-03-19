@@ -5,9 +5,14 @@ export type AppConfig = {
   webOrigin?: string;
   redisUrl: string;
   litellmApiKey?: string;
+  env: "dev" | "prod";
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
+
+const getSessionsNamespace = (env: string): string => {
+  return env === "dev" ? "netaverses-sessions-dev" : "netaverses-sessions";
+};
 
 export const config: AppConfig = {
   authBaseUrl: normalizeBaseUrl(process.env.AUTH_BASE_URL ?? ""),
@@ -16,7 +21,10 @@ export const config: AppConfig = {
   webOrigin: process.env.WEB_ORIGIN,
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   litellmApiKey: process.env.LITELLM_API_KEY,
+  env: (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod",
 };
+
+export const sessionsNamespace = getSessionsNamespace(config.env);
 
 export const assertRequiredConfig = () => {
   if (!config.giteaBaseUrl) {

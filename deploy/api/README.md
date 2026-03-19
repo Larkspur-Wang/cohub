@@ -1,35 +1,76 @@
-# Workspace API (Hono) - 部署配置
-
-该目录用于部署 Workspace API（Hono BFF）到阿里云 ACK。
-
-## 快速开始
-
-```bash
-cd deploy/api
-
-# values.yaml / secrets.yaml 已在仓库中生成（含占位符），请先填写
-./check-config.sh
-./deploy.sh
-```
+# Netaverses API 部署
 
 ## 目录结构
 
 ```
 deploy/api/
-├── values.template.yaml   # 配置模板（请参考）
-├── secrets.template.yaml  # 密钥模板（请参考）
-├── values.yaml            # 需要你填写
-├── secrets.yaml           # 需要你填写
-├── check-config.sh        # 配置检查脚本
-├── deploy.sh              # 部署脚本
-├── undeploy.sh            # 卸载脚本
-└── manifests/             # Kubernetes 资源模板
+├── manifests/              # K8s 资源模板
+│   ├── configmap.tmpl.yaml
+│   ├── deployment.tmpl.yaml
+│   ├── service.tmpl.yaml
+│   ├── httproute.tmpl.yaml
+│   └── migration-job.tmpl.yaml
+├── prod/                   # Prod 环境
+│   ├── values.yaml
+│   ├── secrets.yaml        # 不提交 git
+│   ├── rbac.yaml
+│   ├── deploy.sh
+│   ├── run-migration.sh
+│   └── README.md
+└── dev/                    # Dev 环境
+    ├── values.yaml
+    ├── secrets.yaml        # 不提交 git
+    ├── rbac.yaml
+    ├── deploy.sh
+    ├── run-migration.sh
+    └── README.md
 ```
 
-## 默认命名
+## 环境差异
 
-- Deployment: `netaverses-api`
-- Service: `netaverses-api`
-- HTTPRoute: `netaverses-api-route`
+| 配置项 | Prod | Dev |
+|-------|------|-----|
+| Namespace | `netaverses` | `netaverses-dev` |
+| Sessions Namespace | `netaverses-sessions` | `netaverses-sessions-dev` |
+| App Name | `netaverses-api` | `netaverses-api-dev` |
+| Hostname | `api.netaverses.cc` | `api-dev.netaverses.cc` |
+| ENV | `prod` | `dev` |
 
-如果需要自定义，可在 `values.yaml` 中调整。
+## 快速开始
+
+### Prod 环境
+
+```bash
+cd deploy/api/prod
+
+# 1. 配置 secrets
+cp secrets.template.yaml secrets.yaml
+vim secrets.yaml
+
+# 2. 运行迁移
+./run-migration.sh
+
+# 3. 部署
+./deploy.sh
+```
+
+### Dev 环境
+
+```bash
+cd deploy/api/dev
+
+# 1. 配置 secrets
+vim secrets.yaml
+
+# 2. 运行迁移
+./run-migration.sh
+
+# 3. 部署
+./deploy.sh
+```
+
+## 前置条件
+
+- [ ] `netaverses-agent-pvc` PVC 已创建（sessions namespace 中）
+- [ ] 镜像已推送到 registry
+- [ ] secrets.yaml 已配置

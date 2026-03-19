@@ -5,3 +5,11 @@ configs/
 
 # Environment variables
 .env
+
+# K8s secrets (do not commit)
+deploy/api/prod/secrets.yaml
+deploy/api/dev/secrets.yaml
+
+# K8s rendered files (generated)
+deploy/api/prod/rendered/
+deploy/api/dev/rendered/

@@ -3,12 +3,10 @@ import { eq } from "drizzle-orm";
 import type { V1Pod } from "@kubernetes/client-node";
 import { db } from "./db/index.js";
 import { sessions } from "./db/schema.js";
-import { config } from "./config.js";
+import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { getSessionInputQueueKey, getSessionMetaKey, redis } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
-
-const K8S_NAMESPACE = "netaverses-sessions";
 
 export const createSession = async (input: {
   userUuid: string;
@@ -51,7 +49,7 @@ export const launchSessionSandbox = async (input: {
   }) as V1Pod;
 
   await k8sCoreApi.createNamespacedPod({
-    namespace: K8S_NAMESPACE,
+    namespace: sessionsNamespace,
     body: pod,
   });
 

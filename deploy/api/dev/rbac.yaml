@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netaverses-api-dev
+  namespace: netaverses-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: netaverses-api-dev-sessions-manager
+  namespace: netaverses-sessions-dev
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: netaverses-api-dev-sessions-manager
+  namespace: netaverses-sessions-dev
+subjects:
+  - kind: ServiceAccount
+    name: netaverses-api-dev
+    namespace: netaverses-dev
+roleRef:
+  kind: Role
+  name: netaverses-api-dev-sessions-manager
+  apiGroup: rbac.authorization.k8s.io

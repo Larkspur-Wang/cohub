@@ -1,9 +1,8 @@
-# 请填写后再部署
-# 如需重新生成可参考 values.template.yaml
+# Dev 环境配置
 
 # ========== 基础 ==========
-NAMESPACE: "netaverses"
-APP_NAME: "netaverses-api"
+NAMESPACE: "netaverses-dev"
+APP_NAME: "netaverses-api-dev"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-api"
@@ -35,12 +34,13 @@ READINESS_TIMEOUT: "2"
 READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== API 配置 ==========
-PORT: "8787"
 AUTH_BASE_URL: "https://api.talesofai.com"
 GITEA_BASE_URL: "https://gitea.netaverses.cc/"
-WEB_ORIGIN: "https://www.netaverses.cc"
-TOKEN_COOKIE_NAME: "neta-token"
+WEB_ORIGIN: "https://dev.netaverses.cc"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-API_HOSTNAME: "api.netaverses.cc"
+API_HOSTNAME: "api-dev.netaverses.cc"
+
+# ========== 环境标识 ==========
+ENV: "dev"

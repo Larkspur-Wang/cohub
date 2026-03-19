@@ -25,7 +25,7 @@ kubectl delete httproute "${APP_NAME}-route" -n "$NAMESPACE" --ignore-not-found
 kubectl delete deployment "$APP_NAME" -n "$NAMESPACE" --ignore-not-found
 kubectl delete service "$APP_NAME" -n "$NAMESPACE" --ignore-not-found
 kubectl delete configmap "${APP_NAME}-config" -n "$NAMESPACE" --ignore-not-found
-kubectl delete secret netaverses-api-secrets -n "$NAMESPACE" --ignore-not-found
-kubectl delete -f manifests/rbac.yaml --ignore-not-found
+kubectl delete secret "${APP_NAME}-secrets" -n "$NAMESPACE" --ignore-not-found
+kubectl delete -f rbac.yaml --ignore-not-found
 
 echo -e "${GREEN}✅ Workspace API 卸载完成${NC}"

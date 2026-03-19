@@ -41,6 +41,7 @@ RUN pnpm config set node-linker hoisted \
 
 COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
+COPY apps/api/drizzle ./apps/api/drizzle
 
 RUN pnpm --filter @netaverses/api build
 
@@ -57,6 +58,7 @@ WORKDIR /app
 # Copy runtime dependencies and built output
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/apps/api/drizzle ./apps/api/drizzle
 COPY apps/api/package.json ./apps/api/package.json
 
 # Run as non-root

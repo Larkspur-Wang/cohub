@@ -1,5 +1,5 @@
 #!/bin/bash
-# Workspace API 一键部署
+# Dev 环境部署脚本
 
 set -e
 
@@ -9,15 +9,13 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFESTS_DIR="$(dirname "$SCRIPT_DIR")/manifests"
+
 get_value() {
   local key="$1"
   grep -E "^${key}:" values.yaml | head -1 | sed 's/^[^:]*:[[:space:]]*//' | sed 's/^"//' | sed 's/"$//'
 }
-
-if [ -f "./check-config.sh" ]; then
-  chmod +x ./check-config.sh
-  ./check-config.sh
-fi
 
 NAMESPACE=$(get_value "NAMESPACE")
 APP_NAME=$(get_value "APP_NAME")
@@ -42,26 +40,32 @@ READINESS_INITIAL_DELAY=$(get_value "READINESS_INITIAL_DELAY")
 READINESS_PERIOD=$(get_value "READINESS_PERIOD")
 READINESS_TIMEOUT=$(get_value "READINESS_TIMEOUT")
 READINESS_FAILURE_THRESHOLD=$(get_value "READINESS_FAILURE_THRESHOLD")
-PORT=$(get_value "PORT")
 AUTH_BASE_URL=$(get_value "AUTH_BASE_URL")
 GITEA_BASE_URL=$(get_value "GITEA_BASE_URL")
 WEB_ORIGIN=$(get_value "WEB_ORIGIN")
-TOKEN_COOKIE_NAME=$(get_value "TOKEN_COOKIE_NAME")
 ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
 API_HOSTNAME=$(get_value "API_HOSTNAME")
+ENV=$(get_value "ENV")
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Workspace API 部署脚本             ║${NC}"
+echo -e "${BLUE}║   Netaverses API Dev 环境部署         ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
+# 根据 ENV 决定 sessions namespace
+if [ "$ENV" = "prod" ]; then
+  SESSIONS_NAMESPACE="netaverses-sessions"
+else
+  SESSIONS_NAMESPACE="netaverses-sessions-dev"
+fi
+
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace "netaverses-sessions" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "$SESSIONS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml${NC}"
   exit 1
 fi
-kubectl apply -f secrets.yaml -n "$NAMESPACE"
+kubectl apply -f secrets.yaml
 
 mkdir -p rendered
 
@@ -97,34 +101,32 @@ render_template() {
     -e "s|__READINESS_PERIOD__|${READINESS_PERIOD}|g" \
     -e "s|__READINESS_TIMEOUT__|${READINESS_TIMEOUT}|g" \
     -e "s|__READINESS_FAILURE_THRESHOLD__|${READINESS_FAILURE_THRESHOLD}|g" \
-    -e "s|__PORT__|${PORT}|g" \
     -e "s|__AUTH_BASE_URL__|${AUTH_BASE_URL}|g" \
     -e "s|__GITEA_BASE_URL__|${GITEA_BASE_URL}|g" \
     -e "s|__WEB_ORIGIN__|${WEB_ORIGIN}|g" \
-    -e "s|__TOKEN_COOKIE_NAME__|${TOKEN_COOKIE_NAME}|g" \
     -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
+    -e "s|__ENV__|${ENV}|g" \
     -e "/__IMAGE_PULL_SECRETS_BLOCK__/c\\${imagePullSecretsBlock}" \
     "$src" > "$dst"
 }
 
-render_template manifests/configmap.tmpl.yaml rendered/configmap.yaml
-render_template manifests/deployment.tmpl.yaml rendered/deployment.yaml
-render_template manifests/service.tmpl.yaml rendered/service.yaml
+render_template "$MANIFESTS_DIR/configmap.tmpl.yaml" rendered/configmap.yaml
+render_template "$MANIFESTS_DIR/deployment.tmpl.yaml" rendered/deployment.yaml
+render_template "$MANIFESTS_DIR/service.tmpl.yaml" rendered/service.yaml
 
 kubectl apply -f rendered/configmap.yaml
 kubectl apply -f rendered/service.yaml
-kubectl apply -f manifests/rbac.yaml
+kubectl apply -f rbac.yaml
 kubectl apply -f rendered/deployment.yaml
 
 if [ "$ROUTE_ENABLED" = "true" ]; then
-  render_template manifests/httproute.tmpl.yaml rendered/httproute.yaml
+  render_template "$MANIFESTS_DIR/httproute.tmpl.yaml" rendered/httproute.yaml
   kubectl apply -f rendered/httproute.yaml
 fi
 
 echo ""
-echo -e "${GREEN}✅ Workspace API 部署完成${NC}"
+echo -e "${GREEN}✅ Dev 环境部署完成${NC}"
 echo ""
 echo "查看状态："
 echo "  kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/name=${APP_NAME}"
-echo "  kubectl get svc -n ${NAMESPACE} ${APP_NAME}"
 echo "  kubectl logs -n ${NAMESPACE} -l app.kubernetes.io/name=${APP_NAME} -f"
