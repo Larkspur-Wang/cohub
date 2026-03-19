@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
+  import { createSession } from '$lib/api';
   import { page } from '$app/state';
   import { mockWorlds, mockAgents } from '$lib/mock';
   import { fade, slide } from 'svelte/transition';
@@ -8,15 +10,37 @@
 
   let showModal = $state(false);
   let selectedAgentId = $state<string | null>(null);
+  let isStarting = $state(false);
+  let startError = $state('');
 
   function openSelection() {
     showModal = true;
+    startError = '';
   }
 
-  function handleStart() {
-    if (!selectedAgentId) return;
-    alert(`Starting session with World: ${world?.name}, Agent: ${selectedAgentId}\n(API implementation coming next step)`);
-    // window.location.href = `/sessions/mock-session-id`;
+  async function handleStart() {
+    if (!selectedAgentId || !world || isStarting) return;
+
+    isStarting = true;
+    startError = '';
+
+    try {
+      const result = await createSession({
+        title: `${world.name} · ${selectedAgentId}`
+      });
+
+      if (!result.ready) {
+        startError = 'Sandbox is still starting. Please try again in a moment.';
+        return;
+      }
+
+      showModal = false;
+      await goto(`/sessions/${result.session.id}`);
+    } catch (error) {
+      startError = error instanceof Error ? error.message : 'Failed to create session';
+    } finally {
+      isStarting = false;
+    }
   }
 </script>
 
@@ -77,7 +101,7 @@
   >
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-black tracking-tight text-gray-800">Who shall enter?</h2>
-      <button onclick={() => showModal = false} class="text-gray-400 hover:text-gray-600 transition-colors p-2 cursor-pointer">
+      <button onclick={() => showModal = false} aria-label="Close modal" class="text-gray-400 hover:text-gray-600 transition-colors p-2 cursor-pointer">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
         </svg>
@@ -117,12 +141,18 @@
       </button>
       <button 
         onclick={handleStart}
-        disabled={!selectedAgentId}
+        disabled={!selectedAgentId || isStarting}
         class="flex-[1.5] py-4 bg-brand text-white font-bold rounded-xl shadow-lg hover:shadow-brand/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
       >
-        Confirm Session
+        {isStarting ? 'Launching...' : 'Confirm Session'}
       </button>
     </div>
+
+    {#if startError}
+      <div class="mt-4 rounded-2xl bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+        {startError}
+      </div>
+    {/if}
   </div>
 </div>
 {/if}

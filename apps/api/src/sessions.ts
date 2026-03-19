@@ -5,7 +5,7 @@ import { db } from "./db/index.js";
 import { sessions } from "./db/schema.js";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
-import { getSessionInputQueueKey, getSessionMetaKey, redis } from "./redis.js";
+import { getSessionInputQueueKey, getSessionMetaKey, getSessionOutputStreamKey, redis } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 
 export const createSession = async (input: {
@@ -105,4 +105,61 @@ export const abortSession = async (sessionId: string) => {
 export const getSessionById = async (sessionId: string) => {
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
   return session ?? null;
+};
+
+export const readSessionOutputStream = async (input: {
+  sessionId: string;
+  lastEventId?: string;
+  blockMs?: number;
+  signal?: AbortSignal;
+}) => {
+  const streamKey = getSessionOutputStreamKey(input.sessionId);
+  const startId = input.lastEventId?.trim() || "$";
+  const blockMs = input.blockMs ?? 15000;
+  const client = redis.duplicate();
+
+  await client.connect().catch(() => undefined);
+
+  let currentId = startId;
+
+  const close = async () => {
+    await client.quit().catch(async () => {
+      await client.disconnect();
+    });
+  };
+
+  const iterator = (async function* () {
+    try {
+      while (!input.signal?.aborted) {
+        const response = await client.xread(
+          "BLOCK",
+          blockMs,
+          "STREAMS",
+          streamKey,
+          currentId,
+        );
+
+        if (!response) {
+          continue;
+        }
+
+        for (const [, entries] of response) {
+          for (const [id, fields] of entries) {
+            currentId = id;
+            const payloadIndex = fields.findIndex((field) => field === "payload");
+            const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
+
+            yield {
+              id,
+              payload,
+            };
+          }
+        }
+      }
+    } finally {
+      await close();
+    }
+  })();
+
+  return iterator;
 };

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
+import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 
@@ -20,6 +21,7 @@ import {
   enqueueSessionPrompt,
   getSessionById,
   launchSessionSandbox,
+  readSessionOutputStream,
   waitForSessionRunning,
 } from "./sessions.js";
 
@@ -259,6 +261,50 @@ app.get("/api/sessions/:id", async (c) => {
   }
 
   return c.json(session);
+});
+
+app.get("/api/sessions/:id/stream", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
+
+  return streamSSE(c, async (stream) => {
+    await stream.writeSSE({
+      event: "ready",
+      data: JSON.stringify({ sessionId: session.id })
+    });
+
+    const output = await readSessionOutputStream({
+      sessionId: session.id,
+      lastEventId,
+      signal: c.req.raw.signal,
+    });
+
+    for await (const entry of output) {
+      if (c.req.raw.signal.aborted) {
+        break;
+      }
+
+      await stream.writeSSE({
+        id: entry.id,
+        event: "message",
+        data: entry.payload ?? ""
+      });
+    }
+  });
 });
 
 app.post("/api/sessions/:id/messages", async (c) => {

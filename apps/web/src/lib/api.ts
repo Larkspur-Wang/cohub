@@ -6,6 +6,29 @@ type ApiError = {
 
 type Fetch = typeof globalThis.fetch;
 
+type SessionRecord = {
+  id: string;
+  userUuid: string;
+  worldId: string | null;
+  worldCommitHash: string | null;
+  agentId: string | null;
+  agentCommitHash: string | null;
+  title: string | null;
+  status: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SessionCreateResponse = {
+  session: SessionRecord;
+  ready: boolean;
+};
+
+type SessionStreamEvent = {
+  type: string;
+  [key: string]: unknown;
+};
+
 const apiFetch = async (path: string, init?: RequestInit & { fetch?: Fetch }) => {
   const base = API_BASE_URL;
   const url = base ? `${base}${path}` : path;
@@ -89,4 +112,49 @@ export const getFile = async (
   });
 };
 
-export type { ApiError };
+export const createSession = async (input?: {
+  worldId?: string;
+  agentId?: string;
+  title?: string;
+}) => {
+  return apiFetch("/api/sessions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input ?? {})
+  }) as Promise<SessionCreateResponse>;
+};
+
+export const getSession = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/sessions/${id}`, { fetch: customFetch }) as Promise<SessionRecord>;
+};
+
+export const sendSessionMessage = async (
+  id: string,
+  input: {
+    text: string;
+    images?: Array<{ url: string }>;
+  }
+) => {
+  return apiFetch(`/api/sessions/${id}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+};
+
+export const abortSession = async (id: string) => {
+  return apiFetch(`/api/sessions/${id}/abort`, {
+    method: "POST"
+  });
+};
+
+export const getSessionStreamUrl = (id: string) => {
+  const base = API_BASE_URL;
+  return base ? `${base}/api/sessions/${id}/stream` : `/api/sessions/${id}/stream`;
+};
+
+export type { ApiError, SessionCreateResponse, SessionRecord, SessionStreamEvent };

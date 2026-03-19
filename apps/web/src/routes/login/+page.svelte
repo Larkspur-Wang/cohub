@@ -1,21 +1,25 @@
 <script lang="ts">
-  import { token } from '$lib/auth';
   import { goto } from '$app/navigation';
   import { fade } from 'svelte/transition';
+  import { setAuthToken } from '$lib/api';
 
   let inputToken = $state('');
   let isSubmitting = $state(false);
+  let errorMessage = $state('');
 
-  function handleLogin() {
-    if (!inputToken.trim()) return;
+  async function handleLogin() {
+    if (!inputToken.trim() || isSubmitting) return;
     isSubmitting = true;
-    
-    // Simulate API delay
-    setTimeout(() => {
-      token.set(inputToken.trim());
+    errorMessage = '';
+
+    try {
+      await setAuthToken(inputToken.trim());
+      await goto('/');
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Login failed';
+    } finally {
       isSubmitting = false;
-      goto('/');
-    }, 800);
+    }
   }
 </script>
 
@@ -72,7 +76,12 @@
       </button>
     </form>
     
-    <div class="mt-8 pt-8 border-t border-gray-100 flex items-center justify-center">
+    <div class="mt-8 pt-8 border-t border-gray-100 flex flex-col items-center justify-center gap-3">
+      {#if errorMessage}
+        <div class="w-full rounded-2xl bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700 text-left">
+          {errorMessage}
+        </div>
+      {/if}
       <span class="text-xs text-gray-400 font-medium">Don't have a token? <a href="https://netaverses.cc" class="text-brand font-bold underline">Visit Hub</a></span>
     </div>
   </div>
