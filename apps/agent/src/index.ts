@@ -50,6 +50,7 @@ async function main() {
 
   // 2. Setup Pi Agent SDK
   // Read auth and models from default locations (which were just cloned to ~/.pi)
+  // AuthStorage will also read from environment variables (e.g., LITELLM_API_KEY)
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
 

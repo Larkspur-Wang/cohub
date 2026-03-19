@@ -4,6 +4,7 @@ export type AppConfig = {
   giteaToken?: string;
   webOrigin?: string;
   redisUrl: string;
+  litellmApiKey?: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -14,6 +15,7 @@ export const config: AppConfig = {
   giteaToken: process.env.GITEA_TOKEN,
   webOrigin: process.env.WEB_ORIGIN,
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
+  litellmApiKey: process.env.LITELLM_API_KEY,
 };
 
 export const assertRequiredConfig = () => {

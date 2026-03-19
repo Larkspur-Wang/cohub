@@ -1,6 +1,6 @@
 import { SANDBOX_POD_TEMPLATE } from "./templates/sandbox-pod.js";
 
-type TemplateVars = Record<string, string>;
+type TemplateVars = Record<string, string | undefined>;
 
 const replaceInValue = (value: unknown, vars: TemplateVars): unknown => {
   if (typeof value === "string") {
