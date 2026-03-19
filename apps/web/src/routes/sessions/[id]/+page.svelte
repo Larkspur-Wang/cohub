@@ -117,7 +117,7 @@
     const index = timeline.findIndex((item) => item.kind === 'message' && item.message.id === id);
 
     if (index < 0) {
-      if (fallback && fallback.text.trim()) {
+      if (fallback?.text.trim()) {
         appendMessage(fallback);
       }
       return;
