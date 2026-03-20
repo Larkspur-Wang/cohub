@@ -19,7 +19,7 @@ const featuredWorkspace = mockWorkspaces[0];
     <div class="relative z-10 max-w-2xl" in:fly={{ y: 50, duration: 800 }}>
       <div class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-md text-white text-xs font-black uppercase tracking-[0.2em] rounded-full mb-8 border border-white/20">
         <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-        Featured Workspace
+        Host workspaces. Run agents.
       </div>
       
       <h1 class="text-6xl lg:text-8xl font-black text-white leading-tight mb-6 tracking-tighter drop-shadow-2xl">

@@ -1,5 +1,7 @@
 # Documentation
 
+*Host workspaces. Run agents.*
+
 This directory contains the core design documents for Cohub.
 
 ## Index

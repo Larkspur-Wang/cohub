@@ -1,5 +1,7 @@
 # Cohub
 
+*Host workspaces. Run agents.*
+
 Cohub 是一个以 **Workspace 托管** 为核心、支持在云端部署和运行 Agent 的平台。
 
 它结合了三类能力：

@@ -21,7 +21,7 @@ const isAuthenticated = $derived(currentPath !== "/login");
 <div class="min-h-screen flex flex-col bg-[var(--bg-primary)]">
   <header class="sticky top-0 z-40 bg-[var(--bg-primary)]/80 backdrop-blur-xl border-b border-gray-100">
     <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-3 group">
+      <a href="/" class="flex items-center gap-3 group" aria-label="Cohub — Host workspaces. Run agents.">
         <div class="w-10 h-10 bg-brand text-white rounded-xl flex items-center justify-center font-black text-xl shadow-lg shadow-brand/20 group-hover:rotate-12 transition-transform">
           N
         </div>

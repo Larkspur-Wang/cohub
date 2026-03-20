@@ -1,5 +1,7 @@
 # Cohub
 
+*Host workspaces. Run agents.*
+
 Cohub is a **workspace hosting platform** for deploying and running agents in the cloud.
 
 It combines:
