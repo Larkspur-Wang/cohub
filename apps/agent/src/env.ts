@@ -30,6 +30,8 @@ export const EnvSchema = z.object({
       message: "WORKSPACE_DIR must be an absolute path",
     })
     .default("/workspace"),
+  INTERNAL_API_BASE_URL: z.string().url().default("http://localhost:8787"),
+  INTERNAL_API_TOKEN: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

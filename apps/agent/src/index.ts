@@ -13,6 +13,7 @@ import {
   sendOutput,
   setSessionStatus,
 } from "./redis.js";
+import { persistAssistantMessage } from "./api.js";
 
 let isShuttingDown = false;
 
@@ -70,12 +71,24 @@ async function main() {
 
   console.log("[Supervisor] Agent Session created.");
 
+  let currentUserMessageId: string | null = null;
+
   // 3. Subscribe to agent events and pipe to Redis
   session.subscribe((event) => {
     void sendOutput({
       type: "agent_event",
       event,
     });
+
+    if (event.type === "turn_end" && currentUserMessageId) {
+      void persistAssistantMessage({
+        sessionId: env.SESSION_ID,
+        userMessageId: currentUserMessageId,
+        event: event as Record<string, unknown>,
+      }).catch((error) => {
+        console.error("[Supervisor] Failed to persist assistant message:", error);
+      });
+    }
   });
 
   // 4. Mark session as running
@@ -88,6 +101,7 @@ async function main() {
 
     try {
       if (inputEntry.action === "prompt") {
+        currentUserMessageId = inputEntry.userMessageId;
         await session.prompt(inputEntry.message.text, {
           images: inputEntry.message.images,
         });

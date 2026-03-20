@@ -6,6 +6,8 @@ type SandboxPodTemplateVariables = {
   USER_ID: string;
   REDIS_URL: string;
   LITELLM_API_KEY?: string;
+  INTERNAL_API_BASE_URL?: string;
+  INTERNAL_API_TOKEN?: string;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -62,6 +64,8 @@ export const SANDBOX_POD_TEMPLATE = {
           { name: "REDIS_URL", value: "${REDIS_URL}" },
           { name: "WORKSPACE_DIR", value: "/workspace" },
           { name: "LITELLM_API_KEY", value: "${LITELLM_API_KEY}" },
+          { name: "INTERNAL_API_BASE_URL", value: "${INTERNAL_API_BASE_URL}" },
+          { name: "INTERNAL_API_TOKEN", value: "${INTERNAL_API_TOKEN}" },
         ],
         volumeMounts: [
           {

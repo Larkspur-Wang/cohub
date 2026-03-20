@@ -5,6 +5,8 @@ export type AppConfig = {
   webOrigin?: string;
   redisUrl: string;
   litellmApiKey?: string;
+  internalApiBaseUrl: string;
+  internalApiToken?: string;
   env: "dev" | "prod";
 };
 
@@ -21,6 +23,10 @@ export const config: AppConfig = {
   webOrigin: process.env.WEB_ORIGIN,
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   litellmApiKey: process.env.LITELLM_API_KEY,
+  internalApiBaseUrl: normalizeBaseUrl(
+    process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8787",
+  ),
+  internalApiToken: process.env.INTERNAL_API_TOKEN,
   env: (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod",
 };
 
@@ -35,5 +41,8 @@ export const assertRequiredConfig = () => {
   }
   if (!config.redisUrl) {
     throw new Error("Missing required env: REDIS_URL");
+  }
+  if (!config.internalApiBaseUrl) {
+    throw new Error("Missing required env: INTERNAL_API_BASE_URL");
   }
 };

@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
+import { timingSafeEqual } from "node:crypto";
 
 import {
   clearTokenCookie,
@@ -23,10 +24,16 @@ import {
 import {
   abortSession,
   createSession,
+  createUserMessageNode,
   enqueueSessionPrompt,
+  getCurrentPathMessages,
   getSessionById,
   launchSessionSandbox,
+  listSessionTree,
+  listToolCallsByMessageIds,
+  persistAssistantMessageNode,
   readSessionOutputStream,
+  selectSessionLeaf,
   waitForSessionRunning,
 } from "./sessions.js";
 
@@ -35,6 +42,20 @@ type Variables = {
 };
 
 const app = new Hono<{ Variables: Variables }>();
+
+const isValidInternalToken = (value: string | undefined) => {
+  const expected = config.internalApiToken;
+  if (!expected || !value) return false;
+
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(value);
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(expectedBuffer, actualBuffer);
+};
 
 app.use("*", async (c, next) => {
   c.set("token", getTokenFromRequest(c));
@@ -265,6 +286,75 @@ app.post("/api/sessions", async (c) => {
   });
 });
 
+app.post("/internal/sessions/:id/assistant-message", async (c) => {
+  const providedToken = c.req.header("x-internal-token") ?? undefined;
+  if (!isValidInternalToken(providedToken)) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req
+    .json<{
+      parentMessageId?: string;
+      idempotencyKey?: string;
+      message?: {
+        content?: unknown;
+        text?: string | null;
+        provider?: string | null;
+        model?: string | null;
+        stopReason?: string | null;
+        errorMessage?: string | null;
+        usage?: {
+          input?: number;
+          output?: number;
+          totalTokens?: number;
+          costTotal?: number;
+        } | null;
+      };
+      toolCalls?: Array<{
+        toolCallId: string;
+        toolName: string;
+        args?: unknown;
+        result?: unknown;
+        resultPreview?: string | null;
+        isError?: boolean;
+      }>;
+    }>()
+    .catch(() => null);
+
+  if (!body?.parentMessageId) {
+    return c.json({ message: "parentMessageId is required" }, 400);
+  }
+  if (!body.idempotencyKey?.trim()) {
+    return c.json({ message: "idempotencyKey is required" }, 400);
+  }
+  if (!body.message || !Array.isArray(body.message.content)) {
+    return c.json({ message: "message.content is required" }, 400);
+  }
+
+  const assistantMessage = await persistAssistantMessageNode({
+    sessionId: session.id,
+    parentMessageId: body.parentMessageId,
+    idempotencyKey: body.idempotencyKey,
+    message: {
+      content: body.message.content as never,
+      text: body.message.text,
+      provider: body.message.provider,
+      model: body.message.model,
+      stopReason: body.message.stopReason,
+      errorMessage: body.message.errorMessage,
+      usage: body.message.usage,
+    },
+    toolCalls: body.toolCalls,
+  });
+
+  return c.json({ ok: true, assistantMessage });
+});
+
 app.get("/api/sessions/:id", async (c) => {
   const token = c.get("token");
   if (!token) {
@@ -282,6 +372,89 @@ app.get("/api/sessions/:id", async (c) => {
   }
 
   return c.json(session);
+});
+
+app.get("/api/sessions/:id/messages", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const messages = await getCurrentPathMessages(session.id);
+  const toolCalls = await listToolCallsByMessageIds(messages.map((message) => message.id));
+
+  return c.json({
+    session,
+    messages,
+    toolCalls,
+  });
+});
+
+app.get("/api/sessions/:id/tree", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const nodes = await listSessionTree(session.id);
+  return c.json({
+    session: {
+      id: session.id,
+      currentLeafMessageId: session.currentLeafMessageId,
+      rootMessageId: session.rootMessageId,
+      totalBranches: session.totalBranches,
+    },
+    nodes,
+  });
+});
+
+app.post("/api/sessions/:id/select-leaf", async (c) => {
+  const token = c.get("token");
+  if (!token) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+
+  const session = await getSessionById(c.req.param("id"));
+  if (!session || session.userUuid !== user.uuid) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req.json<{ leafMessageId?: string }>().catch(() => null);
+  if (!body?.leafMessageId) {
+    return c.json({ message: "leafMessageId is required" }, 400);
+  }
+
+  await selectSessionLeaf({
+    sessionId: session.id,
+    leafMessageId: body.leafMessageId,
+  });
+
+  return c.json({ ok: true });
 });
 
 app.get("/api/sessions/:id/stream", async (c) => {
@@ -348,21 +521,31 @@ app.post("/api/sessions/:id/messages", async (c) => {
   const body = await c.req.json<{
     text: string;
     images?: Array<{ url: string }>;
+    branchFromMessageId?: string;
   }>();
 
   if (!body.text?.trim()) {
     return c.json({ message: "text is required" }, 400);
   }
 
+  const userMessage = await createUserMessageNode({
+    sessionId: session.id,
+    text: body.text,
+    images: body.images,
+    branchFromMessageId: body.branchFromMessageId ?? null,
+  });
+
   await enqueueSessionPrompt({
     sessionId: session.id,
+    userMessageId: userMessage.id,
+    branchFromMessageId: body.branchFromMessageId,
     message: {
       text: body.text,
       images: body.images,
     },
   });
 
-  return c.json({ ok: true });
+  return c.json({ ok: true, userMessage });
 });
 
 app.post("/api/sessions/:id/abort", async (c) => {

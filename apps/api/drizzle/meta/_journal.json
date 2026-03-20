@@ -8,6 +8,20 @@
       "when": 1773987331693,
       "tag": "0000_salty_groot",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773987331694,
+      "tag": "0001_session_tree",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773987331695,
+      "tag": "0002_session_message_idempotency",
+      "breakpoints": true
     }
   ]
 }

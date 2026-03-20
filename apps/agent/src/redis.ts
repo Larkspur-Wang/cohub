@@ -25,6 +25,8 @@ const ImageContentSchema: z.ZodType<AgentImageContent> = z.object({
 
 const PromptInputSchema = z.object({
   action: z.literal("prompt"),
+  userMessageId: z.string().uuid(),
+  branchFromMessageId: z.string().uuid().nullable().optional(),
   message: z.object({
     text: z.string().min(1),
     images: z.array(ImageContentSchema).optional(),
