@@ -36,14 +36,16 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git wget jq ca-certificates \
     iputils-ping \
+    ripgrep fd-find \
     python3 python3-pip python3-venv \
     ffmpeg imagemagick libimage-exiftool-perl \
     unzip vim tree tmux htop xz-utils \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置 Python 软链接
-RUN ln -sf /usr/bin/python3 /usr/bin/python
+# 设置 Python 和 fd 软链接
+RUN ln -sf /usr/bin/python3 /usr/bin/python && \
+    ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
 # 2. 安装 pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
