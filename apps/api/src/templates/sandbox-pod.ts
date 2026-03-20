@@ -76,7 +76,7 @@ export const SANDBOX_POD_TEMPLATE = {
       {
         name: "workspace-storage",
         persistentVolumeClaim: {
-          claimName: "cohub-agent-pvc",
+          claimName: "cohub-sessions-pvc",
         },
       },
     ],
