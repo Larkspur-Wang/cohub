@@ -4,35 +4,30 @@
 # ============================================
 # Stage 1: builder
 # ============================================
-FROM node:24-bookworm-slim AS builder
+FROM oven/bun:1.3.10-slim AS builder
 
 WORKDIR /app
 
-# 安装 pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-# 拷贝依赖描述
-COPY apps/agent/package.json ./
-
-# 安装所有依赖（包括 devDependencies）
-# 使用 hoisted node-linker 确保依赖正确链接
-RUN pnpm config set node-linker hoisted && pnpm install
+# 拷贝依赖描述并安装构建依赖
+COPY apps/agent/package.json ./package.json
+COPY apps/agent/bun.lock ./bun.lock
+RUN bun install --frozen-lockfile
 
 # 拷贝源码并构建
 COPY apps/agent/ ./
-RUN pnpm run build
+RUN bun run build
 
 # ============================================
 # Stage 2: runtime
 # ============================================
-FROM node:24-bookworm-slim AS runtime
+FROM oven/bun:1.3.10-slim AS runtime
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV WORKSPACE_DIR=/workspace
 
-# 1. 安装基础系统工具、Python 和多媒体/字体依赖
+# 安装基础系统工具、Python 和常用命令行依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git wget jq ca-certificates \
     iputils-ping \
@@ -47,28 +42,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
-# 2. 安装 pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-# 3. 全局安装 pi coding agent
-RUN npm install -g @mariozechner/pi-coding-agent
-
-# 4. 安装 Playwright 浏览器及其系统依赖
-RUN mkdir -p /ms-playwright && \
-    npx -y playwright@1.58.2 install chromium --with-deps
+# 全局安装 pi coding agent，保留容器内 pi 命令
+RUN bun install -g @mariozechner/pi-coding-agent
 
 WORKDIR /app
 
-# 4. 拷贝依赖描述并安装生产依赖
-COPY apps/agent/package.json ./
-RUN pnpm config set node-linker hoisted && pnpm install --prod
+# 安装运行时依赖
+COPY apps/agent/package.json ./package.json
+COPY apps/agent/bun.lock ./bun.lock
+RUN bun install --production --frozen-lockfile
 
-# 5. 从构建阶段拷贝编译产物
+# 拷贝编译产物
 COPY --from=builder /app/dist ./dist
 
-# 6. 设置沙盒运行时的工作目录
-ENV WORKSPACE_DIR=/workspace
-RUN mkdir -p $WORKSPACE_DIR
+# 设置沙盒运行时工作目录
+RUN mkdir -p "$WORKSPACE_DIR"
 
 # 启动 Supervisor
-CMD ["node", "dist/index.js"]
+CMD ["bun", "dist/index.js"]
