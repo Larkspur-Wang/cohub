@@ -8,6 +8,6 @@ export default defineConfig({
   dbCredentials: {
     url:
       process.env.DATABASE_URL ||
-      "postgres://postgres:postgres@localhost:5432/netaverses",
+      "postgres://postgres:postgres@localhost:5432/cohub",
   },
 });

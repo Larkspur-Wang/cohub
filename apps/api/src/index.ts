@@ -403,4 +403,4 @@ serve({
   port,
 });
 
-console.log(`@netaverses/api listening on :${port}`);
+console.log(`@cohub/api listening on :${port}`);

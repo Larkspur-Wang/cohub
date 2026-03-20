@@ -1,4 +1,4 @@
-# Netaverses API Dockerfile
+# Cohub API Dockerfile
 # Hono + Node.js runtime - Multi-stage build
 
 # ============================================
@@ -22,10 +22,10 @@ FROM base AS deps
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY apps/api/package.json ./apps/api/package.json
 
-# Install production deps for @netaverses/api
+# Install production deps for @cohub/api
 # Use hoisted linker to make runtime copy simpler (no pnpm needed in runtime image)
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --prod --filter @netaverses/api...
+  && pnpm install --frozen-lockfile --prod --filter @cohub/api...
 
 # ============================================
 # Stage 2: build
@@ -37,13 +37,13 @@ COPY apps/api/package.json ./apps/api/package.json
 
 # Install full deps (build needs dev deps like typescript)
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --filter @netaverses/api...
+  && pnpm install --frozen-lockfile --filter @cohub/api...
 
 COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
 COPY apps/api/drizzle ./apps/api/drizzle
 
-RUN pnpm --filter @netaverses/api build
+RUN pnpm --filter @cohub/api build
 
 # ============================================
 # Stage 3: production

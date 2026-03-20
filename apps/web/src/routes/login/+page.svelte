@@ -82,7 +82,7 @@ async function handleLogin() {
           {errorMessage}
         </div>
       {/if}
-      <span class="text-xs text-gray-400 font-medium">Don't have a token? <a href="https://netaverses.cc" class="text-brand font-bold underline">Visit Hub</a></span>
+      <span class="text-xs text-gray-400 font-medium">Don't have a token? <a href="https://cohub.run" class="text-brand font-bold underline">Visit Hub</a></span>
     </div>
   </div>
 </div>

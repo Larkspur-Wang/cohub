@@ -43,21 +43,21 @@ vim secrets.yaml
 
 | 配置项 | Prod | Dev |
 |-------|------|-----|
-| Namespace | netaverses | netaverses-dev |
-| Sessions Namespace | netaverses-sessions | netaverses-sessions-dev |
-| App Name | netaverses-api | netaverses-api-dev |
+| Namespace | cohub | cohub-dev |
+| Sessions Namespace | cohub-sessions | cohub-sessions-dev |
+| App Name | cohub-api | cohub-api-dev |
 | Replicas | 1+ | 1 |
-| Hostname | api.netaverses.cc | api-dev.netaverses.cc |
+| Hostname | api.cohub.run | api-dev.cohub.run |
 
 ## 常用命令
 
 ```bash
 # 查看 Pod 状态
-kubectl get pods -n netaverses-dev -l app.kubernetes.io/name=netaverses-api-dev
+kubectl get pods -n cohub-dev -l app.kubernetes.io/name=cohub-api-dev
 
 # 查看日志
-kubectl logs -n netaverses-dev -l app.kubernetes.io/name=netaverses-api-dev -f
+kubectl logs -n cohub-dev -l app.kubernetes.io/name=cohub-api-dev -f
 
 # 查看 Session Pods
-kubectl get pods -n netaverses-sessions-dev
+kubectl get pods -n cohub-sessions-dev
 ```

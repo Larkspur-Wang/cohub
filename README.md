@@ -1,6 +1,6 @@
-# Netaverses
+# Cohub
 
-Netaverses is a **workspace hosting platform** for deploying and running agents in the cloud.
+Cohub is a **workspace hosting platform** for deploying and running agents in the cloud.
 
 It combines:
 - **JupyterLab / Colab-like** browser-based runtime and debugging
@@ -10,7 +10,7 @@ It combines:
 ## Core Concepts
 
 ### Workspace
-A **Workspace** is the core unit in Netaverses.
+A **Workspace** is the core unit in Cohub.
 
 It is a versionable, hostable, shareable, and deployable package that contains the project context, configuration, code, and resources needed to run agent workloads.
 
@@ -38,7 +38,7 @@ Examples include Web, Discord, and Telegram. Users interact with agents through 
 
 ## Positioning
 
-Netaverses is built around the idea that **workspaces are the primary cloud asset**.
+Cohub is built around the idea that **workspaces are the primary cloud asset**.
 
 The platform is for:
 - **hosting** reusable workspaces
@@ -46,7 +46,7 @@ The platform is for:
 - **deploying** workspace-based agent workloads
 - **distributing** reusable workspaces to other developers
 
-> Netaverses is a cloud platform for hosting reusable workspaces and deploying agents from them.
+> Cohub is a cloud platform for hosting reusable workspaces and deploying agents from them.
 
 ## Use Cases
 
@@ -81,7 +81,7 @@ Host mature workspaces like code on GitHub or models on Hugging Face, so other d
 ## Repository Structure
 
 ```text
-netaverses/
+cohub/
 ├── apps/
 │   ├── api/          # orchestration and runtime services
 │   └── web/          # web console

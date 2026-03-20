@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@netaverses/agent",
+      "name": "@cohub/agent",
       "dependencies": {
         "@mariozechner/pi-coding-agent": "0.61.0",
         "ioredis": "^5.3.2",

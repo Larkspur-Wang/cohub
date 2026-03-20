@@ -25,7 +25,7 @@ const isAuthenticated = $derived(currentPath !== "/login");
         <div class="w-10 h-10 bg-brand text-white rounded-xl flex items-center justify-center font-black text-xl shadow-lg shadow-brand/20 group-hover:rotate-12 transition-transform">
           N
         </div>
-        <span class="text-xl font-black tracking-tighter text-gray-800">Netaverses <span class="text-brand">Studio</span></span>
+        <span class="text-xl font-black tracking-tighter text-gray-800">Cohub <span class="text-brand">Studio</span></span>
       </a>
 
       {#if isAuthenticated}
@@ -62,6 +62,6 @@ const isAuthenticated = $derived(currentPath !== "/login");
   </main>
 
   <footer class="border-t border-gray-100 py-12 text-center text-gray-400 text-sm font-medium">
-    <p>© {new Date().getFullYear()} Netaverses Protocol. <br /><span class="opacity-50 text-xs italic">Simulate carefully.</span></p>
+    <p>© {new Date().getFullYear()} Cohub Protocol. <br /><span class="opacity-50 text-xs italic">Simulate carefully.</span></p>
   </footer>
 </div>

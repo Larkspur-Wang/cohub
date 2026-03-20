@@ -1,11 +1,11 @@
 # Dev 环境配置
 
 # ========== 基础 ==========
-NAMESPACE: "netaverses-dev"
-APP_NAME: "netaverses-api-dev"
+NAMESPACE: "cohub-dev"
+APP_NAME: "cohub-api-dev"
 
 # ========== 镜像 ==========
-IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-api"
+IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-api"
 IMAGE_TAG: "latest"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: ""
@@ -35,12 +35,12 @@ READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== API 配置 ==========
 AUTH_BASE_URL: "https://api.talesofai.com"
-GITEA_BASE_URL: "https://gitea.netaverses.cc/"
-WEB_ORIGIN: "https://dev.netaverses.cc"
+GITEA_BASE_URL: "https://gitea.cohub.run/"
+WEB_ORIGIN: "https://dev.cohub.run"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-API_HOSTNAME: "api-dev.netaverses.cc"
+API_HOSTNAME: "api-dev.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "dev"

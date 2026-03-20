@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains the core design documents for Netaverses.
+This directory contains the core design documents for Cohub.
 
 ## Index
 

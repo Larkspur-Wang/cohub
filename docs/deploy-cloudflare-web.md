@@ -14,7 +14,7 @@
 
 生产环境推荐在 Cloudflare Dashboard / `wrangler.toml` 设置变量：
 
-- `BFF_ORIGIN`: 指向阿里云上的 Hono API，例如 `https://api.netaverses.cc`
+- `BFF_ORIGIN`: 指向阿里云上的 Hono API，例如 `https://api.cohub.run`
 
 > 说明：当前 Web 端所有数据请求都通过同源 `/api/*` 反代到 Hono BFF。
 > 如需在浏览器端直连 API，可以设置 `VITE_API_BASE_URL`。

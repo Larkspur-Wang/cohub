@@ -1,6 +1,6 @@
 # Terminology
 
-This document defines the core product terms used across Netaverses.
+This document defines the core product terms used across Cohub.
 
 ## Workspace
 A **Workspace** is the primary unit of runtime, hosting, deployment, and sharing.

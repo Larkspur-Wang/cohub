@@ -1,5 +1,5 @@
 const RUNTIME_IMAGE =
-  "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-agent:latest";
+  "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-agent:latest";
 
 type SandboxPodTemplateVariables = {
   SESSION_ID: string;
@@ -76,7 +76,7 @@ export const SANDBOX_POD_TEMPLATE = {
       {
         name: "workspace-storage",
         persistentVolumeClaim: {
-          claimName: "netaverses-agent-pvc",
+          claimName: "cohub-agent-pvc",
         },
       },
     ],

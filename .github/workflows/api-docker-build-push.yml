@@ -14,7 +14,7 @@ permissions:
 env:
   REGISTRY: registry.cn-shanghai.aliyuncs.com
   NAMESPACE: talesofai
-  IMAGE_NAME: netaverses-api
+  IMAGE_NAME: cohub-api
 
 jobs:
   build-and-push:
@@ -44,7 +44,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Build (api)
-        run: pnpm --filter @netaverses/api build
+        run: pnpm --filter @cohub/api build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

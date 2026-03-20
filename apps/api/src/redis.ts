@@ -3,8 +3,7 @@ import { config } from "./config.js";
 
 export const redis = new Redis(config.redisUrl);
 
-const redisSessionPrefix = (sessionId: string) =>
-  `netaverses:sessions:${sessionId}`;
+const redisSessionPrefix = (sessionId: string) => `cohub:sessions:${sessionId}`;
 
 export const getSessionMetaKey = (sessionId: string) =>
   `${redisSessionPrefix(sessionId)}:meta`;

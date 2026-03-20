@@ -1,4 +1,4 @@
-# Netaverses Agent Dockerfile
+# Cohub Agent Dockerfile
 # Multi-stage build: builder + runtime
 
 # ============================================

@@ -46,11 +46,11 @@ vim secrets.yaml
 
 ```bash
 # 查看 Pod 状态
-kubectl get pods -n netaverses -l app.kubernetes.io/name=netaverses-api
+kubectl get pods -n cohub -l app.kubernetes.io/name=cohub-api
 
 # 查看日志
-kubectl logs -n netaverses -l app.kubernetes.io/name=netaverses-api -f
+kubectl logs -n cohub -l app.kubernetes.io/name=cohub-api -f
 
 # 查看 Session Pods
-kubectl get pods -n netaverses-sessions
+kubectl get pods -n cohub-sessions
 ```

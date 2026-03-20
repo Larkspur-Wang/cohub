@@ -1,6 +1,6 @@
-# Agent Runtime Supervisor (@netaverses/agent)
+# Agent Runtime Supervisor (@cohub/agent)
 
-这是 Netaverses 的 Sandbox 守护进程（Supervisor）。它主要负责在隔离容器中启动并管理 `pi-coding-agent`，并通过 Redis Streams 与主后端 `apps/api` 进行双向流式交互。
+这是 Cohub 的 Sandbox 守护进程（Supervisor）。它主要负责在隔离容器中启动并管理 `pi-coding-agent`，并通过 Redis Streams 与主后端 `apps/api` 进行双向流式交互。
 
 ## 目录结构
 
@@ -37,11 +37,11 @@ bun run start
 ## 核心流控机制 (Redis)
 
 守护进程通过 Redis 与 API 服务通信：
-- 输入队列：`netaverses:sessions:{id}:input_queue`
-- 处理中队列：`netaverses:sessions:{id}:processing_queue`
-- 死信队列：`netaverses:sessions:{id}:dead_letter_queue`
-- 输出流：`netaverses:sessions:{id}:output_stream`
-- 元信息：`netaverses:sessions:{id}:meta`
+- 输入队列：`cohub:sessions:{id}:input_queue`
+- 处理中队列：`cohub:sessions:{id}:processing_queue`
+- 死信队列：`cohub:sessions:{id}:dead_letter_queue`
+- 输出流：`cohub:sessions:{id}:output_stream`
+- 元信息：`cohub:sessions:{id}:meta`
 
 ## 镜像构建与本地测试
 
@@ -49,7 +49,7 @@ bun run start
 在**项目根目录**下运行：
 
 ```bash
-docker build -f apps/agent/Dockerfile -t netaverses-agent:latest .
+docker build -f apps/agent/Dockerfile -t cohub-agent:latest .
 ```
 
 ### 2. 本地 Redis 测试运行
@@ -66,7 +66,7 @@ docker run --rm -it \
   -e REDIS_URL="redis://host.docker.internal:6379" \
   -e SESSION_ID="test-001" \
   -v $(pwd)/test-workspace:/workspace \
-  netaverses-agent:latest
+  cohub-agent:latest
 ```
 
 > Linux 用户请将 `host.docker.internal` 替换为主机真实的局域网 IP 或 Docker 网关 IP。

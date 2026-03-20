@@ -1,4 +1,4 @@
-# Netaverses Phase 1: Workspace Hub Web
+# Cohub Phase 1: Workspace Hub Web
 
 本期目标：完成 workspace 的 **浏览与分享页原型**，后端通过 **Hono BFF** 对接 Gitea（公共仓库），并复用已有鉴权服务做登录态校验。
 
@@ -37,7 +37,7 @@ pnpm dev
 ### apps/api
 
 - `AUTH_BASE_URL`: 现有鉴权服务的 base URL（例如 `https://bff.talesofai.cn`）
-- `GITEA_BASE_URL`: Gitea base URL（例如 `https://gitea.netaverses.cc`）
+- `GITEA_BASE_URL`: Gitea base URL（例如 `https://gitea.cohub.run`）
 - `GITEA_TOKEN`: （可选）Gitea API token；若仓库是 public 可不填
 - `WEB_ORIGIN`: （可选）允许的 Web Origin，用于 CORS；本地可填 `http://localhost:5173`
 - `TOKEN_COOKIE_NAME`: （可选）存储 token 的 cookie 名称，默认 `x_token`

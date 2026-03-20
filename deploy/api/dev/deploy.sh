@@ -48,14 +48,14 @@ API_HOSTNAME=$(get_value "API_HOSTNAME")
 ENV=$(get_value "ENV")
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Netaverses API Dev 环境部署         ║${NC}"
+echo -e "${BLUE}║   Cohub API Dev 环境部署         ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
 # 根据 ENV 决定 sessions namespace
 if [ "$ENV" = "prod" ]; then
-  SESSIONS_NAMESPACE="netaverses-sessions"
+  SESSIONS_NAMESPACE="cohub-sessions"
 else
-  SESSIONS_NAMESPACE="netaverses-sessions-dev"
+  SESSIONS_NAMESPACE="cohub-sessions-dev"
 fi
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -

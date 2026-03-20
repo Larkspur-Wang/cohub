@@ -1,6 +1,6 @@
-# Netaverses - Gitea on ACK 部署配置
+# Cohub - Gitea on ACK 部署配置
 
-本项目用于在阿里云 ACK 集群上部署高可用 (HA) Gitea 实例，服务于 Netaverses 项目。
+本项目用于在阿里云 ACK 集群上部署高可用 (HA) Gitea 实例，服务于 Cohub 项目。
 
 ## 架构说明
 
@@ -38,10 +38,10 @@ vim secrets.yaml
 ### 3. 创建 Kubernetes Secret
 
 ```bash
-kubectl create namespace netaverses
+kubectl create namespace cohub
 
 # 创建包含所有敏感信息的 secret
-kubectl apply -f secrets.yaml -n netaverses
+kubectl apply -f secrets.yaml -n cohub
 ```
 
 ### 4. 部署 Gitea
@@ -51,18 +51,18 @@ kubectl apply -f secrets.yaml -n netaverses
 helm repo add gitea https://dl.gitea.com/charts/
 helm repo update
 
-# 部署（确保在 netaverses 命名空间下）
-helm install gitea gitea/gitea -f values.yaml -n netaverses
+# 部署（确保在 cohub 命名空间下）
+helm install gitea gitea/gitea -f values.yaml -n cohub
 ```
 
 ### 5. 验证部署
 
 ```bash
 # 查看 Pod 状态
-kubectl get pods -n netaverses
+kubectl get pods -n cohub
 
 # 查看服务状态
-kubectl get svc -n netaverses
+kubectl get svc -n cohub
 ```
 
 ## 可禁用的可选功能
@@ -113,11 +113,11 @@ kubectl get svc -n netaverses
 
 ```bash
 # 查看 Gitea 日志
-kubectl logs -n netaverses -l app.kubernetes.io/name=gitea
+kubectl logs -n cohub -l app.kubernetes.io/name=gitea
 
 # 进入 Pod 调试
-kubectl exec -n netaverses -l app.kubernetes.io/name=gitea -- /bin/sh
+kubectl exec -n cohub -l app.kubernetes.io/name=gitea -- /bin/sh
 
 # 检查配置生成
-kubectl exec -n netaverses -l app.kubernetes.io/name=gitea -- cat /data/gitea/conf/app.ini
+kubectl exec -n cohub -l app.kubernetes.io/name=gitea -- cat /data/gitea/conf/app.ini
 ```

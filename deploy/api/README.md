@@ -1,4 +1,4 @@
-# Netaverses API 部署
+# Cohub API 部署
 
 ## 目录结构
 
@@ -30,10 +30,10 @@ deploy/api/
 
 | 配置项 | Prod | Dev |
 |-------|------|-----|
-| Namespace | `netaverses` | `netaverses-dev` |
-| Sessions Namespace | `netaverses-sessions` | `netaverses-sessions-dev` |
-| App Name | `netaverses-api` | `netaverses-api-dev` |
-| Hostname | `api.netaverses.cc` | `api-dev.netaverses.cc` |
+| Namespace | `cohub` | `cohub-dev` |
+| Sessions Namespace | `cohub-sessions` | `cohub-sessions-dev` |
+| App Name | `cohub-api` | `cohub-api-dev` |
+| Hostname | `api.cohub.run` | `api-dev.cohub.run` |
 | ENV | `prod` | `dev` |
 
 ## 快速开始
@@ -71,6 +71,6 @@ vim secrets.yaml
 
 ## 前置条件
 
-- [ ] `netaverses-agent-pvc` PVC 已创建（sessions namespace 中）
+- [ ] `cohub-agent-pvc` PVC 已创建（sessions namespace 中）
 - [ ] 镜像已推送到 registry
 - [ ] secrets.yaml 已配置

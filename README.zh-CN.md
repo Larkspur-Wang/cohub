@@ -1,6 +1,6 @@
-# Netaverses
+# Cohub
 
-Netaverses 是一个以 **Workspace 托管** 为核心、支持在云端部署和运行 Agent 的平台。
+Cohub 是一个以 **Workspace 托管** 为核心、支持在云端部署和运行 Agent 的平台。
 
 它结合了三类能力：
 - **类似 JupyterLab / Colab** 的浏览器内运行与调试体验
@@ -10,7 +10,7 @@ Netaverses 是一个以 **Workspace 托管** 为核心、支持在云端部署�
 ## 核心概念
 
 ### Workspace
-**Workspace** 是 Netaverses 中最核心的单元。
+**Workspace** 是 Cohub 中最核心的单元。
 
 它是一个可版本化、可托管、可分享、可部署的工作单元，承载了运行 Agent 所需的项目上下文、配置、代码与相关资源。
 
@@ -38,7 +38,7 @@ Workspace 同时也是：
 
 ## 项目定位
 
-Netaverses 的核心前提是：**Workspace 是主要的云端资产**。
+Cohub 的核心前提是：**Workspace 是主要的云端资产**。
 
 这个平台主要用于：
 - **托管** 可复用 Workspace
@@ -46,7 +46,7 @@ Netaverses 的核心前提是：**Workspace 是主要的云端资产**。
 - **部署** 基于 Workspace 的 Agent 负载
 - **分发** 可复用 Workspace 给其他开发者
 
-> Netaverses 是一个托管可复用 Workspace、并基于其部署 Agent 的云平台。
+> Cohub 是一个托管可复用 Workspace、并基于其部署 Agent 的云平台。
 
 ## 典型使用场景
 
@@ -81,7 +81,7 @@ Netaverses 的核心前提是：**Workspace 是主要的云端资产**。
 ## 仓库结构
 
 ```text
-netaverses/
+cohub/
 ├── apps/
 │   ├── api/          # 编排与运行服务
 │   └── web/          # Web 控制台

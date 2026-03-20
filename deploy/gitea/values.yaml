@@ -15,7 +15,7 @@
 replicaCount: 2
 
 # 命名空间（需提前创建）
-namespace: netaverses
+namespace: cohub
 
 # ============================================================
 # Gitea 应用配置
@@ -35,11 +35,11 @@ gitea:
   config:
     server:
       # <必填> Gitea 访问域名（不含协议）
-      DOMAIN: "gitea.netaverses.cc"
+      DOMAIN: "gitea.cohub.run"
       # <必填> 完整访问 URL
-      ROOT_URL: "https://gitea.netaverses.cc"
+      ROOT_URL: "https://gitea.cohub.run"
       # SSH 访问域名（如启用 SSH）
-      SSH_DOMAIN: "git.netaverses.cc"
+      SSH_DOMAIN: "git.cohub.run"
       # SSH 端口（与 service.ssh.port 保持一致）
       SSH_PORT: 22
       # HTTP 端口（内部使用，无需修改）
@@ -56,9 +56,9 @@ gitea:
       # <必填> RDS 内网连接地址
       HOST: "pgm-rj9nf5ql6yn31ec1.pg.rds-aliyun-america.rds.aliyuncs.com"
       # 数据库名称
-      NAME: "netaverses_gitea"
+      NAME: "cohub_gitea"
       # 数据库用户名
-      USER: "netaverses_gitea"
+      USER: "cohub_gitea"
       # 密码通过 Secret 注入（见 secrets.yaml）
       # PASSWD 从环境变量 GITEA__DATABASE__PASSWD 读取
 
@@ -233,7 +233,7 @@ persistence:
   enabled: true
   create: true
   # <必填> NAS StorageClass 名称（需支持 RWX）
-  storageClass: "netaverses-gitea-nas"
+  storageClass: "cohub-gitea-nas"
   # 访问模式（HA 架构必须为 ReadWriteMany）
   accessModes:
     - ReadWriteMany

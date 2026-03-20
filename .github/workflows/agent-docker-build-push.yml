@@ -14,7 +14,7 @@ permissions:
 env:
   REGISTRY: registry.cn-shanghai.aliyuncs.com
   NAMESPACE: talesofai
-  IMAGE_NAME: netaverses-agent
+  IMAGE_NAME: cohub-agent
 
 jobs:
   build-and-push:
@@ -38,13 +38,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm --filter @netaverses/agent lint
+        run: pnpm --filter @cohub/agent lint
 
       - name: Typecheck
-        run: pnpm --filter @netaverses/agent typecheck
+        run: pnpm --filter @cohub/agent typecheck
 
       - name: Build (agent)
-        run: pnpm --filter @netaverses/agent build
+        run: pnpm --filter @cohub/agent build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

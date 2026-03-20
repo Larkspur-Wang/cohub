@@ -1,4 +1,4 @@
-# Netaverses Web（SvelteKit）部署到 Cloudflare Workers
+# Cohub Web（SvelteKit）部署到 Cloudflare Workers
 
 该目录提供 `apps/web` 部署到 Cloudflare Workers 的最小指引与检查清单。
 
@@ -16,7 +16,7 @@ pnpm -C apps/web wrangler login
 
 在 Cloudflare Dashboard 或 `apps/web/wrangler.toml` 中配置：
 
-- `BFF_ORIGIN`: 指向阿里云 ACK 上的 API，例如 `https://api.netaverses.cc`
+- `BFF_ORIGIN`: 指向阿里云 ACK 上的 API，例如 `https://api.cohub.run`
 
 > Web 端会通过同源 `/api/*` 反代到 BFF，所以浏览器不需要跨域访问阿里云。
 

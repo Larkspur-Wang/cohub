@@ -11,12 +11,12 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # 配置变量
-NAMESPACE="${GITEA_NAMESPACE:-netaverses}"
+NAMESPACE="${GITEA_NAMESPACE:-cohub}"
 RELEASE_NAME="${GITEA_RELEASE:-gitea}"
 HELM_REPO="https://dl.gitea.com/charts/"
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Netaverses 快速部署脚本           ║${NC}"
+echo -e "${BLUE}║   Cohub 快速部署脚本           ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 echo ""
 

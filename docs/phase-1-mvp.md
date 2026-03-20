@@ -2,7 +2,7 @@
 
 ## 核心目标
 
-验证 Netaverses 的核心技术链路：能够拉取一个 **Workspace (工作区)** 与一个 **Agent (智能体)** 的配置资产，将它们结合并在云端启动一个 **Session (会话)**，最终通过 Web 界面（充当默认的 **Channel**）与 Agent 进行直接的交互联调。
+验证 Cohub 的核心技术链路：能够拉取一个 **Workspace (工作区)** 与一个 **Agent (智能体)** 的配置资产，将它们结合并在云端启动一个 **Session (会话)**，最终通过 Web 界面（充当默认的 **Channel**）与 Agent 进行直接的交互联调。
 
 ## 关键验证点
 
@@ -17,7 +17,7 @@
 - **🌍 Workspace**: 最小化可行的数据结构，提供上下文环境与静态提示词配置。
 - **🧠 Agent**: 定义智能体的模型偏好、人设与核心指令。
 - **⚡️ Session**: 后端 (Hono) 维护的运行时状态。负责将 Workspace 和 Agent 的设定拼装为 System Prompt，管理对话历史 (History)，并对接 LLM (如 OpenAI 兼容接口)。
-- **🚪 Channel**: Netaverses 的 Web 工作台 (SvelteKit) 直接充当 Channel，提供一个对话调试 UI，支持展示当前所处的工作区和调试的智能体。
+- **🚪 Channel**: Cohub 的 Web 工作台 (SvelteKit) 直接充当 Channel，提供一个对话调试 UI，支持展示当前所处的工作区和调试的智能体。
 
 ### 不包含内容 (Out of Scope)
 

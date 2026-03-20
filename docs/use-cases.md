@@ -1,6 +1,6 @@
 # Use Cases
 
-Typical use cases for Netaverses as a workspace hosting and distribution platform for deploying and running agents:
+Typical use cases for Cohub as a workspace hosting and distribution platform for deploying and running agents:
 
 ## 1. Browser-based cloud runtime
 - **Scenario**: A developer opens the web console, selects a workspace, and starts an agent directly in the browser for cloud debugging and execution.
@@ -20,4 +20,4 @@ Typical use cases for Netaverses as a workspace hosting and distribution platfor
 
 ## 5. Workspace hosting hub
 - **Scenario**: Teams or individuals host workspaces in a central place, similar to hosting code on GitHub or models on Hugging Face, so others can discover and adopt them.
-- **Value**: Turns workspaces into reusable cloud assets and makes Netaverses a distribution layer, not just a runtime layer.
+- **Value**: Turns workspaces into reusable cloud assets and makes Cohub a distribution layer, not just a runtime layer.

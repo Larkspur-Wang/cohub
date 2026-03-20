@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: netaverses-api
-  namespace: netaverses
+  name: cohub-api
+  namespace: cohub
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: netaverses-api-sessions-manager
-  namespace: netaverses-sessions
+  name: cohub-api-sessions-manager
+  namespace: cohub-sessions
 rules:
   - apiGroups: [""]
     resources: ["pods"]
@@ -20,13 +20,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: netaverses-api-sessions-manager
-  namespace: netaverses-sessions
+  name: cohub-api-sessions-manager
+  namespace: cohub-sessions
 subjects:
   - kind: ServiceAccount
-    name: netaverses-api
-    namespace: netaverses
+    name: cohub-api
+    namespace: cohub
 roleRef:
   kind: Role
-  name: netaverses-api-sessions-manager
+  name: cohub-api-sessions-manager
   apiGroup: rbac.authorization.k8s.io

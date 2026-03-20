@@ -11,7 +11,7 @@ export type AppConfig = {
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
 
 const getSessionsNamespace = (env: string): string => {
-  return env === "dev" ? "netaverses-sessions-dev" : "netaverses-sessions";
+  return env === "dev" ? "cohub-sessions-dev" : "cohub-sessions";
 };
 
 export const config: AppConfig = {

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Netaverses 卸载脚本
+# Cohub 卸载脚本
 # 用于清理 Gitea 部署及相关资源
 
 set -e
@@ -11,11 +11,11 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # 配置变量
-NAMESPACE="${GITEA_NAMESPACE:-netaverses}"
+NAMESPACE="${GITEA_NAMESPACE:-cohub}"
 RELEASE_NAME="${GITEA_RELEASE:-gitea}"
 
 echo -e "${RED}╔════════════════════════════════════════╗${NC}"
-echo -e "${RED}║   Netaverses 卸载脚本                      ║${NC}"
+echo -e "${RED}║   Cohub 卸载脚本                      ║${NC}"
 echo -e "${RED}╚════════════════════════════════════════╝${NC}"
 echo ""
 

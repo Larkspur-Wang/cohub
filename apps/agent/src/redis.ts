@@ -5,11 +5,11 @@ import { env } from "./env.js";
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const LIST_KEY_IN = `netaverses:sessions:${env.SESSION_ID}:input_queue`;
-const PROCESSING_KEY = `netaverses:sessions:${env.SESSION_ID}:processing_queue`;
-const DEAD_LETTER_KEY = `netaverses:sessions:${env.SESSION_ID}:dead_letter_queue`;
-const STREAM_KEY_OUT = `netaverses:sessions:${env.SESSION_ID}:output_stream`;
-const META_KEY = `netaverses:sessions:${env.SESSION_ID}:meta`;
+const LIST_KEY_IN = `cohub:sessions:${env.SESSION_ID}:input_queue`;
+const PROCESSING_KEY = `cohub:sessions:${env.SESSION_ID}:processing_queue`;
+const DEAD_LETTER_KEY = `cohub:sessions:${env.SESSION_ID}:dead_letter_queue`;
+const STREAM_KEY_OUT = `cohub:sessions:${env.SESSION_ID}:output_stream`;
+const META_KEY = `cohub:sessions:${env.SESSION_ID}:meta`;
 
 type AgentImageContent = {
   type: "image";

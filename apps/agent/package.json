@@ -1,5 +1,5 @@
 {
-  "name": "@netaverses/agent",
+  "name": "@cohub/agent",
   "version": "1.0.0",
   "private": true,
   "type": "module",

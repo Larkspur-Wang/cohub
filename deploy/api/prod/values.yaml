@@ -2,11 +2,11 @@
 # 如需重新生成可参考 values.template.yaml
 
 # ========== 基础 ==========
-NAMESPACE: "netaverses"
-APP_NAME: "netaverses-api"
+NAMESPACE: "cohub"
+APP_NAME: "cohub-api"
 
 # ========== 镜像 ==========
-IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-api"
+IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-api"
 IMAGE_TAG: "latest"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: ""
@@ -36,12 +36,12 @@ READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== API 配置 ==========
 AUTH_BASE_URL: "https://api.talesofai.com"
-GITEA_BASE_URL: "https://gitea.netaverses.cc/"
-WEB_ORIGIN: "https://www.netaverses.cc"
+GITEA_BASE_URL: "https://gitea.cohub.run/"
+WEB_ORIGIN: "https://cohub.run"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-API_HOSTNAME: "api.netaverses.cc"
+API_HOSTNAME: "api.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "prod"
