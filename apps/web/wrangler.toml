@@ -7,13 +7,5 @@ compatibility_flags = ["nodejs_compat"]
 directory = ".svelte-kit/cloudflare/assets"
 binding = "ASSETS"
 
-# Production defaults (deploy without --env)
 [vars]
 BFF_ORIGIN = "https://api.cohub.run"
-
-# Staging environment
-[env.staging]
-name = "cohub-web-staging"
-
-[env.staging.vars]
-BFF_ORIGIN = "https://api-staging.cohub.run"
