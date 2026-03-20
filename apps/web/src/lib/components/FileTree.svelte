@@ -1,19 +1,19 @@
 <script lang="ts">
-  import type { TreeNode } from "$lib/types";
+import type { TreeNode } from "$lib/types";
 
-  import TreeItem from "./TreeItem.svelte";
+import TreeItem from "./TreeItem.svelte";
 
-  const {
-    nodes,
-    selectedPath,
-    onToggle,
-    onSelect
-  }: {
-    nodes: TreeNode[];
-    selectedPath: string;
-    onToggle: (node: TreeNode) => void;
-    onSelect: (node: TreeNode) => void;
-  } = $props();
+const {
+  nodes,
+  selectedPath,
+  onToggle,
+  onSelect,
+}: {
+  nodes: TreeNode[];
+  selectedPath: string;
+  onToggle: (node: TreeNode) => void;
+  onSelect: (node: TreeNode) => void;
+} = $props();
 </script>
 
 <div class="file-tree">

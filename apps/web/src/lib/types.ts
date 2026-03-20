@@ -22,7 +22,7 @@ export type WorkspaceFile = {
   content: string;
 };
 
-export type World = {
+export type Workspace = {
   id: string;
   name: string;
   description: string;

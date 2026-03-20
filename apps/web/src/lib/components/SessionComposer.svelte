@@ -1,12 +1,17 @@
 <script lang="ts">
-  type Props = {
-    value: string;
-    sending?: boolean;
-    streamError?: string;
-    onSubmit: () => void;
-  };
+type Props = {
+  value: string;
+  sending?: boolean;
+  streamError?: string;
+  onSubmit: () => void;
+};
 
-  let { value = $bindable(''), sending = false, streamError = '', onSubmit }: Props = $props();
+let {
+  value = $bindable(""),
+  sending = false,
+  streamError = "",
+  onSubmit,
+}: Props = $props();
 </script>
 
 <div class="border-t border-gray-100 p-4 bg-white">

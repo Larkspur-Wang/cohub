@@ -1,110 +1,121 @@
-# 核心数据库 Schema 设计 (PostgreSQL)
+# Database Schema (Phase 1 MVP)
 
-系统采用了 **“代码即设定 (Config as Code / Setting as Code)”** 的理念，因此 `World` 和 `Agent` 的**核心内容数据**（如 markdown 设定档、json 属性）直接托管在 Gitea 仓库中。
+系统采用了 **“代码即设定 (Config as Code / Setting as Code)”** 的理念，因此 `Workspace` 和 `Agent` 的**核心内容数据**（如 markdown 设定档、json 属性、知识库文档）直接托管在底层的版本控制系统或对象存储中。
 
-PostgreSQL 数据库主要负责：
-1. **索引与元数据 (Meta & Index)**：缓存 Gitea 中的基础信息，用于 Web 端的快速检索、列表和分类。
-2. **关系绑定 (Relations)**：管理 World、Agent、User 之间的关联。
-3. **运行时状态 (Runtime State)**：管理 `Session` 的生命周期和对话历史。
+关系型数据库 (PostgreSQL) 仅用于存储**关系映射**、**索引**、**用户状态**及**运行时（Session）状态**。
 
-*(注：系统中的账号体系由外部 OIDC 等统一管控，数据库中仅使用 `user_id` 字符串进行关联。)*
+## 核心表设计理念
 
-## ER 图 (核心架构)
+1. **索引与检索 (Index & Discovery)**：虽然核心数据在 Git/对象存储里，但我们需要在 DB 中存一份冗余的 Meta 数据（如 `name`, `description`, `avatar` 等），用于首页的列表展示、搜索和推荐，避免频繁调用底层存储 API。
+2. **关系绑定 (Relations)**：管理 Workspace、Agent、User 之间的关联。
+3. **运行时管理 (Runtime State)**：记录当前有哪些 Session 正在运行，对应哪个 Channel。
+
+## ER 关系概览
 
 ```mermaid
 erDiagram
-    USER ||--o{ WORLD : owns
+    USER ||--o{ WORKSPACE : owns
     USER ||--o{ AGENT : owns
-    USER ||--o{ SESSION : plays
-    WORLD ||--o{ SESSION : provides_setting
-    AGENT ||--o{ SESSION : participates_in
+    USER ||--o{ SESSION : creates
 
-    WORLD {
+    WORKSPACE ||--o{ SESSION : provides_context
+    AGENT ||--o{ SESSION : runs_in
+
+    WORKSPACE {
         uuid id PK
-        string user_uuid "Owner"
+        uuid user_uuid FK
         string name
-        string gitea_repo_name "Link to Gitea"
+        string description
+        string git_repo_url
     }
     
     AGENT {
         uuid id PK
-        string user_uuid "Owner"
+        uuid user_uuid FK
         string name
-        string gitea_repo_name "Link to Gitea"
+        string description
+        string git_repo_url
     }
 
     SESSION {
         uuid id PK
-        string user_uuid "Player"
-        uuid world_id FK
+        uuid user_uuid FK
+        uuid workspace_id FK
         uuid agent_id FK
+        string workspace_commit_hash
+        string agent_commit_hash
         string status
     }
 ```
 
----
+## Schema 详述 (Drizzle)
 
-## DDL (表结构定义)
+### 1. `workspaces` (工作区表)
 
-### 1. 资产索引表 (Assets)
-
-用于映射 Gitea 中的数据，方便在 Web 站上进行聚合查询、点赞、统计等，而不需要每次都调 Gitea API。
+记录工作区的基本信息，用于大厅展示和快速检索。
 
 ```sql
--- 世界表 (World)
-CREATE TABLE worlds (
+-- 工作区表 (Workspace)
+CREATE TABLE workspaces (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_uuid VARCHAR(255) NOT NULL,          -- 外部 User UUID (Owner)
-    name VARCHAR(255) NOT NULL,               -- 世界名称 (冗余 Gitea repo name)
-    description TEXT,                         -- 简要描述
-    gitea_repo_name VARCHAR(255) NOT NULL,    -- 例如 "user/cyberpunk-city"
-    default_branch VARCHAR(50) DEFAULT 'main',
-    visibility VARCHAR(20) DEFAULT 'public',  -- public / private
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_worlds_user_uuid ON worlds(user_uuid);
-
--- 智能体/角色表 (Agent)
-CREATE TABLE agents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_uuid VARCHAR(255) NOT NULL,
+    user_uuid UUID NOT NULL,                  -- 创建者/所有者 ID (后续关联 auth 体系)
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    gitea_repo_name VARCHAR(255) NOT NULL,
-    default_branch VARCHAR(50) DEFAULT 'main',
-    visibility VARCHAR(20) DEFAULT 'public',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    cover_image_url TEXT,                     -- 封面图 URL
+    git_repo_url VARCHAR(512) NOT NULL,       -- 底层存储库地址 (核心数据所在)
+    is_public BOOLEAN DEFAULT false,          -- 是否公开在广场展示
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now()
 );
+
+CREATE INDEX idx_workspaces_user_uuid ON workspaces(user_uuid);
+```
+
+### 2. `agents` (智能体表)
+
+记录 Agent 的基本信息，同样主要用于展示和索引。
+
+```sql
+-- 智能体表 (Agent)
+CREATE TABLE agents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_uuid UUID NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    avatar_url TEXT,
+    git_repo_url VARCHAR(512) NOT NULL,
+    is_public BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now()
+);
+
 CREATE INDEX idx_agents_user_uuid ON agents(user_uuid);
 ```
 
-### 2. 运行时表 (Runtime & Stateful)
+### 3. `sessions` (运行会话表)
 
-这是 Netaverses 作为“引擎”最核心的表，记录了谁、用什么角色、进入了哪个世界。
+记录一次运行时的生命周期。代表一个 Agent 被放入了一个具体的 Workspace 中。
 
 ```sql
 -- 会话表 (Session)
 CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_uuid VARCHAR(255) NOT NULL,          -- 发起会话的玩家/用户 UUID
-    world_id UUID REFERENCES worlds(id),
-    world_commit_hash VARCHAR(40),            -- 锁定 World 版本，防止世界设定变更影响正在运行的会话
+    user_uuid UUID NOT NULL,                  -- 会话发起人
+    workspace_id UUID REFERENCES workspaces(id),
     agent_id UUID REFERENCES agents(id),
+    workspace_commit_hash VARCHAR(40),        -- 锁定 Workspace 版本
     agent_commit_hash VARCHAR(40),            -- 锁定 Agent 版本
-    
-    title VARCHAR(255),                       -- 会话标题 (可选，如 "赛博朋克第一局")
-    status VARCHAR(50) DEFAULT 'active',      -- active, paused, archived
-    
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    status VARCHAR(50) DEFAULT 'active',      -- active, paused, archived, error
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now()
 );
+
 CREATE INDEX idx_sessions_user_uuid ON sessions(user_uuid);
+CREATE INDEX idx_sessions_workspace_id ON sessions(workspace_id);
+CREATE INDEX idx_sessions_agent_id ON sessions(agent_id);
 ```
 
-## 设计亮点与考量
+## 关键设计说明
 
-1. **版本锁定 (`commit_hash`)**: 在 `sessions` 表中记录了 `world_commit_hash` 和 `agent_commit_hash`。这非常关键！由于 World 和 Agent 是托管在 Gitea 中的，如果不锁定 hash，创作者修改了设定的 main 分支，可能会导致正在游玩的 Session 逻辑崩溃（所谓的“世界线变动”）。
-2. **外部账号友好**: 所有的 `user_uuid` 都采用 `VARCHAR`，完美兼容 OIDC (如 Authing, Keycloak) 传入的 UUID 或字符串形式的主键。
-
+1. **版本锁定 (`commit_hash`)**: 在 `sessions` 表中记录了 `workspace_commit_hash` 和 `agent_commit_hash`。这非常关键！由于 Workspace 和 Agent 的实际配置托管在底层存储中，如果不锁定 hash，创作者修改了设定的 main 分支，可能会导致正在运行的 Session 逻辑变更甚至崩溃。锁定 hash 保证了 Session 的确定性。
+2. **User 模型**: Phase 1 暂不建立复杂的 Users 表，仅依赖外部 Auth 服务传递过来的 JWT 中的 `user_uuid` 作为标识即可，以此保证系统的轻量化并降低耦合。

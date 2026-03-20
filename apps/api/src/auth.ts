@@ -35,13 +35,13 @@ export const setTokenCookie = (c: Context, token: string) => {
     httpOnly: true,
     sameSite: "Lax",
     path: "/",
-    secure: c.req.url.startsWith("https://")
+    secure: c.req.url.startsWith("https://"),
   });
 };
 
 export const clearTokenCookie = (c: Context) => {
   deleteCookie(c, TOKEN_COOKIE_NAME, {
-    path: "/"
+    path: "/",
   });
 };
 
@@ -57,8 +57,8 @@ export type AuthUserProfile = {
 export const fetchAuthUser = async (token: string) => {
   const response = await fetch(`${config.authBaseUrl}/v1/user/`, {
     headers: {
-      "x-token": token
-    }
+      "x-token": token,
+    },
   });
 
   if (response.status === 401 || response.status === 403) {

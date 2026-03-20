@@ -14,7 +14,9 @@ const createKubeClient = () => {
     if (existsSync(kubeconfigPath)) {
       kubeConfig.loadFromFile(kubeconfigPath);
     } else {
-      console.warn(`KUBECONFIG file not found: ${kubeconfigPath}, falling back to default`);
+      console.warn(
+        `KUBECONFIG file not found: ${kubeconfigPath}, falling back to default`,
+      );
       kubeConfig.loadFromDefault();
     }
   } else {

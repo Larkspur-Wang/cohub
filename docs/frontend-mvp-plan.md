@@ -1,46 +1,31 @@
-# Phase 1: Web 前端 MVP 设计方案
+# 前端 MVP 改造计划
 
-## 1. 目标
-在 `apps/web` (SvelteKit) 中删减不必要的页面（原有的 Git/Workspace 仓库浏览逻辑），替换为符合 Phase 1 MVP 目标的交互流：**能够浏览 Worlds、浏览 Agents，将它们组合后开启并进入一个会话 (Session) 进行 Chat。**
+在 `apps/web` (SvelteKit) 中，重点突出面向开发者的工具属性，交互流变更为：**浏览 Workspaces、浏览 Agents，将它们组合后开启并进入一个会话 (Session) 进行联调调试。**
 
-## 2. 目录结构与页面改造
+## 核心页面路由规划
 
-**原有的无用页面（建议删除/覆盖）：**
-- ❌ `src/routes/workspaces/[owner]/[repo]/` (原代码库浏览逻辑)
-
-**新增的核心页面流（MVP 阶段）：**
-
-| 路由路径 | 页面描述 | 核心功能 |
+| 路由 | 功能描述 | 细节 |
 | :--- | :--- | :--- |
-| `/` | 首页 | 展示欢迎语，引导用户进入“探索世界”或“我的角色” |
-| `/worlds` | 世界列表页 | 展示可用的 `Worlds`（卡片列表），提供点击进入详情页的入口 |
-| `/worlds/[id]` | 世界详情页 | 展示 World 的 `description` 和背景设定。提供 **“带上 Agent 探索此世界 (Start Session)”** 按钮 |
-| `/agents` | 角色列表页 | 展示可用的 `Agents`。提供点击进入详情页或“新建 Agent”的入口 |
-| `/agents/[id]` | 角色详情页 | 展示 Agent 的设定（如名称、描述）。 |
-| `/sessions/new?world_id=xxx` | 会话初始化页 | （过渡页或弹窗）让用户从自己的 Agent 列表中**选择一个 Agent** 丢入选定的 World。点击“Start”请求后端创建 Session，然后跳转到 Chat 页。 |
-| `/sessions/[id]` | 对话交互页 (Chat) | 左侧侧边栏展示当前 World 和 Agent 信息，右侧为核心的类似 ChatGPT 的对话气泡列表与输入框。 |
+| `/` | 落地首页 | 极简风格的 Hero Section，展示“AI Workspace & Agent Orchestration Platform”理念。提供进入工作区的快捷入口。 |
+| `/workspaces` | 工作区列表页 | 展示可用的 `Workspaces`（卡片列表），提供点击进入详情页的入口 |
+| `/workspaces/[id]` | 工作区详情页 | 展示 Workspace 的 `description` 和配置元数据。提供 **“在工作区中部署 Agent (Start Session)”** 的操作按钮 |
+| `/sessions/new?workspace_id=xxx` | 会话初始化页 | （过渡页或弹窗）让用户从自己的 Agent 列表中**选择一个 Agent** 部署到选定的 Workspace。点击“Start”请求后端创建 Session，然后跳转到调试台页。 |
+| `/sessions/[id]` | 调试交互页 (Console) | 左侧侧边栏展示当前 Workspace 和 Agent 的组合信息，右侧为核心的对话输入与输出面板，用于调试验证。 |
 
-## 3. 页面交互流程 (User Flow)
-1. 用户访问 `/worlds` 浏览世界。
-2. 点选一个世界（如“赛博朋克夜之城”），进入详情 `/worlds/[id]`。
-3. 点击 **“开启探索 (Start Session)”** 按钮。
-4. 跳转至 `/sessions/new?world_id=[id]` 页面，弹出一个列表让用户挑选自己的 `Agent`（如“黑客义体医生”）。
-5. 点击确认，前端向后端发送 `POST /api/sessions` (参数为 `world_id` + `agent_id`)。
-6. 后端返回 `session_id`，前端跳转到 `/sessions/[session_id]`。
-7. 进入主 Chat 界面，向后端发起首条系统欢迎消息请求，随后用户可以发消息聊天。
+## 交互流程串联
 
-## 4. UI 库与样式栈
-- 当前 `apps/web` 中包含了一个基础的 `app.css`，看依赖中没有 Tailwind/DaisyUI 等。
-- **建议**：为了第一阶段的快速和美观，我们使用原生的极简 CSS + CSS Variables 或者是如果你偏好，我们可以不引入重量级 UI 库，手写一些极简大气的 Flex 布局和卡片样式（类似 Vercel / Huggingface 的性冷淡极简风）。
+1. 用户访问 `/workspaces` 浏览工作区。
+2. 点选一个工作区（如“客服知识库”），进入详情 `/workspaces/[id]`。
+3. 点击“Start Session”。
+4. 跳转至 `/sessions/new?workspace_id=[id]` 页面，弹出一个列表让用户挑选自己的 `Agent`（如“售后支持机器人”）。
+5. 点击确认，前端向后端发送 `POST /api/sessions` (参数为 `workspace_id` + `agent_id`)。
+6. 后端创建并返回 Session ID，前端使用 `goto('/sessions/' + session_id)` 跳转至调试台。
+7. 用户在调试台中发送文本，与后端 `/api/sessions/[id]/chat` 接口通信，验证 Agent 在当前 Workspace 下的回复表现。
 
-## 5. Mock 数据规划（第一阶段联调前）
-在 API 尚未提供真实数据前，我们在 SvelteKit 的 `lib/mock.ts` 中写死几个 World 和 Agent 对象：
-- **Mock Worlds**: 包含 2 个世界（比如 Sci-Fi, Fantasy）。
-- **Mock Agents**: 包含 2 个角色（比如 雇佣兵, 魔法学徒）。
-- 组件中使用这些 mock 数据占位，保证流程连贯跑通。
+## 阶段性 Mock 策略
 
----
-**确认点：**
-1. 这个路由结构 (`/worlds`, `/agents`, `/sessions`) 是否符合你的预期？
-2. 新建 Session 的交互：是在世界详情页点击后**先跳选择 Agent 页**，还是直接用一个 Svelte 模态框 (Modal) 选完直接进 Chat？（推荐弹窗或下拉框选 Agent，体验更连贯）
-3. 样式风格上，要不要我现在顺手给你配置一下 TailwindCSS 还是就手写轻量 CSS？
+在 API 尚未提供真实数据前，我们在 SvelteKit 的 `lib/mock.ts` 中写入测试用的 Workspace 和 Agent 对象：
+
+- **Mock Workspaces**: 包含 2 个工作区（比如 "Customer Support", "Data Analysis"）。
+- **Mock Agents**: 包含 2 个智能体（比如 "Support Bot", "SQL Assistant"）。
+- **Mock Session & Chat**: 前端暂存对话列表数组，调用一个空函数模拟等待。

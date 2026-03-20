@@ -1,44 +1,40 @@
-# Phase 1 MVP: 核心对话会话 (Core Chat Session)
+# Phase 1 MVP 定义
 
-## 1. 目标 (Objective)
-验证 Netaverses 的核心业务循环：能够拉取一个 **World (世界)** 与一个 **Agent (角色)** 的设定资产，将它们结合并在云端启动一个 **Session (会话)**，最终通过 Web 界面（充当默认的 **Portal**）与 Agent 进行直接的 Chat 交互。
+## 核心目标
 
-## 2. 核心价值验证 (Why this MVP?)
-这个 MVP 抛弃了早期复杂的 Git 版本控制、多端接入和复杂的玩法规则，直击系统的心脏：
-- 验证 World 和 Agent 设定分离（解耦）后，能否被 LLM 良好地理解并组合。
-- 跑通 Session（运行实例）的生命周期管理与上下文（Context/Memory）维护。
-- 为后续更复杂的 Playground（如跑团规则）和 Portal（如 Discord）奠定底层引擎基础。
+验证 Netaverses 的核心技术链路：能够拉取一个 **Workspace (工作区)** 与一个 **Agent (智能体)** 的配置资产，将它们结合并在云端启动一个 **Session (会话)**，最终通过 Web 界面（充当默认的 **Channel**）与 Agent 进行直接的交互联调。
 
-## 3. 核心范围 (Scope)
+## 关键验证点
 
-在 MVP 阶段，5 大核心概念的落地形态如下：
+- 验证 Workspace 和 Agent 配置分离（解耦）后，能否被良好地组合及理解。
+- 为后续更复杂的工具调用（Function Calling）和第三方 Channel 接入奠定底层引擎基础。
+- 前后端基于 Hono + SvelteKit 的基本联调跑通，数据库 Schema 设计无误。
 
-- **🌍 World**: 最小化可行的数据结构（如一个包含 `description.md`, `lore.json` 的本地文件夹），提供世界观背景。
-- **🧠 Agent**: 最小化可行的数据结构（如一个包含 `identity.md`, `persona.json` 的本地文件夹），提供角色性格与设定。
-- **🎭 Playground**: 提供一个默认的、最基础的 **"Free Talk" (自由对话)** 玩法模组。没有复杂的数值和判定规则，仅做纯文本的 Roleplay (角色扮演)。
-- **⚡️ Session**: 后端 (Hono) 维护的运行时状态。负责将 World 和 Agent 的设定拼装为 System Prompt，管理对话历史 (History)，并对接 LLM (如 OpenAI 兼容接口)。
-- **🚪 Portal**: Netaverses 的 Web 工作台 (SvelteKit) 直接充当 Portal，提供一个类似 ChatGPT 的对话 UI，支持展示当前所处的世界和对话的角色。
+## 最小可用范围 (Scope)
 
-## 4. 暂不包含 (Out of Scope for MVP)
-为了保证第一阶段能够极速落地并看到效果，以下特性在 MVP 中**明确不包含**：
-- ❌ 复杂的基于 Git 的资产托管、版本控制与 Fork（MVP 阶段可以直接在服务端放几个 Mock 的文件夹作为数据源）。
-- ❌ 复杂的 RAG (检索增强生成) 与长期记忆（MVP 阶段暂只用简单的上下文拼接）。
-- ❌ 外部 Portal 接入（如 Discord / QQ 机器人）。
-- ❌ 复杂的 Playground 规则解析（如掷骰子、属性卡、抽卡机制）。
-- ❌ 多 Agent 同在一个 Session 里的群聊。
+### 包含内容 (In Scope)
 
-## 5. 实施路径 (Implementation Steps)
+- **🌍 Workspace**: 最小化可行的数据结构，提供上下文环境与静态提示词配置。
+- **🧠 Agent**: 定义智能体的模型偏好、人设与核心指令。
+- **⚡️ Session**: 后端 (Hono) 维护的运行时状态。负责将 Workspace 和 Agent 的设定拼装为 System Prompt，管理对话历史 (History)，并对接 LLM (如 OpenAI 兼容接口)。
+- **🚪 Channel**: Netaverses 的 Web 工作台 (SvelteKit) 直接充当 Channel，提供一个对话调试 UI，支持展示当前所处的工作区和调试的智能体。
 
-1. **Schema 设计**: 确定 World 和 Agent 的文件目录结构和元数据格式（YAML / JSON / Markdown）。
-2. **Mock 数据准备**: 手写 1 个测试用的 World（例如：赛博朋克夜之城）和 1 个 Agent（例如：义体医生）。
-3. **API 层 (Hono) 开发**:
-   - `GET /api/worlds` & `GET /api/agents` (读取本地 mock 数据返回)。
-   - `POST /api/sessions` (选择 World + Agent，初始化会话，生成初始 System Prompt)。
-   - `POST /api/sessions/:id/chat` (接收用户消息，调用 LLM，返回流式或普通响应)。
-4. **Web 层 (SvelteKit) 开发**:
-   - 简单的选择页：选择组合 World 与 Agent。
-   - Session 界面：左右分栏结构（左侧显示世界/角色卡片元信息，右侧为主聊天区）。
-5. **联调与体验验证**: 确认对话时 Agent 能否准确体现自己的 Persona 以及 World 的世界观限制。
+### 不包含内容 (Out of Scope)
 
-## 6. 成功标准
-当我们可以打开浏览器，选择“赛博朋克夜之城” + “义体医生”，并在网页里与他顺畅聊天，且他能根据设定的世界观回答问题时，MVP 即宣告成功。
+- ❌ Git 底层存储库真实对接（Phase 1 可先写死本地文件夹或 Mock 模拟托管流程）。
+- ❌ 复杂权限控制（Auth）。
+- ❌ 第三方 Channel 接入（如 Webhook / Slack 机器人）。
+
+## 开发路径规划
+
+1. **Schema 设计**: 确定 Workspace 和 Agent 的元数据格式与基本表结构。
+2. **Mock 数据准备**: 构建 1 个测试用的 Workspace 和 1 个 Agent。
+3. **后端 API (Hono)**:
+   - `GET /api/workspaces` & `GET /api/agents` (返回 mock 列表)。
+   - `POST /api/sessions` (选择 Workspace + Agent，初始化会话，生成初始 System Prompt)。
+   - `POST /api/sessions/:id/chat` (向特定会话发送消息并获取 LLM 回复)。
+4. **前端工作台 (SvelteKit)**:
+   - 列表页：浏览 Workspaces 与 Agents。
+   - 会话启动页：选择组合 Workspace 与 Agent。
+   - 调试面板：类似 ChatGPT 的聊天 UI。
+5. **联调与体验验证**: 确认对话时 Agent 能否准确结合 Workspace 的上下文。

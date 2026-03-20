@@ -1,28 +1,28 @@
 <script lang="ts">
-  import { renderMarkdown } from '$lib/markdown';
-  import ThinkingBlock from '$lib/components/ThinkingBlock.svelte';
-  import type { ChatMessage } from '$lib/session-chat';
+import { renderMarkdown } from "$lib/markdown";
+import ThinkingBlock from "$lib/components/ThinkingBlock.svelte";
+import type { ChatMessage } from "$lib/session-chat";
 
-  type Props = {
-    message: ChatMessage;
-  };
+type Props = {
+  message: ChatMessage;
+};
 
-  let { message }: Props = $props();
-  let renderedHtml = $state('');
+const { message }: Props = $props();
+let renderedHtml = $state("");
 
-  $effect(() => {
-    let cancelled = false;
+$effect(() => {
+  let cancelled = false;
 
-    void renderMarkdown(message.text).then((html) => {
-      if (!cancelled) {
-        renderedHtml = html;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
+  void renderMarkdown(message.text).then((html) => {
+    if (!cancelled) {
+      renderedHtml = html;
+    }
   });
+
+  return () => {
+    cancelled = true;
+  };
+});
 </script>
 
 {#if message.role === 'system' && message.tone === 'thinking'}

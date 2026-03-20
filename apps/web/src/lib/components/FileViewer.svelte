@@ -1,19 +1,19 @@
 <script lang="ts">
-  const {
-    filePath,
-    fileContent,
-    markdownHtml,
-    isMarkdown,
-    loading,
-    error
-  }: {
-    filePath: string;
-    fileContent: string;
-    markdownHtml: string;
-    isMarkdown: boolean;
-    loading: boolean;
-    error: string | null;
-  } = $props();
+const {
+  filePath,
+  fileContent,
+  markdownHtml,
+  isMarkdown,
+  loading,
+  error,
+}: {
+  filePath: string;
+  fileContent: string;
+  markdownHtml: string;
+  isMarkdown: boolean;
+  loading: boolean;
+  error: string | null;
+} = $props();
 </script>
 
 <section class="viewer">

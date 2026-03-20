@@ -1,5 +1,5 @@
 {
-  "id": "96aa6d79-7c70-44c4-a981-d2d150847bdf",
+  "id": "b5092542-55fd-4662-9588-22dca585fcc1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -109,14 +109,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "world_id": {
-          "name": "world_id",
+        "workspace_id": {
+          "name": "workspace_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
-        "world_commit_hash": {
-          "name": "world_commit_hash",
+        "workspace_commit_hash": {
+          "name": "workspace_commit_hash",
           "type": "varchar(40)",
           "primaryKey": false,
           "notNull": false
@@ -179,16 +179,12 @@
         }
       },
       "foreignKeys": {
-        "sessions_world_id_worlds_id_fk": {
-          "name": "sessions_world_id_worlds_id_fk",
+        "sessions_workspace_id_workspaces_id_fk": {
+          "name": "sessions_workspace_id_workspaces_id_fk",
           "tableFrom": "sessions",
-          "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -196,12 +192,8 @@
           "name": "sessions_agent_id_agents_id_fk",
           "tableFrom": "sessions",
           "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -212,8 +204,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.worlds": {
-      "name": "worlds",
+    "public.workspaces": {
+      "name": "workspaces",
       "schema": "",
       "columns": {
         "id": {
@@ -277,8 +269,8 @@
         }
       },
       "indexes": {
-        "idx_worlds_user_uuid": {
-          "name": "idx_worlds_user_uuid",
+        "idx_workspaces_user_uuid": {
+          "name": "idx_workspaces_user_uuid",
           "columns": [
             {
               "expression": "user_uuid",

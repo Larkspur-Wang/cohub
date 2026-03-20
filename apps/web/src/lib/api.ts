@@ -9,8 +9,8 @@ type Fetch = typeof globalThis.fetch;
 type SessionRecord = {
   id: string;
   userUuid: string;
-  worldId: string | null;
-  worldCommitHash: string | null;
+  workspaceId: string | null;
+  workspaceCommitHash: string | null;
   agentId: string | null;
   agentCommitHash: string | null;
   title: string | null;
@@ -29,7 +29,10 @@ type SessionStreamEvent = {
   [key: string]: unknown;
 };
 
-const apiFetch = async (path: string, init?: RequestInit & { fetch?: Fetch }) => {
+const apiFetch = async (
+  path: string,
+  init?: RequestInit & { fetch?: Fetch },
+) => {
   const base = API_BASE_URL;
   const url = base ? `${base}${path}` : path;
 
@@ -37,7 +40,7 @@ const apiFetch = async (path: string, init?: RequestInit & { fetch?: Fetch }) =>
 
   const response = await fetcher(url, {
     credentials: "include",
-    ...init
+    ...init,
   });
 
   if (!response.ok) {
@@ -56,15 +59,15 @@ export const setAuthToken = async (token: string) => {
   return apiFetch("/api/auth/token", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify({ token })
+    body: JSON.stringify({ token }),
   });
 };
 
 export const clearAuthToken = async () => {
   return apiFetch("/api/auth/token", {
-    method: "DELETE"
+    method: "DELETE",
   });
 };
 
@@ -72,7 +75,11 @@ export const getMe = async (customFetch?: Fetch) => {
   return apiFetch("/api/me", { fetch: customFetch });
 };
 
-export const getWorkspace = async (owner: string, repo: string, customFetch?: Fetch) => {
+export const getWorkspace = async (
+  owner: string,
+  repo: string,
+  customFetch?: Fetch,
+) => {
   return apiFetch(`/api/workspaces/${owner}/${repo}`, { fetch: customFetch });
 };
 
@@ -81,7 +88,7 @@ export const getTree = async (
   repo: string,
   path = "",
   ref?: string,
-  customFetch?: Fetch
+  customFetch?: Fetch,
 ) => {
   const params = new URLSearchParams();
   if (path) {
@@ -91,9 +98,12 @@ export const getTree = async (
     params.set("ref", ref);
   }
   const query = params.toString();
-  return apiFetch(`/api/workspaces/${owner}/${repo}/tree${query ? `?${query}` : ""}`, {
-    fetch: customFetch
-  });
+  return apiFetch(
+    `/api/workspaces/${owner}/${repo}/tree${query ? `?${query}` : ""}`,
+    {
+      fetch: customFetch,
+    },
+  );
 };
 
 export const getFile = async (
@@ -101,33 +111,38 @@ export const getFile = async (
   repo: string,
   path: string,
   ref?: string,
-  customFetch?: Fetch
+  customFetch?: Fetch,
 ) => {
   const params = new URLSearchParams({ path });
   if (ref) {
     params.set("ref", ref);
   }
-  return apiFetch(`/api/workspaces/${owner}/${repo}/file?${params.toString()}`, {
-    fetch: customFetch
-  });
+  return apiFetch(
+    `/api/workspaces/${owner}/${repo}/file?${params.toString()}`,
+    {
+      fetch: customFetch,
+    },
+  );
 };
 
 export const createSession = async (input?: {
-  worldId?: string;
+  workspaceId?: string;
   agentId?: string;
   title?: string;
 }) => {
   return apiFetch("/api/sessions", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(input ?? {})
+    body: JSON.stringify(input ?? {}),
   }) as Promise<SessionCreateResponse>;
 };
 
 export const getSession = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/sessions/${id}`, { fetch: customFetch }) as Promise<SessionRecord>;
+  return apiFetch(`/api/sessions/${id}`, {
+    fetch: customFetch,
+  }) as Promise<SessionRecord>;
 };
 
 export const sendSessionMessage = async (
@@ -135,26 +150,33 @@ export const sendSessionMessage = async (
   input: {
     text: string;
     images?: Array<{ url: string }>;
-  }
+  },
 ) => {
   return apiFetch(`/api/sessions/${id}/messages`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 };
 
 export const abortSession = async (id: string) => {
   return apiFetch(`/api/sessions/${id}/abort`, {
-    method: "POST"
+    method: "POST",
   });
 };
 
 export const getSessionStreamUrl = (id: string) => {
   const base = API_BASE_URL;
-  return base ? `${base}/api/sessions/${id}/stream` : `/api/sessions/${id}/stream`;
+  return base
+    ? `${base}/api/sessions/${id}/stream`
+    : `/api/sessions/${id}/stream`;
 };
 
-export type { ApiError, SessionCreateResponse, SessionRecord, SessionStreamEvent };
+export type {
+  ApiError,
+  SessionCreateResponse,
+  SessionRecord,
+  SessionStreamEvent,
+};

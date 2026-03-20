@@ -1,4 +1,5 @@
-const RUNTIME_IMAGE = "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-agent:latest";
+const RUNTIME_IMAGE =
+  "registry.cn-shanghai.aliyuncs.com/talesofai/netaverses-agent:latest";
 
 type SandboxPodTemplateVariables = {
   SESSION_ID: string;

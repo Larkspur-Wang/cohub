@@ -1,32 +1,34 @@
 <script lang="ts">
-  import type { ToolState } from '$lib/session-chat';
+import type { ToolState } from "$lib/session-chat";
 
-  type Props = {
-    tool: ToolState;
-  };
+type Props = {
+  tool: ToolState;
+};
 
-  let { tool }: Props = $props();
+const { tool }: Props = $props();
 
-  const prettyArgs = (args?: Record<string, unknown>) => {
-    if (!args) {
-      return '';
-    }
+const prettyArgs = (args?: Record<string, unknown>) => {
+  if (!args) {
+    return "";
+  }
 
-    try {
-      return JSON.stringify(args, null, 2);
-    } catch {
-      return String(args);
-    }
-  };
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+};
 
-  const isCodeTool = $derived(['bash', 'read', 'write', 'edit', 'grep', 'find'].includes(tool.name));
-  const statusClass = $derived(
-    tool.status === 'running'
-      ? 'bg-slate-900 text-slate-100'
-      : tool.status === 'error'
-        ? 'bg-red-50 text-red-800'
-        : 'bg-slate-100 text-slate-800'
-  );
+const isCodeTool = $derived(
+  ["bash", "read", "write", "edit", "grep", "find"].includes(tool.name),
+);
+const statusClass = $derived(
+  tool.status === "running"
+    ? "bg-slate-900 text-slate-100"
+    : tool.status === "error"
+      ? "bg-red-50 text-red-800"
+      : "bg-slate-100 text-slate-800",
+);
 </script>
 
 <div class="max-w-[95%]">

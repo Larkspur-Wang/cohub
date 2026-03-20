@@ -41,13 +41,13 @@ const createGiteaHeaders = () => {
   }
 
   return {
-    Authorization: `token ${config.giteaToken}`
+    Authorization: `token ${config.giteaToken}`,
   };
 };
 
 const giteaGet = async <T>(path: string) => {
   const response = await fetch(`${config.giteaBaseUrl}/api/v1${path}`, {
-    headers: createGiteaHeaders()
+    headers: createGiteaHeaders(),
   });
 
   if (response.status === 404) {
@@ -72,9 +72,9 @@ const giteaPost = async <T>(path: string, body: unknown) => {
     method: "POST",
     headers: {
       ...headers,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -89,18 +89,22 @@ export const getRepository = async (owner: string, repo: string) => {
   return giteaGet<Record<string, unknown>>(`/repos/${owner}/${repo}`);
 };
 
-export const createRepository = async (token: string, name: string, isPrivate = true) => {
+export const createRepository = async (
+  token: string,
+  name: string,
+  isPrivate = true,
+) => {
   const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/repos`, {
     method: "POST",
     headers: {
       Authorization: `token ${token}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       name,
       private: isPrivate,
-      auto_init: false
-    })
+      auto_init: false,
+    }),
   });
 
   if (response.status === 409) {
@@ -120,13 +124,13 @@ export const addSshKey = async (token: string, key: string, title: string) => {
     method: "POST",
     headers: {
       Authorization: `token ${token}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       key,
       title,
-      read_only: false
-    })
+      read_only: false,
+    }),
   });
 
   if (response.status === 422) {
@@ -141,11 +145,13 @@ export const addSshKey = async (token: string, key: string, title: string) => {
   return response.json();
 };
 
-export const createAnonymousRepository = async (name: string): Promise<GiteaRepository> => {
+export const createAnonymousRepository = async (
+  name: string,
+): Promise<GiteaRepository> => {
   const repo = await giteaPost<GiteaRepository>("/orgs/anonymous/repos", {
     name,
     private: false,
-    auto_init: false
+    auto_init: false,
   });
   return repo;
 };
@@ -154,13 +160,16 @@ export const addDeployKeyToRepo = async (
   owner: string,
   repo: string,
   key: string,
-  title: string
+  title: string,
 ): Promise<GiteaDeployKey> => {
-  const deployKey = await giteaPost<GiteaDeployKey>(`/repos/${owner}/${repo}/keys`, {
-    key,
-    title,
-    read_only: false
-  });
+  const deployKey = await giteaPost<GiteaDeployKey>(
+    `/repos/${owner}/${repo}/keys`,
+    {
+      key,
+      title,
+      read_only: false,
+    },
+  );
   return deployKey;
 };
 
@@ -168,7 +177,7 @@ export const getDirectoryEntries = async (
   owner: string,
   repo: string,
   path: string,
-  ref?: string
+  ref?: string,
 ) => {
   const encodedPath = path
     .split("/")
@@ -186,7 +195,9 @@ export const getDirectoryEntries = async (
     : `/repos/${owner}/${repo}/contents`;
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
 
-  const data = await giteaGet<Array<GiteaEntry> | GiteaFileResponse>(`${urlPath}${suffix}`);
+  const data = await giteaGet<Array<GiteaEntry> | GiteaFileResponse>(
+    `${urlPath}${suffix}`,
+  );
 
   if (!data) {
     return null;
@@ -202,7 +213,7 @@ export const getDirectoryEntries = async (
       path: entry.path,
       type: entry.type,
       size: entry.size,
-      sha: entry.sha
+      sha: entry.sha,
     }))
     .sort((a, b) => {
       if (a.type !== b.type) {
@@ -216,7 +227,7 @@ export const getFileContent = async (
   owner: string,
   repo: string,
   path: string,
-  ref?: string
+  ref?: string,
 ) => {
   const cleanPath = path
     .split("/")
@@ -234,7 +245,7 @@ export const getFileContent = async (
 
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
   const data = await giteaGet<GiteaFileResponse>(
-    `/repos/${owner}/${repo}/contents/${cleanPath}${suffix}`
+    `/repos/${owner}/${repo}/contents/${cleanPath}${suffix}`,
   );
 
   if (!data || data.type !== "file") {
@@ -254,6 +265,6 @@ export const getFileContent = async (
     sha: data.sha,
     size: data.size,
     encoding,
-    content
+    content,
   };
 };

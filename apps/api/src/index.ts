@@ -4,7 +4,12 @@ import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 
-import { clearTokenCookie, fetchAuthUser, getTokenFromRequest, setTokenCookie } from "./auth.js";
+import {
+  clearTokenCookie,
+  fetchAuthUser,
+  getTokenFromRequest,
+  setTokenCookie,
+} from "./auth.js";
 import { assertRequiredConfig, config } from "./config.js";
 import {
   getDirectoryEntries,
@@ -13,7 +18,7 @@ import {
   createRepository,
   addSshKey,
   createAnonymousRepository,
-  addDeployKeyToRepo
+  addDeployKeyToRepo,
 } from "./gitea.js";
 import {
   abortSession,
@@ -42,8 +47,8 @@ app.use(
     origin: config.webOrigin ?? "*",
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "neta-token", "Authorization"],
-    credentials: true
-  })
+    credentials: true,
+  }),
 );
 
 app.get("/healthz", (c) => c.json({ ok: true }));
@@ -109,7 +114,10 @@ app.post("/api/v1/user/repos", async (c) => {
     const repo = await createRepository(token, body.name, body.private ?? true);
     return c.json(repo);
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
+    return c.json(
+      { message: error instanceof Error ? error.message : "Unknown error" },
+      500,
+    );
   }
 });
 
@@ -123,7 +131,10 @@ app.post("/api/v1/user/keys", async (c) => {
     const key = await addSshKey(token, body.key, body.title);
     return c.json(key);
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
+    return c.json(
+      { message: error instanceof Error ? error.message : "Unknown error" },
+      500,
+    );
   }
 });
 
@@ -131,7 +142,9 @@ app.post("/api/v1/user/keys", async (c) => {
 app.post("/api/v1/share/init", async (c) => {
   try {
     const body = await c.req.json<{ name?: string; publicKey: string }>();
-    const name = (body.name || "ws-share").toLowerCase().replace(/[^a-z0-9-_]/g, "-");
+    const name = (body.name || "ws-share")
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "-");
     if (!body.publicKey || typeof body.publicKey !== "string") {
       return c.json({ message: "publicKey is required" }, 400);
     }
@@ -145,14 +158,22 @@ app.post("/api/v1/share/init", async (c) => {
     // org name here must match your Gitea org that holds anonymous repos
     const owner = repo.owner.username;
 
-    await addDeployKeyToRepo(owner, repo.name, body.publicKey, `ws-share-${suffix}`);
+    await addDeployKeyToRepo(
+      owner,
+      repo.name,
+      body.publicKey,
+      `ws-share-${suffix}`,
+    );
 
     return c.json({
       sshUrl: repo.ssh_url,
-      webUrl: repo.html_url
+      webUrl: repo.html_url,
     });
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
+    return c.json(
+      { message: error instanceof Error ? error.message : "Unknown error" },
+      500,
+    );
   }
 });
 
@@ -180,7 +201,7 @@ app.get("/api/workspaces/:owner/:repo/tree", async (c) => {
     repo,
     path,
     ref: ref ?? null,
-    entries
+    entries,
   });
 });
 
@@ -214,19 +235,19 @@ app.post("/api/sessions", async (c) => {
 
   const body = (await c.req
     .json<{
-      worldId?: string;
+      workspaceId?: string;
       agentId?: string;
       title?: string;
     }>()
     .catch(() => ({}))) as {
-    worldId?: string;
+    workspaceId?: string;
     agentId?: string;
     title?: string;
   };
 
   const session = await createSession({
     userUuid: user.uuid,
-    worldId: body.worldId ?? null,
+    workspaceId: body.workspaceId ?? null,
     agentId: body.agentId ?? null,
     title: body.title ?? null,
   });
@@ -279,12 +300,13 @@ app.get("/api/sessions/:id/stream", async (c) => {
     return c.json({ message: "session not found" }, 404);
   }
 
-  const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
+  const lastEventId =
+    c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
 
   return streamSSE(c, async (stream) => {
     await stream.writeSSE({
       event: "ready",
-      data: JSON.stringify({ sessionId: session.id })
+      data: JSON.stringify({ sessionId: session.id }),
     });
 
     const output = await readSessionOutputStream({
@@ -301,7 +323,7 @@ app.get("/api/sessions/:id/stream", async (c) => {
       await stream.writeSSE({
         id: entry.id,
         event: "message",
-        data: entry.payload ?? ""
+        data: entry.payload ?? "",
       });
     }
   });
@@ -366,9 +388,9 @@ app.post("/api/sessions/:id/abort", async (c) => {
 app.onError((error, c) => {
   return c.json(
     {
-      message: error.message || "internal server error"
+      message: error.message || "internal server error",
     },
-    500
+    500,
   );
 });
 
@@ -378,7 +400,7 @@ assertRequiredConfig();
 
 serve({
   fetch: app.fetch,
-  port
+  port,
 });
 
 console.log(`@netaverses/api listening on :${port}`);

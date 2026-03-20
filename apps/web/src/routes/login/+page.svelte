@@ -1,26 +1,26 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { fade } from 'svelte/transition';
-  import { setAuthToken } from '$lib/api';
+import { goto } from "$app/navigation";
+import { fade } from "svelte/transition";
+import { setAuthToken } from "$lib/api";
 
-  let inputToken = $state('');
-  let isSubmitting = $state(false);
-  let errorMessage = $state('');
+let inputToken = $state("");
+let isSubmitting = $state(false);
+let errorMessage = $state("");
 
-  async function handleLogin() {
-    if (!inputToken.trim() || isSubmitting) return;
-    isSubmitting = true;
-    errorMessage = '';
+async function handleLogin() {
+  if (!inputToken.trim() || isSubmitting) return;
+  isSubmitting = true;
+  errorMessage = "";
 
-    try {
-      await setAuthToken(inputToken.trim());
-      await goto('/');
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Login failed';
-    } finally {
-      isSubmitting = false;
-    }
+  try {
+    await setAuthToken(inputToken.trim());
+    await goto("/");
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : "Login failed";
+  } finally {
+    isSubmitting = false;
   }
+}
 </script>
 
 <div class="min-h-[80vh] flex items-center justify-center px-6">

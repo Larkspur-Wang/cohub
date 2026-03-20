@@ -5,12 +5,17 @@ import { db } from "./db/index.js";
 import { sessions } from "./db/schema.js";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
-import { getSessionInputQueueKey, getSessionMetaKey, getSessionOutputStreamKey, redis } from "./redis.js";
+import {
+  getSessionInputQueueKey,
+  getSessionMetaKey,
+  getSessionOutputStreamKey,
+  redis,
+} from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 
 export const createSession = async (input: {
   userUuid: string;
-  worldId?: string | null;
+  workspaceId?: string | null;
   agentId?: string | null;
   title?: string | null;
 }) => {
@@ -18,7 +23,7 @@ export const createSession = async (input: {
     .insert(sessions)
     .values({
       userUuid: input.userUuid,
-      worldId: input.worldId ?? null,
+      workspaceId: input.workspaceId ?? null,
       agentId: input.agentId ?? null,
       title: input.title ?? null,
       status: "active",
@@ -56,7 +61,10 @@ export const launchSessionSandbox = async (input: {
   return pod;
 };
 
-export const waitForSessionRunning = async (sessionId: string, timeoutMs = 30000) => {
+export const waitForSessionRunning = async (
+  sessionId: string,
+  timeoutMs = 30000,
+) => {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -103,7 +111,11 @@ export const abortSession = async (sessionId: string) => {
 };
 
 export const getSessionById = async (sessionId: string) => {
-  const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
   return session ?? null;
 };
 
@@ -146,7 +158,9 @@ export const readSessionOutputStream = async (input: {
         for (const [, entries] of response) {
           for (const [id, fields] of entries) {
             currentId = id;
-            const payloadIndex = fields.findIndex((field) => field === "payload");
+            const payloadIndex = fields.findIndex(
+              (field) => field === "payload",
+            );
             const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
 
             yield {

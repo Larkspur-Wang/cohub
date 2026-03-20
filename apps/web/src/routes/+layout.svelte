@@ -1,21 +1,21 @@
 <script lang="ts">
-  import '../app.css';
-  import { goto } from '$app/navigation';
-  import { page } from '$app/state';
-  import { clearAuthToken } from '$lib/api';
+import "../app.css";
+import { goto } from "$app/navigation";
+import { page } from "$app/state";
+import { clearAuthToken } from "$lib/api";
 
-  let { children } = $props();
+const { children } = $props();
 
-  async function handleLogout() {
-    try {
-      await clearAuthToken();
-    } finally {
-      goto('/login');
-    }
+async function handleLogout() {
+  try {
+    await clearAuthToken();
+  } finally {
+    goto("/login");
   }
+}
 
-  let currentPath = $derived(page.url.pathname);
-  let isAuthenticated = $derived(currentPath !== '/login');
+const currentPath = $derived(page.url.pathname);
+const isAuthenticated = $derived(currentPath !== "/login");
 </script>
 
 <div class="min-h-screen flex flex-col bg-[var(--bg-primary)]">
@@ -31,7 +31,7 @@
       {#if isAuthenticated}
         <nav class="hidden md:flex items-center gap-8 bg-white px-6 py-3 rounded-full border border-gray-100 shadow-sm font-medium text-sm">
           <a href="/" class="{currentPath === '/' ? 'text-brand font-bold' : 'text-gray-500 hover:text-gray-900'} transition-colors">Home</a>
-          <a href="/worlds" class="{currentPath.startsWith('/worlds') ? 'text-brand font-bold' : 'text-gray-500 hover:text-gray-900'} transition-colors">Worlds</a>
+          <a href="/workspaces" class="{currentPath.startsWith('/workspaces') ? 'text-brand font-bold' : 'text-gray-500 hover:text-gray-900'} transition-colors">Workspaces</a>
           <a href="/agents" class="{currentPath.startsWith('/agents') ? 'text-brand font-bold' : 'text-gray-500 hover:text-gray-900'} transition-colors">Agents</a>
         </nav>
 

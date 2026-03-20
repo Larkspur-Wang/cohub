@@ -1,26 +1,26 @@
 <script lang="ts">
-  type ChatBubble = {
-    role: "system" | "user";
-    content: string;
-  };
+type ChatBubble = {
+  role: "system" | "user";
+  content: string;
+};
 
-  let draft = $state("");
-  const messages = $state<ChatBubble[]>([
-    {
-      role: "system",
-      content: "Chat 功能将在后续阶段接入 Agent。"
-    }
-  ]);
+let draft = $state("");
+const messages = $state<ChatBubble[]>([
+  {
+    role: "system",
+    content: "Chat 功能将在后续阶段接入 Agent。",
+  },
+]);
 
-  const submit = () => {
-    const value = draft.trim();
-    if (!value) {
-      return;
-    }
+const submit = () => {
+  const value = draft.trim();
+  if (!value) {
+    return;
+  }
 
-    messages.push({ role: "user", content: value });
-    draft = "";
-  };
+  messages.push({ role: "user", content: value });
+  draft = "";
+};
 </script>
 
 <section class="chat-panel">

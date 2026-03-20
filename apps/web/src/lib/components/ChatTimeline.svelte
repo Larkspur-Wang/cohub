@@ -1,14 +1,14 @@
 <script lang="ts">
-  import ChatMessageBubble from '$lib/components/ChatMessageBubble.svelte';
-  import ToolExecutionCard from '$lib/components/ToolExecutionCard.svelte';
-  import type { TimelineItem } from '$lib/session-chat';
+import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
+import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
+import type { TimelineItem } from "$lib/session-chat";
 
-  type Props = {
-    timeline: TimelineItem[];
-    bindListEl?: HTMLDivElement | null;
-  };
+type Props = {
+  timeline: TimelineItem[];
+  bindListEl?: HTMLDivElement | null;
+};
 
-  let { timeline, bindListEl = $bindable(null) }: Props = $props();
+let { timeline, bindListEl = $bindable(null) }: Props = $props();
 </script>
 
 <div bind:this={bindListEl} class="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/60">

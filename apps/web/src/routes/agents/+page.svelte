@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { mockAgents } from '$lib/mock';
-  import { fade } from 'svelte/transition';
+import { mockAgents } from "$lib/mock";
+import { fade } from "svelte/transition";
 </script>
 
 <div class="max-w-7xl mx-auto px-6 py-12">

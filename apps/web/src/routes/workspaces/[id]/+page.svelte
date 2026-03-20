@@ -1,58 +1,59 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { createSession } from '$lib/api';
-  import { page } from '$app/state';
-  import { mockWorlds, mockAgents } from '$lib/mock';
-  import { fade, slide } from 'svelte/transition';
+import { goto } from "$app/navigation";
+import { createSession } from "$lib/api";
+import { page } from "$app/state";
+import { mockWorkspaces, mockAgents } from "$lib/mock";
+import { fade, slide } from "svelte/transition";
 
-  const id = page.params.id;
-  const world = mockWorlds.find(w => w.id === id);
+const id = page.params.id;
+const workspace = mockWorkspaces.find((w) => w.id === id);
 
-  let showModal = $state(false);
-  let selectedAgentId = $state<string | null>(null);
-  let isStarting = $state(false);
-  let startError = $state('');
+let showModal = $state(false);
+let selectedAgentId = $state<string | null>(null);
+let isStarting = $state(false);
+let startError = $state("");
 
-  function openSelection() {
-    showModal = true;
-    startError = '';
-  }
+function openSelection() {
+  showModal = true;
+  startError = "";
+}
 
-  async function handleStart() {
-    if (!selectedAgentId || !world || isStarting) return;
+async function handleStart() {
+  if (!selectedAgentId || !workspace || isStarting) return;
 
-    isStarting = true;
-    startError = '';
+  isStarting = true;
+  startError = "";
 
-    try {
-      const result = await createSession({
-        title: `${world.name} · ${selectedAgentId}`
-      });
+  try {
+    const result = await createSession({
+      title: `${workspace.name} · ${selectedAgentId}`,
+    });
 
-      if (!result.ready) {
-        startError = 'Sandbox is still starting. Please try again in a moment.';
-        return;
-      }
-
-      showModal = false;
-      await goto(`/sessions/${result.session.id}`);
-    } catch (error) {
-      startError = error instanceof Error ? error.message : 'Failed to create session';
-    } finally {
-      isStarting = false;
+    if (!result.ready) {
+      startError = "Sandbox is still starting. Please try again in a moment.";
+      return;
     }
+
+    showModal = false;
+    await goto(`/sessions/${result.session.id}`);
+  } catch (error) {
+    startError =
+      error instanceof Error ? error.message : "Failed to create session";
+  } finally {
+    isStarting = false;
   }
+}
 </script>
 
-{#if world}
+{#if workspace}
 <div class="max-w-7xl mx-auto px-6 py-12 flex flex-col lg:flex-row gap-12">
-  <!-- Left Side: World Visual & Info -->
+  <!-- Left Side: Workspace Visual & Info -->
   <div class="flex-1">
     <div class="relative rounded-3xl overflow-hidden shadow-2xl group border-4 border-white aspect-video lg:aspect-square">
-      <img src={world.image} alt={world.name} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+      <img src={workspace.image} alt={workspace.name} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
       <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
       <div class="absolute bottom-10 left-10 right-10">
-        <h1 class="text-5xl font-black text-white leading-tight drop-shadow-lg">{world.name}</h1>
+        <h1 class="text-5xl font-black text-white leading-tight drop-shadow-lg">{workspace.name}</h1>
       </div>
     </div>
   </div>
@@ -69,7 +70,7 @@
           Realm Core Setting
         </div>
         <p class="text-lg leading-relaxed text-gray-700 font-serif italic">
-          "{world.description}"
+          "{workspace.description}"
         </p>
       </div>
 
@@ -159,7 +160,7 @@
 
 {:else}
 <div class="h-[60vh] flex flex-col items-center justify-center text-gray-400 font-black text-4xl italic">
-  World Disintegrated...
-  <a href="/worlds" class="mt-8 text-brand text-lg font-bold underline not-italic">Go Back Home</a>
+  Workspace Disintegrated...
+  <a href="/workspaces" class="mt-8 text-brand text-lg font-bold underline not-italic">Go Back Home</a>
 </div>
 {/if}

@@ -1,12 +1,12 @@
 <script lang="ts">
-  type Props = {
-    title?: string;
-    content: string;
-    isStreaming?: boolean;
-  };
+type Props = {
+  title?: string;
+  content: string;
+  isStreaming?: boolean;
+};
 
-  let { title = 'Thinking', content, isStreaming = false }: Props = $props();
-  let expanded = $state(false);
+const { title = "Thinking", content, isStreaming = false }: Props = $props();
+let expanded = $state(false);
 </script>
 
 <div class="rounded-2xl border border-amber-100 bg-amber-50 text-amber-950 shadow-sm overflow-hidden">

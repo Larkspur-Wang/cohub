@@ -1,39 +1,39 @@
 <script lang="ts">
-  import type { TreeNode } from "$lib/types";
+import type { TreeNode } from "$lib/types";
 
-  import TreeItem from "./TreeItem.svelte";
+import TreeItem from "./TreeItem.svelte";
 
-  const {
-    node,
-    depth,
-    selectedPath,
-    onToggle,
-    onSelect
-  }: {
-    node: TreeNode;
-    depth: number;
-    selectedPath: string;
-    onToggle: (node: TreeNode) => void;
-    onSelect: (node: TreeNode) => void;
-  } = $props();
+const {
+  node,
+  depth,
+  selectedPath,
+  onToggle,
+  onSelect,
+}: {
+  node: TreeNode;
+  depth: number;
+  selectedPath: string;
+  onToggle: (node: TreeNode) => void;
+  onSelect: (node: TreeNode) => void;
+} = $props();
 
-  const handleClick = () => {
-    if (node.type === "dir") {
-      onToggle(node);
-      return;
-    }
+const handleClick = () => {
+  if (node.type === "dir") {
+    onToggle(node);
+    return;
+  }
 
-    onSelect(node);
-  };
+  onSelect(node);
+};
 
-  const icon = $derived.by(() => {
-    if (node.type === "dir") {
-      return node.isOpen ? "▾" : "▸";
-    }
-    return "·";
-  });
+const icon = $derived.by(() => {
+  if (node.type === "dir") {
+    return node.isOpen ? "▾" : "▸";
+  }
+  return "·";
+});
 
-  const isActive = $derived(selectedPath === node.path);
+const isActive = $derived(selectedPath === node.path);
 </script>
 
 <button
