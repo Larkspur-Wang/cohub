@@ -35,6 +35,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # 1. 安装基础系统工具、Python 和多媒体/字体依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git wget jq ca-certificates \
+    iputils-ping \
     python3 python3-pip python3-venv \
     ffmpeg imagemagick libimage-exiftool-perl \
     unzip vim tree tmux htop xz-utils \
@@ -47,7 +48,10 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # 2. 安装 pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# 3. 安装 Playwright 浏览器及其系统依赖
+# 3. 全局安装 pi coding agent
+RUN npm install -g @mariozechner/pi-coding-agent
+
+# 4. 安装 Playwright 浏览器及其系统依赖
 RUN mkdir -p /ms-playwright && \
     npx -y playwright@1.58.2 install chromium --with-deps
 
