@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ToolState } from "$lib/session-chat";
+import type { ToolState } from "$lib/session-tree";
 
 type Props = {
   tool: ToolState;

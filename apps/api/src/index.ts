@@ -43,6 +43,11 @@ type Variables = {
 
 const app = new Hono<{ Variables: Variables }>();
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+
 const isValidInternalToken = (value: string | undefined) => {
   const expected = config.internalApiToken;
   if (!expected || !value) return false;
@@ -56,6 +61,8 @@ const isValidInternalToken = (value: string | undefined) => {
 
   return timingSafeEqual(expectedBuffer, actualBuffer);
 };
+
+const requireValidSessionId = (id: string) => isUuid(id);
 
 app.use("*", async (c, next) => {
   c.set("token", getTokenFromRequest(c));
@@ -292,7 +299,12 @@ app.post("/internal/sessions/:id/assistant-message", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const session = await getSessionById(sessionId);
   if (!session) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -361,12 +373,17 @@ app.get("/api/sessions/:id", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -380,12 +397,17 @@ app.get("/api/sessions/:id/messages", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -406,12 +428,17 @@ app.get("/api/sessions/:id/tree", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -434,12 +461,17 @@ app.post("/api/sessions/:id/select-leaf", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -463,12 +495,17 @@ app.get("/api/sessions/:id/stream", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -508,12 +545,17 @@ app.post("/api/sessions/:id/messages", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }
@@ -554,12 +596,17 @@ app.post("/api/sessions/:id/abort", async (c) => {
     return c.json({ message: "unauthorized" }, 401);
   }
 
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
   const user = await fetchAuthUser(token);
   if (!user?.uuid) {
     return c.json({ message: "unauthorized" }, 401);
   }
 
-  const session = await getSessionById(c.req.param("id"));
+  const session = await getSessionById(sessionId);
   if (!session || session.userUuid !== user.uuid) {
     return c.json({ message: "session not found" }, 404);
   }

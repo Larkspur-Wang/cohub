@@ -1,7 +1,7 @@
 <script lang="ts">
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
-import type { TimelineItem } from "$lib/session-chat";
+import type { TimelineItem } from "$lib/session-tree";
 
 type Props = {
   timeline: TimelineItem[];

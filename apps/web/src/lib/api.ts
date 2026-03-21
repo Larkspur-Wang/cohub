@@ -6,7 +6,7 @@ type ApiError = {
 
 type Fetch = typeof globalThis.fetch;
 
-type SessionRecord = {
+export type SessionRecord = {
   id: string;
   userUuid: string;
   workspaceId: string | null;
@@ -15,8 +15,89 @@ type SessionRecord = {
   agentCommitHash: string | null;
   title: string | null;
   status: string | null;
+  rootMessageId?: string | null;
+  currentLeafMessageId?: string | null;
+  latestMessageText?: string | null;
+  lastMessageAt?: string | null;
+  totalMessages?: number;
+  totalToolCalls?: number;
+  totalBranches?: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalCost?: string | number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SessionMessageBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; url: string; mimeType?: string }
+  | {
+      type: "tool_call";
+      toolCallId: string;
+      toolName: string;
+      args?: Record<string, unknown>;
+      resultPreview?: string | null;
+      isError?: boolean;
+    }
+  | {
+      type: "system_note";
+      noteType: "branch_summary" | "compaction" | "info";
+      text: string;
+    };
+
+export type SessionMessageRecord = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: SessionMessageBlock[];
+  text: string | null;
+  parentMessageId: string | null;
+  idempotencyKey?: string | null;
+  depth: number;
+  branchId: string;
+  branchIndex: number | null;
+  childCount: number;
+  isBranchPoint: boolean;
+  isLeaf: boolean;
+  provider: string | null;
+  model: string | null;
+  stopReason: string | null;
+  errorMessage: string | null;
+  usageInput: number | null;
+  usageOutput: number | null;
+  usageTotalTokens: number | null;
+  costTotal: string | null;
+  createdAt: string;
+};
+
+export type SessionToolCallRecord = {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown> | null;
+  result: unknown;
+  resultPreview: string | null;
+  isError: boolean;
+  createdAt: string;
+};
+
+export type SessionMessagesResponse = {
+  session: SessionRecord;
+  messages: SessionMessageRecord[];
+  toolCalls: SessionToolCallRecord[];
+};
+
+export type SessionTreeResponse = {
+  session: {
+    id: string;
+    currentLeafMessageId: string | null;
+    rootMessageId: string | null;
+    totalBranches: number;
+  };
+  nodes: SessionMessageRecord[];
 };
 
 type SessionCreateResponse = {
@@ -33,10 +114,10 @@ const apiFetch = async (
   path: string,
   init?: RequestInit & { fetch?: Fetch },
 ) => {
-  const base = API_BASE_URL;
-  const url = base ? `${base}${path}` : path;
-
   const fetcher = init?.fetch ?? fetch;
+  const isServerLoadFetch = Boolean(init?.fetch);
+  const base = isServerLoadFetch ? "" : API_BASE_URL;
+  const url = base ? `${base}${path}` : path;
 
   const response = await fetcher(url, {
     credentials: "include",
@@ -145,11 +226,34 @@ export const getSession = async (id: string, customFetch?: Fetch) => {
   }) as Promise<SessionRecord>;
 };
 
+export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/sessions/${id}/messages`, {
+    fetch: customFetch,
+  }) as Promise<SessionMessagesResponse>;
+};
+
+export const getSessionTree = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/sessions/${id}/tree`, {
+    fetch: customFetch,
+  }) as Promise<SessionTreeResponse>;
+};
+
+export const selectSessionLeaf = async (id: string, leafMessageId: string) => {
+  return apiFetch(`/api/sessions/${id}/select-leaf`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ leafMessageId }),
+  });
+};
+
 export const sendSessionMessage = async (
   id: string,
   input: {
     text: string;
     images?: Array<{ url: string }>;
+    branchFromMessageId?: string;
   },
 ) => {
   return apiFetch(`/api/sessions/${id}/messages`, {
@@ -177,6 +281,5 @@ export const getSessionStreamUrl = (id: string) => {
 export type {
   ApiError,
   SessionCreateResponse,
-  SessionRecord,
   SessionStreamEvent,
 };

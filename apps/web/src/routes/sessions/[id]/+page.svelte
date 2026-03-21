@@ -2,52 +2,90 @@
 import { onMount } from "svelte";
 import {
   abortSession,
+  getSessionMessages,
   getSessionStreamUrl,
+  getSessionTree,
+  selectSessionLeaf,
   sendSessionMessage,
   type SessionRecord,
+  type SessionMessageRecord,
+  type SessionToolCallRecord,
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
+import SessionTreePanel from "$lib/components/SessionTreePanel.svelte";
 import {
-  extractTextContent,
-  renderToolPreview,
-  stringifyUnknown,
-  type SessionEventPayload,
-  type TimelineItem,
+  toChatMessages,
+  toTreeNodes,
   type ChatMessage,
-  type ToolState,
-} from "$lib/session-chat";
+  type SessionTreeNodeView,
+  type TimelineItem,
+} from "$lib/session-tree";
 
 type Props = {
   data: {
     session: SessionRecord;
+    persisted: {
+      session: SessionRecord;
+      messages: SessionMessageRecord[];
+      toolCalls: SessionToolCallRecord[];
+    };
+    tree: {
+      session: {
+        id: string;
+        currentLeafMessageId: string | null;
+        rootMessageId: string | null;
+        totalBranches: number;
+      };
+      nodes: SessionMessageRecord[];
+    };
   };
 };
 
 const { data }: Props = $props();
 
-let timeline = $state<TimelineItem[]>([
-  {
-    id: crypto.randomUUID(),
-    kind: "message",
-    message: {
-      id: crypto.randomUUID(),
-      role: "system",
-      text: "Session connected. Waiting for agent output.",
-    },
-  },
-]);
+let persistedMessages = $state<SessionMessageRecord[]>(data.persisted.messages ?? []);
+let persistedToolCalls = $state<SessionToolCallRecord[]>(data.persisted.toolCalls ?? []);
+let treeNodes = $state<SessionTreeNodeView[]>(toTreeNodes(data.tree));
+let currentLeafMessageId = $state<string | null>(
+  data.tree.session.currentLeafMessageId ?? data.session.currentLeafMessageId ?? null,
+);
+let branchFromMessageId = $state<string | null>(null);
+let listEl = $state<HTMLDivElement | null>(null);
 let input = $state("");
 let sending = $state(false);
+let selectingLeaf = $state(false);
 let streamStatus = $state<"connecting" | "open" | "closed" | "error">(
   "connecting",
 );
 let streamError = $state("");
 let eventSource: EventSource | null = null;
-let listEl = $state<HTMLDivElement | null>(null);
 
-const assistantStreamingId = "assistant-streaming";
-const thinkingStreamingId = "assistant-thinking";
+const streamUserMessageIds = new Set<string>();
+let streamingAssistantText = $state("");
+let timeline = $derived.by<TimelineItem[]>(() => {
+  const persisted = toChatMessages(persistedMessages, persistedToolCalls).map(
+    (message) => ({
+      id: message.id,
+      kind: "message" as const,
+      message,
+    }),
+  );
+
+  if (streamingAssistantText.trim()) {
+    persisted.push({
+      id: "assistant-streaming",
+      kind: "message",
+      message: {
+        id: "assistant-streaming",
+        role: "assistant",
+        text: streamingAssistantText,
+      },
+    });
+  }
+
+  return persisted;
+});
 
 function scrollToBottom() {
   queueMicrotask(() => {
@@ -55,327 +93,16 @@ function scrollToBottom() {
   });
 }
 
-function upsertMessage(message: ChatMessage) {
-  const index = timeline.findIndex(
-    (item) => item.kind === "message" && item.message.id === message.id,
-  );
+async function refreshPersistedData() {
+  const [messagesResponse, treeResponse] = await Promise.all([
+    getSessionMessages(data.session.id),
+    getSessionTree(data.session.id),
+  ]);
 
-  if (index >= 0) {
-    timeline[index] = {
-      id: timeline[index].id,
-      kind: "message",
-      message,
-    };
-    timeline = [...timeline];
-  } else {
-    timeline = [
-      ...timeline,
-      {
-        id: crypto.randomUUID(),
-        kind: "message",
-        message,
-      },
-    ];
-  }
-
-  scrollToBottom();
-}
-
-function appendMessage(message: Omit<ChatMessage, "id"> & { id?: string }) {
-  timeline = [
-    ...timeline,
-    {
-      id: crypto.randomUUID(),
-      kind: "message",
-      message: {
-        id: message.id ?? crypto.randomUUID(),
-        ...message,
-      },
-    },
-  ];
-  scrollToBottom();
-}
-
-function upsertTool(tool: ToolState) {
-  const index = timeline.findIndex(
-    (item) => item.kind === "tool" && item.tool.id === tool.id,
-  );
-
-  if (index >= 0) {
-    timeline[index] = {
-      id: timeline[index].id,
-      kind: "tool",
-      tool,
-    };
-    timeline = [...timeline];
-  } else {
-    timeline = [
-      ...timeline,
-      {
-        id: crypto.randomUUID(),
-        kind: "tool",
-        tool,
-      },
-    ];
-  }
-
-  scrollToBottom();
-}
-
-function finalizeStreamingMessage(id: string, fallback?: ChatMessage) {
-  const index = timeline.findIndex(
-    (item) => item.kind === "message" && item.message.id === id,
-  );
-
-  if (index < 0) {
-    if (fallback?.text.trim()) {
-      appendMessage(fallback);
-    }
-    return;
-  }
-
-  const item = timeline[index];
-  if (item.kind !== "message") {
-    return;
-  }
-
-  const finalText = item.message.text.trim() || fallback?.text?.trim() || "";
-  if (!finalText) {
-    timeline.splice(index, 1);
-    timeline = [...timeline];
-    return;
-  }
-
-  timeline[index] = {
-    id: item.id,
-    kind: "message",
-    message: {
-      ...(fallback ?? item.message),
-      id: crypto.randomUUID(),
-      text: finalText,
-    },
-  };
-  timeline = [...timeline];
-}
-
-function handleAgentEvent(payload: SessionEventPayload) {
-  const type = typeof payload.type === "string" ? payload.type : "unknown";
-
-  if (type === "message_start") {
-    const message = payload.message as Record<string, unknown> | undefined;
-    if (message?.role === "assistant") {
-      upsertMessage({
-        id: assistantStreamingId,
-        role: "assistant",
-        text: "",
-      });
-    }
-    return;
-  }
-
-  if (type === "message_update") {
-    const delta = payload.assistantMessageEvent as
-      | Record<string, unknown>
-      | undefined;
-    const deltaType = typeof delta?.type === "string" ? delta.type : "";
-
-    if (deltaType === "text_delta") {
-      const current = timeline.find(
-        (item) =>
-          item.kind === "message" && item.message.id === assistantStreamingId,
-      );
-      const deltaText = typeof delta?.delta === "string" ? delta.delta : "";
-      const nextText = `${current?.kind === "message" ? current.message.text : ""}${deltaText}`;
-      upsertMessage({
-        id: assistantStreamingId,
-        role: "assistant",
-        text: nextText,
-      });
-      return;
-    }
-
-    if (deltaType === "thinking_delta") {
-      const current = timeline.find(
-        (item) =>
-          item.kind === "message" && item.message.id === thinkingStreamingId,
-      );
-      const deltaText = typeof delta?.delta === "string" ? delta.delta : "";
-      const nextText = `${current?.kind === "message" ? current.message.text : ""}${deltaText}`;
-      upsertMessage({
-        id: thinkingStreamingId,
-        role: "system",
-        title: "Thinking",
-        tone: "thinking",
-        text: nextText,
-      });
-      return;
-    }
-
-    return;
-  }
-
-  if (type === "message_end") {
-    const message = payload.message as Record<string, unknown> | undefined;
-    const content = Array.isArray(message?.content) ? message.content : [];
-    const assistantText = content
-      .filter((item) => item?.type === "text" && typeof item.text === "string")
-      .map((item) => item.text)
-      .join("");
-    const thinkingText = content
-      .filter(
-        (item) =>
-          item?.type === "thinking" && typeof item.thinking === "string",
-      )
-      .map((item) => item.thinking)
-      .join("");
-
-    finalizeStreamingMessage(
-      thinkingStreamingId,
-      thinkingText
-        ? {
-            id: thinkingStreamingId,
-            role: "system",
-            title: "Thinking",
-            tone: "thinking",
-            text: thinkingText,
-          }
-        : undefined,
-    );
-
-    finalizeStreamingMessage(
-      assistantStreamingId,
-      assistantText
-        ? {
-            id: assistantStreamingId,
-            role: "assistant",
-            text: assistantText,
-          }
-        : undefined,
-    );
-
-    const stopReason =
-      typeof message?.stopReason === "string" ? message.stopReason : null;
-    const errorMessage =
-      typeof message?.errorMessage === "string" ? message.errorMessage : null;
-
-    if (stopReason === "error" && errorMessage) {
-      appendMessage({
-        role: "error",
-        title: "Agent Error",
-        text: errorMessage,
-      });
-    }
-
-    if (stopReason === "aborted") {
-      appendMessage({
-        role: "system",
-        title: "Aborted",
-        text: "Agent stopped the current response.",
-      });
-    }
-
-    return;
-  }
-
-  if (type === "tool_execution_start") {
-    const toolCallId =
-      typeof payload.toolCallId === "string"
-        ? payload.toolCallId
-        : crypto.randomUUID();
-    const toolName =
-      typeof payload.toolName === "string" ? payload.toolName : "tool";
-    const args = (payload.args as Record<string, unknown> | undefined) ?? {};
-
-    upsertTool({
-      id: toolCallId,
-      name: toolName,
-      args,
-      status: "running",
-      output: renderToolPreview(toolName, args),
-    });
-    return;
-  }
-
-  if (type === "tool_execution_update") {
-    const toolCallId =
-      typeof payload.toolCallId === "string"
-        ? payload.toolCallId
-        : crypto.randomUUID();
-    const toolName =
-      typeof payload.toolName === "string" ? payload.toolName : "tool";
-    const args = (payload.args as Record<string, unknown> | undefined) ?? {};
-    const partialResult = payload.partialResult;
-    const output =
-      extractTextContent(partialResult) || renderToolPreview(toolName, args);
-
-    upsertTool({
-      id: toolCallId,
-      name: toolName,
-      args,
-      status: "running",
-      output,
-    });
-    return;
-  }
-
-  if (type === "tool_execution_end") {
-    const toolCallId =
-      typeof payload.toolCallId === "string"
-        ? payload.toolCallId
-        : crypto.randomUUID();
-    const toolName =
-      typeof payload.toolName === "string" ? payload.toolName : "tool";
-    const args = (payload.args as Record<string, unknown> | undefined) ?? {};
-    const isError = payload.isError === true;
-    const result = payload.result;
-    const output =
-      extractTextContent(result) || renderToolPreview(toolName, args);
-
-    upsertTool({
-      id: toolCallId,
-      name: toolName,
-      args,
-      status: isError ? "error" : "done",
-      output,
-    });
-    return;
-  }
-
-  if (type === "agent_start") {
-    appendMessage({
-      role: "system",
-      title: "Agent",
-      text: "Agent started working on your request.",
-    });
-    return;
-  }
-
-  if (type === "agent_end") {
-    appendMessage({
-      role: "system",
-      title: "Agent",
-      text: "Agent finished this turn.",
-    });
-    return;
-  }
-
-  if (type === "error") {
-    appendMessage({
-      role: "error",
-      title: "Error",
-      text:
-        typeof payload.error === "string"
-          ? payload.error
-          : stringifyUnknown(payload),
-    });
-    return;
-  }
-
-  appendMessage({
-    role: "system",
-    title: type,
-    text: stringifyUnknown(payload),
-  });
+  persistedMessages = messagesResponse.messages;
+  persistedToolCalls = messagesResponse.toolCalls;
+  treeNodes = toTreeNodes(treeResponse);
+  currentLeafMessageId = treeResponse.session.currentLeafMessageId;
 }
 
 async function handleSend() {
@@ -384,22 +111,28 @@ async function handleSend() {
     return;
   }
 
-  appendMessage({
-    role: "user",
-    text,
-  });
-
+  const pendingText = text;
   input = "";
   sending = true;
 
   try {
-    await sendSessionMessage(data.session.id, { text });
-  } catch (error) {
-    appendMessage({
-      role: "error",
-      title: "Send Failed",
-      text: error instanceof Error ? error.message : "Unknown error",
+    const result = await sendSessionMessage(data.session.id, {
+      text: pendingText,
+      branchFromMessageId: branchFromMessageId ?? undefined,
     });
+
+    const userMessage = result?.userMessage as SessionMessageRecord | undefined;
+    if (userMessage) {
+      persistedMessages = [...persistedMessages, userMessage];
+      streamUserMessageIds.add(userMessage.id);
+      currentLeafMessageId = userMessage.id;
+    }
+
+    branchFromMessageId = null;
+    await refreshPersistedData();
+    scrollToBottom();
+  } catch (error) {
+    streamError = error instanceof Error ? error.message : "Unknown error";
   } finally {
     sending = false;
   }
@@ -408,21 +141,70 @@ async function handleSend() {
 async function handleAbort() {
   try {
     await abortSession(data.session.id);
-    appendMessage({
-      role: "system",
-      title: "Abort",
-      text: "Abort signal sent.",
-    });
   } catch (error) {
-    appendMessage({
-      role: "error",
-      title: "Abort Failed",
-      text: error instanceof Error ? error.message : "Unknown error",
-    });
+    streamError = error instanceof Error ? error.message : "Unknown error";
+  }
+}
+
+async function handleSelectLeaf(messageId: string) {
+  if (selectingLeaf) return;
+  selectingLeaf = true;
+  try {
+    await selectSessionLeaf(data.session.id, messageId);
+    await refreshPersistedData();
+    streamStatus = eventSource ? streamStatus : "closed";
+    scrollToBottom();
+  } catch (error) {
+    streamError = error instanceof Error ? error.message : "Failed to switch branch";
+  } finally {
+    selectingLeaf = false;
+  }
+}
+
+function handleBranchFrom(messageId: string) {
+  branchFromMessageId = branchFromMessageId === messageId ? null : messageId;
+}
+
+function handleAgentEvent(payload: Record<string, unknown>) {
+  const type = typeof payload.type === "string" ? payload.type : "unknown";
+
+  if (type === "message_start") {
+    const message = payload.message as Record<string, unknown> | undefined;
+    if (message?.role === "assistant") {
+      streamingAssistantText = "";
+    }
+    return;
+  }
+
+  if (type === "message_update") {
+    const delta = payload.assistantMessageEvent as Record<string, unknown> | undefined;
+    const deltaType = typeof delta?.type === "string" ? delta.type : "";
+
+    if (deltaType === "text_delta") {
+      const deltaText = typeof delta?.delta === "string" ? delta.delta : "";
+      streamingAssistantText = `${streamingAssistantText}${deltaText}`;
+      scrollToBottom();
+    }
+    return;
+  }
+
+  if (type === "turn_end") {
+    streamingAssistantText = "";
+    void refreshPersistedData();
+    return;
+  }
+
+  if (type === "error") {
+    streamError =
+      typeof payload.error === "string"
+        ? payload.error
+        : "Agent stream error";
   }
 }
 
 onMount(() => {
+  scrollToBottom();
+
   eventSource = new EventSource(getSessionStreamUrl(data.session.id), {
     withCredentials: true,
   });
@@ -434,16 +216,10 @@ onMount(() => {
 
   eventSource.addEventListener("message", (event) => {
     try {
-      const payload = JSON.parse(
-        (event as MessageEvent).data,
-      ) as SessionEventPayload;
+      const payload = JSON.parse((event as MessageEvent).data) as Record<string, unknown>;
       handleAgentEvent(payload);
     } catch (error) {
-      appendMessage({
-        role: "error",
-        title: "Parse Error",
-        text: error instanceof Error ? error.message : "Invalid event payload",
-      });
+      streamError = error instanceof Error ? error.message : "Invalid event payload";
     }
   });
 
@@ -460,12 +236,17 @@ onMount(() => {
 });
 </script>
 
-<div class="max-w-6xl mx-auto px-6 py-8 h-[calc(100vh-10rem)] flex flex-col gap-6">
+<div class="max-w-7xl mx-auto px-6 py-8 h-[calc(100vh-10rem)] flex flex-col gap-6">
   <div class="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-center justify-between gap-4">
     <div>
       <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Session</div>
       <h1 class="text-2xl font-black text-gray-800 mt-2">{data.session.title ?? 'Untitled Session'}</h1>
       <div class="mt-2 text-sm text-gray-400 font-mono break-all">{data.session.id}</div>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 font-medium">
+        <span class="px-2 py-1 rounded-full bg-gray-100">{persistedMessages.length} messages</span>
+        <span class="px-2 py-1 rounded-full bg-gray-100">{persistedToolCalls.length} tools</span>
+        <span class="px-2 py-1 rounded-full bg-gray-100">{treeNodes.filter((node) => node.childCount > 1).length} branch points</span>
+      </div>
     </div>
 
     <div class="flex items-center gap-3">
@@ -481,8 +262,48 @@ onMount(() => {
     </div>
   </div>
 
-  <div class="flex-1 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
-    <ChatTimeline bind:bindListEl={listEl} {timeline} />
-    <SessionComposer bind:value={input} {sending} {streamError} onSubmit={() => void handleSend()} />
+  <div class="flex-1 min-h-0 grid grid-cols-12 gap-6">
+    <div class="col-span-4 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div>
+          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Tree</div>
+          <div class="text-sm text-gray-500 mt-1">Switch leaf or branch from any historical node.</div>
+        </div>
+        {#if branchFromMessageId}
+          <button
+            type="button"
+            class="px-3 py-2 rounded-xl text-xs font-bold border border-brand/20 text-brand hover:bg-brand/5 cursor-pointer"
+            onclick={() => (branchFromMessageId = null)}
+          >
+            Clear branch target
+          </button>
+        {/if}
+      </div>
+      <SessionTreePanel
+        nodes={treeNodes}
+        {currentLeafMessageId}
+        selectedBranchFromId={branchFromMessageId}
+        onSelectLeaf={handleSelectLeaf}
+        onBranchFrom={handleBranchFrom}
+      />
+    </div>
+
+    <div class="col-span-8 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div>
+          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Conversation</div>
+          <div class="text-sm text-gray-500 mt-1">
+            {#if branchFromMessageId}
+              New message will branch from selected node.
+            {:else}
+              Showing persisted path from root to current leaf.
+            {/if}
+          </div>
+        </div>
+      </div>
+
+      <ChatTimeline bind:bindListEl={listEl} {timeline} />
+      <SessionComposer bind:value={input} {sending} {streamError} onSubmit={() => void handleSend()} />
+    </div>
   </div>
 </div>
