@@ -22,6 +22,62 @@ const roleLabel = (role: SessionTreeNodeView["role"]) => {
   if (role === "assistant") return "A";
   return "S";
 };
+
+const nodeMap = $derived(new Map(nodes.map((node) => [node.id, node])));
+
+const displayDepthMap = $derived.by(() => {
+  const map = new Map<string, number>();
+
+  const resolveDepth = (node: SessionTreeNodeView): number => {
+    const cached = map.get(node.id);
+    if (cached !== undefined) return cached;
+
+    if (!node.parentMessageId) {
+      map.set(node.id, 0);
+      return 0;
+    }
+
+    const parent = nodeMap.get(node.parentMessageId);
+    if (!parent) {
+      map.set(node.id, 0);
+      return 0;
+    }
+
+    const parentDepth = resolveDepth(parent);
+    const nextDepth = parent.childCount > 1 ? parentDepth + 1 : parentDepth;
+    map.set(node.id, nextDepth);
+    return nextDepth;
+  };
+
+  for (const node of nodes) {
+    resolveDepth(node);
+  }
+
+  return map;
+});
+
+const currentPathIds = $derived.by(() => {
+  const ids = new Set<string>();
+  let current = currentLeafMessageId ? nodeMap.get(currentLeafMessageId) : undefined;
+
+  while (current) {
+    ids.add(current.id);
+    current = current.parentMessageId
+      ? nodeMap.get(current.parentMessageId)
+      : undefined;
+  }
+
+  return ids;
+});
+
+const getDisplayDepth = (node: SessionTreeNodeView) =>
+  displayDepthMap.get(node.id) ?? 0;
+
+const isBranchChild = (node: SessionTreeNodeView) => {
+  if (!node.parentMessageId) return false;
+  const parent = nodeMap.get(node.parentMessageId);
+  return (parent?.childCount ?? 0) > 1;
+};
 </script>
 
 <div class="overflow-y-auto p-3 space-y-2 bg-gray-50/70 h-full">
@@ -29,19 +85,31 @@ const roleLabel = (role: SessionTreeNodeView["role"]) => {
     <div class="text-sm text-gray-400 px-2 py-3">No persisted tree nodes yet.</div>
   {:else}
     {#each nodes as node (node.id)}
+      {@const displayDepth = getDisplayDepth(node)}
+      {@const branchChild = isBranchChild(node)}
+      {@const inCurrentPath = currentPathIds.has(node.id)}
+
       <div
-        class="rounded-2xl border px-3 py-3 bg-white transition-all {node.id === currentLeafMessageId ? 'border-brand ring-2 ring-brand/20' : 'border-gray-200'}"
-        style={`margin-left: ${node.depth * 14}px`}
+        class="relative rounded-2xl border px-3 py-3 bg-white transition-all {node.id === currentLeafMessageId ? 'border-brand ring-2 ring-brand/20' : inCurrentPath ? 'border-brand/30 bg-brand/[0.03]' : 'border-gray-200'}"
+        style={`margin-left: ${displayDepth * 18}px`}
       >
+        {#if branchChild}
+          <div class="absolute -left-4 top-4 flex items-center text-gray-300 pointer-events-none">
+            <span class="text-lg leading-none">└</span>
+          </div>
+        {/if}
+
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2 mb-1">
+            <div class="flex items-center gap-2 mb-1 flex-wrap">
               <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black {node.role === 'user' ? 'bg-brand text-white' : node.role === 'assistant' ? 'bg-slate-900 text-white' : 'bg-blue-100 text-blue-700'}">
                 {roleLabel(node.role)}
               </span>
-              <span class="text-[10px] uppercase tracking-[0.18em] font-black text-gray-400">
-                depth {node.depth}
-              </span>
+              {#if displayDepth > 0}
+                <span class="text-[10px] uppercase tracking-[0.18em] font-black text-purple-500">
+                  branch {displayDepth}
+                </span>
+              {/if}
               {#if node.childCount > 1}
                 <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-bold">
                   {node.childCount} branches
