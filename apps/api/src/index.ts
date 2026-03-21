@@ -3,7 +3,6 @@ import { serve } from "@hono/node-server";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
-import { timingSafeEqual } from "node:crypto";
 
 import {
   clearTokenCookie,
@@ -47,20 +46,6 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value,
   );
-
-const isValidInternalToken = (value: string | undefined) => {
-  const expected = config.internalApiToken;
-  if (!expected || !value) return false;
-
-  const expectedBuffer = Buffer.from(expected);
-  const actualBuffer = Buffer.from(value);
-
-  if (expectedBuffer.length !== actualBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(expectedBuffer, actualBuffer);
-};
 
 const requireValidSessionId = (id: string) => isUuid(id);
 
@@ -294,9 +279,13 @@ app.post("/api/sessions", async (c) => {
 });
 
 app.post("/internal/sessions/:id/assistant-message", async (c) => {
-  const providedToken = c.req.header("x-internal-token") ?? undefined;
-  if (!isValidInternalToken(providedToken)) {
-    return c.json({ message: "unauthorized" }, 401);
+  const remoteAddr =
+    c.req.header("x-forwarded-for") ??
+    c.req.header("x-real-ip") ??
+    c.req.header("cf-connecting-ip") ??
+    "";
+  if (remoteAddr && !remoteAddr.startsWith("10.") && !remoteAddr.startsWith("172.") && !remoteAddr.startsWith("192.168.") && remoteAddr !== "127.0.0.1" && remoteAddr !== "::1") {
+    return c.json({ message: "forbidden" }, 403);
   }
 
   const sessionId = c.req.param("id");

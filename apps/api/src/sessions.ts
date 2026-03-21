@@ -97,8 +97,7 @@ export const launchSessionSandbox = async (input: {
     USER_ID: input.userUuid,
     REDIS_URL: config.redisUrl,
     LITELLM_API_KEY: config.litellmApiKey,
-    INTERNAL_API_BASE_URL: config.internalApiBaseUrl,
-    INTERNAL_API_TOKEN: config.internalApiToken,
+    ENV: config.env,
   }) as V1Pod;
 
   await k8sCoreApi.createNamespacedPod({

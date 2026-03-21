@@ -3,6 +3,11 @@ import { env } from "./env.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const INTERNAL_API_BASE_URL =
+  env.ENV === "prod"
+    ? "http://cohub-api.cohub:8787"
+    : "http://cohub-api-dev.cohub-dev:8787";
+
 type PersistAssistantMessagePayload = {
   parentMessageId: string;
   idempotencyKey: string;
@@ -160,13 +165,6 @@ export async function persistAssistantMessage(input: {
   userMessageId: string;
   event: Record<string, unknown>;
 }) {
-  if (!env.INTERNAL_API_TOKEN) {
-    console.warn(
-      "[Persist] INTERNAL_API_TOKEN missing, skip assistant persistence.",
-    );
-    return;
-  }
-
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults)
     ? (input.event.toolResults as Array<Record<string, unknown>>)
@@ -245,7 +243,7 @@ export async function persistAssistantMessage(input: {
     toolCalls: payload.toolCalls,
   });
 
-  const url = `${env.INTERNAL_API_BASE_URL}/internal/sessions/${input.sessionId}/assistant-message`;
+  const url = `${INTERNAL_API_BASE_URL}/internal/sessions/${input.sessionId}/assistant-message`;
   const maxAttempts = 3;
   let lastError: unknown = null;
 
@@ -255,7 +253,6 @@ export async function persistAssistantMessage(input: {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-internal-token": env.INTERNAL_API_TOKEN,
         },
         body: JSON.stringify(payload),
       });

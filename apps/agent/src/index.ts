@@ -46,8 +46,10 @@ async function main() {
   console.log(`[Supervisor] Starting for Session: ${env.SESSION_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
   console.log("[Supervisor] Build features:", {
-    hasInternalApiBaseUrl: Boolean(env.INTERNAL_API_BASE_URL),
-    hasInternalApiToken: Boolean(env.INTERNAL_API_TOKEN),
+    env: env.ENV,
+    internalApiBaseUrl: env.ENV === "prod"
+      ? "http://cohub-api.cohub:8787"
+      : "http://cohub-api-dev.cohub-dev:8787",
     assistantPersistence: true,
     promptRequiresUserMessageId: true,
   });
