@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - dev
     paths:
       - 'apps/web/**'
   workflow_dispatch:
@@ -57,13 +56,7 @@ jobs:
       - name: Determine environment
         id: env
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
-              echo "config=wrangler.prod.toml" >> $GITHUB_OUTPUT
-            else
-              echo "config=wrangler.toml" >> $GITHUB_OUTPUT
-            fi
-          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "prod" ]]; then
             echo "config=wrangler.prod.toml" >> $GITHUB_OUTPUT
           else
             echo "config=wrangler.toml" >> $GITHUB_OUTPUT

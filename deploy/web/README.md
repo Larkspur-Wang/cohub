@@ -32,6 +32,5 @@ pnpm -C apps/web build && pnpm -C apps/web deploy:prod
 
 | 触发方式 | 部署环境 |
 |---------|---------|
-| push 到 `dev` 分支 | dev |
-| push 到 `main` 分支 | prod |
+| push 到 `main` 分支 | dev（自动） |
 | 手动触发 | 可选 dev 或 prod |
