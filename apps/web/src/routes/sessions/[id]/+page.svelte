@@ -44,12 +44,20 @@ type Props = {
 
 const { data }: Props = $props();
 
-let persistedMessages = $state<SessionMessageRecord[]>(data.persisted.messages ?? []);
-let persistedToolCalls = $state<SessionToolCallRecord[]>(data.persisted.toolCalls ?? []);
-let treeNodes = $state<SessionTreeNodeView[]>(toTreeNodes(data.tree));
-let currentLeafMessageId = $state<string | null>(
-  data.tree.session.currentLeafMessageId ?? data.session.currentLeafMessageId ?? null,
-);
+// Local state synced from data via $effect, then managed independently
+let persistedMessages = $state<SessionMessageRecord[]>([]);
+let persistedToolCalls = $state<SessionToolCallRecord[]>([]);
+let treeNodes = $state<SessionTreeNodeView[]>([]);
+let currentLeafMessageId = $state<string | null>(null);
+
+// Sync data to local state when data changes (e.g., navigating to a different session)
+$effect(() => {
+  persistedMessages = data.persisted.messages ?? [];
+  persistedToolCalls = data.persisted.toolCalls ?? [];
+  treeNodes = toTreeNodes(data.tree);
+  currentLeafMessageId =
+    data.tree.session.currentLeafMessageId ?? data.session.currentLeafMessageId ?? null;
+});
 let branchFromMessageId = $state<string | null>(null);
 let listEl = $state<HTMLDivElement | null>(null);
 let input = $state("");
