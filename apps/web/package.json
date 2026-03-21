@@ -10,7 +10,9 @@
     "lint:fix": "biome lint --write .",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "preview": "pnpm build && wrangler dev",
+    "preview:prod": "pnpm build && wrangler dev --config wrangler.prod.toml",
     "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --config wrangler.prod.toml",
     "prepare": "svelte-kit sync || echo ''"
   },
   "dependencies": {

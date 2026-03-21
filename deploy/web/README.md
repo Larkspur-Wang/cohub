@@ -6,22 +6,32 @@
 - 已配置好 GitHub Secrets：
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
-- 已确认 API 可访问，例如：`https://api.cohub.run`
+- 已确认 API 可访问
 
-## 关键变量
+## 环境配置
 
-- `BFF_ORIGIN`: 指向阿里云 ACK 上的 API，例如 `https://api.cohub.run`
-
-默认值已写在：`apps/web/wrangler.toml`
+| 环境 | Worker 名称 | 配置文件 | API 地址 |
+|------|------------|---------|---------|
+| dev | cohub-web-dev | `wrangler.toml` | `https://api-dev.cohub.run` |
+| prod | cohub-web | `wrangler.prod.toml` | `https://api.cohub.run` |
 
 ## 本地部署
 
 ```bash
+# 安装依赖
 pnpm install
-pnpm -C apps/web build
-pnpm -C apps/web wrangler deploy
+
+# 部署到 dev
+pnpm -C apps/web build && pnpm -C apps/web deploy
+
+# 部署到 prod
+pnpm -C apps/web build && pnpm -C apps/web deploy:prod
 ```
 
-## GitHub Actions 部署
+## CI/CD
 
-可通过对应 workflow 手动触发部署到生产环境。
+| 触发方式 | 部署环境 |
+|---------|---------|
+| push 到 `dev` 分支 | dev |
+| push 到 `main` 分支 | prod |
+| 手动触发 | 可选 dev 或 prod |
