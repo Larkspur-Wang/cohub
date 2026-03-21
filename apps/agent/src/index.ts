@@ -5,6 +5,7 @@ import {
   createAgentSession,
   createReadOnlyTools,
 } from "@mariozechner/pi-coding-agent";
+import { persistAssistantMessage } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -13,7 +14,6 @@ import {
   sendOutput,
   setSessionStatus,
 } from "./redis.js";
-import { persistAssistantMessage } from "./api.js";
 
 let isShuttingDown = false;
 
@@ -45,6 +45,12 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
 async function main() {
   console.log(`[Supervisor] Starting for Session: ${env.SESSION_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
+  console.log("[Supervisor] Build features:", {
+    hasInternalApiBaseUrl: Boolean(env.INTERNAL_API_BASE_URL),
+    hasInternalApiToken: Boolean(env.INTERNAL_API_TOKEN),
+    assistantPersistence: true,
+    promptRequiresUserMessageId: true,
+  });
 
   // 1. Initialize Container (Clone global config, setup dirs)
   await initializeContainer();
@@ -86,7 +92,10 @@ async function main() {
         userMessageId: currentUserMessageId,
         event: event as Record<string, unknown>,
       }).catch((error) => {
-        console.error("[Supervisor] Failed to persist assistant message:", error);
+        console.error(
+          "[Supervisor] Failed to persist assistant message:",
+          error,
+        );
       });
     }
   });
@@ -101,6 +110,13 @@ async function main() {
 
     try {
       if (inputEntry.action === "prompt") {
+        console.log("[Supervisor] Prompt metadata:", {
+          userMessageId: inputEntry.userMessageId,
+          branchFromMessageId: inputEntry.branchFromMessageId ?? null,
+          hasImages: Array.isArray(inputEntry.message.images)
+            ? inputEntry.message.images.length > 0
+            : false,
+        });
         currentUserMessageId = inputEntry.userMessageId;
         await session.prompt(inputEntry.message.text, {
           images: inputEntry.message.images,

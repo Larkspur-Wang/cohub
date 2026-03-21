@@ -54,12 +54,15 @@ const stableSerialize = (value: unknown): string => {
     return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
   }
 
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-    a.localeCompare(b),
+  const entries = Object.entries(value as Record<string, unknown>).sort(
+    ([a], [b]) => a.localeCompare(b),
   );
 
   return `{${entries
-    .map(([key, nestedValue]) => `${JSON.stringify(key)}:${stableSerialize(nestedValue)}`)
+    .map(
+      ([key, nestedValue]) =>
+        `${JSON.stringify(key)}:${stableSerialize(nestedValue)}`,
+    )
     .join(",")}}`;
 };
 
@@ -121,7 +124,9 @@ const toToolCallBlocks = (
         typeof block.id === "string" &&
         typeof block.name === "string"
       ) {
-        const matched = toolCalls.find((toolCall) => toolCall.toolCallId === block.id);
+        const matched = toolCalls.find(
+          (toolCall) => toolCall.toolCallId === block.id,
+        );
         blocks.push({
           type: "tool_call",
           toolCallId: block.id,
@@ -156,7 +161,9 @@ export async function persistAssistantMessage(input: {
   event: Record<string, unknown>;
 }) {
   if (!env.INTERNAL_API_TOKEN) {
-    console.warn("[Persist] INTERNAL_API_TOKEN missing, skip assistant persistence.");
+    console.warn(
+      "[Persist] INTERNAL_API_TOKEN missing, skip assistant persistence.",
+    );
     return;
   }
 
@@ -196,33 +203,35 @@ export async function persistAssistantMessage(input: {
               input:
                 typeof (assistant.usage as Record<string, unknown>).input ===
                 "number"
-                  ? ((assistant.usage as Record<string, unknown>).input as number)
+                  ? ((assistant.usage as Record<string, unknown>)
+                      .input as number)
                   : undefined,
               output:
                 typeof (assistant.usage as Record<string, unknown>).output ===
                 "number"
-                  ? ((assistant.usage as Record<string, unknown>).output as number)
+                  ? ((assistant.usage as Record<string, unknown>)
+                      .output as number)
                   : undefined,
               totalTokens:
-                typeof (
-                  (assistant.usage as Record<string, unknown>).totalTokens
-                ) === "number"
-                  ? ((assistant.usage as Record<string, unknown>).totalTokens as number)
+                typeof (assistant.usage as Record<string, unknown>)
+                  .totalTokens === "number"
+                  ? ((assistant.usage as Record<string, unknown>)
+                      .totalTokens as number)
                   : undefined,
               costTotal:
                 assistant.usage &&
                 typeof (assistant.usage as Record<string, unknown>).cost ===
                   "object" &&
                 typeof (
-                  ((assistant.usage as Record<string, unknown>).cost as Record<
+                  (assistant.usage as Record<string, unknown>).cost as Record<
                     string,
                     unknown
-                  >).total
-                ) === "number"
-                  ? ((((assistant.usage as Record<string, unknown>).cost as Record<
-                      string,
-                      unknown
-                    >).total as number) ?? undefined)
+                  >
+                ).total === "number"
+                  ? (((
+                      (assistant.usage as Record<string, unknown>)
+                        .cost as Record<string, unknown>
+                    ).total as number) ?? undefined)
                   : undefined,
             }
           : null,

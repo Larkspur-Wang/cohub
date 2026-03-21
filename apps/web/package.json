@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "deploy": "wrangler deploy",
-    "preview": "pnpm build && wrangler dev",
-    "prepare": "svelte-kit sync || echo ''",
     "lint": "biome lint .",
-    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "lint:fix": "biome lint --write .",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "preview": "pnpm build && wrangler dev",
+    "deploy": "wrangler deploy",
+    "prepare": "svelte-kit sync || echo ''"
   },
   "dependencies": {
     "isomorphic-dompurify": "2.15.0",

@@ -9,10 +9,10 @@
     ]
   },
   "organizeImports": {
-    "enabled": true
+    "enabled": false
   },
   "formatter": {
-    "enabled": true,
+    "enabled": false,
     "indentStyle": "space",
     "indentWidth": 2
   },

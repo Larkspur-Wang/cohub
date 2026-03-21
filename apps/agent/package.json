@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build": "tsc",
+    "lint": "biome lint src/",
+    "lint:fix": "biome lint --write src/",
     "typecheck": "tsc --noEmit",
-    "start": "bun dist/index.js",
-    "lint": "biome check src/"
+    "start": "bun dist/index.js"
   },
   "dependencies": {
     "ioredis": "^5.3.2",

@@ -409,7 +409,7 @@ export const persistAssistantMessageNode = async (
       ? extractPlainText(content)
       : (input.message.text ?? null);
 
-  let assistantMessage;
+  let assistantMessage: typeof sessionMessages.$inferSelect | undefined;
 
   try {
     [assistantMessage] = await db
