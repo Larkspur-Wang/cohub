@@ -47,9 +47,10 @@ async function main() {
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
-    internalApiBaseUrl: env.ENV === "prod"
-      ? "http://cohub-api.cohub:8787"
-      : "http://cohub-api-dev.cohub-dev:8787",
+    internalApiBaseUrl:
+      env.ENV === "prod"
+        ? "http://cohub-api.cohub.svc.cluster.local:8787"
+        : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
     assistantPersistence: true,
     promptRequiresUserMessageId: true,
   });

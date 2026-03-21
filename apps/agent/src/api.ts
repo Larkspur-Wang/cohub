@@ -5,8 +5,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const INTERNAL_API_BASE_URL =
   env.ENV === "prod"
-    ? "http://cohub-api.cohub:8787"
-    : "http://cohub-api-dev.cohub-dev:8787";
+    ? "http://cohub-api.cohub.svc.cluster.local:8787"
+    : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
 
 type PersistAssistantMessagePayload = {
   parentMessageId: string;
