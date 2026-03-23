@@ -60,10 +60,8 @@ WORKDIR /app
 
 # 从 builder 复制 node_modules 和构建产物
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/protocol/dist ./packages/protocol/dist
 COPY --from=builder /app/apps/agent/dist ./apps/agent/dist
 COPY apps/agent/package.json ./apps/agent/package.json
-COPY packages/protocol/package.json ./packages/protocol/package.json
 
 # 设置沙盒运行时工作目录
 RUN mkdir -p "$WORKSPACE_DIR"
