@@ -11,6 +11,7 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { UnifiedContentBlock } from "@cohub/protocol";
 
 // 工作区表 (Workspace)
 export const workspaces = pgTable(
@@ -68,6 +69,10 @@ export const sessions = pgTable(
     title: varchar("title", { length: 255 }), // 会话标题
     status: varchar("status", { length: 50 }).default("active"), // active, running, completed, aborted, error, archived
 
+    cwd: text("cwd"),
+    protocol: varchar("protocol", { length: 30 }), // pi | acp | internal
+    meta: jsonb("meta"),
+
     // 树状会话展示字段（不强加 FK，避免自循环迁移复杂度）
     rootMessageId: uuid("root_message_id"),
     currentLeafMessageId: uuid("current_leaf_message_id"),
@@ -99,6 +104,7 @@ export const sessions = pgTable(
       lastMessageAtIdx: index("idx_sessions_last_message_at").on(
         table.lastMessageAt,
       ),
+      protocolIdx: index("idx_sessions_protocol").on(table.protocol),
     };
   },
 );
@@ -113,8 +119,11 @@ export const sessionMessages = pgTable(
       .references(() => sessions.id, { onDelete: "cascade" }),
 
     role: varchar("role", { length: 20 }).notNull(), // user | assistant | system
-    content: jsonb("content").notNull(), // block array
+    source: varchar("source", { length: 30 }), // pi | acp | internal
+    externalMessageId: text("external_message_id"),
+    content: jsonb("content").notNull().$type<UnifiedContentBlock[]>(),
     text: text("text"), // 平铺文本，用于预览/搜索
+    meta: jsonb("meta"),
 
     parentMessageId: uuid("parent_message_id"),
 
@@ -145,6 +154,10 @@ export const sessionMessages = pgTable(
       sessionIdx: index("idx_session_messages_session_id").on(table.sessionId),
       parentIdx: index("idx_session_messages_parent_message_id").on(
         table.parentMessageId,
+      ),
+      sourceIdx: index("idx_session_messages_source").on(table.source),
+      externalMessageIdx: index("idx_session_messages_external_message_id").on(
+        table.externalMessageId,
       ),
       idempotencyKeyUniqueIdx: uniqueIndex(
         "uq_session_messages_session_id_idempotency_key",
@@ -179,11 +192,19 @@ export const sessionToolCalls = pgTable(
 
     toolCallId: varchar("tool_call_id", { length: 255 }).notNull(),
     toolName: varchar("tool_name", { length: 255 }).notNull(),
+    title: text("title"),
+    kind: varchar("kind", { length: 50 }),
+    status: varchar("status", { length: 30 }),
 
     args: jsonb("args"),
     result: jsonb("result"),
+    content: jsonb("content"),
+    locations: jsonb("locations"),
+    rawInput: jsonb("raw_input"),
+    rawOutput: jsonb("raw_output"),
     resultPreview: text("result_preview"),
     isError: boolean("is_error").notNull().default(false),
+    meta: jsonb("meta"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
@@ -192,6 +213,8 @@ export const sessionToolCalls = pgTable(
       sessionIdx: index("idx_session_tool_calls_session_id").on(table.sessionId),
       messageIdx: index("idx_session_tool_calls_message_id").on(table.messageId),
       toolNameIdx: index("idx_session_tool_calls_tool_name").on(table.toolName),
+      kindIdx: index("idx_session_tool_calls_kind").on(table.kind),
+      statusIdx: index("idx_session_tool_calls_status").on(table.status),
       sessionToolCallUniqueIdx: uniqueIndex(
         "uq_session_tool_calls_session_tool_call_id",
       ).on(table.sessionId, table.toolCallId),

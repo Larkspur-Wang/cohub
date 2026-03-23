@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { V1Pod } from "@kubernetes/client-node";
+import type {
+  PersistMessageInput,
+  PersistSessionInfoUpdateInput,
+  ToolCallContentBlock,
+  UnifiedContentBlock,
+} from "@cohub/protocol";
 import { db } from "./db/index.js";
 import { sessionMessages, sessions, sessionToolCalls } from "./db/schema.js";
 import { config, sessionsNamespace } from "./config.js";
@@ -13,50 +19,7 @@ import {
 } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 
-export type SessionMessageBlock =
-  | { type: "text"; text: string }
-  | { type: "image"; url: string; mimeType?: string }
-  | {
-      type: "tool_call";
-      toolCallId: string;
-      toolName: string;
-      args?: unknown;
-      resultPreview?: string | null;
-      isError?: boolean;
-    }
-  | {
-      type: "system_note";
-      noteType: "branch_summary" | "compaction" | "info";
-      text: string;
-    };
-
-export type PersistAssistantMessageInput = {
-  sessionId: string;
-  parentMessageId: string;
-  idempotencyKey: string;
-  message: {
-    content: SessionMessageBlock[];
-    text?: string | null;
-    provider?: string | null;
-    model?: string | null;
-    stopReason?: string | null;
-    errorMessage?: string | null;
-    usage?: {
-      input?: number;
-      output?: number;
-      totalTokens?: number;
-      costTotal?: number;
-    } | null;
-  };
-  toolCalls?: Array<{
-    toolCallId: string;
-    toolName: string;
-    args?: unknown;
-    result?: unknown;
-    resultPreview?: string | null;
-    isError?: boolean;
-  }>;
-};
+export type SessionMessageBlock = UnifiedContentBlock;
 
 
 export const createSession = async (input: {
@@ -64,6 +27,9 @@ export const createSession = async (input: {
   workspaceId?: string | null;
   agentId?: string | null;
   title?: string | null;
+  cwd?: string | null;
+  protocol?: "pi" | "acp" | "internal" | null;
+  meta?: Record<string, unknown> | null;
 }) => {
   const [session] = await db
     .insert(sessions)
@@ -73,6 +39,9 @@ export const createSession = async (input: {
       agentId: input.agentId ?? null,
       title: input.title ?? null,
       status: "active",
+      cwd: input.cwd ?? null,
+      protocol: input.protocol ?? "pi",
+      meta: input.meta ?? null,
     })
     .returning();
 
@@ -231,8 +200,18 @@ export const readSessionOutputStream = async (input: {
 
 const extractPlainText = (blocks: SessionMessageBlock[]) => {
   return blocks
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
+    .flatMap((block) => {
+      switch (block.type) {
+        case "text":
+          return [block.text];
+        case "resource":
+          return block.resource.text ? [block.resource.text] : [];
+        case "resource_link":
+          return [block.title ?? block.name ?? block.uri];
+        default:
+          return [];
+      }
+    })
     .join("\n")
     .trim();
 };
@@ -319,7 +298,8 @@ export const createUserMessageNode = async (input: {
     { type: "text", text: input.text },
     ...(input.images?.map((image) => ({
       type: "image" as const,
-      url: image.url,
+      uri: image.url,
+      mimeType: undefined,
     })) ?? []),
   ];
 
@@ -328,8 +308,11 @@ export const createUserMessageNode = async (input: {
     .values({
       sessionId: input.sessionId,
       role: "user",
+      source: "internal",
+      externalMessageId: null,
       content,
       text: extractPlainText(content),
+      meta: null,
       parentMessageId,
       depth,
       branchId,
@@ -363,8 +346,8 @@ export const createUserMessageNode = async (input: {
   return message;
 };
 
-export const persistAssistantMessageNode = async (
-  input: PersistAssistantMessageInput,
+export const persistMessageNode = async (
+  input: PersistMessageInput,
 ) => {
   const [existing] = await db
     .select()
@@ -415,9 +398,12 @@ export const persistAssistantMessageNode = async (
       .insert(sessionMessages)
       .values({
         sessionId: input.sessionId,
-        role: "assistant",
+        role: input.message.role ?? "assistant",
+        source: input.message.source ?? "internal",
+        externalMessageId: input.message.externalMessageId ?? null,
         content,
         text,
+        meta: input.message.meta ?? null,
         parentMessageId: parent.id,
         idempotencyKey: input.idempotencyKey,
         depth: (parent.depth ?? 0) + 1,
@@ -469,10 +455,18 @@ export const persistAssistantMessageNode = async (
         messageId: assistantMessage.id,
         toolCallId: toolCall.toolCallId,
         toolName: toolCall.toolName,
+        title: toolCall.title ?? null,
+        kind: toolCall.kind ?? null,
+        status: toolCall.status ?? (toolCall.isError ? "failed" : "completed"),
         args: toolCall.args ?? null,
         result: toolCall.result ?? null,
+        content: toolCall.content ?? null,
+        locations: toolCall.locations ?? null,
+        rawInput: toolCall.rawInput ?? toolCall.args ?? null,
+        rawOutput: toolCall.rawOutput ?? toolCall.result ?? null,
         resultPreview: toolCall.resultPreview ?? null,
         isError: toolCall.isError ?? false,
+        meta: toolCall.meta ?? null,
       })),
     );
   }
@@ -515,6 +509,39 @@ export const persistAssistantMessageNode = async (
     .where(eq(sessions.id, input.sessionId));
 
   return assistantMessage;
+};
+
+export const updateSessionInfo = async (
+  input: PersistSessionInfoUpdateInput,
+) => {
+  const session = await getSessionById(input.sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+
+  await db
+    .update(sessions)
+    .set({
+      title:
+        input.title === undefined ? session.title : (input.title ?? null),
+      lastMessageAt:
+        input.updatedAt === undefined
+          ? session.lastMessageAt
+          : input.updatedAt
+            ? new Date(input.updatedAt)
+            : null,
+      meta:
+        input.meta === undefined
+          ? session.meta
+          : {
+              ...((session.meta as Record<string, unknown> | null) ?? {}),
+              ...(input.meta ?? {}),
+            },
+      updatedAt: new Date(),
+    })
+    .where(eq(sessions.id, input.sessionId));
+
+  return true;
 };
 
 export const listSessionTree = async (sessionId: string) => {

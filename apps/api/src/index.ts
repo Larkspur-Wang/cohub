@@ -20,6 +20,10 @@ import {
   createAnonymousRepository,
   addDeployKeyToRepo,
 } from "./gitea.js";
+import type {
+  PersistMessageInput,
+  PersistSessionInfoUpdateInput,
+} from "@cohub/protocol";
 import {
   abortSession,
   createSession,
@@ -30,9 +34,10 @@ import {
   launchSessionSandbox,
   listSessionTree,
   listToolCallsByMessageIds,
-  persistAssistantMessageNode,
+  persistMessageNode,
   readSessionOutputStream,
   selectSessionLeaf,
+  updateSessionInfo,
   waitForSessionRunning,
 } from "./sessions.js";
 
@@ -251,11 +256,17 @@ app.post("/api/sessions", async (c) => {
       workspaceId?: string;
       agentId?: string;
       title?: string;
+      cwd?: string;
+      protocol?: "pi" | "acp" | "internal";
+      meta?: Record<string, unknown>;
     }>()
     .catch(() => ({}))) as {
     workspaceId?: string;
     agentId?: string;
     title?: string;
+    cwd?: string;
+    protocol?: "pi" | "acp" | "internal";
+    meta?: Record<string, unknown>;
   };
 
   const session = await createSession({
@@ -263,6 +274,9 @@ app.post("/api/sessions", async (c) => {
     workspaceId: body.workspaceId ?? null,
     agentId: body.agentId ?? null,
     title: body.title ?? null,
+    cwd: body.cwd ?? null,
+    protocol: body.protocol ?? "pi",
+    meta: body.meta ?? null,
   });
 
   await launchSessionSandbox({
@@ -278,7 +292,49 @@ app.post("/api/sessions", async (c) => {
   });
 });
 
-app.post("/internal/sessions/:id/assistant-message", async (c) => {
+app.post("/internal/sessions/:id/info", async (c) => {
+  const remoteAddr =
+    c.req.header("x-forwarded-for") ??
+    c.req.header("x-real-ip") ??
+    c.req.header("cf-connecting-ip") ??
+    "";
+  if (
+    remoteAddr &&
+    !remoteAddr.startsWith("10.") &&
+    !remoteAddr.startsWith("172.") &&
+    !remoteAddr.startsWith("192.168.") &&
+    remoteAddr !== "127.0.0.1" &&
+    remoteAddr !== "::1"
+  ) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+
+  const sessionId = c.req.param("id");
+  if (!requireValidSessionId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const session = await getSessionById(sessionId);
+  if (!session) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req.json<PersistSessionInfoUpdateInput>().catch(() => null);
+  if (!body) {
+    return c.json({ message: "invalid body" }, 400);
+  }
+
+  await updateSessionInfo({
+    sessionId,
+    title: body.title,
+    updatedAt: body.updatedAt,
+    meta: body.meta,
+  });
+
+  return c.json({ ok: true });
+});
+
+app.post("/internal/sessions/:id/messages", async (c) => {
   const remoteAddr =
     c.req.header("x-forwarded-for") ??
     c.req.header("x-real-ip") ??
@@ -302,28 +358,8 @@ app.post("/internal/sessions/:id/assistant-message", async (c) => {
     .json<{
       parentMessageId?: string;
       idempotencyKey?: string;
-      message?: {
-        content?: unknown;
-        text?: string | null;
-        provider?: string | null;
-        model?: string | null;
-        stopReason?: string | null;
-        errorMessage?: string | null;
-        usage?: {
-          input?: number;
-          output?: number;
-          totalTokens?: number;
-          costTotal?: number;
-        } | null;
-      };
-      toolCalls?: Array<{
-        toolCallId: string;
-        toolName: string;
-        args?: unknown;
-        result?: unknown;
-        resultPreview?: string | null;
-        isError?: boolean;
-      }>;
+      message?: PersistMessageInput["message"];
+      toolCalls?: PersistMessageInput["toolCalls"];
     }>()
     .catch(() => null);
 
@@ -337,23 +373,18 @@ app.post("/internal/sessions/:id/assistant-message", async (c) => {
     return c.json({ message: "message.content is required" }, 400);
   }
 
-  const assistantMessage = await persistAssistantMessageNode({
+  const messageNode = await persistMessageNode({
     sessionId: session.id,
     parentMessageId: body.parentMessageId,
     idempotencyKey: body.idempotencyKey,
     message: {
+      ...(body.message as PersistMessageInput["message"]),
       content: body.message.content as never,
-      text: body.message.text,
-      provider: body.message.provider,
-      model: body.message.model,
-      stopReason: body.message.stopReason,
-      errorMessage: body.message.errorMessage,
-      usage: body.message.usage,
     },
-    toolCalls: body.toolCalls,
+    toolCalls: (body.toolCalls as PersistMessageInput["toolCalls"]) ?? undefined,
   });
 
-  return c.json({ ok: true, assistantMessage });
+  return c.json({ ok: true, message: messageNode });
 });
 
 app.get("/api/sessions/:id", async (c) => {
