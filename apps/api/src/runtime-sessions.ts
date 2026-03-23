@@ -14,6 +14,7 @@ import {
   runtimes,
   sessionMessages,
   sessionToolCalls,
+  runtimeChannels,
 } from "./db/schema.js";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
@@ -24,6 +25,7 @@ import {
   redis,
 } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
+import { bindRuntimeChannelsToGateway, dispatchOutboundMessage, getBindingBySessionId, touchRuntimeSessionBinding } from "./channels.js";
 
 export type SessionMessageBlock = UnifiedContentBlock;
 
@@ -110,6 +112,9 @@ export const launchRuntimeSandbox = async (input: {
     body: pod,
   });
 
+  // 拉起关联的 IM Channels
+  await bindRuntimeChannelsToGateway(input.runtimeId).catch(console.error);
+
   return pod;
 };
 
@@ -133,7 +138,7 @@ export const enqueueRuntimePrompt = async (input: RuntimePromptInput) => {
       action: "prompt",
       id: randomUUID(),
       runtimeId: input.runtimeId,
-      sessionId: input.sessionId ?? null,
+      sessionId: input.sessionId,
       userMessageId: input.userMessageId ?? null,
       branchFromMessageId: input.branchFromMessageId ?? null,
       message: input.message,
@@ -473,6 +478,32 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
       updatedAt: new Date(),
     })
     .where(eq(runtimeSessions.id, input.sessionId));
+
+  // 触发 Outbound：只分发到当前 session 绑定的目标渠道，而不是 runtime 全量广播
+  const binding = await getBindingBySessionId(session.id);
+
+  if (binding) {
+    await touchRuntimeSessionBinding(binding.id).catch(console.error);
+    dispatchOutboundMessage({
+      runtimeChannelId: binding.runtimeChannelId,
+      externalChatId: binding.externalChatId,
+      content: messageNode.content as any,
+      replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+    }).catch(console.error);
+  } else {
+    const channels = await db
+      .select()
+      .from(runtimeChannels)
+      .where(eq(runtimeChannels.runtimeId, session.runtimeId));
+
+    for (const rc of channels) {
+      dispatchOutboundMessage({
+        runtimeChannelId: rc.id,
+        content: messageNode.content as any,
+        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+      }).catch(console.error);
+    }
+  }
 
   return messageNode;
 };

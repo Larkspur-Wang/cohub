@@ -4,8 +4,9 @@ import {
   SessionManager,
   createAgentSession,
   createReadOnlyTools,
+  type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage, registerRuntimeSession } from "./api.js";
+import { persistAssistantMessage } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -15,7 +16,15 @@ import {
   setRuntimeStatus,
 } from "./redis.js";
 
+type SessionHandle = {
+  sessionId: string;
+  session: AgentSession;
+  sessionManager: SessionManager;
+  currentUserMessageId: string | null;
+};
+
 let isShuttingDown = false;
+const sessionHandles = new Map<string, SessionHandle>();
 
 async function shutdown(status: "stopped" | "error", exitCode: number) {
   if (isShuttingDown) {
@@ -23,6 +32,22 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   }
 
   isShuttingDown = true;
+
+  try {
+    for (const handle of sessionHandles.values()) {
+      try {
+        handle.session.dispose();
+      } catch (error) {
+        console.error(
+          `[Supervisor] Failed to dispose session ${handle.sessionId}:`,
+          error,
+        );
+      }
+    }
+    sessionHandles.clear();
+  } catch (error) {
+    console.error("[Supervisor] Failed to dispose session handles on shutdown:", error);
+  }
 
   try {
     await setRuntimeStatus(status);
@@ -39,6 +64,100 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   process.exit(exitCode);
 }
 
+async function findSessionFileById(sessionId: string) {
+  const sessions = await SessionManager.list(env.WORKSPACE_DIR).catch((error) => {
+    console.error(`[Supervisor] Failed to list sessions for lookup ${sessionId}:`, error);
+    return [];
+  });
+
+  const byId = sessions.find((session) => session.id === sessionId);
+  if (byId) return byId.path;
+
+  const bySuffix = sessions.find((session) => session.path.endsWith(`_${sessionId}.jsonl`));
+  return bySuffix?.path;
+}
+
+function subscribeSessionEvents(handle: SessionHandle) {
+  handle.session.subscribe((event) => {
+    void sendOutput({
+      type: "agent_event",
+      runtimeId: env.RUNTIME_ID,
+      sessionId: handle.sessionId,
+      event,
+    });
+
+    if (event.type === "turn_end" && handle.currentUserMessageId) {
+      void persistAssistantMessage({
+        runtimeId: env.RUNTIME_ID,
+        runtimeSessionId: handle.sessionId,
+        userMessageId: handle.currentUserMessageId,
+        event: event as Record<string, unknown>,
+      }).catch((error) => {
+        console.error(
+          `[Supervisor] Failed to persist assistant message for ${handle.sessionId}:`,
+          error,
+        );
+      });
+    }
+  });
+}
+
+async function loadOrCreateSessionHandle(input: {
+  sessionId: string;
+  authStorage: AuthStorage;
+  modelRegistry: ModelRegistry;
+  tools: ReturnType<typeof createReadOnlyTools>;
+}) {
+  const existing = sessionHandles.get(input.sessionId);
+  if (existing) return existing;
+
+  const existingSessionFile = await findSessionFileById(input.sessionId);
+
+  let sessionManager: SessionManager;
+  if (existingSessionFile) {
+    console.log(
+      `[Supervisor] Restoring pi session ${input.sessionId} from ${existingSessionFile}`,
+    );
+    sessionManager = SessionManager.open(existingSessionFile);
+
+    if (sessionManager.getSessionId() !== input.sessionId) {
+      console.warn(
+        `[Supervisor] Restored session id mismatch. expected=${input.sessionId}, actual=${sessionManager.getSessionId()}`,
+      );
+    }
+  } else {
+    console.log(`[Supervisor] Creating new pi session ${input.sessionId}`);
+    sessionManager = SessionManager.create(env.WORKSPACE_DIR);
+    sessionManager.newSession({ id: input.sessionId });
+  }
+
+  const { session } = await createAgentSession({
+    cwd: env.WORKSPACE_DIR,
+    authStorage: input.authStorage,
+    modelRegistry: input.modelRegistry,
+    tools: input.tools,
+    sessionManager,
+  });
+
+  const handle: SessionHandle = {
+    sessionId: input.sessionId,
+    session,
+    sessionManager,
+    currentUserMessageId: null,
+  };
+
+  subscribeSessionEvents(handle);
+  sessionHandles.set(input.sessionId, handle);
+
+  console.log("[Supervisor] Agent Session ready:", {
+    sessionId: handle.sessionId,
+    sessionFile: handle.sessionManager.getSessionFile(),
+    restored: Boolean(existingSessionFile),
+  });
+
+  return handle;
+}
+
 async function main() {
   console.log(`[Supervisor] Starting for Runtime: ${env.RUNTIME_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
@@ -49,7 +168,8 @@ async function main() {
       env.ENV === "prod"
         ? "http://cohub-api.cohub.svc.cluster.local:8787"
         : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
-    runtimeOwnedSessions: true,
+    runtimeOwnedSessions: false,
+    multiSessionRestore: true,
   });
 
   await initializeContainer();
@@ -57,51 +177,6 @@ async function main() {
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
   const tools = createReadOnlyTools(env.WORKSPACE_DIR);
-  const sessionManager = SessionManager.create(env.WORKSPACE_DIR);
-
-  const { session } = await createAgentSession({
-    cwd: env.WORKSPACE_DIR,
-    authStorage,
-    modelRegistry,
-    tools,
-    sessionManager,
-  });
-
-  console.log("[Supervisor] Agent Session created.");
-
-  const currentInternalSessionId = sessionManager.getSessionId();
-  await registerRuntimeSession({
-    runtimeId: env.RUNTIME_ID,
-    sessionId: currentInternalSessionId,
-    title: undefined,
-    protocol: "pi",
-    externalSessionId: sessionManager.getSessionFile() ?? null,
-    cwd: env.WORKSPACE_DIR,
-    meta: { source: "pi" },
-  });
-
-  let currentUserMessageId: string | null = null;
-  let currentRuntimeSessionId: string = currentInternalSessionId;
-
-  session.subscribe((event) => {
-    void sendOutput({
-      type: "agent_event",
-      runtimeId: env.RUNTIME_ID,
-      sessionId: currentRuntimeSessionId,
-      event,
-    });
-
-    if (event.type === "turn_end" && currentUserMessageId) {
-      void persistAssistantMessage({
-        runtimeId: env.RUNTIME_ID,
-        runtimeSessionId: currentRuntimeSessionId,
-        userMessageId: currentUserMessageId,
-        event: event as Record<string, unknown>,
-      }).catch((error) => {
-        console.error("[Supervisor] Failed to persist assistant message:", error);
-      });
-    }
-  });
 
   await setRuntimeStatus("running");
   console.log("[Supervisor] Runtime is now running and listening for input.");
@@ -111,33 +186,49 @@ async function main() {
 
     try {
       if (inputEntry.action === "prompt") {
-        currentRuntimeSessionId = inputEntry.sessionId ?? currentInternalSessionId;
-        currentUserMessageId = inputEntry.userMessageId ?? null;
-
-        if (!inputEntry.sessionId) {
-          await registerRuntimeSession({
-            runtimeId: env.RUNTIME_ID,
-            sessionId: currentRuntimeSessionId,
-            title: undefined,
-            protocol: "pi",
-            externalSessionId: sessionManager.getSessionFile() ?? null,
-            cwd: env.WORKSPACE_DIR,
-            meta: { source: "pi", createdFromPrompt: true },
-          });
+        const sessionId = inputEntry.sessionId;
+        if (!sessionId) {
+          throw new Error("sessionId is required for prompt inputs");
         }
 
-        await session.prompt(inputEntry.message.text, {
-          images: inputEntry.message.images,
+        const handle = await loadOrCreateSessionHandle({
+          sessionId,
+          authStorage,
+          modelRegistry,
+          tools,
         });
+
+        handle.currentUserMessageId = inputEntry.userMessageId ?? null;
+
+        try {
+          await handle.session.prompt(inputEntry.message.text, {
+            images: inputEntry.message.images,
+          });
+        } finally {
+          handle.currentUserMessageId = null;
+        }
       } else if (inputEntry.action === "abort") {
-        await session.abort();
+        if (inputEntry.sessionId) {
+          const handle = sessionHandles.get(inputEntry.sessionId);
+          if (!handle) {
+            console.warn(
+              `[Supervisor] Abort requested for unknown session ${inputEntry.sessionId}`,
+            );
+            return;
+          }
+          await handle.session.abort();
+        } else {
+          await Promise.all(
+            Array.from(sessionHandles.values()).map((handle) => handle.session.abort()),
+          );
+        }
       }
     } catch (error) {
       console.error("[Supervisor] Error processing input:", error);
       await sendOutput({
         type: "error",
         runtimeId: env.RUNTIME_ID,
-        sessionId: currentRuntimeSessionId,
+        sessionId: inputEntry.sessionId ?? null,
         error: String(error),
       });
       throw error;

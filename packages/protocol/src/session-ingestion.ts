@@ -54,7 +54,7 @@ export type ToolCallContentBlock =
 
 export type RuntimePromptInput = {
   runtimeId: string;
-  sessionId?: string | null;
+  sessionId: string;
   userMessageId?: string | null;
   branchFromMessageId?: string | null;
   message: {

@@ -51,6 +51,25 @@ export const agents = pgTable(
   }),
 );
 
+// 用户渠道配置表 (User Channels)
+export const userChannels = pgTable(
+  "user_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
+    provider: varchar("provider", { length: 50 }).notNull(), // 'web', 'discord', 'feishu', 'telegram'
+    name: varchar("name", { length: 255 }),
+    credentials: jsonb("credentials").notNull(), // 存储 bot token, app id/secret 等
+    status: varchar("status", { length: 20 }).default("active"), // active, error, disabled
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userUuidIdx: index("idx_user_channels_user_uuid").on(table.userUuid),
+    providerIdx: index("idx_user_channels_provider").on(table.provider),
+  }),
+);
+
 // 外层：Runtime（一个 workspace 的 agent 运行实例，可运行/休眠/恢复）
 export const runtimes = pgTable(
   "runtimes",
@@ -77,6 +96,59 @@ export const runtimes = pgTable(
     agentIdx: index("idx_runtimes_agent_id").on(table.agentId),
     currentSessionIdx: index("idx_runtimes_current_session_id").on(
       table.currentSessionId,
+    ),
+  }),
+);
+
+// Runtime 与 渠道的关联映射表
+export const runtimeChannels = pgTable(
+  "runtime_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runtimeId: uuid("runtime_id").notNull(),
+    channelId: uuid("channel_id").notNull(),
+    externalChatId: varchar("external_chat_id", { length: 255 }).notNull(), // 外部群组/会话 ID
+    config: jsonb("config"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    runtimeIdx: index("idx_runtime_channels_runtime").on(table.runtimeId),
+    channelIdx: index("idx_runtime_channels_channel").on(table.channelId),
+    externalChatIdx: index("idx_runtime_channels_external_chat").on(
+      table.externalChatId,
+    ),
+    uniqueRuntimeChannel: uniqueIndex("uq_runtime_channel_chat").on(
+      table.channelId,
+      table.externalChatId,
+    ),
+  }),
+);
+
+export const runtimeSessionBindings = pgTable(
+  "runtime_session_bindings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runtimeId: uuid("runtime_id").notNull(),
+    runtimeSessionId: uuid("runtime_session_id").notNull(),
+    runtimeChannelId: uuid("runtime_channel_id").notNull(),
+    provider: varchar("provider", { length: 50 }).notNull(),
+    bindingKey: varchar("binding_key", { length: 255 }).notNull(),
+    externalChatId: varchar("external_chat_id", { length: 255 }).notNull(),
+    status: varchar("status", { length: 20 }).default("active"),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  },
+  (table) => ({
+    runtimeIdx: index("idx_runtime_session_bindings_runtime").on(table.runtimeId),
+    sessionIdx: index("idx_runtime_session_bindings_session").on(table.runtimeSessionId),
+    channelIdx: index("idx_runtime_session_bindings_channel").on(table.runtimeChannelId),
+    bindingKeyIdx: index("idx_runtime_session_bindings_binding_key").on(table.bindingKey),
+    externalChatIdx: index("idx_runtime_session_bindings_external_chat").on(table.externalChatId),
+    uniqueChannelBinding: uniqueIndex("uq_runtime_session_bindings_channel_binding").on(
+      table.runtimeChannelId,
+      table.bindingKey,
     ),
   }),
 );
@@ -226,5 +298,30 @@ export const sessionToolCalls = pgTable(
     sessionToolCallUniqueIdx: uniqueIndex(
       "uq_session_tool_calls_session_tool_call_id",
     ).on(table.sessionId, table.toolCallId),
+  }),
+);
+
+// Gateway 原始日志表 (用于 Debug)
+export const gatewayLogs = pgTable(
+  "gateway_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    direction: varchar("direction", { length: 10 }).notNull(), // 'inbound' | 'outbound'
+    provider: varchar("provider", { length: 50 }).notNull(),
+    channelId: uuid("channel_id"),
+    externalChatId: varchar("external_chat_id", { length: 255 }),
+
+    rawPayload: jsonb("raw_payload").notNull(),
+    normalizedPayload: jsonb("normalized_payload"),
+
+    status: varchar("status", { length: 20 }).default("success"),
+    errorMessage: text("error_message"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    channelIdx: index("idx_gateway_logs_channel").on(table.channelId),
+    directionIdx: index("idx_gateway_logs_direction").on(table.direction),
+    createdIdx: index("idx_gateway_logs_created").on(table.createdAt),
   }),
 );

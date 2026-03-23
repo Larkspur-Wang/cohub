@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1773987331693,
-      "tag": "0000_salty_groot",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1774253186235,
-      "tag": "0001_verify_schema_sync",
+      "when": 1774275780689,
+      "tag": "0000_chilly_whistler",
       "breakpoints": true
     }
   ]

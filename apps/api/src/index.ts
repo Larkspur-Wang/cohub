@@ -44,6 +44,38 @@ import {
   updateRuntimeSessionInfo,
   waitForRuntimeRunning,
 } from "./runtime-sessions.js";
+import { handleInboundEvent } from "./channels.js";
+import { redis as apiRedis } from "./redis.js";
+import type { GatewayInboundEvent } from "@cohub/protocol";
+
+// 启动 API 的后台监听器，处理来自网关的消息
+const startGatewayInboundListener = async () => {
+  let lastId = "$";
+  console.log("[Channels] API Gateway Inbound Listener started.");
+  while (true) {
+    try {
+      const result = await apiRedis.xread("BLOCK", 0, "STREAMS", "stream:gateway:inbound", lastId);
+      if (!result) continue;
+      for (const [stream, messages] of result) {
+        for (const [id, fields] of messages) {
+          lastId = id;
+          const payloadIndex = fields.findIndex((f) => f === "payload");
+          if (payloadIndex !== -1) {
+            const payload = fields[payloadIndex + 1];
+            if (!payload) continue;
+            const event = JSON.parse(payload) as GatewayInboundEvent;
+            await handleInboundEvent(event as any).catch(console.error);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[Channels] Error reading gateway inbound stream:", e);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  }
+};
+
+startGatewayInboundListener().catch(console.error);
 
 type Variables = { token: string | null };
 const app = new Hono<{ Variables: Variables }>();
@@ -261,34 +293,45 @@ app.post("/api/runtimes/:id/prompt", async (c) => {
 
   if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
 
-  let userMessage = null;
-  if (body.sessionId) {
-    const session = await getRuntimeSessionById(body.sessionId);
+  let sessionId = body.sessionId ?? null;
+  if (sessionId) {
+    const session = await getRuntimeSessionById(sessionId);
     if (!session || session.runtimeId !== runtime.id) {
       return c.json({ message: "session not found" }, 404);
     }
-
-    userMessage = await createUserMessageNode({
-      runtimeSessionId: session.id,
-      text: body.text,
-      images: body.images,
-      branchFromMessageId: body.branchFromMessageId ?? null,
+  } else {
+    const createdSession = await registerRuntimeSession({
+      runtimeId: runtime.id,
+      sessionId: crypto.randomUUID(),
+      title: null,
+      protocol: "pi",
+      cwd: null,
+      externalSessionId: null,
+      meta: { source: "web", createdBy: "api_prompt" },
     });
+    sessionId = createdSession.id;
   }
+
+  const userMessage = await createUserMessageNode({
+    runtimeSessionId: sessionId,
+    text: body.text,
+    images: body.images,
+    branchFromMessageId: body.branchFromMessageId ?? null,
+  });
 
   await enqueueRuntimePrompt({
     runtimeId: runtime.id,
-    sessionId: body.sessionId ?? null,
+    sessionId,
     userMessageId: userMessage?.id ?? body.userMessageId ?? null,
     branchFromMessageId: body.branchFromMessageId ?? null,
     message: {
       text: body.text,
       images: body.images,
     },
-    meta: body.meta ?? { intent: body.sessionId ? "continue" : "auto", source: "web" },
+    meta: body.meta ?? { intent: body.sessionId ? "continue" : "new_session", source: "web" },
   });
 
-  return c.json({ ok: true, runtime, sessionId: body.sessionId ?? null, userMessage });
+  return c.json({ ok: true, runtime, sessionId, userMessage });
 });
 
 app.get("/api/runtimes/:id", async (c) => {
