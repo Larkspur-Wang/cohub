@@ -1,39 +1,68 @@
-FROM node:20-alpine AS builder
+# Cohub Gateway Dockerfile
+# Multi-stage build
+
+# ============================================
+# Base: common build tooling
+# ============================================
+FROM node:22-slim AS base
 
 WORKDIR /app
 
-# 安装 pnpm
-RUN npm install -g pnpm
+# Use Corepack to manage pnpm
+RUN corepack enable && corepack prepare pnpm@9.12.1 --activate
 
-# 复制 package 文件
-COPY package.json pnpm-lock.yaml ./
-COPY packages/protocol/package.json ./packages/protocol/
-COPY apps/gateway/package.json ./apps/gateway/
+# Optional: npm registry mirror (useful in CN networks)
+RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 
-# 安装依赖
-RUN pnpm install --frozen-lockfile
+# ============================================
+# Stage 1: deps (production dependencies only)
+# ============================================
+FROM base AS deps
 
-# 复制源代码
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/protocol/package.json ./packages/protocol/package.json
+COPY apps/gateway/package.json ./apps/gateway/package.json
+
+# Install production deps
+RUN pnpm config set node-linker hoisted \
+  && pnpm install --frozen-lockfile --prod --filter @cohub/gateway...
+
+# ============================================
+# Stage 2: build
+# ============================================
+FROM base AS builder
+
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/protocol/package.json ./packages/protocol/package.json
+COPY apps/gateway/package.json ./apps/gateway/package.json
+
+# Install full deps (build needs dev deps like typescript)
+RUN pnpm config set node-linker hoisted \
+  && pnpm install --frozen-lockfile --filter @cohub/gateway...
+
 COPY packages/protocol ./packages/protocol
-COPY apps/gateway ./apps/gateway
-COPY tsconfig.base.json ./
+COPY apps/gateway/src ./apps/gateway/src
+COPY apps/gateway/tsconfig.json ./apps/gateway/tsconfig.json
 
-# 构建
-WORKDIR /app/apps/gateway
-RUN pnpm build
+RUN pnpm --filter @cohub/gateway build
 
-# 生产镜像
-FROM node:20-alpine
+# ============================================
+# Stage 3: production
+# ============================================
+FROM node:22-slim AS production
 
-WORKDIR /app
-
-# 复制构建产物
-COPY --from=builder /app/apps/gateway/dist ./dist
-COPY --from=builder /app/apps/gateway/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-
-# 设置环境变量
 ENV NODE_ENV=production
 
-# 启动
+WORKDIR /app
+
+# Copy runtime dependencies and built output
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/apps/gateway/dist ./apps/gateway/dist
+COPY apps/gateway/package.json ./apps/gateway/package.json
+
+# Run as non-root
+USER node
+
+WORKDIR /app/apps/gateway
+
 CMD ["node", "dist/index.js"]
