@@ -4,6 +4,7 @@ import type { V1Pod } from "@kubernetes/client-node";
 import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
+  PersistToolCall,
   RegisterRuntimeSessionInput,
   RuntimePromptInput,
   UnifiedContentBlock,
@@ -423,7 +424,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   const toolCalls = input.toolCalls ?? [];
   if (toolCalls.length > 0) {
     await db.insert(sessionToolCalls).values(
-      toolCalls.map((toolCall) => ({
+      toolCalls.map((toolCall: PersistToolCall) => ({
         sessionId: input.sessionId,
         messageId: messageNode.id,
         toolCallId: toolCall.toolCallId,

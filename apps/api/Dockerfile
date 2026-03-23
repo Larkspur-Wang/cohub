@@ -20,6 +20,7 @@ RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 FROM base AS deps
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/api/package.json ./apps/api/package.json
 
 # Install production deps for @cohub/api
@@ -33,12 +34,18 @@ RUN pnpm config set node-linker hoisted \
 FROM base AS builder
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/api/package.json ./apps/api/package.json
 
 # Install full deps (build needs dev deps like typescript)
 RUN pnpm config set node-linker hoisted \
   && pnpm install --frozen-lockfile --filter @cohub/api...
 
+# Copy protocol source and build it first
+COPY packages/protocol ./packages/protocol
+RUN pnpm --filter @cohub/protocol build || true
+
+# Copy api source and build
 COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
 COPY apps/api/drizzle ./apps/api/drizzle
@@ -57,9 +64,11 @@ WORKDIR /app
 
 # Copy runtime dependencies and built output
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/packages/protocol/dist ./packages/protocol/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/drizzle ./apps/api/drizzle
 COPY apps/api/package.json ./apps/api/package.json
+COPY packages/protocol/package.json ./packages/protocol/package.json
 
 # Run as non-root
 USER node

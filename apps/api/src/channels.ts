@@ -250,10 +250,11 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
   }
 
   // 3. 将消息注入到系统（模拟用户在 Web 端的操作）
-  const text = event.content.find(c => c.type === 'text')?.text || "";
+  const textBlock = event.content.find((block): block is { type: 'text'; text: string } => block.type === 'text');
+  const text = textBlock?.text || "";
   const images = event.content
-    .filter((c): c is { type: 'image'; uri: string } => c.type === 'image')
-    .map(i => ({ url: i.uri }));
+    .filter((block): block is { type: 'image'; uri?: string } => block.type === 'image' && !!block.uri)
+    .map((block) => ({ url: block.uri! }));
 
   const userMessage = await createUserMessageNode({
     runtimeSessionId: sessionId,
