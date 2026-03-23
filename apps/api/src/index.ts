@@ -2,7 +2,7 @@ import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 
 import {
   clearTokenCookie,
@@ -64,7 +64,7 @@ const startGatewayInboundListener = async () => {
             const payload = fields[payloadIndex + 1];
             if (!payload) continue;
             const event = JSON.parse(payload) as GatewayInboundEvent;
-            await handleInboundEvent(event as any).catch(console.error);
+            await handleInboundEvent(event).catch(console.error);
           }
         }
       }
@@ -83,7 +83,7 @@ const app = new Hono<{ Variables: Variables }>();
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const requireValidId = (id: string) => isUuid(id);
-const ensureInternalRequest = (c: any) => {
+const ensureInternalRequest = (c: Context<{ Variables: Variables }>) => {
   const remoteAddr =
     c.req.header("x-forwarded-for") ??
     c.req.header("x-real-ip") ??

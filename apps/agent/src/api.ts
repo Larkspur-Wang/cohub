@@ -122,7 +122,7 @@ const toToolCallRecords = (
         toolName: block.name,
         title: typeof block.title === "string" ? block.title : block.name,
         kind: typeof block.kind === "string" ? block.kind : null,
-        status: matched ? (Boolean(matched.isError) ? "failed" : "completed") : "pending",
+        status: matched ? (matched.isError ? "failed" : "completed") : "pending",
         args: block.arguments,
         result: matched ?? null,
         content: matched
@@ -261,7 +261,6 @@ export async function persistAssistantMessage(input: {
       lastError = error;
       if (attempt < maxAttempts) {
         await sleep(500 * attempt);
-        continue;
       }
     }
   }

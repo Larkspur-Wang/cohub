@@ -5,7 +5,7 @@ import { env } from "./env.js";
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const runtimePrefix = `cohub:runtimes:${env.RUNTIME_ID}`;
+const runtimePrefix = `runtimes:${env.RUNTIME_ID}`;
 const LIST_KEY_IN = `${runtimePrefix}:input_queue`;
 const PROCESSING_KEY = `${runtimePrefix}:processing_queue`;
 const DEAD_LETTER_KEY = `${runtimePrefix}:dead_letter_queue`;

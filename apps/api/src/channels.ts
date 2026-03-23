@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
 import { redis } from "./redis.js";
-import { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, ChannelProvider } from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
 import { createUserMessageNode, enqueueRuntimePrompt, registerRuntimeSession } from "./runtime-sessions.js";
 
@@ -100,7 +100,7 @@ export async function dispatchOutboundMessage(input: {
     commandId: randomUUID(),
     timestamp: Date.now(),
     channelId: rc.id,
-    provider: uc.provider as any,
+    provider: uc.provider as ChannelProvider,
     externalChatId: input.externalChatId ?? rc.externalChatId,
     content: input.content,
     replyToExternalMessageId: input.replyToExternalMessageId,

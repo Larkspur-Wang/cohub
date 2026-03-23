@@ -487,7 +487,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
     dispatchOutboundMessage({
       runtimeChannelId: binding.runtimeChannelId,
       externalChatId: binding.externalChatId,
-      content: messageNode.content as any,
+      content: messageNode.content,
       replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
     }).catch(console.error);
   } else {
@@ -499,7 +499,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
     for (const rc of channels) {
       dispatchOutboundMessage({
         runtimeChannelId: rc.id,
-        content: messageNode.content as any,
+        content: messageNode.content,
         replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
       }).catch(console.error);
     }

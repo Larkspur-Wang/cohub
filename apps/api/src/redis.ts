@@ -3,7 +3,7 @@ import { config } from "./config.js";
 
 export const redis = new Redis(config.redisUrl);
 
-const redisRuntimePrefix = (runtimeId: string) => `cohub:runtimes:${runtimeId}`;
+const redisRuntimePrefix = (runtimeId: string) => `runtimes:${runtimeId}`;
 const redisRuntimeSessionPrefix = (runtimeId: string, runtimeSessionId: string) =>
   `${redisRuntimePrefix(runtimeId)}:sessions:${runtimeSessionId}`;
 
