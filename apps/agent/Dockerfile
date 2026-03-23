@@ -4,18 +4,29 @@
 # ============================================
 # Stage 1: builder
 # ============================================
-FROM oven/bun:1.3.10-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# 拷贝依赖描述并安装构建依赖
-COPY apps/agent/package.json ./package.json
-COPY apps/agent/bun.lock ./bun.lock
-RUN bun install --frozen-lockfile
+# Use Corepack to manage pnpm
+RUN corepack enable && corepack prepare pnpm@9.12.1 --activate
 
-# 拷贝源码并构建
-COPY apps/agent/ ./
-RUN bun run build
+# 拷贝 workspace 配置和依赖描述
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/protocol/package.json ./packages/protocol/
+COPY apps/agent/package.json ./apps/agent/
+
+# 安装所有依赖
+RUN pnpm config set node-linker hoisted \
+  && pnpm install --frozen-lockfile --filter @cohub/agent...
+
+# 拷贝源码
+COPY packages/protocol ./packages/protocol
+COPY apps/agent/src ./apps/agent/src
+COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
+
+# 构建
+RUN pnpm --filter @cohub/agent build
 
 # ============================================
 # Stage 2: runtime
@@ -47,16 +58,17 @@ RUN bun install -g @mariozechner/pi-coding-agent
 
 WORKDIR /app
 
-# 安装运行时依赖
-COPY apps/agent/package.json ./package.json
-COPY apps/agent/bun.lock ./bun.lock
-RUN bun install --production --frozen-lockfile
-
-# 拷贝编译产物
-COPY --from=builder /app/dist ./dist
+# 从 builder 复制 node_modules 和构建产物
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/protocol/dist ./packages/protocol/dist
+COPY --from=builder /app/apps/agent/dist ./apps/agent/dist
+COPY apps/agent/package.json ./apps/agent/package.json
+COPY packages/protocol/package.json ./packages/protocol/package.json
 
 # 设置沙盒运行时工作目录
 RUN mkdir -p "$WORKSPACE_DIR"
 
-# 启动 Supervisor
+WORKDIR /app/apps/agent
+
+# 启动
 CMD ["bun", "dist/index.js"]
