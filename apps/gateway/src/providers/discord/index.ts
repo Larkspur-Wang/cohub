@@ -1,6 +1,6 @@
-import { Client, GatewayIntentBits, Message, Events } from "discord.js";
+import { Client, GatewayIntentBits, type Message, Events, type MessageCreateOptions } from "discord.js";
 import { randomUUID } from "node:crypto";
-import { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock } from "@cohub/protocol";
 import { publishInboundEvent } from "../../bus.js";
 
 const buildDiscordBindingKey = (message: Message) => {
@@ -52,11 +52,11 @@ export class DiscordProvider {
       ];
 
       // 处理附件 (简单实现，只取图片)
-      message.attachments.forEach((attachment) => {
+      for (const attachment of message.attachments.values()) {
         if (attachment.contentType?.startsWith("image/")) {
           content.push({ type: "image", uri: attachment.url });
         }
-      });
+      }
 
       const inboundEvent: GatewayInboundEvent = {
         eventId: randomUUID(),
@@ -86,6 +86,12 @@ export class DiscordProvider {
         return;
       }
 
+      // 检查是否是可以发送消息的频道类型
+      if (!('send' in channel)) {
+        console.error(`[Discord] Channel ${cmd.externalChatId} does not support sending messages`);
+        return;
+      }
+
       // 提取纯文本内容
       const texts = cmd.content
         .filter((block): block is { type: "text"; text: string } => block.type === "text")
@@ -98,12 +104,14 @@ export class DiscordProvider {
         .map((block) => block.uri);
 
       // 如果有 reply 的要求
-      const messageOptions: any = { content: texts, files };
+      const messageOptions: MessageCreateOptions = { content: texts, files };
       if (cmd.replyToExternalMessageId) {
         messageOptions.reply = { messageReference: cmd.replyToExternalMessageId };
       }
 
-      const sentMsg = await channel.send(messageOptions);
+      // 使用类型断言，因为我们已经检查了 'send' in channel
+      const sendableChannel = channel as Extract<typeof channel, { send: (options: MessageCreateOptions) => Promise<unknown> }>;
+      const sentMsg = await sendableChannel.send(messageOptions) as { id: string };
       console.log(`[Discord] Successfully sent message ${sentMsg.id} to ${channel.id}`);
     } catch (error) {
       console.error(`[Discord] Failed to send message to ${cmd.externalChatId}:`, error);

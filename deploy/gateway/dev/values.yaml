@@ -1,0 +1,21 @@
+# Dev 环境配置
+
+# ========== 基础 ==========
+NAMESPACE: "cohub-dev"
+APP_NAME: "cohub-gateway-dev"
+
+# ========== 镜像 ==========
+IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-gateway"
+IMAGE_TAG: "latest"
+IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_SECRET: ""
+
+# ========== 副本与资源 ==========
+REPLICAS: "1"
+REQUEST_CPU: "100m"
+REQUEST_MEMORY: "128Mi"
+LIMIT_CPU: "500m"
+LIMIT_MEMORY: "512Mi"
+
+# ========== 环境标识 ==========
+ENV: "dev"

@@ -2,10 +2,18 @@ import os from "node:os";
 import { redis } from "../bus.js";
 import { DiscordProvider } from "../providers/discord/index.js";
 
+interface ChannelConfig {
+  provider: string;
+  credentials: {
+    token: string;
+  };
+  externalChatId?: string;
+}
+
 export class GatewayManager {
   public readonly nodeId: string;
-  private heartbeatInterval?: Timer;
-  private syncInterval?: Timer;
+  private heartbeatInterval?: ReturnType<typeof setInterval>;
+  private syncInterval?: ReturnType<typeof setInterval>;
   
   // 本地维持的实例集合 Map<ChannelId, ProviderInstance>
   private providers = new Map<string, DiscordProvider>();
@@ -52,7 +60,7 @@ export class GatewayManager {
       // 使用 ZSET 记录节点和它的最后心跳时间 (用于 API 剔除死节点)
       await redis.zadd("gateway:nodes", Date.now(), this.nodeId);
     } catch (error) {
-      console.error(`[Manager] Failed to send heartbeat:`, error);
+      console.error("[Manager] Failed to send heartbeat:", error);
     }
   }
 
@@ -69,8 +77,11 @@ export class GatewayManager {
       // 1. 需要新增或更新的连接
       for (const channelId of expectedChannelIds) {
         if (!currentChannelIds.has(channelId)) {
-          const config = JSON.parse(tasksStr[channelId]);
-          this.startProvider(channelId, config);
+          const configStr = tasksStr[channelId];
+          if (configStr) {
+            const config = JSON.parse(configStr);
+            this.startProvider(channelId, config);
+          }
         }
         // TODO: 如果配置变了(比如 token 变了)，可能需要重启 provider
       }
@@ -83,11 +94,11 @@ export class GatewayManager {
       }
 
     } catch (error) {
-      console.error(`[Manager] Failed to sync tasks:`, error);
+      console.error("[Manager] Failed to sync tasks:", error);
     }
   }
 
-  private startProvider(channelId: string, config: any) {
+  private startProvider(channelId: string, config: ChannelConfig) {
     console.log(`[Manager] Starting provider for channel ${channelId} (${config.provider})`);
     try {
       if (config.provider === "discord") {

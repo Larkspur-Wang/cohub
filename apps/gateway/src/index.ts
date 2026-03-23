@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { GatewayManager } from "./manager/index.js";
 import { listenOutboundCommands } from "./bus.js";
-import { GatewayOutboundCommand } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
 async function main() {
   const manager = new GatewayManager();
@@ -34,7 +34,7 @@ async function main() {
 
   // === 调试模式：多渠道自动 Pong 逻辑 ===
   if (process.env.DEBUG_MODE === "true") {
-    console.log(`[Gateway] DEBUG_MODE enabled.`);
+    console.log("[Gateway] DEBUG_MODE enabled.");
 
     const startDebugProvider = async (channelId: string, providerType: string, token: string) => {
       console.log(`[Debug] Initializing test channel: ${channelId} (${providerType})`);
@@ -68,7 +68,11 @@ async function main() {
         for (const [stream, messages] of result) {
           for (const [id, fields] of messages) {
             lastId = id;
-            const payload = JSON.parse(fields[fields.indexOf("payload") + 1]) as GatewayInboundEvent;
+            const payloadIdx = fields.indexOf("payload");
+            const payloadStr = payloadIdx >= 0 ? fields[payloadIdx + 1] : undefined;
+            if (!payloadStr) continue;
+            
+            const payload = JSON.parse(payloadStr) as GatewayInboundEvent;
 
             // 只要是 debug 前缀的 channel，收到消息就回复 Pong
             if (payload.channelId.startsWith("debug-")) {

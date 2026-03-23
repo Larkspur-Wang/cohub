@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: __APP_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app.kubernetes.io/name: __APP_NAME__
+spec:
+  serviceName: __APP_NAME__
+  replicas: __REPLICAS__
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: __APP_NAME__
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: __APP_NAME__
+    spec:
+__IMAGE_PULL_SECRETS_BLOCK__
+      containers:
+        - name: __APP_NAME__
+          image: __IMAGE_REPOSITORY__:__IMAGE_TAG__
+          imagePullPolicy: __IMAGE_PULL_POLICY__
+          envFrom:
+            - configMapRef:
+                name: __APP_NAME__-config
+            - secretRef:
+                name: __APP_NAME__-secrets
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: "__REQUEST_CPU__"
+              memory: "__REQUEST_MEMORY__"
+            limits:
+              cpu: "__LIMIT_CPU__"
+              memory: "__LIMIT_MEMORY__"

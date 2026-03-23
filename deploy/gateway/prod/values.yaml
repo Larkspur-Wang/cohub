@@ -1,0 +1,21 @@
+# Prod 环境配置
+
+# ========== 基础 ==========
+NAMESPACE: "cohub"
+APP_NAME: "cohub-gateway"
+
+# ========== 镜像 ==========
+IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-gateway"
+IMAGE_TAG: "latest"
+IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_SECRET: ""
+
+# ========== 副本与资源 ==========
+REPLICAS: "1"
+REQUEST_CPU: "200m"
+REQUEST_MEMORY: "256Mi"
+LIMIT_CPU: "1000m"
+LIMIT_MEMORY: "1Gi"
+
+# ========== 环境标识 ==========
+ENV: "prod"

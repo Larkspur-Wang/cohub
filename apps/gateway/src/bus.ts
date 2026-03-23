@@ -1,5 +1,5 @@
-import Redis from "ioredis";
-import { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
+import { Redis } from "ioredis";
+import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
 // 这里我们暂时硬编码 redis 的 url，后续可以通过 env 传入
 export const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
@@ -38,9 +38,10 @@ export const listenOutboundCommands = async (
       for (const [stream, messages] of result) {
         for (const [id, fields] of messages) {
           lastId = id;
-          const payloadIndex = fields.findIndex((f) => f === "payload");
-          if (payloadIndex !== -1) {
-            const cmd = JSON.parse(fields[payloadIndex + 1]) as GatewayOutboundCommand;
+          const payloadIndex = fields.findIndex((f: string) => f === "payload");
+          const payloadStr = payloadIndex >= 0 ? fields[payloadIndex + 1] : undefined;
+          if (payloadStr) {
+            const cmd = JSON.parse(payloadStr) as GatewayOutboundCommand;
             await onCommand(cmd).catch((err) => {
               console.error(`Failed to process outbound command ${cmd.commandId}:`, err);
             });
