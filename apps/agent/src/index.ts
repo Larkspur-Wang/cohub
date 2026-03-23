@@ -5,14 +5,14 @@ import {
   createAgentSession,
   createReadOnlyTools,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage } from "./api.js";
+import { persistAssistantMessage, registerRuntimeSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
   closeRedisConnections,
   listenForInput,
   sendOutput,
-  setSessionStatus,
+  setRuntimeStatus,
 } from "./redis.js";
 
 let isShuttingDown = false;
@@ -25,12 +25,9 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   isShuttingDown = true;
 
   try {
-    await setSessionStatus(status);
+    await setRuntimeStatus(status);
   } catch (error) {
-    console.error(
-      "[Supervisor] Failed to update session status on shutdown:",
-      error,
-    );
+    console.error("[Supervisor] Failed to update runtime status on shutdown:", error);
   }
 
   try {
@@ -43,31 +40,23 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
 }
 
 async function main() {
-  console.log(`[Supervisor] Starting for Session: ${env.SESSION_ID}`);
+  console.log(`[Supervisor] Starting for Runtime: ${env.RUNTIME_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
+    runtimeId: env.RUNTIME_ID,
     internalApiBaseUrl:
       env.ENV === "prod"
         ? "http://cohub-api.cohub.svc.cluster.local:8787"
         : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
-    assistantPersistence: true,
-    promptRequiresUserMessageId: true,
+    runtimeOwnedSessions: true,
   });
 
-  // 1. Initialize Container (Clone global config, setup dirs)
   await initializeContainer();
 
-  // 2. Setup Pi Agent SDK
-  // Read auth and models from default locations (which were just cloned to ~/.pi)
-  // AuthStorage will also read from environment variables (e.g., LITELLM_API_KEY)
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
-
-  // We use readOnlyTools for the first version (read, grep, find, ls)
   const tools = createReadOnlyTools(env.WORKSPACE_DIR);
-
-  // Initialize Session Manager backed by NAS workspace
   const sessionManager = SessionManager.create(env.WORKSPACE_DIR);
 
   const { session } = await createAgentSession({
@@ -80,47 +69,63 @@ async function main() {
 
   console.log("[Supervisor] Agent Session created.");
 
-  let currentUserMessageId: string | null = null;
+  const currentInternalSessionId = sessionManager.getSessionId();
+  await registerRuntimeSession({
+    runtimeId: env.RUNTIME_ID,
+    sessionId: currentInternalSessionId,
+    title: undefined,
+    protocol: "pi",
+    externalSessionId: sessionManager.getSessionFile() ?? null,
+    cwd: env.WORKSPACE_DIR,
+    meta: { source: "pi" },
+  });
 
-  // 3. Subscribe to agent events and pipe to Redis
+  let currentUserMessageId: string | null = null;
+  let currentRuntimeSessionId: string = currentInternalSessionId;
+
   session.subscribe((event) => {
     void sendOutput({
       type: "agent_event",
+      runtimeId: env.RUNTIME_ID,
+      sessionId: currentRuntimeSessionId,
       event,
     });
 
     if (event.type === "turn_end" && currentUserMessageId) {
       void persistAssistantMessage({
-        sessionId: env.SESSION_ID,
+        runtimeId: env.RUNTIME_ID,
+        runtimeSessionId: currentRuntimeSessionId,
         userMessageId: currentUserMessageId,
         event: event as Record<string, unknown>,
       }).catch((error) => {
-        console.error(
-          "[Supervisor] Failed to persist assistant message:",
-          error,
-        );
+        console.error("[Supervisor] Failed to persist assistant message:", error);
       });
     }
   });
 
-  // 4. Mark session as running
-  await setSessionStatus("running");
-  console.log("[Supervisor] Session is now running and listening for input.");
+  await setRuntimeStatus("running");
+  console.log("[Supervisor] Runtime is now running and listening for input.");
 
-  // 5. Start listening for user messages from Redis List
   await listenForInput(async (inputEntry) => {
     console.log("[Supervisor] Received input from Redis:", inputEntry);
 
     try {
       if (inputEntry.action === "prompt") {
-        console.log("[Supervisor] Prompt metadata:", {
-          userMessageId: inputEntry.userMessageId,
-          branchFromMessageId: inputEntry.branchFromMessageId ?? null,
-          hasImages: Array.isArray(inputEntry.message.images)
-            ? inputEntry.message.images.length > 0
-            : false,
-        });
-        currentUserMessageId = inputEntry.userMessageId;
+        currentRuntimeSessionId = inputEntry.sessionId ?? currentInternalSessionId;
+        currentUserMessageId = inputEntry.userMessageId ?? null;
+
+        if (!inputEntry.sessionId) {
+          await registerRuntimeSession({
+            runtimeId: env.RUNTIME_ID,
+            sessionId: currentRuntimeSessionId,
+            title: undefined,
+            protocol: "pi",
+            externalSessionId: sessionManager.getSessionFile() ?? null,
+            cwd: env.WORKSPACE_DIR,
+            meta: { source: "pi", createdFromPrompt: true },
+          });
+        }
+
         await session.prompt(inputEntry.message.text, {
           images: inputEntry.message.images,
         });
@@ -131,6 +136,8 @@ async function main() {
       console.error("[Supervisor] Error processing input:", error);
       await sendOutput({
         type: "error",
+        runtimeId: env.RUNTIME_ID,
+        sessionId: currentRuntimeSessionId,
         error: String(error),
       });
       throw error;
@@ -138,7 +145,6 @@ async function main() {
   });
 }
 
-// Handle graceful shutdown
 process.on("SIGTERM", () => {
   console.log("[Supervisor] SIGTERM received. Shutting down.");
   void shutdown("stopped", 0);

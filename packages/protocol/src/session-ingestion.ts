@@ -52,7 +52,33 @@ export type ToolCallContentBlock =
       _meta?: Record<string, unknown>;
     };
 
+export type RuntimePromptInput = {
+  runtimeId: string;
+  sessionId?: string | null;
+  userMessageId?: string | null;
+  branchFromMessageId?: string | null;
+  message: {
+    text: string;
+    images?: Array<{ url: string }>;
+  };
+  meta?: {
+    source?: string;
+    intent?: "auto" | "continue" | "new_session" | "fork";
+  } | null;
+};
+
+export type RegisterRuntimeSessionInput = {
+  runtimeId: string;
+  sessionId: string;
+  title?: string | null;
+  protocol?: ProtocolSource | null;
+  externalSessionId?: string | null;
+  cwd?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
 export type PersistMessageInput = {
+  runtimeId: string;
   sessionId: string;
   parentMessageId: string;
   idempotencyKey: string;
@@ -95,12 +121,14 @@ export type PersistToolCall = {
 };
 
 export type PersistToolCallsInput = {
+  runtimeId: string;
   sessionId: string;
   messageId: string;
   toolCalls: PersistToolCall[];
 };
 
 export type PersistSessionInfoUpdateInput = {
+  runtimeId: string;
   sessionId: string;
   title?: string | null;
   updatedAt?: string | null;

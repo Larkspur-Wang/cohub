@@ -12,22 +12,8 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1773987331694,
-      "tag": "0001_session_tree",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1773987331695,
-      "tag": "0002_session_message_idempotency",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1773987331696,
-      "tag": "0003_acp_friendly_schema",
+      "when": 1774253186235,
+      "tag": "0001_verify_schema_sync",
       "breakpoints": true
     }
   ]

@@ -5,11 +5,12 @@ import { env } from "./env.js";
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const LIST_KEY_IN = `cohub:sessions:${env.SESSION_ID}:input_queue`;
-const PROCESSING_KEY = `cohub:sessions:${env.SESSION_ID}:processing_queue`;
-const DEAD_LETTER_KEY = `cohub:sessions:${env.SESSION_ID}:dead_letter_queue`;
-const STREAM_KEY_OUT = `cohub:sessions:${env.SESSION_ID}:output_stream`;
-const META_KEY = `cohub:sessions:${env.SESSION_ID}:meta`;
+const runtimePrefix = `cohub:runtimes:${env.RUNTIME_ID}`;
+const LIST_KEY_IN = `${runtimePrefix}:input_queue`;
+const PROCESSING_KEY = `${runtimePrefix}:processing_queue`;
+const DEAD_LETTER_KEY = `${runtimePrefix}:dead_letter_queue`;
+const STREAM_KEY_OUT = `${runtimePrefix}:output_stream`;
+const META_KEY = `${runtimePrefix}:meta`;
 
 type AgentImageContent = {
   type: "image";
@@ -25,36 +26,42 @@ const ImageContentSchema: z.ZodType<AgentImageContent> = z.object({
 
 const PromptInputSchema = z.object({
   action: z.literal("prompt"),
-  userMessageId: z.string().uuid(),
+  runtimeId: z.string().uuid(),
+  sessionId: z.string().uuid().nullable().optional(),
+  userMessageId: z.string().uuid().nullable().optional(),
   branchFromMessageId: z.string().uuid().nullable().optional(),
   message: z.object({
     text: z.string().min(1),
     images: z.array(ImageContentSchema).optional(),
   }),
+  meta: z
+    .object({
+      source: z.string().optional(),
+      intent: z.enum(["auto", "continue", "new_session", "fork"]).optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 const AbortInputSchema = z.object({
   action: z.literal("abort"),
+  runtimeId: z.string().uuid(),
+  sessionId: z.string().uuid().nullable().optional(),
 });
 
 export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
 
-/**
- * 设置 Session 状态
- */
-export async function setSessionStatus(
+export async function setRuntimeStatus(
   status: "starting" | "running" | "stopped" | "error",
 ) {
   await redis.hset(META_KEY, {
+    runtime_id: env.RUNTIME_ID,
     status,
     updated_at: Date.now().toString(),
   });
 }
 
-/**
- * 发送增量输出或完整 Entry 到 Redis Stream
- */
 export async function sendOutput(data: unknown) {
   try {
     const payload = typeof data === "string" ? data : JSON.stringify(data);
@@ -68,23 +75,13 @@ async function moveToDeadLetterQueue(rawMessage: string, reason: string) {
   try {
     await redis.rpush(
       DEAD_LETTER_KEY,
-      JSON.stringify({
-        rawMessage,
-        reason,
-        failedAt: new Date().toISOString(),
-      }),
+      JSON.stringify({ rawMessage, reason, failedAt: new Date().toISOString() }),
     );
   } catch (error) {
-    console.error(
-      "[Redis] Failed to push message to dead letter queue:",
-      error,
-    );
+    console.error("[Redis] Failed to push message to dead letter queue:", error);
   }
 }
 
-/**
- * 阻塞监听用户输入队列，失败消息会进入 dead-letter queue
- */
 export async function listenForInput(
   handler: (input: AgentInput) => Promise<void>,
 ) {
@@ -94,9 +91,7 @@ export async function listenForInput(
 
     try {
       rawMessage = await subClient.brpoplpush(LIST_KEY_IN, PROCESSING_KEY, 0);
-      if (!rawMessage) {
-        continue;
-      }
+      if (!rawMessage) continue;
 
       const parsed = InputSchema.parse(JSON.parse(rawMessage));
       await handler(parsed);

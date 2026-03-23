@@ -18,20 +18,18 @@ export const workspaces = pgTable(
   "workspaces",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userUuid: varchar("user_uuid", { length: 255 }).notNull(), // 外部 User UUID (Owner)
-    name: varchar("name", { length: 255 }).notNull(), // 工作区名称
-    description: text("description"), // 简要描述
-    giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(), // 例如 "user/cyberpunk-city"
+    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
     defaultBranch: varchar("default_branch", { length: 50 }).default("main"),
     visibility: varchar("visibility", { length: 20 }).default("public"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      userUuidIdx: index("idx_workspaces_user_uuid").on(table.userUuid),
-    };
-  },
+  (table) => ({
+    userUuidIdx: index("idx_workspaces_user_uuid").on(table.userUuid),
+  }),
 );
 
 // 智能体/角色表 (Agent)
@@ -48,32 +46,56 @@ export const agents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      userUuidIdx: index("idx_agents_user_uuid").on(table.userUuid),
-    };
-  },
+  (table) => ({
+    userUuidIdx: index("idx_agents_user_uuid").on(table.userUuid),
+  }),
 );
 
-// 会话表 (Session)
-export const sessions = pgTable(
-  "sessions",
+// 外层：Runtime（一个 workspace 的 agent 运行实例，可运行/休眠/恢复）
+export const runtimes = pgTable(
+  "runtimes",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userUuid: varchar("user_uuid", { length: 255 }).notNull(), // 会话所属用户 UUID
-    workspaceId: uuid("workspace_id").references(() => workspaces.id),
-    workspaceCommitHash: varchar("workspace_commit_hash", { length: 40 }), // 锁定 Workspace 版本
-    agentId: uuid("agent_id").references(() => agents.id),
-    agentCommitHash: varchar("agent_commit_hash", { length: 40 }), // 锁定 Agent 版本
+    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
+    workspaceId: uuid("workspace_id"),
+    workspaceCommitHash: varchar("workspace_commit_hash", { length: 40 }),
+    agentId: uuid("agent_id"),
+    agentCommitHash: varchar("agent_commit_hash", { length: 40 }),
 
-    title: varchar("title", { length: 255 }), // 会话标题
-    status: varchar("status", { length: 50 }).default("active"), // active, running, completed, aborted, error, archived
+    title: varchar("title", { length: 255 }),
+    status: varchar("status", { length: 50 }).default("active"), // active, running, sleeping, stopped, error, archived
+
+    currentSessionId: uuid("current_session_id"),
+    meta: jsonb("meta"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userUuidIdx: index("idx_runtimes_user_uuid").on(table.userUuid),
+    workspaceIdx: index("idx_runtimes_workspace_id").on(table.workspaceId),
+    agentIdx: index("idx_runtimes_agent_id").on(table.agentId),
+    currentSessionIdx: index("idx_runtimes_current_session_id").on(
+      table.currentSessionId,
+    ),
+  }),
+);
+
+// 内层：Session（runtime 内部的 LLM/agent conversation session）
+export const runtimeSessions = pgTable(
+  "runtime_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runtimeId: uuid("runtime_id").notNull(),
+
+    title: varchar("title", { length: 255 }),
+    status: varchar("status", { length: 50 }).default("active"), // active, archived
 
     cwd: text("cwd"),
     protocol: varchar("protocol", { length: 30 }), // pi | acp | internal
+    externalSessionId: text("external_session_id"),
     meta: jsonb("meta"),
 
-    // 树状会话展示字段（不强加 FK，避免自循环迁移复杂度）
     rootMessageId: uuid("root_message_id"),
     currentLeafMessageId: uuid("current_leaf_message_id"),
 
@@ -90,43 +112,36 @@ export const sessions = pgTable(
       .notNull()
       .default("0"),
 
-    rawSessionOssKey: text("raw_session_oss_key"),
-
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      userUuidIdx: index("idx_sessions_user_uuid").on(table.userUuid),
-      currentLeafIdx: index("idx_sessions_current_leaf_message_id").on(
-        table.currentLeafMessageId,
-      ),
-      lastMessageAtIdx: index("idx_sessions_last_message_at").on(
-        table.lastMessageAt,
-      ),
-      protocolIdx: index("idx_sessions_protocol").on(table.protocol),
-    };
-  },
+  (table) => ({
+    runtimeIdx: index("idx_runtime_sessions_runtime_id").on(table.runtimeId),
+    protocolIdx: index("idx_runtime_sessions_protocol").on(table.protocol),
+    currentLeafIdx: index("idx_runtime_sessions_current_leaf_message_id").on(
+      table.currentLeafMessageId,
+    ),
+    lastMessageAtIdx: index("idx_runtime_sessions_last_message_at").on(
+      table.lastMessageAt,
+    ),
+  }),
 );
 
-// 会话消息树节点表
+// Session 内的树状消息节点表
 export const sessionMessages = pgTable(
   "session_messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    sessionId: uuid("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull(),
 
-    role: varchar("role", { length: 20 }).notNull(), // user | assistant | system
-    source: varchar("source", { length: 30 }), // pi | acp | internal
+    role: varchar("role", { length: 20 }).notNull(),
+    source: varchar("source", { length: 30 }),
     externalMessageId: text("external_message_id"),
     content: jsonb("content").notNull().$type<UnifiedContentBlock[]>(),
-    text: text("text"), // 平铺文本，用于预览/搜索
+    text: text("text"),
     meta: jsonb("meta"),
 
     parentMessageId: uuid("parent_message_id"),
-
     idempotencyKey: varchar("idempotency_key", { length: 255 }),
 
     depth: integer("depth").notNull().default(0),
@@ -149,46 +164,40 @@ export const sessionMessages = pgTable(
 
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      sessionIdx: index("idx_session_messages_session_id").on(table.sessionId),
-      parentIdx: index("idx_session_messages_parent_message_id").on(
-        table.parentMessageId,
-      ),
-      sourceIdx: index("idx_session_messages_source").on(table.source),
-      externalMessageIdx: index("idx_session_messages_external_message_id").on(
-        table.externalMessageId,
-      ),
-      idempotencyKeyUniqueIdx: uniqueIndex(
-        "uq_session_messages_session_id_idempotency_key",
-      ).on(table.sessionId, table.idempotencyKey),
-      branchIdx: index("idx_session_messages_branch_id").on(table.branchId),
-      sessionBranchCreatedIdx: index(
-        "idx_session_messages_session_branch_created_at",
-      ).on(table.sessionId, table.branchId, table.createdAt),
-      sessionLeafIdx: index("idx_session_messages_session_is_leaf").on(
-        table.sessionId,
-        table.isLeaf,
-      ),
-      sessionDepthIdx: index("idx_session_messages_session_depth").on(
-        table.sessionId,
-        table.depth,
-      ),
-    };
-  },
+  (table) => ({
+    sessionIdx: index("idx_session_messages_session_id").on(table.sessionId),
+    parentIdx: index("idx_session_messages_parent_message_id").on(
+      table.parentMessageId,
+    ),
+    sourceIdx: index("idx_session_messages_source").on(table.source),
+    externalMessageIdx: index("idx_session_messages_external_message_id").on(
+      table.externalMessageId,
+    ),
+    idempotencyKeyUniqueIdx: uniqueIndex(
+      "uq_session_messages_session_id_idempotency_key",
+    ).on(table.sessionId, table.idempotencyKey),
+    branchIdx: index("idx_session_messages_branch_id").on(table.branchId),
+    sessionBranchCreatedIdx: index(
+      "idx_session_messages_session_branch_created_at",
+    ).on(table.sessionId, table.branchId, table.createdAt),
+    sessionLeafIdx: index("idx_session_messages_session_is_leaf").on(
+      table.sessionId,
+      table.isLeaf,
+    ),
+    sessionDepthIdx: index("idx_session_messages_session_depth").on(
+      table.sessionId,
+      table.depth,
+    ),
+  }),
 );
 
-// 助手消息中的工具调用
+// Session 内助手消息中的工具调用
 export const sessionToolCalls = pgTable(
   "session_tool_calls",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    sessionId: uuid("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
-    messageId: uuid("message_id")
-      .notNull()
-      .references(() => sessionMessages.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull(),
+    messageId: uuid("message_id").notNull(),
 
     toolCallId: varchar("tool_call_id", { length: 255 }).notNull(),
     toolName: varchar("tool_name", { length: 255 }).notNull(),
@@ -208,16 +217,14 @@ export const sessionToolCalls = pgTable(
 
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      sessionIdx: index("idx_session_tool_calls_session_id").on(table.sessionId),
-      messageIdx: index("idx_session_tool_calls_message_id").on(table.messageId),
-      toolNameIdx: index("idx_session_tool_calls_tool_name").on(table.toolName),
-      kindIdx: index("idx_session_tool_calls_kind").on(table.kind),
-      statusIdx: index("idx_session_tool_calls_status").on(table.status),
-      sessionToolCallUniqueIdx: uniqueIndex(
-        "uq_session_tool_calls_session_tool_call_id",
-      ).on(table.sessionId, table.toolCallId),
-    };
-  },
+  (table) => ({
+    sessionIdx: index("idx_session_tool_calls_session_id").on(table.sessionId),
+    messageIdx: index("idx_session_tool_calls_message_id").on(table.messageId),
+    toolNameIdx: index("idx_session_tool_calls_tool_name").on(table.toolName),
+    kindIdx: index("idx_session_tool_calls_kind").on(table.kind),
+    statusIdx: index("idx_session_tool_calls_status").on(table.status),
+    sessionToolCallUniqueIdx: uniqueIndex(
+      "uq_session_tool_calls_session_tool_call_id",
+    ).on(table.sessionId, table.toolCallId),
+  }),
 );

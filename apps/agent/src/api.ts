@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   PersistMessageInput,
+  RegisterRuntimeSessionInput,
   UnifiedContentBlock,
 } from "@cohub/protocol";
 import { env } from "./env.js";
@@ -15,27 +16,14 @@ const INTERNAL_API_BASE_URL =
 type PersistMessagePayload = PersistMessageInput;
 
 const stableSerialize = (value: unknown): string => {
-  if (value === null || value === undefined) {
-    return JSON.stringify(value);
-  }
-
-  if (typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-
+  if (value === null || value === undefined) return JSON.stringify(value);
+  if (typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
   }
-
-  const entries = Object.entries(value as Record<string, unknown>).sort(
-    ([a], [b]) => a.localeCompare(b),
-  );
-
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
   return `{${entries
-    .map(
-      ([key, nestedValue]) =>
-        `${JSON.stringify(key)}:${stableSerialize(nestedValue)}`,
-    )
+    .map(([key, nestedValue]) => `${JSON.stringify(key)}:${stableSerialize(nestedValue)}`)
     .join(",")}}`;
 };
 
@@ -57,13 +45,8 @@ const buildAssistantIdempotencyKey = (input: {
 };
 
 const extractTextFromContent = (content: unknown): string => {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
 
   return content
     .filter(
@@ -79,34 +62,22 @@ const extractTextFromContent = (content: unknown): string => {
       } => !!item && typeof item === "object" && "type" in item,
     )
     .flatMap((item) => {
-      if (item.type === "text" && typeof item.text === "string") {
-        return [item.text];
-      }
-      if (
-        item.type === "resource" &&
-        item.resource &&
-        typeof item.resource.text === "string"
-      ) {
+      if (item.type === "text" && typeof item.text === "string") return [item.text];
+      if (item.type === "resource" && item.resource && typeof item.resource.text === "string") {
         return [item.resource.text];
       }
-      if (item.type === "resource_link") {
-        return [item.title || item.name || item.uri || ""];
-      }
+      if (item.type === "resource_link") return [item.title || item.name || item.uri || ""];
       return [];
     })
     .join("\n")
     .trim();
 };
 
-const toAcpCompatibleContent = (
-  assistantMessage: Record<string, unknown>,
-): UnifiedContentBlock[] => {
+const toAcpCompatibleContent = (assistantMessage: Record<string, unknown>): UnifiedContentBlock[] => {
   const content = assistantMessage.content;
   const blocks: PersistMessagePayload["message"]["content"] = [];
 
-  if (!Array.isArray(content)) {
-    return blocks;
-  }
+  if (!Array.isArray(content)) return blocks;
 
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
@@ -120,12 +91,10 @@ const toAcpCompatibleContent = (
     if (block.type === "image") {
       blocks.push({
         type: "image",
-        mimeType:
-          typeof block.mimeType === "string" ? block.mimeType : undefined,
+        mimeType: typeof block.mimeType === "string" ? block.mimeType : undefined,
         data: typeof block.data === "string" ? block.data : undefined,
         uri: typeof block.uri === "string" ? block.uri : undefined,
       });
-      continue;
     }
   }
 
@@ -139,19 +108,13 @@ const toToolCallRecords = (
   const toolResultsById = new Map(
     toolResults.map((toolResult) => [String(toolResult.toolCallId ?? ""), toolResult]),
   );
-  const content = Array.isArray(assistantMessage.content)
-    ? assistantMessage.content
-    : [];
+  const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
 
   const calls: PersistMessagePayload["toolCalls"] = [];
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
     const block = item as Record<string, unknown>;
-    if (
-      block.type === "toolCall" &&
-      typeof block.id === "string" &&
-      typeof block.name === "string"
-    ) {
+    if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
       const matched = toolResultsById.get(block.id);
       const matchedText = matched ? extractTextFromContent(matched.content) : "";
       calls.push({
@@ -159,11 +122,7 @@ const toToolCallRecords = (
         toolName: block.name,
         title: typeof block.title === "string" ? block.title : block.name,
         kind: typeof block.kind === "string" ? block.kind : null,
-        status: matched
-          ? Boolean(matched.isError)
-            ? "failed"
-            : "completed"
-          : "pending",
+        status: matched ? (Boolean(matched.isError) ? "failed" : "completed") : "pending",
         args: block.arguments,
         result: matched ?? null,
         content: matched
@@ -179,8 +138,7 @@ const toToolCallRecords = (
           : null,
         rawInput: block.arguments,
         rawOutput: matched ?? null,
-        resultPreview:
-          matchedText || (matched ? JSON.stringify(matched.content ?? null) : null),
+        resultPreview: matchedText || (matched ? JSON.stringify(matched.content ?? null) : null),
         isError: matched ? Boolean(matched.isError) : false,
         meta: { source: "pi" },
       });
@@ -190,35 +148,23 @@ const toToolCallRecords = (
   return calls;
 };
 
-const buildToolCalls = (toolResults: Array<Record<string, unknown>>) => {
-  return toolResults.map((toolResult) => {
-    const contentText = extractTextFromContent(toolResult.content);
-    return {
-      toolCallId: String(toolResult.toolCallId ?? ""),
-      toolName: String(toolResult.toolName ?? "unknown"),
-      title: String(toolResult.toolName ?? "unknown"),
-      kind: null,
-      status: Boolean(toolResult.isError) ? "failed" : "completed",
-      result: toolResult,
-      content: [
-        {
-          type: "content" as const,
-          content: {
-            type: "text" as const,
-            text: contentText || JSON.stringify(toolResult.content ?? null),
-          },
-        },
-      ],
-      rawOutput: toolResult,
-      resultPreview: contentText || JSON.stringify(toolResult.content ?? null),
-      isError: Boolean(toolResult.isError),
-      meta: { source: "pi" },
-    };
+export async function registerRuntimeSession(input: RegisterRuntimeSessionInput) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
   });
-};
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Register session failed ${response.status}: ${text}`);
+  }
+}
 
 export async function persistAssistantMessage(input: {
-  sessionId: string;
+  runtimeId: string;
+  runtimeSessionId: string;
   userMessageId: string;
   event: Record<string, unknown>;
 }) {
@@ -238,65 +184,48 @@ export async function persistAssistantMessage(input: {
   const text = extractTextFromContent(assistant.content);
 
   const payload: PersistMessagePayload = {
-    sessionId: input.sessionId,
+    runtimeId: input.runtimeId,
+    sessionId: input.runtimeSessionId,
     parentMessageId: input.userMessageId,
     idempotencyKey: "",
     message: {
       role: "assistant",
       source: "pi",
-      externalMessageId:
-        typeof assistant.id === "string" ? assistant.id : null,
+      externalMessageId: typeof assistant.id === "string" ? assistant.id : null,
       content,
       text,
-      provider:
-        typeof assistant.provider === "string" ? assistant.provider : null,
+      provider: typeof assistant.provider === "string" ? assistant.provider : null,
       model: typeof assistant.model === "string" ? assistant.model : null,
-      stopReason:
-        typeof assistant.stopReason === "string" ? assistant.stopReason : null,
-      errorMessage:
-        typeof assistant.errorMessage === "string"
-          ? assistant.errorMessage
-          : null,
+      stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
+      errorMessage: typeof assistant.errorMessage === "string" ? assistant.errorMessage : null,
       meta: {
         source: "pi",
-        rawStopReason:
-          typeof assistant.stopReason === "string" ? assistant.stopReason : null,
+        runtimeId: input.runtimeId,
+        sessionId: input.runtimeSessionId,
+        rawStopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
       },
       usage:
         assistant.usage && typeof assistant.usage === "object"
           ? {
               input:
-                typeof (assistant.usage as Record<string, unknown>).input ===
-                "number"
-                  ? ((assistant.usage as Record<string, unknown>)
-                      .input as number)
+                typeof (assistant.usage as Record<string, unknown>).input === "number"
+                  ? ((assistant.usage as Record<string, unknown>).input as number)
                   : undefined,
               output:
-                typeof (assistant.usage as Record<string, unknown>).output ===
-                "number"
-                  ? ((assistant.usage as Record<string, unknown>)
-                      .output as number)
+                typeof (assistant.usage as Record<string, unknown>).output === "number"
+                  ? ((assistant.usage as Record<string, unknown>).output as number)
                   : undefined,
               totalTokens:
-                typeof (assistant.usage as Record<string, unknown>)
-                  .totalTokens === "number"
-                  ? ((assistant.usage as Record<string, unknown>)
-                      .totalTokens as number)
+                typeof (assistant.usage as Record<string, unknown>).totalTokens === "number"
+                  ? ((assistant.usage as Record<string, unknown>).totalTokens as number)
                   : undefined,
               costTotal:
                 assistant.usage &&
-                typeof (assistant.usage as Record<string, unknown>).cost ===
-                  "object" &&
-                typeof (
-                  (assistant.usage as Record<string, unknown>).cost as Record<
-                    string,
-                    unknown
-                  >
-                ).total === "number"
-                  ? (((
-                      (assistant.usage as Record<string, unknown>)
-                        .cost as Record<string, unknown>
-                    ).total as number) ?? undefined)
+                typeof (assistant.usage as Record<string, unknown>).cost === "object" &&
+                typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total) ===
+                  "number"
+                  ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total as number) ??
+                      undefined)
                   : undefined,
             }
           : null,
@@ -310,7 +239,7 @@ export async function persistAssistantMessage(input: {
     toolCalls: payload.toolCalls,
   });
 
-  const url = `${INTERNAL_API_BASE_URL}/internal/sessions/${input.sessionId}/messages`;
+  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/messages`;
   const maxAttempts = 3;
   let lastError: unknown = null;
 
@@ -318,36 +247,24 @@ export async function persistAssistantMessage(input: {
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(
-          `Failed to persist assistant message: ${response.status} ${text}`,
-        );
+        throw new Error(`Persist API responded ${response.status}: ${text}`);
       }
 
       return;
     } catch (error) {
       lastError = error;
-      if (attempt >= maxAttempts) {
-        break;
+      if (attempt < maxAttempts) {
+        await sleep(500 * attempt);
+        continue;
       }
-
-      const delayMs = 300 * 2 ** (attempt - 1);
-      console.warn(
-        `[Persist] attempt ${attempt}/${maxAttempts} failed, retrying in ${delayMs}ms:`,
-        error,
-      );
-      await sleep(delayMs);
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(String(lastError ?? "Unknown persistence error"));
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }

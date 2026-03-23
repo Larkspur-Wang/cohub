@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { GLOBAL_CONFIG_REPO, env } from "./env.js";
-import { setSessionStatus } from "./redis.js";
+import { setRuntimeStatus } from "./redis.js";
 
 async function runGitClone(repositoryUrl: string, targetDir: string) {
   await new Promise<void>((resolve, reject) => {
@@ -35,22 +35,17 @@ async function runGitClone(repositoryUrl: string, targetDir: string) {
 async function copyConfigToHome(sourceDir: string, name: string) {
   const homeDir = process.env.HOME || "/root";
   const targetDir = join(homeDir, name);
-
-  // Remove existing directory if it exists
   await rm(targetDir, { recursive: true, force: true });
-
-  // Copy the directory
   await cp(sourceDir, targetDir, { recursive: true });
   console.log(`[Init] Copied ${name} to ${targetDir}`);
 }
 
 export async function initializeContainer() {
   console.log(
-    `[Init] Starting container initialization for session: ${env.SESSION_ID}`,
+    `[Init] Starting container initialization for runtime: ${env.RUNTIME_ID}`,
   );
-  await setSessionStatus("starting");
+  await setRuntimeStatus("starting");
 
-  // Ensure workspace directory exists
   try {
     await mkdir(env.WORKSPACE_DIR, { recursive: true });
     console.log(`[Init] Workspace directory ready: ${env.WORKSPACE_DIR}`);
@@ -59,23 +54,17 @@ export async function initializeContainer() {
     throw error;
   }
 
-  // Clone configs repo to a temp directory
   const tempDir = join("/tmp", `configs-${Date.now()}`);
   try {
     console.log(`[Init] Cloning config repo from ${GLOBAL_CONFIG_REPO}...`);
     await runGitClone(GLOBAL_CONFIG_REPO, tempDir);
     console.log("[Init] Config repo cloned successfully.");
 
-    // Read all entries in the cloned repo
     const entries = await readdir(tempDir);
     for (const entry of entries) {
-      // Skip .git directory
       if (entry === ".git") continue;
-
       const entryPath = join(tempDir, entry);
       const stats = await stat(entryPath);
-
-      // Only process directories
       if (stats.isDirectory()) {
         await copyConfigToHome(entryPath, entry);
       }
@@ -86,7 +75,6 @@ export async function initializeContainer() {
     console.error("[Init] Failed to clone or apply configs:", error);
     throw error;
   } finally {
-    // Clean up temp directory
     await rm(tempDir, { recursive: true, force: true });
   }
 

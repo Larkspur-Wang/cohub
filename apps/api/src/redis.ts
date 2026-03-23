@@ -3,11 +3,25 @@ import { config } from "./config.js";
 
 export const redis = new Redis(config.redisUrl);
 
-const redisSessionPrefix = (sessionId: string) => `cohub:sessions:${sessionId}`;
+const redisRuntimePrefix = (runtimeId: string) => `cohub:runtimes:${runtimeId}`;
+const redisRuntimeSessionPrefix = (runtimeId: string, runtimeSessionId: string) =>
+  `${redisRuntimePrefix(runtimeId)}:sessions:${runtimeSessionId}`;
 
-export const getSessionMetaKey = (sessionId: string) =>
-  `${redisSessionPrefix(sessionId)}:meta`;
-export const getSessionInputQueueKey = (sessionId: string) =>
-  `${redisSessionPrefix(sessionId)}:input_queue`;
-export const getSessionOutputStreamKey = (sessionId: string) =>
-  `${redisSessionPrefix(sessionId)}:output_stream`;
+export const getRuntimeMetaKey = (runtimeId: string) =>
+  `${redisRuntimePrefix(runtimeId)}:meta`;
+
+export const getRuntimeInputQueueKey = (runtimeId: string) =>
+  `${redisRuntimePrefix(runtimeId)}:input_queue`;
+
+export const getRuntimeOutputStreamKey = (runtimeId: string) =>
+  `${redisRuntimePrefix(runtimeId)}:output_stream`;
+
+export const getRuntimeSessionMetaKey = (
+  runtimeId: string,
+  runtimeSessionId: string,
+) => `${redisRuntimeSessionPrefix(runtimeId, runtimeSessionId)}:meta`;
+
+export const getRuntimeSessionOutputStreamKey = (
+  runtimeId: string,
+  runtimeSessionId: string,
+) => `${redisRuntimeSessionPrefix(runtimeId, runtimeSessionId)}:output_stream`;

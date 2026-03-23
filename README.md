@@ -28,13 +28,20 @@ An **Agent** is the executable logic that runs within a workspace.
 
 If the workspace is the project unit, the agent is the runtime behavior operating inside it.
 
-### Session
-A **Session** is a live running instance of an agent started from a specific workspace.
+### Runtime
+A **Runtime** is a runtime instance of an agent started from a specific workspace.
 
-It represents a runtime context for debugging, execution, or ongoing interaction.
+A runtime may be active, sleeping, resumable, or stopped. It is the outer lifecycle unit used for execution, debugging, and long-lived interaction.
+
+A runtime can contain one or more internal sessions.
+
+### Session
+A **Session** is an internal LLM / conversation session within a runtime.
+
+Each session maintains its own conversation context and may evolve as a tree with branches and forks.
 
 ### Channel
-A **Channel** is an external communication endpoint for a session.
+A **Channel** is an external communication endpoint for a runtime.
 
 Examples include Web, Discord, and Telegram. Users interact with agents through channels, and agents can send results back through them.
 
@@ -68,7 +75,8 @@ Host mature workspaces like code on GitHub or models on Hugging Face, so other d
 
 - **Workspace**: a runnable, hostable, shareable project unit
 - **Agent**: executable behavior running inside a workspace
-- **Session**: a live runtime instance
+- **Runtime**: the outer runtime instance / lifecycle unit
+- **Session**: an internal LLM or conversation session inside a runtime
 - **Channel**: an external communication interface
 
 ## Tech Stack
@@ -118,7 +126,7 @@ pnpm build
 
 ## Roadmap
 
-- **Phase 1**: establish the Workspace + Agent + Session + Web Channel loop
+- **Phase 1**: establish the Workspace + Agent + Runtime + Session + Web Channel loop
 - **Phase 2**: improve cloud runtime, debugging, and task lifecycle management
 - **Phase 3**: support local workspace push-to-cloud deployment and more channel integrations
 - **Phase 4**: build workspace sharing, reuse, and distribution flows

@@ -23,36 +23,52 @@ import {
 import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
+  RegisterRuntimeSessionInput,
+  RuntimePromptInput,
 } from "@cohub/protocol";
 import {
-  abortSession,
-  createSession,
+  createRuntime,
   createUserMessageNode,
-  enqueueSessionPrompt,
+  enqueueRuntimePrompt,
   getCurrentPathMessages,
-  getSessionById,
-  launchSessionSandbox,
+  getRuntimeById,
+  getRuntimeSessionById,
+  launchRuntimeSandbox,
+  listRuntimeSessions,
   listSessionTree,
   listToolCallsByMessageIds,
   persistMessageNode,
-  readSessionOutputStream,
-  selectSessionLeaf,
-  updateSessionInfo,
-  waitForSessionRunning,
-} from "./sessions.js";
+  readRuntimeOutputStream,
+  registerRuntimeSession,
+  selectRuntimeSessionLeaf,
+  updateRuntimeSessionInfo,
+  waitForRuntimeRunning,
+} from "./runtime-sessions.js";
 
-type Variables = {
-  token: string | null;
-};
-
+type Variables = { token: string | null };
 const app = new Hono<{ Variables: Variables }>();
 
 const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    value,
-  );
-
-const requireValidSessionId = (id: string) => isUuid(id);
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const requireValidId = (id: string) => isUuid(id);
+const ensureInternalRequest = (c: any) => {
+  const remoteAddr =
+    c.req.header("x-forwarded-for") ??
+    c.req.header("x-real-ip") ??
+    c.req.header("cf-connecting-ip") ??
+    "";
+  if (
+    remoteAddr &&
+    !remoteAddr.startsWith("10.") &&
+    !remoteAddr.startsWith("172.") &&
+    !remoteAddr.startsWith("192.168.") &&
+    remoteAddr !== "127.0.0.1" &&
+    remoteAddr !== "::1"
+  ) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+  return null;
+};
 
 app.use("*", async (c, next) => {
   c.set("token", getTokenFromRequest(c));
@@ -74,18 +90,11 @@ app.get("/healthz", (c) => c.json({ ok: true }));
 app.post("/api/auth/token", async (c) => {
   const body = await c.req.json<{ token?: string }>().catch(() => null);
   const token = body?.token?.trim();
-  if (!token) {
-    return c.json({ message: "token is required" }, 400);
-  }
-
-  const user = await fetchAuthUser(token).catch((error: unknown) => {
-    return error;
-  });
-
+  if (!token) return c.json({ message: "token is required" }, 400);
+  const user = await fetchAuthUser(token).catch((error: unknown) => error);
   if (!user || user instanceof Error) {
     return c.json({ message: "invalid token" }, 401);
   }
-
   setTokenCookie(c, token);
   return c.json({ user });
 });
@@ -97,110 +106,69 @@ app.delete("/api/auth/token", (c) => {
 
 app.get("/api/me", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user) {
     clearTokenCookie(c);
     return c.json({ message: "unauthorized" }, 401);
   }
-
   return c.json(user);
 });
 
 app.get("/v1/user/", async (c) => {
   const token = c.req.header("neta-token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
-  if (!user) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
+  if (!user) return c.json({ message: "unauthorized" }, 401);
   return c.json(user);
 });
 
 app.post("/api/v1/user/repos", async (c) => {
   const token = c.req.header("neta-token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ name: string; private?: boolean }>();
   try {
     const repo = await createRepository(token, body.name, body.private ?? true);
     return c.json(repo);
   } catch (error) {
-    return c.json(
-      { message: error instanceof Error ? error.message : "Unknown error" },
-      500,
-    );
+    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });
 
 app.post("/api/v1/user/keys", async (c) => {
   const token = c.req.header("neta-token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ key: string; title: string }>();
   try {
     const key = await addSshKey(token, body.key, body.title);
     return c.json(key);
   } catch (error) {
-    return c.json(
-      { message: error instanceof Error ? error.message : "Unknown error" },
-      500,
-    );
+    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });
 
-// Anonymous share init: create repo under anonymous org and add per-repo deploy key
 app.post("/api/v1/share/init", async (c) => {
   try {
     const body = await c.req.json<{ name?: string; publicKey: string }>();
-    const name = (body.name || "ws-share")
-      .toLowerCase()
-      .replace(/[^a-z0-9-_]/g, "-");
+    const name = (body.name || "ws-share").toLowerCase().replace(/[^a-z0-9-_]/g, "-");
     if (!body.publicKey || typeof body.publicKey !== "string") {
       return c.json({ message: "publicKey is required" }, 400);
     }
-
-    // To avoid collisions, add a short random suffix
     const suffix = Math.random().toString(36).slice(2, 8);
     const repoName = `${name}-${suffix}`;
-
     const repo = await createAnonymousRepository(repoName);
-
-    // org name here must match your Gitea org that holds anonymous repos
     const owner = repo.owner.username;
-
-    await addDeployKeyToRepo(
-      owner,
-      repo.name,
-      body.publicKey,
-      `ws-share-${suffix}`,
-    );
-
-    return c.json({
-      sshUrl: repo.ssh_url,
-      webUrl: repo.html_url,
-    });
+    await addDeployKeyToRepo(owner, repo.name, body.publicKey, `ws-share-${suffix}`);
+    return c.json({ sshUrl: repo.ssh_url, webUrl: repo.html_url });
   } catch (error) {
-    return c.json(
-      { message: error instanceof Error ? error.message : "Unknown error" },
-      500,
-    );
+    return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });
 
 app.get("/api/workspaces/:owner/:repo", async (c) => {
   const { owner, repo } = c.req.param();
   const data = await getRepository(owner, repo);
-  if (!data) {
-    return c.json({ message: "workspace not found" }, 404);
-  }
+  if (!data) return c.json({ message: "workspace not found" }, 404);
   return c.json(data);
 });
 
@@ -208,48 +176,26 @@ app.get("/api/workspaces/:owner/:repo/tree", async (c) => {
   const { owner, repo } = c.req.param();
   const path = c.req.query("path") ?? "";
   const ref = c.req.query("ref");
-
   const entries = await getDirectoryEntries(owner, repo, path, ref);
-  if (entries === null) {
-    return c.json({ message: "path not found" }, 404);
-  }
-
-  return c.json({
-    owner,
-    repo,
-    path,
-    ref: ref ?? null,
-    entries,
-  });
+  if (entries === null) return c.json({ message: "path not found" }, 404);
+  return c.json({ owner, repo, path, ref: ref ?? null, entries });
 });
 
 app.get("/api/workspaces/:owner/:repo/file", async (c) => {
   const { owner, repo } = c.req.param();
   const path = c.req.query("path") ?? "";
   const ref = c.req.query("ref");
-
-  if (!path.trim()) {
-    return c.json({ message: "path is required" }, 400);
-  }
-
+  if (!path.trim()) return c.json({ message: "path is required" }, 400);
   const file = await getFileContent(owner, repo, path, ref);
-  if (!file) {
-    return c.json({ message: "file not found" }, 404);
-  }
-
+  if (!file) return c.json({ message: "file not found" }, 404);
   return c.json(file);
 });
 
-app.post("/api/sessions", async (c) => {
+app.post("/api/runtimes", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const body = (await c.req
     .json<{
@@ -259,6 +205,7 @@ app.post("/api/sessions", async (c) => {
       cwd?: string;
       protocol?: "pi" | "acp" | "internal";
       meta?: Record<string, unknown>;
+      start?: boolean;
     }>()
     .catch(() => ({}))) as {
     workspaceId?: string;
@@ -267,9 +214,10 @@ app.post("/api/sessions", async (c) => {
     cwd?: string;
     protocol?: "pi" | "acp" | "internal";
     meta?: Record<string, unknown>;
+    start?: boolean;
   };
 
-  const session = await createSession({
+  const { runtime } = await createRuntime({
     userUuid: user.uuid,
     workspaceId: body.workspaceId ?? null,
     agentId: body.agentId ?? null,
@@ -279,52 +227,144 @@ app.post("/api/sessions", async (c) => {
     meta: body.meta ?? null,
   });
 
-  await launchSessionSandbox({
-    sessionId: session.id,
-    userUuid: user.uuid,
-  });
-
-  const ready = await waitForSessionRunning(session.id);
-
-  return c.json({
-    session,
-    ready,
-  });
-});
-
-app.post("/internal/sessions/:id/info", async (c) => {
-  const remoteAddr =
-    c.req.header("x-forwarded-for") ??
-    c.req.header("x-real-ip") ??
-    c.req.header("cf-connecting-ip") ??
-    "";
-  if (
-    remoteAddr &&
-    !remoteAddr.startsWith("10.") &&
-    !remoteAddr.startsWith("172.") &&
-    !remoteAddr.startsWith("192.168.") &&
-    remoteAddr !== "127.0.0.1" &&
-    remoteAddr !== "::1"
-  ) {
-    return c.json({ message: "forbidden" }, 403);
+  if (body.start !== false) {
+    await launchRuntimeSandbox({ runtimeId: runtime.id, userUuid: user.uuid });
+    await waitForRuntimeRunning(runtime.id);
   }
 
-  const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
+  return c.json({ runtime, ready: true });
+});
+
+app.post("/api/runtimes/:id/prompt", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) {
+    return c.json({ message: "runtime not found" }, 404);
+  }
+
+  const body = await c.req.json<{
+    sessionId?: string;
+    userMessageId?: string;
+    text: string;
+    images?: Array<{ url: string }>;
+    branchFromMessageId?: string;
+    meta?: RuntimePromptInput["meta"];
+  }>();
+
+  if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
+
+  let userMessage = null;
+  if (body.sessionId) {
+    const session = await getRuntimeSessionById(body.sessionId);
+    if (!session || session.runtimeId !== runtime.id) {
+      return c.json({ message: "session not found" }, 404);
+    }
+
+    userMessage = await createUserMessageNode({
+      runtimeSessionId: session.id,
+      text: body.text,
+      images: body.images,
+      branchFromMessageId: body.branchFromMessageId ?? null,
+    });
+  }
+
+  await enqueueRuntimePrompt({
+    runtimeId: runtime.id,
+    sessionId: body.sessionId ?? null,
+    userMessageId: userMessage?.id ?? body.userMessageId ?? null,
+    branchFromMessageId: body.branchFromMessageId ?? null,
+    message: {
+      text: body.text,
+      images: body.images,
+    },
+    meta: body.meta ?? { intent: body.sessionId ? "continue" : "auto", source: "web" },
+  });
+
+  return c.json({ ok: true, runtime, sessionId: body.sessionId ?? null, userMessage });
+});
+
+app.get("/api/runtimes/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  return c.json(runtime);
+});
+
+app.get("/api/runtimes/:id/sessions", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  const sessions = await listRuntimeSessions(runtime.id);
+  return c.json({ runtime, sessions });
+});
+
+app.post("/internal/runtimes/:id/sessions", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<RegisterRuntimeSessionInput>().catch(() => null);
+  if (!body?.sessionId) return c.json({ message: "sessionId is required" }, 400);
+
+  const existing = await getRuntimeSessionById(body.sessionId);
+  if (existing) return c.json({ ok: true, session: existing });
+
+  const session = await registerRuntimeSession({
+    runtimeId,
+    sessionId: body.sessionId,
+    title: body.title,
+    protocol: body.protocol,
+    externalSessionId: body.externalSessionId,
+    cwd: body.cwd,
+    meta: body.meta,
+  });
+
+  return c.json({ ok: true, session });
+});
+
+app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/info", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const runtimeId = c.req.param("runtimeId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
     return c.json({ message: "session not found" }, 404);
   }
 
-  const session = await getSessionById(sessionId);
-  if (!session) {
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session || session.runtimeId !== runtimeId) {
     return c.json({ message: "session not found" }, 404);
   }
 
   const body = await c.req.json<PersistSessionInfoUpdateInput>().catch(() => null);
-  if (!body) {
-    return c.json({ message: "invalid body" }, 400);
-  }
+  if (!body) return c.json({ message: "invalid body" }, 400);
 
-  await updateSessionInfo({
+  await updateRuntimeSessionInfo({
+    runtimeId,
     sessionId,
     title: body.title,
     updatedAt: body.updatedAt,
@@ -334,23 +374,18 @@ app.post("/internal/sessions/:id/info", async (c) => {
   return c.json({ ok: true });
 });
 
-app.post("/internal/sessions/:id/messages", async (c) => {
-  const remoteAddr =
-    c.req.header("x-forwarded-for") ??
-    c.req.header("x-real-ip") ??
-    c.req.header("cf-connecting-ip") ??
-    "";
-  if (remoteAddr && !remoteAddr.startsWith("10.") && !remoteAddr.startsWith("172.") && !remoteAddr.startsWith("192.168.") && remoteAddr !== "127.0.0.1" && remoteAddr !== "::1") {
-    return c.json({ message: "forbidden" }, 403);
-  }
+app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
 
-  const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
+  const runtimeId = c.req.param("runtimeId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
     return c.json({ message: "session not found" }, 404);
   }
 
-  const session = await getSessionById(sessionId);
-  if (!session) {
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session || session.runtimeId !== runtimeId) {
     return c.json({ message: "session not found" }, 404);
   }
 
@@ -363,25 +398,22 @@ app.post("/internal/sessions/:id/messages", async (c) => {
     }>()
     .catch(() => null);
 
-  if (!body?.parentMessageId) {
-    return c.json({ message: "parentMessageId is required" }, 400);
-  }
-  if (!body.idempotencyKey?.trim()) {
-    return c.json({ message: "idempotencyKey is required" }, 400);
-  }
+  if (!body?.parentMessageId) return c.json({ message: "parentMessageId is required" }, 400);
+  if (!body.idempotencyKey?.trim()) return c.json({ message: "idempotencyKey is required" }, 400);
   if (!body.message || !Array.isArray(body.message.content)) {
     return c.json({ message: "message.content is required" }, 400);
   }
 
   const messageNode = await persistMessageNode({
-    sessionId: session.id,
+    runtimeId,
+    sessionId,
     parentMessageId: body.parentMessageId,
     idempotencyKey: body.idempotencyKey,
     message: {
       ...(body.message as PersistMessageInput["message"]),
       content: body.message.content as never,
     },
-    toolCalls: (body.toolCalls as PersistMessageInput["toolCalls"]) ?? undefined,
+    toolCalls: body.toolCalls ?? undefined,
   });
 
   return c.json({ ok: true, message: messageNode });
@@ -389,82 +421,48 @@ app.post("/internal/sessions/:id/messages", async (c) => {
 
 app.get("/api/sessions/:id", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
   return c.json(session);
 });
 
 app.get("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
   const messages = await getCurrentPathMessages(session.id);
   const toolCalls = await listToolCallsByMessageIds(messages.map((message) => message.id));
-
-  return c.json({
-    session,
-    messages,
-    toolCalls,
-  });
+  return c.json({ runtime, session, messages, toolCalls });
 });
 
 app.get("/api/sessions/:id/tree", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
   const nodes = await listSessionTree(session.id);
   return c.json({
+    runtime,
     session: {
       id: session.id,
       currentLeafMessageId: session.currentLeafMessageId,
@@ -477,108 +475,53 @@ app.get("/api/sessions/:id/tree", async (c) => {
 
 app.post("/api/sessions/:id/select-leaf", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
   const body = await c.req.json<{ leafMessageId?: string }>().catch(() => null);
-  if (!body?.leafMessageId) {
-    return c.json({ message: "leafMessageId is required" }, 400);
-  }
-
-  await selectSessionLeaf({
-    sessionId: session.id,
-    leafMessageId: body.leafMessageId,
-  });
-
+  if (!body?.leafMessageId) return c.json({ message: "leafMessageId is required" }, 400);
+  await selectRuntimeSessionLeaf({ runtimeSessionId: session.id, leafMessageId: body.leafMessageId });
   return c.json({ ok: true });
 });
 
-app.get("/api/sessions/:id/stream", async (c) => {
+app.get("/api/runtimes/:id/stream", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
-  const lastEventId =
-    c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
 
   return streamSSE(c, async (stream) => {
-    await stream.writeSSE({
-      event: "ready",
-      data: JSON.stringify({ sessionId: session.id }),
-    });
-
-    const output = await readSessionOutputStream({
-      sessionId: session.id,
-      lastEventId,
-      signal: c.req.raw.signal,
-    });
-
+    await stream.writeSSE({ event: "ready", data: JSON.stringify({ runtimeId: runtime.id }) });
+    const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
     for await (const entry of output) {
-      if (c.req.raw.signal.aborted) {
-        break;
-      }
-
-      await stream.writeSSE({
-        id: entry.id,
-        event: "message",
-        data: entry.payload ?? "",
-      });
+      if (c.req.raw.signal.aborted) break;
+      await stream.writeSSE({ id: entry.id, event: "message", data: entry.payload ?? "" });
     }
   });
 });
 
 app.post("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
 
   const body = await c.req.json<{
     text: string;
@@ -586,25 +529,22 @@ app.post("/api/sessions/:id/messages", async (c) => {
     branchFromMessageId?: string;
   }>();
 
-  if (!body.text?.trim()) {
-    return c.json({ message: "text is required" }, 400);
-  }
+  if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
 
   const userMessage = await createUserMessageNode({
-    sessionId: session.id,
+    runtimeSessionId: session.id,
     text: body.text,
     images: body.images,
     branchFromMessageId: body.branchFromMessageId ?? null,
   });
 
-  await enqueueSessionPrompt({
+  await enqueueRuntimePrompt({
+    runtimeId: runtime.id,
     sessionId: session.id,
     userMessageId: userMessage.id,
-    branchFromMessageId: body.branchFromMessageId,
-    message: {
-      text: body.text,
-      images: body.images,
-    },
+    branchFromMessageId: body.branchFromMessageId ?? null,
+    message: { text: body.text, images: body.images },
+    meta: { intent: "continue", source: "web" },
   });
 
   return c.json({ ok: true, userMessage });
@@ -612,45 +552,29 @@ app.post("/api/sessions/:id/messages", async (c) => {
 
 app.post("/api/sessions/:id/abort", async (c) => {
   const token = c.get("token");
-  if (!token) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
+  if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
-  if (!requireValidSessionId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid) {
-    return c.json({ message: "unauthorized" }, 401);
-  }
-
-  const session = await getSessionById(sessionId);
-  if (!session || session.userUuid !== user.uuid) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
-  await abortSession(session.id);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
+  await enqueueRuntimePrompt({
+    runtimeId: runtime.id,
+    sessionId: session.id,
+    userMessageId: null,
+    branchFromMessageId: null,
+    message: { text: "__abort__" },
+    meta: { intent: "continue", source: "web" },
+  });
   return c.json({ ok: true });
 });
 
-app.onError((error, c) => {
-  return c.json(
-    {
-      message: error.message || "internal server error",
-    },
-    500,
-  );
-});
+app.onError((error, c) => c.json({ message: error.message || "internal server error" }, 500));
 
 const port = Number(process.env.PORT ?? 8787);
-
 assertRequiredConfig();
-
-serve({
-  fetch: app.fetch,
-  port,
-});
-
+serve({ fetch: app.fetch, port });
 console.log(`@cohub/api listening on :${port}`);

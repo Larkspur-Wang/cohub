@@ -15,13 +15,7 @@ const redisUrlSchema = z
 export const GLOBAL_CONFIG_REPO = "https://gitea.cohub.run/global/configs.git";
 
 export const EnvSchema = z.object({
-  SESSION_ID: z
-    .string()
-    .regex(/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/, {
-      message:
-        "SESSION_ID must be 1-63 chars of lowercase letters, numbers, or hyphens",
-    })
-    .default("dev-session-001"),
+  RUNTIME_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
   WORKSPACE_DIR: z
     .string()
@@ -34,5 +28,4 @@ export const EnvSchema = z.object({
 });
 
 export type Env = z.infer<typeof EnvSchema>;
-
 export const env = EnvSchema.parse(process.env);
