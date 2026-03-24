@@ -35,10 +35,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup environment for web
-        run: cp .env.example .env
-        working-directory: apps/web
-
       - name: Lint
         run: pnpm lint
 
