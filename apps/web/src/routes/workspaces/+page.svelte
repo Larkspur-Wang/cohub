@@ -1,39 +1,181 @@
 <script lang="ts">
-import { mockWorkspaces } from "$lib/mock";
+import { Plus, FolderKanban, Lock, Globe } from "lucide-svelte";
+import { createWorkspace, getMe, getWorkspaces } from "$lib/api";
+import { fade } from "svelte/transition";
+import { onMount } from "svelte";
+import { goto } from "$app/navigation";
+
+let workspaces = $state<any[]>([]);
+let isLoading = $state(true);
+let loadError = $state("");
+
+let isAdding = $state(false);
+let isSubmitting = $state(false);
+
+let formName = $state("");
+let formDescription = $state("");
+let formPrivate = $state(true);
+let user = $state<{ nick_name?: string } | null>(null);
+
+async function loadData() {
+  isLoading = true;
+  loadError = "";
+  try {
+    const [me, ws] = await Promise.all([getMe().catch(() => null), getWorkspaces()]);
+    user = me;
+    workspaces = ws;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load workspaces";
+    if (message.includes("unauthorized") || message.includes("401")) {
+      goto("/login");
+      return;
+    }
+    loadError = message;
+  } finally {
+    isLoading = false;
+  }
+}
+
+onMount(() => {
+  loadData();
+});
+
+async function handleSubmit(e: Event) {
+  e.preventDefault();
+  if (!formName.trim() || isSubmitting) return;
+
+  isSubmitting = true;
+  try {
+    await createWorkspace({
+      name: formName.trim(),
+      description: formDescription.trim(),
+      private: formPrivate,
+    });
+    isAdding = false;
+    formName = "";
+    formDescription = "";
+    formPrivate = true;
+    await loadData();
+  } catch (error) {
+    alert(error instanceof Error ? error.message : "Failed to create workspace");
+  } finally {
+    isSubmitting = false;
+  }
+}
 </script>
 
-<div class="max-w-7xl mx-auto px-6 py-12">
-  <div class="flex items-baseline justify-between mb-10">
+<div class="space-y-8">
+  <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-4xl font-bold tracking-tight text-brand">Explore Workspaces</h1>
-      <p class="mt-2 text-gray-500">Pick a workspace to start your journey.</p>
+      <h1 class="text-3xl font-bold tracking-tight text-gray-900">Workspaces</h1>
+      <p class="mt-2 text-sm text-gray-500">Manage your agent repositories and codebases.</p>
     </div>
-    <div class="text-sm font-medium text-gray-400">Total Workspaces: {mockWorkspaces.length}</div>
-  </div>
-
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-    {#each mockWorkspaces as workspace}
-      <a href="/workspaces/{workspace.id}" class="group block bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-        <div class="aspect-video relative overflow-hidden">
-          <img src={workspace.image} alt={workspace.name} class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-700" />
-          <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
-        </div>
-        <div class="p-6">
-          <h2 class="text-xl font-bold mb-2 group-hover:text-brand transition-colors">{workspace.name}</h2>
-          <p class="text-sm text-gray-600 line-clamp-2 leading-relaxed">{workspace.description}</p>
-        </div>
-      </a>
-    {/each}
-
-    <!-- Empty/Create Card -->
-    <button class="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center p-12 text-gray-400 hover:border-brand hover:text-brand transition-all cursor-not-allowed group">
-      <div class="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mb-4 group-hover:bg-brand/5">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-      </div>
-      <span class="font-medium text-sm">Create New Workspace</span>
-      <span class="text-xs text-gray-400 mt-1 italic">(Coming Soon)</span>
+    <button
+      onclick={() => (isAdding = true)}
+      class="px-4 py-2 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors shadow-sm flex items-center gap-2"
+    >
+      <Plus class="w-4 h-4" />
+      New Workspace
     </button>
   </div>
+
+  {#if isAdding}
+    <div transition:fade class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm mb-8">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-semibold text-gray-900">Create New Workspace</h2>
+        <button onclick={() => (isAdding = false)} class="text-sm text-gray-500 hover:text-gray-900">Cancel</button>
+      </div>
+
+      <form onsubmit={handleSubmit} class="space-y-4 max-w-md">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1" for="name">Workspace Name</label>
+          <div class="flex items-center gap-2">
+            <span class="text-gray-500 font-mono text-sm">{user?.nick_name || "owner"} /</span>
+            <input
+              type="text"
+              id="name"
+              bind:value={formName}
+              placeholder="my-awesome-agent"
+              pattern="^[a-zA-Z0-9_-]+$"
+              title="Alphanumeric, dashes, and underscores only"
+              class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none font-mono text-sm"
+              required
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1" for="description">Description (Optional)</label>
+          <input
+            type="text"
+            id="description"
+            bind:value={formDescription}
+            placeholder="A brief description of this workspace"
+            class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+          />
+        </div>
+
+        <div>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" bind:checked={formPrivate} class="rounded border-gray-300 text-brand focus:ring-brand" />
+            <span class="text-sm font-medium text-gray-700">Private Repository</span>
+          </label>
+          <p class="text-xs text-gray-500 mt-1 ml-6">Only you can access this workspace.</p>
+        </div>
+
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          class="w-full py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 mt-4"
+        >
+          {isSubmitting ? "Creating..." : "Create Workspace"}
+        </button>
+      </form>
+    </div>
+  {/if}
+
+  {#if isLoading}
+    <div class="bg-white border border-gray-200 rounded-2xl p-8 text-sm text-gray-500">Loading workspaces...</div>
+  {:else if loadError}
+    <div class="bg-red-50 border border-red-200 text-red-700 p-6 rounded-2xl">
+      <h2 class="text-lg font-semibold mb-2">Failed to load workspaces</h2>
+      <p class="text-sm break-all">{loadError}</p>
+    </div>
+  {:else if workspaces.length === 0}
+    <div class="text-center py-16 bg-white border border-gray-200 border-dashed rounded-3xl">
+      <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+        <FolderKanban class="w-8 h-8 text-gray-400" />
+      </div>
+      <h3 class="text-lg font-medium text-gray-900 mb-1">No workspaces yet</h3>
+      <p class="text-sm text-gray-500 mb-4">Create a workspace to start hosting your agent's files.</p>
+      <button onclick={() => (isAdding = true)} class="text-brand text-sm font-medium hover:underline">
+        Create your first workspace
+      </button>
+    </div>
+  {:else}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {#each workspaces as workspace}
+        <a href="/workspaces/{user?.nick_name || 'owner'}/{workspace.giteaRepoName}" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col group hover:border-brand/30 transition-colors">
+          <div class="flex items-start justify-between mb-4">
+            <div class="w-12 h-12 rounded-xl bg-brand/5 text-brand flex items-center justify-center group-hover:bg-brand group-hover:text-white transition-colors">
+              <FolderKanban class="w-6 h-6" />
+            </div>
+            {#if workspace.visibility === "private"}
+              <Lock class="w-4 h-4 text-gray-400" />
+            {:else}
+              <Globe class="w-4 h-4 text-gray-400" />
+            {/if}
+          </div>
+          <h3 class="text-lg font-semibold text-gray-900 truncate group-hover:text-brand transition-colors">{workspace.name}</h3>
+          <p class="text-sm text-gray-500 mt-1 line-clamp-2 min-h-[2.5rem]">
+            {workspace.description || "No description provided."}
+          </p>
+          <div class="mt-6 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 font-mono">
+            <span>{workspace.giteaRepoName}</span>
+            <span>{new Date(workspace.createdAt).toLocaleDateString()}</span>
+          </div>
+        </a>
+      {/each}
+    </div>
+  {/if}
 </div>

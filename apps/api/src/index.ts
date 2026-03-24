@@ -44,6 +44,9 @@ import {
   updateRuntimeSessionInfo,
   waitForRuntimeRunning,
 } from "./runtime-sessions.js";
+import { db } from "./db/index.js";
+import { userChannels, workspaces } from "./db/schema.js";
+import { eq, and } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { redis as apiRedis } from "./redis.js";
@@ -112,7 +115,11 @@ app.use("*", async (c, next) => {
 app.use(
   "*",
   cors({
-    origin: config.webOrigin ?? "*",
+    origin: (origin) => {
+      if (!origin) return config.webOrigin ?? "*";
+      if (!config.webOrigin) return origin;
+      return origin === config.webOrigin ? origin : config.webOrigin;
+    },
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "neta-token", "Authorization"],
     credentials: true,
@@ -197,6 +204,68 @@ app.post("/api/v1/share/init", async (c) => {
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
+});
+
+app.get("/api/workspaces", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const ws = await db.select().from(workspaces).where(eq(workspaces.userUuid, user.uuid));
+  return c.json(ws);
+});
+
+app.post("/api/workspaces", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid || !user.nick_name) return c.json({ message: "unauthorized" }, 401);
+  const body = await c.req.json<{ name: string; description?: string; private?: boolean }>();
+  // 1. Create in Gitea
+  const repo = await createRepository(token, body.name, body.private ?? true);
+  // 2. Save to DB
+  const [ws] = await db.insert(workspaces).values({
+    userUuid: user.uuid,
+    name: body.name,
+    description: body.description ?? null,
+    giteaRepoName: repo.name,
+    visibility: (body.private ?? true) ? "private" : "public",
+  }).returning();
+  return c.json({ ...ws, owner: repo.owner.username });
+});
+
+app.get("/api/channels", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const channels = await db.select().from(userChannels).where(eq(userChannels.userUuid, user.uuid));
+  return c.json(channels);
+});
+
+app.post("/api/channels", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const body = await c.req.json<{ provider: string; name: string; credentials: any }>();
+  const [channel] = await db.insert(userChannels).values({
+    userUuid: user.uuid,
+    provider: body.provider,
+    name: body.name,
+    credentials: body.credentials,
+  }).returning();
+  return c.json(channel);
+});
+
+app.delete("/api/channels/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const id = c.req.param("id");
+  await db.delete(userChannels).where(and(eq(userChannels.id, id), eq(userChannels.userUuid, user.uuid)));
+  return c.json({ ok: true });
 });
 
 app.get("/api/workspaces/:owner/:repo", async (c) => {

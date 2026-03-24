@@ -1,4 +1,7 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+import { goto } from "$app/navigation";
+import { PUBLIC_API_ORIGIN } from "$env/static/public";
+
+const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 
 type ApiError = {
   message: string;
@@ -115,17 +118,23 @@ const apiFetch = async (
   init?: RequestInit & { fetch?: Fetch },
 ) => {
   const fetcher = init?.fetch ?? fetch;
-  const isServerLoadFetch = Boolean(init?.fetch);
-  const base = isServerLoadFetch ? "" : API_BASE_URL;
-  const url = base ? `${base}${path}` : path;
+  const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 
   const response = await fetcher(url, {
     credentials: "include",
     ...init,
   });
 
+  if (response.status === 401 && typeof window !== "undefined") {
+    await goto("/login");
+    throw new Error("unauthorized");
+  }
+
   if (!response.ok) {
-    const message = await response.text();
+    const contentType = response.headers.get("content-type") ?? "";
+    const message = contentType.includes("application/json")
+      ? JSON.stringify(await response.json().catch(() => null))
+      : await response.text().catch(() => response.statusText);
     throw new Error(message || response.statusText);
   }
 
@@ -282,4 +291,44 @@ export type {
   ApiError,
   SessionCreateResponse,
   SessionStreamEvent,
+};
+
+export const getChannels = async (customFetch?: Fetch) => {
+  return apiFetch("/api/channels", { method: "GET", fetch: customFetch });
+};
+
+export const createChannel = async (data: {
+  provider: string;
+  name: string;
+  credentials: any;
+}) => {
+  return apiFetch("/api/channels", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteChannel = async (id: string) => {
+  return apiFetch(`/api/channels/${id}`, { method: "DELETE" });
+};
+
+export const getWorkspaces = async (customFetch?: Fetch) => {
+  return apiFetch("/api/workspaces", { method: "GET", fetch: customFetch });
+};
+
+export const createWorkspace = async (data: {
+  name: string;
+  description?: string;
+  private?: boolean;
+}) => {
+  return apiFetch("/api/workspaces", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
 };
