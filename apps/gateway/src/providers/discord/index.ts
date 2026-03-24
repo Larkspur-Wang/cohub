@@ -88,7 +88,7 @@ export class DiscordProvider {
       // 检查是否是可以发送消息的频道类型
       if (!('send' in channel)) {
         console.error(`[Discord] Channel ${cmd.externalChatId} does not support sending messages`);
-        return { success: false, error: `Channel does not support sending messages` };
+        return { success: false, error: "Channel does not support sending messages" };
       }
 
       // 提取纯文本内容
