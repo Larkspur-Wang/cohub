@@ -294,7 +294,7 @@ app.post("/api/channels", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const body = await c.req.json<{ provider: string; name: string; credentials: any }>();
+  const body = await c.req.json<{ provider: string; name: string; credentials: Record<string, unknown> }>();
   const [channel] = await db.insert(userChannels).values({
     userUuid: user.uuid,
     provider: body.provider,

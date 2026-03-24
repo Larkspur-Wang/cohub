@@ -1,12 +1,12 @@
 <script lang="ts">
 import { Plus, FolderKanban, Lock, Globe } from "lucide-svelte";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
-import { createWorkspace, getMe, getWorkspaces } from "$lib/api";
+import { createWorkspace, getMe, getWorkspaces, type Workspace } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
-let workspaces = $state<any[]>([]);
+let workspaces = $state<Workspace[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
 

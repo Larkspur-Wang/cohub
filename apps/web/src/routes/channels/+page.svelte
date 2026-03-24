@@ -1,11 +1,11 @@
 <script lang="ts">
 import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte";
-import { createChannel, deleteChannel, getChannels } from "$lib/api";
+import { createChannel, deleteChannel, getChannels, type Channel } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
-let channels = $state<any[]>([]);
+let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
 
@@ -16,7 +16,7 @@ let formProvider = $state("discord");
 let formName = $state("");
 let formToken = $state("");
 
-const providerIcons: Record<string, any> = {
+const providerIcons: Record<string, typeof import("lucide-svelte").MessageSquare> = {
   discord: MessageSquare,
   feishu: Webhook,
   web: MonitorPlay,

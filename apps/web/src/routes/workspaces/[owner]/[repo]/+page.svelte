@@ -10,7 +10,7 @@ import {
   FileCode,
   Folder,
 } from "lucide-svelte";
-import { getTreeByUser, getWorkspaceByUser } from "$lib/api";
+import { getTreeByUser, getWorkspaceByUser, type Tree, type GiteaRepo } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
@@ -19,8 +19,8 @@ let { params } = $props();
 let userUuid = $derived(params.owner);
 let repo = $derived(params.repo);
 
-let workspace = $state<any | null>(null);
-let tree = $state<any | null>(null);
+let workspace = $state<GiteaRepo | null>(null);
+let tree = $state<Tree | null>(null);
 let isEmpty = $state(false);
 let isLoading = $state(true);
 let loadError = $state("");
@@ -55,7 +55,9 @@ function copyCloneUrl() {
   if (!gitRemoteUrl) return;
   navigator.clipboard.writeText(gitRemoteUrl);
   copied = true;
-  setTimeout(() => (copied = false), 2000);
+  setTimeout(() => {
+    copied = false;
+  }, 2000);
 }
 </script>
 
@@ -138,7 +140,7 @@ function copyCloneUrl() {
           <p>git push -u origin main</p>
         </div>
       </div>
-    {:else}
+    {:else if tree}
       <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-200 bg-gray-50/80 flex items-center justify-between text-sm font-medium text-gray-700">
           <div class="flex items-center gap-2">

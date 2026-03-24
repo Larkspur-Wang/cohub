@@ -180,7 +180,7 @@ export const getWorkspaceByUser = async (
 ) => {
   return apiFetch(`/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}`, {
     fetch: customFetch,
-  });
+  }) as Promise<GiteaRepo>;
 };
 
 export const getTreeByUser = async (
@@ -201,7 +201,7 @@ export const getTreeByUser = async (
   return apiFetch(
     `/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}/tree${query ? `?${query}` : ""}`,
     { fetch: customFetch },
-  );
+  ) as Promise<Tree>;
 };
 
 export const getFile = async (
@@ -301,14 +301,61 @@ export type {
   SessionStreamEvent,
 };
 
+export type Channel = {
+  id: string;
+  userUuid: string;
+  provider: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Workspace = {
+  id: string;
+  userUuid: string;
+  name: string;
+  description: string | null;
+  giteaRepoName: string;
+  visibility: string;
+  owner: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TreeEntry = {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  size?: number;
+};
+
+export type Tree = {
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string | null;
+  entries: TreeEntry[];
+};
+
+export type GiteaRepo = {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  clone_url: string;
+  ssh_url: string;
+  html_url: string;
+};
+
 export const getChannels = async (customFetch?: Fetch) => {
-  return apiFetch("/api/channels", { method: "GET", fetch: customFetch });
+  return apiFetch("/api/channels", { method: "GET", fetch: customFetch }) as Promise<Channel[]>;
 };
 
 export const createChannel = async (data: {
   provider: string;
   name: string;
-  credentials: any;
+  credentials: Record<string, unknown>;
 }) => {
   return apiFetch("/api/channels", {
     method: "POST",
@@ -324,7 +371,7 @@ export const deleteChannel = async (id: string) => {
 };
 
 export const getWorkspaces = async (customFetch?: Fetch) => {
-  return apiFetch("/api/workspaces", { method: "GET", fetch: customFetch });
+  return apiFetch("/api/workspaces", { method: "GET", fetch: customFetch }) as Promise<Workspace[]>;
 };
 
 export const createWorkspace = async (data: {
