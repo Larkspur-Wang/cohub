@@ -26,6 +26,8 @@ let isLoading = $state(true);
 let loadError = $state("");
 let copied = $state(false);
 
+const gitRemoteUrl = $derived(workspace?.ssh_url || workspace?.clone_url || "");
+
 async function loadWorkspace() {
   isLoading = true;
   loadError = "";
@@ -50,8 +52,8 @@ onMount(() => {
 });
 
 function copyCloneUrl() {
-  if (!workspace?.clone_url) return;
-  navigator.clipboard.writeText(workspace.clone_url);
+  if (!gitRemoteUrl) return;
+  navigator.clipboard.writeText(gitRemoteUrl);
   copied = true;
   setTimeout(() => (copied = false), 2000);
 }
@@ -106,7 +108,7 @@ function copyCloneUrl() {
             <p class="text-sm text-gray-500">This workspace is currently empty. Initialize it with Git.</p>
           </div>
           <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-gray-200 font-mono text-xs text-gray-600">
-            <span class="truncate max-w-[200px]">{workspace.clone_url}</span>
+            <span class="truncate max-w-[200px]">{gitRemoteUrl}</span>
             <button onclick={copyCloneUrl} class="p-1 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="Copy URL">
               {#if copied}
                 <Check class="w-3.5 h-3.5 text-green-600" />
@@ -126,13 +128,13 @@ function copyCloneUrl() {
           <p>git checkout -b main</p>
           <p>git add README.md</p>
           <p>git commit -m "first commit"</p>
-          <p>git remote add origin {workspace.clone_url}</p>
+          <p>git remote add origin {gitRemoteUrl}</p>
           <p>git push -u origin main</p>
 
           <div class="flex items-center gap-2 text-gray-500 mt-8 mb-4 select-none">
             <Terminal class="w-4 h-4" /> Or push an existing repository from the command line
           </div>
-          <p>git remote add origin {workspace.clone_url}</p>
+          <p>git remote add origin {gitRemoteUrl}</p>
           <p>git push -u origin main</p>
         </div>
       </div>

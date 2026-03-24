@@ -52,6 +52,7 @@ import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { redis as apiRedis } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
+import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
 // 启动 API 的后台监听器，处理来自网关的消息
 const startGatewayInboundListener = async () => {
@@ -244,17 +245,39 @@ app.post("/api/workspaces", async (c) => {
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ name: string; description?: string; private?: boolean }>();
+  const workspaceName = body.name?.trim();
+  if (!workspaceName) return c.json({ message: "workspace name is required" }, 400);
+
+  const workspaceSlug = normalizeWorkspaceSlug(workspaceName);
+  if (!workspaceSlug) {
+    return c.json({ message: "workspace name must contain letters or numbers" }, 400);
+  }
+
+  const [existingWorkspace] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, workspaceSlug)))
+    .limit(1);
+  if (existingWorkspace) {
+    return c.json({ message: "workspace slug already exists" }, 409);
+  }
+
   const gitAccount = await ensureUserGitAccount(user.uuid);
   if (!gitAccount) return c.json({ message: "failed to prepare workspace infrastructure" }, 500);
-  const repo = await createRepository(gitAccount.giteaAccessToken, body.name, body.private ?? true);
+
+  const repo = await createRepository(gitAccount.giteaAccessToken, workspaceSlug, body.private ?? true);
+  if ("alreadyExists" in repo && repo.alreadyExists) {
+    return c.json({ message: "workspace slug already exists" }, 409);
+  }
+
   const [ws] = await db.insert(workspaces).values({
     userUuid: user.uuid,
-    name: body.name,
-    description: body.description ?? null,
+    name: workspaceName,
+    description: body.description?.trim() || null,
     giteaRepoName: repo.name,
     visibility: (body.private ?? true) ? "private" : "public",
   }).returning();
-  return c.json({ ...ws, owner: gitAccount.giteaUsername });
+  return c.json({ ...ws, owner: user.uuid });
 });
 
 app.get("/api/channels", async (c) => {

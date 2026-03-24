@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Plus, FolderKanban, Lock, Globe } from "lucide-svelte";
+import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { createWorkspace, getMe, getWorkspaces } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
@@ -17,6 +18,8 @@ let formName = $state("");
 let formDescription = $state("");
 let formPrivate = $state(true);
 let user = $state<{ uuid?: string; nick_name?: string } | null>(null);
+
+let previewSlug = $derived(normalizeWorkspaceSlug(formName));
 
 async function loadData() {
   isLoading = true;
@@ -45,6 +48,12 @@ async function handleSubmit(e: Event) {
   e.preventDefault();
   if (!formName.trim() || isSubmitting) return;
 
+  const normalizedSlug = normalizeWorkspaceSlug(formName);
+  if (!normalizedSlug) {
+    alert("Workspace name must contain letters or numbers.");
+    return;
+  }
+
   isSubmitting = true;
   createStatusText = "Preparing workspace infrastructure...";
   try {
@@ -62,7 +71,16 @@ async function handleSubmit(e: Event) {
     await loadData();
   } catch (error) {
     createStatusText = "";
-    alert(error instanceof Error ? error.message : "Failed to prepare workspace infrastructure");
+    const message = error instanceof Error ? error.message : "Failed to prepare workspace infrastructure";
+    if (message.includes("workspace slug already exists") || message.includes("409")) {
+      alert("A workspace with the same repository slug already exists.");
+      return;
+    }
+    if (message.includes("workspace name must contain letters or numbers")) {
+      alert("Workspace name must contain letters or numbers.");
+      return;
+    }
+    alert(message);
   } finally {
     isSubmitting = false;
   }
@@ -100,13 +118,14 @@ async function handleSubmit(e: Event) {
               type="text"
               id="name"
               bind:value={formName}
-              placeholder="my-awesome-agent"
-              pattern="^[a-zA-Z0-9_-]+$"
-              title="Alphanumeric, dashes, and underscores only"
+              placeholder="My Awesome Agent"
               class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none font-mono text-sm"
               required
             />
           </div>
+          <p class="mt-2 text-xs text-gray-500">
+            Repository slug: <span class="font-mono text-gray-700">{previewSlug || "my-awesome-agent"}</span>
+          </p>
         </div>
 
         <div>

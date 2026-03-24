@@ -113,6 +113,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       isomorphic-dompurify:
         specifier: 2.15.0
         version: 2.15.0

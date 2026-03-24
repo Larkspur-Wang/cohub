@@ -145,6 +145,21 @@ CREATE TABLE "user_channels" (
 	"updated_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
+CREATE TABLE "user_git_accounts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_uuid" varchar(255) NOT NULL,
+	"provider" varchar(50) DEFAULT 'gitea' NOT NULL,
+	"gitea_user_id" integer NOT NULL,
+	"gitea_username" varchar(255) NOT NULL,
+	"gitea_password_encrypted" text NOT NULL,
+	"gitea_access_token_encrypted" text NOT NULL,
+	"status" varchar(20) DEFAULT 'active',
+	"last_verified_at" timestamp with time zone,
+	"meta" jsonb,
+	"created_at" timestamp with time zone DEFAULT now(),
+	"updated_at" timestamp with time zone DEFAULT now()
+);
+--> statement-breakpoint
 CREATE TABLE "workspaces" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_uuid" varchar(255) NOT NULL,
@@ -196,4 +211,10 @@ CREATE INDEX "idx_session_tool_calls_status" ON "session_tool_calls" USING btree
 CREATE UNIQUE INDEX "uq_session_tool_calls_session_tool_call_id" ON "session_tool_calls" USING btree ("session_id","tool_call_id");--> statement-breakpoint
 CREATE INDEX "idx_user_channels_user_uuid" ON "user_channels" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "idx_user_channels_provider" ON "user_channels" USING btree ("provider");--> statement-breakpoint
-CREATE INDEX "idx_workspaces_user_uuid" ON "workspaces" USING btree ("user_uuid");
+CREATE UNIQUE INDEX "uq_user_git_accounts_user_provider" ON "user_git_accounts" USING btree ("user_uuid","provider");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_git_accounts_gitea_username" ON "user_git_accounts" USING btree ("gitea_username");--> statement-breakpoint
+CREATE INDEX "idx_user_git_accounts_user_uuid" ON "user_git_accounts" USING btree ("user_uuid");--> statement-breakpoint
+CREATE INDEX "idx_user_git_accounts_provider" ON "user_git_accounts" USING btree ("provider");--> statement-breakpoint
+CREATE INDEX "idx_workspaces_user_uuid" ON "workspaces" USING btree ("user_uuid");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_workspaces_user_name" ON "workspaces" USING btree ("user_uuid","name");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_workspaces_user_repo_name" ON "workspaces" USING btree ("user_uuid","gitea_repo_name");

@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1774275780689,
-      "tag": "0000_chilly_whistler",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1774284000000,
-      "tag": "0001_managed_git_accounts",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1774285200000,
-      "tag": "0002_encrypt_git_credentials",
+      "when": 1774368430935,
+      "tag": "0000_init",
       "breakpoints": true
     }
   ]

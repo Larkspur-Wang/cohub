@@ -16,6 +16,7 @@
     "prepare": "svelte-kit sync || echo ''"
   },
   "dependencies": {
+    "@cohub/protocol": "workspace:*",
     "isomorphic-dompurify": "2.15.0",
     "lucide-svelte": "^1.0.1",
     "marked": "15.0.2"

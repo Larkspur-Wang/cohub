@@ -58,6 +58,14 @@ export const workspaces = pgTable(
   },
   (table) => ({
     userUuidIdx: index("idx_workspaces_user_uuid").on(table.userUuid),
+    userWorkspaceNameUniqueIdx: uniqueIndex("uq_workspaces_user_name").on(
+      table.userUuid,
+      table.name,
+    ),
+    userWorkspaceRepoNameUniqueIdx: uniqueIndex("uq_workspaces_user_repo_name").on(
+      table.userUuid,
+      table.giteaRepoName,
+    ),
   }),
 );
 
