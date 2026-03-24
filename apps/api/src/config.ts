@@ -6,6 +6,8 @@ export type AppConfig = {
   redisUrl: string;
   litellmApiKey?: string;
   env: "dev" | "prod";
+  giteaManagedEmailDomain: string;
+  appEncryptionKey: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -22,6 +24,8 @@ export const config: AppConfig = {
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   litellmApiKey: process.env.LITELLM_API_KEY,
   env: (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod",
+  giteaManagedEmailDomain: process.env.GITEA_MANAGED_EMAIL_DOMAIN ?? "cohub.local",
+  appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
@@ -35,5 +39,8 @@ export const assertRequiredConfig = () => {
   }
   if (!config.redisUrl) {
     throw new Error("Missing required env: REDIS_URL");
+  }
+  if (!config.appEncryptionKey) {
+    throw new Error("Missing required env: APP_ENCRYPTION_KEY");
   }
 };

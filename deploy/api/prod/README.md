@@ -29,6 +29,11 @@ vim secrets.yaml
 - `DATABASE_URL` - 数据库连接地址
 - `REDIS_URL` - Redis 连接地址
 - `LITELLM_API_KEY` - LiteLLM API key
+- `GITEA_TOKEN` - Gitea 管理员 API token（用于自动创建托管 Git 账号）
+- `APP_ENCRYPTION_KEY` - 应用级加密密钥（用于加密存储影子账号密码和 access token）
+
+同时请确认 `values.yaml` 中已填写：
+- `GITEA_MANAGED_EMAIL_DOMAIN` - 托管 Gitea 影子账号使用的邮箱域名后缀
 
 ### 2. 运行数据库迁移
 

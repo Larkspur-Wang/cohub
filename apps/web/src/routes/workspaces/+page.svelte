@@ -11,11 +11,12 @@ let loadError = $state("");
 
 let isAdding = $state(false);
 let isSubmitting = $state(false);
+let createStatusText = $state("");
 
 let formName = $state("");
 let formDescription = $state("");
 let formPrivate = $state(true);
-let user = $state<{ nick_name?: string } | null>(null);
+let user = $state<{ uuid?: string; nick_name?: string } | null>(null);
 
 async function loadData() {
   isLoading = true;
@@ -45,19 +46,23 @@ async function handleSubmit(e: Event) {
   if (!formName.trim() || isSubmitting) return;
 
   isSubmitting = true;
+  createStatusText = "Preparing workspace infrastructure...";
   try {
     await createWorkspace({
       name: formName.trim(),
       description: formDescription.trim(),
       private: formPrivate,
     });
+    createStatusText = "Creating workspace repository...";
     isAdding = false;
     formName = "";
     formDescription = "";
     formPrivate = true;
+    createStatusText = "";
     await loadData();
   } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to create workspace");
+    createStatusText = "";
+    alert(error instanceof Error ? error.message : "Failed to prepare workspace infrastructure");
   } finally {
     isSubmitting = false;
   }
@@ -128,7 +133,7 @@ async function handleSubmit(e: Event) {
           disabled={isSubmitting}
           class="w-full py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 mt-4"
         >
-          {isSubmitting ? "Creating..." : "Create Workspace"}
+          {isSubmitting ? (createStatusText || "Preparing workspace infrastructure...") : "Create Workspace"}
         </button>
       </form>
     </div>
@@ -155,7 +160,7 @@ async function handleSubmit(e: Event) {
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {#each workspaces as workspace}
-        <a href="/workspaces/{user?.nick_name || 'owner'}/{workspace.giteaRepoName}" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col group hover:border-brand/30 transition-colors">
+        <a href="/workspaces/{workspace.owner || user?.uuid || 'unknown'}/{workspace.giteaRepoName}" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col group hover:border-brand/30 transition-colors">
           <div class="flex items-start justify-between mb-4">
             <div class="w-12 h-12 rounded-xl bg-brand/5 text-brand flex items-center justify-center group-hover:bg-brand group-hover:text-white transition-colors">
               <FolderKanban class="w-6 h-6" />

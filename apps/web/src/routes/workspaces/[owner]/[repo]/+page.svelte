@@ -10,13 +10,13 @@ import {
   FileCode,
   Folder,
 } from "lucide-svelte";
-import { getTree, getWorkspace } from "$lib/api";
+import { getTreeByUser, getWorkspaceByUser } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
 let { params } = $props();
 
-let owner = $derived(params.owner);
+let userUuid = $derived(params.owner);
 let repo = $derived(params.repo);
 
 let workspace = $state<any | null>(null);
@@ -30,8 +30,8 @@ async function loadWorkspace() {
   isLoading = true;
   loadError = "";
   try {
-    workspace = await getWorkspace(owner, repo);
-    tree = await getTree(owner, repo, "").catch(() => null);
+    workspace = await getWorkspaceByUser(userUuid, repo);
+    tree = await getTreeByUser(userUuid, repo, "").catch(() => null);
     isEmpty = !tree || !tree.entries || tree.entries.length === 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace not found or access denied";
@@ -83,7 +83,7 @@ function copyCloneUrl() {
             </span>
           </div>
           <p class="text-sm text-gray-500 mt-1">
-            Owned by <span class="font-medium text-gray-700">{owner}</span>
+            Workspace owner <span class="font-medium text-gray-700">{userUuid}</span>
           </p>
         </div>
       </div>

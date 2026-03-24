@@ -13,6 +13,35 @@ import {
 } from "drizzle-orm/pg-core";
 import type { UnifiedContentBlock } from "@cohub/protocol";
 
+export const userGitAccounts = pgTable(
+  "user_git_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
+    provider: varchar("provider", { length: 50 }).notNull().default("gitea"),
+    giteaUserId: integer("gitea_user_id").notNull(),
+    giteaUsername: varchar("gitea_username", { length: 255 }).notNull(),
+    giteaPasswordEncrypted: text("gitea_password_encrypted").notNull(),
+    giteaAccessTokenEncrypted: text("gitea_access_token_encrypted").notNull(),
+    status: varchar("status", { length: 20 }).default("active"),
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userUuidProviderUniqueIdx: uniqueIndex("uq_user_git_accounts_user_provider").on(
+      table.userUuid,
+      table.provider,
+    ),
+    giteaUsernameUniqueIdx: uniqueIndex("uq_user_git_accounts_gitea_username").on(
+      table.giteaUsername,
+    ),
+    userUuidIdx: index("idx_user_git_accounts_user_uuid").on(table.userUuid),
+    providerIdx: index("idx_user_git_accounts_provider").on(table.provider),
+  }),
+);
+
 // 工作区表 (Workspace)
 export const workspaces = pgTable(
   "workspaces",

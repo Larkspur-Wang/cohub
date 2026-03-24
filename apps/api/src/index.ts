@@ -20,6 +20,7 @@ import {
   createAnonymousRepository,
   addDeployKeyToRepo,
 } from "./gitea.js";
+import { ensureUserGitAccount } from "./git-accounts.js";
 import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
@@ -45,7 +46,7 @@ import {
   waitForRuntimeRunning,
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, workspaces } from "./db/schema.js";
+import { userChannels, userGitAccounts, workspaces } from "./db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
@@ -212,18 +213,40 @@ app.get("/api/workspaces", async (c) => {
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const ws = await db.select().from(workspaces).where(eq(workspaces.userUuid, user.uuid));
-  return c.json(ws);
+  return c.json(ws.map((item) => ({ ...item, owner: user.uuid })));
+});
+
+app.get("/api/infrastructure/git-account", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const [account] = await db
+    .select({ status: userGitAccounts.status, createdAt: userGitAccounts.createdAt })
+    .from(userGitAccounts)
+    .where(
+      and(
+        eq(userGitAccounts.userUuid, user.uuid),
+        eq(userGitAccounts.provider, "gitea"),
+      ),
+    )
+    .limit(1);
+  return c.json({
+    ready: Boolean(account),
+    status: account?.status ?? "missing",
+    createdAt: account?.createdAt ?? null,
+  });
 });
 
 app.post("/api/workspaces", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
-  if (!user?.uuid || !user.nick_name) return c.json({ message: "unauthorized" }, 401);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ name: string; description?: string; private?: boolean }>();
-  // 1. Create in Gitea
-  const repo = await createRepository(token, body.name, body.private ?? true);
-  // 2. Save to DB
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  if (!gitAccount) return c.json({ message: "failed to prepare workspace infrastructure" }, 500);
+  const repo = await createRepository(gitAccount.giteaAccessToken, body.name, body.private ?? true);
   const [ws] = await db.insert(workspaces).values({
     userUuid: user.uuid,
     name: body.name,
@@ -231,7 +254,7 @@ app.post("/api/workspaces", async (c) => {
     giteaRepoName: repo.name,
     visibility: (body.private ?? true) ? "private" : "public",
   }).returning();
-  return c.json({ ...ws, owner: repo.owner.username });
+  return c.json({ ...ws, owner: gitAccount.giteaUsername });
 });
 
 app.get("/api/channels", async (c) => {
@@ -273,6 +296,59 @@ app.get("/api/workspaces/:owner/:repo", async (c) => {
   const data = await getRepository(owner, repo);
   if (!data) return c.json({ message: "workspace not found" }, 404);
   return c.json(data);
+});
+
+app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const { userUuid, repo: repoParam } = c.req.param();
+  if (!repoParam) return c.json({ message: "workspace not found" }, 404);
+  const repo = repoParam;
+  if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+  const data = await getRepository(gitAccount.giteaUsername, repo);
+  if (!data) return c.json({ message: "workspace not found" }, 404);
+  return c.json(data);
+});
+
+app.get("/api/workspaces/by-user/:userUuid/:repo/tree", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const { userUuid, repo: repoParam } = c.req.param();
+  if (!repoParam) return c.json({ message: "workspace not found" }, 404);
+  const repo = repoParam;
+  if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+  const path = c.req.query("path") ?? "";
+  const ref = c.req.query("ref");
+  const entries = await getDirectoryEntries(gitAccount.giteaUsername, repo, path, ref);
+  if (entries === null) return c.json({ message: "path not found" }, 404);
+  return c.json({ owner: gitAccount.giteaUsername, repo, path, ref: ref ?? null, entries });
+});
+
+app.get("/api/workspaces/by-user/:userUuid/:repo/file", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const { userUuid, repo: repoParam } = c.req.param();
+  if (!repoParam) return c.json({ message: "workspace not found" }, 404);
+  const repo = repoParam;
+  if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+  const path = c.req.query("path") ?? "";
+  const ref = c.req.query("ref");
+  if (!path.trim()) return c.json({ message: "path is required" }, 400);
+  const file = await getFileContent(gitAccount.giteaUsername, repo, path, ref);
+  if (!file) return c.json({ message: "file not found" }, 404);
+  return c.json(file);
 });
 
 app.get("/api/workspaces/:owner/:repo/tree", async (c) => {

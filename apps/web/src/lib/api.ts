@@ -173,8 +173,18 @@ export const getWorkspace = async (
   return apiFetch(`/api/workspaces/${owner}/${repo}`, { fetch: customFetch });
 };
 
-export const getTree = async (
-  owner: string,
+export const getWorkspaceByUser = async (
+  userUuid: string,
+  repo: string,
+  customFetch?: Fetch,
+) => {
+  return apiFetch(`/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}`, {
+    fetch: customFetch,
+  });
+};
+
+export const getTreeByUser = async (
+  userUuid: string,
   repo: string,
   path = "",
   ref?: string,
@@ -189,10 +199,8 @@ export const getTree = async (
   }
   const query = params.toString();
   return apiFetch(
-    `/api/workspaces/${owner}/${repo}/tree${query ? `?${query}` : ""}`,
-    {
-      fetch: customFetch,
-    },
+    `/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}/tree${query ? `?${query}` : ""}`,
+    { fetch: customFetch },
   );
 };
 

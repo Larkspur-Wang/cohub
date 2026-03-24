@@ -35,6 +35,20 @@ type GiteaDeployKey = {
   read_only: boolean;
 };
 
+export type ManagedGiteaUser = {
+  id: number;
+  login: string;
+  username?: string;
+  email?: string;
+};
+
+type ManagedGiteaAccessToken = {
+  id: number;
+  name: string;
+  sha1: string;
+  token_last_eight?: string;
+};
+
 const createGiteaHeaders = () => {
   if (!config.giteaToken) {
     return undefined;
@@ -87,6 +101,69 @@ const giteaPost = async <T>(path: string, body: unknown) => {
 
 export const getRepository = async (owner: string, repo: string) => {
   return giteaGet<Record<string, unknown>>(`/repos/${owner}/${repo}`);
+};
+
+export const getGiteaUserByUsername = async (username: string) => {
+  return giteaGet<ManagedGiteaUser>(`/admin/users/${encodeURIComponent(username)}`);
+};
+
+export const createManagedGiteaUser = async (input: {
+  username: string;
+  email: string;
+  password: string;
+  mustChangePassword?: boolean;
+  sendNotify?: boolean;
+}) => {
+  return giteaPost<ManagedGiteaUser>("/admin/users", {
+    email: input.email,
+    login_name: input.username,
+    password: input.password,
+    username: input.username,
+    must_change_password: input.mustChangePassword ?? false,
+    send_notify: input.sendNotify ?? false,
+    restricted: false,
+    visibility: "private",
+  });
+};
+
+export const createManagedGiteaAccessToken = async (
+  username: string,
+  tokenName: string,
+) => {
+  return giteaPost<ManagedGiteaAccessToken>(
+    `/users/${encodeURIComponent(username)}/tokens`,
+    {
+      name: tokenName,
+    },
+  );
+};
+
+export const createGiteaAccessTokenWithBasicAuth = async (
+  username: string,
+  password: string,
+  tokenName: string,
+) => {
+  const response = await fetch(
+    `${config.giteaBaseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: tokenName,
+        scopes: ["read:user", "write:user", "read:repository", "write:repository"],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea create token with basic auth error: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as ManagedGiteaAccessToken;
 };
 
 export const createRepository = async (
