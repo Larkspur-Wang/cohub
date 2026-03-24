@@ -77,19 +77,18 @@ export class DiscordProvider {
     });
   }
 
-  // API 让我们发送消息
   public async handleOutbound(cmd: GatewayOutboundCommand) {
     try {
       const channel = await this.client.channels.fetch(cmd.externalChatId);
       if (!channel || !channel.isTextBased()) {
         console.error(`[Discord] Invalid text channel: ${cmd.externalChatId}`);
-        return;
+        return { success: false, error: `Invalid text channel: ${cmd.externalChatId}` };
       }
 
       // 检查是否是可以发送消息的频道类型
       if (!('send' in channel)) {
         console.error(`[Discord] Channel ${cmd.externalChatId} does not support sending messages`);
-        return;
+        return { success: false, error: `Channel does not support sending messages` };
       }
 
       // 提取纯文本内容
@@ -113,8 +112,11 @@ export class DiscordProvider {
       const sendableChannel = channel as Extract<typeof channel, { send: (options: MessageCreateOptions) => Promise<unknown> }>;
       const sentMsg = await sendableChannel.send(messageOptions) as { id: string };
       console.log(`[Discord] Successfully sent message ${sentMsg.id} to ${channel.id}`);
+      return { success: true as const, externalMessageId: sentMsg.id };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[Discord] Failed to send message to ${cmd.externalChatId}:`, error);
+      return { success: false as const, error: errorMessage };
     }
   }
 

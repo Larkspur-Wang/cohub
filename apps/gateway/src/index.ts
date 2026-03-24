@@ -12,12 +12,14 @@ async function main() {
     const provider = manager.getProvider(cmd.channelId);
     if (!provider) {
       console.warn(`[Gateway-${manager.nodeId}] Received command for channel ${cmd.channelId} but it is not running here.`);
-      return;
+      return { success: false, error: `Provider not found for channel ${cmd.channelId}` };
     }
 
     if (cmd.provider === "discord") {
-      await provider.handleOutbound(cmd);
+      return await provider.handleOutbound(cmd);
     }
+
+    return { success: false, error: `Unsupported provider: ${cmd.provider}` };
   }).catch((error) => {
     console.error(`[Gateway-${manager.nodeId}] Fatal error listening to outbound stream:`, error);
   });

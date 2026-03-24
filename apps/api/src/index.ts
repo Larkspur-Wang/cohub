@@ -45,6 +45,7 @@ import {
   waitForRuntimeRunning,
 } from "./runtime-sessions.js";
 import { handleInboundEvent } from "./channels.js";
+import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { redis as apiRedis } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 
@@ -76,6 +77,7 @@ const startGatewayInboundListener = async () => {
 };
 
 startGatewayInboundListener().catch(console.error);
+startGatewayLogConsumer().catch(console.error);
 
 type Variables = { token: string | null };
 const app = new Hono<{ Variables: Variables }>();

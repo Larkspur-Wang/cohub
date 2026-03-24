@@ -38,3 +38,25 @@ export interface GatewayControlCommand {
     credentials: Record<string, unknown>;
   }[];
 }
+
+export type GatewayLogDirection = "inbound" | "outbound";
+export type GatewayLogStatus = "pending" | "success" | "failed";
+
+export interface GatewayLogEvent {
+  logId: string;
+  timestamp: number;
+  direction: GatewayLogDirection;
+  provider: ChannelProvider;
+  channelId: string;
+  externalChatId: string;
+  externalMessageId?: string;
+
+  rawPayload: Record<string, unknown>;
+  normalizedPayload?: Record<string, unknown>;
+
+  status: GatewayLogStatus;
+  errorMessage?: string;
+
+  /** 关联的事件/命令 ID，便于追踪 */
+  correlationId?: string;
+}
