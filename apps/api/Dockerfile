@@ -66,11 +66,14 @@ WORKDIR /app
 
 # Copy runtime dependencies and built output
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/packages/protocol/dist ./packages/protocol/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/drizzle ./apps/api/drizzle
 COPY apps/api/package.json ./apps/api/package.json
-COPY packages/protocol/package.runtime.json ./packages/protocol/package.json
+
+# Explicitly bundle workspace package into runtime node_modules
+RUN mkdir -p /app/node_modules/@cohub/protocol
+COPY --from=builder /app/packages/protocol/dist /app/node_modules/@cohub/protocol/dist
+COPY packages/protocol/package.runtime.json /app/node_modules/@cohub/protocol/package.json
 
 # Run as non-root
 USER node
