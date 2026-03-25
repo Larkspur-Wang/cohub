@@ -14,7 +14,7 @@ export class GatewayManager {
   public readonly nodeId: string;
   private heartbeatInterval?: ReturnType<typeof setInterval>;
   private syncInterval?: ReturnType<typeof setInterval>;
-  
+
   // 本地维持的实例集合 Map<ChannelId, ProviderInstance>
   private providers = new Map<string, DiscordProvider>();
 
@@ -25,25 +25,39 @@ export class GatewayManager {
 
   public async start() {
     console.log(`[Manager] Starting Gateway Node: ${this.nodeId}`);
-    
+
     // 1. 立即注册并开启心跳
+    console.log(`[Manager] Sending initial heartbeat...`);
     await this.registerNode();
+    console.log(`[Manager] Initial heartbeat sent, starting heartbeat loop (interval: 5s)`);
     this.heartbeatInterval = setInterval(() => this.registerNode(), 5000);
 
     // 2. 立即全量同步一次，并开启定时同步
+    console.log(`[Manager] Performing initial task sync...`);
     await this.syncTasks();
+    console.log(`[Manager] Initial sync complete, starting sync loop (interval: 10s)`);
     this.syncInterval = setInterval(() => this.syncTasks(), 10000);
+
+    console.log(`[Manager] Gateway Node ${this.nodeId} started successfully`);
   }
 
   public async stop() {
     console.log(`[Manager] Stopping Gateway Node: ${this.nodeId}`);
-    
-    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
-    if (this.syncInterval) clearInterval(this.syncInterval);
+    console.log(`[Manager] Active providers to stop: ${this.providers.size}`);
+
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      console.log(`[Manager] Heartbeat loop stopped`);
+    }
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      console.log(`[Manager] Sync loop stopped`);
+    }
 
     // 清理本地所有的长连接
     for (const [channelId, provider] of this.providers.entries()) {
       try {
+        console.log(`[Manager] Destroying provider for ${channelId}...`);
         provider.destroy();
       } catch (err) {
         console.error(`[Manager] Error destroying provider for ${channelId}:`, err);
@@ -52,13 +66,17 @@ export class GatewayManager {
     this.providers.clear();
 
     // 从活跃节点中注销自己 (让 API 更快发现)
+    console.log(`[Manager] Unregistering node from gateway:nodes...`);
     await redis.zrem("gateway:nodes", this.nodeId).catch(console.error);
+    console.log(`[Manager] Node ${this.nodeId} stopped`);
   }
 
   private async registerNode() {
     try {
+      const now = Date.now();
       // 使用 ZSET 记录节点和它的最后心跳时间 (用于 API 剔除死节点)
-      await redis.zadd("gateway:nodes", Date.now(), this.nodeId);
+      await redis.zadd("gateway:nodes", now, this.nodeId);
+      console.log(`[Manager] Heartbeat sent at ${new Date(now).toISOString()}`);
     } catch (error) {
       console.error("[Manager] Failed to send heartbeat:", error);
     }
@@ -66,33 +84,49 @@ export class GatewayManager {
 
   private async syncTasks() {
     try {
+      const syncStart = Date.now();
       // 获取分配给本节点的专属任务
       // 数据结构: HASH gateway:tasks:<nodeId>
       // Field: channelId, Value: JSON string of ChannelConfig
       const tasksStr = await redis.hgetall(`gateway:tasks:${this.nodeId}`);
-      
+
       const expectedChannelIds = new Set(Object.keys(tasksStr));
       const currentChannelIds = new Set(this.providers.keys());
 
-      // 1. 需要新增或更新的连接
-      for (const channelId of expectedChannelIds) {
-        if (!currentChannelIds.has(channelId)) {
-          const configStr = tasksStr[channelId];
-          if (configStr) {
-            const config = JSON.parse(configStr);
-            this.startProvider(channelId, config);
-          }
-        }
-        // TODO: 如果配置变了(比如 token 变了)，可能需要重启 provider
+      console.log(`[Manager] Sync tasks: expected=${expectedChannelIds.size}, current=${currentChannelIds.size}`);
+      if (expectedChannelIds.size > 0) {
+        console.log(`[Manager] Expected channels: [${Array.from(expectedChannelIds).join(", ")}]`);
       }
+      if (currentChannelIds.size > 0) {
+        console.log(`[Manager] Current channels: [${Array.from(currentChannelIds).join(", ")}]`);
+      }
+
+      // 1. 需要新增或更新的连接
+      const toAdd = Array.from(expectedChannelIds).filter(id => !currentChannelIds.has(id));
+      const toRemove = Array.from(currentChannelIds).filter(id => !expectedChannelIds.has(id));
+
+      if (toAdd.length > 0) {
+        console.log(`[Manager] Channels to add: [${toAdd.join(", ")}]`);
+      }
+      if (toRemove.length > 0) {
+        console.log(`[Manager] Channels to remove: [${toRemove.join(", ")}]`);
+      }
+
+      for (const channelId of toAdd) {
+        const configStr = tasksStr[channelId];
+        if (configStr) {
+          const config = JSON.parse(configStr);
+          this.startProvider(channelId, config);
+        }
+      }
+      // TODO: 如果配置变了(比如 token 变了)，可能需要重启 provider
 
       // 2. 需要断开的连接 (本地有，但 Redis 里没有了)
-      for (const channelId of currentChannelIds) {
-        if (!expectedChannelIds.has(channelId)) {
-          this.stopProvider(channelId);
-        }
+      for (const channelId of toRemove) {
+        this.stopProvider(channelId);
       }
 
+      console.log(`[Manager] Sync completed in ${Date.now() - syncStart}ms`);
     } catch (error) {
       console.error("[Manager] Failed to sync tasks:", error);
     }
@@ -104,6 +138,7 @@ export class GatewayManager {
       if (config.provider === "discord") {
         const provider = new DiscordProvider(channelId, config.credentials.token);
         this.providers.set(channelId, provider);
+        console.log(`[Manager] Provider for ${channelId} created and added to active providers`);
       } else {
         console.warn(`[Manager] Unsupported provider: ${config.provider}`);
       }
@@ -118,6 +153,7 @@ export class GatewayManager {
     if (provider) {
       try {
         provider.destroy();
+        console.log(`[Manager] Provider for ${channelId} destroyed`);
       } catch (error) {
         console.error(`[Manager] Error destroying provider for ${channelId}:`, error);
       }
@@ -128,5 +164,10 @@ export class GatewayManager {
   // 供 index.ts 使用，当收到 API 的 outbound 消息时路由给具体的 provider
   public getProvider(channelId: string) {
     return this.providers.get(channelId);
+  }
+
+  // 获取当前活跃的 channel IDs (用于 debug)
+  public getActiveChannelIds(): string[] {
+    return Array.from(this.providers.keys());
   }
 }

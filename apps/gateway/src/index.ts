@@ -3,31 +3,54 @@ import { GatewayManager } from "./manager/index.js";
 import { listenOutboundCommands } from "./bus.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
+function logStartupInfo() {
+  console.log("=".repeat(60));
+  console.log("[Gateway] Starting with configuration:");
+  console.log(`  NODE_ID: ${process.env.POD_NAME || process.env.HOSTNAME || "unknown"}`);
+  console.log(`  ENV: ${process.env.ENV || "unknown"}`);
+  console.log(`  DEBUG_MODE: ${process.env.DEBUG_MODE || "false"}`);
+  console.log(`  REDIS_URL: ${process.env.REDIS_URL ? `${process.env.REDIS_URL.slice(0, 30)}...` : "not set"}`);
+  console.log("=".repeat(60));
+}
+
 async function main() {
+  logStartupInfo();
+
   const manager = new GatewayManager();
   await manager.start();
 
+  console.log("[Gateway] Listening for outbound commands from API...");
+
   // 监听来自 API 的出站指令
   listenOutboundCommands(async (cmd: GatewayOutboundCommand) => {
+    console.log(`[Gateway] Received outbound command:`, {
+      commandId: cmd.commandId,
+      channelId: cmd.channelId,
+      provider: cmd.provider,
+      externalChatId: cmd.externalChatId,
+      contentPreview: cmd.content.map(c => c.type).join(", "),
+    });
+
     const provider = manager.getProvider(cmd.channelId);
     if (!provider) {
-      console.warn(`[Gateway-${manager.nodeId}] Received command for channel ${cmd.channelId} but it is not running here.`);
+      console.warn(`[Gateway] Command rejected: provider not found for channel ${cmd.channelId}`);
+      console.warn(`[Gateway] Active channels: ${manager.getActiveChannelIds().join(", ") || "none"}`);
       return { success: false, error: `Provider not found for channel ${cmd.channelId}` };
     }
 
-    if (cmd.provider === "discord") {
-      return await provider.handleOutbound(cmd);
-    }
-
-    return { success: false, error: `Unsupported provider: ${cmd.provider}` };
+    console.log(`[Gateway] Routing command ${cmd.commandId} to ${cmd.provider} provider`);
+    const result = await provider.handleOutbound(cmd);
+    console.log(`[Gateway] Command ${cmd.commandId} result:`, result.success ? "success" : `failed: ${result.error}`);
+    return result;
   }).catch((error) => {
-    console.error(`[Gateway-${manager.nodeId}] Fatal error listening to outbound stream:`, error);
+    console.error(`[Gateway] Fatal error listening to outbound stream:`, error);
   });
 
   // 优雅退出处理
   const shutdown = async () => {
-    console.log(`[Gateway-${manager.nodeId}] Shutting down...`);
+    console.log(`[Gateway] Received shutdown signal, stopping...`);
     await manager.stop();
+    console.log(`[Gateway] Shutdown complete`);
     process.exit(0);
   };
 
