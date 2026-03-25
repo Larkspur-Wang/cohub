@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { GatewayManager } from "./manager/index.js";
-import { listenOutboundCommands } from "./bus.js";
+import { listenOutboundCommands, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
+import { createBlockingRedisClient } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
 function logStartupInfo() {
@@ -81,9 +82,9 @@ async function main() {
     }
 
     // 2. 模拟 API：监听 Inbound 并自动回复 Pong (无差别回复)
-    const redis = (await import("./bus.js")).redis;
-    const INBOUND_STREAM = (await import("./bus.js")).INBOUND_STREAM;
-    const OUTBOUND_STREAM = (await import("./bus.js")).OUTBOUND_STREAM;
+    const redis = createBlockingRedisClient();
+
+    await redis.connect().catch(() => undefined);
 
     (async () => {
       let lastId = "$";

@@ -1,7 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
-import { redis } from "./redis.js";
+import { redisCommandClient } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, ChannelProvider } from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
 import { createUserMessageNode, enqueueRuntimePrompt, registerRuntimeSession } from "./runtime-sessions.js";
@@ -12,7 +12,7 @@ import { createUserMessageNode, enqueueRuntimePrompt, registerRuntimeSession } f
 async function pickGatewayNode(): Promise<string> {
   const now = Date.now();
   // 获取 15 秒内有心跳的节点
-  const activeNodes = await redis.zrangebyscore("gateway:nodes", now - 15000, "+inf");
+  const activeNodes = await redisCommandClient.zrangebyscore("gateway:nodes", now - 15000, "+inf");
 
   if (activeNodes.length === 0) {
     throw new Error("No active gateway nodes available");
@@ -54,10 +54,10 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
     };
 
     // 1. 塞进节点的专属任务 Hash
-    await redis.hset(`gateway:tasks:${nodeId}`, rc.id, JSON.stringify(config));
+    await redisCommandClient.hset(`gateway:tasks:${nodeId}`, rc.id, JSON.stringify(config));
 
     // 2. 记录路由反查表
-    await redis.hset("gateway:channel_routing", rc.id, nodeId);
+    await redisCommandClient.hset("gateway:channel_routing", rc.id, nodeId);
 
     console.log(`[Channels] Assigned channel ${rc.id} to gateway node ${nodeId}`);
   }
@@ -73,7 +73,7 @@ export async function dispatchOutboundMessage(input: {
   replyToExternalMessageId?: string;
 }) {
   // 1. 查找该渠道目前归哪个节点管
-  const nodeId = await redis.hget("gateway:channel_routing", input.runtimeChannelId);
+  const nodeId = await redisCommandClient.hget("gateway:channel_routing", input.runtimeChannelId);
   if (!nodeId) {
     console.warn(`[Channels] No routing found for channel ${input.runtimeChannelId}`);
     return;
@@ -107,7 +107,7 @@ export async function dispatchOutboundMessage(input: {
   };
 
   // 3. 塞进 Outbound Stream
-  await redis.xadd(
+  await redisCommandClient.xadd(
     "stream:gateway:outbound",
     "*",
     "payload",

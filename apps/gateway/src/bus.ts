@@ -1,29 +1,10 @@
-import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
 import type { GatewayInboundEvent, GatewayOutboundCommand, GatewayLogEvent } from "@cohub/protocol";
-
-// 这里我们暂时硬编码 redis 的 url，后续可以通过 env 传入
-const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-console.log(`[Bus] Connecting to Redis: ${redisUrl.slice(0, 30)}...`);
-
-export const redis = new Redis(redisUrl);
-
-// Redis 连接事件
-redis.on("connect", () => {
-  console.log("[Bus] Redis connected successfully");
-});
-
-redis.on("error", (err) => {
-  console.error("[Bus] Redis connection error:", err);
-});
-
-redis.on("close", () => {
-  console.warn("[Bus] Redis connection closed");
-});
-
-redis.on("reconnecting", () => {
-  console.log("[Bus] Redis reconnecting...");
-});
+import {
+  createBlockingRedisClient,
+  type RedisStreamEntry,
+  redisCommandClient,
+} from "./redis.js";
 
 export const INBOUND_STREAM = "stream:gateway:inbound";
 export const OUTBOUND_STREAM = "stream:gateway:outbound";
@@ -40,7 +21,7 @@ const publishLogEvent = async (event: GatewayLogEvent) => {
     channelId: event.channelId,
     status: event.status,
   });
-  await redis.xadd(LOG_STREAM, "*", "payload", JSON.stringify(event)).catch((err) => {
+  await redisCommandClient.xadd(LOG_STREAM, "*", "payload", JSON.stringify(event)).catch((err) => {
     console.error("[Bus] Failed to publish log event:", err);
   });
 };
@@ -70,7 +51,7 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
   };
 
   await Promise.all([
-    redis.xadd(INBOUND_STREAM, "*", "payload", JSON.stringify(event)),
+    redisCommandClient.xadd(INBOUND_STREAM, "*", "payload", JSON.stringify(event)),
     publishLogEvent(logEvent),
   ]);
 
@@ -106,9 +87,12 @@ export const listenOutboundCommands = async (
   let lastId = "$"; // 从最新的开始读，真实业务中可能需要持久化 lastId 或用 Consumer Group
   console.log(`[Bus] Starting from: ${lastId} (latest)`);
 
+  const client = createBlockingRedisClient();
+  await client.connect().catch(() => undefined);
+
   while (true) {
     try {
-      const result = await redis.xread(
+      const result = await client.xread(
         "BLOCK",
         0, // 永久阻塞
         "STREAMS",
@@ -118,7 +102,7 @@ export const listenOutboundCommands = async (
 
       if (!result) continue;
 
-      for (const [stream, messages] of result) {
+      for (const [stream, messages] of result as Array<[string, RedisStreamEntry[]]>) {
         for (const [id, fields] of messages) {
           lastId = id;
           console.log(`[Bus] Received message ${id} from stream ${stream}`);

@@ -25,8 +25,10 @@ import {
   getRuntimeOutputStreamKey,
   getRuntimeProvisionMetaKey,
   getRuntimeProvisionStreamKey,
-  redis,
+  redisCommandClient,
+  createStreamingRedisClient,
 } from "./redis.js";
+import type { RedisStreamEntry } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { bindRuntimeChannelsToGateway, dispatchOutboundMessage, getBindingBySessionId, touchRuntimeSessionBinding } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
@@ -103,7 +105,7 @@ export const writeInitialRuntimeProvision = async (runtimeId: string) => {
   const key = getRuntimeProvisionMetaKey(runtimeId);
   const timestamp = nowIso();
 
-  await redis.hset(key, {
+  await redisCommandClient.hset(key, {
     runtime_id: runtimeId,
     status: "queued",
     current_step: "queued",
@@ -120,7 +122,7 @@ const appendProvisionEvent = async (
   event: RuntimeProvisionEvent,
 ) => {
   const streamKey = getRuntimeProvisionStreamKey(runtimeId);
-  await redis.xadd(
+  await redisCommandClient.xadd(
     streamKey,
     "MAXLEN",
     "~",
@@ -145,7 +147,7 @@ const writeProvisionMeta = async (
   const key = getRuntimeProvisionMetaKey(runtimeId);
   const updatedAt = nowIso();
 
-  await redis.hset(key, {
+  await redisCommandClient.hset(key, {
     runtime_id: runtimeId,
     status: input.status,
     current_step: input.currentStep,
@@ -202,12 +204,12 @@ export const initializeRuntimeProvision = async (runtimeId: string) => {
 export const getRuntimeProvision = async (
   runtimeId: string,
 ): Promise<RuntimeProvisionSnapshot> => {
-  const meta = await redis.hgetall(getRuntimeProvisionMetaKey(runtimeId));
+  const meta = await redisCommandClient.hgetall(getRuntimeProvisionMetaKey(runtimeId));
 
   const streamKey = getRuntimeProvisionStreamKey(runtimeId);
-  const entries = await redis.xrevrange(streamKey, "+", "-", "COUNT", PROVISION_EVENT_LIMIT);
+  const entries = await redisCommandClient.xrevrange(streamKey, "+", "-", "COUNT", PROVISION_EVENT_LIMIT);
 
-  const events = entries
+  const events = (entries as RedisStreamEntry[])
     .map(([, fields]) => {
       const payloadIndex = fields.findIndex((field) => field === "payload");
       const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
@@ -596,7 +598,7 @@ export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    const status = await redis.hget(getRuntimeMetaKey(runtimeId), "status");
+    const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
     if (status === "running") return true;
     if (status === "error" || status === "stopped") return false;
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -606,7 +608,7 @@ export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000
 };
 
 export const getRuntimeLiveStatus = async (runtimeId: string) => {
-  const status = await redis.hget(getRuntimeMetaKey(runtimeId), "status");
+  const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
   return status?.trim() || null;
 };
 
@@ -621,7 +623,7 @@ export const enqueueRuntimePrompt = async (input: {
   };
   meta?: Record<string, unknown> | null;
 }) => {
-  await redis.rpush(
+  await redisCommandClient.rpush(
     getRuntimeInputQueueKey(input.runtimeId),
     JSON.stringify({
       action: "prompt",
@@ -672,7 +674,7 @@ export const readRuntimeOutputStream = async (input: {
   const streamKey = getRuntimeOutputStreamKey(input.runtimeId);
   const startId = input.lastEventId?.trim() || "$";
   const blockMs = input.blockMs ?? 15000;
-  const client = redis.duplicate();
+  const client = createStreamingRedisClient();
 
   await client.connect().catch(() => undefined);
   let currentId = startId;
@@ -695,7 +697,7 @@ export const readRuntimeOutputStream = async (input: {
         );
         if (!response) continue;
 
-        for (const [, entries] of response) {
+        for (const [, entries] of response as Array<[string, RedisStreamEntry[]]>) {
           for (const [id, fields] of entries) {
             currentId = id;
             const payloadIndex = fields.findIndex((field) => field === "payload");

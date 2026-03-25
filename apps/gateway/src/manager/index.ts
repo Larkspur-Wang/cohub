@@ -1,5 +1,5 @@
 import os from "node:os";
-import { redis } from "../bus.js";
+import { redisCommandClient } from "../redis.js";
 import { DiscordProvider } from "../providers/discord/index.js";
 
 interface ChannelConfig {
@@ -67,7 +67,7 @@ export class GatewayManager {
 
     // 从活跃节点中注销自己 (让 API 更快发现)
     console.log("[Manager] Unregistering node from gateway:nodes...");
-    await redis.zrem("gateway:nodes", this.nodeId).catch(console.error);
+    await redisCommandClient.zrem("gateway:nodes", this.nodeId).catch(console.error);
     console.log(`[Manager] Node ${this.nodeId} stopped`);
   }
 
@@ -75,7 +75,7 @@ export class GatewayManager {
     try {
       const now = Date.now();
       // 使用 ZSET 记录节点和它的最后心跳时间 (用于 API 剔除死节点)
-      await redis.zadd("gateway:nodes", now, this.nodeId);
+      await redisCommandClient.zadd("gateway:nodes", now, this.nodeId);
       console.log(`[Manager] Heartbeat sent at ${new Date(now).toISOString()}`);
     } catch (error) {
       console.error("[Manager] Failed to send heartbeat:", error);
@@ -88,7 +88,7 @@ export class GatewayManager {
       // 获取分配给本节点的专属任务
       // 数据结构: HASH gateway:tasks:<nodeId>
       // Field: channelId, Value: JSON string of ChannelConfig
-      const tasksStr = await redis.hgetall(`gateway:tasks:${this.nodeId}`);
+      const tasksStr = await redisCommandClient.hgetall(`gateway:tasks:${this.nodeId}`);
 
       const expectedChannelIds = new Set(Object.keys(tasksStr));
       const currentChannelIds = new Set(this.providers.keys());

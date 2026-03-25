@@ -1,6 +1,6 @@
 import { db } from "./db/index.js";
 import { gatewayLogs } from "./db/schema.js";
-import { redis } from "./redis.js";
+import { createBlockingRedisClient } from "./redis.js";
 import type { GatewayLogEvent } from "@cohub/protocol";
 
 const LOG_STREAM = "stream:gateway:logs";
@@ -11,7 +11,7 @@ const LOG_STREAM = "stream:gateway:logs";
 export const startGatewayLogConsumer = async () => {
   console.log("[GatewayLogs] Consumer started");
   let lastId = "$";
-  const client = redis.duplicate();
+  const client = createBlockingRedisClient();
 
   await client.connect().catch(() => undefined);
 

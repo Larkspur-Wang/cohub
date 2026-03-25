@@ -51,14 +51,14 @@ import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } 
 import { eq, and, inArray } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
-import { isRedisReady, redis as apiRedis } from "./redis.js";
+import { createBlockingRedisClient, isRedisReady } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
 // 启动 API 的后台监听器，处理来自网关的消息
 const startGatewayInboundListener = async () => {
   let lastId = "$";
-  const client = apiRedis.duplicate();
+  const client = createBlockingRedisClient();
 
   await client.connect().catch(() => undefined);
   console.log("[Channels] API Gateway Inbound Listener started.");
