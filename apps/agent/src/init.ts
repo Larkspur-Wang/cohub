@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { GLOBAL_CONFIG_REPO, env } from "./env.js";
 import { setRuntimeStatus } from "./redis.js";
 
-async function runGitClone(repositoryUrl: string, targetDir: string) {
+async function runGitCommand(args: string[], cwd?: string) {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("git", ["clone", repositoryUrl, targetDir], {
+    const child = spawn("git", args, {
+      cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -25,11 +26,15 @@ async function runGitClone(repositoryUrl: string, targetDir: string) {
 
       reject(
         new Error(
-          stderr.trim() || `git clone exited with non-zero status ${code}`,
+          stderr.trim() || `git ${args[0]} exited with non-zero status ${code}`,
         ),
       );
     });
   });
+}
+
+async function runGitClone(repositoryUrl: string, targetDir: string) {
+  await runGitCommand(["clone", repositoryUrl, targetDir]);
 }
 
 async function copyConfigToHome(sourceDir: string, name: string) {
@@ -76,6 +81,34 @@ export async function initializeContainer() {
     throw error;
   } finally {
     await rm(tempDir, { recursive: true, force: true });
+  }
+
+  if (env.WORKSPACE_REPO_URL) {
+    try {
+      console.log("[Init] Cloning workspace repo...");
+      // check if directory is empty, since k8s PVC might have some lost+found dir or similar
+      const files = await readdir(env.WORKSPACE_DIR);
+      if (files.length > 0) {
+        console.log("[Init] Workspace directory not empty, clearing...");
+        for (const file of files) {
+          await rm(join(env.WORKSPACE_DIR, file), { recursive: true, force: true });
+        }
+      }
+      
+      await runGitCommand(["clone", env.WORKSPACE_REPO_URL, env.WORKSPACE_DIR]);
+      
+      if (env.WORKSPACE_GIT_USERNAME) {
+        await runGitCommand(["config", "user.name", env.WORKSPACE_GIT_USERNAME], env.WORKSPACE_DIR);
+      }
+      if (env.WORKSPACE_GIT_EMAIL) {
+        await runGitCommand(["config", "user.email", env.WORKSPACE_GIT_EMAIL], env.WORKSPACE_DIR);
+      }
+      
+      console.log("[Init] Workspace repo cloned and configured successfully.");
+    } catch (error) {
+      console.error("[Init] Failed to clone workspace repo:", error);
+      throw error;
+    }
   }
 
   console.log("[Init] Container initialization completed.");

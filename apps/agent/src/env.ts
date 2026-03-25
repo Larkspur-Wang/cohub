@@ -25,6 +25,10 @@ export const EnvSchema = z.object({
     })
     .default("/workspace"),
   ENV: z.enum(["dev", "prod"]).default("dev"),
+  WORKSPACE_REPO_URL: z.string().optional(),
+  WORKSPACE_GIT_TOKEN: z.string().optional(),
+  WORKSPACE_GIT_USERNAME: z.string().optional(),
+  WORKSPACE_GIT_EMAIL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

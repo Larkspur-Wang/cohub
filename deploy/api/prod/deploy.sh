@@ -53,7 +53,6 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║   Cohub API Prod 环境部署        ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
-# 根据 ENV 决定 sessions namespace
 if [ "$ENV" = "prod" ]; then
   SESSIONS_NAMESPACE="cohub-sessions"
 else
@@ -74,13 +73,25 @@ mkdir -p rendered
 render_template() {
   local src="$1"
   local dst="$2"
-  local imagePullSecretsBlock=""
 
-  if [ -n "$IMAGE_PULL_SECRET" ]; then
-    imagePullSecretsBlock="      imagePullSecrets:\n        - name: ${IMAGE_PULL_SECRET}"
-  fi
+  cp "$src" "$dst"
 
-  sed \
+  python - "$dst" "$IMAGE_PULL_SECRET" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+secret = sys.argv[2]
+text = path.read_text()
+placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
+if placeholder in text:
+    replacement = ""
+    if secret:
+        replacement = f"      imagePullSecrets:\n        - name: {secret}\n"
+    text = text.replace(placeholder, replacement)
+path.write_text(text)
+PY
+
+  sed -i.bak \
     -e "s|__NAMESPACE__|${NAMESPACE}|g" \
     -e "s|__APP_NAME__|${APP_NAME}|g" \
     -e "s|__IMAGE_REPOSITORY__|${IMAGE_REPOSITORY}|g" \
@@ -110,8 +121,8 @@ render_template() {
     -e "s|__SANDBOX_RUNTIME_IMAGE__|${SANDBOX_RUNTIME_IMAGE}|g" \
     -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
-    -e "/__IMAGE_PULL_SECRETS_BLOCK__/c\\${imagePullSecretsBlock}" \
-    "$src" > "$dst"
+    "$dst"
+  rm -f "$dst.bak"
 }
 
 render_template "$MANIFESTS_DIR/configmap.tmpl.yaml" rendered/configmap.yaml

@@ -7,7 +7,7 @@ APP_NAME: "cohub-api-dev"
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-api"
 IMAGE_TAG: "latest"
-IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_POLICY: "Always"
 IMAGE_PULL_SECRET: "gitea-registry"
 
 # ========== 服务端口 ==========

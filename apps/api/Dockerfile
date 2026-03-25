@@ -35,14 +35,17 @@ FROM base AS builder
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/protocol/package.json ./packages/protocol/package.json
+COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
+COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
 COPY apps/api/package.json ./apps/api/package.json
 
 # Install full deps (build needs dev deps like typescript)
 RUN pnpm config set node-linker hoisted \
   && pnpm install --frozen-lockfile --filter @cohub/api...
 
-# Copy protocol source (TypeScript sources for type checking during build)
+# Copy protocol source and build runtime JS output
 COPY packages/protocol ./packages/protocol
+RUN pnpm --filter @cohub/protocol build
 
 # Copy api source and build
 COPY apps/api/src ./apps/api/src
@@ -63,9 +66,11 @@ WORKDIR /app
 
 # Copy runtime dependencies and built output
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/packages/protocol/dist ./packages/protocol/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/drizzle ./apps/api/drizzle
 COPY apps/api/package.json ./apps/api/package.json
+COPY packages/protocol/package.runtime.json ./packages/protocol/package.json
 
 # Run as non-root
 USER node

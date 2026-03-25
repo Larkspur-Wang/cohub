@@ -15,6 +15,7 @@ import {
   sessionMessages,
   sessionToolCalls,
   runtimeChannels,
+  workspaces,
 } from "./db/schema.js";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
@@ -26,6 +27,7 @@ import {
 } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { bindRuntimeChannelsToGateway, dispatchOutboundMessage, getBindingBySessionId, touchRuntimeSessionBinding } from "./channels.js";
+import { ensureUserGitAccount } from "./git-accounts.js";
 
 export type SessionMessageBlock = UnifiedContentBlock;
 
@@ -99,12 +101,43 @@ export const launchRuntimeSandbox = async (input: {
   runtimeId: string;
   userUuid: string;
 }) => {
+  const runtime = await getRuntimeById(input.runtimeId);
+  if (!runtime) throw new Error("Runtime not found");
+
+  let workspaceRepoUrl: string | undefined;
+  let workspaceGitToken: string | undefined;
+  let workspaceGitUsername: string | undefined;
+  let workspaceGitEmail: string | undefined;
+
+  if (runtime.workspaceId) {
+    const [workspace] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, runtime.workspaceId))
+      .limit(1);
+
+    if (workspace) {
+      const gitAccount = await ensureUserGitAccount(input.userUuid);
+      workspaceGitToken = gitAccount.giteaAccessToken;
+      workspaceGitUsername = gitAccount.giteaUsername;
+      workspaceGitEmail = `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`;
+
+      // Construct authenticated URL: https://<username>:<token>@gitea.example.com/<username>/<repo>.git
+      const url = new URL(config.giteaBaseUrl);
+      workspaceRepoUrl = `${url.protocol}//${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@${url.host}/${gitAccount.giteaUsername}/${workspace.giteaRepoName}.git`;
+    }
+  }
+
   const pod = renderSandboxPodTemplate({
     RUNTIME_ID: input.runtimeId,
     USER_ID: input.userUuid,
     REDIS_URL: config.redisUrl,
     LITELLM_API_KEY: config.litellmApiKey,
     ENV: config.env,
+    WORKSPACE_REPO_URL: workspaceRepoUrl,
+    WORKSPACE_GIT_TOKEN: workspaceGitToken,
+    WORKSPACE_GIT_USERNAME: workspaceGitUsername,
+    WORKSPACE_GIT_EMAIL: workspaceGitEmail,
   }) as V1Pod;
 
   await k8sCoreApi.createNamespacedPod({
