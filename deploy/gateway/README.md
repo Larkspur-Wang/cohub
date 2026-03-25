@@ -28,8 +28,8 @@ gateway/
 
 ```bash
 cd apps/gateway
-docker build -t registry.cn-shanghai.aliyuncs.com/talesofai/cohub-gateway:latest .
-docker push registry.cn-shanghai.aliyuncs.com/talesofai/cohub-gateway:latest
+docker build -t git.talesofai.com/talesofai/cohub-gateway:latest .
+docker push git.talesofai.com/talesofai/cohub-gateway:latest
 ```
 
 ### 2. 配置 Secrets

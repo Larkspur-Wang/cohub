@@ -1,5 +1,4 @@
-const RUNTIME_IMAGE =
-  "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-agent:latest";
+import { config } from "../config.js";
 
 type SandboxPodTemplateVariables = {
   RUNTIME_ID: string;
@@ -47,7 +46,7 @@ export const SANDBOX_POD_TEMPLATE = {
     containers: [
       {
         name: "runtime",
-        image: RUNTIME_IMAGE,
+        image: config.sandboxRuntimeImage,
         resources: {
           limits: {
             cpu: "1",

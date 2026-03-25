@@ -6,10 +6,10 @@ NAMESPACE: "cohub"
 APP_NAME: "cohub-api"
 
 # ========== 镜像 ==========
-IMAGE_REPOSITORY: "registry.cn-shanghai.aliyuncs.com/talesofai/cohub-api"
+IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-api"
 IMAGE_TAG: "latest"
 IMAGE_PULL_POLICY: "IfNotPresent"
-IMAGE_PULL_SECRET: ""
+IMAGE_PULL_SECRET: "gitea-registry"
 
 # ========== 服务端口 ==========
 SERVICE_PORT: "8787"
@@ -39,6 +39,7 @@ AUTH_BASE_URL: "https://api.talesofai.com"
 GITEA_BASE_URL: "https://gitea.cohub.run/"
 GITEA_MANAGED_EMAIL_DOMAIN: "cohub.local"
 WEB_ORIGIN: "https://cohub.run"
+SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:v20260325"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"

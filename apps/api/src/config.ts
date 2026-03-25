@@ -8,6 +8,7 @@ export type AppConfig = {
   env: "dev" | "prod";
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
+  sandboxRuntimeImage: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -16,6 +17,14 @@ const getSessionsNamespace = (env: string): string => {
   return env === "dev" ? "cohub-sessions-dev" : "cohub-sessions";
 };
 
+const getDefaultSandboxRuntimeImage = (env: "dev" | "prod") => {
+  return env === "prod"
+    ? "git.talesofai.com/talesofai/cohub-agent:v20260325"
+    : "git.talesofai.com/talesofai/cohub-agent:latest";
+};
+
+const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
+
 export const config: AppConfig = {
   authBaseUrl: normalizeBaseUrl(process.env.AUTH_BASE_URL ?? ""),
   giteaBaseUrl: normalizeBaseUrl(process.env.GITEA_BASE_URL ?? ""),
@@ -23,9 +32,11 @@ export const config: AppConfig = {
   webOrigin: process.env.WEB_ORIGIN,
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   litellmApiKey: process.env.LITELLM_API_KEY,
-  env: (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod",
+  env,
   giteaManagedEmailDomain: process.env.GITEA_MANAGED_EMAIL_DOMAIN ?? "cohub.local",
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
+  sandboxRuntimeImage:
+    process.env.SANDBOX_RUNTIME_IMAGE ?? getDefaultSandboxRuntimeImage(env),
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
