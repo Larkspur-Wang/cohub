@@ -22,7 +22,6 @@ let submitError = $state("");
 let title = $state("");
 let startNow = $state(true);
 let selectedChannelIds = $state<string[]>([]);
-let externalChatIds = $state<Record<string, string>>({});
 
 async function loadPage() {
   isLoading = true;
@@ -53,10 +52,6 @@ function toggleChannel(channelId: string, checked: boolean) {
     if (!selectedChannelIds.includes(channelId)) {
       selectedChannelIds = [...selectedChannelIds, channelId];
     }
-    externalChatIds = {
-      ...externalChatIds,
-      [channelId]: externalChatIds[channelId] ?? "default",
-    };
     return;
   }
 
@@ -73,7 +68,6 @@ async function handleSubmit(event: SubmitEvent) {
   try {
     const channelBindings: RuntimeChannelBindingInput[] = selectedChannelIds.map((channelId) => ({
       channelId,
-      externalChatId: externalChatIds[channelId]?.trim() || "default",
     }));
 
     const result = await createRuntime({
@@ -87,7 +81,7 @@ async function handleSubmit(event: SubmitEvent) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create runtime";
     if (message.includes("channel binding already exists") || message.includes("409")) {
-      submitError = "A channel binding with the same external chat id already exists. Please use a different external chat id or choose another channel.";
+      submitError = "This channel is already bound to another runtime. Please choose a different channel or reuse the existing runtime.";
     } else {
       submitError = message;
     }
@@ -171,28 +165,6 @@ async function handleSubmit(event: SubmitEvent) {
                     <div class="mt-1 text-xs text-gray-500 break-all">{channel.id}</div>
                   </div>
                 </label>
-
-                {#if checked}
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1" for={`external-${channel.id}`}>
-                      External chat id
-                    </label>
-                    <input
-                      id={`external-${channel.id}`}
-                      value={externalChatIds[channel.id] ?? "default"}
-                      oninput={(event) => {
-                        externalChatIds = {
-                          ...externalChatIds,
-                          [channel.id]: (event.currentTarget as HTMLInputElement).value,
-                        };
-                      }}
-                      type="text"
-                      placeholder="default"
-                      class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none"
-                    />
-                    <p class="mt-1 text-xs text-gray-500">Use a concrete external chat identifier if this provider requires one; otherwise keep <code>default</code>.</p>
-                  </div>
-                {/if}
               </div>
             {/each}
           </div>

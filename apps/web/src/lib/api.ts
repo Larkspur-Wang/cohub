@@ -424,7 +424,6 @@ export type RuntimeCreateResponse = {
 
 export type RuntimeChannelBindingInput = {
   channelId: string;
-  externalChatId?: string | null;
   config?: Record<string, unknown> | null;
 };
 
