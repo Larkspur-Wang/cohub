@@ -7,7 +7,7 @@ APP_NAME: "cohub-gateway-dev"
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-gateway"
 IMAGE_TAG: "latest"
-IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_POLICY: "Always"
 IMAGE_PULL_SECRET: "gitea-registry"
 
 # ========== 副本与资源 ==========
