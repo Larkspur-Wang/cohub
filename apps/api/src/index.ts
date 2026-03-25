@@ -28,21 +28,23 @@ import type {
 } from "@cohub/protocol";
 import {
   createRuntime,
+  createInitialRuntimeSession,
   createUserMessageNode,
   enqueueRuntimePrompt,
   getCurrentPathMessages,
   getRuntimeById,
-  getRuntimeLiveStatus,
+  getRuntimeProvision,
   getRuntimeSessionById,
-  launchRuntimeSandbox,
   listRuntimeSessions,
   listSessionTree,
   listToolCallsByMessageIds,
   persistMessageNode,
+  provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
   selectRuntimeSessionLeaf,
   updateRuntimeSessionInfo,
+  writeInitialRuntimeProvision,
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
@@ -418,12 +420,32 @@ app.get("/api/workspaces/:owner/:repo/file", async (c) => {
 });
 
 app.post("/api/runtimes", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const requestStartedAt = Date.now();
+  let currentRuntimeId: string | null = null;
+  const logCreateRuntime = (
+    phase: string,
+    details?: Record<string, unknown>,
+  ) => {
+    const elapsedMs = Date.now() - requestStartedAt;
+    const payload = {
+      runtimeId: currentRuntimeId,
+      ...(details ?? {}),
+    };
+    console.log(`[CreateRuntime] phase=${phase} elapsedMs=${elapsedMs} ${JSON.stringify(payload)}`);
+  };
 
-  const body = (await c.req
+  try {
+    logCreateRuntime("request_received");
+
+    const token = c.get("token");
+    if (!token) return c.json({ message: "unauthorized" }, 401);
+    const user = await fetchAuthUser(token);
+    if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+    const userUuid = user.uuid;
+  logCreateRuntime("user_resolved", { userUuid });
+
+    const body = (await c.req
     .json<{
       workspaceId?: string;
       agentId?: string;
@@ -463,8 +485,16 @@ app.post("/api/runtimes", async (c) => {
         }))
     : [];
 
+  logCreateRuntime("request_parsed", {
+    workspaceId: body.workspaceId ?? null,
+    start: body.start ?? true,
+    channelBindingCount: normalizedChannelBindings.length,
+  });
+
+  const requestedChannelIds = normalizedChannelBindings.map((binding) => binding.channelId);
+
   if (normalizedChannelBindings.length > 0) {
-    const requestedChannelIds = normalizedChannelBindings.map((binding) => binding.channelId);
+    logCreateRuntime("validate_channels_start", { requestedChannelIds });
     const ownedChannels = await db
       .select({ id: userChannels.id })
       .from(userChannels)
@@ -476,12 +506,57 @@ app.post("/api/runtimes", async (c) => {
       );
 
     if (ownedChannels.length !== new Set(requestedChannelIds).size) {
+      logCreateRuntime("validate_channels_failed", {
+        ownedChannelCount: ownedChannels.length,
+        requestedChannelCount: new Set(requestedChannelIds).size,
+      });
       return c.json({ message: "one or more channels are invalid" }, 400);
     }
+
+    logCreateRuntime("validate_channels_success", { ownedChannelCount: ownedChannels.length });
   }
 
+  if (normalizedChannelBindings.length > 0) {
+    logCreateRuntime("check_channel_binding_conflicts_start");
+    const existingBindings = await db
+      .select({
+        channelId: runtimeChannels.channelId,
+        externalChatId: runtimeChannels.externalChatId,
+        runtimeId: runtimeChannels.runtimeId,
+      })
+      .from(runtimeChannels)
+      .where(inArray(runtimeChannels.channelId, requestedChannelIds));
+
+    const conflictingBinding = normalizedChannelBindings.find((binding) =>
+      existingBindings.some(
+        (existing) =>
+          existing.channelId === binding.channelId &&
+          existing.externalChatId === binding.externalChatId,
+      ),
+    );
+
+    if (conflictingBinding) {
+      logCreateRuntime("check_channel_binding_conflicts_failed", {
+        channelId: conflictingBinding.channelId,
+        externalChatId: conflictingBinding.externalChatId,
+      });
+      return c.json(
+        {
+          message:
+            "channel binding already exists for this channel and external chat id. Choose a different external chat id or reuse the existing runtime.",
+        },
+        409,
+      );
+    }
+
+    logCreateRuntime("check_channel_binding_conflicts_success", {
+      existingBindingCount: existingBindings.length,
+    });
+  }
+
+  logCreateRuntime("db_create_runtime_start");
   const { runtime } = await createRuntime({
-    userUuid: user.uuid,
+    userUuid,
     workspaceId: body.workspaceId ?? null,
     agentId: body.agentId ?? null,
     title: body.title ?? null,
@@ -489,8 +564,14 @@ app.post("/api/runtimes", async (c) => {
     protocol: body.protocol ?? "pi",
     meta: body.meta ?? null,
   });
+  currentRuntimeId = runtime.id;
+  logCreateRuntime("db_create_runtime_success", { runtimeId: runtime.id });
 
   if (normalizedChannelBindings.length > 0) {
+    logCreateRuntime("db_insert_runtime_channels_start", {
+      count: normalizedChannelBindings.length,
+      runtimeId: runtime.id,
+    });
     await db.insert(runtimeChannels).values(
       normalizedChannelBindings.map((binding) => ({
         runtimeId: runtime.id,
@@ -499,13 +580,14 @@ app.post("/api/runtimes", async (c) => {
         config: binding.config,
       })),
     );
+    logCreateRuntime("db_insert_runtime_channels_success", {
+      count: normalizedChannelBindings.length,
+      runtimeId: runtime.id,
+    });
   }
 
-  if (body.start !== false) {
-    await launchRuntimeSandbox({ runtimeId: runtime.id, userUuid: user.uuid });
-  }
-
-  const session = await registerRuntimeSession({
+  logCreateRuntime("db_register_session_start", { runtimeId: runtime.id });
+  const session = await createInitialRuntimeSession({
     runtimeId: runtime.id,
     sessionId: crypto.randomUUID(),
     title: body.title ?? null,
@@ -518,10 +600,54 @@ app.post("/api/runtimes", async (c) => {
       channelBindings: normalizedChannelBindings.length,
     },
   });
+  logCreateRuntime("db_register_session_success", {
+    runtimeId: runtime.id,
+    sessionId: session.id,
+  });
 
-  const liveStatus = body.start !== false ? await getRuntimeLiveStatus(runtime.id) : null;
+  logCreateRuntime("response_ready", {
+    runtimeId: runtime.id,
+    sessionId: session.id,
+    started: body.start !== false,
+  });
 
-  return c.json({ runtime, session, ready: liveStatus === "running" });
+  if (body.start !== false) {
+    logCreateRuntime("background_provision_dispatch", { runtimeId: runtime.id });
+    void (async () => {
+      await writeInitialRuntimeProvision(runtime.id);
+      await provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid });
+    })().catch((error) => {
+      console.error("[RuntimeProvision] background task failed:", {
+        runtimeId: runtime.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  return c.json({ runtime, session, ready: false });
+  } catch (error) {
+    logCreateRuntime("request_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+});
+
+app.get("/api/runtimes/:id/provisioning", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) {
+    return c.json({ message: "runtime not found" }, 404);
+  }
+
+  const provisioning = await getRuntimeProvision(runtime.id);
+  return c.json(provisioning);
 });
 
 app.get("/api/runtimes", async (c) => {
@@ -540,18 +666,31 @@ app.get("/api/runtimes", async (c) => {
 });
 
 app.get("/api/runtimes/:id", async (c) => {
+  const requestStartedAt = Date.now();
+  const logGetRuntime = (phase: string, details?: Record<string, unknown>) => {
+    const elapsedMs = Date.now() - requestStartedAt;
+    const suffix = details ? ` ${JSON.stringify(details)}` : "";
+    console.log(`[GetRuntime] phase=${phase} elapsedMs=${elapsedMs}${suffix}`);
+  };
+
+  logGetRuntime("request_received");
+
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  logGetRuntime("user_resolved", { userUuid: user.uuid, runtimeId });
+
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
-  const liveStatus = await getRuntimeLiveStatus(runtime.id).catch(() => null);
+  logGetRuntime("runtime_loaded", { runtimeId: runtime.id, status: runtime.status ?? null });
+
+  logGetRuntime("response_ready", { runtimeId: runtime.id });
   return c.json({
     ...runtime,
-    liveStatus: liveStatus ?? runtime.status ?? null,
+    liveStatus: runtime.status ?? null,
   });
 });
 

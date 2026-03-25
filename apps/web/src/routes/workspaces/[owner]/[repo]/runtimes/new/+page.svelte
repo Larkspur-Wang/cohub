@@ -85,7 +85,12 @@ async function handleSubmit(event: SubmitEvent) {
 
     await goto(`/runtimes/${result.runtime.id}`);
   } catch (error) {
-    submitError = error instanceof Error ? error.message : "Failed to create runtime";
+    const message = error instanceof Error ? error.message : "Failed to create runtime";
+    if (message.includes("channel binding already exists") || message.includes("409")) {
+      submitError = "A channel binding with the same external chat id already exists. Please use a different external chat id or choose another channel.";
+    } else {
+      submitError = message;
+    }
   } finally {
     isSubmitting = false;
   }

@@ -3,12 +3,14 @@ import { onMount } from "svelte";
 import {
   abortSession,
   getRuntime,
+  getRuntimeProvisioning,
   getRuntimeSessions,
   getRuntimeStreamUrl,
   getSessionMessages,
   getSessionTree,
   selectSessionLeaf,
   sendSessionMessage,
+  type RuntimeProvisionResponse,
   type RuntimeRecord,
   type SessionRecord,
   type SessionMessageRecord,
@@ -92,12 +94,18 @@ let selectingLeaf = $state(false);
 let streamStatus = $state<"connecting" | "open" | "closed" | "error">("connecting");
 let streamError = $state("");
 let runtimeLoadError = $state("");
+let provisioning = $state<RuntimeProvisionResponse | null>(null);
+let provisioningError = $state("");
 let eventSource: EventSource | null = null;
-let pollingTimer: ReturnType<typeof setInterval> | null = null;
+let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
+let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let streamingAssistantText = $state("");
 
 const effectiveRuntimeStatus = $derived(runtime.liveStatus ?? runtime.status ?? "unknown");
 const hasSession = $derived(Boolean(session));
+const isProvisioningDone = $derived(
+  provisioning?.status === "succeeded" || provisioning?.status === "failed",
+);
 const isRuntimeReady = $derived(effectiveRuntimeStatus === "running" && hasSession);
 
 let timeline = $derived.by<TimelineItem[]>(() => {
@@ -161,6 +169,15 @@ async function refreshRuntimeState() {
     currentLeafMessageId = treeResponse.session.currentLeafMessageId;
   } catch (error) {
     runtimeLoadError = error instanceof Error ? error.message : "Failed to refresh runtime";
+  }
+}
+
+async function refreshProvisioningState() {
+  try {
+    provisioningError = "";
+    provisioning = await getRuntimeProvisioning(runtime.id);
+  } catch (error) {
+    provisioningError = error instanceof Error ? error.message : "Failed to refresh provisioning status";
   }
 }
 
@@ -264,7 +281,7 @@ function handleAgentEvent(payload: Record<string, unknown>) {
 onMount(() => {
   scrollToBottom();
 
-  void refreshRuntimeState();
+  void Promise.all([refreshRuntimeState(), refreshProvisioningState()]);
 
   eventSource = new EventSource(getRuntimeStreamUrl(runtime.id), {
     withCredentials: true,
@@ -289,16 +306,30 @@ onMount(() => {
     streamError = "Stream disconnected. Browser will retry automatically.";
   };
 
-  pollingTimer = setInterval(() => {
+  runtimePollingTimer = setInterval(() => {
     void refreshRuntimeState();
-  }, 3000);
+  }, 2000);
+
+  provisioningPollingTimer = setInterval(() => {
+    if (!isProvisioningDone) {
+      void refreshProvisioningState();
+      return;
+    }
+
+    if (provisioningPollingTimer) {
+      clearInterval(provisioningPollingTimer);
+      provisioningPollingTimer = null;
+    }
+  }, 1000);
 
   return () => {
     streamStatus = "closed";
     eventSource?.close();
     eventSource = null;
-    if (pollingTimer) clearInterval(pollingTimer);
-    pollingTimer = null;
+    if (runtimePollingTimer) clearInterval(runtimePollingTimer);
+    if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
+    runtimePollingTimer = null;
+    provisioningPollingTimer = null;
   };
 });
 </script>
@@ -345,17 +376,62 @@ onMount(() => {
     </div>
   {/if}
 
+  {#if provisioningError}
+    <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-sm break-all">
+      {provisioningError}
+    </div>
+  {/if}
+
   {#if !isRuntimeReady}
-    <div class="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
-      <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Starting</div>
-      <h2 class="mt-2 text-xl font-semibold text-gray-900">Runtime is being prepared</h2>
-      <p class="mt-2 text-sm text-gray-500">
-        The runtime has been created and this page will keep polling its latest state. You can stay here while the sandbox finishes startup.
-      </p>
-      <div class="mt-4 flex flex-wrap gap-2 text-xs text-gray-500 font-medium">
+    <div class="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm space-y-5">
+      <div>
+        <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Starting</div>
+        <h2 class="mt-2 text-xl font-semibold text-gray-900">Runtime is being prepared</h2>
+        <p class="mt-2 text-sm text-gray-500">
+          The runtime has been created and this page is polling startup progress every 1 second. You can stay here while the sandbox finishes startup.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap gap-2 text-xs text-gray-500 font-medium">
         <span class="px-2 py-1 rounded-full bg-gray-100">runtime status: {effectiveRuntimeStatus}</span>
         <span class="px-2 py-1 rounded-full bg-gray-100">session ready: {session ? 'yes' : 'no'}</span>
+        <span class="px-2 py-1 rounded-full {provisioning?.status === 'failed' ? 'bg-red-50 text-red-700' : provisioning?.status === 'succeeded' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}">
+          provisioning: {provisioning?.status ?? 'queued'}
+        </span>
+        {#if provisioning?.currentStep}
+          <span class="px-2 py-1 rounded-full bg-gray-100">step: {provisioning.currentStep}</span>
+        {/if}
       </div>
+
+      {#if provisioning}
+        <div class="rounded-2xl border border-gray-100 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <div class="text-sm font-semibold text-gray-900">Startup progress</div>
+            <div class="mt-1 text-xs text-gray-500 break-all">
+              {provisioning.currentMessage ?? 'Waiting for provisioning updates...'}
+            </div>
+            {#if provisioning.error}
+              <div class="mt-2 text-xs text-red-600 break-all">{provisioning.error}</div>
+            {/if}
+          </div>
+
+          <div class="divide-y divide-gray-100">
+            {#each provisioning.events as event}
+              <div class="px-4 py-3 flex items-start gap-3">
+                <div class="mt-0.5 h-2.5 w-2.5 rounded-full {event.level === 'error' ? 'bg-red-500' : event.level === 'success' ? 'bg-green-500' : 'bg-yellow-500'}"></div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-sm font-medium text-gray-900">{event.message}</span>
+                    <span class="px-2 py-0.5 rounded-full bg-gray-100 text-[11px] text-gray-600">{event.step}</span>
+                    <span class="px-2 py-0.5 rounded-full text-[11px] {event.level === 'error' ? 'bg-red-50 text-red-700' : event.level === 'success' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}">{event.level}</span>
+                  </div>
+                  <div class="mt-1 text-xs text-gray-400">{new Date(event.at).toLocaleTimeString()}</div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 

@@ -25,6 +25,12 @@ export const getRuntimeInputQueueKey = (runtimeId: string) =>
 export const getRuntimeOutputStreamKey = (runtimeId: string) =>
   `${redisRuntimePrefix(runtimeId)}:output_stream`;
 
+export const getRuntimeProvisionMetaKey = (runtimeId: string) =>
+  `${redisRuntimePrefix(runtimeId)}:provision:meta`;
+
+export const getRuntimeProvisionStreamKey = (runtimeId: string) =>
+  `${redisRuntimePrefix(runtimeId)}:provision:stream`;
+
 export const getRuntimeSessionMetaKey = (
   runtimeId: string,
   runtimeSessionId: string,
