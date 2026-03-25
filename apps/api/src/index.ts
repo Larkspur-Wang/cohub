@@ -45,8 +45,8 @@ import {
   waitForRuntimeRunning,
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, userGitAccounts, workspaces } from "./db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { userChannels, userGitAccounts, workspaces, runtimeChannels } from "./db/schema.js";
+import { eq, and, inArray } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { redis as apiRedis } from "./redis.js";
@@ -424,6 +424,11 @@ app.post("/api/runtimes", async (c) => {
       protocol?: "pi" | "acp" | "internal";
       meta?: Record<string, unknown>;
       start?: boolean;
+      channelBindings?: Array<{
+        channelId: string;
+        externalChatId?: string | null;
+        config?: Record<string, unknown> | null;
+      }>;
     }>()
     .catch(() => ({}))) as {
     workspaceId?: string;
@@ -433,7 +438,39 @@ app.post("/api/runtimes", async (c) => {
     protocol?: "pi" | "acp" | "internal";
     meta?: Record<string, unknown>;
     start?: boolean;
+    channelBindings?: Array<{
+      channelId: string;
+      externalChatId?: string | null;
+      config?: Record<string, unknown> | null;
+    }>;
   };
+
+  const normalizedChannelBindings = Array.isArray(body.channelBindings)
+    ? body.channelBindings
+        .filter((binding) => binding?.channelId && requireValidId(binding.channelId))
+        .map((binding) => ({
+          channelId: binding.channelId,
+          externalChatId: binding.externalChatId?.trim() || "default",
+          config: binding.config ?? null,
+        }))
+    : [];
+
+  if (normalizedChannelBindings.length > 0) {
+    const requestedChannelIds = normalizedChannelBindings.map((binding) => binding.channelId);
+    const ownedChannels = await db
+      .select({ id: userChannels.id })
+      .from(userChannels)
+      .where(
+        and(
+          eq(userChannels.userUuid, user.uuid),
+          inArray(userChannels.id, requestedChannelIds),
+        ),
+      );
+
+    if (ownedChannels.length !== new Set(requestedChannelIds).size) {
+      return c.json({ message: "one or more channels are invalid" }, 400);
+    }
+  }
 
   const { runtime } = await createRuntime({
     userUuid: user.uuid,
@@ -444,6 +481,17 @@ app.post("/api/runtimes", async (c) => {
     protocol: body.protocol ?? "pi",
     meta: body.meta ?? null,
   });
+
+  if (normalizedChannelBindings.length > 0) {
+    await db.insert(runtimeChannels).values(
+      normalizedChannelBindings.map((binding) => ({
+        runtimeId: runtime.id,
+        channelId: binding.channelId,
+        externalChatId: binding.externalChatId,
+        config: binding.config,
+      })),
+    );
+  }
 
   if (body.start !== false) {
     await launchRuntimeSandbox({ runtimeId: runtime.id, userUuid: user.uuid });
@@ -457,7 +505,11 @@ app.post("/api/runtimes", async (c) => {
     protocol: body.protocol ?? "pi",
     cwd: body.cwd ?? null,
     externalSessionId: null,
-    meta: { source: "web", createdBy: "api_runtime_create" },
+    meta: {
+      source: "web",
+      createdBy: "api_runtime_create",
+      channelBindings: normalizedChannelBindings.length,
+    },
   });
 
   return c.json({ runtime, session, ready: true });

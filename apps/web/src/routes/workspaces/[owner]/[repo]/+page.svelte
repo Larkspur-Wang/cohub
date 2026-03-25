@@ -10,7 +10,7 @@ import {
   FileCode,
   Folder,
 } from "lucide-svelte";
-import { createRuntime, getTreeByUser, getWorkspaceByUser, type Tree, type WorkspaceDetail } from "$lib/api";
+import { getTreeByUser, getWorkspaceByUser, type Tree, type WorkspaceDetail } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
@@ -97,18 +97,8 @@ function copyCloneUrl() {
           <button
             class="px-4 py-2 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors shadow-sm flex items-center gap-2 group"
             onclick={async () => {
-              if (isLoading) return;
-              try {
-                if (!workspace) return;
-                const runtime = await createRuntime({
-                  workspaceId: workspace.id,
-                  title: workspace.name,
-                  start: true,
-                });
-                await goto(`/runtimes/${runtime.runtime.id}`);
-              } catch (error) {
-                loadError = error instanceof Error ? error.message : "Failed to start runtime";
-              }
+              if (isLoading || !workspace) return;
+              await goto(`/workspaces/${userUuid}/${repo}/runtimes/new`);
             }}
           >
             <Play class="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />

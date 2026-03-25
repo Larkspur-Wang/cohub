@@ -386,6 +386,12 @@ export type RuntimeCreateResponse = {
   ready: boolean;
 };
 
+export type RuntimeChannelBindingInput = {
+  channelId: string;
+  externalChatId?: string | null;
+  config?: Record<string, unknown> | null;
+};
+
 export type RuntimeSessionsResponse = {
   runtime: RuntimeRecord;
   sessions: SessionRecord[];
@@ -395,7 +401,10 @@ export const createRuntime = async (input?: {
   workspaceId?: string;
   agentId?: string;
   title?: string;
+  cwd?: string;
+  protocol?: "pi" | "acp" | "internal";
   start?: boolean;
+  channelBindings?: RuntimeChannelBindingInput[];
 }) => {
   return apiFetch("/api/runtimes", {
     method: "POST",
