@@ -23,7 +23,7 @@ async function main() {
 
   // 监听来自 API 的出站指令
   listenOutboundCommands(async (cmd: GatewayOutboundCommand) => {
-    console.log(`[Gateway] Received outbound command:`, {
+    console.log("[Gateway] Received outbound command:", {
       commandId: cmd.commandId,
       channelId: cmd.channelId,
       provider: cmd.provider,
@@ -43,14 +43,14 @@ async function main() {
     console.log(`[Gateway] Command ${cmd.commandId} result:`, result.success ? "success" : `failed: ${result.error}`);
     return result;
   }).catch((error) => {
-    console.error(`[Gateway] Fatal error listening to outbound stream:`, error);
+    console.error("[Gateway] Fatal error listening to outbound stream:", error);
   });
 
   // 优雅退出处理
   const shutdown = async () => {
-    console.log(`[Gateway] Received shutdown signal, stopping...`);
+    console.log("[Gateway] Received shutdown signal, stopping...");
     await manager.stop();
-    console.log(`[Gateway] Shutdown complete`);
+    console.log("[Gateway] Shutdown complete");
     process.exit(0);
   };
 

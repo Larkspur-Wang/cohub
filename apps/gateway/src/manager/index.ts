@@ -27,15 +27,15 @@ export class GatewayManager {
     console.log(`[Manager] Starting Gateway Node: ${this.nodeId}`);
 
     // 1. 立即注册并开启心跳
-    console.log(`[Manager] Sending initial heartbeat...`);
+    console.log("[Manager] Sending initial heartbeat...");
     await this.registerNode();
-    console.log(`[Manager] Initial heartbeat sent, starting heartbeat loop (interval: 5s)`);
+    console.log("[Manager] Initial heartbeat sent, starting heartbeat loop (interval: 5s)");
     this.heartbeatInterval = setInterval(() => this.registerNode(), 5000);
 
     // 2. 立即全量同步一次，并开启定时同步
-    console.log(`[Manager] Performing initial task sync...`);
+    console.log("[Manager] Performing initial task sync...");
     await this.syncTasks();
-    console.log(`[Manager] Initial sync complete, starting sync loop (interval: 10s)`);
+    console.log("[Manager] Initial sync complete, starting sync loop (interval: 10s)");
     this.syncInterval = setInterval(() => this.syncTasks(), 10000);
 
     console.log(`[Manager] Gateway Node ${this.nodeId} started successfully`);
@@ -47,11 +47,11 @@ export class GatewayManager {
 
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
-      console.log(`[Manager] Heartbeat loop stopped`);
+      console.log("[Manager] Heartbeat loop stopped");
     }
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
-      console.log(`[Manager] Sync loop stopped`);
+      console.log("[Manager] Sync loop stopped");
     }
 
     // 清理本地所有的长连接
@@ -66,7 +66,7 @@ export class GatewayManager {
     this.providers.clear();
 
     // 从活跃节点中注销自己 (让 API 更快发现)
-    console.log(`[Manager] Unregistering node from gateway:nodes...`);
+    console.log("[Manager] Unregistering node from gateway:nodes...");
     await redis.zrem("gateway:nodes", this.nodeId).catch(console.error);
     console.log(`[Manager] Node ${this.nodeId} stopped`);
   }

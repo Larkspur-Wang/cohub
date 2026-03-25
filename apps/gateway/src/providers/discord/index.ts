@@ -20,7 +20,7 @@ const buildDiscordBindingKey = (message: Message) => {
 export class DiscordProvider {
   private client: Client;
   private channelId: string; // 在我们的数据库中定义的该 Channel 实体 ID
-  private isConnected: boolean = false;
+  private isConnected = false;
 
   constructor(channelId: string, token: string) {
     this.channelId = channelId;

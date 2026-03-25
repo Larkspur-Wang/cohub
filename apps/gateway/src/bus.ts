@@ -10,19 +10,19 @@ export const redis = new Redis(redisUrl);
 
 // Redis 连接事件
 redis.on("connect", () => {
-  console.log(`[Bus] Redis connected successfully`);
+  console.log("[Bus] Redis connected successfully");
 });
 
 redis.on("error", (err) => {
-  console.error(`[Bus] Redis connection error:`, err);
+  console.error("[Bus] Redis connection error:", err);
 });
 
 redis.on("close", () => {
-  console.warn(`[Bus] Redis connection closed`);
+  console.warn("[Bus] Redis connection closed");
 });
 
 redis.on("reconnecting", () => {
-  console.log(`[Bus] Redis reconnecting...`);
+  console.log("[Bus] Redis reconnecting...");
 });
 
 export const INBOUND_STREAM = "stream:gateway:inbound";
@@ -33,7 +33,7 @@ console.log(`[Bus] Stream names: inbound=${INBOUND_STREAM}, outbound=${OUTBOUND_
 
 // 发送日志事件给 API（内部函数）
 const publishLogEvent = async (event: GatewayLogEvent) => {
-  console.log(`[Bus] Publishing log event:`, {
+  console.log("[Bus] Publishing log event:", {
     logId: event.logId.slice(0, 8),
     direction: event.direction,
     provider: event.provider,
@@ -47,7 +47,7 @@ const publishLogEvent = async (event: GatewayLogEvent) => {
 
 // 发送给 API（同时记录 inbound 日志）
 export const publishInboundEvent = async (event: GatewayInboundEvent) => {
-  console.log(`[Bus] Publishing inbound event:`, {
+  console.log("[Bus] Publishing inbound event:", {
     eventId: event.eventId.slice(0, 8),
     provider: event.provider,
     channelId: event.channelId,
@@ -127,7 +127,7 @@ export const listenOutboundCommands = async (
           const payloadStr = payloadIndex >= 0 ? fields[payloadIndex + 1] : undefined;
           if (payloadStr) {
             const cmd = JSON.parse(payloadStr) as GatewayOutboundCommand;
-            console.log(`[Bus] Processing outbound command:`, {
+            console.log("[Bus] Processing outbound command:", {
               commandId: cmd.commandId,
               channelId: cmd.channelId,
               provider: cmd.provider,
