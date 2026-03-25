@@ -345,3 +345,111 @@ export const getFileContent = async (
     content,
   };
 };
+
+export type GiteaForkResponse = {
+  id: number;
+  name: string;
+  owner: {
+    id: number;
+    username: string;
+    login: string;
+  };
+  full_name: string;
+  html_url: string;
+  ssh_url: string;
+  clone_url: string;
+  parent?: {
+    id: number;
+    name: string;
+    full_name: string;
+    owner: {
+      username: string;
+      login: string;
+    };
+  };
+};
+
+export const forkRepository = async (
+  owner: string,
+  repo: string,
+  userToken: string,
+  targetRepoName?: string,
+): Promise<GiteaForkResponse> => {
+  const response = await fetch(
+    `${config.giteaBaseUrl}/api/v1/repos/${owner}/${repo}/forks`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `token ${userToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(
+        targetRepoName ? { name: targetRepoName } : {},
+      ),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea fork repo error: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as GiteaForkResponse;
+};
+
+export const getRepositoryForks = async (
+  owner: string,
+  repo: string,
+  page = 1,
+  limit = 50,
+): Promise<{ forks: GiteaForkResponse[]; total: number }> => {
+  const response = await fetch(
+    `${config.giteaBaseUrl}/api/v1/repos/${owner}/${repo}/forks?page=${page}&limit=${limit}`,
+    {
+      headers: createGiteaHeaders(),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea get forks error: ${response.status} ${text}`);
+  }
+
+  const data = await response.json();
+  return {
+    forks: Array.isArray(data) ? data : [],
+    total: Array.isArray(data) ? data.length : 0,
+  };
+};
+
+export const updateRepositoryVisibility = async (
+  owner: string,
+  repo: string,
+  isPrivate: boolean,
+): Promise<GiteaRepository> => {
+  const headers = createGiteaHeaders();
+  if (!headers) {
+    throw new Error("GITEA_TOKEN is not configured");
+  }
+
+  const response = await fetch(
+    `${config.giteaBaseUrl}/api/v1/repos/${owner}/${repo}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        private: isPrivate,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea update repo visibility error: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as GiteaRepository;
+};

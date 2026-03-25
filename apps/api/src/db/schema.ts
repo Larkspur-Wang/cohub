@@ -52,12 +52,16 @@ export const workspaces = pgTable(
     description: text("description"),
     giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
     defaultBranch: varchar("default_branch", { length: 50 }).default("main"),
-    visibility: varchar("visibility", { length: 20 }).default("public"),
+    visibility: varchar("visibility", { length: 20 }).default("public"), // public | private
+    parentId: uuid("parent_id"), // fork 来源
+    forkCount: integer("fork_count").notNull().default(0), // 被 fork 次数
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
     userUuidIdx: index("idx_workspaces_user_uuid").on(table.userUuid),
+    parentIdIdx: index("idx_workspaces_parent_id").on(table.parentId),
+    visibilityIdx: index("idx_workspaces_visibility").on(table.visibility),
     userWorkspaceNameUniqueIdx: uniqueIndex("uq_workspaces_user_name").on(
       table.userUuid,
       table.name,

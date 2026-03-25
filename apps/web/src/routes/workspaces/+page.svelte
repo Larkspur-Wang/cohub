@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Plus, FolderKanban, Lock, Globe } from "lucide-svelte";
+import { Plus, FolderKanban, Lock, Globe, GitFork } from "lucide-svelte";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { createWorkspace, getMe, getWorkspaces, type Workspace } from "$lib/api";
 import { fade } from "svelte/transition";
@@ -196,7 +196,15 @@ async function handleSubmit(e: Event) {
           </p>
           <div class="mt-6 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 font-mono">
             <span>{workspace.giteaRepoName}</span>
-            <span>{new Date(workspace.createdAt).toLocaleDateString()}</span>
+            <div class="flex items-center gap-3">
+              {#if workspace.forkCount && workspace.forkCount > 0}
+                <span class="flex items-center gap-1 text-gray-400">
+                  <GitFork class="w-3 h-3" />
+                  {workspace.forkCount}
+                </span>
+              {/if}
+              <span>{new Date(workspace.createdAt).toLocaleDateString()}</span>
+            </div>
           </div>
         </a>
       {/each}

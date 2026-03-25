@@ -19,6 +19,8 @@ import {
   addSshKey,
   createAnonymousRepository,
   addDeployKeyToRepo,
+  forkRepository,
+  updateRepositoryVisibility,
 } from "./gitea.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 import type {
@@ -50,7 +52,7 @@ import {
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, isRedisReady } from "./redis.js";
@@ -231,6 +233,323 @@ app.get("/api/workspaces", async (c) => {
   return c.json(ws.map((item) => ({ ...item, owner: user.uuid })));
 });
 
+// 获取公开工作区列表 (Explore)
+app.get("/api/workspaces/public", async (c) => {
+  const page = Number.parseInt(c.req.query("page") || "1", 10);
+  const limit = Math.min(Number.parseInt(c.req.query("limit") || "20", 10), 100);
+  const search = c.req.query("search")?.trim();
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(workspaces.visibility, "public")];
+  if (search) {
+    conditions.push(sql`${workspaces.name} ILIKE ${`%${search}%`}`);
+  }
+
+  const [list, countResult] = await Promise.all([
+    db
+      .select()
+      .from(workspaces)
+      .where(and(...conditions))
+      .orderBy(desc(workspaces.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(workspaces)
+      .where(and(...conditions)),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+  return c.json({
+    items: list,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
+});
+
+// Fork 工作区
+app.post("/api/workspaces/:owner/:repo/fork", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const { owner, repo } = c.req.param();
+  const body = await c.req.json<{ name?: string }>();
+
+  // 查找源工作区
+  const [sourceWorkspace] = await db
+    .select()
+    .from(workspaces)
+    .innerJoin(userGitAccounts, eq(workspaces.userUuid, userGitAccounts.userUuid))
+    .where(
+      and(
+        eq(userGitAccounts.giteaUsername, owner),
+        eq(workspaces.giteaRepoName, repo),
+      ),
+    )
+    .limit(1);
+
+  if (!sourceWorkspace) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  const sourceWs = sourceWorkspace.workspaces;
+  const sourceGitAccount = sourceWorkspace.user_git_accounts;
+
+  // 检查可见性
+  if (sourceWs.visibility !== "public") {
+    return c.json({ message: "cannot fork a private workspace" }, 403);
+  }
+
+  // 获取当前用户的 git 账户
+  const userGitAccount = await ensureUserGitAccount(user.uuid);
+  if (!userGitAccount?.giteaUsername || !userGitAccount.giteaAccessToken) {
+    return c.json({ message: "failed to prepare git account" }, 500);
+  }
+
+  // 确定目标仓库名
+  const targetName = (body.name?.trim() || repo) as string;
+  const targetSlug = normalizeWorkspaceSlug(targetName);
+  if (!targetSlug) {
+    return c.json({ message: "invalid workspace name" }, 400);
+  }
+
+  // 检查是否已存在同名工作区
+  const [existingWs] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.userUuid, user.uuid),
+        eq(workspaces.giteaRepoName, targetSlug),
+      ),
+    )
+    .limit(1);
+
+  if (existingWs) {
+    return c.json({ message: "workspace with this name already exists" }, 409);
+  }
+
+  try {
+    // 执行 Gitea fork
+    const forkedRepo = await forkRepository(
+      sourceGitAccount.giteaUsername,
+      repo,
+      userGitAccount.giteaAccessToken,
+      targetSlug,
+    );
+
+    // 创建工作区记录
+    const [newWorkspace] = await db
+      .insert(workspaces)
+      .values({
+        userUuid: user.uuid,
+        name: targetName,
+        description: sourceWs.description,
+        giteaRepoName: forkedRepo.name,
+        visibility: "private", // fork 的默认为私有
+        parentId: sourceWs.id,
+      })
+      .returning();
+
+    // 增加源工作区的 fork 计数
+    await db
+      .update(workspaces)
+      .set({
+        forkCount: sql`${workspaces.forkCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, sourceWs.id));
+
+    return c.json({
+      ...newWorkspace,
+      owner: user.uuid,
+      forkedFrom: {
+        id: sourceWs.id,
+        name: sourceWs.name,
+        owner: sourceWs.userUuid,
+        ownerUsername: sourceGitAccount.giteaUsername,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to fork workspace:", error);
+    return c.json(
+      { message: error instanceof Error ? error.message : "Failed to fork workspace" },
+      500,
+    );
+  }
+});
+
+// 获取单个工作区详情 (通过 ID)
+app.get("/api/workspaces/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const { id } = c.req.param();
+
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, id))
+    .limit(1);
+
+  if (!workspace) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  // 检查权限：私有工作区只有所有者可以访问
+  if (workspace.visibility !== "public" && workspace.userUuid !== user.uuid) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+
+  // 获取所有者 git 账户
+  const [ownerGitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
+
+  // 获取 fork 来源信息
+  let forkedFrom = null;
+  if (workspace.parentId) {
+    const [parentWs] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspace.parentId))
+      .limit(1);
+
+    if (parentWs) {
+      const [parentGitAccount] = await db
+        .select()
+        .from(userGitAccounts)
+        .where(eq(userGitAccounts.userUuid, parentWs.userUuid))
+        .limit(1);
+
+      forkedFrom = {
+        id: parentWs.id,
+        name: parentWs.name,
+        owner: parentWs.userUuid,
+        ownerUsername: parentGitAccount?.giteaUsername || null,
+      };
+    }
+  }
+
+  const isOwner = workspace.userUuid === user.uuid;
+
+  return c.json({
+    ...workspace,
+    owner: workspace.userUuid,
+    ownerUsername: ownerGitAccount?.giteaUsername || null,
+    forkedFrom,
+    isOwner,
+  });
+});
+
+// 更新工作区信息
+app.patch("/api/workspaces/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const { id } = c.req.param();
+  const body = await c.req.json<{
+    name?: string;
+    description?: string;
+    visibility?: "public" | "private";
+  }>();
+
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, id))
+    .limit(1);
+
+  if (!workspace) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  if (workspace.userUuid !== user.uuid) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+
+  // 获取用户 git 账户
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  if (!gitAccount?.giteaUsername || !gitAccount.giteaAccessToken) {
+    return c.json({ message: "git account not ready" }, 500);
+  }
+
+  // 如果修改可见性，同步更新 Gitea 仓库
+  if (body.visibility !== undefined && body.visibility !== workspace.visibility) {
+    const isPrivate = body.visibility === "private";
+    await updateRepositoryVisibility(gitAccount.giteaUsername, workspace.giteaRepoName, isPrivate);
+  }
+
+  const updateData: Record<string, unknown> = {
+    updatedAt: new Date(),
+  };
+  if (body.name !== undefined) updateData.name = body.name;
+  if (body.description !== undefined) updateData.description = body.description || null;
+  if (body.visibility !== undefined) updateData.visibility = body.visibility;
+
+  const [updated] = await db
+    .update(workspaces)
+    .set(updateData)
+    .where(eq(workspaces.id, id))
+    .returning();
+
+  return c.json({
+    ...updated,
+    owner: user.uuid,
+  });
+});
+
+// 删除工作区
+app.delete("/api/workspaces/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const { id } = c.req.param();
+
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, id))
+    .limit(1);
+
+  if (!workspace) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  if (workspace.userUuid !== user.uuid) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+
+  // 检查是否有运行中的 runtime
+  const [activeRuntime] = await db
+    .select({ id: runtimes.id })
+    .from(runtimes)
+    .where(eq(runtimes.workspaceId, id))
+    .limit(1);
+
+  if (activeRuntime) {
+    return c.json({ message: "cannot delete workspace with active runtimes" }, 400);
+  }
+
+  await db.delete(workspaces).where(eq(workspaces.id, id));
+
+  return c.json({ ok: true });
+});
+
 app.get("/api/infrastructure/git-account", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -357,6 +676,31 @@ app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
   const repoData = await getRepository(gitAccount.giteaUsername, repo);
   if (!repoData) return c.json({ message: "workspace not found" }, 404);
 
+  // 获取 fork 来源信息
+  let forkedFrom = null;
+  if (workspace.parentId) {
+    const [parentWs] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspace.parentId))
+      .limit(1);
+
+    if (parentWs) {
+      const [parentGitAccount] = await db
+        .select()
+        .from(userGitAccounts)
+        .where(eq(userGitAccounts.userUuid, parentWs.userUuid))
+        .limit(1);
+
+      forkedFrom = {
+        id: parentWs.id,
+        name: parentWs.name,
+        owner: parentWs.userUuid,
+        ownerUsername: parentGitAccount?.giteaUsername || null,
+      };
+    }
+  }
+
   return c.json({
     ...workspace,
     owner: user.uuid,
@@ -365,6 +709,7 @@ app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
     sshUrl: repoData.ssh_url,
     htmlUrl: repoData.html_url,
     fullName: repoData.full_name,
+    forkedFrom,
   });
 });
 

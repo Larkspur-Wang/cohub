@@ -288,6 +288,8 @@ export type Workspace = {
   giteaRepoName: string;
   visibility: string;
   owner: string;
+  parentId?: string | null;
+  forkCount?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -298,6 +300,17 @@ export type WorkspaceDetail = Workspace & {
   sshUrl: string;
   htmlUrl: string;
   fullName: string;
+  forkedFrom?: {
+    id: string;
+    name: string;
+    owner: string;
+    ownerUsername: string | null;
+  } | null;
+};
+
+export type PublicWorkspace = Workspace & {
+  forkCount: number;
+  parentId: string | null;
 };
 
 export type TreeEntry = {
@@ -486,4 +499,101 @@ export const getRuntimeStreamUrl = (id: string) => {
   return base
     ? `${base}/api/runtimes/${id}/stream`
     : `/api/runtimes/${id}/stream`;
+};
+
+// Public workspaces (Explore)
+export type PublicWorkspacesResponse = {
+  items: PublicWorkspace[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+export const getPublicWorkspaces = async (
+  page = 1,
+  limit = 20,
+  search?: string,
+  customFetch?: Fetch,
+) => {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  if (search) {
+    params.set("search", search);
+  }
+  return apiFetch(`/api/workspaces/public?${params.toString()}`, {
+    fetch: customFetch,
+  }) as Promise<PublicWorkspacesResponse>;
+};
+
+// Fork workspace
+export type ForkWorkspaceResponse = Workspace & {
+  owner: string;
+  forkedFrom: {
+    id: string;
+    name: string;
+    owner: string;
+    ownerUsername: string | null;
+  };
+};
+
+export const forkWorkspace = async (
+  owner: string,
+  repo: string,
+  name?: string,
+) => {
+  return apiFetch(`/api/workspaces/${owner}/${repo}/fork`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(name ? { name } : {}),
+  }) as Promise<ForkWorkspaceResponse>;
+};
+
+// Get workspace by ID
+export type WorkspaceByIdResponse = Workspace & {
+  owner: string;
+  ownerUsername: string | null;
+  forkedFrom: {
+    id: string;
+    name: string;
+    owner: string;
+    ownerUsername: string | null;
+  } | null;
+  isOwner: boolean;
+};
+
+export const getWorkspaceById = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/workspaces/${id}`, {
+    fetch: customFetch,
+  }) as Promise<WorkspaceByIdResponse>;
+};
+
+// Update workspace
+export const updateWorkspace = async (
+  id: string,
+  data: {
+    name?: string;
+    description?: string;
+    visibility?: "public" | "private";
+  },
+) => {
+  return apiFetch(`/api/workspaces/${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  }) as Promise<Workspace>;
+};
+
+// Delete workspace
+export const deleteWorkspace = async (id: string) => {
+  return apiFetch(`/api/workspaces/${id}`, {
+    method: "DELETE",
+  });
 };
