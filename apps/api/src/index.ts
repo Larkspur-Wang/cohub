@@ -58,10 +58,13 @@ import { normalizeWorkspaceSlug } from "@cohub/protocol";
 // 启动 API 的后台监听器，处理来自网关的消息
 const startGatewayInboundListener = async () => {
   let lastId = "$";
+  const client = apiRedis.duplicate();
+
+  await client.connect().catch(() => undefined);
   console.log("[Channels] API Gateway Inbound Listener started.");
   while (true) {
     try {
-      const result = await apiRedis.xread("BLOCK", 0, "STREAMS", "stream:gateway:inbound", lastId);
+      const result = await client.xread("BLOCK", 0, "STREAMS", "stream:gateway:inbound", lastId);
       if (!result) continue;
       for (const [stream, messages] of result) {
         for (const [id, fields] of messages) {

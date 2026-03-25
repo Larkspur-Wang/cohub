@@ -97,7 +97,6 @@ let runtimeLoadError = $state("");
 let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let eventSource: EventSource | null = null;
-let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let streamingAssistantText = $state("");
 
@@ -306,10 +305,6 @@ onMount(() => {
     streamError = "Stream disconnected. Browser will retry automatically.";
   };
 
-  runtimePollingTimer = setInterval(() => {
-    void refreshRuntimeState();
-  }, 2000);
-
   provisioningPollingTimer = setInterval(() => {
     if (!isProvisioningDone) {
       void refreshProvisioningState();
@@ -326,9 +321,7 @@ onMount(() => {
     streamStatus = "closed";
     eventSource?.close();
     eventSource = null;
-    if (runtimePollingTimer) clearInterval(runtimePollingTimer);
     if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
-    runtimePollingTimer = null;
     provisioningPollingTimer = null;
   };
 });

@@ -11,10 +11,13 @@ const LOG_STREAM = "stream:gateway:logs";
 export const startGatewayLogConsumer = async () => {
   console.log("[GatewayLogs] Consumer started");
   let lastId = "$";
+  const client = redis.duplicate();
+
+  await client.connect().catch(() => undefined);
 
   while (true) {
     try {
-      const result = await redis.xread("BLOCK", 0, "STREAMS", LOG_STREAM, lastId);
+      const result = await client.xread("BLOCK", 0, "STREAMS", LOG_STREAM, lastId);
       if (!result) continue;
 
       for (const [stream, messages] of result) {
