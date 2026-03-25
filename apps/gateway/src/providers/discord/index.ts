@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, type Message, Events, type MessageCreateOptions } from "discord.js";
+import { Client, GatewayIntentBits, Partials, type Message, Events, type MessageCreateOptions } from "discord.js";
 import { randomUUID } from "node:crypto";
 import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock } from "@cohub/protocol";
 import { publishInboundEvent } from "../../bus.js";
@@ -33,6 +33,8 @@ export class DiscordProvider {
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
       ],
+      // DM 场景下 Channel 往往需要 partial，避免事件被吞掉或对象不完整
+      partials: [Partials.Channel],
     });
 
     this.setupListeners();
@@ -45,15 +47,21 @@ export class DiscordProvider {
   private setupListeners() {
     this.client.on(Events.ClientReady, (readyClient) => {
       this.isConnected = true;
-      console.log(`[Discord:${this.channelId}] ✓ Connected as ${readyClient.user.tag}`);
+      console.log(`[Discord:${this.channelId}] ✓ Connected as ${readyClient.user.tag} (${readyClient.user.id})`);
       console.log(`[Discord:${this.channelId}] Guilds: ${readyClient.guilds.cache.size}`);
       if (readyClient.guilds.cache.size > 0) {
-        console.log(`[Discord:${this.channelId}] Guild names: ${readyClient.guilds.cache.map(g => g.name).join(", ")}`);
+        console.log(`[Discord:${this.channelId}] Guild names: ${readyClient.guilds.cache.map((g) => g.name).join(", ")}`);
       }
+
+      const intents = Array.isArray(this.client.options.intents)
+        ? this.client.options.intents.join(",")
+        : this.client.options.intents.toArray().join(",");
+      const partials = (this.client.options.partials ?? []).join(",") || "none";
+      console.log(`[Discord:${this.channelId}] Client options: intents=${intents}, partials=${partials}`);
+      console.log(`[Discord:${this.channelId}] DM debugging enabled. Waiting for MessageCreate events...`);
     });
 
     this.client.on(Events.Debug, (message) => {
-      // Only log debug messages if DEBUG_MODE is enabled
       if (process.env.DEBUG_MODE === "true") {
         console.log(`[Discord:${this.channelId}] Debug: ${message}`);
       }
@@ -76,9 +84,42 @@ export class DiscordProvider {
       console.log(`[Discord:${this.channelId}] Reconnecting to Discord...`);
     });
 
+    this.client.on(Events.ShardReady, (shardId) => {
+      console.log(`[Discord:${this.channelId}] Shard ready: ${shardId}`);
+    });
+
+    this.client.on(Events.ShardResume, (shardId, replayedEvents) => {
+      console.log(`[Discord:${this.channelId}] Shard resumed: ${shardId}, replayedEvents=${replayedEvents}`);
+    });
+
+    this.client.on(Events.ShardDisconnect, (closeEvent, shardId) => {
+      console.warn(
+        `[Discord:${this.channelId}] Shard disconnected: shard=${shardId}, code=${closeEvent.code}, reason=${closeEvent.reason || "unknown"}`,
+      );
+    });
+
     this.client.on(Events.MessageCreate, async (message: Message) => {
-      // 忽略机器人自己的消息
+      const channelType = `${message.channel?.type ?? "unknown"}`;
+      const isDM = message.channel?.isDMBased?.() ?? false;
+      const isThread = message.channel?.isThread?.() ?? false;
+
+      console.log(`[Discord:${this.channelId}] MessageCreate event observed:`, {
+        messageId: message.id,
+        authorId: message.author?.id,
+        authorTag: message.author?.tag,
+        authorBot: message.author?.bot,
+        channelId: message.channelId,
+        channelType,
+        guildId: message.guildId || "DM",
+        isDM,
+        isThread,
+        partial: message.partial,
+        contentLength: message.content?.length ?? 0,
+        attachments: message.attachments.size,
+      });
+
       if (message.author.bot) {
+        console.log(`[Discord:${this.channelId}] Ignoring bot-authored message ${message.id}`);
         return;
       }
 
@@ -86,19 +127,22 @@ export class DiscordProvider {
         author: `${message.author.tag} (${message.author.id})`,
         channelId: message.channelId,
         guildId: message.guildId || "DM",
-        content: message.content.slice(0, 50) + (message.content.length > 50 ? "..." : ""),
+        channelType,
+        bindingKey: buildDiscordBindingKey(message),
+        content: message.content.slice(0, 100) + (message.content.length > 100 ? "..." : ""),
         attachments: message.attachments.size,
       });
 
-      const content: UnifiedContentBlock[] = [
-        { type: "text", text: message.content },
-      ];
+      const content: UnifiedContentBlock[] = [{ type: "text", text: message.content }];
 
-      // 处理附件 (简单实现，只取图片)
       for (const attachment of message.attachments.values()) {
         if (attachment.contentType?.startsWith("image/")) {
           content.push({ type: "image", uri: attachment.url });
           console.log(`[Discord:${this.channelId}] Attachment: ${attachment.name} (${attachment.contentType})`);
+        } else {
+          console.log(
+            `[Discord:${this.channelId}] Non-image attachment ignored: ${attachment.name || "unnamed"} (${attachment.contentType || "unknown"})`,
+          );
         }
       }
 
@@ -107,7 +151,7 @@ export class DiscordProvider {
         timestamp: Date.now(),
         channelId: this.channelId,
         provider: "discord",
-        externalChatId: message.channelId, // 寻址用的外部聊天 ID
+        externalChatId: message.channelId,
         externalMessageId: message.id,
         bindingKey: buildDiscordBindingKey(message),
         sender: {
@@ -117,14 +161,20 @@ export class DiscordProvider {
         content,
       };
 
-      console.log(`[Discord:${this.channelId}] → Publishing inbound event ${inboundEvent.eventId.slice(0, 8)}`);
+      console.log(`[Discord:${this.channelId}] → Publishing inbound event ${inboundEvent.eventId.slice(0, 8)}`, {
+        externalChatId: inboundEvent.externalChatId,
+        externalMessageId: inboundEvent.externalMessageId,
+        bindingKey: inboundEvent.bindingKey,
+        blockTypes: inboundEvent.content.map((block) => block.type).join(","),
+      });
       await publishInboundEvent(inboundEvent);
+      console.log(`[Discord:${this.channelId}] ✓ Inbound event published ${inboundEvent.eventId.slice(0, 8)}`);
     });
   }
 
   public async handleOutbound(cmd: GatewayOutboundCommand) {
     console.log(`[Discord:${this.channelId}] → Sending message to ${cmd.externalChatId}:`, {
-      contentPreview: cmd.content.map(c => c.type === "text" ? c.text?.slice(0, 30) : c.type).join(", "),
+      contentPreview: cmd.content.map((c) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
       replyTo: cmd.replyToExternalMessageId?.slice(0, 8) || "none",
     });
 
@@ -139,32 +189,27 @@ export class DiscordProvider {
         return { success: false as const, error: `Channel is not text-based: ${cmd.externalChatId}` };
       }
 
-      // 检查是否是可以发送消息的频道类型
-      if (!('send' in channel)) {
+      if (!("send" in channel)) {
         console.error(`[Discord:${this.channelId}] Channel ${cmd.externalChatId} does not support sending messages`);
         return { success: false as const, error: "Channel does not support sending messages" };
       }
 
-      // 提取纯文本内容
       const texts = cmd.content
         .filter((block): block is { type: "text"; text: string } => block.type === "text")
         .map((block) => block.text)
         .join("\n");
 
-      // 如果有图片，转为 Discord 的附件
       const files = cmd.content
         .filter((block): block is { type: "image"; uri: string } => block.type === "image" && !!block.uri)
         .map((block) => block.uri);
 
-      // 如果有 reply 的要求
       const messageOptions: MessageCreateOptions = { content: texts, files };
       if (cmd.replyToExternalMessageId) {
         messageOptions.reply = { messageReference: cmd.replyToExternalMessageId };
       }
 
-      // 使用类型断言，因为我们已经检查了 'send' in channel
       const sendableChannel = channel as Extract<typeof channel, { send: (options: MessageCreateOptions) => Promise<unknown> }>;
-      const sentMsg = await sendableChannel.send(messageOptions) as { id: string };
+      const sentMsg = (await sendableChannel.send(messageOptions)) as { id: string };
       console.log(`[Discord:${this.channelId}] ✓ Message sent successfully: ${sentMsg.id}`);
       return { success: true as const, externalMessageId: sentMsg.id };
     } catch (error) {

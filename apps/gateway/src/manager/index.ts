@@ -76,7 +76,6 @@ export class GatewayManager {
       const now = Date.now();
       // 使用 ZSET 记录节点和它的最后心跳时间 (用于 API 剔除死节点)
       await redisCommandClient.zadd("gateway:nodes", now, this.nodeId);
-      console.log(`[Manager] Heartbeat sent at ${new Date(now).toISOString()}`);
     } catch (error) {
       console.error("[Manager] Failed to send heartbeat:", error);
     }
