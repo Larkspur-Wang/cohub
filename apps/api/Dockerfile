@@ -20,6 +20,7 @@ RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 FROM base AS deps
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/api/package.json ./apps/api/package.json
 
 # Install production deps for @cohub/api
