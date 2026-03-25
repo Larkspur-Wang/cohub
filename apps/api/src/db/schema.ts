@@ -144,20 +144,12 @@ export const runtimeChannels = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     runtimeId: uuid("runtime_id").notNull(),
     channelId: uuid("channel_id").notNull(),
-    externalChatId: varchar("external_chat_id", { length: 255 }).notNull(), // 外部群组/会话 ID
     config: jsonb("config"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
     runtimeIdx: index("idx_runtime_channels_runtime").on(table.runtimeId),
-    channelIdx: index("idx_runtime_channels_channel").on(table.channelId),
-    externalChatIdx: index("idx_runtime_channels_external_chat").on(
-      table.externalChatId,
-    ),
-    uniqueRuntimeChannel: uniqueIndex("uq_runtime_channel_chat").on(
-      table.channelId,
-      table.externalChatId,
-    ),
+    channelIdx: uniqueIndex("uq_runtime_channels_channel").on(table.channelId),
   }),
 );
 

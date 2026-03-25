@@ -30,7 +30,7 @@ import {
 } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
-import { bindRuntimeChannelsToGateway, dispatchOutboundMessage, getBindingBySessionId, touchRuntimeSessionBinding } from "./channels.js";
+import { bindRuntimeChannelsToGateway, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 
 export type SessionMessageBlock = UnifiedContentBlock;
@@ -970,17 +970,20 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
     })
     .where(eq(runtimeSessions.id, input.sessionId));
 
-  // 触发 Outbound：只分发到当前 session 绑定的目标渠道，而不是 runtime 全量广播
-  const binding = await getBindingBySessionId(session.id);
+  // 触发 Outbound：优先分发到当前 session 已建立的 chat 绑定；
+  // 只有没有任何 session binding 时，才退回 runtime 级别的 channel 配置。
+  const bindings = await getBindingsBySessionId(session.id);
 
-  if (binding) {
-    await touchRuntimeSessionBinding(binding.id).catch(console.error);
-    dispatchOutboundMessage({
-      runtimeChannelId: binding.runtimeChannelId,
-      externalChatId: binding.externalChatId,
-      content: messageNode.content,
-      replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
-    }).catch(console.error);
+  if (bindings.length > 0) {
+    for (const binding of bindings) {
+      await touchRuntimeSessionBinding(binding.id).catch(console.error);
+      dispatchOutboundMessage({
+        runtimeChannelId: binding.runtimeChannelId,
+        externalChatId: binding.externalChatId,
+        content: messageNode.content,
+        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+      }).catch(console.error);
+    }
   } else {
     const channels = await db
       .select()

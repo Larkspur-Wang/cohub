@@ -459,7 +459,6 @@ app.post("/api/runtimes", async (c) => {
       start?: boolean;
       channelBindings?: Array<{
         channelId: string;
-        externalChatId?: string | null;
         config?: Record<string, unknown> | null;
       }>;
     }>()
@@ -473,7 +472,6 @@ app.post("/api/runtimes", async (c) => {
     start?: boolean;
     channelBindings?: Array<{
       channelId: string;
-      externalChatId?: string | null;
       config?: Record<string, unknown> | null;
     }>;
   };
@@ -483,7 +481,6 @@ app.post("/api/runtimes", async (c) => {
         .filter((binding) => binding?.channelId && requireValidId(binding.channelId))
         .map((binding) => ({
           channelId: binding.channelId,
-          externalChatId: binding.externalChatId?.trim() || "default",
           config: binding.config ?? null,
         }))
     : [];
@@ -524,29 +521,23 @@ app.post("/api/runtimes", async (c) => {
     const existingBindings = await db
       .select({
         channelId: runtimeChannels.channelId,
-        externalChatId: runtimeChannels.externalChatId,
         runtimeId: runtimeChannels.runtimeId,
       })
       .from(runtimeChannels)
       .where(inArray(runtimeChannels.channelId, requestedChannelIds));
 
     const conflictingBinding = normalizedChannelBindings.find((binding) =>
-      existingBindings.some(
-        (existing) =>
-          existing.channelId === binding.channelId &&
-          existing.externalChatId === binding.externalChatId,
-      ),
+      existingBindings.some((existing) => existing.channelId === binding.channelId),
     );
 
     if (conflictingBinding) {
       logCreateRuntime("check_channel_binding_conflicts_failed", {
         channelId: conflictingBinding.channelId,
-        externalChatId: conflictingBinding.externalChatId,
       });
       return c.json(
         {
           message:
-            "channel binding already exists for this channel and external chat id. Choose a different external chat id or reuse the existing runtime.",
+            "channel binding already exists for this channel. Choose a different channel or reuse the existing runtime.",
         },
         409,
       );
@@ -579,7 +570,6 @@ app.post("/api/runtimes", async (c) => {
       normalizedChannelBindings.map((binding) => ({
         runtimeId: runtime.id,
         channelId: binding.channelId,
-        externalChatId: binding.externalChatId,
         config: binding.config,
       })),
     );

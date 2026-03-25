@@ -50,7 +50,6 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
       channelId: rc.id, // 这里我们让 gateway 内部使用 runtime_channels.id 作为 key
       provider: uc.provider,
       credentials: uc.credentials,
-      externalChatId: rc.externalChatId,
     };
 
     // 1. 塞进节点的专属任务 Hash
@@ -79,13 +78,13 @@ export async function dispatchOutboundMessage(input: {
     return;
   }
 
-  // 2. 查出渠道的详细信息 (provider, externalChatId)
+  // 2. 查出渠道的详细信息 (provider)
   const [rc] = await db
     .select()
     .from(runtimeChannels)
     .where(eq(runtimeChannels.id, input.runtimeChannelId))
     .limit(1);
-    
+
   if (!rc) return;
 
   const [uc] = await db
@@ -93,18 +92,30 @@ export async function dispatchOutboundMessage(input: {
     .from(userChannels)
     .where(eq(userChannels.id, rc.channelId))
     .limit(1);
-    
+
   if (!uc) return;
+
+  const resolvedExternalChatId = input.externalChatId?.trim();
+  if (!resolvedExternalChatId) {
+    console.warn(
+      `[Channels] Skip outbound for runtimeChannel=${input.runtimeChannelId}: missing externalChatId`,
+    );
+    return;
+  }
 
   const command: GatewayOutboundCommand = {
     commandId: randomUUID(),
     timestamp: Date.now(),
     channelId: rc.id,
     provider: uc.provider as ChannelProvider,
-    externalChatId: input.externalChatId ?? rc.externalChatId,
+    externalChatId: resolvedExternalChatId,
     content: input.content,
     replyToExternalMessageId: input.replyToExternalMessageId,
   };
+
+  console.log(
+    `[Channels] Dispatch outbound runtimeChannel=${input.runtimeChannelId} provider=${command.provider} externalChatId=${command.externalChatId} replyTo=${command.replyToExternalMessageId ?? "none"}`,
+  );
 
   // 3. 塞进 Outbound Stream
   await redisCommandClient.xadd(
@@ -174,6 +185,19 @@ export async function createRuntimeSessionBinding(input: {
       meta: input.meta ?? null,
       updatedAt: new Date(),
       lastMessageAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [runtimeSessionBindings.runtimeChannelId, runtimeSessionBindings.bindingKey],
+      set: {
+        runtimeId: input.runtimeId,
+        runtimeSessionId: input.runtimeSessionId,
+        provider: input.provider,
+        externalChatId: input.externalChatId,
+        status: "active",
+        meta: input.meta ?? null,
+        updatedAt: new Date(),
+        lastMessageAt: new Date(),
+      },
     })
     .returning();
 

@@ -237,12 +237,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "external_chat_id": {
-          "name": "external_chat_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
         "config": {
           "name": "config",
           "type": "jsonb",
@@ -273,47 +267,11 @@
           "method": "btree",
           "with": {}
         },
-        "idx_runtime_channels_channel": {
-          "name": "idx_runtime_channels_channel",
+        "uq_runtime_channels_channel": {
+          "name": "uq_runtime_channels_channel",
           "columns": [
             {
               "expression": "channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_runtime_channels_external_chat": {
-          "name": "idx_runtime_channels_external_chat",
-          "columns": [
-            {
-              "expression": "external_chat_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "uq_runtime_channel_chat": {
-          "name": "uq_runtime_channel_chat",
-          "columns": [
-            {
-              "expression": "channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "external_chat_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

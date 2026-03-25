@@ -27,7 +27,6 @@ CREATE TABLE "runtime_channels" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"runtime_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
-	"external_chat_id" varchar(255) NOT NULL,
 	"config" jsonb,
 	"created_at" timestamp with time zone DEFAULT now()
 );
@@ -177,9 +176,7 @@ CREATE INDEX "idx_gateway_logs_channel" ON "gateway_logs" USING btree ("channel_
 CREATE INDEX "idx_gateway_logs_direction" ON "gateway_logs" USING btree ("direction");--> statement-breakpoint
 CREATE INDEX "idx_gateway_logs_created" ON "gateway_logs" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "idx_runtime_channels_runtime" ON "runtime_channels" USING btree ("runtime_id");--> statement-breakpoint
-CREATE INDEX "idx_runtime_channels_channel" ON "runtime_channels" USING btree ("channel_id");--> statement-breakpoint
-CREATE INDEX "idx_runtime_channels_external_chat" ON "runtime_channels" USING btree ("external_chat_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "uq_runtime_channel_chat" ON "runtime_channels" USING btree ("channel_id","external_chat_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_runtime_channels_channel" ON "runtime_channels" USING btree ("channel_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_session_bindings_runtime" ON "runtime_session_bindings" USING btree ("runtime_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_session_bindings_session" ON "runtime_session_bindings" USING btree ("runtime_session_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_session_bindings_channel" ON "runtime_session_bindings" USING btree ("runtime_channel_id");--> statement-breakpoint
