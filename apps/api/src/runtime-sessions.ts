@@ -105,7 +105,6 @@ export const launchRuntimeSandbox = async (input: {
   if (!runtime) throw new Error("Runtime not found");
 
   let workspaceRepoUrl: string | undefined;
-  let workspaceGitToken: string | undefined;
   let workspaceGitUsername: string | undefined;
   let workspaceGitEmail: string | undefined;
 
@@ -118,7 +117,6 @@ export const launchRuntimeSandbox = async (input: {
 
     if (workspace) {
       const gitAccount = await ensureUserGitAccount(input.userUuid);
-      workspaceGitToken = gitAccount.giteaAccessToken;
       workspaceGitUsername = gitAccount.giteaUsername;
       workspaceGitEmail = `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`;
 
@@ -135,7 +133,6 @@ export const launchRuntimeSandbox = async (input: {
     LITELLM_API_KEY: config.litellmApiKey,
     ENV: config.env,
     WORKSPACE_REPO_URL: workspaceRepoUrl,
-    WORKSPACE_GIT_TOKEN: workspaceGitToken,
     WORKSPACE_GIT_USERNAME: workspaceGitUsername,
     WORKSPACE_GIT_EMAIL: workspaceGitEmail,
   }) as V1Pod;

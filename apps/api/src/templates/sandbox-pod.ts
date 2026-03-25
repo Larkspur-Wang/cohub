@@ -7,7 +7,6 @@ type SandboxPodTemplateVariables = {
   LITELLM_API_KEY?: string;
   ENV?: string;
   WORKSPACE_REPO_URL?: string;
-  WORKSPACE_GIT_TOKEN?: string;
   WORKSPACE_GIT_USERNAME?: string;
   WORKSPACE_GIT_EMAIL?: string;
 };
@@ -69,7 +68,6 @@ export const SANDBOX_POD_TEMPLATE = {
           { name: "LITELLM_API_KEY", value: "${LITELLM_API_KEY}" },
           { name: "ENV", value: "${ENV}" },
           { name: "WORKSPACE_REPO_URL", value: "${WORKSPACE_REPO_URL}" },
-          { name: "WORKSPACE_GIT_TOKEN", value: "${WORKSPACE_GIT_TOKEN}" },
           { name: "WORKSPACE_GIT_USERNAME", value: "${WORKSPACE_GIT_USERNAME}" },
           { name: "WORKSPACE_GIT_EMAIL", value: "${WORKSPACE_GIT_EMAIL}" },
         ],
