@@ -49,7 +49,7 @@ import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } 
 import { eq, and, inArray } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
-import { redis as apiRedis } from "./redis.js";
+import { isRedisReady, redis as apiRedis } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
@@ -128,6 +128,14 @@ app.use(
 );
 
 app.get("/healthz", (c) => c.json({ ok: true }));
+
+app.get("/readyz", async (c) => {
+  const redisReady = await isRedisReady();
+  if (!redisReady) {
+    return c.json({ ok: false, redis: false }, 503);
+  }
+  return c.json({ ok: true, redis: true });
+});
 
 app.post("/api/auth/token", async (c) => {
   const body = await c.req.json<{ token?: string }>().catch(() => null);
