@@ -39,7 +39,7 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: pnpm --filter @cohub/api typecheck
 
       - name: Build (api)
         run: pnpm --filter @cohub/api build

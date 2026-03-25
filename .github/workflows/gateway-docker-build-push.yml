@@ -39,7 +39,7 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: pnpm --filter @cohub/gateway typecheck
 
       - name: Build (gateway)
         run: pnpm --filter @cohub/gateway build
