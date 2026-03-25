@@ -11,13 +11,13 @@ type Fetch = typeof globalThis.fetch;
 
 export type SessionRecord = {
   id: string;
-  userUuid: string;
-  workspaceId: string | null;
-  workspaceCommitHash: string | null;
-  agentId: string | null;
-  agentCommitHash: string | null;
+  runtimeId: string;
   title: string | null;
   status: string | null;
+  cwd: string | null;
+  protocol: string | null;
+  externalSessionId?: string | null;
+  meta?: Record<string, unknown> | null;
   rootMessageId?: string | null;
   currentLeafMessageId?: string | null;
   latestMessageText?: string | null;
@@ -88,12 +88,14 @@ export type SessionToolCallRecord = {
 };
 
 export type SessionMessagesResponse = {
+  runtime: RuntimeRecord;
   session: SessionRecord;
   messages: SessionMessageRecord[];
   toolCalls: SessionToolCallRecord[];
 };
 
 export type SessionTreeResponse = {
+  runtime: RuntimeRecord;
   session: {
     id: string;
     currentLeafMessageId: string | null;
@@ -101,11 +103,6 @@ export type SessionTreeResponse = {
     totalBranches: number;
   };
   nodes: SessionMessageRecord[];
-};
-
-type SessionCreateResponse = {
-  session: SessionRecord;
-  ready: boolean;
 };
 
 type SessionStreamEvent = {
@@ -180,7 +177,7 @@ export const getWorkspaceByUser = async (
 ) => {
   return apiFetch(`/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}`, {
     fetch: customFetch,
-  }) as Promise<GiteaRepo>;
+  }) as Promise<WorkspaceDetail>;
 };
 
 export const getTreeByUser = async (
@@ -221,26 +218,6 @@ export const getFile = async (
       fetch: customFetch,
     },
   );
-};
-
-export const createSession = async (input?: {
-  workspaceId?: string;
-  agentId?: string;
-  title?: string;
-}) => {
-  return apiFetch("/api/sessions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input ?? {}),
-  }) as Promise<SessionCreateResponse>;
-};
-
-export const getSession = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/sessions/${id}`, {
-    fetch: customFetch,
-  }) as Promise<SessionRecord>;
 };
 
 export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
@@ -288,16 +265,8 @@ export const abortSession = async (id: string) => {
   });
 };
 
-export const getSessionStreamUrl = (id: string) => {
-  const base = API_BASE_URL;
-  return base
-    ? `${base}/api/sessions/${id}/stream`
-    : `/api/sessions/${id}/stream`;
-};
-
 export type {
   ApiError,
-  SessionCreateResponse,
   SessionStreamEvent,
 };
 
@@ -321,6 +290,14 @@ export type Workspace = {
   owner: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorkspaceDetail = Workspace & {
+  private: boolean;
+  cloneUrl: string;
+  sshUrl: string;
+  htmlUrl: string;
+  fullName: string;
 };
 
 export type TreeEntry = {
@@ -386,4 +363,64 @@ export const createWorkspace = async (data: {
     },
     body: JSON.stringify(data),
   });
+};
+
+export type RuntimeRecord = {
+  id: string;
+  userUuid: string;
+  workspaceId: string | null;
+  workspaceCommitHash: string | null;
+  agentId: string | null;
+  agentCommitHash: string | null;
+  title: string | null;
+  status: string | null;
+  currentSessionId?: string | null;
+  meta?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RuntimeCreateResponse = {
+  runtime: RuntimeRecord;
+  session: SessionRecord;
+  ready: boolean;
+};
+
+export type RuntimeSessionsResponse = {
+  runtime: RuntimeRecord;
+  sessions: SessionRecord[];
+};
+
+export const createRuntime = async (input?: {
+  workspaceId?: string;
+  agentId?: string;
+  title?: string;
+  start?: boolean;
+}) => {
+  return apiFetch("/api/runtimes", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input ?? {}),
+  }) as Promise<RuntimeCreateResponse>;
+};
+
+export const getRuntime = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/runtimes/${id}`, {
+    fetch: customFetch,
+  }) as Promise<RuntimeRecord>;
+};
+
+export const getRuntimeSessions = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/runtimes/${id}/sessions`, {
+    fetch: customFetch,
+  }) as Promise<RuntimeSessionsResponse>;
+};
+
+export const getRuntimeStreamUrl = (id: string) => {
+  const base = API_BASE_URL;
+  return base
+    ? `${base}/api/runtimes/${id}/stream`
+    : `/api/runtimes/${id}/stream`;
 };

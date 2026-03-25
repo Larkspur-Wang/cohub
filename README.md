@@ -119,14 +119,13 @@ pnpm build
 ## Docs
 
 - `docs/terminology.md`
+- `docs/runtime-session-model.md`
 - `docs/use-cases.md`
-- `docs/phase-1-mvp.md`
-- `docs/frontend-mvp-plan.md`
 - `docs/db-schema.md`
 
 ## Roadmap
 
-- **Phase 1**: establish the Workspace + Agent + Runtime + Session + Web Channel loop
+- **Phase 1**: establish the Workspace + Agent + Runtime + internal Session + Web Channel loop
 - **Phase 2**: improve cloud runtime, debugging, and task lifecycle management
 - **Phase 3**: support local workspace push-to-cloud deployment and more channel integrations
 - **Phase 4**: build workspace sharing, reuse, and distribution flows

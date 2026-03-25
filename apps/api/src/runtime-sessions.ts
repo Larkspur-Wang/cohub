@@ -6,7 +6,6 @@ import type {
   PersistSessionInfoUpdateInput,
   PersistToolCall,
   RegisterRuntimeSessionInput,
-  RuntimePromptInput,
   UnifiedContentBlock,
 } from "@cohub/protocol";
 import { db } from "./db/index.js";
@@ -132,7 +131,17 @@ export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000
   return false;
 };
 
-export const enqueueRuntimePrompt = async (input: RuntimePromptInput) => {
+export const enqueueRuntimePrompt = async (input: {
+  runtimeId: string;
+  sessionId: string;
+  userMessageId?: string | null;
+  branchFromMessageId?: string | null;
+  message: {
+    text: string;
+    images?: Array<{ url: string }>;
+  };
+  meta?: Record<string, unknown> | null;
+}) => {
   await redis.rpush(
     getRuntimeInputQueueKey(input.runtimeId),
     JSON.stringify({

@@ -10,7 +10,7 @@ import {
   FileCode,
   Folder,
 } from "lucide-svelte";
-import { getTreeByUser, getWorkspaceByUser, type Tree, type GiteaRepo } from "$lib/api";
+import { createRuntime, getTreeByUser, getWorkspaceByUser, type Tree, type WorkspaceDetail } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
@@ -19,14 +19,14 @@ let { params } = $props();
 let userUuid = $derived(params.owner);
 let repo = $derived(params.repo);
 
-let workspace = $state<GiteaRepo | null>(null);
+let workspace = $state<WorkspaceDetail | null>(null);
 let tree = $state<Tree | null>(null);
 let isEmpty = $state(false);
 let isLoading = $state(true);
 let loadError = $state("");
 let copied = $state(false);
 
-const gitRemoteUrl = $derived(workspace?.ssh_url || workspace?.clone_url || "");
+const gitRemoteUrl = $derived(workspace?.sshUrl || workspace?.cloneUrl || "");
 
 async function loadWorkspace() {
   isLoading = true;
@@ -94,9 +94,25 @@ function copyCloneUrl() {
 
       <div class="flex items-center gap-3">
         {#if !isEmpty}
-          <button class="px-4 py-2 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors shadow-sm flex items-center gap-2 group">
+          <button
+            class="px-4 py-2 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors shadow-sm flex items-center gap-2 group"
+            onclick={async () => {
+              if (isLoading) return;
+              try {
+                if (!workspace) return;
+                const runtime = await createRuntime({
+                  workspaceId: workspace.id,
+                  title: workspace.name,
+                  start: true,
+                });
+                await goto(`/runtimes/${runtime.runtime.id}`);
+              } catch (error) {
+                loadError = error instanceof Error ? error.message : "Failed to start runtime";
+              }
+            }}
+          >
             <Play class="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
-            Start Session
+            Start Runtime
           </button>
         {/if}
       </div>

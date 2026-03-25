@@ -8,7 +8,7 @@ let draft = $state("");
 const messages = $state<ChatBubble[]>([
   {
     role: "system",
-    content: "Chat 功能将在后续阶段接入 Agent。",
+    content: "Runtime chat preview placeholder.",
   },
 ]);
 

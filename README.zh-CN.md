@@ -2,7 +2,7 @@
 
 *Host workspaces. Run agents.*
 
-Cohub 是一个以 **Workspace 托管** 为核心、支持在云端部署和运行 Agent 的平台。
+Cohub 是一个以 **Workspace 托管** 为核心、支持在云端部署和运行运行逻辑的开发平台。
 
 它结合了三类能力：
 - **类似 JupyterLab / Colab** 的浏览器内运行与调试体验
@@ -14,7 +14,7 @@ Cohub 是一个以 **Workspace 托管** 为核心、支持在云端部署和运�
 ### Workspace
 **Workspace** 是 Cohub 中最核心的单元。
 
-它是一个可版本化、可托管、可分享、可部署的工作单元，承载了运行 Agent 所需的项目上下文、配置、代码与相关资源。
+它是一个可版本化、可托管、可分享、可部署的工作单元，承载了运行逻辑所需的项目上下文、配置、代码与相关资源。
 
 ### Agent
 **Agent** 是运行在 Workspace 中的可执行逻辑。
@@ -34,4 +34,4 @@ Runtime 可以处于运行中、休眠中、可恢复或已停止等状态。它
 ### Channel
 **Channel** 是 Runtime 对外通信的接入端点。
 
-例如 Web、Discord、Telegram。用户通过 Channel 与 Agent 交互，Agent 也可以通过 Channel 回传结果。
+例如 Web、Discord、Telegram。用户通过 Channel 与 Runtime 交互，Runtime 也可以通过 Channel 回传结果。

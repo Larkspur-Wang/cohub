@@ -2,11 +2,12 @@
 import { onMount } from "svelte";
 import {
   abortSession,
+  getRuntimeStreamUrl,
   getSessionMessages,
-  getSessionStreamUrl,
   getSessionTree,
   selectSessionLeaf,
   sendSessionMessage,
+  type RuntimeRecord,
   type SessionRecord,
   type SessionMessageRecord,
   type SessionToolCallRecord,
@@ -17,20 +18,22 @@ import SessionTreePanel from "$lib/components/SessionTreePanel.svelte";
 import {
   toChatMessages,
   toTreeNodes,
-  type ChatMessage,
   type SessionTreeNodeView,
   type TimelineItem,
 } from "$lib/session-tree";
 
 type Props = {
   data: {
+    runtime: RuntimeRecord;
     session: SessionRecord;
     persisted: {
+      runtime: RuntimeRecord;
       session: SessionRecord;
       messages: SessionMessageRecord[];
       toolCalls: SessionToolCallRecord[];
     };
     tree: {
+      runtime: RuntimeRecord;
       session: {
         id: string;
         currentLeafMessageId: string | null;
@@ -44,13 +47,11 @@ type Props = {
 
 const { data }: Props = $props();
 
-// Local state synced from data via $effect, then managed independently
 let persistedMessages = $state<SessionMessageRecord[]>([]);
 let persistedToolCalls = $state<SessionToolCallRecord[]>([]);
 let treeNodes = $state<SessionTreeNodeView[]>([]);
 let currentLeafMessageId = $state<string | null>(null);
 
-// Sync data to local state when data changes (e.g., navigating to a different session)
 $effect(() => {
   persistedMessages = data.persisted.messages ?? [];
   persistedToolCalls = data.persisted.toolCalls ?? [];
@@ -58,6 +59,7 @@ $effect(() => {
   currentLeafMessageId =
     data.tree.session.currentLeafMessageId ?? data.session.currentLeafMessageId ?? null;
 });
+
 let branchFromMessageId = $state<string | null>(null);
 let listEl = $state<HTMLDivElement | null>(null);
 let input = $state("");
@@ -69,7 +71,6 @@ let streamStatus = $state<"connecting" | "open" | "closed" | "error">(
 let streamError = $state("");
 let eventSource: EventSource | null = null;
 
-const streamUserMessageIds = new Set<string>();
 let streamingAssistantText = $state("");
 let timeline = $derived.by<TimelineItem[]>(() => {
   const persisted = toChatMessages(persistedMessages, persistedToolCalls).map(
@@ -132,7 +133,6 @@ async function handleSend() {
     const userMessage = result?.userMessage as SessionMessageRecord | undefined;
     if (userMessage) {
       persistedMessages = [...persistedMessages, userMessage];
-      streamUserMessageIds.add(userMessage.id);
       currentLeafMessageId = userMessage.id;
     }
 
@@ -206,14 +206,14 @@ function handleAgentEvent(payload: Record<string, unknown>) {
     streamError =
       typeof payload.error === "string"
         ? payload.error
-        : "Agent stream error";
+        : "Runtime stream error";
   }
 }
 
 onMount(() => {
   scrollToBottom();
 
-  eventSource = new EventSource(getSessionStreamUrl(data.session.id), {
+  eventSource = new EventSource(getRuntimeStreamUrl(data.runtime.id), {
     withCredentials: true,
   });
 
@@ -247,10 +247,15 @@ onMount(() => {
 <div class="max-w-7xl mx-auto px-6 py-8 h-[calc(100vh-10rem)] flex flex-col gap-6">
   <div class="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-center justify-between gap-4">
     <div>
-      <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Session</div>
-      <h1 class="text-2xl font-black text-gray-800 mt-2">{data.session.title ?? 'Untitled Session'}</h1>
-      <div class="mt-2 text-sm text-gray-400 font-mono break-all">{data.session.id}</div>
+      <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Runtime</div>
+      <h1 class="text-2xl font-black text-gray-800 mt-2">{data.runtime.title ?? 'Untitled Runtime'}</h1>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">runtime: {data.runtime.id}</div>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">session: {data.session.id}</div>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">workspace: {data.runtime.workspaceId ?? 'unbound'}</div>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">current session: {data.runtime.currentSessionId ?? 'none'}</div>
       <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 font-medium">
+        <span class="px-2 py-1 rounded-full bg-gray-100">status: {data.runtime.status ?? 'unknown'}</span>
+        <span class="px-2 py-1 rounded-full bg-gray-100">protocol: {data.session.protocol ?? 'unknown'}</span>
         <span class="px-2 py-1 rounded-full bg-gray-100">{persistedMessages.length} messages</span>
         <span class="px-2 py-1 rounded-full bg-gray-100">{persistedToolCalls.length} tools</span>
         <span class="px-2 py-1 rounded-full bg-gray-100">{treeNodes.filter((node) => node.childCount > 1).length} branch points</span>
@@ -265,7 +270,7 @@ onMount(() => {
         onclick={handleAbort}
         class="px-4 py-2 rounded-xl border border-red-200 text-red-600 font-bold hover:bg-red-50 transition-colors cursor-pointer"
       >
-        Abort
+        Abort session
       </button>
     </div>
   </div>
@@ -274,8 +279,8 @@ onMount(() => {
     <div class="col-span-4 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
       <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
         <div>
-          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Tree</div>
-          <div class="text-sm text-gray-500 mt-1">Switch leaf or branch from any historical node.</div>
+          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Session tree</div>
+          <div class="text-sm text-gray-500 mt-1">Switch leaf or branch from any historical node inside the current session.</div>
         </div>
         {#if branchFromMessageId}
           <button
@@ -299,7 +304,7 @@ onMount(() => {
     <div class="col-span-8 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
       <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
         <div>
-          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Conversation</div>
+          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Current session</div>
           <div class="text-sm text-gray-500 mt-1">
             {#if branchFromMessageId}
               New message will branch from selected node.

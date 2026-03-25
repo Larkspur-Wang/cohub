@@ -25,7 +25,6 @@ import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
   RegisterRuntimeSessionInput,
-  RuntimePromptInput,
 } from "@cohub/protocol";
 import {
   createRuntime,
@@ -332,9 +331,26 @@ app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
   if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
   const gitAccount = await ensureUserGitAccount(user.uuid);
   if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
-  const data = await getRepository(gitAccount.giteaUsername, repo);
-  if (!data) return c.json({ message: "workspace not found" }, 404);
-  return c.json(data);
+
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, repo)))
+    .limit(1);
+  if (!workspace) return c.json({ message: "workspace not found" }, 404);
+
+  const repoData = await getRepository(gitAccount.giteaUsername, repo);
+  if (!repoData) return c.json({ message: "workspace not found" }, 404);
+
+  return c.json({
+    ...workspace,
+    owner: user.uuid,
+    private: repoData.private,
+    cloneUrl: repoData.clone_url,
+    sshUrl: repoData.ssh_url,
+    htmlUrl: repoData.html_url,
+    fullName: repoData.full_name,
+  });
 });
 
 app.get("/api/workspaces/by-user/:userUuid/:repo/tree", async (c) => {
@@ -434,74 +450,17 @@ app.post("/api/runtimes", async (c) => {
     await waitForRuntimeRunning(runtime.id);
   }
 
-  return c.json({ runtime, ready: true });
-});
-
-app.post("/api/runtimes/:id/prompt", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-
-  const runtimeId = c.req.param("id");
-  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) {
-    return c.json({ message: "runtime not found" }, 404);
-  }
-
-  const body = await c.req.json<{
-    sessionId?: string;
-    userMessageId?: string;
-    text: string;
-    images?: Array<{ url: string }>;
-    branchFromMessageId?: string;
-    meta?: RuntimePromptInput["meta"];
-  }>();
-
-  if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
-
-  let sessionId = body.sessionId ?? null;
-  if (sessionId) {
-    const session = await getRuntimeSessionById(sessionId);
-    if (!session || session.runtimeId !== runtime.id) {
-      return c.json({ message: "session not found" }, 404);
-    }
-  } else {
-    const createdSession = await registerRuntimeSession({
-      runtimeId: runtime.id,
-      sessionId: crypto.randomUUID(),
-      title: null,
-      protocol: "pi",
-      cwd: null,
-      externalSessionId: null,
-      meta: { source: "web", createdBy: "api_prompt" },
-    });
-    sessionId = createdSession.id;
-  }
-
-  const userMessage = await createUserMessageNode({
-    runtimeSessionId: sessionId,
-    text: body.text,
-    images: body.images,
-    branchFromMessageId: body.branchFromMessageId ?? null,
-  });
-
-  await enqueueRuntimePrompt({
+  const session = await registerRuntimeSession({
     runtimeId: runtime.id,
-    sessionId,
-    userMessageId: userMessage?.id ?? body.userMessageId ?? null,
-    branchFromMessageId: body.branchFromMessageId ?? null,
-    message: {
-      text: body.text,
-      images: body.images,
-    },
-    meta: body.meta ?? { intent: body.sessionId ? "continue" : "new_session", source: "web" },
+    sessionId: crypto.randomUUID(),
+    title: body.title ?? null,
+    protocol: body.protocol ?? "pi",
+    cwd: body.cwd ?? null,
+    externalSessionId: null,
+    meta: { source: "web", createdBy: "api_runtime_create" },
   });
 
-  return c.json({ ok: true, runtime, sessionId, userMessage });
+  return c.json({ runtime, session, ready: true });
 });
 
 app.get("/api/runtimes/:id", async (c) => {
@@ -527,6 +486,29 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
   const sessions = await listRuntimeSessions(runtime.id);
   return c.json({ runtime, sessions });
+});
+
+app.get("/api/runtimes/:id/current-session", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  let session = runtime.currentSessionId
+    ? await getRuntimeSessionById(runtime.currentSessionId)
+    : null;
+
+  if (!session) {
+    const sessions = await listRuntimeSessions(runtime.id);
+    session = sessions.at(-1) ?? null;
+  }
+
+  if (!session) return c.json({ message: "session not found" }, 404);
+  return c.json({ runtime, session });
 });
 
 app.post("/internal/runtimes/:id/sessions", async (c) => {
@@ -630,20 +612,6 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   });
 
   return c.json({ ok: true, message: messageNode });
-});
-
-app.get("/api/sessions/:id", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const sessionId = c.req.param("id");
-  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const session = await getRuntimeSessionById(sessionId);
-  if (!session) return c.json({ message: "session not found" }, 404);
-  const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  return c.json(session);
 });
 
 app.get("/api/sessions/:id/messages", async (c) => {

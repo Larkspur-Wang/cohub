@@ -26,13 +26,10 @@ export type Workspace = {
   id: string;
   name: string;
   description: string;
-  image: string;
 };
 
-export type Agent = {
+export type RuntimeSummary = {
   id: string;
-  name: string;
-  description: string;
-  avatar: string;
-  personality: string;
+  workspaceId: string;
+  status: string;
 };
