@@ -18,9 +18,9 @@
 2. 点选一个工作区（如“客服知识库”），进入详情 `/workspaces/[id]`。
 3. 点击“Start Session”。
 4. 跳转至 `/sessions/new?workspace_id=[id]` 页面，弹出一个列表让用户挑选自己的 `Agent`（如“售后支持机器人”）。
-5. 点击确认，前端向后端发送 `POST /api/sessions` (参数为 `workspace_id` + `agent_id`)。
+5. 点击确认，前端向后端发送 `POST ${PUBLIC_API_ORIGIN}/api/sessions`（参数为 `workspace_id` + `agent_id`）。
 6. 后端创建并返回 Session ID，前端使用 `goto('/sessions/' + session_id)` 跳转至调试台。
-7. 用户在调试台中发送文本，与后端 `/api/sessions/[id]/chat` 接口通信，验证 Agent 在当前 Workspace 下的回复表现。
+7. 用户在调试台中发送文本，与后端 `${PUBLIC_API_ORIGIN}/api/sessions/[id]/chat` 接口通信，验证 Agent 在当前 Workspace 下的回复表现。
 
 ## 阶段性 Mock 策略
 

@@ -1,6 +1,7 @@
 import { goto } from "$app/navigation";
+import { PUBLIC_API_ORIGIN } from "$env/static/public";
 
-const API_BASE_URL = "";
+const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 
 type ApiError = {
   message: string;

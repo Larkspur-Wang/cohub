@@ -6,6 +6,3 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = ".svelte-kit/cloudflare/assets"
 binding = "ASSETS"
-
-[vars]
-BFF_ORIGIN = "https://api-dev.cohub.run"

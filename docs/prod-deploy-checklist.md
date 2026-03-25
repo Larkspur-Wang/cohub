@@ -7,8 +7,8 @@
 
 | 角色 | 示例域名 | 部署位置 | 说明 |
 | --- | --- | --- | --- |
-| Web | `https://cohub.run` | Cloudflare Workers | SvelteKit Web + SSR + 同源 `/api/*` 反代 |
-| API | `https://api.cohub.run` | Alibaba Cloud ACK | Hono BFF（对接鉴权 + Gitea API） |
+| Web | `https://cohub.run` | Cloudflare Workers | SvelteKit Web |
+| API | `https://api.cohub.run` | Alibaba Cloud ACK | Hono API（对接鉴权 + Gitea API） |
 | Gitea | `https://gitea.cohub.run` | Alibaba Cloud ACK | Git Server + 仓库托管 |
 | Git SSH | `git.cohub.run:22` | Alibaba Cloud ACK | 可选，仅 SSH clone/push 使用 |
 | Auth | `https://auth.talesofai.cn` | 现有服务 | 复用已有鉴权服务（示例） |
@@ -17,12 +17,11 @@
 
 ## 2) Cloudflare Workers（apps/web）
 
-### 环境变量（Wrangler / Dashboard）
+### 构建环境变量
 
-| 变量 | 示例 | 说明 |
-| --- | --- | --- |
-| `BFF_ORIGIN` | `https://api.cohub.run` | 服务器端反代目标（Hono） |
-| `VITE_API_BASE_URL` | （留空） | 若留空则走同源 `/api/*`，如需浏览器直连可填写 |
+| 变量 | dev 示例 | prod 示例 | 说明 |
+| --- | --- | --- | --- |
+| `PUBLIC_API_ORIGIN` | `https://api-dev.cohub.run` | `https://api.cohub.run` | 前端构建时注入的 API 基础地址 |
 
 ### 关键配置
 
@@ -31,7 +30,7 @@
   - `[assets] directory = .svelte-kit/cloudflare/assets`
   - `[assets] binding = ASSETS`
 
-## 3) Hono BFF（apps/api，ACK）
+## 3) Hono API（apps/api，ACK）
 
 ### 环境变量
 
@@ -62,7 +61,7 @@
 - 数据库、Redis、对象存储按实际资源配置
 
 
-> 如需与主站统一登录，可后续在 Gitea 侧配置 OIDC / OAuth 或反向代理鉴权（不在本期范围）。
+> 如需与主站统一登录，可后续在 Gitea 侧配置 OIDC / OAuth（不在本期范围）。
 
 ## 5) 证书 / Ingress
 

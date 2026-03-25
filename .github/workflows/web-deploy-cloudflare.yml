@@ -39,6 +39,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup web environment
+        working-directory: apps/web
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "PUBLIC_API_ORIGIN=https://api.cohub.run" > .env
+          else
+            echo "PUBLIC_API_ORIGIN=https://api-dev.cohub.run" > .env
+          fi
+
       - name: Lint
         run: pnpm lint
         working-directory: apps/web

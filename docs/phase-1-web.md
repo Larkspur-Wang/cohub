@@ -1,10 +1,10 @@
 # Cohub Phase 1: Workspace Hub Web
 
-本期目标：完成 workspace 的 **浏览与分享页原型**，后端通过 **Hono BFF** 对接 Gitea（公共仓库），并复用已有鉴权服务做登录态校验。
+本期目标：完成 workspace 的 **浏览与分享页原型**，后端通过 **Hono API** 对接 Gitea（公共仓库），并复用已有鉴权服务做登录态校验。
 
 ## 目录
 
-- `apps/api`: Hono BFF
+- `apps/api`: Hono API
 - `apps/web`: SvelteKit Web
 - `deploy/gitea/`: Gitea 部署配置
 
@@ -45,7 +45,10 @@ pnpm dev
 
 ### apps/web
 
-- `VITE_API_BASE_URL`: Hono API 地址（可留空，使用同源 `/api/*` 反代）
+- `PUBLIC_API_ORIGIN`: 前端构建时注入的 API 地址
+  - 本地开发示例：`http://localhost:8787`
+  - dev 部署示例：`https://api-dev.cohub.run`
+  - prod 部署示例：`https://api.cohub.run`
 
 ## 验证
 

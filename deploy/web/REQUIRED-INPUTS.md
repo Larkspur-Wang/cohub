@@ -9,19 +9,16 @@
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需要 Workers Scripts 编辑权限） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
 
-## 2) 必填（Cloudflare Worker Variables）
+## 2) Web 构建环境变量
 
-当前仅使用一个生产环境 Worker：
+当前 Web 在构建时通过 `PUBLIC_API_ORIGIN` 注入目标 API 地址。
 
-- Production：`cohub-web`
-
-需要配置：
-
-| Variable | Production 示例 | 说明 |
+| 环境 | 示例值 | 说明 |
 | --- | --- | --- |
-| `BFF_ORIGIN` | `https://api.cohub.run` | 指向 ACK 上的 BFF，用于同源 `/api/*` 反代 |
+| dev | `https://api-dev.cohub.run` | GitHub Actions 自动部署到 dev 时使用 |
+| prod | `https://api.cohub.run` | GitHub Actions 手动部署到 prod 时使用 |
 
-> 说明：`BFF_ORIGIN` 也可以在 `apps/web/wrangler.toml` 里配置（已提供默认值）。
+> 说明：该变量由 GitHub Actions 在构建前写入 `apps/web/.env`，无需再通过 Wrangler variables 配置。
 
 ## 3) GitHub Actions 手动部署
 

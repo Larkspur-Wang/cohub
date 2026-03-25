@@ -3,7 +3,7 @@
 ## Required
 
 - Cloudflare Worker project for Cohub Web
-- `BFF_ORIGIN` pointing to the Hono API, for example `https://api.cohub.run`
+- `PUBLIC_API_ORIGIN` set at build time for the target environment, for example `https://api.cohub.run`
 
 ## Deploy
 

@@ -1,2 +1,2 @@
-# For `pnpm -C apps/web preview` (wrangler dev)
-BFF_ORIGIN=http://localhost:8787
+# For local Web development
+PUBLIC_API_ORIGIN=http://localhost:8787

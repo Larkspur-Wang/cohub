@@ -5,7 +5,7 @@
 ## 目标与边界
 
 - ✅ 目标
-  - 新增 Hono BFF：统一鉴权、对接 Gitea API、对前端提供稳定接口
+  - 新增 Hono API：统一鉴权、对接 Gitea API、对前端提供稳定接口
   - 新增 Svelte Web：workspace 详情页三栏布局（左侧文件树、中间文件展示、右侧 Chat 占位）
   - 形成可本地运行的开发链路
 
@@ -21,7 +21,7 @@
   - [x] Biome 作为 lint
   - [x] 基础脚本（dev/build/lint/typecheck）
 
-- [x] Hono BFF（apps/api）
+- [x] Hono API（apps/api）
   - [x] 环境变量与配置（AUTH_BASE_URL, GITEA_BASE_URL, GITEA_TOKEN 可选）
   - [x] 认证接口（/api/me）对接鉴权服务
   - [x] Gitea 只读接口（repo、contents、file）
