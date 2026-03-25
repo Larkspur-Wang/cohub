@@ -3,7 +3,7 @@ import "../app.css";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { clearAuthToken } from "$lib/api";
-import { LayoutDashboard, FolderKanban, Network, LogOut, Settings } from "lucide-svelte";
+import { LayoutDashboard, FolderKanban, Network, Cpu, LogOut, Settings } from "lucide-svelte";
 
 const { children } = $props();
 
@@ -21,6 +21,7 @@ const isLogin = $derived(currentPath === "/login");
 const navItems = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
   { name: "Workspaces", href: "/workspaces", icon: FolderKanban },
+  { name: "Runtimes", href: "/runtimes", icon: Cpu },
   { name: "Channels", href: "/channels", icon: Network },
 ];
 </script>

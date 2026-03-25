@@ -14,7 +14,12 @@ export const load = async ({ params, fetch }) => {
       runtime.currentSessionId ?? sessionsResponse.sessions.at(-1)?.id ?? null;
 
     if (!currentSessionId) {
-      throw error(404, "Runtime has no sessions yet");
+      return {
+        runtime,
+        session: null,
+        persisted: null,
+        tree: null,
+      };
     }
 
     const [persisted, tree] = await Promise.all([

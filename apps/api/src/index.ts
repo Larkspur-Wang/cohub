@@ -32,6 +32,7 @@ import {
   enqueueRuntimePrompt,
   getCurrentPathMessages,
   getRuntimeById,
+  getRuntimeLiveStatus,
   getRuntimeSessionById,
   launchRuntimeSandbox,
   listRuntimeSessions,
@@ -42,10 +43,9 @@ import {
   registerRuntimeSession,
   selectRuntimeSessionLeaf,
   updateRuntimeSessionInfo,
-  waitForRuntimeRunning,
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, userGitAccounts, workspaces, runtimeChannels } from "./db/schema.js";
+import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { handleInboundEvent } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
@@ -495,7 +495,6 @@ app.post("/api/runtimes", async (c) => {
 
   if (body.start !== false) {
     await launchRuntimeSandbox({ runtimeId: runtime.id, userUuid: user.uuid });
-    await waitForRuntimeRunning(runtime.id);
   }
 
   const session = await registerRuntimeSession({
@@ -512,7 +511,24 @@ app.post("/api/runtimes", async (c) => {
     },
   });
 
-  return c.json({ runtime, session, ready: true });
+  const liveStatus = body.start !== false ? await getRuntimeLiveStatus(runtime.id) : null;
+
+  return c.json({ runtime, session, ready: liveStatus === "running" });
+});
+
+app.get("/api/runtimes", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeList = await db
+    .select()
+    .from(runtimes)
+    .where(eq(runtimes.userUuid, user.uuid))
+    .orderBy(runtimes.updatedAt, runtimes.createdAt);
+
+  return c.json(runtimeList);
 });
 
 app.get("/api/runtimes/:id", async (c) => {
@@ -524,7 +540,11 @@ app.get("/api/runtimes/:id", async (c) => {
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
-  return c.json(runtime);
+  const liveStatus = await getRuntimeLiveStatus(runtime.id).catch(() => null);
+  return c.json({
+    ...runtime,
+    liveStatus: liveStatus ?? runtime.status ?? null,
+  });
 });
 
 app.get("/api/runtimes/:id/sessions", async (c) => {

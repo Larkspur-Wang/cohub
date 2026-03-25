@@ -131,6 +131,11 @@ export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000
   return false;
 };
 
+export const getRuntimeLiveStatus = async (runtimeId: string) => {
+  const status = await redis.hget(getRuntimeMetaKey(runtimeId), "status");
+  return status?.trim() || null;
+};
+
 export const enqueueRuntimePrompt = async (input: {
   runtimeId: string;
   sessionId: string;

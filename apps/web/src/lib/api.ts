@@ -374,11 +374,14 @@ export type RuntimeRecord = {
   agentCommitHash: string | null;
   title: string | null;
   status: string | null;
+  liveStatus?: string | null;
   currentSessionId?: string | null;
   meta?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 };
+
+export type RuntimeListItem = RuntimeRecord;
 
 export type RuntimeCreateResponse = {
   runtime: RuntimeRecord;
@@ -413,6 +416,13 @@ export const createRuntime = async (input?: {
     },
     body: JSON.stringify(input ?? {}),
   }) as Promise<RuntimeCreateResponse>;
+};
+
+export const getRuntimes = async (customFetch?: Fetch) => {
+  return apiFetch("/api/runtimes", {
+    method: "GET",
+    fetch: customFetch,
+  }) as Promise<RuntimeListItem[]>;
 };
 
 export const getRuntime = async (id: string, customFetch?: Fetch) => {

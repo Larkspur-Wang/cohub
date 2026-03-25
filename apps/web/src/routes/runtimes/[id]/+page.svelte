@@ -2,6 +2,8 @@
 import { onMount } from "svelte";
 import {
   abortSession,
+  getRuntime,
+  getRuntimeSessions,
   getRuntimeStreamUrl,
   getSessionMessages,
   getSessionTree,
@@ -22,42 +24,64 @@ import {
   type TimelineItem,
 } from "$lib/session-tree";
 
+type PersistedData = {
+  runtime: RuntimeRecord;
+  session: SessionRecord;
+  messages: SessionMessageRecord[];
+  toolCalls: SessionToolCallRecord[];
+};
+
+type TreeData = {
+  runtime: RuntimeRecord;
+  session: {
+    id: string;
+    currentLeafMessageId: string | null;
+    rootMessageId: string | null;
+    totalBranches: number;
+  };
+  nodes: SessionMessageRecord[];
+};
+
 type Props = {
   data: {
     runtime: RuntimeRecord;
-    session: SessionRecord;
-    persisted: {
-      runtime: RuntimeRecord;
-      session: SessionRecord;
-      messages: SessionMessageRecord[];
-      toolCalls: SessionToolCallRecord[];
-    };
-    tree: {
-      runtime: RuntimeRecord;
-      session: {
-        id: string;
-        currentLeafMessageId: string | null;
-        rootMessageId: string | null;
-        totalBranches: number;
-      };
-      nodes: SessionMessageRecord[];
-    };
+    session: SessionRecord | null;
+    persisted: PersistedData | null;
+    tree: TreeData | null;
   };
 };
 
 const { data }: Props = $props();
 
+let runtime = $state<RuntimeRecord>({
+  id: "",
+  userUuid: "",
+  workspaceId: null,
+  workspaceCommitHash: null,
+  agentId: null,
+  agentCommitHash: null,
+  title: null,
+  status: null,
+  liveStatus: null,
+  currentSessionId: null,
+  meta: null,
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+});
+let session = $state<SessionRecord | null>(null);
 let persistedMessages = $state<SessionMessageRecord[]>([]);
 let persistedToolCalls = $state<SessionToolCallRecord[]>([]);
 let treeNodes = $state<SessionTreeNodeView[]>([]);
 let currentLeafMessageId = $state<string | null>(null);
 
 $effect(() => {
-  persistedMessages = data.persisted.messages ?? [];
-  persistedToolCalls = data.persisted.toolCalls ?? [];
-  treeNodes = toTreeNodes(data.tree);
+  runtime = data.runtime;
+  session = data.session;
+  persistedMessages = data.persisted?.messages ?? [];
+  persistedToolCalls = data.persisted?.toolCalls ?? [];
+  treeNodes = data.tree ? toTreeNodes(data.tree) : [];
   currentLeafMessageId =
-    data.tree.session.currentLeafMessageId ?? data.session.currentLeafMessageId ?? null;
+    data.tree?.session.currentLeafMessageId ?? data.session?.currentLeafMessageId ?? null;
 });
 
 let branchFromMessageId = $state<string | null>(null);
@@ -65,13 +89,17 @@ let listEl = $state<HTMLDivElement | null>(null);
 let input = $state("");
 let sending = $state(false);
 let selectingLeaf = $state(false);
-let streamStatus = $state<"connecting" | "open" | "closed" | "error">(
-  "connecting",
-);
+let streamStatus = $state<"connecting" | "open" | "closed" | "error">("connecting");
 let streamError = $state("");
+let runtimeLoadError = $state("");
 let eventSource: EventSource | null = null;
-
+let pollingTimer: ReturnType<typeof setInterval> | null = null;
 let streamingAssistantText = $state("");
+
+const effectiveRuntimeStatus = $derived(runtime.liveStatus ?? runtime.status ?? "unknown");
+const hasSession = $derived(Boolean(session));
+const isRuntimeReady = $derived(effectiveRuntimeStatus === "running" && hasSession);
+
 let timeline = $derived.by<TimelineItem[]>(() => {
   const persisted = toChatMessages(persistedMessages, persistedToolCalls).map(
     (message) => ({
@@ -102,21 +130,43 @@ function scrollToBottom() {
   });
 }
 
-async function refreshPersistedData() {
-  const [messagesResponse, treeResponse] = await Promise.all([
-    getSessionMessages(data.session.id),
-    getSessionTree(data.session.id),
-  ]);
+async function refreshRuntimeState() {
+  try {
+    runtimeLoadError = "";
+    const nextRuntime = await getRuntime(runtime.id);
+    runtime = nextRuntime;
 
-  persistedMessages = messagesResponse.messages;
-  persistedToolCalls = messagesResponse.toolCalls;
-  treeNodes = toTreeNodes(treeResponse);
-  currentLeafMessageId = treeResponse.session.currentLeafMessageId;
+    const sessionsResponse = await getRuntimeSessions(runtime.id);
+    const currentSessionId =
+      nextRuntime.currentSessionId ?? sessionsResponse.sessions.at(-1)?.id ?? null;
+
+    if (!currentSessionId) {
+      session = null;
+      persistedMessages = [];
+      persistedToolCalls = [];
+      treeNodes = [];
+      currentLeafMessageId = null;
+      return;
+    }
+
+    const [messagesResponse, treeResponse] = await Promise.all([
+      getSessionMessages(currentSessionId),
+      getSessionTree(currentSessionId),
+    ]);
+
+    session = messagesResponse.session;
+    persistedMessages = messagesResponse.messages;
+    persistedToolCalls = messagesResponse.toolCalls;
+    treeNodes = toTreeNodes(treeResponse);
+    currentLeafMessageId = treeResponse.session.currentLeafMessageId;
+  } catch (error) {
+    runtimeLoadError = error instanceof Error ? error.message : "Failed to refresh runtime";
+  }
 }
 
 async function handleSend() {
   const text = input.trim();
-  if (!text || sending) {
+  if (!text || sending || !session) {
     return;
   }
 
@@ -125,7 +175,7 @@ async function handleSend() {
   sending = true;
 
   try {
-    const result = await sendSessionMessage(data.session.id, {
+    const result = await sendSessionMessage(session.id, {
       text: pendingText,
       branchFromMessageId: branchFromMessageId ?? undefined,
     });
@@ -137,7 +187,7 @@ async function handleSend() {
     }
 
     branchFromMessageId = null;
-    await refreshPersistedData();
+    await refreshRuntimeState();
     scrollToBottom();
   } catch (error) {
     streamError = error instanceof Error ? error.message : "Unknown error";
@@ -147,19 +197,20 @@ async function handleSend() {
 }
 
 async function handleAbort() {
+  if (!session) return;
   try {
-    await abortSession(data.session.id);
+    await abortSession(session.id);
   } catch (error) {
     streamError = error instanceof Error ? error.message : "Unknown error";
   }
 }
 
 async function handleSelectLeaf(messageId: string) {
-  if (selectingLeaf) return;
+  if (selectingLeaf || !session) return;
   selectingLeaf = true;
   try {
-    await selectSessionLeaf(data.session.id, messageId);
-    await refreshPersistedData();
+    await selectSessionLeaf(session.id, messageId);
+    await refreshRuntimeState();
     streamStatus = eventSource ? streamStatus : "closed";
     scrollToBottom();
   } catch (error) {
@@ -198,7 +249,7 @@ function handleAgentEvent(payload: Record<string, unknown>) {
 
   if (type === "turn_end") {
     streamingAssistantText = "";
-    void refreshPersistedData();
+    void refreshRuntimeState();
     return;
   }
 
@@ -213,7 +264,9 @@ function handleAgentEvent(payload: Record<string, unknown>) {
 onMount(() => {
   scrollToBottom();
 
-  eventSource = new EventSource(getRuntimeStreamUrl(data.runtime.id), {
+  void refreshRuntimeState();
+
+  eventSource = new EventSource(getRuntimeStreamUrl(runtime.id), {
     withCredentials: true,
   });
 
@@ -236,10 +289,16 @@ onMount(() => {
     streamError = "Stream disconnected. Browser will retry automatically.";
   };
 
+  pollingTimer = setInterval(() => {
+    void refreshRuntimeState();
+  }, 3000);
+
   return () => {
     streamStatus = "closed";
     eventSource?.close();
     eventSource = null;
+    if (pollingTimer) clearInterval(pollingTimer);
+    pollingTimer = null;
   };
 });
 </script>
@@ -248,14 +307,18 @@ onMount(() => {
   <div class="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-center justify-between gap-4">
     <div>
       <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Runtime</div>
-      <h1 class="text-2xl font-black text-gray-800 mt-2">{data.runtime.title ?? 'Untitled Runtime'}</h1>
-      <div class="mt-2 text-sm text-gray-400 font-mono break-all">runtime: {data.runtime.id}</div>
-      <div class="mt-2 text-sm text-gray-400 font-mono break-all">session: {data.session.id}</div>
-      <div class="mt-2 text-sm text-gray-400 font-mono break-all">workspace: {data.runtime.workspaceId ?? 'unbound'}</div>
-      <div class="mt-2 text-sm text-gray-400 font-mono break-all">current session: {data.runtime.currentSessionId ?? 'none'}</div>
+      <h1 class="text-2xl font-black text-gray-800 mt-2">{runtime.title ?? 'Untitled Runtime'}</h1>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">runtime: {runtime.id}</div>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">workspace: {runtime.workspaceId ?? 'unbound'}</div>
+      <div class="mt-2 text-sm text-gray-400 font-mono break-all">current session: {runtime.currentSessionId ?? 'none'}</div>
+      {#if session}
+        <div class="mt-2 text-sm text-gray-400 font-mono break-all">session: {session.id}</div>
+      {/if}
       <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-500 font-medium">
-        <span class="px-2 py-1 rounded-full bg-gray-100">status: {data.runtime.status ?? 'unknown'}</span>
-        <span class="px-2 py-1 rounded-full bg-gray-100">protocol: {data.session.protocol ?? 'unknown'}</span>
+        <span class="px-2 py-1 rounded-full bg-gray-100">status: {effectiveRuntimeStatus}</span>
+        {#if session}
+          <span class="px-2 py-1 rounded-full bg-gray-100">protocol: {session.protocol ?? 'unknown'}</span>
+        {/if}
         <span class="px-2 py-1 rounded-full bg-gray-100">{persistedMessages.length} messages</span>
         <span class="px-2 py-1 rounded-full bg-gray-100">{persistedToolCalls.length} tools</span>
         <span class="px-2 py-1 rounded-full bg-gray-100">{treeNodes.filter((node) => node.childCount > 1).length} branch points</span>
@@ -268,14 +331,35 @@ onMount(() => {
       </div>
       <button
         onclick={handleAbort}
-        class="px-4 py-2 rounded-xl border border-red-200 text-red-600 font-bold hover:bg-red-50 transition-colors cursor-pointer"
+        disabled={!session}
+        class="px-4 py-2 rounded-xl border border-red-200 text-red-600 font-bold hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-50"
       >
         Abort session
       </button>
     </div>
   </div>
 
-  <div class="flex-1 min-h-0 grid grid-cols-12 gap-6">
+  {#if runtimeLoadError}
+    <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-sm break-all">
+      {runtimeLoadError}
+    </div>
+  {/if}
+
+  {#if !isRuntimeReady}
+    <div class="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
+      <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Starting</div>
+      <h2 class="mt-2 text-xl font-semibold text-gray-900">Runtime is being prepared</h2>
+      <p class="mt-2 text-sm text-gray-500">
+        The runtime has been created and this page will keep polling its latest state. You can stay here while the sandbox finishes startup.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2 text-xs text-gray-500 font-medium">
+        <span class="px-2 py-1 rounded-full bg-gray-100">runtime status: {effectiveRuntimeStatus}</span>
+        <span class="px-2 py-1 rounded-full bg-gray-100">session ready: {session ? 'yes' : 'no'}</span>
+      </div>
+    </div>
+  {/if}
+
+  <div class={`flex-1 min-h-0 grid grid-cols-12 gap-6 ${isRuntimeReady ? "opacity-100" : "opacity-60"}`}>
     <div class="col-span-4 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
       <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
         <div>
@@ -292,13 +376,17 @@ onMount(() => {
           </button>
         {/if}
       </div>
-      <SessionTreePanel
-        nodes={treeNodes}
-        {currentLeafMessageId}
-        selectedBranchFromId={branchFromMessageId}
-        onSelectLeaf={handleSelectLeaf}
-        onBranchFrom={handleBranchFrom}
-      />
+      {#if session}
+        <SessionTreePanel
+          nodes={treeNodes}
+          {currentLeafMessageId}
+          selectedBranchFromId={branchFromMessageId}
+          onSelectLeaf={handleSelectLeaf}
+          onBranchFrom={handleBranchFrom}
+        />
+      {:else}
+        <div class="p-5 text-sm text-gray-500">No session is available yet.</div>
+      {/if}
     </div>
 
     <div class="col-span-8 min-h-0 bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden flex flex-col">
@@ -306,7 +394,9 @@ onMount(() => {
         <div>
           <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Current session</div>
           <div class="text-sm text-gray-500 mt-1">
-            {#if branchFromMessageId}
+            {#if !session}
+              Waiting for current session to become available.
+            {:else if branchFromMessageId}
               New message will branch from selected node.
             {:else}
               Showing persisted path from root to current leaf.
@@ -316,7 +406,7 @@ onMount(() => {
       </div>
 
       <ChatTimeline bind:bindListEl={listEl} {timeline} />
-      <SessionComposer bind:value={input} {sending} {streamError} onSubmit={() => void handleSend()} />
+      <SessionComposer bind:value={input} sending={sending || !session || !isRuntimeReady} {streamError} onSubmit={() => void handleSend()} />
     </div>
   </div>
 </div>
