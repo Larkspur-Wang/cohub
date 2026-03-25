@@ -422,6 +422,11 @@ export type RuntimeCreateResponse = {
   ready: boolean;
 };
 
+export type RuntimeEnvInput = {
+  name: string;
+  value: string;
+};
+
 export type RuntimeChannelBindingInput = {
   channelId: string;
   config?: Record<string, unknown> | null;
@@ -439,6 +444,7 @@ export const createRuntime = async (input?: {
   cwd?: string;
   protocol?: "pi" | "acp" | "internal";
   start?: boolean;
+  extraEnv?: RuntimeEnvInput[];
   channelBindings?: RuntimeChannelBindingInput[];
 }) => {
   return apiFetch("/api/runtimes", {

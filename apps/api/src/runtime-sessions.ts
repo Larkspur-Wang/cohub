@@ -68,7 +68,22 @@ export type RuntimeProvisionSnapshot = {
   events: RuntimeProvisionEvent[];
 };
 
+type RuntimeEnvVar = {
+  name: string;
+  value: string;
+};
+
 const PROVISION_EVENT_LIMIT = 100;
+const RESERVED_RUNTIME_ENV_NAMES = new Set([
+  "RUNTIME_ID",
+  "REDIS_URL",
+  "WORKSPACE_DIR",
+  "LITELLM_API_KEY",
+  "ENV",
+  "WORKSPACE_REPO_URL",
+  "WORKSPACE_GIT_USERNAME",
+  "WORKSPACE_GIT_EMAIL",
+]);
 
 const nowIso = () => new Date().toISOString();
 
@@ -99,6 +114,81 @@ const updateRuntimeStatus = async (runtimeId: string, status: string) => {
     .update(runtimes)
     .set({ status, updatedAt: new Date() })
     .where(eq(runtimes.id, runtimeId));
+};
+
+export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .filter(
+      (item): item is { name?: unknown; value?: unknown } =>
+        Boolean(item) && typeof item === "object",
+    )
+    .map((item) => ({
+      name: String(item.name ?? "").trim(),
+      value: String(item.value ?? ""),
+    }))
+    .filter((item) => item.name.length > 0);
+};
+
+export const validateRuntimeEnv = (envs: RuntimeEnvVar[]) => {
+  if (envs.length > 50) {
+    throw new Error("extraEnv cannot exceed 50 entries");
+  }
+
+  const seen = new Set<string>();
+  for (const env of envs) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(env.name)) {
+      throw new Error(`invalid env name: ${env.name}`);
+    }
+
+    if (env.name.length > 128) {
+      throw new Error(`env name too long: ${env.name}`);
+    }
+
+    if (env.value.length > 4000) {
+      throw new Error(`env value too long for: ${env.name}`);
+    }
+
+    if (RESERVED_RUNTIME_ENV_NAMES.has(env.name)) {
+      throw new Error(`env name is reserved: ${env.name}`);
+    }
+
+    if (seen.has(env.name)) {
+      throw new Error(`duplicate env name: ${env.name}`);
+    }
+
+    seen.add(env.name);
+  }
+};
+
+const getRuntimeExtraEnv = (runtimeMeta: unknown): RuntimeEnvVar[] => {
+  if (!runtimeMeta || typeof runtimeMeta !== "object") return [];
+  const extraEnv = (runtimeMeta as { extraEnv?: unknown }).extraEnv;
+  return normalizeRuntimeEnv(extraEnv);
+};
+
+const buildRuntimeContainerEnv = (input: {
+  runtimeId: string;
+  redisUrl: string;
+  litellmApiKey?: string;
+  env?: string;
+  workspaceRepoUrl?: string;
+  workspaceGitUsername?: string;
+  workspaceGitEmail?: string;
+  extraEnv?: RuntimeEnvVar[];
+}) => {
+  return [
+    { name: "RUNTIME_ID", value: input.runtimeId },
+    { name: "REDIS_URL", value: input.redisUrl },
+    { name: "WORKSPACE_DIR", value: "/workspace" },
+    { name: "LITELLM_API_KEY", value: input.litellmApiKey ?? "" },
+    { name: "ENV", value: input.env ?? "" },
+    { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
+    { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },
+    { name: "WORKSPACE_GIT_EMAIL", value: input.workspaceGitEmail ?? "" },
+    ...(input.extraEnv ?? []),
+  ];
 };
 
 export const writeInitialRuntimeProvision = async (runtimeId: string) => {
@@ -354,6 +444,9 @@ export const launchRuntimeSandbox = async (input: {
   const runtime = await getRuntimeById(input.runtimeId);
   if (!runtime) throw new Error("Runtime not found");
 
+  const extraEnv = getRuntimeExtraEnv(runtime.meta);
+  validateRuntimeEnv(extraEnv);
+
   let workspaceRepoUrl: string | undefined;
   let workspaceGitUsername: string | undefined;
   let workspaceGitEmail: string | undefined;
@@ -387,6 +480,19 @@ export const launchRuntimeSandbox = async (input: {
     WORKSPACE_GIT_EMAIL: workspaceGitEmail,
   }) as V1Pod;
 
+  if (pod.spec?.containers?.[0]) {
+    pod.spec.containers[0].env = buildRuntimeContainerEnv({
+      runtimeId: input.runtimeId,
+      redisUrl: config.redisUrl,
+      litellmApiKey: config.litellmApiKey,
+      env: config.env,
+      workspaceRepoUrl,
+      workspaceGitUsername,
+      workspaceGitEmail,
+      extraEnv,
+    });
+  }
+
   await k8sCoreApi.createNamespacedPod({
     namespace: sessionsNamespace,
     body: pod,
@@ -416,6 +522,9 @@ export const provisionRuntimeInBackground = async (input: {
 
     const runtime = await getRuntimeById(runtimeId);
     if (!runtime) throw new Error("Runtime not found");
+
+    const extraEnv = getRuntimeExtraEnv(runtime.meta);
+    validateRuntimeEnv(extraEnv);
 
     let workspaceRepoUrl: string | undefined;
     let workspaceGitUsername: string | undefined;
@@ -483,6 +592,19 @@ export const provisionRuntimeInBackground = async (input: {
       WORKSPACE_GIT_USERNAME: workspaceGitUsername,
       WORKSPACE_GIT_EMAIL: workspaceGitEmail,
     }) as V1Pod;
+
+    if (pod.spec?.containers?.[0]) {
+      pod.spec.containers[0].env = buildRuntimeContainerEnv({
+        runtimeId,
+        redisUrl: config.redisUrl,
+        litellmApiKey: config.litellmApiKey,
+        env: config.env,
+        workspaceRepoUrl,
+        workspaceGitUsername,
+        workspaceGitEmail,
+        extraEnv,
+      });
+    }
 
     const podName = pod.metadata?.name ?? `runtime-${runtimeId}`;
 

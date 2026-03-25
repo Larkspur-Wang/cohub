@@ -7,6 +7,7 @@ import {
   getWorkspaceByUser,
   type Channel,
   type RuntimeChannelBindingInput,
+  type RuntimeEnvInput,
   type WorkspaceDetail,
 } from "$lib/api";
 
@@ -22,6 +23,7 @@ let submitError = $state("");
 let title = $state("");
 let startNow = $state(true);
 let selectedChannelIds = $state<string[]>([]);
+let extraEnv = $state<RuntimeEnvInput[]>([]);
 
 async function loadPage() {
   isLoading = true;
@@ -58,6 +60,26 @@ function toggleChannel(channelId: string, checked: boolean) {
   selectedChannelIds = selectedChannelIds.filter((id) => id !== channelId);
 }
 
+function addEnvRow() {
+  extraEnv = [...extraEnv, { name: "", value: "" }];
+}
+
+function removeEnvRow(index: number) {
+  extraEnv = extraEnv.filter((_, idx) => idx !== index);
+}
+
+function updateEnvName(index: number, value: string) {
+  extraEnv = extraEnv.map((item, idx) =>
+    idx === index ? { ...item, name: value } : item,
+  );
+}
+
+function updateEnvValue(index: number, value: string) {
+  extraEnv = extraEnv.map((item, idx) =>
+    idx === index ? { ...item, value } : item,
+  );
+}
+
 async function handleSubmit(event: SubmitEvent) {
   event.preventDefault();
   if (!workspace || isSubmitting) return;
@@ -69,11 +91,18 @@ async function handleSubmit(event: SubmitEvent) {
     const channelBindings: RuntimeChannelBindingInput[] = selectedChannelIds.map((channelId) => ({
       channelId,
     }));
+    const normalizedExtraEnv: RuntimeEnvInput[] = extraEnv
+      .map((item) => ({
+        name: item.name.trim(),
+        value: item.value,
+      }))
+      .filter((item) => item.name.length > 0);
 
     const result = await createRuntime({
       workspaceId: workspace.id,
       title: title.trim() || workspace.name,
       start: startNow,
+      extraEnv: normalizedExtraEnv,
       channelBindings,
     });
 
@@ -130,6 +159,58 @@ async function handleSubmit(event: SubmitEvent) {
           <input bind:checked={startNow} type="checkbox" class="rounded border-gray-300 text-brand focus:ring-brand" />
           Start runtime immediately after creation
         </label>
+      </div>
+
+      <div class="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+        <div>
+          <div class="text-xs uppercase tracking-[0.2em] font-black text-brand">Environment variables</div>
+          <h2 class="mt-2 text-xl font-semibold text-gray-900">Extra env for runtime startup</h2>
+          <p class="mt-1 text-sm text-gray-500">These env vars will be injected when the runtime pod starts. Reserved system env names are not allowed.</p>
+        </div>
+
+        {#if extraEnv.length === 0}
+          <div class="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
+            No extra env configured yet.
+          </div>
+        {:else}
+          <div class="space-y-3">
+            {#each extraEnv as envItem, index}
+              <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start">
+                <input
+                  type="text"
+                  value={envItem.name}
+                  placeholder="ENV_NAME"
+                  oninput={(event) => updateEnvName(index, (event.currentTarget as HTMLInputElement).value)}
+                  class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none font-mono text-sm"
+                />
+                <input
+                  type="text"
+                  value={envItem.value}
+                  placeholder="value"
+                  oninput={(event) => updateEnvValue(index, (event.currentTarget as HTMLInputElement).value)}
+                  class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none font-mono text-sm"
+                />
+                <button
+                  type="button"
+                  onclick={() => removeEnvRow(index)}
+                  class="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div>
+          <button
+            type="button"
+            onclick={addEnvRow}
+            class="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+          >
+            Add env
+          </button>
+        </div>
       </div>
 
       <div class="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">

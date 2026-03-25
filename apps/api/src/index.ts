@@ -38,12 +38,14 @@ import {
   listRuntimeSessions,
   listSessionTree,
   listToolCallsByMessageIds,
+  normalizeRuntimeEnv,
   persistMessageNode,
   provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
   selectRuntimeSessionLeaf,
   updateRuntimeSessionInfo,
+  validateRuntimeEnv,
   writeInitialRuntimeProvision,
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
@@ -457,6 +459,10 @@ app.post("/api/runtimes", async (c) => {
       protocol?: "pi" | "acp" | "internal";
       meta?: Record<string, unknown>;
       start?: boolean;
+      extraEnv?: Array<{
+        name: string;
+        value: string;
+      }>;
       channelBindings?: Array<{
         channelId: string;
         config?: Record<string, unknown> | null;
@@ -470,11 +476,18 @@ app.post("/api/runtimes", async (c) => {
     protocol?: "pi" | "acp" | "internal";
     meta?: Record<string, unknown>;
     start?: boolean;
+    extraEnv?: Array<{
+      name: string;
+      value: string;
+    }>;
     channelBindings?: Array<{
       channelId: string;
       config?: Record<string, unknown> | null;
     }>;
   };
+
+  const normalizedExtraEnv = normalizeRuntimeEnv(body.extraEnv);
+  validateRuntimeEnv(normalizedExtraEnv);
 
   const normalizedChannelBindings = Array.isArray(body.channelBindings)
     ? body.channelBindings
@@ -488,6 +501,8 @@ app.post("/api/runtimes", async (c) => {
   logCreateRuntime("request_parsed", {
     workspaceId: body.workspaceId ?? null,
     start: body.start ?? true,
+    extraEnvCount: normalizedExtraEnv.length,
+    extraEnvNames: normalizedExtraEnv.map((item) => item.name),
     channelBindingCount: normalizedChannelBindings.length,
   });
 
@@ -548,6 +563,11 @@ app.post("/api/runtimes", async (c) => {
     });
   }
 
+  const runtimeMeta = {
+    ...(body.meta ?? {}),
+    extraEnv: normalizedExtraEnv,
+  };
+
   logCreateRuntime("db_create_runtime_start");
   const { runtime } = await createRuntime({
     userUuid,
@@ -556,7 +576,7 @@ app.post("/api/runtimes", async (c) => {
     title: body.title ?? null,
     cwd: body.cwd ?? null,
     protocol: body.protocol ?? "pi",
-    meta: body.meta ?? null,
+    meta: runtimeMeta,
   });
   currentRuntimeId = runtime.id;
   logCreateRuntime("db_create_runtime_success", { runtimeId: runtime.id });
