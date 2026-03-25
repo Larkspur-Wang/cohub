@@ -13,7 +13,7 @@ permissions:
 
 env:
   REGISTRY: git.talesofai.com
-  NAMESPACE: ${{ vars.GITEA_OWNER }}
+  NAMESPACE: ${{ secrets.GITEA_OWNER }}
   IMAGE_NAME: cohub-gateway
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ vars.GITEA_USERNAME }}
+          username: ${{ secrets.GITEA_USERNAME }}
           password: ${{ secrets.GITEA_PAT }}
 
       - name: Extract metadata
