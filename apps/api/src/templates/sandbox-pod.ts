@@ -43,6 +43,7 @@ export const SANDBOX_POD_TEMPLATE = {
   },
   spec: {
     restartPolicy: "Never",
+    imagePullSecrets: [{ name: "gitea-registry" }],
     containers: [
       {
         name: "runtime",
