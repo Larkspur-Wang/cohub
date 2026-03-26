@@ -17,6 +17,7 @@ async function handleLogout() {
 
 const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/login");
+const isRuntimeDetail = $derived(/^\/runtimes\/[^/]+$/.test(currentPath));
 
 const navItems = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
@@ -29,6 +30,10 @@ const navItems = [
 
 {#if isLogin}
   <main class="min-h-screen bg-[var(--bg-primary)]">
+    {@render children?.()}
+  </main>
+{:else if isRuntimeDetail}
+  <main class="h-screen overflow-hidden bg-[var(--bg-primary)]">
     {@render children?.()}
   </main>
 {:else}

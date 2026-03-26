@@ -18,9 +18,9 @@ let {
 }: Props = $props();
 
 const roleLabel = (role: SessionTreeNodeView["role"]) => {
-  if (role === "user") return "U";
-  if (role === "assistant") return "A";
-  return "S";
+  if (role === "user") return "u";
+  if (role === "assistant") return "a";
+  return "s";
 };
 
 const nodeMap = $derived(new Map(nodes.map((node) => [node.id, node])));
@@ -62,17 +62,13 @@ const currentPathIds = $derived.by(() => {
 
   while (current) {
     ids.add(current.id);
-    current = current.parentMessageId
-      ? nodeMap.get(current.parentMessageId)
-      : undefined;
+    current = current.parentMessageId ? nodeMap.get(current.parentMessageId) : undefined;
   }
 
   return ids;
 });
 
-const getDisplayDepth = (node: SessionTreeNodeView) =>
-  displayDepthMap.get(node.id) ?? 0;
-
+const getDisplayDepth = (node: SessionTreeNodeView) => displayDepthMap.get(node.id) ?? 0;
 const isBranchChild = (node: SessionTreeNodeView) => {
   if (!node.parentMessageId) return false;
   const parent = nodeMap.get(node.parentMessageId);
@@ -80,71 +76,65 @@ const isBranchChild = (node: SessionTreeNodeView) => {
 };
 </script>
 
-<div class="overflow-y-auto p-3 space-y-2 bg-gray-50/70 h-full">
+<div class="h-full overflow-y-auto px-2 py-2">
   {#if nodes.length === 0}
-    <div class="text-sm text-gray-400 px-2 py-3">No persisted tree nodes yet.</div>
+    <div class="px-2 py-2 text-[10px] leading-[1.55] text-white/30">No persisted tree nodes yet.</div>
   {:else}
-    {#each nodes as node (node.id)}
-      {@const displayDepth = getDisplayDepth(node)}
-      {@const branchChild = isBranchChild(node)}
-      {@const inCurrentPath = currentPathIds.has(node.id)}
+    <div class="space-y-0.5">
+      {#each nodes as node (node.id)}
+        {@const displayDepth = getDisplayDepth(node)}
+        {@const branchChild = isBranchChild(node)}
+        {@const inCurrentPath = currentPathIds.has(node.id)}
 
-      <div
-        class="relative rounded-2xl border px-3 py-3 bg-white transition-all {node.id === currentLeafMessageId ? 'border-brand ring-2 ring-brand/20' : inCurrentPath ? 'border-brand/30 bg-brand/[0.03]' : 'border-gray-200'}"
-        style={`margin-left: ${displayDepth * 18}px`}
-      >
-        {#if branchChild}
-          <div class="absolute -left-4 top-4 flex items-center text-gray-300 pointer-events-none">
-            <span class="text-lg leading-none">└</span>
-          </div>
-        {/if}
+        <div
+          class={`group relative rounded-md border px-2 py-1.5 transition-colors ${node.id === currentLeafMessageId ? 'border-white/10 bg-white/[0.05]' : inCurrentPath ? 'border-white/6 bg-white/[0.025]' : 'border-transparent bg-transparent hover:bg-white/[0.025]'}`}
+          style={`margin-left: ${displayDepth * 14}px`}
+        >
+          {#if branchChild}
+            <div class="pointer-events-none absolute -left-3 top-2 text-[10px] text-white/16">└</div>
+          {/if}
 
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2 mb-1 flex-wrap">
-              <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black {node.role === 'user' ? 'bg-brand text-white' : node.role === 'assistant' ? 'bg-slate-900 text-white' : 'bg-blue-100 text-blue-700'}">
-                {roleLabel(node.role)}
-              </span>
-              {#if displayDepth > 0}
-                <span class="text-[10px] uppercase tracking-[0.18em] font-black text-purple-500">
-                  branch {displayDepth}
-                </span>
-              {/if}
-              {#if node.childCount > 1}
-                <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-bold">
-                  {node.childCount} branches
-                </span>
-              {/if}
-              {#if node.isCurrentLeaf}
-                <span class="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-bold">
-                  current leaf
-                </span>
-              {/if}
+          <div class="flex items-start gap-2">
+            <div class="mt-[2px] flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-white/[0.04] text-[8px] font-semibold uppercase tracking-[0.2em] text-white/34">
+              {roleLabel(node.role)}
             </div>
 
-            <div class="text-sm text-gray-700 leading-6 line-clamp-3 break-words">
-              {node.text || '(empty)'}
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-[10.5px] font-medium leading-[1.4] tracking-[-0.01em] text-white/64">
+                {node.text || '(empty)'}
+              </div>
+              <div class="mt-0.5 flex flex-wrap items-center gap-1 text-[8px] font-semibold uppercase tracking-[0.22em] text-white/20">
+                {#if displayDepth > 0}
+                  <span>branch {displayDepth}</span>
+                {/if}
+                {#if node.childCount > 1}
+                  <span>{node.childCount} forks</span>
+                {/if}
+                {#if node.isCurrentLeaf}
+                  <span>current</span>
+                {/if}
+              </div>
             </div>
-          </div>
 
-          <div class="shrink-0 flex flex-col gap-2">
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
-              onclick={() => onSelectLeaf(node.id)}
-            >
-              View path
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer {selectedBranchFromId === node.id ? 'bg-brand text-white' : 'border border-brand/20 text-brand hover:bg-brand/5'}"
-              onclick={() => onBranchFrom(node.id)}
-            >
-              {selectedBranchFromId === node.id ? 'Branching here' : 'Branch from here'}
-            </button>
+            <div class="flex shrink-0 flex-col items-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                type="button"
+                class="rounded px-1.5 py-1 text-[8px] font-semibold uppercase tracking-[0.22em] text-white/28 transition-colors hover:bg-white/[0.04] hover:text-white/76 cursor-pointer"
+                onclick={() => onSelectLeaf(node.id)}
+              >
+                path
+              </button>
+              <button
+                type="button"
+                class={`rounded px-1.5 py-1 text-[8px] font-semibold uppercase tracking-[0.22em] transition-colors cursor-pointer ${selectedBranchFromId === node.id ? 'bg-white/[0.07] text-white/82' : 'text-white/28 hover:bg-white/[0.04] hover:text-white/76'}`}
+                onclick={() => onBranchFrom(node.id)}
+              >
+                {selectedBranchFromId === node.id ? 'branching' : 'branch'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    {/each}
+      {/each}
+    </div>
   {/if}
 </div>

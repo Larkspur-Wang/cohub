@@ -14,9 +14,9 @@ let {
 }: Props = $props();
 </script>
 
-<div class="border-t border-gray-100 p-4 bg-white">
+<div class="border-t border-white/5 bg-[#111111] px-4 py-3">
   {#if streamError}
-    <div class="mb-3 text-xs text-red-500 font-medium">{streamError}</div>
+    <div class="mb-2 text-[11px] text-red-300/76">{streamError}</div>
   {/if}
 
   <form
@@ -29,15 +29,15 @@ let {
     <textarea
       bind:value
       rows="3"
-      placeholder="Talk to your agent..."
-      class="flex-1 resize-none rounded-2xl border-2 border-gray-100 bg-gray-50 px-4 py-3 outline-none focus:border-brand focus:bg-white transition-all"
+      placeholder="Message session..."
+      class="min-h-[72px] flex-1 resize-none rounded-md border border-white/6 bg-white/[0.022] px-3 py-2 text-[12px] leading-6 text-white/84 outline-none transition-all duration-150 placeholder:text-white/18 focus:border-white/11 focus:bg-white/[0.035]"
     ></textarea>
     <button
       type="submit"
       disabled={sending || !value.trim()}
-      class="px-6 py-3 rounded-2xl bg-brand text-white font-black shadow-lg shadow-brand/20 hover:-translate-y-0.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      class="rounded-md border border-white/6 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-white/70 transition-all duration-150 hover:bg-white/[0.035] hover:text-white/88 disabled:cursor-not-allowed disabled:opacity-35 cursor-pointer"
     >
-      {sending ? 'Sending...' : 'Send'}
+      {sending ? 'sending' : 'send'}
     </button>
   </form>
 </div>

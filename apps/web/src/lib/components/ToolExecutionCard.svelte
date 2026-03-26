@@ -22,44 +22,29 @@ const prettyArgs = (args?: Record<string, unknown>) => {
 const isCodeTool = $derived(
   ["bash", "read", "write", "edit", "grep", "find"].includes(tool.name),
 );
-const statusClass = $derived(
-  tool.status === "running"
-    ? "bg-slate-900 text-slate-100"
-    : tool.status === "error"
-      ? "bg-red-50 text-red-800"
-      : "bg-slate-100 text-slate-800",
-);
 </script>
 
-<div class="max-w-[95%]">
-  <div class="rounded-2xl border overflow-hidden shadow-sm {tool.status === 'error' ? 'border-red-200' : 'border-slate-200'}">
-    <div class="px-4 py-3 flex items-center justify-between gap-3 {statusClass}">
-      <div>
-        <div class="text-[10px] uppercase tracking-[0.2em] font-black opacity-70">Tool</div>
-        <div class="font-bold mt-1">{tool.name}</div>
-      </div>
-      <div class="text-xs font-bold uppercase tracking-widest">
+<div class="max-w-[46rem]">
+  <div class="overflow-hidden rounded-md border border-white/5 bg-[#131313]">
+    <div class="flex items-center justify-between gap-3 border-b border-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-white/30">
+      <span>{tool.name}</span>
+      <span class={`${tool.status === 'error' ? 'text-red-300/76' : tool.status === 'running' ? 'text-amber-200/76' : 'text-white/30'}`}>
         {tool.status}
-      </div>
+      </span>
     </div>
 
     {#if tool.args && Object.keys(tool.args).length > 0}
-      <div class="px-4 py-3 border-t border-slate-200 bg-slate-50">
-        <div class="text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 mb-2">Arguments</div>
-
+      <div class="border-b border-white/5 bg-white/[0.015] px-3 py-2">
         {#if tool.name === 'bash' && typeof tool.args.command === 'string'}
-          <pre class="text-xs leading-6 overflow-x-auto font-mono whitespace-pre-wrap break-words text-slate-800">$ {tool.args.command}</pre>
+          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/62">$ {tool.args.command}</pre>
         {:else if ['read', 'write', 'edit'].includes(tool.name) && typeof tool.args.path === 'string'}
-          <pre class="text-xs leading-6 overflow-x-auto font-mono whitespace-pre-wrap break-words text-slate-800">{tool.args.path}</pre>
+          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/62">{tool.args.path}</pre>
         {:else}
-          <pre class="text-xs leading-6 overflow-x-auto font-mono whitespace-pre-wrap break-words text-slate-800">{prettyArgs(tool.args)}</pre>
+          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/62">{prettyArgs(tool.args)}</pre>
         {/if}
       </div>
     {/if}
 
-    <div class="border-t border-slate-200">
-      <div class="px-4 py-2 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 bg-white">Output</div>
-      <pre class="p-4 text-xs leading-6 overflow-x-auto font-mono whitespace-pre-wrap break-words {isCodeTool ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-800'}">{tool.output}</pre>
-    </div>
+    <pre class={`overflow-x-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-5 ${isCodeTool ? 'bg-[#101010] text-white/74' : 'bg-[#141414] text-white/68'}`}>{tool.output}</pre>
   </div>
 </div>
