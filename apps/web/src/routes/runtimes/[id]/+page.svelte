@@ -307,7 +307,7 @@ $effect(() => {
     tabs = mergeTabsWithSavedOrder([{ key: `session:${data.session.id}`, type: "session", sessionId: data.session.id, title: initialTitle }]);
     activeTabKey = `session:${data.session.id}`;
   } else {
-    tabs = mergeTabsWithSavedOrder([{ key: `draft:1`, type: "draft", title: "New session" }]);
+    tabs = mergeTabsWithSavedOrder([{ key: "draft:1", type: "draft", title: "New session" }]);
     activeTabKey = "draft:1";
     draftCounter = 2;
   }
