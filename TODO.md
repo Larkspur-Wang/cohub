@@ -9,3 +9,4 @@
 - [ ] Web 版的 session 管理梳理
 - [ ] runtime 安全问题，当前暴露了 redis url，可能要换一种通信方式
 - [ ] runtime 的休眠和恢复
+- [ ] 指令系统，简单的 /new 等指令
