@@ -55,7 +55,7 @@ import {
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
-import { handleInboundEvent } from "./channels.js";
+import { handleInboundEvent, getBindingsByRuntimeId } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, isRedisReady } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
@@ -563,7 +563,22 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
   const sessions = await listRuntimeSessions(runtime.id);
-  return c.json({ runtime, sessions });
+  const bindings = await getBindingsByRuntimeId(runtime.id);
+
+  const bindingsBySessionId = new Map<string, typeof bindings>();
+  for (const binding of bindings) {
+    const existing = bindingsBySessionId.get(binding.runtimeSessionId) ?? [];
+    existing.push(binding);
+    bindingsBySessionId.set(binding.runtimeSessionId, existing);
+  }
+
+  return c.json({
+    runtime,
+    sessions: sessions.map((session) => ({
+      ...session,
+      bindings: bindingsBySessionId.get(session.id) ?? [],
+    })),
+  });
 });
 
 app.get("/api/runtimes/:id/session-graph", async (c) => {

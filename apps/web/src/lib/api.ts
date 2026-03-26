@@ -9,6 +9,21 @@ type ApiError = {
 
 type Fetch = typeof globalThis.fetch;
 
+export type SessionBindingRecord = {
+  id: string;
+  runtimeId: string;
+  runtimeSessionId: string;
+  runtimeChannelId: string;
+  provider: string;
+  bindingKey: string;
+  externalChatId: string;
+  status: string | null;
+  meta?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt?: string | null;
+};
+
 export type SessionRecord = {
   id: string;
   runtimeId: string;
@@ -18,6 +33,7 @@ export type SessionRecord = {
   protocol: string | null;
   externalSessionId?: string | null;
   meta?: Record<string, unknown> | null;
+  bindings?: SessionBindingRecord[];
   parentSessionId?: string | null;
   forkedFromMessageId?: string | null;
   lineageRootSessionId?: string | null;

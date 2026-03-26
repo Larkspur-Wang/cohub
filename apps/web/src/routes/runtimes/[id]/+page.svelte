@@ -102,6 +102,123 @@ function getSessionTitle(session: SessionRecord, index: number) {
   return session.title?.trim() || session.latestMessageText?.trim() || `Session ${index + 1}`;
 }
 
+function getAllBindingDisplayLabels(session: SessionRecord) {
+  const bindings = session.bindings ?? [];
+  const seen = new Set<string>();
+  const labels: string[] = [];
+
+  for (const binding of bindings) {
+    const meta = (binding.meta ?? {}) as Record<string, unknown>;
+    const conversation = (meta.conversation ?? null) as Record<string, unknown> | null;
+    const providerMeta = (meta.providerMeta ?? null) as Record<string, unknown> | null;
+
+    if (binding.provider === "web") continue;
+
+    let label: string | null = null;
+    if (binding.provider === "discord") {
+      const conversationMeta = (conversation?.meta as Record<string, unknown> | null) ?? null;
+      const isDm = conversationMeta?.isDm === true || providerMeta?.isDm === true;
+      const isThread = conversationMeta?.isThread === true || providerMeta?.isThread === true;
+      const threadName = typeof providerMeta?.threadName === "string"
+        ? providerMeta.threadName
+        : typeof conversationMeta?.threadName === "string"
+          ? conversationMeta.threadName
+          : null;
+      const channelName = typeof providerMeta?.channelName === "string"
+        ? providerMeta.channelName
+        : typeof providerMeta?.parentChannelName === "string"
+          ? providerMeta.parentChannelName
+          : typeof conversationMeta?.channelName === "string"
+            ? conversationMeta.channelName
+            : null;
+
+      if (isDm) label = "Discord DM";
+      else if (isThread) label = threadName ? `Discord thread · ${threadName}` : "Discord thread";
+      else if (channelName) label = `Discord channel · #${channelName}`;
+      else label = "Discord channel";
+    } else {
+      const conversationName = typeof providerMeta?.conversationName === "string"
+        ? providerMeta.conversationName
+        : typeof conversation?.name === "string"
+          ? conversation.name
+          : null;
+      label = conversationName ? `${binding.provider} · ${conversationName}` : binding.provider;
+    }
+
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+
+  return labels;
+}
+
+function getPrimaryBinding(session: SessionRecord) {
+  return session.bindings?.[0] ?? null;
+}
+
+function getBindingDisplayLabel(session: SessionRecord) {
+  const binding = getPrimaryBinding(session);
+  if (!binding) return null;
+
+  const meta = (binding.meta ?? {}) as Record<string, unknown>;
+  const conversation = (meta.conversation ?? null) as Record<string, unknown> | null;
+  const providerMeta = (meta.providerMeta ?? null) as Record<string, unknown> | null;
+
+  if (binding.provider === "web") return null;
+
+  if (binding.provider === "discord") {
+    const isDm = conversation?.meta && typeof conversation.meta === "object"
+      ? (conversation.meta as Record<string, unknown>).isDm === true
+      : providerMeta?.isDm === true;
+    const isThread = conversation?.meta && typeof conversation.meta === "object"
+      ? (conversation.meta as Record<string, unknown>).isThread === true
+      : providerMeta?.isThread === true;
+
+    const threadName = typeof providerMeta?.threadName === "string"
+      ? providerMeta.threadName
+      : typeof (conversation?.meta as Record<string, unknown> | null)?.threadName === "string"
+        ? (conversation?.meta as Record<string, unknown>).threadName as string
+        : null;
+
+    const channelName = typeof providerMeta?.channelName === "string"
+      ? providerMeta.channelName
+      : typeof providerMeta?.parentChannelName === "string"
+        ? providerMeta.parentChannelName
+        : null;
+
+    if (isDm) return "Discord DM";
+    if (isThread) return threadName ? `Discord thread · ${threadName}` : "Discord thread";
+    if (channelName) return `Discord channel · #${channelName}`;
+    return "Discord channel";
+  }
+
+  const conversationName = typeof providerMeta?.conversationName === "string"
+    ? providerMeta.conversationName
+    : typeof conversation?.name === "string"
+      ? conversation.name
+      : null;
+
+  return conversationName ? `${binding.provider} · ${conversationName}` : binding.provider;
+}
+
+function getSessionSubLabel(session: SessionRecord) {
+  const binding = getPrimaryBinding(session);
+  if (!binding) return null;
+
+  const providerMeta = ((binding.meta ?? {}) as Record<string, unknown>).providerMeta as Record<string, unknown> | null;
+
+  if (binding.provider === "discord") {
+    const channelName = typeof providerMeta?.channelName === "string" ? providerMeta.channelName : null;
+    const guildName = typeof providerMeta?.guildName === "string" ? providerMeta.guildName : null;
+    if (channelName && guildName) return `#${channelName} · ${guildName}`;
+    if (guildName) return guildName;
+  }
+
+  return null;
+}
+
 async function loadRuntime() {
   try {
     runtime = await getRuntime(initialData.runtime.id);
@@ -317,6 +434,12 @@ $effect(() => {
             type="button"
           >
             <div class="font-medium text-gray-900">{getSessionTitle(session, index)}</div>
+            {#if getBindingDisplayLabel(session)}
+              <div class="mt-1 text-xs text-brand/80">{getBindingDisplayLabel(session)}</div>
+            {/if}
+            {#if getSessionSubLabel(session)}
+              <div class="mt-1 text-[11px] text-gray-400">{getSessionSubLabel(session)}</div>
+            {/if}
             <div class="mt-1 text-xs text-gray-500">messages: {session.totalMessages ?? 0} · depth: {session.forkDepth ?? 0}</div>
             {#if session.parentSessionId}
               <div class="mt-1 text-[11px] text-gray-400 break-all">parent: {session.parentSessionId}</div>
@@ -333,6 +456,19 @@ $effect(() => {
         <div class="flex items-center justify-between gap-4">
           <div>
             <div class="font-medium text-white">{activeSessionState.session.title || activeSessionState.session.latestMessageText || activeSessionState.session.id}</div>
+            {#if getBindingDisplayLabel(activeSessionState.session)}
+              <div class="mt-1 text-xs text-brand/80">{getBindingDisplayLabel(activeSessionState.session)}</div>
+            {/if}
+            {#if getSessionSubLabel(activeSessionState.session)}
+              <div class="mt-1 text-[11px] text-white/40">{getSessionSubLabel(activeSessionState.session)}</div>
+            {/if}
+            {#if getAllBindingDisplayLabels(activeSessionState.session).length > 1}
+              <div class="mt-2 flex flex-wrap gap-2">
+                {#each getAllBindingDisplayLabels(activeSessionState.session) as label (label)}
+                  <span class="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/65">{label}</span>
+                {/each}
+              </div>
+            {/if}
             <div class="mt-1 text-xs text-white/40 break-all">session: {activeSessionState.session.id}</div>
           </div>
           <div class="flex items-center gap-2">

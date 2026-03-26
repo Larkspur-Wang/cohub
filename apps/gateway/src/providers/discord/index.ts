@@ -249,6 +249,9 @@ export class DiscordProvider {
               isThread: true,
               isDm: false,
               threadName: meta.threadName,
+              channelName: meta.threadName,
+              parentChannelName: "parent" in thread && thread.parent && "name" in thread.parent ? thread.parent.name ?? null : null,
+              guildName: thread.guild?.name ?? null,
               archived: meta.archived,
               locked: meta.locked,
               autoArchiveDuration: meta.autoArchiveDuration,
@@ -264,6 +267,9 @@ export class DiscordProvider {
             isThread: true,
             threadCreate: true,
             threadName: meta.threadName,
+            channelName: meta.threadName,
+            parentChannelName: "parent" in thread && thread.parent && "name" in thread.parent ? thread.parent.name ?? null : null,
+            guildName: thread.guild?.name ?? null,
             parentId: meta.parentId,
           },
         });
@@ -346,6 +352,12 @@ export class DiscordProvider {
             isDm: isDM,
             isThread,
             threadName: "name" in message.channel ? message.channel.name ?? null : null,
+            channelName: "name" in message.channel ? message.channel.name ?? null : null,
+            parentChannelName:
+              isThread && "parent" in message.channel && message.channel.parent && "name" in message.channel.parent
+                ? message.channel.parent.name ?? null
+                : null,
+            guildName: message.guild?.name ?? null,
           },
         },
         message: {
@@ -380,6 +392,12 @@ export class DiscordProvider {
           isDm: isDM,
           isThread,
           threadParentId: parentConversationId,
+          channelName: "name" in message.channel ? message.channel.name ?? null : null,
+          parentChannelName:
+            isThread && "parent" in message.channel && message.channel.parent && "name" in message.channel.parent
+              ? message.channel.parent.name ?? null
+              : null,
+          guildName: message.guild?.name ?? null,
         },
       };
 
