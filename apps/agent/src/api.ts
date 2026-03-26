@@ -73,6 +73,20 @@ const extractTextFromContent = (content: unknown): string => {
     .trim();
 };
 
+const extractThinkingFromContent = (content: unknown): string => {
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .filter(
+      (item): item is { type: string; thinking?: string } =>
+        !!item && typeof item === "object" && "type" in item,
+    )
+    .filter((item) => item.type === "thinking" && typeof item.thinking === "string")
+    .map((item) => item.thinking ?? "")
+    .join("\n")
+    .trim();
+};
+
 const toAcpCompatibleContent = (assistantMessage: Record<string, unknown>): UnifiedContentBlock[] => {
   const content = assistantMessage.content;
   const blocks: PersistMessagePayload["message"]["content"] = [];
@@ -148,6 +162,62 @@ const toToolCallRecords = (
   return calls;
 };
 
+const summarizeToolArgs = (toolName: string, args: unknown): string => {
+  if (!args || typeof args !== "object") return "";
+  const record = args as Record<string, unknown>;
+
+  if (toolName === "bash" && typeof record.command === "string") {
+    return record.command.trim().slice(0, 120);
+  }
+
+  if (typeof record.path === "string") return record.path;
+  if (typeof record.pattern === "string" && typeof record.path === "string") {
+    return `${record.pattern} in ${record.path}`;
+  }
+  if (typeof record.query === "string") return record.query;
+
+  const first = Object.entries(record)
+    .filter(([, value]) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    .slice(0, 2)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(" ");
+  return first.slice(0, 120);
+};
+
+const toToolCallRenderStates = (
+  assistantMessage: Record<string, unknown>,
+  toolResults: Array<Record<string, unknown>>,
+) => {
+  const toolResultsById = new Map(
+    toolResults.map((toolResult) => [String(toolResult.toolCallId ?? ""), toolResult]),
+  );
+  const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
+
+  return content
+    .filter(
+      (item): item is Record<string, unknown> =>
+        !!item && typeof item === "object" && (item as Record<string, unknown>).type === "toolCall",
+    )
+    .map((block) => {
+      const toolCallId = typeof block.id === "string" ? block.id : null;
+      const toolName = typeof block.name === "string" ? block.name : "tool";
+      const matched = toolCallId ? toolResultsById.get(toolCallId) : null;
+      return {
+        toolCallId,
+        toolName,
+        status: matched ? (matched.isError ? "failed" : "done") : "running",
+        summary: summarizeToolArgs(toolName, block.arguments),
+      };
+    });
+};
+
+const summarizeThinking = (thinking: string): string => {
+  const trimmed = thinking.trim();
+  if (!trimmed) return "";
+  const lines = trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  return lines.slice(0, 3).join("\n").slice(0, 600);
+};
+
 export async function registerRuntimeSession(input: RegisterRuntimeSessionInput) {
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions`;
   const response = await fetch(url, {
@@ -170,6 +240,28 @@ export async function registerRuntimeSession(input: RegisterRuntimeSessionInput)
   } | null>;
 }
 
+export async function updateProviderRender(input: {
+  runtimeId: string;
+  runtimeSessionId: string;
+  renderMode?: string | null;
+  displayMode?: string | null;
+  thinking?: string | null;
+  toolCalls?: Array<Record<string, unknown>> | null;
+  answer?: string | null;
+}) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/provider-render`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Update provider render failed ${response.status}: ${text}`);
+  }
+}
+
 export async function persistAssistantMessage(input: {
   runtimeId: string;
   runtimeSessionId: string;
@@ -188,6 +280,8 @@ export async function persistAssistantMessage(input: {
 
   const assistant = assistantMessage as Record<string, unknown>;
   const toolCalls = toToolCallRecords(assistant, toolResultsRaw);
+  const thinking = extractThinkingFromContent(assistant.content);
+  const toolCallRenderStates = toToolCallRenderStates(assistant, toolResultsRaw);
   const content = toAcpCompatibleContent(assistant);
   const text = extractTextFromContent(assistant.content);
 
@@ -212,6 +306,9 @@ export async function persistAssistantMessage(input: {
         runtimeId: input.runtimeId,
         sessionId: input.runtimeSessionId,
         rawStopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
+        thinking,
+        thinkingSummary: summarizeThinking(thinking),
+        toolCallRenderStates,
       },
       usage:
         assistant.usage && typeof assistant.usage === "object"

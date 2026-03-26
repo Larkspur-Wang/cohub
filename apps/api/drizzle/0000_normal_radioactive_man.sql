@@ -85,6 +85,25 @@ CREATE TABLE "runtimes" (
 	"updated_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
+CREATE TABLE "provider_message_refs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"provider" varchar(50) NOT NULL,
+	"runtime_id" uuid NOT NULL,
+	"runtime_session_id" uuid NOT NULL,
+	"runtime_channel_id" uuid,
+	"session_message_id" uuid,
+	"direction" varchar(20) NOT NULL,
+	"external_conversation_id" varchar(255) NOT NULL,
+	"external_message_id" varchar(255) NOT NULL,
+	"parent_external_conversation_id" varchar(255),
+	"parent_external_message_id" varchar(255),
+	"external_author_id" varchar(255),
+	"external_author_name" varchar(255),
+	"meta" jsonb,
+	"created_at" timestamp with time zone DEFAULT now(),
+	"updated_at" timestamp with time zone DEFAULT now()
+);
+--> statement-breakpoint
 CREATE TABLE "session_messages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"session_id" uuid NOT NULL,
@@ -188,6 +207,12 @@ CREATE INDEX "idx_runtime_sessions_lineage_root_session_id" ON "runtime_sessions
 CREATE INDEX "idx_runtime_sessions_forked_from_message_id" ON "runtime_sessions" USING btree ("forked_from_message_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_sessions_last_message_id" ON "runtime_sessions" USING btree ("last_message_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_sessions_last_message_at" ON "runtime_sessions" USING btree ("last_message_at");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_provider_conversation" ON "provider_message_refs" USING btree ("provider","external_conversation_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_provider_message_refs_provider_message" ON "provider_message_refs" USING btree ("provider","external_conversation_id","external_message_id","direction");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_runtime_session" ON "provider_message_refs" USING btree ("runtime_session_id");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_session_message" ON "provider_message_refs" USING btree ("session_message_id");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_parent_message" ON "provider_message_refs" USING btree ("provider","parent_external_conversation_id","parent_external_message_id");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_runtime_channel" ON "provider_message_refs" USING btree ("runtime_channel_id");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_user_uuid" ON "runtimes" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_workspace_id" ON "runtimes" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_agent_id" ON "runtimes" USING btree ("agent_id");--> statement-breakpoint

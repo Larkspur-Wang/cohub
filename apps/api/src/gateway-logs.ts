@@ -1,7 +1,7 @@
 import { db } from "./db/index.js";
-import { gatewayLogs } from "./db/schema.js";
+import { gatewayLogs, providerMessageRefs } from "./db/schema.js";
 import { createBlockingRedisClient } from "./redis.js";
-import type { GatewayLogEvent } from "@cohub/protocol";
+import type { GatewayLogEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
 const LOG_STREAM = "stream:gateway:logs";
 
@@ -56,4 +56,52 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
     errorMessage: event.errorMessage ?? null,
     createdAt: new Date(event.timestamp),
   });
+
+  if (event.direction !== "outbound" || !event.externalMessageId) return;
+
+  const rawPayload = event.rawPayload as Partial<GatewayOutboundCommand>;
+  if (!rawPayload.runtimeId || !rawPayload.runtimeSessionId) return;
+
+  await db
+    .insert(providerMessageRefs)
+    .values({
+      provider: event.provider,
+      runtimeId: rawPayload.runtimeId,
+      runtimeSessionId: rawPayload.runtimeSessionId,
+      runtimeChannelId: event.channelId,
+      sessionMessageId: rawPayload.sessionMessageId ?? null,
+      direction: "outbound",
+      externalConversationId: event.externalChatId,
+      externalMessageId: event.externalMessageId,
+      externalAuthorId: null,
+      externalAuthorName: null,
+      meta: {
+        commandId: rawPayload.commandId ?? event.correlationId ?? null,
+        replyToExternalMessageId: rawPayload.replyToExternalMessageId ?? null,
+        gatewayLogId: event.logId,
+        providerMeta: rawPayload.meta ?? null,
+      },
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [
+        providerMessageRefs.provider,
+        providerMessageRefs.externalConversationId,
+        providerMessageRefs.externalMessageId,
+        providerMessageRefs.direction,
+      ],
+      set: {
+        runtimeId: rawPayload.runtimeId,
+        runtimeSessionId: rawPayload.runtimeSessionId,
+        runtimeChannelId: event.channelId,
+        sessionMessageId: rawPayload.sessionMessageId ?? null,
+        meta: {
+          commandId: rawPayload.commandId ?? event.correlationId ?? null,
+          replyToExternalMessageId: rawPayload.replyToExternalMessageId ?? null,
+          gatewayLogId: event.logId,
+          providerMeta: rawPayload.meta ?? null,
+        },
+        updatedAt: new Date(),
+      },
+    });
 };

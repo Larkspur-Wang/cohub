@@ -210,6 +210,52 @@ export const runtimeSessionBindings = pgTable(
   }),
 );
 
+export const providerMessageRefs = pgTable(
+  "provider_message_refs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: varchar("provider", { length: 50 }).notNull(),
+    runtimeId: uuid("runtime_id").notNull(),
+    runtimeSessionId: uuid("runtime_session_id").notNull(),
+    runtimeChannelId: uuid("runtime_channel_id"),
+    sessionMessageId: uuid("session_message_id"),
+    direction: varchar("direction", { length: 20 }).notNull(),
+    externalConversationId: varchar("external_conversation_id", { length: 255 }).notNull(),
+    externalMessageId: varchar("external_message_id", { length: 255 }).notNull(),
+    parentExternalConversationId: varchar("parent_external_conversation_id", { length: 255 }),
+    parentExternalMessageId: varchar("parent_external_message_id", { length: 255 }),
+    externalAuthorId: varchar("external_author_id", { length: 255 }),
+    externalAuthorName: varchar("external_author_name", { length: 255 }),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    providerConversationIdx: index("idx_provider_message_refs_provider_conversation").on(
+      table.provider,
+      table.externalConversationId,
+    ),
+    providerMessageIdx: uniqueIndex("uq_provider_message_refs_provider_message").on(
+      table.provider,
+      table.externalConversationId,
+      table.externalMessageId,
+      table.direction,
+    ),
+    runtimeSessionIdx: index("idx_provider_message_refs_runtime_session").on(
+      table.runtimeSessionId,
+    ),
+    sessionMessageIdx: index("idx_provider_message_refs_session_message").on(
+      table.sessionMessageId,
+    ),
+    parentMessageIdx: index("idx_provider_message_refs_parent_message").on(
+      table.provider,
+      table.parentExternalConversationId,
+      table.parentExternalMessageId,
+    ),
+    runtimeChannelIdx: index("idx_provider_message_refs_runtime_channel").on(table.runtimeChannelId),
+  }),
+);
+
 export const sessionMessages = pgTable(
   "session_messages",
   {

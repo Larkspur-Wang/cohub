@@ -47,6 +47,7 @@ import {
   provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
+  updateProviderRenderForSession,
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
   writeInitialRuntimeProvision,
@@ -775,6 +776,35 @@ app.post("/api/sessions/:id/fork", async (c) => {
   });
 
   return c.json({ ok: true, session: forked });
+});
+
+app.post("/internal/runtimes/:id/sessions/:sessionId/provider-render", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const runtimeId = c.req.param("id");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
+    return c.json({ message: "runtime session not found" }, 404);
+  }
+
+  const body = await c.req.json<{
+    renderMode?: string | null;
+    displayMode?: string | null;
+    thinking?: string | null;
+    toolCalls?: Array<Record<string, unknown>> | null;
+    answer?: string | null;
+  }>().catch(() => null);
+
+  if (!body) return c.json({ message: "invalid body" }, 400);
+
+  await updateProviderRenderForSession({
+    runtimeId,
+    runtimeSessionId: sessionId,
+    render: body,
+  });
+
+  return c.json({ ok: true });
 });
 
 app.get("/api/runtimes/:id/stream", async (c) => {

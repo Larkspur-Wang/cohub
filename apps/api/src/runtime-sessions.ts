@@ -7,6 +7,7 @@ import type {
   PersistToolCall,
   RegisterRuntimeSessionInput,
   UnifiedContentBlock,
+  GatewayOutboundCommand,
 } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import {
@@ -16,6 +17,7 @@ import {
   sessionToolCalls,
   runtimeChannels,
   workspaces,
+  providerMessageRefs,
 } from "./db/schema.js";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
@@ -30,7 +32,7 @@ import {
 } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
-import { bindRuntimeChannelsToGateway, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding } from "./channels.js";
+import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 
 export type SessionMessageBlock = UnifiedContentBlock;
@@ -132,6 +134,94 @@ const buildRuntimeContainerEnv = (input: {
     { name: "WORKSPACE_GIT_EMAIL", value: input.workspaceGitEmail ?? "" },
     ...(input.extraEnv ?? []),
   ];
+};
+
+const summarizeThinkingForCompact = (thinking: string) => {
+  const trimmed = thinking.trim();
+  if (!trimmed) return "";
+  return trimmed
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("\n")
+    .slice(0, 320);
+};
+
+const summarizeThinkingForMinimal = (thinking: string) => {
+  const trimmed = thinking.trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 1).join("\n").slice(0, 100);
+};
+
+const buildProviderRenderBlocks = (input: {
+  displayMode?: string | null;
+  thinking?: string | null;
+  toolCalls?: Array<Record<string, unknown>> | null;
+  answer?: string | null;
+}) => {
+  const displayMode = input.displayMode === "full" ? "full" : input.displayMode === "minimal" ? "minimal" : "compact";
+  const sections: string[] = [];
+
+  const thinking = (input.thinking ?? "").trim();
+  if (thinking) {
+    const renderedThinking = displayMode === "full"
+      ? thinking
+      : displayMode === "minimal"
+        ? summarizeThinkingForMinimal(thinking)
+        : summarizeThinkingForCompact(thinking);
+    if (renderedThinking) {
+      sections.push(displayMode === "minimal" ? `🤔 ${renderedThinking}` : `🤔 Thinking\n${renderedThinking}`);
+    }
+  }
+
+  const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
+  if (toolCalls.length > 0) {
+    const lines = toolCalls.map((tool) => {
+      const status = typeof tool.status === "string" ? tool.status : "queued";
+      const toolName = typeof tool.toolName === "string" ? tool.toolName : "tool";
+      const summary = typeof tool.summary === "string" && tool.summary.trim().length > 0 ? ` ${tool.summary.trim()}` : "";
+      return `[${status}] ${toolName}${summary}`;
+    });
+    if (displayMode === "minimal") {
+      sections.push(...lines.slice(0, 2).map((line) => `🛠 ${line}`));
+      if (lines.length > 2) sections.push(`🛠 +${lines.length - 2} more`);
+    } else {
+      sections.push(`🛠 Tools\n${lines.join("\n")}`);
+    }
+  }
+
+  const answer = (input.answer ?? "").trim();
+  if (answer) {
+    sections.push(displayMode === "minimal" ? `💬 ${answer.slice(0, 280)}` : `💬 Answer\n${answer}`);
+  }
+
+  const text = sections.join("\n\n").trim();
+  return text ? [{ type: "text", text }] satisfies UnifiedContentBlock[] : [];
+};
+
+const findLatestOutboundRefForSessionMessage = async (input: {
+  provider: string;
+  externalConversationId: string;
+  sessionMessageId?: string | null;
+}) => {
+  if (!input.sessionMessageId) return null;
+
+  const [ref] = await db
+    .select()
+    .from(providerMessageRefs)
+    .where(
+      and(
+        eq(providerMessageRefs.provider, input.provider),
+        eq(providerMessageRefs.externalConversationId, input.externalConversationId),
+        eq(providerMessageRefs.sessionMessageId, input.sessionMessageId),
+        eq(providerMessageRefs.direction, "outbound"),
+      ),
+    )
+    .orderBy(sql`${providerMessageRefs.createdAt} desc`)
+    .limit(1);
+
+  return ref ?? null;
 };
 
 export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
@@ -569,6 +659,8 @@ export const createUserMessageNode = async (input: {
   runtimeSessionId: string;
   text: string;
   images?: Array<{ url: string }>;
+  externalMessageId?: string | null;
+  meta?: Record<string, unknown> | null;
 }) => {
   const session = await getRuntimeSessionById(input.runtimeSessionId);
   if (!session) throw new Error("Runtime session not found");
@@ -586,11 +678,11 @@ export const createUserMessageNode = async (input: {
       sessionId: input.runtimeSessionId,
       role: "user",
       source: "internal",
-      externalMessageId: null,
+      externalMessageId: input.externalMessageId ?? null,
       protocolMessageId: null,
       content,
       text: extractPlainText(content),
-      meta: null,
+      meta: input.meta ?? null,
       sequence,
       prevMessageId: session.lastMessageId ?? null,
     })
@@ -711,11 +803,20 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   if (bindings.length > 0) {
     for (const binding of bindings) {
       await touchRuntimeSessionBinding(binding.id).catch(console.error);
-      dispatchOutboundMessage({
+      await dispatchOutboundMessage({
         runtimeChannelId: binding.runtimeChannelId,
+        runtimeId: session.runtimeId,
+        runtimeSessionId: session.id,
+        sessionMessageId: messageNode.id,
+        provider: binding.provider,
         externalChatId: binding.externalChatId,
         content: messageNode.content,
         replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+        meta: {
+          bindingKey: binding.bindingKey,
+          sessionMessageRole: messageNode.role,
+          source: "session_persist",
+        },
       }).catch(console.error);
     }
   } else {
@@ -725,10 +826,17 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
       .where(eq(runtimeChannels.runtimeId, session.runtimeId));
 
     for (const rc of channels) {
-      dispatchOutboundMessage({
+      await dispatchOutboundMessage({
         runtimeChannelId: rc.id,
+        runtimeId: session.runtimeId,
+        runtimeSessionId: session.id,
+        sessionMessageId: messageNode.id,
         content: messageNode.content,
         replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+        meta: {
+          sessionMessageRole: messageNode.role,
+          source: "session_persist_broadcast",
+        },
       }).catch(console.error);
     }
   }
@@ -994,6 +1102,62 @@ export const readRuntimeOutputStream = async (input: {
   })();
 
   return iterator;
+};
+
+export const updateProviderRenderForSession = async (input: {
+  runtimeId: string;
+  runtimeSessionId: string;
+  render: {
+    renderMode?: string | null;
+    displayMode?: string | null;
+    thinking?: string | null;
+    toolCalls?: Array<Record<string, unknown>> | null;
+    answer?: string | null;
+  };
+}) => {
+  const session = await getRuntimeSessionById(input.runtimeSessionId);
+  if (!session || session.runtimeId !== input.runtimeId) {
+    throw new Error("Runtime session not found");
+  }
+
+  const bindings = await getBindingsBySessionId(input.runtimeSessionId);
+  for (const binding of bindings) {
+    const existingRef = await findLatestOutboundRefForSessionMessage({
+      provider: binding.provider,
+      externalConversationId: binding.externalChatId,
+      sessionMessageId: session.lastMessageId ?? null,
+    });
+
+    const content = buildProviderRenderBlocks({
+      displayMode: input.render.displayMode,
+      thinking: input.render.thinking,
+      toolCalls: input.render.toolCalls,
+      answer: input.render.answer,
+    });
+
+    if (content.length === 0) continue;
+
+    await dispatchOutboundMessage({
+      runtimeChannelId: binding.runtimeChannelId,
+      runtimeId: input.runtimeId,
+      runtimeSessionId: input.runtimeSessionId,
+      sessionMessageId: session.lastMessageId ?? undefined,
+      provider: binding.provider,
+      externalChatId: binding.externalChatId,
+      content,
+      meta: {
+        renderMode: "rich_status",
+        displayMode: input.render.displayMode ?? ((binding.meta as Record<string, unknown> | null)?.displayMode as string | undefined) ?? "compact",
+        thinking: input.render.thinking ?? "",
+        toolCalls: input.render.toolCalls ?? [],
+        answer: input.render.answer ?? "",
+        editExternalMessageId: existingRef?.externalMessageId ?? null,
+        providerMeta: (binding.meta as Record<string, unknown> | null)?.providerMeta ?? null,
+      },
+    });
+  }
+
+  return true;
 };
 
 export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000) => {

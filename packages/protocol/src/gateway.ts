@@ -3,6 +3,7 @@ export type ChannelProvider = "web" | "discord" | "feishu" | "telegram" | "slack
 export interface GatewayInboundEvent {
   eventId: string;
   timestamp: number;
+  eventType?: "message_create" | "conversation_create";
 
   channelId: string;
   provider: ChannelProvider;
@@ -10,11 +11,22 @@ export interface GatewayInboundEvent {
   externalMessageId: string;
   bindingKey?: string;
 
+  conversation: {
+    id: string;
+    parentId?: string | null;
+    meta?: Record<string, unknown> | null;
+  };
+  message?: {
+    parentMessageId?: string | null;
+    meta?: Record<string, unknown> | null;
+  };
+
   sender: {
     id: string;
     name?: string;
   };
   content: import("./session-ingestion.js").UnifiedContentBlock[];
+  meta?: Record<string, unknown> | null;
 }
 
 export interface GatewayOutboundCommand {
@@ -28,6 +40,10 @@ export interface GatewayOutboundCommand {
   content: import("./session-ingestion.js").UnifiedContentBlock[];
 
   replyToExternalMessageId?: string;
+  runtimeId?: string;
+  runtimeSessionId?: string;
+  sessionMessageId?: string;
+  meta?: Record<string, unknown> | null;
 }
 
 export interface GatewayControlCommand {

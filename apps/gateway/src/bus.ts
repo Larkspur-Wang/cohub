@@ -58,6 +58,21 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
   console.log(`[Bus] Inbound event ${event.eventId.slice(0, 8)} published successfully`);
 };
 
+export async function publishConversationCreateEvent(input: Omit<GatewayInboundEvent, "eventId" | "timestamp" | "content" | "sender"> & {
+  sender?: GatewayInboundEvent["sender"];
+}) {
+  const event: GatewayInboundEvent = {
+    eventId: randomUUID(),
+    timestamp: Date.now(),
+    eventType: "conversation_create",
+    sender: input.sender ?? { id: "system", name: "system" },
+    content: [],
+    ...input,
+  };
+
+  return publishInboundEvent(event);
+}
+
 // 发送 outbound 日志事件
 export const publishOutboundLog = async (input: {
   cmd: GatewayOutboundCommand;

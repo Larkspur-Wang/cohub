@@ -1,10 +1,10 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
+import { providerMessageRefs, runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
 import { redisCommandClient } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, ChannelProvider } from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
-import { createUserMessageNode, enqueueRuntimePrompt, registerRuntimeSession } from "./runtime-sessions.js";
+import { createUserMessageNode, enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
 
 /**
  * 分配算法：目前简单采用随机分配活跃节点
@@ -67,9 +67,14 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
  */
 export async function dispatchOutboundMessage(input: {
   runtimeChannelId: string;
+  runtimeId?: string;
+  runtimeSessionId?: string;
+  sessionMessageId?: string;
+  provider?: string;
   externalChatId?: string | null;
   content: UnifiedContentBlock[];
   replyToExternalMessageId?: string;
+  meta?: Record<string, unknown> | null;
 }) {
   // 1. 查找该渠道目前归哪个节点管
   const nodeId = await redisCommandClient.hget("gateway:channel_routing", input.runtimeChannelId);
@@ -107,10 +112,14 @@ export async function dispatchOutboundMessage(input: {
     commandId: randomUUID(),
     timestamp: Date.now(),
     channelId: rc.id,
-    provider: uc.provider as ChannelProvider,
+    provider: (input.provider ?? uc.provider) as ChannelProvider,
     externalChatId: resolvedExternalChatId,
     content: input.content,
     replyToExternalMessageId: input.replyToExternalMessageId,
+    runtimeId: input.runtimeId ?? rc.runtimeId,
+    runtimeSessionId: input.runtimeSessionId,
+    sessionMessageId: input.sessionMessageId,
+    meta: input.meta ?? null,
   };
 
   console.log(
@@ -215,6 +224,292 @@ export async function touchRuntimeSessionBinding(bindingId: string) {
     .where(eq(runtimeSessionBindings.id, bindingId));
 }
 
+export async function updateRuntimeSessionBindingMeta(input: {
+  bindingId: string;
+  meta: Record<string, unknown> | null;
+}) {
+  const [binding] = await db
+    .select()
+    .from(runtimeSessionBindings)
+    .where(eq(runtimeSessionBindings.id, input.bindingId))
+    .limit(1);
+
+  if (!binding) return null;
+
+  const mergedMeta = {
+    ...((binding.meta as Record<string, unknown> | null) ?? {}),
+    ...(input.meta ?? {}),
+  };
+
+  const [updated] = await db
+    .update(runtimeSessionBindings)
+    .set({
+      meta: mergedMeta,
+      updatedAt: new Date(),
+      lastMessageAt: new Date(),
+    })
+    .where(eq(runtimeSessionBindings.id, input.bindingId))
+    .returning();
+
+  return updated ?? null;
+}
+
+export async function createProviderMessageRef(input: {
+  provider: string;
+  runtimeId: string;
+  runtimeSessionId: string;
+  runtimeChannelId?: string | null;
+  sessionMessageId?: string | null;
+  direction: "inbound" | "outbound";
+  externalConversationId: string;
+  externalMessageId: string;
+  parentExternalConversationId?: string | null;
+  parentExternalMessageId?: string | null;
+  externalAuthorId?: string | null;
+  externalAuthorName?: string | null;
+  meta?: Record<string, unknown> | null;
+}) {
+  const [ref] = await db
+    .insert(providerMessageRefs)
+    .values({
+      provider: input.provider,
+      runtimeId: input.runtimeId,
+      runtimeSessionId: input.runtimeSessionId,
+      runtimeChannelId: input.runtimeChannelId ?? null,
+      sessionMessageId: input.sessionMessageId ?? null,
+      direction: input.direction,
+      externalConversationId: input.externalConversationId,
+      externalMessageId: input.externalMessageId,
+      parentExternalConversationId: input.parentExternalConversationId ?? null,
+      parentExternalMessageId: input.parentExternalMessageId ?? null,
+      externalAuthorId: input.externalAuthorId ?? null,
+      externalAuthorName: input.externalAuthorName ?? null,
+      meta: input.meta ?? null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [
+        providerMessageRefs.provider,
+        providerMessageRefs.externalConversationId,
+        providerMessageRefs.externalMessageId,
+        providerMessageRefs.direction,
+      ],
+      set: {
+        runtimeId: input.runtimeId,
+        runtimeSessionId: input.runtimeSessionId,
+        runtimeChannelId: input.runtimeChannelId ?? null,
+        sessionMessageId: input.sessionMessageId ?? null,
+        parentExternalConversationId: input.parentExternalConversationId ?? null,
+        parentExternalMessageId: input.parentExternalMessageId ?? null,
+        externalAuthorId: input.externalAuthorId ?? null,
+        externalAuthorName: input.externalAuthorName ?? null,
+        meta: input.meta ?? null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  return ref ?? null;
+}
+
+async function getProviderMessageRef(input: {
+  provider: string;
+  externalConversationId: string;
+  externalMessageId: string;
+  direction?: "inbound" | "outbound";
+}) {
+  const [ref] = await db
+    .select()
+    .from(providerMessageRefs)
+    .where(
+      input.direction
+        ? and(
+            eq(providerMessageRefs.provider, input.provider),
+            eq(providerMessageRefs.externalConversationId, input.externalConversationId),
+            eq(providerMessageRefs.externalMessageId, input.externalMessageId),
+            eq(providerMessageRefs.direction, input.direction),
+          )
+        : and(
+            eq(providerMessageRefs.provider, input.provider),
+            eq(providerMessageRefs.externalConversationId, input.externalConversationId),
+            eq(providerMessageRefs.externalMessageId, input.externalMessageId),
+          ),
+    )
+    .orderBy(desc(providerMessageRefs.createdAt))
+    .limit(1);
+
+  return ref ?? null;
+}
+
+async function resolveForkSourceForInboundEvent(input: {
+  runtimeId: string;
+  runtimeChannelId: string;
+  provider: string;
+  conversationId: string;
+  parentConversationId?: string | null;
+  parentMessageId?: string | null;
+}) {
+  const parentConversationId = input.parentConversationId?.trim();
+  const parentMessageId = input.parentMessageId?.trim();
+  if (!parentConversationId || !parentMessageId) return null;
+
+  const parentBindingKey = `${input.provider}:conversation:${parentConversationId}`;
+  const parentBinding = await getBindingByRuntimeChannelAndKey({
+    runtimeChannelId: input.runtimeChannelId,
+    bindingKey: parentBindingKey,
+  });
+  if (!parentBinding) return null;
+
+  const anchorRef = await getProviderMessageRef({
+    provider: input.provider,
+    externalConversationId: parentConversationId,
+    externalMessageId: parentMessageId,
+    direction: "inbound",
+  });
+
+  if (anchorRef?.sessionMessageId && anchorRef.runtimeSessionId === parentBinding.runtimeSessionId) {
+    return {
+      parentSessionId: parentBinding.runtimeSessionId,
+      fromMessageId: anchorRef.sessionMessageId,
+    };
+  }
+
+  const fallbackAnchorRef = await getProviderMessageRef({
+    provider: input.provider,
+    externalConversationId: parentConversationId,
+    externalMessageId: parentMessageId,
+  });
+
+  if (fallbackAnchorRef?.sessionMessageId && fallbackAnchorRef.runtimeSessionId === parentBinding.runtimeSessionId) {
+    return {
+      parentSessionId: parentBinding.runtimeSessionId,
+      fromMessageId: fallbackAnchorRef.sessionMessageId,
+    };
+  }
+
+  return null;
+}
+
+function buildDefaultBindingMeta(event: GatewayInboundEvent) {
+  return {
+    conversation: event.conversation ?? null,
+    message: event.message ?? null,
+    providerMeta: event.meta ?? null,
+    displayMode:
+      event.conversation?.parentId || (event.conversation?.meta as Record<string, unknown> | null)?.isDm === true
+        ? "compact"
+        : "minimal",
+    lifecycle: {
+      sourceEventType: event.eventType ?? "message_create",
+      precreated: event.eventType === "conversation_create",
+      createdVia: event.eventType === "conversation_create" ? "conversation_create" : "message_create",
+      lastEventAt: new Date(event.timestamp).toISOString(),
+      lastEventId: event.eventId,
+    },
+    forkedFromExternal:
+      event.conversation?.parentId && event.message?.parentMessageId
+        ? {
+            conversationId: event.conversation.parentId,
+            messageId: event.message.parentMessageId,
+          }
+        : null,
+  } as Record<string, unknown>;
+}
+
+async function resolveOrCreateSessionBindingForEvent(input: {
+  runtimeId: string;
+  runtimeChannelId: string;
+  provider: string;
+  externalChatId: string;
+  bindingKey: string;
+  event: GatewayInboundEvent;
+}) {
+  let binding = await getBindingByRuntimeChannelAndKey({
+    runtimeChannelId: input.runtimeChannelId,
+    bindingKey: input.bindingKey,
+  });
+
+  if (binding?.runtimeSessionId) {
+    const lifecycleUpdate = {
+      lifecycle: {
+        sourceEventType: input.event.eventType ?? "message_create",
+        precreated:
+          ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.precreated === true ||
+          input.event.eventType === "conversation_create",
+        createdVia:
+          (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.createdVia as string | undefined) ??
+          (input.event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
+        lastEventAt: new Date(input.event.timestamp).toISOString(),
+        lastEventId: input.event.eventId,
+        lastMaterializedBy:
+          input.event.eventType === "conversation_create"
+            ? "conversation_create"
+            : ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.lastMaterializedBy ?? "message_create",
+      },
+    };
+    await updateRuntimeSessionBindingMeta({
+      bindingId: binding.id,
+      meta: lifecycleUpdate,
+    }).catch(console.error);
+    await touchRuntimeSessionBinding(binding.id);
+    return binding;
+  }
+
+  const forkSource = await resolveForkSourceForInboundEvent({
+    runtimeId: input.runtimeId,
+    runtimeChannelId: input.runtimeChannelId,
+    provider: input.provider,
+    conversationId: input.event.conversation?.id?.trim() || input.externalChatId,
+    parentConversationId: input.event.conversation?.parentId ?? null,
+    parentMessageId: input.event.message?.parentMessageId ?? null,
+  });
+
+  const session = forkSource
+    ? await forkRuntimeSession({
+        runtimeId: input.runtimeId,
+        parentSessionId: forkSource.parentSessionId,
+        fromMessageId: forkSource.fromMessageId,
+        newSessionId: randomUUID(),
+        title: `${input.provider}:${input.event.conversation?.id?.trim() || input.externalChatId}`,
+      })
+    : await registerRuntimeSession({
+        runtimeId: input.runtimeId,
+        sessionId: randomUUID(),
+        title: `${input.provider}:${input.event.conversation?.id?.trim() || input.externalChatId}`,
+        protocol: "pi",
+        cwd: null,
+        externalSessionId: null,
+        meta: {
+          source: `channel:${input.provider}`,
+          createdFrom: input.event.eventType === "conversation_create" ? "gateway_conversation_create" : "gateway_inbound",
+          conversation: input.event.conversation ?? null,
+          providerMeta: input.event.meta ?? null,
+        },
+      });
+
+  const bindingMeta = buildDefaultBindingMeta(input.event);
+
+  binding = await createRuntimeSessionBinding({
+    runtimeId: input.runtimeId,
+    runtimeSessionId: session.id,
+    runtimeChannelId: input.runtimeChannelId,
+    provider: input.provider,
+    bindingKey: input.bindingKey,
+    externalChatId: input.externalChatId,
+    meta: {
+      ...bindingMeta,
+      lifecycle: {
+        ...(bindingMeta.lifecycle as Record<string, unknown>),
+        initializedAt: new Date(input.event.timestamp).toISOString(),
+        initializedFromEventId: input.event.eventId,
+        lastMaterializedBy: input.event.eventType === "conversation_create" ? "conversation_create" : "message_create",
+      },
+    },
+  });
+
+  return binding;
+}
+
 /**
  * 处理网关发来的入站事件
  */
@@ -230,44 +525,24 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     return;
   }
 
+  const conversationId = event.conversation?.id?.trim() || event.externalChatId;
   const bindingKey =
-    (event as GatewayInboundEvent & { bindingKey?: string }).bindingKey ??
-    `${event.provider}:${event.externalChatId}`;
+    event.bindingKey?.trim() ||
+    `${event.provider}:conversation:${conversationId}`;
 
-  let binding = await getBindingByRuntimeChannelAndKey({
+  const binding = await resolveOrCreateSessionBindingForEvent({
+    runtimeId: rc.runtimeId,
     runtimeChannelId: rc.id,
+    provider: event.provider,
+    externalChatId: event.externalChatId,
     bindingKey,
+    event,
   });
 
-  let sessionId = binding?.runtimeSessionId ?? null;
+  const sessionId = binding.runtimeSessionId;
 
-  if (!sessionId) {
-    const session = await registerRuntimeSession({
-      runtimeId: rc.runtimeId,
-      sessionId: randomUUID(),
-      title: `${event.provider}:${event.externalChatId}`,
-      protocol: "pi",
-      cwd: null,
-      externalSessionId: null,
-      meta: {
-        source: `channel:${event.provider}`,
-        createdFrom: "gateway_inbound",
-      },
-    });
-
-    binding = await createRuntimeSessionBinding({
-      runtimeId: rc.runtimeId,
-      runtimeSessionId: session.id,
-      runtimeChannelId: rc.id,
-      provider: event.provider,
-      bindingKey,
-      externalChatId: event.externalChatId,
-      meta: null,
-    });
-
-    sessionId = session.id;
-  } else if (binding) {
-    await touchRuntimeSessionBinding(binding.id);
+  if (event.eventType === "conversation_create") {
+    return;
   }
 
   const textBlock = event.content.find((block): block is { type: 'text'; text: string } => block.type === 'text');
@@ -280,6 +555,55 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     runtimeSessionId: sessionId,
     text,
     images,
+    externalMessageId: event.externalMessageId,
+    meta: {
+      provider: event.provider,
+      externalConversationId: conversationId,
+      sender: event.sender,
+      eventMessage: event.message ?? null,
+      providerMeta: event.meta ?? null,
+    },
+  });
+
+  await updateRuntimeSessionBindingMeta({
+    bindingId: binding.id,
+    meta: {
+      lifecycle: {
+        sourceEventType: event.eventType ?? "message_create",
+        precreated:
+          ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.precreated === true,
+        createdVia:
+          (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.createdVia as string | undefined) ?? "message_create",
+        lastEventAt: new Date(event.timestamp).toISOString(),
+        lastEventId: event.eventId,
+        lastMaterializedBy: "message_create",
+        firstMessageExternalId:
+          (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.firstMessageExternalId as string | undefined) ??
+          event.externalMessageId,
+      },
+    },
+  }).catch(console.error);
+
+  await createProviderMessageRef({
+    provider: event.provider,
+    runtimeId: rc.runtimeId,
+    runtimeSessionId: sessionId,
+    runtimeChannelId: rc.id,
+    sessionMessageId: userMessage.id,
+    direction: "inbound",
+    externalConversationId: conversationId,
+    externalMessageId: event.externalMessageId,
+    parentExternalConversationId: event.conversation?.parentId ?? null,
+    parentExternalMessageId: event.message?.parentMessageId ?? null,
+    externalAuthorId: event.sender.id,
+    externalAuthorName: event.sender.name ?? null,
+    meta: {
+      bindingKey,
+      conversation: event.conversation ?? null,
+      message: event.message ?? null,
+      content: event.content,
+      providerMeta: event.meta ?? null,
+    },
   });
 
   await enqueueRuntimePrompt({
@@ -287,6 +611,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     sessionId,
     userMessageId: userMessage.id,
     message: { text, images },
-    meta: { intent: "continue", source: `channel:${event.provider}` },
+    meta: { intent: binding?.meta ? "continue" : "auto", source: `channel:${event.provider}` },
   });
 }

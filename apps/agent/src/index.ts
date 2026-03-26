@@ -6,7 +6,7 @@ import {
   createReadOnlyTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage, registerRuntimeSession } from "./api.js";
+import { persistAssistantMessage, registerRuntimeSession, updateProviderRender } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -21,6 +21,13 @@ type SessionHandle = {
   session: AgentSession;
   sessionManager: SessionManager;
   currentUserMessageId: string | null;
+  streamState: {
+    thinking: string;
+    assistantText: string;
+    toolCalls: Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>;
+    lastRenderAt: number;
+    preferredDisplayMode: "full" | "compact" | "minimal";
+  };
 };
 
 let isShuttingDown = false;
@@ -77,6 +84,97 @@ async function findSessionFileById(sessionId: string) {
   return bySuffix?.path;
 }
 
+function summarizeToolArgs(toolName: string, args: unknown): string {
+  if (!args || typeof args !== "object") return "";
+  const record = args as Record<string, unknown>;
+
+  if (toolName === "bash" && typeof record.command === "string") {
+    return record.command.trim().slice(0, 120);
+  }
+
+  if (typeof record.path === "string") return record.path;
+  if (typeof record.pattern === "string" && typeof record.path === "string") {
+    return `${record.pattern} in ${record.path}`;
+  }
+  if (typeof record.query === "string") return record.query;
+
+  const first = Object.entries(record)
+    .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value))
+    .slice(0, 2)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(" ");
+  return first.slice(0, 120);
+}
+
+function extractAssistantText(message: Record<string, unknown>): string {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return content
+    .filter((item): item is { type: string; text?: string } => !!item && typeof item === "object" && "type" in item)
+    .filter((item) => item.type === "text" && typeof item.text === "string")
+    .map((item) => item.text ?? "")
+    .join("\n")
+    .trim();
+}
+
+function extractThinkingText(message: Record<string, unknown>): string {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return content
+    .filter((item): item is { type: string; thinking?: string } => !!item && typeof item === "object" && "type" in item)
+    .filter((item) => item.type === "thinking" && typeof item.thinking === "string")
+    .map((item) => item.thinking ?? "")
+    .join("\n")
+    .trim();
+}
+
+function summarizeThinking(thinking: string): string {
+  const trimmed = thinking.trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 2).join("\n").slice(0, 320);
+}
+
+async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "compact" | "minimal" = "compact") {
+  const now = Date.now();
+  if (now - handle.streamState.lastRenderAt < 900) return;
+  handle.streamState.lastRenderAt = now;
+
+  const thinking = mode === "full"
+    ? handle.streamState.thinking
+    : summarizeThinking(handle.streamState.thinking);
+
+  await sendOutput({
+    type: "provider_render_update",
+    runtimeId: env.RUNTIME_ID,
+    sessionId: handle.sessionId,
+    renderMode: "rich_status",
+    displayMode: mode,
+    thinking,
+    toolCalls: handle.streamState.toolCalls,
+    answer: handle.streamState.assistantText,
+  });
+
+  await updateProviderRender({
+    runtimeId: env.RUNTIME_ID,
+    runtimeSessionId: handle.sessionId,
+    renderMode: "rich_status",
+    displayMode: mode,
+    thinking,
+    toolCalls: handle.streamState.toolCalls,
+    answer: handle.streamState.assistantText,
+  }).catch((error) => {
+    console.error(`[Supervisor] Failed to update provider render for ${handle.sessionId}:`, error);
+  });
+}
+
+function resetStreamState(handle: SessionHandle) {
+  handle.streamState = {
+    thinking: "",
+    assistantText: "",
+    toolCalls: [],
+    lastRenderAt: 0,
+    preferredDisplayMode: handle.streamState.preferredDisplayMode,
+  };
+}
+
 function subscribeSessionEvents(handle: SessionHandle) {
   handle.session.subscribe((event) => {
     void sendOutput({
@@ -85,6 +183,48 @@ function subscribeSessionEvents(handle: SessionHandle) {
       sessionId: handle.sessionId,
       event,
     });
+
+    if (event.type === "message_start") {
+      const message = event.message as unknown as Record<string, unknown>;
+      if (message.role === "assistant") {
+        resetStreamState(handle);
+        void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+      }
+    }
+
+    if (event.type === "message_update") {
+      const message = event.message as unknown as Record<string, unknown>;
+      handle.streamState.assistantText = extractAssistantText(message);
+      handle.streamState.thinking = extractThinkingText(message);
+      void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+    }
+
+    if (event.type === "tool_execution_start") {
+      handle.streamState.toolCalls = [
+        ...handle.streamState.toolCalls.filter((item) => item.toolCallId !== event.toolCallId),
+        {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          status: "running",
+          summary: summarizeToolArgs(event.toolName, event.args),
+        },
+      ];
+      void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+    }
+
+    if (event.type === "tool_execution_end") {
+      const existing = handle.streamState.toolCalls.find((item) => item.toolCallId === event.toolCallId);
+      handle.streamState.toolCalls = [
+        ...handle.streamState.toolCalls.filter((item) => item.toolCallId !== event.toolCallId),
+        {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          status: event.isError ? "failed" : "done",
+          summary: existing?.summary ?? "",
+        },
+      ];
+      void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+    }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
       void persistAssistantMessage({
@@ -98,6 +238,10 @@ function subscribeSessionEvents(handle: SessionHandle) {
           error,
         );
       });
+    }
+
+    if (event.type === "turn_end" || event.type === "message_end") {
+      void emitProviderRenderUpdate(handle, "full");
     }
   });
 }
@@ -197,6 +341,13 @@ async function loadOrCreateSessionHandle(input: {
     session,
     sessionManager,
     currentUserMessageId: null,
+    streamState: {
+      thinking: "",
+      assistantText: "",
+      toolCalls: [],
+      lastRenderAt: 0,
+      preferredDisplayMode: "compact",
+    },
   };
 
   subscribeSessionEvents(handle);
