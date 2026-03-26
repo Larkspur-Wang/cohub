@@ -1,81 +1,206 @@
 # Terminology
 
-This document defines the core product terms used across Cohub.
+本文档定义 Cohub 当前统一使用的技术术语。
 
 ## Workspace
-A **Workspace** is the primary unit of runtime, hosting, deployment, and sharing.
 
-It is the package developers work on locally, run in the cloud, deploy to managed infrastructure, and share with others.
+**Workspace** 是项目托管、版本管理、分享与部署的核心单元。
 
-A workspace is closer to a runnable project unit than a static repository.
+它包含：
+- 代码
+- 配置
+- Prompt / 上下文文件
+- 项目运行所需资源
 
-### What it is
-- a versionable project unit
-- a hostable cloud asset
-- a deployable runtime input
-- a shareable and reusable package
+### 它是什么
+- 一个可版本化的项目单元
+- 一个可托管的云端资产
+- 一个可被 Runtime 启动的输入对象
+- 一个可被他人 fork / 复用的工作单元
 
-### What it is not
-- not a fictional world or narrative setting
-- not only a folder or storage container
-- not only a UI workspace in the editor sense
+### 它不是什么
+- 不是运行中的实例
+- 不是会话对象
+- 不是外部通信入口
+
+---
 
 ## Agent
-An **Agent** is the executable logic that operates within a workspace.
 
-### What it is
-- the active behavior that performs tasks
-- the logic that interacts with users or systems
-- something that can be started in different workspaces
+**Agent** 是运行在 Workspace 中的可执行行为逻辑。
 
-### What it is not
-- not the full project container
-- not the runtime instance itself
+### 它是什么
+- 负责执行任务的 AI / Agent 逻辑
+- 负责调用模型、工具和文件系统的执行体
+- 可以在不同 Workspace / Runtime 中运行
+
+### 它不是什么
+- 不是整个项目容器
+- 不是 Runtime 生命周期对象
+
+---
 
 ## Runtime
-A **Runtime** is the outer execution and lifecycle instance started from a workspace.
 
-A runtime may be running, sleeping, resumable, or stopped. It is the primary object users enter when they launch an agent from a workspace.
+**Runtime** 是由 Workspace + Agent 启动出来的外层运行实例。
 
-### What it is
-- an outer execution and lifecycle unit
-- a debugging, interaction, or long-lived work instance
-- the owner of one or more internal sessions
+Runtime 是用户在控制台中真正“进入”的对象。
 
-### What it is not
-- not the static workspace
-- not the reusable agent definition
-- not only the current process state
+### 它是什么
+- 外层生命周期单元
+- K8s Pod / Sandbox / Redis IO 的拥有者
+- Channel 的绑定目标
+- 一个或多个内部 Session 的容器
+
+### 它拥有
+- 生命周期状态
+- 运行环境
+- 外部输入输出通道
+- 内部 Session 集合
+
+### 它不是什么
+- 不是静态项目
+- 不是单一对话上下文
+
+---
 
 ## Session
-A **Session** is an internal LLM / conversation session within a runtime.
 
-Each session maintains conversation context and may form a tree with branches and forks.
+**Session** 是 Runtime 内部的独立会话上下文容器。
 
-### What it is
-- an internal conversation / context unit
-- the owner of a message tree
-- a branchable and forkable session history
+当前项目已明确采用：
 
-### What it is not
-- not the outer runtime instance
-- not the deployable project unit
+> **Session 内消息线性；分叉通过 fork 生成新的 Session。**
+
+### 它是什么
+- 独立的 LLM / Agent 对话上下文
+- 一个可持续追加消息的线性会话
+- 一个可被 Channel 路由绑定的目标
+- 一个可能从其它 Session 的某条 Message fork 出来的子 Session
+
+### 它拥有
+- 线性消息历史
+- tool call 记录
+- token / cost 统计
+- lineage 关系（父 Session、fork 来源 Message）
+
+### 它不是什么
+- 不是外层 Runtime
+- 不是 message tree
+- 不是 branch 的别名
+
+---
+
+## Message
+
+**Message** 是 Session 内部的线性消息记录。
+
+### 它是什么
+- Session 历史中的一条消息
+- role / content / model / usage / error 的载体
+- Session fork 时的锚点
+
+### 它当前的角色
+- 只属于一个 Session
+- 在 Session 内按 sequence 线性排序
+- 可作为 fork 的 source message
+
+### 它不是什么
+- 不是独立会话容器
+- 不是 Channel binding 的目标
+- 不是树节点（当前设计下）
+
+---
+
+## Session Fork
+
+**Session Fork** 指从某个 Session 的某条 Message 开始，创建一个新的 Session。
+
+### 它是什么
+- 一种创建子 Session 的方式
+- 一种 lineage 关系
+- 一种“从某条历史消息开始继续，但不污染原 Session”的机制
+
+### 它不是
+- 不是 Session 内部 branch
+- 不是 message tree 分叉
+
+---
+
+## Session Graph
+
+**Session Graph** 是 Runtime 内多个 Session 之间的父子关系图。
+
+图上的：
+- **节点** = Session
+- **边** = parentSessionId
+- **边的锚点说明** = forkedFromMessageId 对应的 Message 摘要
+
+虽然我们有时会说它“看起来像 message graph”，但在数据建模上：
+
+> **Graph 的主体仍然是 Session，Message 只是 fork 锚点。**
+
+---
 
 ## Channel
-A **Channel** is an external communication endpoint connected to a runtime.
 
-### What it is
-- a way to send input to a runtime
-- a way for a runtime to send output back
-- an integration surface such as Web, Discord, or Telegram
+**Channel** 是外部通信入口或通信端点。
 
-### What it is not
-- not the runtime itself
-- not the deployable project unit
+例如：
+- Web
+- Discord
+- Telegram
+- Feishu
 
-## Why these terms
-- **Workspace** expresses the primary project and hosting asset
-- **Agent** is the executable AI behavior
-- **Runtime** fits the outer lifecycle object in Cohub.run
-- **Session** aligns with internal LLM / ACP-style conversation sessions
-- **Channel** reflects communication and integration boundaries
+### 它是什么
+- 用户向 Runtime 发送输入的入口
+- Runtime 向外发送输出的出口
+- 一种外部集成面
+
+### 它不是什么
+- 不是 Runtime
+- 不是 Session
+- 不是 Message
+
+---
+
+## Runtime Channel
+
+**Runtime Channel** 指一个用户配置好的 Channel 被挂载到某个 Runtime 上。
+
+也就是：
+
+```text
+user_channel -> runtime_channel
+```
+
+它表达的是：
+- 这个 Runtime 可以通过该 Channel 收发消息
+
+---
+
+## Runtime Session Binding
+
+**Runtime Session Binding** 是外部 conversation key 到内部 Session 的路由关系。
+
+也就是：
+
+```text
+(runtimeChannelId, bindingKey) -> runtimeSessionId
+```
+
+### 它解决的问题
+- 同一个 Runtime Channel 下，不同 external chat / thread / topic 应该路由到哪个 Session
+
+### 它为什么绑定 Session 而不是 Message
+因为：
+- Message 只是历史记录和 fork 锚点
+- Session 才是持续承接后续消息流的上下文容器
+
+---
+
+## 一句话规则
+
+如果有歧义，统一按下面规则判断：
+
+> **Runtime 是你运行的实例。Session 是实例中的会话。Message 是会话中的线性记录。Fork 是从某条 Message 创建新 Session。Channel 始终路由到 Session。**
