@@ -33,19 +33,20 @@ import {
   createInitialRuntimeSession,
   createUserMessageNode,
   enqueueRuntimePrompt,
-  getCurrentPathMessages,
+  forkRuntimeSession,
   getRuntimeById,
   getRuntimeProvision,
+  getRuntimeSessionBootstrap,
   getRuntimeSessionById,
+  getRuntimeSessionGraph,
   listRuntimeSessions,
-  listSessionTree,
+  listSessionMessages,
   listToolCallsByMessageIds,
   normalizeRuntimeEnv,
   persistMessageNode,
   provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
-  selectRuntimeSessionLeaf,
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
   writeInitialRuntimeProvision,
@@ -59,7 +60,6 @@ import { createBlockingRedisClient, isRedisReady } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
-// 启动 API 的后台监听器，处理来自网关的消息
 const startGatewayInboundListener = async () => {
   let lastId = "$";
   const client = createBlockingRedisClient();
@@ -70,7 +70,7 @@ const startGatewayInboundListener = async () => {
     try {
       const result = await client.xread("BLOCK", 0, "STREAMS", "stream:gateway:inbound", lastId);
       if (!result) continue;
-      for (const [stream, messages] of result) {
+      for (const [, messages] of result) {
         for (const [id, fields] of messages) {
           lastId = id;
           const payloadIndex = fields.findIndex((f) => f === "payload");
@@ -84,7 +84,7 @@ const startGatewayInboundListener = async () => {
       }
     } catch (e) {
       console.error("[Channels] Error reading gateway inbound stream:", e);
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
     }
   }
 };
@@ -137,7 +137,6 @@ app.use(
 );
 
 app.get("/healthz", (c) => c.json({ ok: true }));
-
 app.get("/readyz", async (c) => {
   const redisReady = await isRedisReady();
   if (!redisReady) {
@@ -218,399 +217,10 @@ app.post("/api/v1/share/init", async (c) => {
     const repo = await createAnonymousRepository(repoName);
     const owner = repo.owner.username;
     await addDeployKeyToRepo(owner, repo.name, body.publicKey, `ws-share-${suffix}`);
-    return c.json({ sshUrl: repo.ssh_url, webUrl: repo.html_url });
+    return c.json({ owner, repo: repo.name, clone_url: null, ssh_url: repo.ssh_url });
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
-});
-
-app.get("/api/workspaces", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const ws = await db.select().from(workspaces).where(eq(workspaces.userUuid, user.uuid));
-  return c.json(ws.map((item) => ({ ...item, owner: user.uuid })));
-});
-
-// 获取公开工作区列表 (Explore)
-app.get("/api/workspaces/public", async (c) => {
-  const page = Number.parseInt(c.req.query("page") || "1", 10);
-  const limit = Math.min(Number.parseInt(c.req.query("limit") || "20", 10), 100);
-  const search = c.req.query("search")?.trim();
-  const offset = (page - 1) * limit;
-
-  const conditions = [eq(workspaces.visibility, "public")];
-  if (search) {
-    conditions.push(sql`${workspaces.name} ILIKE ${`%${search}%`}`);
-  }
-
-  const [list, countResult] = await Promise.all([
-    db
-      .select()
-      .from(workspaces)
-      .where(and(...conditions))
-      .orderBy(desc(workspaces.createdAt))
-      .limit(limit)
-      .offset(offset),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(workspaces)
-      .where(and(...conditions)),
-  ]);
-
-  const total = countResult[0]?.count ?? 0;
-  return c.json({
-    items: list,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
-  });
-});
-
-// Fork 工作区
-app.post("/api/workspaces/:owner/:repo/fork", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  const { owner, repo } = c.req.param();
-  const body = await c.req.json<{ name?: string }>();
-
-  // 查找源工作区
-  const [sourceWorkspace] = await db
-    .select()
-    .from(workspaces)
-    .innerJoin(userGitAccounts, eq(workspaces.userUuid, userGitAccounts.userUuid))
-    .where(
-      and(
-        eq(userGitAccounts.giteaUsername, owner),
-        eq(workspaces.giteaRepoName, repo),
-      ),
-    )
-    .limit(1);
-
-  if (!sourceWorkspace) {
-    return c.json({ message: "workspace not found" }, 404);
-  }
-
-  const sourceWs = sourceWorkspace.workspaces;
-  const sourceGitAccount = sourceWorkspace.user_git_accounts;
-
-  // 检查可见性
-  if (sourceWs.visibility !== "public") {
-    return c.json({ message: "cannot fork a private workspace" }, 403);
-  }
-
-  // 获取当前用户的 git 账户
-  const userGitAccount = await ensureUserGitAccount(user.uuid);
-  if (!userGitAccount?.giteaUsername || !userGitAccount.giteaAccessToken) {
-    return c.json({ message: "failed to prepare git account" }, 500);
-  }
-
-  // 确定目标仓库名
-  const targetName = (body.name?.trim() || repo) as string;
-  const targetSlug = normalizeWorkspaceSlug(targetName);
-  if (!targetSlug) {
-    return c.json({ message: "invalid workspace name" }, 400);
-  }
-
-  // 检查是否已存在同名工作区
-  const [existingWs] = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(
-      and(
-        eq(workspaces.userUuid, user.uuid),
-        eq(workspaces.giteaRepoName, targetSlug),
-      ),
-    )
-    .limit(1);
-
-  if (existingWs) {
-    return c.json({ message: "workspace with this name already exists" }, 409);
-  }
-
-  try {
-    // 执行 Gitea fork
-    const forkedRepo = await forkRepository(
-      sourceGitAccount.giteaUsername,
-      repo,
-      userGitAccount.giteaAccessToken,
-      targetSlug,
-    );
-
-    // 创建工作区记录
-    const [newWorkspace] = await db
-      .insert(workspaces)
-      .values({
-        userUuid: user.uuid,
-        name: targetName,
-        description: sourceWs.description,
-        giteaRepoName: forkedRepo.name,
-        visibility: "private", // fork 的默认为私有
-        parentId: sourceWs.id,
-      })
-      .returning();
-
-    // 增加源工作区的 fork 计数
-    await db
-      .update(workspaces)
-      .set({
-        forkCount: sql`${workspaces.forkCount} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(workspaces.id, sourceWs.id));
-
-    return c.json({
-      ...newWorkspace,
-      owner: user.uuid,
-      forkedFrom: {
-        id: sourceWs.id,
-        name: sourceWs.name,
-        owner: sourceWs.userUuid,
-        ownerUsername: sourceGitAccount.giteaUsername,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to fork workspace:", error);
-    return c.json(
-      { message: error instanceof Error ? error.message : "Failed to fork workspace" },
-      500,
-    );
-  }
-});
-
-// 获取单个工作区详情 (通过 ID)
-app.get("/api/workspaces/:id", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  const { id } = c.req.param();
-
-  const [workspace] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, id))
-    .limit(1);
-
-  if (!workspace) {
-    return c.json({ message: "workspace not found" }, 404);
-  }
-
-  // 检查权限：私有工作区只有所有者可以访问
-  if (workspace.visibility !== "public" && workspace.userUuid !== user.uuid) {
-    return c.json({ message: "forbidden" }, 403);
-  }
-
-  // 获取所有者 git 账户
-  const [ownerGitAccount] = await db
-    .select()
-    .from(userGitAccounts)
-    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
-    .limit(1);
-
-  // 获取 fork 来源信息
-  let forkedFrom = null;
-  if (workspace.parentId) {
-    const [parentWs] = await db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, workspace.parentId))
-      .limit(1);
-
-    if (parentWs) {
-      const [parentGitAccount] = await db
-        .select()
-        .from(userGitAccounts)
-        .where(eq(userGitAccounts.userUuid, parentWs.userUuid))
-        .limit(1);
-
-      forkedFrom = {
-        id: parentWs.id,
-        name: parentWs.name,
-        owner: parentWs.userUuid,
-        ownerUsername: parentGitAccount?.giteaUsername || null,
-      };
-    }
-  }
-
-  const isOwner = workspace.userUuid === user.uuid;
-
-  return c.json({
-    ...workspace,
-    owner: workspace.userUuid,
-    ownerUsername: ownerGitAccount?.giteaUsername || null,
-    forkedFrom,
-    isOwner,
-  });
-});
-
-// 更新工作区信息
-app.patch("/api/workspaces/:id", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  const { id } = c.req.param();
-  const body = await c.req.json<{
-    name?: string;
-    description?: string;
-    visibility?: "public" | "private";
-  }>();
-
-  const [workspace] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, id))
-    .limit(1);
-
-  if (!workspace) {
-    return c.json({ message: "workspace not found" }, 404);
-  }
-
-  if (workspace.userUuid !== user.uuid) {
-    return c.json({ message: "forbidden" }, 403);
-  }
-
-  // 获取用户 git 账户
-  const gitAccount = await ensureUserGitAccount(user.uuid);
-  if (!gitAccount?.giteaUsername || !gitAccount.giteaAccessToken) {
-    return c.json({ message: "git account not ready" }, 500);
-  }
-
-  // 如果修改可见性，同步更新 Gitea 仓库
-  if (body.visibility !== undefined && body.visibility !== workspace.visibility) {
-    const isPrivate = body.visibility === "private";
-    await updateRepositoryVisibility(gitAccount.giteaUsername, workspace.giteaRepoName, isPrivate);
-  }
-
-  const updateData: Record<string, unknown> = {
-    updatedAt: new Date(),
-  };
-  if (body.name !== undefined) updateData.name = body.name;
-  if (body.description !== undefined) updateData.description = body.description || null;
-  if (body.visibility !== undefined) updateData.visibility = body.visibility;
-
-  const [updated] = await db
-    .update(workspaces)
-    .set(updateData)
-    .where(eq(workspaces.id, id))
-    .returning();
-
-  return c.json({
-    ...updated,
-    owner: user.uuid,
-  });
-});
-
-// 删除工作区
-app.delete("/api/workspaces/:id", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  const { id } = c.req.param();
-
-  const [workspace] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, id))
-    .limit(1);
-
-  if (!workspace) {
-    return c.json({ message: "workspace not found" }, 404);
-  }
-
-  if (workspace.userUuid !== user.uuid) {
-    return c.json({ message: "forbidden" }, 403);
-  }
-
-  // 检查是否有运行中的 runtime
-  const [activeRuntime] = await db
-    .select({ id: runtimes.id })
-    .from(runtimes)
-    .where(eq(runtimes.workspaceId, id))
-    .limit(1);
-
-  if (activeRuntime) {
-    return c.json({ message: "cannot delete workspace with active runtimes" }, 400);
-  }
-
-  await db.delete(workspaces).where(eq(workspaces.id, id));
-
-  return c.json({ ok: true });
-});
-
-app.get("/api/infrastructure/git-account", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const [account] = await db
-    .select({ status: userGitAccounts.status, createdAt: userGitAccounts.createdAt })
-    .from(userGitAccounts)
-    .where(
-      and(
-        eq(userGitAccounts.userUuid, user.uuid),
-        eq(userGitAccounts.provider, "gitea"),
-      ),
-    )
-    .limit(1);
-  return c.json({
-    ready: Boolean(account),
-    status: account?.status ?? "missing",
-    createdAt: account?.createdAt ?? null,
-  });
-});
-
-app.post("/api/workspaces", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const body = await c.req.json<{ name: string; description?: string; private?: boolean }>();
-  const workspaceName = body.name?.trim();
-  if (!workspaceName) return c.json({ message: "workspace name is required" }, 400);
-
-  const workspaceSlug = normalizeWorkspaceSlug(workspaceName);
-  if (!workspaceSlug) {
-    return c.json({ message: "workspace name must contain letters or numbers" }, 400);
-  }
-
-  const [existingWorkspace] = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, workspaceSlug)))
-    .limit(1);
-  if (existingWorkspace) {
-    return c.json({ message: "workspace slug already exists" }, 409);
-  }
-
-  const gitAccount = await ensureUserGitAccount(user.uuid);
-  if (!gitAccount) return c.json({ message: "failed to prepare workspace infrastructure" }, 500);
-
-  const repo = await createRepository(gitAccount.giteaAccessToken, workspaceSlug, body.private ?? true);
-  if ("alreadyExists" in repo && repo.alreadyExists) {
-    return c.json({ message: "workspace slug already exists" }, 409);
-  }
-
-  const [ws] = await db.insert(workspaces).values({
-    userUuid: user.uuid,
-    name: workspaceName,
-    description: body.description?.trim() || null,
-    giteaRepoName: repo.name,
-    visibility: (body.private ?? true) ? "private" : "public",
-  }).returning();
-  return c.json({ ...ws, owner: user.uuid });
 });
 
 app.get("/api/channels", async (c) => {
@@ -676,7 +286,6 @@ app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
   const repoData = await getRepository(gitAccount.giteaUsername, repo);
   if (!repoData) return c.json({ message: "workspace not found" }, 404);
 
-  // 获取 fork 来源信息
   let forkedFrom = null;
   if (workspace.parentId) {
     const [parentWs] = await db
@@ -770,32 +379,12 @@ app.get("/api/workspaces/:owner/:repo/file", async (c) => {
 });
 
 app.post("/api/runtimes", async (c) => {
-  const requestStartedAt = Date.now();
-  let currentRuntimeId: string | null = null;
-  const logCreateRuntime = (
-    phase: string,
-    details?: Record<string, unknown>,
-  ) => {
-    const elapsedMs = Date.now() - requestStartedAt;
-    const payload = {
-      runtimeId: currentRuntimeId,
-      ...(details ?? {}),
-    };
-    console.log(`[CreateRuntime] phase=${phase} elapsedMs=${elapsedMs} ${JSON.stringify(payload)}`);
-  };
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
-  try {
-    logCreateRuntime("request_received");
-
-    const token = c.get("token");
-    if (!token) return c.json({ message: "unauthorized" }, 401);
-    const user = await fetchAuthUser(token);
-    if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-    const userUuid = user.uuid;
-  logCreateRuntime("user_resolved", { userUuid });
-
-    const body = (await c.req
+  const body = (await c.req
     .json<{
       workspaceId?: string;
       agentId?: string;
@@ -804,14 +393,8 @@ app.post("/api/runtimes", async (c) => {
       protocol?: "pi" | "acp" | "internal";
       meta?: Record<string, unknown>;
       start?: boolean;
-      extraEnv?: Array<{
-        name: string;
-        value: string;
-      }>;
-      channelBindings?: Array<{
-        channelId: string;
-        config?: Record<string, unknown> | null;
-      }>;
+      extraEnv?: Array<{ name: string; value: string }>;
+      channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
     }>()
     .catch(() => ({}))) as {
     workspaceId?: string;
@@ -821,15 +404,16 @@ app.post("/api/runtimes", async (c) => {
     protocol?: "pi" | "acp" | "internal";
     meta?: Record<string, unknown>;
     start?: boolean;
-    extraEnv?: Array<{
-      name: string;
-      value: string;
-    }>;
-    channelBindings?: Array<{
-      channelId: string;
-      config?: Record<string, unknown> | null;
-    }>;
+    extraEnv?: Array<{ name: string; value: string }>;
+    channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
   };
+
+  if (body.workspaceId && !requireValidId(body.workspaceId)) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+  if (body.agentId && !requireValidId(body.agentId)) {
+    return c.json({ message: "agent not found" }, 404);
+  }
 
   const normalizedExtraEnv = normalizeRuntimeEnv(body.extraEnv);
   validateRuntimeEnv(normalizedExtraEnv);
@@ -837,100 +421,49 @@ app.post("/api/runtimes", async (c) => {
   const normalizedChannelBindings = Array.isArray(body.channelBindings)
     ? body.channelBindings
         .filter((binding) => binding?.channelId && requireValidId(binding.channelId))
-        .map((binding) => ({
-          channelId: binding.channelId,
-          config: binding.config ?? null,
-        }))
+        .map((binding) => ({ channelId: binding.channelId, config: binding.config ?? null }))
     : [];
 
-  logCreateRuntime("request_parsed", {
-    workspaceId: body.workspaceId ?? null,
-    start: body.start ?? true,
-    extraEnvCount: normalizedExtraEnv.length,
-    extraEnvNames: normalizedExtraEnv.map((item) => item.name),
-    channelBindingCount: normalizedChannelBindings.length,
-  });
-
-  const requestedChannelIds = normalizedChannelBindings.map((binding) => binding.channelId);
-
   if (normalizedChannelBindings.length > 0) {
-    logCreateRuntime("validate_channels_start", { requestedChannelIds });
-    const ownedChannels = await db
+    const ids = normalizedChannelBindings.map((binding) => binding.channelId);
+    const channels = await db
       .select({ id: userChannels.id })
       .from(userChannels)
-      .where(
-        and(
-          eq(userChannels.userUuid, user.uuid),
-          inArray(userChannels.id, requestedChannelIds),
-        ),
-      );
-
-    if (ownedChannels.length !== new Set(requestedChannelIds).size) {
-      logCreateRuntime("validate_channels_failed", {
-        ownedChannelCount: ownedChannels.length,
-        requestedChannelCount: new Set(requestedChannelIds).size,
-      });
+      .where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, ids)));
+    if (channels.length !== ids.length) {
       return c.json({ message: "one or more channels are invalid" }, 400);
     }
-
-    logCreateRuntime("validate_channels_success", { ownedChannelCount: ownedChannels.length });
   }
 
-  if (normalizedChannelBindings.length > 0) {
-    logCreateRuntime("check_channel_binding_conflicts_start");
-    const existingBindings = await db
-      .select({
-        channelId: runtimeChannels.channelId,
-        runtimeId: runtimeChannels.runtimeId,
-      })
-      .from(runtimeChannels)
-      .where(inArray(runtimeChannels.channelId, requestedChannelIds));
-
-    const conflictingBinding = normalizedChannelBindings.find((binding) =>
-      existingBindings.some((existing) => existing.channelId === binding.channelId),
+  const occupiedChannels = normalizedChannelBindings.length
+    ? await db
+        .select({ channelId: runtimeChannels.channelId })
+        .from(runtimeChannels)
+        .where(inArray(runtimeChannels.channelId, normalizedChannelBindings.map((binding) => binding.channelId)))
+    : [];
+  if (occupiedChannels.length > 0) {
+    return c.json(
+      {
+        message: "channel binding already exists for this channel. Choose a different channel or reuse the existing runtime.",
+      },
+      409,
     );
-
-    if (conflictingBinding) {
-      logCreateRuntime("check_channel_binding_conflicts_failed", {
-        channelId: conflictingBinding.channelId,
-      });
-      return c.json(
-        {
-          message:
-            "channel binding already exists for this channel. Choose a different channel or reuse the existing runtime.",
-        },
-        409,
-      );
-    }
-
-    logCreateRuntime("check_channel_binding_conflicts_success", {
-      existingBindingCount: existingBindings.length,
-    });
   }
 
-  const runtimeMeta = {
-    ...(body.meta ?? {}),
-    extraEnv: normalizedExtraEnv,
-  };
-
-  logCreateRuntime("db_create_runtime_start");
-  const { runtime } = await createRuntime({
-    userUuid,
+  const runtime = (await createRuntime({
+    userUuid: user.uuid,
     workspaceId: body.workspaceId ?? null,
     agentId: body.agentId ?? null,
     title: body.title ?? null,
     cwd: body.cwd ?? null,
     protocol: body.protocol ?? "pi",
-    meta: runtimeMeta,
-  });
-  currentRuntimeId = runtime.id;
-  logCreateRuntime("db_create_runtime_success", { runtimeId: runtime.id });
+    meta: {
+      ...(body.meta ?? {}),
+      extraEnv: normalizedExtraEnv,
+    },
+  })).runtime;
 
   if (normalizedChannelBindings.length > 0) {
-    logCreateRuntime("db_insert_runtime_channels_start", {
-      count: normalizedChannelBindings.length,
-      runtimeId: runtime.id,
-    });
     await db.insert(runtimeChannels).values(
       normalizedChannelBindings.map((binding) => ({
         runtimeId: runtime.id,
@@ -938,13 +471,8 @@ app.post("/api/runtimes", async (c) => {
         config: binding.config,
       })),
     );
-    logCreateRuntime("db_insert_runtime_channels_success", {
-      count: normalizedChannelBindings.length,
-      runtimeId: runtime.id,
-    });
   }
 
-  logCreateRuntime("db_register_session_start", { runtimeId: runtime.id });
   const session = await createInitialRuntimeSession({
     runtimeId: runtime.id,
     sessionId: crypto.randomUUID(),
@@ -958,19 +486,10 @@ app.post("/api/runtimes", async (c) => {
       channelBindings: normalizedChannelBindings.length,
     },
   });
-  logCreateRuntime("db_register_session_success", {
-    runtimeId: runtime.id,
-    sessionId: session.id,
-  });
 
-  logCreateRuntime("response_ready", {
-    runtimeId: runtime.id,
-    sessionId: session.id,
-    started: body.start !== false,
-  });
+  const userUuid = user.uuid;
 
   if (body.start !== false) {
-    logCreateRuntime("background_provision_dispatch", { runtimeId: runtime.id });
     void (async () => {
       await writeInitialRuntimeProvision(runtime.id);
       await provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid });
@@ -983,12 +502,6 @@ app.post("/api/runtimes", async (c) => {
   }
 
   return c.json({ runtime, session, ready: false });
-  } catch (error) {
-    logCreateRuntime("request_failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
 });
 
 app.get("/api/runtimes/:id/provisioning", async (c) => {
@@ -1024,28 +537,15 @@ app.get("/api/runtimes", async (c) => {
 });
 
 app.get("/api/runtimes/:id", async (c) => {
-  const requestStartedAt = Date.now();
-  const logGetRuntime = (phase: string, details?: Record<string, unknown>) => {
-    const elapsedMs = Date.now() - requestStartedAt;
-    const suffix = details ? ` ${JSON.stringify(details)}` : "";
-    console.log(`[GetRuntime] phase=${phase} elapsedMs=${elapsedMs}${suffix}`);
-  };
-
-  logGetRuntime("request_received");
-
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  logGetRuntime("user_resolved", { userUuid: user.uuid, runtimeId });
 
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
-  logGetRuntime("runtime_loaded", { runtimeId: runtime.id, status: runtime.status ?? null });
-
-  logGetRuntime("response_ready", { runtimeId: runtime.id });
   return c.json({
     ...runtime,
     liveStatus: runtime.status ?? null,
@@ -1065,7 +565,7 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
   return c.json({ runtime, sessions });
 });
 
-app.get("/api/runtimes/:id/current-session", async (c) => {
+app.get("/api/runtimes/:id/session-graph", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
@@ -1074,18 +574,8 @@ app.get("/api/runtimes/:id/current-session", async (c) => {
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
-
-  let session = runtime.currentSessionId
-    ? await getRuntimeSessionById(runtime.currentSessionId)
-    : null;
-
-  if (!session) {
-    const sessions = await listRuntimeSessions(runtime.id);
-    session = sessions.at(-1) ?? null;
-  }
-
-  if (!session) return c.json({ message: "session not found" }, 404);
-  return c.json({ runtime, session });
+  const sessions = await getRuntimeSessionGraph(runtime.id);
+  return c.json({ runtime, sessions });
 });
 
 app.post("/internal/runtimes/:id/sessions", async (c) => {
@@ -1102,7 +592,10 @@ app.post("/internal/runtimes/:id/sessions", async (c) => {
   if (!body?.sessionId) return c.json({ message: "sessionId is required" }, 400);
 
   const existing = await getRuntimeSessionById(body.sessionId);
-  if (existing) return c.json({ ok: true, session: existing });
+  if (existing) {
+    const bootstrap = await getRuntimeSessionBootstrap(existing.id);
+    return c.json({ ok: true, session: existing, bootstrap });
+  }
 
   const session = await registerRuntimeSession({
     runtimeId,
@@ -1114,7 +607,8 @@ app.post("/internal/runtimes/:id/sessions", async (c) => {
     meta: body.meta,
   });
 
-  return c.json({ ok: true, session });
+  const bootstrap = await getRuntimeSessionBootstrap(session.id);
+  return c.json({ ok: true, session, bootstrap });
 });
 
 app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/info", async (c) => {
@@ -1163,15 +657,14 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
 
   const body = await c.req
     .json<{
-      parentMessageId?: string;
+      previousMessageId?: string | null;
       idempotencyKey?: string;
       message?: PersistMessageInput["message"];
       toolCalls?: PersistMessageInput["toolCalls"];
     }>()
     .catch(() => null);
 
-  if (!body?.parentMessageId) return c.json({ message: "parentMessageId is required" }, 400);
-  if (!body.idempotencyKey?.trim()) return c.json({ message: "idempotencyKey is required" }, 400);
+  if (!body?.idempotencyKey?.trim()) return c.json({ message: "idempotencyKey is required" }, 400);
   if (!body.message || !Array.isArray(body.message.content)) {
     return c.json({ message: "message.content is required" }, 400);
   }
@@ -1179,7 +672,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   const messageNode = await persistMessageNode({
     runtimeId,
     sessionId,
-    parentMessageId: body.parentMessageId,
+    previousMessageId: body.previousMessageId ?? null,
     idempotencyKey: body.idempotencyKey,
     message: {
       ...(body.message as PersistMessageInput["message"]),
@@ -1189,6 +682,20 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   });
 
   return c.json({ ok: true, message: messageNode });
+});
+
+app.get("/api/sessions/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const sessionId = c.req.param("id");
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
+  return c.json({ runtime, session });
 });
 
 app.get("/api/sessions/:id/messages", async (c) => {
@@ -1202,12 +709,12 @@ app.get("/api/sessions/:id/messages", async (c) => {
   if (!session) return c.json({ message: "session not found" }, 404);
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  const messages = await getCurrentPathMessages(session.id);
+  const messages = await listSessionMessages(session.id);
   const toolCalls = await listToolCallsByMessageIds(messages.map((message) => message.id));
   return c.json({ runtime, session, messages, toolCalls });
 });
 
-app.get("/api/sessions/:id/tree", async (c) => {
+app.post("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
@@ -1218,20 +725,32 @@ app.get("/api/sessions/:id/tree", async (c) => {
   if (!session) return c.json({ message: "session not found" }, 404);
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  const nodes = await listSessionTree(session.id);
-  return c.json({
-    runtime,
-    session: {
-      id: session.id,
-      currentLeafMessageId: session.currentLeafMessageId,
-      rootMessageId: session.rootMessageId,
-      totalBranches: session.totalBranches,
-    },
-    nodes,
+
+  const body = await c.req.json<{
+    text: string;
+    images?: Array<{ url: string }>;
+  }>();
+
+  if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
+
+  const userMessage = await createUserMessageNode({
+    runtimeSessionId: session.id,
+    text: body.text,
+    images: body.images,
   });
+
+  await enqueueRuntimePrompt({
+    runtimeId: runtime.id,
+    sessionId: session.id,
+    userMessageId: userMessage.id,
+    message: { text: body.text, images: body.images },
+    meta: { intent: "continue", source: "web" },
+  });
+
+  return c.json({ ok: true, userMessage });
 });
 
-app.post("/api/sessions/:id/select-leaf", async (c) => {
+app.post("/api/sessions/:id/fork", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const sessionId = c.req.param("id");
@@ -1242,10 +761,20 @@ app.post("/api/sessions/:id/select-leaf", async (c) => {
   if (!session) return c.json({ message: "session not found" }, 404);
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  const body = await c.req.json<{ leafMessageId?: string }>().catch(() => null);
-  if (!body?.leafMessageId) return c.json({ message: "leafMessageId is required" }, 400);
-  await selectRuntimeSessionLeaf({ runtimeSessionId: session.id, leafMessageId: body.leafMessageId });
-  return c.json({ ok: true });
+
+  const body = await c.req.json<{ fromMessageId?: string; title?: string | null }>().catch(() => null);
+  if (!body?.fromMessageId || !requireValidId(body.fromMessageId)) {
+    return c.json({ message: "fromMessageId is required" }, 400);
+  }
+
+  const forked = await forkRuntimeSession({
+    runtimeId: runtime.id,
+    parentSessionId: session.id,
+    fromMessageId: body.fromMessageId,
+    title: body.title ?? null,
+  });
+
+  return c.json({ ok: true, session: forked });
 });
 
 app.get("/api/runtimes/:id/stream", async (c) => {
@@ -1269,66 +798,6 @@ app.get("/api/runtimes/:id/stream", async (c) => {
   });
 });
 
-app.post("/api/sessions/:id/messages", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const sessionId = c.req.param("id");
-  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const session = await getRuntimeSessionById(sessionId);
-  if (!session) return c.json({ message: "session not found" }, 404);
-  const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-
-  const body = await c.req.json<{
-    text: string;
-    images?: Array<{ url: string }>;
-    branchFromMessageId?: string;
-  }>();
-
-  if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
-
-  const userMessage = await createUserMessageNode({
-    runtimeSessionId: session.id,
-    text: body.text,
-    images: body.images,
-    branchFromMessageId: body.branchFromMessageId ?? null,
-  });
-
-  await enqueueRuntimePrompt({
-    runtimeId: runtime.id,
-    sessionId: session.id,
-    userMessageId: userMessage.id,
-    branchFromMessageId: body.branchFromMessageId ?? null,
-    message: { text: body.text, images: body.images },
-    meta: { intent: "continue", source: "web" },
-  });
-
-  return c.json({ ok: true, userMessage });
-});
-
-app.post("/api/sessions/:id/abort", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const sessionId = c.req.param("id");
-  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const session = await getRuntimeSessionById(sessionId);
-  if (!session) return c.json({ message: "session not found" }, 404);
-  const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  await enqueueRuntimePrompt({
-    runtimeId: runtime.id,
-    sessionId: session.id,
-    userMessageId: null,
-    branchFromMessageId: null,
-    message: { text: "__abort__" },
-    meta: { intent: "continue", source: "web" },
-  });
-  return c.json({ ok: true });
-});
 
 app.onError((error, c) => c.json({ message: error.message || "internal server error" }, 500));
 

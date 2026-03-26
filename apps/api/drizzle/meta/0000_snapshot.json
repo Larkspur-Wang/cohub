@@ -1,5 +1,5 @@
 {
-  "id": "5254081b-c19e-40a4-84f5-0c31a1e25515",
+  "id": "2e03ea97-e57c-4b2c-943a-6ac1038a2b67",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -530,17 +530,30 @@
           "primaryKey": false,
           "notNull": false
         },
-        "root_message_id": {
-          "name": "root_message_id",
+        "parent_session_id": {
+          "name": "parent_session_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
-        "current_leaf_message_id": {
-          "name": "current_leaf_message_id",
+        "forked_from_message_id": {
+          "name": "forked_from_message_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "lineage_root_session_id": {
+          "name": "lineage_root_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fork_depth": {
+          "name": "fork_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "latest_message_text": {
           "name": "latest_message_text",
@@ -551,6 +564,12 @@
         "last_message_at": {
           "name": "last_message_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_message_id": {
+          "name": "last_message_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -567,13 +586,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "total_branches": {
-          "name": "total_branches",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
         },
         "total_input_tokens": {
           "name": "total_input_tokens",
@@ -627,11 +639,11 @@
           "method": "btree",
           "with": {}
         },
-        "idx_runtime_sessions_protocol": {
-          "name": "idx_runtime_sessions_protocol",
+        "idx_runtime_sessions_parent_session_id": {
+          "name": "idx_runtime_sessions_parent_session_id",
           "columns": [
             {
-              "expression": "protocol",
+              "expression": "parent_session_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -642,11 +654,41 @@
           "method": "btree",
           "with": {}
         },
-        "idx_runtime_sessions_current_leaf_message_id": {
-          "name": "idx_runtime_sessions_current_leaf_message_id",
+        "idx_runtime_sessions_lineage_root_session_id": {
+          "name": "idx_runtime_sessions_lineage_root_session_id",
           "columns": [
             {
-              "expression": "current_leaf_message_id",
+              "expression": "lineage_root_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_runtime_sessions_forked_from_message_id": {
+          "name": "idx_runtime_sessions_forked_from_message_id",
+          "columns": [
+            {
+              "expression": "forked_from_message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_runtime_sessions_last_message_id": {
+          "name": "idx_runtime_sessions_last_message_id",
+          "columns": [
+            {
+              "expression": "last_message_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -734,12 +776,6 @@
           "notNull": false,
           "default": "'active'"
         },
-        "current_session_id": {
-          "name": "current_session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "meta": {
           "name": "meta",
           "type": "jsonb",
@@ -806,21 +842,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "idx_runtimes_current_session_id": {
-          "name": "idx_runtimes_current_session_id",
-          "columns": [
-            {
-              "expression": "current_session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {},
@@ -865,6 +886,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "protocol_message_id": {
+          "name": "protocol_message_id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "content": {
           "name": "content",
           "type": "jsonb",
@@ -883,57 +910,23 @@
           "primaryKey": false,
           "notNull": false
         },
-        "parent_message_id": {
-          "name": "parent_message_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "idempotency_key": {
           "name": "idempotency_key",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
         },
-        "depth": {
-          "name": "depth",
+        "sequence": {
+          "name": "sequence",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "branch_id": {
-          "name": "branch_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "branch_index": {
-          "name": "branch_index",
-          "type": "integer",
+        "prev_message_id": {
+          "name": "prev_message_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "child_count": {
-          "name": "child_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "is_branch_point": {
-          "name": "is_branch_point",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "is_leaf": {
-          "name": "is_leaf",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
         },
         "provider": {
           "name": "provider",
@@ -1007,26 +1000,11 @@
           "method": "btree",
           "with": {}
         },
-        "idx_session_messages_parent_message_id": {
-          "name": "idx_session_messages_parent_message_id",
+        "idx_session_messages_prev_message_id": {
+          "name": "idx_session_messages_prev_message_id",
           "columns": [
             {
-              "expression": "parent_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_session_messages_source": {
-          "name": "idx_session_messages_source",
-          "columns": [
-            {
-              "expression": "source",
+              "expression": "prev_message_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1052,6 +1030,42 @@
           "method": "btree",
           "with": {}
         },
+        "idx_session_messages_protocol_message_id": {
+          "name": "idx_session_messages_protocol_message_id",
+          "columns": [
+            {
+              "expression": "protocol_message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_session_messages_session_sequence": {
+          "name": "uq_session_messages_session_sequence",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sequence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "uq_session_messages_session_id_idempotency_key": {
           "name": "uq_session_messages_session_id_idempotency_key",
           "columns": [
@@ -1069,90 +1083,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_session_messages_branch_id": {
-          "name": "idx_session_messages_branch_id",
-          "columns": [
-            {
-              "expression": "branch_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_session_messages_session_branch_created_at": {
-          "name": "idx_session_messages_session_branch_created_at",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "branch_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_session_messages_session_is_leaf": {
-          "name": "idx_session_messages_session_is_leaf",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "is_leaf",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_session_messages_session_depth": {
-          "name": "idx_session_messages_session_depth",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "depth",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1688,6 +1618,19 @@
           "notNull": false,
           "default": "'public'"
         },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fork_count": {
+          "name": "fork_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1709,6 +1652,36 @@
           "columns": [
             {
               "expression": "user_uuid",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_workspaces_parent_id": {
+          "name": "idx_workspaces_parent_id",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_workspaces_visibility": {
+          "name": "idx_workspaces_visibility",
+          "columns": [
+            {
+              "expression": "visibility",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

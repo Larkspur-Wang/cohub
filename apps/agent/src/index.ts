@@ -6,7 +6,7 @@ import {
   createReadOnlyTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage } from "./api.js";
+import { persistAssistantMessage, registerRuntimeSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -111,6 +111,19 @@ async function loadOrCreateSessionHandle(input: {
   const existing = sessionHandles.get(input.sessionId);
   if (existing) return existing;
 
+  const registration = await registerRuntimeSession({
+    runtimeId: env.RUNTIME_ID,
+    sessionId: input.sessionId,
+    title: null,
+    protocol: "pi",
+    externalSessionId: null,
+    cwd: null,
+    meta: null,
+  }).catch((error) => {
+    console.error(`[Supervisor] Failed to register session bootstrap for ${input.sessionId}:`, error);
+    return null;
+  });
+
   const existingSessionFile = await findSessionFileById(input.sessionId);
 
   let sessionManager: SessionManager;
@@ -126,9 +139,49 @@ async function loadOrCreateSessionHandle(input: {
       );
     }
   } else {
-    console.log(`[Supervisor] Creating new pi session ${input.sessionId}`);
-    sessionManager = SessionManager.create(env.WORKSPACE_DIR);
-    sessionManager.newSession({ id: input.sessionId });
+    const forkSourceProtocolMessageId = registration?.bootstrap?.forkSourceProtocolMessageId ?? null;
+    const parentSessionId = ((registration?.session as { parentSessionId?: string | null } | undefined)?.parentSessionId) ?? null;
+    const parentSessionFile = parentSessionId ? await findSessionFileById(parentSessionId) : null;
+
+    if (parentSessionFile && forkSourceProtocolMessageId) {
+      console.log(
+        `[Supervisor] Forking pi session ${input.sessionId} from parent=${parentSessionId} entry=${forkSourceProtocolMessageId}`,
+      );
+      const parentManager = SessionManager.open(parentSessionFile);
+      const forkedSessionFile = parentManager.createBranchedSession(forkSourceProtocolMessageId);
+      if (!forkedSessionFile) {
+        throw new Error(`Failed to create branched session file for ${input.sessionId}`);
+      }
+      const forkedManager = SessionManager.open(forkedSessionFile);
+      const forkedEntries = forkedManager.getEntries();
+      forkedManager.newSession({ id: input.sessionId, parentSession: parentSessionFile });
+      for (const entry of forkedEntries) {
+        if (entry.type === "message") {
+          forkedManager.appendMessage(entry.message as never);
+        } else if (entry.type === "model_change") {
+          forkedManager.appendModelChange(entry.provider, entry.modelId);
+        } else if (entry.type === "thinking_level_change") {
+          forkedManager.appendThinkingLevelChange(entry.thinkingLevel);
+        } else if (entry.type === "compaction") {
+          forkedManager.appendCompaction(entry.summary, entry.firstKeptEntryId, entry.tokensBefore, entry.details, entry.fromHook);
+        } else if (entry.type === "custom") {
+          forkedManager.appendCustomEntry(entry.customType, entry.data);
+        } else if (entry.type === "custom_message") {
+          forkedManager.appendCustomMessageEntry(entry.customType, entry.content, entry.display, entry.details);
+        } else if (entry.type === "session_info") {
+          forkedManager.appendSessionInfo(entry.name ?? "");
+        }
+      }
+      const rewrittenSessionFile = forkedManager.getSessionFile();
+      if (!rewrittenSessionFile) {
+        throw new Error(`Failed to rewrite forked session file for ${input.sessionId}`);
+      }
+      sessionManager = SessionManager.open(rewrittenSessionFile);
+    } else {
+      console.log(`[Supervisor] Creating new pi session ${input.sessionId}`);
+      sessionManager = SessionManager.create(env.WORKSPACE_DIR);
+      sessionManager.newSession({ id: input.sessionId });
+    }
   }
 
   const { session } = await createAgentSession({

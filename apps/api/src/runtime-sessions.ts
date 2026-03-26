@@ -87,33 +87,51 @@ const RESERVED_RUNTIME_ENV_NAMES = new Set([
 
 const nowIso = () => new Date().toISOString();
 
-const logProvision = (
-  runtimeId: string,
-  step: RuntimeProvisionStep,
-  phase: "start" | "success" | "error",
-  details?: Record<string, unknown>,
-) => {
-  const suffix = details ? ` ${JSON.stringify(details)}` : "";
-  const logger = phase === "error" ? console.error : console.log;
-  logger(`[RuntimeProvision] runtimeId=${runtimeId} step=${step} phase=${phase}${suffix}`);
+const extractPlainText = (blocks: SessionMessageBlock[]) => {
+  return blocks
+    .flatMap((block) => {
+      switch (block.type) {
+        case "text":
+          return [block.text];
+        case "resource":
+          return block.resource.text ? [block.resource.text] : [];
+        case "resource_link":
+          return [block.title ?? block.name ?? block.uri];
+        default:
+          return [];
+      }
+    })
+    .join("\n")
+    .trim();
 };
 
-const mapProvisionStepToRuntimeStatus = (step: RuntimeProvisionStep) => {
-  switch (step) {
-    case "queued":
-      return "active";
-    case "completed":
-      return "running";
-    default:
-      return "starting";
-  }
+const getSessionExtraEnv = (runtimeMeta: unknown): RuntimeEnvVar[] => {
+  if (!runtimeMeta || typeof runtimeMeta !== "object") return [];
+  const extraEnv = (runtimeMeta as { extraEnv?: unknown }).extraEnv;
+  return normalizeRuntimeEnv(extraEnv);
 };
 
-const updateRuntimeStatus = async (runtimeId: string, status: string) => {
-  await db
-    .update(runtimes)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(runtimes.id, runtimeId));
+const buildRuntimeContainerEnv = (input: {
+  runtimeId: string;
+  redisUrl: string;
+  litellmApiKey?: string;
+  env?: string;
+  workspaceRepoUrl?: string;
+  workspaceGitUsername?: string;
+  workspaceGitEmail?: string;
+  extraEnv?: RuntimeEnvVar[];
+}) => {
+  return [
+    { name: "RUNTIME_ID", value: input.runtimeId },
+    { name: "REDIS_URL", value: input.redisUrl },
+    { name: "WORKSPACE_DIR", value: "/workspace" },
+    { name: "LITELLM_API_KEY", value: input.litellmApiKey ?? "" },
+    { name: "ENV", value: input.env ?? "" },
+    { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
+    { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },
+    { name: "WORKSPACE_GIT_EMAIL", value: input.workspaceGitEmail ?? "" },
+    ...(input.extraEnv ?? []),
+  ];
 };
 
 export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
@@ -162,33 +180,33 @@ export const validateRuntimeEnv = (envs: RuntimeEnvVar[]) => {
   }
 };
 
-const getRuntimeExtraEnv = (runtimeMeta: unknown): RuntimeEnvVar[] => {
-  if (!runtimeMeta || typeof runtimeMeta !== "object") return [];
-  const extraEnv = (runtimeMeta as { extraEnv?: unknown }).extraEnv;
-  return normalizeRuntimeEnv(extraEnv);
+const logProvision = (
+  runtimeId: string,
+  step: RuntimeProvisionStep,
+  phase: "start" | "success" | "error",
+  details?: Record<string, unknown>,
+) => {
+  const suffix = details ? ` ${JSON.stringify(details)}` : "";
+  const logger = phase === "error" ? console.error : console.log;
+  logger(`[RuntimeProvision] runtimeId=${runtimeId} step=${step} phase=${phase}${suffix}`);
 };
 
-const buildRuntimeContainerEnv = (input: {
-  runtimeId: string;
-  redisUrl: string;
-  litellmApiKey?: string;
-  env?: string;
-  workspaceRepoUrl?: string;
-  workspaceGitUsername?: string;
-  workspaceGitEmail?: string;
-  extraEnv?: RuntimeEnvVar[];
-}) => {
-  return [
-    { name: "RUNTIME_ID", value: input.runtimeId },
-    { name: "REDIS_URL", value: input.redisUrl },
-    { name: "WORKSPACE_DIR", value: "/workspace" },
-    { name: "LITELLM_API_KEY", value: input.litellmApiKey ?? "" },
-    { name: "ENV", value: input.env ?? "" },
-    { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
-    { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },
-    { name: "WORKSPACE_GIT_EMAIL", value: input.workspaceGitEmail ?? "" },
-    ...(input.extraEnv ?? []),
-  ];
+const mapProvisionStepToRuntimeStatus = (step: RuntimeProvisionStep) => {
+  switch (step) {
+    case "queued":
+      return "active";
+    case "completed":
+      return "running";
+    default:
+      return "starting";
+  }
+};
+
+const updateRuntimeStatus = async (runtimeId: string, status: string) => {
+  await db
+    .update(runtimes)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(runtimes.id, runtimeId));
 };
 
 export const writeInitialRuntimeProvision = async (runtimeId: string) => {
@@ -355,6 +373,24 @@ export const createRuntime = async (input: {
   return { runtime };
 };
 
+export const getRuntimeById = async (runtimeId: string) => {
+  const [runtime] = await db
+    .select()
+    .from(runtimes)
+    .where(eq(runtimes.id, runtimeId))
+    .limit(1);
+  return runtime ?? null;
+};
+
+export const getRuntimeSessionById = async (runtimeSessionId: string) => {
+  const [session] = await db
+    .select()
+    .from(runtimeSessions)
+    .where(eq(runtimeSessions.id, runtimeSessionId))
+    .limit(1);
+  return session ?? null;
+};
+
 export const createInitialRuntimeSession = async (input: RegisterRuntimeSessionInput) => {
   const [session] = await db
     .insert(runtimeSessions)
@@ -367,16 +403,15 @@ export const createInitialRuntimeSession = async (input: RegisterRuntimeSessionI
       protocol: input.protocol ?? "pi",
       externalSessionId: input.externalSessionId ?? null,
       meta: input.meta ?? null,
+      parentSessionId: null,
+      forkedFromMessageId: null,
+      lineageRootSessionId: input.sessionId,
+      forkDepth: 0,
+      lastMessageId: null,
     })
     .returning();
 
   if (!session) throw new Error("Failed to create initial runtime session");
-
-  await db
-    .update(runtimes)
-    .set({ currentSessionId: session.id, updatedAt: new Date() })
-    .where(eq(runtimes.id, input.runtimeId));
-
   return session;
 };
 
@@ -396,18 +431,15 @@ export const registerRuntimeSession = async (input: RegisterRuntimeSessionInput)
         protocol: input.protocol ?? "pi",
         externalSessionId: input.externalSessionId ?? null,
         meta: input.meta ?? null,
+        parentSessionId: null,
+        forkedFromMessageId: null,
+        lineageRootSessionId: input.sessionId,
+        forkDepth: 0,
+        lastMessageId: null,
       })
       .returning();
 
     if (!session) throw new Error("Failed to register runtime session");
-
-    if (!runtime.currentSessionId) {
-      await db
-        .update(runtimes)
-        .set({ currentSessionId: session.id, updatedAt: new Date() })
-        .where(eq(runtimes.id, runtime.id));
-    }
-
     return session;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -423,18 +455,563 @@ export const registerRuntimeSession = async (input: RegisterRuntimeSessionInput)
         .limit(1);
 
       if (existing) {
-        if (!runtime.currentSessionId) {
-          await db
-            .update(runtimes)
-            .set({ currentSessionId: existing.id, updatedAt: new Date() })
-            .where(eq(runtimes.id, runtime.id));
-        }
         return existing;
       }
     }
 
     throw error;
   }
+};
+
+export const listRuntimeSessions = async (runtimeId: string) => {
+  return db
+    .select()
+    .from(runtimeSessions)
+    .where(eq(runtimeSessions.runtimeId, runtimeId))
+    .orderBy(asc(runtimeSessions.createdAt));
+};
+
+export const getRuntimeSessionGraph = async (runtimeId: string) => {
+  return db
+    .select()
+    .from(runtimeSessions)
+    .where(eq(runtimeSessions.runtimeId, runtimeId))
+    .orderBy(asc(runtimeSessions.createdAt));
+};
+
+export const getRuntimeSessionBootstrap = async (runtimeSessionId: string) => {
+  const session = await getRuntimeSessionById(runtimeSessionId);
+  if (!session) return null;
+
+  let forkSourceProtocolMessageId: string | null = null;
+  if (session.forkedFromMessageId) {
+    const [message] = await db
+      .select({ protocolMessageId: sessionMessages.protocolMessageId })
+      .from(sessionMessages)
+      .where(eq(sessionMessages.id, session.forkedFromMessageId))
+      .limit(1);
+    forkSourceProtocolMessageId = message?.protocolMessageId ?? null;
+  }
+
+  return {
+    session,
+    forkSourceProtocolMessageId,
+  };
+};
+
+const getNextSessionSequence = async (sessionId: string) => {
+  const [row] = await db
+    .select({ max: sql<number>`coalesce(max(${sessionMessages.sequence}), 0)::int` })
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, sessionId));
+  return (row?.max ?? 0) + 1;
+};
+
+const recalcSessionTotals = async (sessionId: string) => {
+  const [toolCallCountRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessionToolCalls)
+    .where(eq(sessionToolCalls.sessionId, sessionId));
+
+  const [messageCountRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, sessionId));
+
+  const totals = await db
+    .select({
+      usageInput: sessionMessages.usageInput,
+      usageOutput: sessionMessages.usageOutput,
+      costTotal: sessionMessages.costTotal,
+    })
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, sessionId));
+
+  const totalInputTokens = totals.reduce((sum, row) => sum + (row.usageInput ?? 0), 0);
+  const totalOutputTokens = totals.reduce((sum, row) => sum + (row.usageOutput ?? 0), 0);
+  const totalCost = totals.reduce((sum, row) => {
+    const value = Number(row.costTotal ?? 0);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+
+  return {
+    totalMessages: messageCountRow?.count ?? 0,
+    totalToolCalls: toolCallCountRow?.count ?? 0,
+    totalInputTokens,
+    totalOutputTokens,
+    totalCost: String(totalCost),
+  };
+};
+
+const updateSessionAfterAppend = async (sessionId: string, message: typeof sessionMessages.$inferSelect) => {
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) throw new Error("Runtime session not found");
+
+  const totals = await recalcSessionTotals(sessionId);
+
+  await db
+    .update(runtimeSessions)
+    .set({
+      lastMessageId: message.id,
+      latestMessageText: message.text,
+      lastMessageAt: message.createdAt ?? new Date(),
+      totalMessages: totals.totalMessages,
+      totalToolCalls: totals.totalToolCalls,
+      totalInputTokens: totals.totalInputTokens,
+      totalOutputTokens: totals.totalOutputTokens,
+      totalCost: totals.totalCost,
+      updatedAt: new Date(),
+    })
+    .where(eq(runtimeSessions.id, sessionId));
+};
+
+export const createUserMessageNode = async (input: {
+  runtimeSessionId: string;
+  text: string;
+  images?: Array<{ url: string }>;
+}) => {
+  const session = await getRuntimeSessionById(input.runtimeSessionId);
+  if (!session) throw new Error("Runtime session not found");
+
+  const content: SessionMessageBlock[] = [
+    { type: "text", text: input.text },
+    ...(input.images?.map((image) => ({ type: "image" as const, uri: image.url, mimeType: undefined })) ?? []),
+  ];
+
+  const sequence = await getNextSessionSequence(input.runtimeSessionId);
+
+  const [message] = await db
+    .insert(sessionMessages)
+    .values({
+      sessionId: input.runtimeSessionId,
+      role: "user",
+      source: "internal",
+      externalMessageId: null,
+      protocolMessageId: null,
+      content,
+      text: extractPlainText(content),
+      meta: null,
+      sequence,
+      prevMessageId: session.lastMessageId ?? null,
+    })
+    .returning();
+
+  if (!message) throw new Error("Failed to create user message node");
+  await updateSessionAfterAppend(input.runtimeSessionId, message);
+  return message;
+};
+
+export const persistMessageNode = async (input: PersistMessageInput) => {
+  const [existing] = await db
+    .select()
+    .from(sessionMessages)
+    .where(
+      and(
+        eq(sessionMessages.sessionId, input.sessionId),
+        eq(sessionMessages.idempotencyKey, input.idempotencyKey),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing;
+
+  const session = await getRuntimeSessionById(input.sessionId);
+  if (!session || session.runtimeId !== input.runtimeId) {
+    throw new Error("Runtime session not found");
+  }
+
+  if (input.previousMessageId) {
+    const [previous] = await db
+      .select()
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.id, input.previousMessageId),
+          eq(sessionMessages.sessionId, input.sessionId),
+        ),
+      )
+      .limit(1);
+    if (!previous) throw new Error("Previous message not found");
+  }
+
+  const sequence = await getNextSessionSequence(input.sessionId);
+  const content = input.message.content;
+  const text = input.message.text === undefined ? extractPlainText(content) : (input.message.text ?? null);
+
+  let messageNode: typeof sessionMessages.$inferSelect | undefined;
+  try {
+    [messageNode] = await db
+      .insert(sessionMessages)
+      .values({
+        sessionId: input.sessionId,
+        role: input.message.role ?? "assistant",
+        source: input.message.source ?? "internal",
+        externalMessageId: input.message.externalMessageId ?? null,
+        protocolMessageId: input.message.protocolMessageId ?? null,
+        content,
+        text,
+        meta: input.message.meta ?? null,
+        idempotencyKey: input.idempotencyKey,
+        sequence,
+        prevMessageId: session.lastMessageId ?? null,
+        provider: input.message.provider ?? null,
+        model: input.message.model ?? null,
+        stopReason: input.message.stopReason ?? null,
+        errorMessage: input.message.errorMessage ?? null,
+        usageInput: input.message.usage?.input ?? null,
+        usageOutput: input.message.usage?.output ?? null,
+        usageTotalTokens: input.message.usage?.totalTokens ?? null,
+        costTotal: input.message.usage?.costTotal !== undefined ? String(input.message.usage.costTotal) : null,
+      })
+      .returning();
+  } catch {
+    const [conflicted] = await db
+      .select()
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.sessionId, input.sessionId),
+          eq(sessionMessages.idempotencyKey, input.idempotencyKey),
+        ),
+      )
+      .limit(1);
+    if (conflicted) return conflicted;
+    throw new Error("Failed to persist message");
+  }
+
+  if (!messageNode) throw new Error("Failed to persist message");
+
+  const toolCalls = input.toolCalls ?? [];
+  if (toolCalls.length > 0) {
+    await db.insert(sessionToolCalls).values(
+      toolCalls.map((toolCall: PersistToolCall) => ({
+        sessionId: input.sessionId,
+        messageId: messageNode.id,
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        title: toolCall.title ?? null,
+        kind: toolCall.kind ?? null,
+        status: toolCall.status ?? (toolCall.isError ? "failed" : "completed"),
+        args: toolCall.args ?? null,
+        result: toolCall.result ?? null,
+        content: toolCall.content ?? null,
+        locations: toolCall.locations ?? null,
+        rawInput: toolCall.rawInput ?? toolCall.args ?? null,
+        rawOutput: toolCall.rawOutput ?? toolCall.result ?? null,
+        resultPreview: toolCall.resultPreview ?? null,
+        isError: toolCall.isError ?? false,
+        meta: toolCall.meta ?? null,
+      })),
+    );
+  }
+
+  await updateSessionAfterAppend(input.sessionId, messageNode);
+
+  const bindings = await getBindingsBySessionId(session.id);
+
+  if (bindings.length > 0) {
+    for (const binding of bindings) {
+      await touchRuntimeSessionBinding(binding.id).catch(console.error);
+      dispatchOutboundMessage({
+        runtimeChannelId: binding.runtimeChannelId,
+        externalChatId: binding.externalChatId,
+        content: messageNode.content,
+        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+      }).catch(console.error);
+    }
+  } else {
+    const channels = await db
+      .select()
+      .from(runtimeChannels)
+      .where(eq(runtimeChannels.runtimeId, session.runtimeId));
+
+    for (const rc of channels) {
+      dispatchOutboundMessage({
+        runtimeChannelId: rc.id,
+        content: messageNode.content,
+        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+      }).catch(console.error);
+    }
+  }
+
+  return messageNode;
+};
+
+export const updateRuntimeSessionInfo = async (input: PersistSessionInfoUpdateInput) => {
+  const session = await getRuntimeSessionById(input.sessionId);
+  if (!session || session.runtimeId !== input.runtimeId) {
+    throw new Error("Runtime session not found");
+  }
+
+  await db
+    .update(runtimeSessions)
+    .set({
+      title: input.title === undefined ? session.title : (input.title ?? null),
+      lastMessageAt: input.updatedAt === undefined ? session.lastMessageAt : input.updatedAt ? new Date(input.updatedAt) : null,
+      meta:
+        input.meta === undefined
+          ? session.meta
+          : {
+              ...((session.meta as Record<string, unknown> | null) ?? {}),
+              ...(input.meta ?? {}),
+            },
+      updatedAt: new Date(),
+    })
+    .where(eq(runtimeSessions.id, input.sessionId));
+
+  return true;
+};
+
+export const listSessionMessages = async (runtimeSessionId: string) => {
+  return db
+    .select()
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, runtimeSessionId))
+    .orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
+};
+
+export const listToolCallsByMessageIds = async (messageIds: string[]) => {
+  if (messageIds.length === 0) return [];
+  return db
+    .select()
+    .from(sessionToolCalls)
+    .where(inArray(sessionToolCalls.messageId, messageIds))
+    .orderBy(asc(sessionToolCalls.createdAt));
+};
+
+export const forkRuntimeSession = async (input: {
+  runtimeId: string;
+  parentSessionId: string;
+  fromMessageId: string;
+  newSessionId?: string;
+  title?: string | null;
+}) => {
+  const parentSession = await getRuntimeSessionById(input.parentSessionId);
+  if (!parentSession || parentSession.runtimeId !== input.runtimeId) {
+    throw new Error("Parent runtime session not found");
+  }
+
+  const [fromMessage] = await db
+    .select()
+    .from(sessionMessages)
+    .where(
+      and(
+        eq(sessionMessages.id, input.fromMessageId),
+        eq(sessionMessages.sessionId, input.parentSessionId),
+      ),
+    )
+    .limit(1);
+
+  if (!fromMessage) {
+    throw new Error("Fork source message not found");
+  }
+
+  const newSessionId = input.newSessionId ?? randomUUID();
+  const lineageRootSessionId = parentSession.lineageRootSessionId ?? parentSession.id;
+
+  const [childSession] = await db
+    .insert(runtimeSessions)
+    .values({
+      id: newSessionId,
+      runtimeId: input.runtimeId,
+      title: input.title ?? parentSession.title ?? null,
+      status: "active",
+      cwd: parentSession.cwd,
+      protocol: parentSession.protocol,
+      externalSessionId: null,
+      meta: {
+        forked: true,
+        fromSessionId: parentSession.id,
+        fromMessageId: fromMessage.id,
+      },
+      parentSessionId: parentSession.id,
+      forkedFromMessageId: fromMessage.id,
+      lineageRootSessionId,
+      forkDepth: (parentSession.forkDepth ?? 0) + 1,
+      lastMessageId: null,
+    })
+    .returning();
+
+  if (!childSession) throw new Error("Failed to create forked session");
+
+  const sourceMessages = await db
+    .select()
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, parentSession.id))
+    .orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
+
+  const messagesToCopy = sourceMessages.filter((message) => message.sequence <= fromMessage.sequence);
+  const copiedIdMap = new Map<string, string>();
+
+  for (const message of messagesToCopy) {
+    const [copiedMessage] = await db
+      .insert(sessionMessages)
+      .values({
+        sessionId: childSession.id,
+        role: message.role,
+        source: message.source,
+        externalMessageId: message.externalMessageId,
+        protocolMessageId: message.protocolMessageId,
+        content: message.content,
+        text: message.text,
+        meta: message.meta,
+        idempotencyKey: null,
+        sequence: message.sequence,
+        prevMessageId: message.prevMessageId ? (copiedIdMap.get(message.prevMessageId) ?? null) : null,
+        provider: message.provider,
+        model: message.model,
+        stopReason: message.stopReason,
+        errorMessage: message.errorMessage,
+        usageInput: message.usageInput,
+        usageOutput: message.usageOutput,
+        usageTotalTokens: message.usageTotalTokens,
+        costTotal: message.costTotal,
+      })
+      .returning();
+
+    if (!copiedMessage) throw new Error("Failed to copy forked message");
+    copiedIdMap.set(message.id, copiedMessage.id);
+
+    const sourceToolCalls = await db
+      .select()
+      .from(sessionToolCalls)
+      .where(eq(sessionToolCalls.messageId, message.id));
+
+    if (sourceToolCalls.length > 0) {
+      await db.insert(sessionToolCalls).values(
+        sourceToolCalls.map((toolCall) => ({
+          sessionId: childSession.id,
+          messageId: copiedMessage.id,
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          title: toolCall.title,
+          kind: toolCall.kind,
+          status: toolCall.status,
+          args: toolCall.args,
+          result: toolCall.result,
+          content: toolCall.content,
+          locations: toolCall.locations,
+          rawInput: toolCall.rawInput,
+          rawOutput: toolCall.rawOutput,
+          resultPreview: toolCall.resultPreview,
+          isError: toolCall.isError,
+          meta: toolCall.meta,
+        })),
+      );
+    }
+  }
+
+  const copiedMessages = await listSessionMessages(childSession.id);
+  const lastMessage = copiedMessages.at(-1) ?? null;
+  const totals = await recalcSessionTotals(childSession.id);
+
+  await db
+    .update(runtimeSessions)
+    .set({
+      lastMessageId: lastMessage?.id ?? null,
+      latestMessageText: lastMessage?.text ?? null,
+      lastMessageAt: lastMessage?.createdAt ?? null,
+      totalMessages: totals.totalMessages,
+      totalToolCalls: totals.totalToolCalls,
+      totalInputTokens: totals.totalInputTokens,
+      totalOutputTokens: totals.totalOutputTokens,
+      totalCost: totals.totalCost,
+      updatedAt: new Date(),
+    })
+    .where(eq(runtimeSessions.id, childSession.id));
+
+  return (await getRuntimeSessionById(childSession.id)) ?? childSession;
+};
+
+export const enqueueRuntimePrompt = async (input: {
+  runtimeId: string;
+  sessionId: string;
+  userMessageId?: string | null;
+  message: {
+    text: string;
+    images?: Array<{ url: string }>;
+  };
+  meta?: Record<string, unknown> | null;
+}) => {
+  await redisCommandClient.rpush(
+    getRuntimeInputQueueKey(input.runtimeId),
+    JSON.stringify({
+      action: "prompt",
+      id: randomUUID(),
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      userMessageId: input.userMessageId ?? null,
+      message: input.message,
+      meta: input.meta ?? null,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+};
+
+export const readRuntimeOutputStream = async (input: {
+  runtimeId: string;
+  lastEventId?: string;
+  blockMs?: number;
+  signal?: AbortSignal;
+}) => {
+  const streamKey = getRuntimeOutputStreamKey(input.runtimeId);
+  const startId = input.lastEventId?.trim() || "$";
+  const blockMs = input.blockMs ?? 15000;
+  const client = createStreamingRedisClient();
+
+  await client.connect().catch(() => undefined);
+  let currentId = startId;
+
+  const close = async () => {
+    await client.quit().catch(async () => {
+      await client.disconnect();
+    });
+  };
+
+  const iterator = (async function* () {
+    try {
+      while (!input.signal?.aborted) {
+        const response = await client.xread(
+          "BLOCK",
+          blockMs,
+          "STREAMS",
+          streamKey,
+          currentId,
+        );
+        if (!response) continue;
+
+        for (const [, entries] of response as Array<[string, RedisStreamEntry[]]>) {
+          for (const [id, fields] of entries) {
+            currentId = id;
+            const payloadIndex = fields.findIndex((field) => field === "payload");
+            const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
+            yield { id, payload };
+          }
+        }
+      }
+    } finally {
+      await close();
+    }
+  })();
+
+  return iterator;
+};
+
+export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000) => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
+    if (status === "running") return true;
+    if (status === "error" || status === "stopped") return false;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  return false;
+};
+
+export const getRuntimeLiveStatus = async (runtimeId: string) => {
+  const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
+  return status?.trim() || null;
 };
 
 export const launchRuntimeSandbox = async (input: {
@@ -444,7 +1021,7 @@ export const launchRuntimeSandbox = async (input: {
   const runtime = await getRuntimeById(input.runtimeId);
   if (!runtime) throw new Error("Runtime not found");
 
-  const extraEnv = getRuntimeExtraEnv(runtime.meta);
+  const extraEnv = getSessionExtraEnv(runtime.meta);
   validateRuntimeEnv(extraEnv);
 
   let workspaceRepoUrl: string | undefined;
@@ -463,7 +1040,6 @@ export const launchRuntimeSandbox = async (input: {
       workspaceGitUsername = gitAccount.giteaUsername;
       workspaceGitEmail = `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`;
 
-      // Construct authenticated URL: https://<username>:<token>@gitea.example.com/<username>/<repo>.git
       const url = new URL(config.giteaBaseUrl);
       workspaceRepoUrl = `${url.protocol}//${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@${url.host}/${gitAccount.giteaUsername}/${workspace.giteaRepoName}.git`;
     }
@@ -498,9 +1074,7 @@ export const launchRuntimeSandbox = async (input: {
     body: pod,
   });
 
-  // 拉起关联的 IM Channels
   await bindRuntimeChannelsToGateway(input.runtimeId).catch(console.error);
-
   return pod;
 };
 
@@ -523,7 +1097,7 @@ export const provisionRuntimeInBackground = async (input: {
     const runtime = await getRuntimeById(runtimeId);
     if (!runtime) throw new Error("Runtime not found");
 
-    const extraEnv = getRuntimeExtraEnv(runtime.meta);
+    const extraEnv = getSessionExtraEnv(runtime.meta);
     validateRuntimeEnv(extraEnv);
 
     let workspaceRepoUrl: string | undefined;
@@ -714,500 +1288,4 @@ export const provisionRuntimeInBackground = async (input: {
     }).catch(() => undefined);
     await updateRuntimeStatus(runtimeId, "error").catch(() => undefined);
   }
-};
-
-export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000) => {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
-    if (status === "running") return true;
-    if (status === "error" || status === "stopped") return false;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  return false;
-};
-
-export const getRuntimeLiveStatus = async (runtimeId: string) => {
-  const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
-  return status?.trim() || null;
-};
-
-export const enqueueRuntimePrompt = async (input: {
-  runtimeId: string;
-  sessionId: string;
-  userMessageId?: string | null;
-  branchFromMessageId?: string | null;
-  message: {
-    text: string;
-    images?: Array<{ url: string }>;
-  };
-  meta?: Record<string, unknown> | null;
-}) => {
-  await redisCommandClient.rpush(
-    getRuntimeInputQueueKey(input.runtimeId),
-    JSON.stringify({
-      action: "prompt",
-      id: randomUUID(),
-      runtimeId: input.runtimeId,
-      sessionId: input.sessionId,
-      userMessageId: input.userMessageId ?? null,
-      branchFromMessageId: input.branchFromMessageId ?? null,
-      message: input.message,
-      meta: input.meta ?? null,
-      timestamp: new Date().toISOString(),
-    }),
-  );
-};
-
-export const getRuntimeById = async (runtimeId: string) => {
-  const [runtime] = await db
-    .select()
-    .from(runtimes)
-    .where(eq(runtimes.id, runtimeId))
-    .limit(1);
-  return runtime ?? null;
-};
-
-export const getRuntimeSessionById = async (runtimeSessionId: string) => {
-  const [session] = await db
-    .select()
-    .from(runtimeSessions)
-    .where(eq(runtimeSessions.id, runtimeSessionId))
-    .limit(1);
-  return session ?? null;
-};
-
-export const listRuntimeSessions = async (runtimeId: string) => {
-  return db
-    .select()
-    .from(runtimeSessions)
-    .where(eq(runtimeSessions.runtimeId, runtimeId))
-    .orderBy(asc(runtimeSessions.createdAt));
-};
-
-export const readRuntimeOutputStream = async (input: {
-  runtimeId: string;
-  lastEventId?: string;
-  blockMs?: number;
-  signal?: AbortSignal;
-}) => {
-  const streamKey = getRuntimeOutputStreamKey(input.runtimeId);
-  const startId = input.lastEventId?.trim() || "$";
-  const blockMs = input.blockMs ?? 15000;
-  const client = createStreamingRedisClient();
-
-  await client.connect().catch(() => undefined);
-  let currentId = startId;
-
-  const close = async () => {
-    await client.quit().catch(async () => {
-      await client.disconnect();
-    });
-  };
-
-  const iterator = (async function* () {
-    try {
-      while (!input.signal?.aborted) {
-        const response = await client.xread(
-          "BLOCK",
-          blockMs,
-          "STREAMS",
-          streamKey,
-          currentId,
-        );
-        if (!response) continue;
-
-        for (const [, entries] of response as Array<[string, RedisStreamEntry[]]>) {
-          for (const [id, fields] of entries) {
-            currentId = id;
-            const payloadIndex = fields.findIndex((field) => field === "payload");
-            const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
-            yield { id, payload };
-          }
-        }
-      }
-    } finally {
-      await close();
-    }
-  })();
-
-  return iterator;
-};
-
-const extractPlainText = (blocks: SessionMessageBlock[]) => {
-  return blocks
-    .flatMap((block) => {
-      switch (block.type) {
-        case "text":
-          return [block.text];
-        case "resource":
-          return block.resource.text ? [block.resource.text] : [];
-        case "resource_link":
-          return [block.title ?? block.name ?? block.uri];
-        default:
-          return [];
-      }
-    })
-    .join("\n")
-    .trim();
-};
-
-const getNextBranchIndex = async (parentMessageId: string) => {
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.parentMessageId, parentMessageId));
-  return row?.count ?? 0;
-};
-
-const markParentAsHavingChild = async (parentMessageId: string) => {
-  const [parent] = await db
-    .select({ childCount: sessionMessages.childCount })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.id, parentMessageId))
-    .limit(1);
-
-  if (!parent) return;
-  const nextCount = (parent.childCount ?? 0) + 1;
-  await db
-    .update(sessionMessages)
-    .set({ childCount: nextCount, isLeaf: false, isBranchPoint: nextCount > 1 })
-    .where(eq(sessionMessages.id, parentMessageId));
-};
-
-export const createUserMessageNode = async (input: {
-  runtimeSessionId: string;
-  text: string;
-  images?: Array<{ url: string }>;
-  branchFromMessageId?: string | null;
-}) => {
-  const session = await getRuntimeSessionById(input.runtimeSessionId);
-  if (!session) throw new Error("Runtime session not found");
-
-  const parentMessageId = input.branchFromMessageId ?? session.currentLeafMessageId ?? null;
-  let depth = 0;
-  let branchId: `${string}-${string}-${string}-${string}-${string}` = randomUUID();
-  let branchIndex = 0;
-  let branchCreated = false;
-
-  if (parentMessageId) {
-    const [parent] = await db
-      .select({ id: sessionMessages.id, depth: sessionMessages.depth, branchId: sessionMessages.branchId })
-      .from(sessionMessages)
-      .where(eq(sessionMessages.id, parentMessageId))
-      .limit(1);
-    if (!parent) throw new Error("Parent message not found");
-
-    depth = (parent.depth ?? 0) + 1;
-    branchIndex = await getNextBranchIndex(parentMessageId);
-    const isBranchingFromHistory =
-      !!input.branchFromMessageId && input.branchFromMessageId !== session.currentLeafMessageId;
-
-    if (isBranchingFromHistory) {
-      branchId = randomUUID() as `${string}-${string}-${string}-${string}-${string}`;
-      branchCreated = true;
-    } else {
-      branchId = parent.branchId as `${string}-${string}-${string}-${string}-${string}`;
-    }
-  }
-
-  const content: SessionMessageBlock[] = [
-    { type: "text", text: input.text },
-    ...(input.images?.map((image) => ({ type: "image" as const, uri: image.url, mimeType: undefined })) ?? []),
-  ];
-
-  const [message] = await db
-    .insert(sessionMessages)
-    .values({
-      sessionId: input.runtimeSessionId,
-      role: "user",
-      source: "internal",
-      externalMessageId: null,
-      content,
-      text: extractPlainText(content),
-      meta: null,
-      parentMessageId,
-      depth,
-      branchId,
-      branchIndex,
-    })
-    .returning();
-
-  if (!message) throw new Error("Failed to create user message node");
-  if (parentMessageId) await markParentAsHavingChild(parentMessageId);
-
-  await db
-    .update(runtimeSessions)
-    .set({
-      rootMessageId: session.rootMessageId ?? message.id,
-      currentLeafMessageId: message.id,
-      latestMessageText: message.text,
-      lastMessageAt: message.createdAt ?? new Date(),
-      totalMessages: (session.totalMessages ?? 0) + 1,
-      totalBranches: branchCreated ? (session.totalBranches ?? 1) + 1 : session.totalBranches,
-      updatedAt: new Date(),
-    })
-    .where(eq(runtimeSessions.id, input.runtimeSessionId));
-
-  return message;
-};
-
-export const persistMessageNode = async (input: PersistMessageInput) => {
-  const [existing] = await db
-    .select()
-    .from(sessionMessages)
-    .where(
-      and(
-        eq(sessionMessages.sessionId, input.sessionId),
-        eq(sessionMessages.idempotencyKey, input.idempotencyKey),
-      ),
-    )
-    .limit(1);
-  if (existing) return existing;
-
-  const session = await getRuntimeSessionById(input.sessionId);
-  if (!session || session.runtimeId !== input.runtimeId) {
-    throw new Error("Runtime session not found");
-  }
-
-  const [parent] = await db
-    .select()
-    .from(sessionMessages)
-    .where(
-      and(
-        eq(sessionMessages.id, input.parentMessageId),
-        eq(sessionMessages.sessionId, input.sessionId),
-      ),
-    )
-    .limit(1);
-  if (!parent) throw new Error("Parent message not found");
-
-  const branchIndex = await getNextBranchIndex(parent.id);
-  const content = input.message.content;
-  const text = input.message.text === undefined ? extractPlainText(content) : (input.message.text ?? null);
-
-  let messageNode: typeof sessionMessages.$inferSelect | undefined;
-  try {
-    [messageNode] = await db
-      .insert(sessionMessages)
-      .values({
-        sessionId: input.sessionId,
-        role: input.message.role ?? "assistant",
-        source: input.message.source ?? "internal",
-        externalMessageId: input.message.externalMessageId ?? null,
-        content,
-        text,
-        meta: input.message.meta ?? null,
-        parentMessageId: parent.id,
-        idempotencyKey: input.idempotencyKey,
-        depth: (parent.depth ?? 0) + 1,
-        branchId: parent.branchId,
-        branchIndex,
-        provider: input.message.provider ?? null,
-        model: input.message.model ?? null,
-        stopReason: input.message.stopReason ?? null,
-        errorMessage: input.message.errorMessage ?? null,
-        usageInput: input.message.usage?.input ?? null,
-        usageOutput: input.message.usage?.output ?? null,
-        usageTotalTokens: input.message.usage?.totalTokens ?? null,
-        costTotal: input.message.usage?.costTotal !== undefined ? String(input.message.usage.costTotal) : null,
-      })
-      .returning();
-  } catch {
-    const [conflicted] = await db
-      .select()
-      .from(sessionMessages)
-      .where(
-        and(
-          eq(sessionMessages.sessionId, input.sessionId),
-          eq(sessionMessages.idempotencyKey, input.idempotencyKey),
-        ),
-      )
-      .limit(1);
-    if (conflicted) return conflicted;
-    throw new Error("Failed to persist message");
-  }
-
-  if (!messageNode) throw new Error("Failed to persist message");
-  await markParentAsHavingChild(parent.id);
-
-  const toolCalls = input.toolCalls ?? [];
-  if (toolCalls.length > 0) {
-    await db.insert(sessionToolCalls).values(
-      toolCalls.map((toolCall: PersistToolCall) => ({
-        sessionId: input.sessionId,
-        messageId: messageNode.id,
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        title: toolCall.title ?? null,
-        kind: toolCall.kind ?? null,
-        status: toolCall.status ?? (toolCall.isError ? "failed" : "completed"),
-        args: toolCall.args ?? null,
-        result: toolCall.result ?? null,
-        content: toolCall.content ?? null,
-        locations: toolCall.locations ?? null,
-        rawInput: toolCall.rawInput ?? toolCall.args ?? null,
-        rawOutput: toolCall.rawOutput ?? toolCall.result ?? null,
-        resultPreview: toolCall.resultPreview ?? null,
-        isError: toolCall.isError ?? false,
-        meta: toolCall.meta ?? null,
-      })),
-    );
-  }
-
-  const allMessages = await db
-    .select({ costTotal: sessionMessages.costTotal })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, input.sessionId));
-
-  const totalCost = allMessages.reduce((sum, message) => {
-    const value = Number(message.costTotal ?? 0);
-    return Number.isFinite(value) ? sum + value : sum;
-  }, 0);
-
-  const [toolCallCountRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionToolCalls)
-    .where(eq(sessionToolCalls.sessionId, input.sessionId));
-
-  const [messageCountRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, input.sessionId));
-
-  await db
-    .update(runtimeSessions)
-    .set({
-      currentLeafMessageId: messageNode.id,
-      latestMessageText: messageNode.text,
-      lastMessageAt: messageNode.createdAt ?? new Date(),
-      totalMessages: messageCountRow?.count ?? session.totalMessages,
-      totalToolCalls: toolCallCountRow?.count ?? session.totalToolCalls,
-      totalInputTokens: (session.totalInputTokens ?? 0) + (input.message.usage?.input ?? 0),
-      totalOutputTokens: (session.totalOutputTokens ?? 0) + (input.message.usage?.output ?? 0),
-      totalCost: String(totalCost),
-      updatedAt: new Date(),
-    })
-    .where(eq(runtimeSessions.id, input.sessionId));
-
-  // 触发 Outbound：优先分发到当前 session 已建立的 chat 绑定；
-  // 只有没有任何 session binding 时，才退回 runtime 级别的 channel 配置。
-  const bindings = await getBindingsBySessionId(session.id);
-
-  if (bindings.length > 0) {
-    for (const binding of bindings) {
-      await touchRuntimeSessionBinding(binding.id).catch(console.error);
-      dispatchOutboundMessage({
-        runtimeChannelId: binding.runtimeChannelId,
-        externalChatId: binding.externalChatId,
-        content: messageNode.content,
-        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
-      }).catch(console.error);
-    }
-  } else {
-    const channels = await db
-      .select()
-      .from(runtimeChannels)
-      .where(eq(runtimeChannels.runtimeId, session.runtimeId));
-
-    for (const rc of channels) {
-      dispatchOutboundMessage({
-        runtimeChannelId: rc.id,
-        content: messageNode.content,
-        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
-      }).catch(console.error);
-    }
-  }
-
-  return messageNode;
-};
-
-export const updateRuntimeSessionInfo = async (input: PersistSessionInfoUpdateInput) => {
-  const session = await getRuntimeSessionById(input.sessionId);
-  if (!session || session.runtimeId !== input.runtimeId) {
-    throw new Error("Runtime session not found");
-  }
-
-  await db
-    .update(runtimeSessions)
-    .set({
-      title: input.title === undefined ? session.title : (input.title ?? null),
-      lastMessageAt: input.updatedAt === undefined ? session.lastMessageAt : input.updatedAt ? new Date(input.updatedAt) : null,
-      meta:
-        input.meta === undefined
-          ? session.meta
-          : {
-              ...((session.meta as Record<string, unknown> | null) ?? {}),
-              ...(input.meta ?? {}),
-            },
-      updatedAt: new Date(),
-    })
-    .where(eq(runtimeSessions.id, input.sessionId));
-
-  return true;
-};
-
-export const listSessionTree = async (runtimeSessionId: string) => {
-  return db
-    .select()
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, runtimeSessionId))
-    .orderBy(asc(sessionMessages.createdAt));
-};
-
-export const getCurrentPathMessages = async (runtimeSessionId: string) => {
-  const session = await getRuntimeSessionById(runtimeSessionId);
-  if (!session?.currentLeafMessageId) return [];
-
-  const allMessages = await db
-    .select()
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, runtimeSessionId));
-
-  const byId = new Map(allMessages.map((message) => [message.id, message]));
-  const path: typeof allMessages = [];
-  let current = byId.get(session.currentLeafMessageId) ?? null;
-
-  while (current) {
-    path.unshift(current);
-    current = current.parentMessageId ? (byId.get(current.parentMessageId) ?? null) : null;
-  }
-
-  return path;
-};
-
-export const listToolCallsByMessageIds = async (messageIds: string[]) => {
-  if (messageIds.length === 0) return [];
-  return db
-    .select()
-    .from(sessionToolCalls)
-    .where(inArray(sessionToolCalls.messageId, messageIds))
-    .orderBy(asc(sessionToolCalls.createdAt));
-};
-
-export const selectRuntimeSessionLeaf = async (input: {
-  runtimeSessionId: string;
-  leafMessageId: string;
-}) => {
-  const [message] = await db
-    .select({ id: sessionMessages.id, sessionId: sessionMessages.sessionId })
-    .from(sessionMessages)
-    .where(
-      and(
-        eq(sessionMessages.id, input.leafMessageId),
-        eq(sessionMessages.sessionId, input.runtimeSessionId),
-      ),
-    )
-    .limit(1);
-
-  if (!message) throw new Error("Leaf message not found");
-
-  await db
-    .update(runtimeSessions)
-    .set({ currentLeafMessageId: input.leafMessageId, updatedAt: new Date() })
-    .where(eq(runtimeSessions.id, input.runtimeSessionId));
-
-  return true;
 };

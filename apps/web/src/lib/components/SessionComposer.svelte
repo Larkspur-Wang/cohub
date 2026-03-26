@@ -1,16 +1,16 @@
 <script lang="ts">
 type Props = {
   value: string;
-  sending?: boolean;
+  disabled?: boolean;
   streamError?: string;
-  onSubmit: () => void;
+  onsubmit: () => void;
 };
 
 let {
   value = $bindable(""),
-  sending = false,
+  disabled = false,
   streamError = "",
-  onSubmit,
+  onsubmit,
 }: Props = $props();
 </script>
 
@@ -23,7 +23,7 @@ let {
     class="flex items-end gap-3"
     onsubmit={(event) => {
       event.preventDefault();
-      onSubmit();
+      onsubmit();
     }}
   >
     <textarea
@@ -34,10 +34,10 @@ let {
     ></textarea>
     <button
       type="submit"
-      disabled={sending || !value.trim()}
+      disabled={disabled || !value.trim()}
       class="rounded-md border border-white/6 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-white/70 transition-all duration-150 hover:bg-white/[0.035] hover:text-white/88 disabled:cursor-not-allowed disabled:opacity-35 cursor-pointer"
     >
-      {sending ? 'sending' : 'send'}
+      {disabled ? 'sending' : 'send'}
     </button>
   </form>
 </div>

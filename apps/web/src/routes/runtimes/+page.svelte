@@ -87,7 +87,7 @@ onMount(() => {
 
           <div class="mt-4 flex flex-wrap gap-2 text-xs text-gray-500">
             <span class="px-2 py-1 rounded-full bg-gray-100">workspace: {runtime.workspaceId ?? "unbound"}</span>
-            <span class="px-2 py-1 rounded-full bg-gray-100">session: {runtime.currentSessionId ?? "none"}</span>
+            <span class="px-2 py-1 rounded-full bg-gray-100">sessions: —</span>
           </div>
 
           <div class="mt-6 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">

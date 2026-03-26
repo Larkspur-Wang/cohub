@@ -219,8 +219,6 @@ export async function touchRuntimeSessionBinding(bindingId: string) {
  * 处理网关发来的入站事件
  */
 export async function handleInboundEvent(event: GatewayInboundEvent) {
-  // 1. 寻找匹配的 Runtime Channel 绑定关系
-  // 注意：event.channelId 在这里其实是 runtime_channels.id
   const [rc] = await db
     .select()
     .from(runtimeChannels)
@@ -232,7 +230,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     return;
   }
 
-  // 2. 寻找或创建对应的 Session Binding
   const bindingKey =
     (event as GatewayInboundEvent & { bindingKey?: string }).bindingKey ??
     `${event.provider}:${event.externalChatId}`;
@@ -273,7 +270,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     await touchRuntimeSessionBinding(binding.id);
   }
 
-  // 3. 将消息注入到系统（模拟用户在 Web 端的操作）
   const textBlock = event.content.find((block): block is { type: 'text'; text: string } => block.type === 'text');
   const text = textBlock?.text || "";
   const images = event.content
@@ -284,15 +280,12 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     runtimeSessionId: sessionId,
     text,
     images,
-    branchFromMessageId: null, // 默认在叶子节点继续
   });
 
-  // 4. 触发 Agent 运行
   await enqueueRuntimePrompt({
     runtimeId: rc.runtimeId,
     sessionId,
     userMessageId: userMessage.id,
-    branchFromMessageId: null,
     message: { text, images },
     meta: { intent: "continue", source: `channel:${event.provider}` },
   });

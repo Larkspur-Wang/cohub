@@ -1,7 +1,6 @@
 import type {
   SessionMessageRecord,
   SessionToolCallRecord,
-  SessionTreeResponse,
 } from "$lib/api";
 
 export type ChatMessage = {
@@ -49,20 +48,6 @@ export type TimelineItem =
       kind: "tool";
       tool: ToolState;
     };
-
-export type SessionTreeNodeView = {
-  id: string;
-  parentMessageId: string | null;
-  role: "user" | "assistant" | "system";
-  text: string | null;
-  depth: number;
-  branchId: string;
-  branchIndex: number | null;
-  childCount: number;
-  isLeaf: boolean;
-  isCurrentLeaf: boolean;
-  createdAt: string;
-};
 
 export const stringifyUnknown = (value: unknown) => {
   if (typeof value === "string") {
@@ -175,22 +160,4 @@ export const toChatMessages = (
           : undefined,
     } satisfies ChatMessage;
   });
-};
-
-export const toTreeNodes = (
-  tree: SessionTreeResponse,
-): SessionTreeNodeView[] => {
-  return tree.nodes.map((node) => ({
-    id: node.id,
-    parentMessageId: node.parentMessageId,
-    role: node.role,
-    text: node.text,
-    depth: node.depth,
-    branchId: node.branchId,
-    branchIndex: node.branchIndex,
-    childCount: node.childCount,
-    isLeaf: node.isLeaf,
-    isCurrentLeaf: tree.session.currentLeafMessageId === node.id,
-    createdAt: node.createdAt,
-  }));
 };

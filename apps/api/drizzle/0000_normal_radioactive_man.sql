@@ -55,13 +55,15 @@ CREATE TABLE "runtime_sessions" (
 	"protocol" varchar(30),
 	"external_session_id" text,
 	"meta" jsonb,
-	"root_message_id" uuid,
-	"current_leaf_message_id" uuid,
+	"parent_session_id" uuid,
+	"forked_from_message_id" uuid,
+	"lineage_root_session_id" uuid,
+	"fork_depth" integer DEFAULT 0 NOT NULL,
 	"latest_message_text" text,
 	"last_message_at" timestamp with time zone,
+	"last_message_id" uuid,
 	"total_messages" integer DEFAULT 0 NOT NULL,
 	"total_tool_calls" integer DEFAULT 0 NOT NULL,
-	"total_branches" integer DEFAULT 1 NOT NULL,
 	"total_input_tokens" integer DEFAULT 0 NOT NULL,
 	"total_output_tokens" integer DEFAULT 0 NOT NULL,
 	"total_cost" numeric(18, 8) DEFAULT '0' NOT NULL,
@@ -78,7 +80,6 @@ CREATE TABLE "runtimes" (
 	"agent_commit_hash" varchar(40),
 	"title" varchar(255),
 	"status" varchar(50) DEFAULT 'active',
-	"current_session_id" uuid,
 	"meta" jsonb,
 	"created_at" timestamp with time zone DEFAULT now(),
 	"updated_at" timestamp with time zone DEFAULT now()
@@ -90,17 +91,13 @@ CREATE TABLE "session_messages" (
 	"role" varchar(20) NOT NULL,
 	"source" varchar(30),
 	"external_message_id" text,
+	"protocol_message_id" varchar(128),
 	"content" jsonb NOT NULL,
 	"text" text,
 	"meta" jsonb,
-	"parent_message_id" uuid,
 	"idempotency_key" varchar(255),
-	"depth" integer DEFAULT 0 NOT NULL,
-	"branch_id" uuid NOT NULL,
-	"branch_index" integer,
-	"child_count" integer DEFAULT 0 NOT NULL,
-	"is_branch_point" boolean DEFAULT false NOT NULL,
-	"is_leaf" boolean DEFAULT true NOT NULL,
+	"sequence" integer NOT NULL,
+	"prev_message_id" uuid,
 	"provider" varchar(100),
 	"model" varchar(255),
 	"stop_reason" varchar(50),
@@ -167,6 +164,8 @@ CREATE TABLE "workspaces" (
 	"gitea_repo_name" varchar(255) NOT NULL,
 	"default_branch" varchar(50) DEFAULT 'main',
 	"visibility" varchar(20) DEFAULT 'public',
+	"parent_id" uuid,
+	"fork_count" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now(),
 	"updated_at" timestamp with time zone DEFAULT now()
 );
@@ -184,22 +183,20 @@ CREATE INDEX "idx_runtime_session_bindings_binding_key" ON "runtime_session_bind
 CREATE INDEX "idx_runtime_session_bindings_external_chat" ON "runtime_session_bindings" USING btree ("external_chat_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_runtime_session_bindings_channel_binding" ON "runtime_session_bindings" USING btree ("runtime_channel_id","binding_key");--> statement-breakpoint
 CREATE INDEX "idx_runtime_sessions_runtime_id" ON "runtime_sessions" USING btree ("runtime_id");--> statement-breakpoint
-CREATE INDEX "idx_runtime_sessions_protocol" ON "runtime_sessions" USING btree ("protocol");--> statement-breakpoint
-CREATE INDEX "idx_runtime_sessions_current_leaf_message_id" ON "runtime_sessions" USING btree ("current_leaf_message_id");--> statement-breakpoint
+CREATE INDEX "idx_runtime_sessions_parent_session_id" ON "runtime_sessions" USING btree ("parent_session_id");--> statement-breakpoint
+CREATE INDEX "idx_runtime_sessions_lineage_root_session_id" ON "runtime_sessions" USING btree ("lineage_root_session_id");--> statement-breakpoint
+CREATE INDEX "idx_runtime_sessions_forked_from_message_id" ON "runtime_sessions" USING btree ("forked_from_message_id");--> statement-breakpoint
+CREATE INDEX "idx_runtime_sessions_last_message_id" ON "runtime_sessions" USING btree ("last_message_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_sessions_last_message_at" ON "runtime_sessions" USING btree ("last_message_at");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_user_uuid" ON "runtimes" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_workspace_id" ON "runtimes" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_agent_id" ON "runtimes" USING btree ("agent_id");--> statement-breakpoint
-CREATE INDEX "idx_runtimes_current_session_id" ON "runtimes" USING btree ("current_session_id");--> statement-breakpoint
 CREATE INDEX "idx_session_messages_session_id" ON "session_messages" USING btree ("session_id");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_parent_message_id" ON "session_messages" USING btree ("parent_message_id");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_source" ON "session_messages" USING btree ("source");--> statement-breakpoint
+CREATE INDEX "idx_session_messages_prev_message_id" ON "session_messages" USING btree ("prev_message_id");--> statement-breakpoint
 CREATE INDEX "idx_session_messages_external_message_id" ON "session_messages" USING btree ("external_message_id");--> statement-breakpoint
+CREATE INDEX "idx_session_messages_protocol_message_id" ON "session_messages" USING btree ("protocol_message_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_session_messages_session_sequence" ON "session_messages" USING btree ("session_id","sequence");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_session_messages_session_id_idempotency_key" ON "session_messages" USING btree ("session_id","idempotency_key");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_branch_id" ON "session_messages" USING btree ("branch_id");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_session_branch_created_at" ON "session_messages" USING btree ("session_id","branch_id","created_at");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_session_is_leaf" ON "session_messages" USING btree ("session_id","is_leaf");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_session_depth" ON "session_messages" USING btree ("session_id","depth");--> statement-breakpoint
 CREATE INDEX "idx_session_tool_calls_session_id" ON "session_tool_calls" USING btree ("session_id");--> statement-breakpoint
 CREATE INDEX "idx_session_tool_calls_message_id" ON "session_tool_calls" USING btree ("message_id");--> statement-breakpoint
 CREATE INDEX "idx_session_tool_calls_tool_name" ON "session_tool_calls" USING btree ("tool_name");--> statement-breakpoint
@@ -213,5 +210,7 @@ CREATE UNIQUE INDEX "uq_user_git_accounts_gitea_username" ON "user_git_accounts"
 CREATE INDEX "idx_user_git_accounts_user_uuid" ON "user_git_accounts" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "idx_user_git_accounts_provider" ON "user_git_accounts" USING btree ("provider");--> statement-breakpoint
 CREATE INDEX "idx_workspaces_user_uuid" ON "workspaces" USING btree ("user_uuid");--> statement-breakpoint
+CREATE INDEX "idx_workspaces_parent_id" ON "workspaces" USING btree ("parent_id");--> statement-breakpoint
+CREATE INDEX "idx_workspaces_visibility" ON "workspaces" USING btree ("visibility");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_workspaces_user_name" ON "workspaces" USING btree ("user_uuid","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_workspaces_user_repo_name" ON "workspaces" USING btree ("user_uuid","gitea_repo_name");

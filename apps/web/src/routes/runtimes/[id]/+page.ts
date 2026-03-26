@@ -4,35 +4,28 @@ import {
   getRuntime,
   getRuntimeSessions,
   getSessionMessages,
-  getSessionTree,
 } from "$lib/api";
 
 export const load: PageLoad = async ({ params, fetch }) => {
   try {
     const runtime = await getRuntime(params.id, fetch);
     const sessionsResponse = await getRuntimeSessions(params.id, fetch);
-    const currentSessionId =
-      runtime.currentSessionId ?? sessionsResponse.sessions.at(-1)?.id ?? null;
+    const bootstrapSessionId = sessionsResponse.sessions.at(-1)?.id ?? null;
 
-    if (!currentSessionId) {
+    if (!bootstrapSessionId) {
       return {
         runtime,
         session: null,
         persisted: null,
-        tree: null,
       };
     }
 
-    const [persisted, tree] = await Promise.all([
-      getSessionMessages(currentSessionId, fetch),
-      getSessionTree(currentSessionId, fetch),
-    ]);
+    const persisted = await getSessionMessages(bootstrapSessionId, fetch);
 
     return {
       runtime,
       session: persisted.session,
       persisted,
-      tree,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

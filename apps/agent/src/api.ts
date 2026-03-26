@@ -28,14 +28,14 @@ const stableSerialize = (value: unknown): string => {
 };
 
 const buildAssistantIdempotencyKey = (input: {
-  parentMessageId: string;
+  previousMessageId: string;
   message: PersistMessagePayload["message"];
   toolCalls: PersistMessagePayload["toolCalls"];
 }) => {
   return createHash("sha256")
     .update(
       stableSerialize({
-        parentMessageId: input.parentMessageId,
+        previousMessageId: input.previousMessageId,
         role: "assistant",
         message: input.message,
         toolCalls: input.toolCalls,
@@ -160,6 +160,14 @@ export async function registerRuntimeSession(input: RegisterRuntimeSessionInput)
     const text = await response.text().catch(() => "");
     throw new Error(`Register session failed ${response.status}: ${text}`);
   }
+
+  return response.json().catch(() => null) as Promise<{
+    ok: true;
+    session: { id: string };
+    bootstrap?: {
+      forkSourceProtocolMessageId: string | null;
+    } | null;
+  } | null>;
 }
 
 export async function persistAssistantMessage(input: {
@@ -186,12 +194,13 @@ export async function persistAssistantMessage(input: {
   const payload: PersistMessagePayload = {
     runtimeId: input.runtimeId,
     sessionId: input.runtimeSessionId,
-    parentMessageId: input.userMessageId,
+    previousMessageId: input.userMessageId,
     idempotencyKey: "",
     message: {
       role: "assistant",
       source: "pi",
       externalMessageId: typeof assistant.id === "string" ? assistant.id : null,
+      protocolMessageId: typeof assistant.id === "string" ? assistant.id : null,
       content,
       text,
       provider: typeof assistant.provider === "string" ? assistant.provider : null,
@@ -234,7 +243,7 @@ export async function persistAssistantMessage(input: {
   };
 
   payload.idempotencyKey = buildAssistantIdempotencyKey({
-    parentMessageId: payload.parentMessageId,
+    previousMessageId: payload.previousMessageId ?? "root",
     message: payload.message,
     toolCalls: payload.toolCalls,
   });

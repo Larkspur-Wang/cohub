@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1774368430935,
-      "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1774452000000,
-      "tag": "0001_remove_runtime_channel_external_chat",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1774538400000,
-      "tag": "0002_workspace_fork",
+      "when": 1774509034231,
+      "tag": "0000_normal_radioactive_man",
       "breakpoints": true
     }
   ]

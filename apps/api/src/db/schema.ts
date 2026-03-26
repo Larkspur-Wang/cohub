@@ -42,7 +42,6 @@ export const userGitAccounts = pgTable(
   }),
 );
 
-// 工作区表 (Workspace)
 export const workspaces = pgTable(
   "workspaces",
   {
@@ -52,9 +51,9 @@ export const workspaces = pgTable(
     description: text("description"),
     giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
     defaultBranch: varchar("default_branch", { length: 50 }).default("main"),
-    visibility: varchar("visibility", { length: 20 }).default("public"), // public | private
-    parentId: uuid("parent_id"), // fork 来源
-    forkCount: integer("fork_count").notNull().default(0), // 被 fork 次数
+    visibility: varchar("visibility", { length: 20 }).default("public"),
+    parentId: uuid("parent_id"),
+    forkCount: integer("fork_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -73,7 +72,6 @@ export const workspaces = pgTable(
   }),
 );
 
-// 智能体/角色表 (Agent)
 export const agents = pgTable(
   "agents",
   {
@@ -92,16 +90,15 @@ export const agents = pgTable(
   }),
 );
 
-// 用户渠道配置表 (User Channels)
 export const userChannels = pgTable(
   "user_channels",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userUuid: varchar("user_uuid", { length: 255 }).notNull(),
-    provider: varchar("provider", { length: 50 }).notNull(), // 'web', 'discord', 'feishu', 'telegram'
+    provider: varchar("provider", { length: 50 }).notNull(),
     name: varchar("name", { length: 255 }),
-    credentials: jsonb("credentials").notNull(), // 存储 bot token, app id/secret 等
-    status: varchar("status", { length: 20 }).default("active"), // active, error, disabled
+    credentials: jsonb("credentials").notNull(),
+    status: varchar("status", { length: 20 }).default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -111,7 +108,6 @@ export const userChannels = pgTable(
   }),
 );
 
-// 外层：Runtime（一个 workspace 的 agent 运行实例，可运行/休眠/恢复）
 export const runtimes = pgTable(
   "runtimes",
   {
@@ -121,13 +117,9 @@ export const runtimes = pgTable(
     workspaceCommitHash: varchar("workspace_commit_hash", { length: 40 }),
     agentId: uuid("agent_id"),
     agentCommitHash: varchar("agent_commit_hash", { length: 40 }),
-
     title: varchar("title", { length: 255 }),
-    status: varchar("status", { length: 50 }).default("active"), // active, running, sleeping, stopped, error, archived
-
-    currentSessionId: uuid("current_session_id"),
+    status: varchar("status", { length: 50 }).default("active"),
     meta: jsonb("meta"),
-
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -135,13 +127,9 @@ export const runtimes = pgTable(
     userUuidIdx: index("idx_runtimes_user_uuid").on(table.userUuid),
     workspaceIdx: index("idx_runtimes_workspace_id").on(table.workspaceId),
     agentIdx: index("idx_runtimes_agent_id").on(table.agentId),
-    currentSessionIdx: index("idx_runtimes_current_session_id").on(
-      table.currentSessionId,
-    ),
   }),
 );
 
-// Runtime 与 渠道的关联映射表
 export const runtimeChannels = pgTable(
   "runtime_channels",
   {
@@ -154,6 +142,42 @@ export const runtimeChannels = pgTable(
   (table) => ({
     runtimeIdx: index("idx_runtime_channels_runtime").on(table.runtimeId),
     channelIdx: uniqueIndex("uq_runtime_channels_channel").on(table.channelId),
+  }),
+);
+
+export const runtimeSessions = pgTable(
+  "runtime_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runtimeId: uuid("runtime_id").notNull(),
+    title: varchar("title", { length: 255 }),
+    status: varchar("status", { length: 50 }).default("active"),
+    cwd: text("cwd"),
+    protocol: varchar("protocol", { length: 30 }),
+    externalSessionId: text("external_session_id"),
+    meta: jsonb("meta"),
+    parentSessionId: uuid("parent_session_id"),
+    forkedFromMessageId: uuid("forked_from_message_id"),
+    lineageRootSessionId: uuid("lineage_root_session_id"),
+    forkDepth: integer("fork_depth").notNull().default(0),
+    latestMessageText: text("latest_message_text"),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    lastMessageId: uuid("last_message_id"),
+    totalMessages: integer("total_messages").notNull().default(0),
+    totalToolCalls: integer("total_tool_calls").notNull().default(0),
+    totalInputTokens: integer("total_input_tokens").notNull().default(0),
+    totalOutputTokens: integer("total_output_tokens").notNull().default(0),
+    totalCost: numeric("total_cost", { precision: 18, scale: 8 }).notNull().default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    runtimeIdx: index("idx_runtime_sessions_runtime_id").on(table.runtimeId),
+    parentIdx: index("idx_runtime_sessions_parent_session_id").on(table.parentSessionId),
+    rootIdx: index("idx_runtime_sessions_lineage_root_session_id").on(table.lineageRootSessionId),
+    forkedFromMessageIdx: index("idx_runtime_sessions_forked_from_message_id").on(table.forkedFromMessageId),
+    lastMessageIdx: index("idx_runtime_sessions_last_message_id").on(table.lastMessageId),
+    lastMessageAtIdx: index("idx_runtime_sessions_last_message_at").on(table.lastMessageAt),
   }),
 );
 
@@ -186,130 +210,52 @@ export const runtimeSessionBindings = pgTable(
   }),
 );
 
-// 内层：Session（runtime 内部的 LLM/agent conversation session）
-export const runtimeSessions = pgTable(
-  "runtime_sessions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    runtimeId: uuid("runtime_id").notNull(),
-
-    title: varchar("title", { length: 255 }),
-    status: varchar("status", { length: 50 }).default("active"), // active, archived
-
-    cwd: text("cwd"),
-    protocol: varchar("protocol", { length: 30 }), // pi | acp | internal
-    externalSessionId: text("external_session_id"),
-    meta: jsonb("meta"),
-
-    rootMessageId: uuid("root_message_id"),
-    currentLeafMessageId: uuid("current_leaf_message_id"),
-
-    latestMessageText: text("latest_message_text"),
-    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-
-    totalMessages: integer("total_messages").notNull().default(0),
-    totalToolCalls: integer("total_tool_calls").notNull().default(0),
-    totalBranches: integer("total_branches").notNull().default(1),
-
-    totalInputTokens: integer("total_input_tokens").notNull().default(0),
-    totalOutputTokens: integer("total_output_tokens").notNull().default(0),
-    totalCost: numeric("total_cost", { precision: 18, scale: 8 })
-      .notNull()
-      .default("0"),
-
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => ({
-    runtimeIdx: index("idx_runtime_sessions_runtime_id").on(table.runtimeId),
-    protocolIdx: index("idx_runtime_sessions_protocol").on(table.protocol),
-    currentLeafIdx: index("idx_runtime_sessions_current_leaf_message_id").on(
-      table.currentLeafMessageId,
-    ),
-    lastMessageAtIdx: index("idx_runtime_sessions_last_message_at").on(
-      table.lastMessageAt,
-    ),
-  }),
-);
-
-// Session 内的树状消息节点表
 export const sessionMessages = pgTable(
   "session_messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     sessionId: uuid("session_id").notNull(),
-
     role: varchar("role", { length: 20 }).notNull(),
     source: varchar("source", { length: 30 }),
     externalMessageId: text("external_message_id"),
+    protocolMessageId: varchar("protocol_message_id", { length: 128 }),
     content: jsonb("content").notNull().$type<UnifiedContentBlock[]>(),
     text: text("text"),
     meta: jsonb("meta"),
-
-    parentMessageId: uuid("parent_message_id"),
     idempotencyKey: varchar("idempotency_key", { length: 255 }),
-
-    depth: integer("depth").notNull().default(0),
-    branchId: uuid("branch_id").notNull(),
-    branchIndex: integer("branch_index"),
-
-    childCount: integer("child_count").notNull().default(0),
-    isBranchPoint: boolean("is_branch_point").notNull().default(false),
-    isLeaf: boolean("is_leaf").notNull().default(true),
-
+    sequence: integer("sequence").notNull(),
+    prevMessageId: uuid("prev_message_id"),
     provider: varchar("provider", { length: 100 }),
     model: varchar("model", { length: 255 }),
     stopReason: varchar("stop_reason", { length: 50 }),
     errorMessage: text("error_message"),
-
     usageInput: integer("usage_input"),
     usageOutput: integer("usage_output"),
     usageTotalTokens: integer("usage_total_tokens"),
     costTotal: numeric("cost_total", { precision: 18, scale: 8 }),
-
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
     sessionIdx: index("idx_session_messages_session_id").on(table.sessionId),
-    parentIdx: index("idx_session_messages_parent_message_id").on(
-      table.parentMessageId,
-    ),
-    sourceIdx: index("idx_session_messages_source").on(table.source),
-    externalMessageIdx: index("idx_session_messages_external_message_id").on(
-      table.externalMessageId,
-    ),
-    idempotencyKeyUniqueIdx: uniqueIndex(
-      "uq_session_messages_session_id_idempotency_key",
-    ).on(table.sessionId, table.idempotencyKey),
-    branchIdx: index("idx_session_messages_branch_id").on(table.branchId),
-    sessionBranchCreatedIdx: index(
-      "idx_session_messages_session_branch_created_at",
-    ).on(table.sessionId, table.branchId, table.createdAt),
-    sessionLeafIdx: index("idx_session_messages_session_is_leaf").on(
-      table.sessionId,
-      table.isLeaf,
-    ),
-    sessionDepthIdx: index("idx_session_messages_session_depth").on(
-      table.sessionId,
-      table.depth,
-    ),
+    prevIdx: index("idx_session_messages_prev_message_id").on(table.prevMessageId),
+    externalMessageIdx: index("idx_session_messages_external_message_id").on(table.externalMessageId),
+    protocolMessageIdx: index("idx_session_messages_protocol_message_id").on(table.protocolMessageId),
+    sessionSequenceUniqueIdx: uniqueIndex("uq_session_messages_session_sequence").on(table.sessionId, table.sequence),
+    idempotencyKeyUniqueIdx: uniqueIndex("uq_session_messages_session_id_idempotency_key").on(table.sessionId, table.idempotencyKey),
   }),
 );
 
-// Session 内助手消息中的工具调用
 export const sessionToolCalls = pgTable(
   "session_tool_calls",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     sessionId: uuid("session_id").notNull(),
     messageId: uuid("message_id").notNull(),
-
     toolCallId: varchar("tool_call_id", { length: 255 }).notNull(),
     toolName: varchar("tool_name", { length: 255 }).notNull(),
     title: text("title"),
     kind: varchar("kind", { length: 50 }),
     status: varchar("status", { length: 30 }),
-
     args: jsonb("args"),
     result: jsonb("result"),
     content: jsonb("content"),
@@ -319,7 +265,6 @@ export const sessionToolCalls = pgTable(
     resultPreview: text("result_preview"),
     isError: boolean("is_error").notNull().default(false),
     meta: jsonb("meta"),
-
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
@@ -328,28 +273,22 @@ export const sessionToolCalls = pgTable(
     toolNameIdx: index("idx_session_tool_calls_tool_name").on(table.toolName),
     kindIdx: index("idx_session_tool_calls_kind").on(table.kind),
     statusIdx: index("idx_session_tool_calls_status").on(table.status),
-    sessionToolCallUniqueIdx: uniqueIndex(
-      "uq_session_tool_calls_session_tool_call_id",
-    ).on(table.sessionId, table.toolCallId),
+    sessionToolCallUniqueIdx: uniqueIndex("uq_session_tool_calls_session_tool_call_id").on(table.sessionId, table.toolCallId),
   }),
 );
 
-// Gateway 原始日志表 (用于 Debug)
 export const gatewayLogs = pgTable(
   "gateway_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    direction: varchar("direction", { length: 10 }).notNull(), // 'inbound' | 'outbound'
+    direction: varchar("direction", { length: 10 }).notNull(),
     provider: varchar("provider", { length: 50 }).notNull(),
     channelId: uuid("channel_id"),
     externalChatId: varchar("external_chat_id", { length: 255 }),
-
     rawPayload: jsonb("raw_payload").notNull(),
     normalizedPayload: jsonb("normalized_payload"),
-
     status: varchar("status", { length: 20 }).default("success"),
     errorMessage: text("error_message"),
-
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({

@@ -56,7 +56,6 @@ export type RuntimePromptInput = {
   runtimeId: string;
   sessionId: string;
   userMessageId?: string | null;
-  branchFromMessageId?: string | null;
   message: {
     text: string;
     images?: Array<{ url: string }>;
@@ -80,12 +79,13 @@ export type RegisterRuntimeSessionInput = {
 export type PersistMessageInput = {
   runtimeId: string;
   sessionId: string;
-  parentMessageId: string;
+  previousMessageId?: string | null;
   idempotencyKey: string;
   message: {
     role?: "user" | "assistant" | "system";
     source?: ProtocolSource | null;
     externalMessageId?: string | null;
+    protocolMessageId?: string | null;
     content: UnifiedContentBlock[];
     text?: string | null;
     provider?: string | null;

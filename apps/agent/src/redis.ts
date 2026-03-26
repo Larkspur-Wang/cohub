@@ -29,7 +29,6 @@ const PromptInputSchema = z.object({
   runtimeId: z.string().uuid(),
   sessionId: z.string().uuid(),
   userMessageId: z.string().uuid().nullable().optional(),
-  branchFromMessageId: z.string().uuid().nullable().optional(),
   message: z.object({
     text: z.string().min(1),
     images: z.array(ImageContentSchema).optional(),

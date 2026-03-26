@@ -18,13 +18,15 @@ export type SessionRecord = {
   protocol: string | null;
   externalSessionId?: string | null;
   meta?: Record<string, unknown> | null;
-  rootMessageId?: string | null;
-  currentLeafMessageId?: string | null;
+  parentSessionId?: string | null;
+  forkedFromMessageId?: string | null;
+  lineageRootSessionId?: string | null;
+  forkDepth?: number;
   latestMessageText?: string | null;
   lastMessageAt?: string | null;
+  lastMessageId?: string | null;
   totalMessages?: number;
   totalToolCalls?: number;
-  totalBranches?: number;
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCost?: string | number | null;
@@ -45,7 +47,7 @@ export type SessionMessageBlock =
     }
   | {
       type: "system_note";
-      noteType: "branch_summary" | "compaction" | "info";
+      noteType: "compaction" | "info";
       text: string;
     };
 
@@ -55,14 +57,10 @@ export type SessionMessageRecord = {
   role: "user" | "assistant" | "system";
   content: SessionMessageBlock[];
   text: string | null;
-  parentMessageId: string | null;
-  idempotencyKey?: string | null;
-  depth: number;
-  branchId: string;
-  branchIndex: number | null;
-  childCount: number;
-  isBranchPoint: boolean;
-  isLeaf: boolean;
+  externalMessageId?: string | null;
+  protocolMessageId?: string | null;
+  sequence: number;
+  prevMessageId: string | null;
   provider: string | null;
   model: string | null;
   stopReason: string | null;
@@ -92,17 +90,6 @@ export type SessionMessagesResponse = {
   session: SessionRecord;
   messages: SessionMessageRecord[];
   toolCalls: SessionToolCallRecord[];
-};
-
-export type SessionTreeResponse = {
-  runtime: RuntimeRecord;
-  session: {
-    id: string;
-    currentLeafMessageId: string | null;
-    rootMessageId: string | null;
-    totalBranches: number;
-  };
-  nodes: SessionMessageRecord[];
 };
 
 type SessionStreamEvent = {
@@ -220,26 +207,16 @@ export const getFile = async (
   );
 };
 
+export const getSession = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/sessions/${id}`, {
+    fetch: customFetch,
+  }) as Promise<{ runtime: RuntimeRecord; session: SessionRecord }>;
+};
+
 export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/sessions/${id}/messages`, {
     fetch: customFetch,
   }) as Promise<SessionMessagesResponse>;
-};
-
-export const getSessionTree = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/sessions/${id}/tree`, {
-    fetch: customFetch,
-  }) as Promise<SessionTreeResponse>;
-};
-
-export const selectSessionLeaf = async (id: string, leafMessageId: string) => {
-  return apiFetch(`/api/sessions/${id}/select-leaf`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ leafMessageId }),
-  });
 };
 
 export const sendSessionMessage = async (
@@ -247,7 +224,6 @@ export const sendSessionMessage = async (
   input: {
     text: string;
     images?: Array<{ url: string }>;
-    branchFromMessageId?: string;
   },
 ) => {
   return apiFetch(`/api/sessions/${id}/messages`, {
@@ -259,11 +235,19 @@ export const sendSessionMessage = async (
   });
 };
 
-export const abortSession = async (id: string) => {
-  return apiFetch(`/api/sessions/${id}/abort`, {
+export const forkSession = async (
+  id: string,
+  input: { fromMessageId: string; title?: string | null },
+) => {
+  return apiFetch(`/api/sessions/${id}/fork`, {
     method: "POST",
-  });
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  }) as Promise<{ ok: true; session: SessionRecord }>;
 };
+
 
 export type {
   ApiError,
@@ -421,7 +405,6 @@ export type RuntimeRecord = {
   title: string | null;
   status: string | null;
   liveStatus?: string | null;
-  currentSessionId?: string | null;
   meta?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -494,6 +477,12 @@ export const getRuntimeSessions = async (id: string, customFetch?: Fetch) => {
   }) as Promise<RuntimeSessionsResponse>;
 };
 
+export const getRuntimeSessionGraph = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/runtimes/${id}/session-graph`, {
+    fetch: customFetch,
+  }) as Promise<RuntimeSessionsResponse>;
+};
+
 export const getRuntimeStreamUrl = (id: string) => {
   const base = API_BASE_URL;
   return base
@@ -501,7 +490,6 @@ export const getRuntimeStreamUrl = (id: string) => {
     : `/api/runtimes/${id}/stream`;
 };
 
-// Public workspaces (Explore)
 export type PublicWorkspacesResponse = {
   items: PublicWorkspace[];
   pagination: {
@@ -529,7 +517,6 @@ export const getPublicWorkspaces = async (
   }) as Promise<PublicWorkspacesResponse>;
 };
 
-// Fork workspace
 export type ForkWorkspaceResponse = Workspace & {
   owner: string;
   forkedFrom: {
@@ -554,7 +541,6 @@ export const forkWorkspace = async (
   }) as Promise<ForkWorkspaceResponse>;
 };
 
-// Get workspace by ID
 export type WorkspaceByIdResponse = Workspace & {
   owner: string;
   ownerUsername: string | null;
@@ -573,7 +559,6 @@ export const getWorkspaceById = async (id: string, customFetch?: Fetch) => {
   }) as Promise<WorkspaceByIdResponse>;
 };
 
-// Update workspace
 export const updateWorkspace = async (
   id: string,
   data: {
@@ -588,10 +573,9 @@ export const updateWorkspace = async (
       "Content-Type": "application/json",
     },
     body: JSON.stringify(data),
-  }) as Promise<Workspace>;
+  });
 };
 
-// Delete workspace
 export const deleteWorkspace = async (id: string) => {
   return apiFetch(`/api/workspaces/${id}`, {
     method: "DELETE",
