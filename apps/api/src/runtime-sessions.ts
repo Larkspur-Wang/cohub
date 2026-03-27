@@ -807,6 +807,27 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
     return messageNode;
   }
 
+  let replyToExternalMessageId: string | undefined;
+  if (messageNode.prevMessageId) {
+    const [previousMessage] = await db
+      .select({
+        role: sessionMessages.role,
+        externalMessageId: sessionMessages.externalMessageId,
+      })
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.id, messageNode.prevMessageId),
+          eq(sessionMessages.sessionId, input.sessionId),
+        ),
+      )
+      .limit(1);
+
+    if (previousMessage?.role === "user" && previousMessage.externalMessageId?.trim()) {
+      replyToExternalMessageId = previousMessage.externalMessageId.trim();
+    }
+  }
+
   const bindings = await getBindingsBySessionId(session.id);
 
   if (bindings.length > 0) {
@@ -820,7 +841,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         provider: binding.provider,
         externalChatId: binding.externalChatId,
         content: messageNode.content,
-        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+        replyToExternalMessageId,
         meta: {
           bindingKey: binding.bindingKey,
           sessionMessageRole: messageNode.role,
@@ -841,7 +862,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         runtimeSessionId: session.id,
         sessionMessageId: messageNode.id,
         content: messageNode.content,
-        replyToExternalMessageId: messageNode.externalMessageId ?? undefined,
+        replyToExternalMessageId,
         meta: {
           sessionMessageRole: messageNode.role,
           source: "session_persist_broadcast",
@@ -1122,6 +1143,7 @@ export const updateProviderRenderForSession = async (input: {
     thinking?: string | null;
     toolCalls?: Array<Record<string, unknown>> | null;
     answer?: string | null;
+    sourceMessageId?: string | null;
   };
 }) => {
   const session = await getRuntimeSessionById(input.runtimeSessionId);
@@ -1129,12 +1151,14 @@ export const updateProviderRenderForSession = async (input: {
     throw new Error("Runtime session not found");
   }
 
+  const sourceMessageId = input.render.sourceMessageId?.trim() || null;
+
   const bindings = await getBindingsBySessionId(input.runtimeSessionId);
   for (const binding of bindings) {
     const existingRef = await findLatestOutboundRefForSessionMessage({
       provider: binding.provider,
       externalConversationId: binding.externalChatId,
-      sessionMessageId: session.lastMessageId ?? null,
+      sessionMessageId: sourceMessageId,
     });
 
     const content = buildProviderRenderBlocks({
@@ -1153,7 +1177,7 @@ export const updateProviderRenderForSession = async (input: {
       runtimeChannelId: binding.runtimeChannelId,
       runtimeId: input.runtimeId,
       runtimeSessionId: input.runtimeSessionId,
-      sessionMessageId: session.lastMessageId ?? undefined,
+      sessionMessageId: sourceMessageId ?? undefined,
       provider: binding.provider,
       externalChatId: binding.externalChatId,
       content,

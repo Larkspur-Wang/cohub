@@ -1149,6 +1149,7 @@ app.post("/internal/runtimes/:id/sessions/:sessionId/provider-render", async (c)
     thinking?: string | null;
     toolCalls?: Array<Record<string, unknown>> | null;
     answer?: string | null;
+    sourceMessageId?: string | null;
   }>().catch(() => null);
 
   if (!body) return c.json({ message: "invalid body" }, 400);

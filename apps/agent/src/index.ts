@@ -137,6 +137,9 @@ async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "c
   if (now - handle.streamState.lastRenderAt < 900) return;
   handle.streamState.lastRenderAt = now;
 
+  const sourceMessageId = handle.currentUserMessageId?.trim() || null;
+  if (!sourceMessageId) return;
+
   const thinking = mode === "full"
     ? handle.streamState.thinking
     : summarizeThinking(handle.streamState.thinking);
@@ -150,6 +153,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "c
     thinking,
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
+    sourceMessageId,
   });
 
   await updateProviderRender({
@@ -160,6 +164,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "c
     thinking,
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
+    sourceMessageId,
   }).catch((error) => {
     console.error(`[Supervisor] Failed to update provider render for ${handle.sessionId}:`, error);
   });
@@ -402,6 +407,7 @@ async function main() {
           tools,
         });
 
+        resetStreamState(handle);
         handle.currentUserMessageId = inputEntry.userMessageId ?? null;
 
         try {

@@ -248,6 +248,7 @@ export async function updateProviderRender(input: {
   thinking?: string | null;
   toolCalls?: Array<Record<string, unknown>> | null;
   answer?: string | null;
+  sourceMessageId?: string | null;
 }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/provider-render`;
   const response = await fetch(url, {
