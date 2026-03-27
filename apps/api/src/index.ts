@@ -1184,7 +1184,16 @@ app.get("/api/runtimes/:id/stream", async (c) => {
 });
 
 
-app.onError((error, c) => c.json({ message: error.message || "internal server error" }, 500));
+app.onError((error, c) => {
+  const path = c.req.path;
+  const method = c.req.method;
+  console.error(`[API Error] ${method} ${path}:`, {
+    message: error.message,
+    stack: error.stack,
+    name: error.name,
+  });
+  return c.json({ message: error.message || "internal server error" }, 500);
+});
 
 const port = Number(process.env.PORT ?? 8787);
 assertRequiredConfig();
