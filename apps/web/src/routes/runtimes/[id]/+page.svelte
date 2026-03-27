@@ -243,7 +243,6 @@ function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): R
     outbound: {
       showThinking: false,
       showToolCalls: false,
-      defaultDisplayMode: "minimal",
     },
   };
 }
@@ -617,24 +616,6 @@ $effect(() => {
                           />
                           Show tool calls
                         </label>
-                        <div>
-                          <div class="mb-1 block text-sm font-medium text-white/75">Default display mode</div>
-                          <select
-                            value={config.outbound?.defaultDisplayMode ?? "minimal"}
-                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                              ...current,
-                              outbound: {
-                                ...(current.outbound ?? {}),
-                                defaultDisplayMode: (event.currentTarget as HTMLSelectElement).value as "full" | "compact" | "minimal",
-                              },
-                            }))}
-                            class="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-brand"
-                          >
-                            <option value="minimal">minimal</option>
-                            <option value="compact">compact</option>
-                            <option value="full">full</option>
-                          </select>
-                        </div>
                       </div>
                     </div>
                   </div>

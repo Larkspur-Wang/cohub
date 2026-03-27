@@ -7,7 +7,6 @@ export interface DiscordRuntimeChannelConfig {
   outbound?: {
     showThinking?: boolean;
     showToolCalls?: boolean;
-    defaultDisplayMode?: "full" | "compact" | "minimal";
   };
 }
 

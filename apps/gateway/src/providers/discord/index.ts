@@ -63,10 +63,6 @@ const getDiscordOutboundConfig = (config: DiscordRuntimeChannelConfig | null | u
   return {
     showThinking: outbound.showThinking === true,
     showToolCalls: outbound.showToolCalls === true,
-    defaultDisplayMode:
-      outbound.defaultDisplayMode === "full" || outbound.defaultDisplayMode === "compact" || outbound.defaultDisplayMode === "minimal"
-        ? outbound.defaultDisplayMode
-        : undefined,
   };
 };
 
@@ -98,9 +94,7 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
 
   const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
   const outboundConfig = getDiscordOutboundConfig(channelConfig);
-  const displayMode = String(
-    cmd.meta?.displayMode ?? outboundConfig.defaultDisplayMode ?? "compact",
-  );
+  const displayMode = String(cmd.meta?.displayMode ?? "compact");
   const thinking = outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
   const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : buildDiscordRenderText(cmd.content).text;
   const toolCalls = outboundConfig.showToolCalls && Array.isArray(cmd.meta?.toolCalls)

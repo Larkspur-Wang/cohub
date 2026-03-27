@@ -433,7 +433,6 @@ export type RuntimeChannelConfigInput = {
   outbound?: {
     showThinking?: boolean;
     showToolCalls?: boolean;
-    defaultDisplayMode?: "full" | "compact" | "minimal";
   };
 };
 

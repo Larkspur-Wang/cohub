@@ -36,7 +36,6 @@ const getDefaultChannelConfig = (channel: Channel): RuntimeChannelConfigInput =>
       outbound: {
         showThinking: false,
         showToolCalls: false,
-        defaultDisplayMode: "minimal",
       },
     };
   }
@@ -325,24 +324,6 @@ async function handleSubmit(event: SubmitEvent) {
                           />
                           Show tool calls
                         </label>
-                        <div>
-                          <div class="block text-sm font-medium text-gray-700 mb-1">Default display mode</div>
-                          <select
-                            value={channelConfigById[channel.id]?.outbound?.defaultDisplayMode ?? "minimal"}
-                            onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
-                              ...config,
-                              outbound: {
-                                ...(config.outbound ?? {}),
-                                defaultDisplayMode: (event.currentTarget as HTMLSelectElement).value as "full" | "compact" | "minimal",
-                              },
-                            }))}
-                            class="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
-                          >
-                            <option value="minimal">minimal</option>
-                            <option value="compact">compact</option>
-                            <option value="full">full</option>
-                          </select>
-                        </div>
                       </div>
                     </div>
                   </div>
