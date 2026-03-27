@@ -262,37 +262,40 @@ export type Channel = {
   updatedAt: string;
 };
 
-export type Workspace = {
+export type WorkspaceListItem = {
   id: string;
   userUuid: string;
+  ownerUserUuid: string;
   name: string;
   description: string | null;
   giteaRepoName: string;
-  visibility: string;
-  owner: string;
+  visibility: "public" | "private";
   parentId?: string | null;
   forkCount?: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type WorkspaceDetail = Workspace & {
-  ownerUsername?: string | null;
-  private: boolean;
+export type WorkspaceForkInfo = {
+  id: string;
+  name: string;
+  ownerUserUuid: string;
+  ownerUsername: string | null;
+};
+
+export type WorkspaceDetail = WorkspaceListItem & {
+  ownerUsername: string | null;
   cloneUrl: string | null;
   sshUrl: string | null;
   htmlUrl: string | null;
   fullName: string | null;
-  forkedFrom?: {
-    id: string;
-    name: string;
-    owner: string;
-    ownerUsername: string | null;
-  } | null;
-  isOwner?: boolean;
+  forkedFrom: WorkspaceForkInfo | null;
+  isOwner: boolean;
 };
 
-export type PublicWorkspace = Workspace & {
+export type Workspace = WorkspaceListItem;
+
+export type PublicWorkspace = WorkspaceListItem & {
   forkCount: number;
   parentId: string | null;
 };
@@ -305,8 +308,8 @@ export type TreeEntry = {
 };
 
 export type Tree = {
-  owner: string;
-  repo: string;
+  repoOwner: string;
+  repoName: string;
   path: string;
   ref: string | null;
   entries: TreeEntry[];
@@ -345,7 +348,7 @@ export const deleteChannel = async (id: string) => {
 };
 
 export const getWorkspaces = async (customFetch?: Fetch) => {
-  return apiFetch("/api/workspaces", { method: "GET", fetch: customFetch }) as Promise<Workspace[]>;
+  return apiFetch("/api/workspaces", { method: "GET", fetch: customFetch }) as Promise<WorkspaceListItem[]>;
 };
 
 export const createWorkspace = async (data: {
@@ -359,7 +362,7 @@ export const createWorkspace = async (data: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(data),
-  });
+  }) as Promise<WorkspaceDetail>;
 };
 
 export type RuntimeProvisionStatus = "queued" | "running" | "succeeded" | "failed";
@@ -518,12 +521,7 @@ export const getPublicWorkspaces = async (
 };
 
 export type ForkWorkspaceResponse = WorkspaceDetail & {
-  forkedFrom: {
-    id: string;
-    name: string;
-    owner: string;
-    ownerUsername: string | null;
-  };
+  forkedFrom: WorkspaceForkInfo;
 };
 
 export const forkWorkspace = async (id: string, name?: string) => {
@@ -536,17 +534,7 @@ export const forkWorkspace = async (id: string, name?: string) => {
   }) as Promise<ForkWorkspaceResponse>;
 };
 
-export type WorkspaceByIdResponse = WorkspaceDetail & {
-  owner: string;
-  ownerUsername: string | null;
-  forkedFrom: {
-    id: string;
-    name: string;
-    owner: string;
-    ownerUsername: string | null;
-  } | null;
-  isOwner: boolean;
-};
+export type WorkspaceByIdResponse = WorkspaceDetail;
 
 export const updateWorkspace = async (
   id: string,
@@ -562,11 +550,11 @@ export const updateWorkspace = async (
       "Content-Type": "application/json",
     },
     body: JSON.stringify(data),
-  });
+  }) as Promise<WorkspaceDetail>;
 };
 
 export const deleteWorkspace = async (id: string) => {
   return apiFetch(`/api/workspaces/${id}`, {
     method: "DELETE",
-  });
+  }) as Promise<null>;
 };

@@ -62,6 +62,59 @@ import { createBlockingRedisClient, isRedisReady } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
+const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
+  ...workspace,
+  ownerUserUuid: workspace.userUuid,
+});
+
+const buildWorkspaceForkInfo = async (parentId: string | null) => {
+  if (!parentId) return null;
+
+  const [parentWs] = await db.select().from(workspaces).where(eq(workspaces.id, parentId)).limit(1);
+  if (!parentWs) return null;
+
+  const [parentGitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, parentWs.userUuid))
+    .limit(1);
+
+  return {
+    id: parentWs.id,
+    name: parentWs.name,
+    ownerUserUuid: parentWs.userUuid,
+    ownerUsername: parentGitAccount?.giteaUsername || null,
+  };
+};
+
+const buildWorkspaceDetail = async (
+  workspace: typeof workspaces.$inferSelect,
+  options?: { currentUserUuid?: string | null },
+) => {
+  const [gitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
+  if (!gitAccount?.giteaUsername) return null;
+
+  const repoData = await getRepository(gitAccount.giteaUsername, workspace.giteaRepoName);
+  if (!repoData) return null;
+
+  const forkedFrom = await buildWorkspaceForkInfo(workspace.parentId ?? null);
+
+  return {
+    ...buildWorkspaceListItem(workspace),
+    ownerUsername: gitAccount.giteaUsername,
+    cloneUrl: "clone_url" in repoData ? String(repoData.clone_url) : null,
+    sshUrl: "ssh_url" in repoData ? String(repoData.ssh_url) : null,
+    htmlUrl: "html_url" in repoData ? String(repoData.html_url) : null,
+    fullName: "full_name" in repoData ? String(repoData.full_name) : null,
+    forkedFrom,
+    isOwner: workspace.userUuid === options?.currentUserUuid,
+  };
+};
+
 const startGatewayInboundListener = async () => {
   let lastId = "$";
   const client = createBlockingRedisClient();
@@ -271,7 +324,7 @@ app.get("/api/workspaces", async (c) => {
     .where(eq(workspaces.userUuid, user.uuid))
     .orderBy(desc(workspaces.updatedAt), desc(workspaces.createdAt));
 
-  return c.json(items.map((workspace) => ({ ...workspace, owner: workspace.userUuid })));
+  return c.json(items.map(buildWorkspaceListItem));
 });
 
 app.post("/api/workspaces", async (c) => {
@@ -328,21 +381,11 @@ app.post("/api/workspaces", async (c) => {
     return c.json({ message: "failed to create workspace" }, 500);
   }
 
-  const repoOwner = gitAccount.giteaUsername;
-  if (!repoOwner) {
-    return c.json({ message: "managed git account is incomplete" }, 500);
+  const detail = await buildWorkspaceDetail(workspace, { currentUserUuid: user.uuid });
+  if (!detail) {
+    return c.json({ message: "workspace not found" }, 404);
   }
-  const repoData = await getRepository(repoOwner, repoSlug);
-  return c.json({
-    ...workspace,
-    owner: workspace.userUuid,
-    private: body?.private ?? true,
-    cloneUrl: repoData && "clone_url" in repoData ? String(repoData.clone_url) : null,
-    sshUrl: repoData && "ssh_url" in repoData ? String(repoData.ssh_url) : null,
-    htmlUrl: repoData && "html_url" in repoData ? String(repoData.html_url) : null,
-    fullName: repoData && "full_name" in repoData ? String(repoData.full_name) : null,
-    forkedFrom: null,
-  });
+  return c.json(detail);
 });
 
 app.get("/api/workspaces/public", async (c) => {
@@ -370,7 +413,7 @@ app.get("/api/workspaces/public", async (c) => {
     .offset((page - 1) * limit);
 
   return c.json({
-    items: items.map((workspace) => ({ ...workspace, owner: workspace.userUuid })),
+    items: items.map(buildWorkspaceListItem),
     pagination: {
       page,
       limit,
@@ -393,46 +436,9 @@ app.get("/api/workspaces/:id", async (c) => {
     return c.json({ message: "workspace not found" }, 404);
   }
 
-  const [gitAccount] = await db
-    .select()
-    .from(userGitAccounts)
-    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
-    .limit(1);
-  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
-
-  const repoData = await getRepository(gitAccount.giteaUsername, workspace.giteaRepoName);
-  if (!repoData) return c.json({ message: "workspace not found" }, 404);
-
-  let forkedFrom = null;
-  if (workspace.parentId) {
-    const [parentWs] = await db.select().from(workspaces).where(eq(workspaces.id, workspace.parentId)).limit(1);
-    if (parentWs) {
-      const [parentGitAccount] = await db
-        .select()
-        .from(userGitAccounts)
-        .where(eq(userGitAccounts.userUuid, parentWs.userUuid))
-        .limit(1);
-      forkedFrom = {
-        id: parentWs.id,
-        name: parentWs.name,
-        owner: parentWs.userUuid,
-        ownerUsername: parentGitAccount?.giteaUsername || null,
-      };
-    }
-  }
-
-  return c.json({
-    ...workspace,
-    owner: workspace.userUuid,
-    ownerUsername: gitAccount.giteaUsername,
-    private: workspace.visibility !== "public",
-    cloneUrl: "clone_url" in repoData ? String(repoData.clone_url) : null,
-    sshUrl: "ssh_url" in repoData ? String(repoData.ssh_url) : null,
-    htmlUrl: "html_url" in repoData ? String(repoData.html_url) : null,
-    fullName: "full_name" in repoData ? String(repoData.full_name) : null,
-    forkedFrom,
-    isOwner: workspace.userUuid === user?.uuid,
-  });
+  const detail = await buildWorkspaceDetail(workspace, { currentUserUuid: user?.uuid });
+  if (!detail) return c.json({ message: "workspace not found" }, 404);
+  return c.json(detail);
 });
 
 app.patch("/api/workspaces/:id", async (c) => {
@@ -480,7 +486,9 @@ app.patch("/api/workspaces/:id", async (c) => {
     .returning();
   if (!updated) return c.json({ message: "workspace not found" }, 404);
 
-  return c.json({ ...updated, owner: updated.userUuid });
+  const detail = await buildWorkspaceDetail(updated, { currentUserUuid: user.uuid });
+  if (!detail) return c.json({ message: "workspace not found" }, 404);
+  return c.json(detail);
 });
 
 app.delete("/api/workspaces/:id", async (c) => {
@@ -575,16 +583,9 @@ app.post("/api/workspaces/:id/fork", async (c) => {
     })
     .where(eq(workspaces.id, workspace.id));
 
-  return c.json({
-    ...forkedWorkspace,
-    owner: forkedWorkspace.userUuid,
-    forkedFrom: {
-      id: workspace.id,
-      name: workspace.name,
-      owner: workspace.userUuid,
-      ownerUsername: sourceGitAccount.giteaUsername,
-    },
-  });
+  const detail = await buildWorkspaceDetail(forkedWorkspace, { currentUserUuid: user.uuid });
+  if (!detail) return c.json({ message: "workspace not found" }, 404);
+  return c.json(detail);
 });
 
 app.get("/api/workspaces/:id/tree", async (c) => {
@@ -611,7 +612,13 @@ app.get("/api/workspaces/:id/tree", async (c) => {
   const ref = c.req.query("ref");
   const entries = await getDirectoryEntries(gitAccount.giteaUsername, workspace.giteaRepoName, path, ref);
   if (entries === null) return c.json({ message: "path not found" }, 404);
-  return c.json({ owner: gitAccount.giteaUsername, repo: workspace.giteaRepoName, path, ref: ref ?? null, entries });
+  return c.json({
+    repoOwner: gitAccount.giteaUsername,
+    repoName: workspace.giteaRepoName,
+    path,
+    ref: ref ?? null,
+    entries,
+  });
 });
 
 app.get("/api/workspaces/:id/file", async (c) => {

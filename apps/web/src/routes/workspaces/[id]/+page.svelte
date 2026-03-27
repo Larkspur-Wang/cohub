@@ -104,13 +104,13 @@ async function handleFork() {
           </div>
           <div class="flex items-center gap-2 mt-1 text-sm text-gray-500">
             <span>
-              Owned by <span class="font-medium text-gray-700">{workspace.ownerUsername || workspace.owner}</span>
+              Owned by <span class="font-medium text-gray-700">{workspace.ownerUsername || workspace.ownerUserUuid}</span>
             </span>
             {#if workspace.forkedFrom}
               <span class="text-gray-300">•</span>
               <a href="/workspaces/{workspace.forkedFrom.id}" class="flex items-center gap-1 text-brand hover:underline">
                 <GitFork class="w-3 h-3" />
-                forked from {workspace.forkedFrom.ownerUsername || workspace.forkedFrom.owner}/{workspace.forkedFrom.name}
+                forked from {workspace.forkedFrom.ownerUsername || workspace.forkedFrom.ownerUserUuid}/{workspace.forkedFrom.name}
               </a>
             {/if}
           </div>

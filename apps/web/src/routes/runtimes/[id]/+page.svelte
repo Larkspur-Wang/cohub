@@ -43,12 +43,12 @@ type SessionViewState = {
   error: string;
 };
 
-const { data: initialData }: Props = $props();
+const { data }: Props = $props();
 
-let runtime = $state<RuntimeRecord>(initialData.runtime);
+let runtime = $state<RuntimeRecord>({} as RuntimeRecord);
 let runtimeSessions = $state<SessionRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
-let activeSessionId = $state<string | null>(initialData.session?.id ?? null);
+let activeSessionId = $state<string | null>(null);
 let input = $state("");
 let sending = $state(false);
 let runtimeLoadError = $state("");
@@ -60,18 +60,27 @@ let streamingAssistantText = $state("");
 let eventSource: EventSource | null = null;
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
+let initializedFromData = $state(false);
 
-if (initialData.session && initialData.persisted) {
-  sessionStateById = {
-    [initialData.session.id]: {
-      session: initialData.session,
-      messages: initialData.persisted.messages,
-      toolCalls: initialData.persisted.toolCalls,
-      loading: false,
-      error: "",
-    },
-  };
-}
+$effect(() => {
+  if (initializedFromData) return;
+
+  runtime = data.runtime;
+  activeSessionId = data.session?.id ?? null;
+  sessionStateById =
+    data.session && data.persisted
+      ? {
+          [data.session.id]: {
+            session: data.session,
+            messages: data.persisted.messages,
+            toolCalls: data.persisted.toolCalls,
+            loading: false,
+            error: "",
+          },
+        }
+      : {};
+  initializedFromData = true;
+});
 
 const activeSessionState = $derived(activeSessionId ? sessionStateById[activeSessionId] ?? null : null);
 const timeline = $derived.by<TimelineItem[]>(() => {
@@ -221,8 +230,8 @@ function getSessionSubLabel(session: SessionRecord) {
 
 async function loadRuntime() {
   try {
-    runtime = await getRuntime(initialData.runtime.id);
-    const sessionsResponse = await getRuntimeSessions(initialData.runtime.id);
+    runtime = await getRuntime(runtime.id);
+    const sessionsResponse = await getRuntimeSessions(runtime.id);
     runtimeSessions = sessionsResponse.sessions;
 
     if (!activeSessionId && runtimeSessions.length > 0) {
