@@ -12,7 +12,7 @@ const redisUrlSchema = z
     }
   }, "REDIS_URL must use redis:// or rediss://");
 
-export const GLOBAL_CONFIG_REPO = "https://gitea.cohub.run/global/configs.git";
+export const GLOBAL_CONFIG_REPO = "http://gitea.cohub.run/global/configs.git";
 
 export const EnvSchema = z.object({
   RUNTIME_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
