@@ -7,6 +7,7 @@ import {
   getWorkspaceById,
   type Channel,
   type RuntimeChannelBindingInput,
+  type RuntimeChannelConfigInput,
   type RuntimeEnvInput,
   type WorkspaceDetail,
 } from "$lib/api";
@@ -24,6 +25,24 @@ let title = $state("");
 let startNow = $state(true);
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<RuntimeEnvInput[]>([]);
+let channelConfigById = $state<Record<string, RuntimeChannelConfigInput>>({});
+
+const getDefaultChannelConfig = (channel: Channel): RuntimeChannelConfigInput => {
+  if (channel.provider === "discord") {
+    return {
+      inbound: {
+        requireMentionInGuild: true,
+      },
+      outbound: {
+        showThinking: false,
+        showToolCalls: false,
+        defaultDisplayMode: "minimal",
+      },
+    };
+  }
+
+  return {};
+};
 
 async function loadPage() {
   isLoading = true;
@@ -38,6 +57,9 @@ async function loadPage() {
     workspace = workspaceData;
     channels = channelsData;
     title = workspaceData.name;
+    channelConfigById = Object.fromEntries(
+      channelsData.map((channel) => [channel.id, getDefaultChannelConfig(channel)]),
+    );
   } catch (error) {
     loadError = error instanceof Error ? error.message : "Failed to load runtime form";
   } finally {
@@ -80,6 +102,13 @@ function updateEnvValue(index: number, value: string) {
   );
 }
 
+function updateDiscordConfig(channelId: string, updater: (config: RuntimeChannelConfigInput) => RuntimeChannelConfigInput) {
+  channelConfigById = {
+    ...channelConfigById,
+    [channelId]: updater(channelConfigById[channelId] ?? {}),
+  };
+}
+
 async function handleSubmit(event: SubmitEvent) {
   event.preventDefault();
   if (!workspace || isSubmitting) return;
@@ -90,6 +119,7 @@ async function handleSubmit(event: SubmitEvent) {
   try {
     const channelBindings: RuntimeChannelBindingInput[] = selectedChannelIds.map((channelId) => ({
       channelId,
+      config: channelConfigById[channelId] ?? null,
     }));
     const normalizedExtraEnv: RuntimeEnvInput[] = extraEnv
       .map((item) => ({
@@ -227,18 +257,97 @@ async function handleSubmit(event: SubmitEvent) {
         {:else}
           <div class="space-y-3">
             {#each channels as channel}
-              <label class="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedChannelIds.includes(channel.id)}
-                  onchange={(event) => toggleChannel(channel.id, (event.currentTarget as HTMLInputElement).checked)}
-                  class="rounded border-gray-300 text-brand focus:ring-brand"
-                />
-                <div class="min-w-0 flex-1">
-                  <div class="font-medium text-gray-900">{channel.name || channel.provider}</div>
-                  <div class="text-xs text-gray-500 uppercase tracking-wide">{channel.provider}</div>
-                </div>
-              </label>
+              <div class="rounded-xl border border-gray-200 px-4 py-3">
+                <label class="flex items-center gap-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={selectedChannelIds.includes(channel.id)}
+                    onchange={(event) => toggleChannel(channel.id, (event.currentTarget as HTMLInputElement).checked)}
+                    class="rounded border-gray-300 text-brand focus:ring-brand"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="font-medium text-gray-900">{channel.name || channel.provider}</div>
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">{channel.provider}</div>
+                  </div>
+                </label>
+
+                {#if selectedChannelIds.includes(channel.id) && channel.provider === "discord"}
+                  <div class="mt-4 ml-7 space-y-4 rounded-xl bg-gray-50 border border-gray-200 p-4">
+                    <div>
+                      <div class="text-xs uppercase tracking-[0.18em] font-semibold text-gray-500">Inbound</div>
+                      <label class="mt-2 flex items-center gap-3 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={channelConfigById[channel.id]?.inbound?.requireMentionInGuild !== false}
+                          onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
+                            ...config,
+                            inbound: {
+                              ...(config.inbound ?? {}),
+                              requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked,
+                            },
+                          }))}
+                          class="rounded border-gray-300 text-brand focus:ring-brand"
+                        />
+                        Require mention in non-DM messages
+                      </label>
+                    </div>
+
+                    <div>
+                      <div class="text-xs uppercase tracking-[0.18em] font-semibold text-gray-500">Outbound</div>
+                      <div class="mt-2 space-y-2">
+                        <label class="flex items-center gap-3 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={channelConfigById[channel.id]?.outbound?.showThinking === true}
+                            onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
+                              ...config,
+                              outbound: {
+                                ...(config.outbound ?? {}),
+                                showThinking: (event.currentTarget as HTMLInputElement).checked,
+                              },
+                            }))}
+                            class="rounded border-gray-300 text-brand focus:ring-brand"
+                          />
+                          Show thinking
+                        </label>
+                        <label class="flex items-center gap-3 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={channelConfigById[channel.id]?.outbound?.showToolCalls === true}
+                            onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
+                              ...config,
+                              outbound: {
+                                ...(config.outbound ?? {}),
+                                showToolCalls: (event.currentTarget as HTMLInputElement).checked,
+                              },
+                            }))}
+                            class="rounded border-gray-300 text-brand focus:ring-brand"
+                          />
+                          Show tool calls
+                        </label>
+                        <div>
+                          <div class="block text-sm font-medium text-gray-700 mb-1">Default display mode</div>
+                          <select
+                            value={channelConfigById[channel.id]?.outbound?.defaultDisplayMode ?? "minimal"}
+                            onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
+                              ...config,
+                              outbound: {
+                                ...(config.outbound ?? {}),
+                                defaultDisplayMode: (event.currentTarget as HTMLSelectElement).value as "full" | "compact" | "minimal",
+                              },
+                            }))}
+                            class="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
+                          >
+                            <option value="minimal">minimal</option>
+                            <option value="compact">compact</option>
+                            <option value="full">full</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+              </div>
             {/each}
           </div>
         {/if}

@@ -1,5 +1,18 @@
 export type ChannelProvider = "web" | "discord" | "feishu" | "telegram" | "slack";
 
+export interface DiscordRuntimeChannelConfig {
+  inbound?: {
+    requireMentionInGuild?: boolean;
+  };
+  outbound?: {
+    showThinking?: boolean;
+    showToolCalls?: boolean;
+    defaultDisplayMode?: "full" | "compact" | "minimal";
+  };
+}
+
+export type RuntimeChannelConfig = DiscordRuntimeChannelConfig | Record<string, unknown>;
+
 export interface GatewayInboundEvent {
   eventId: string;
   timestamp: number;

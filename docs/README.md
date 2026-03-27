@@ -27,7 +27,11 @@
    - Agent 运行基础设施
    - 容器、K8s、运行时、消息转发设计
 
-6. [`use-cases.md`](./use-cases.md)
+6. [`cli-vision.md`](./cli-vision.md)
+   - 统一 CLI 的长期设想
+   - 开发 / 运维 / 用户工作流入口设计
+
+7. [`use-cases.md`](./use-cases.md)
    - 产品侧典型场景
 
 ## 当前设计总原则

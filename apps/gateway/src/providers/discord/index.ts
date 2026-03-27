@@ -1,7 +1,8 @@
 import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, DiscordRuntimeChannelConfig } from "@cohub/protocol";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
+import { getRuntimeChannelConfig } from "../../redis.js";
 
 const buildDiscordBindingKey = (message: Message) => {
   return `discord:conversation:${message.channelId}`;
@@ -57,16 +58,54 @@ const buildDiscordRenderText = (content: UnifiedContentBlock[]) => {
   };
 };
 
-const buildDiscordOutboundPayload = (cmd: GatewayOutboundCommand) => {
+const getDiscordOutboundConfig = (config: DiscordRuntimeChannelConfig | null | undefined) => {
+  const outbound = config?.outbound ?? {};
+  return {
+    showThinking: outbound.showThinking === true,
+    showToolCalls: outbound.showToolCalls === true,
+    defaultDisplayMode:
+      outbound.defaultDisplayMode === "full" || outbound.defaultDisplayMode === "compact" || outbound.defaultDisplayMode === "minimal"
+        ? outbound.defaultDisplayMode
+        : undefined,
+  };
+};
+
+const getDiscordInboundConfig = (config: DiscordRuntimeChannelConfig | null | undefined) => {
+  const inbound = config?.inbound ?? {};
+  return {
+    requireMentionInGuild: inbound.requireMentionInGuild !== false,
+  };
+};
+
+const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Message) => {
+  const isDM = message.channel?.isDMBased?.() ?? false;
+  if (isDM) return true;
+
+  const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
+  const inboundConfig = getDiscordInboundConfig(channelConfig);
+  if (!inboundConfig.requireMentionInGuild) return true;
+
+  const botUserId = message.client.user?.id;
+  if (!botUserId) return false;
+  return message.mentions.users.has(botUserId);
+};
+
+const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutboundCommand) => {
   const renderMode = String(cmd.meta?.renderMode ?? "message");
   if (renderMode !== "rich_status") {
     return buildDiscordRenderText(cmd.content);
   }
 
-  const displayMode = String(cmd.meta?.displayMode ?? "compact");
-  const thinking = typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
+  const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
+  const outboundConfig = getDiscordOutboundConfig(channelConfig);
+  const displayMode = String(
+    cmd.meta?.displayMode ?? outboundConfig.defaultDisplayMode ?? "compact",
+  );
+  const thinking = outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
   const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : buildDiscordRenderText(cmd.content).text;
-  const toolCalls = Array.isArray(cmd.meta?.toolCalls) ? cmd.meta.toolCalls as Array<Record<string, unknown>> : [];
+  const toolCalls = outboundConfig.showToolCalls && Array.isArray(cmd.meta?.toolCalls)
+    ? cmd.meta.toolCalls as Array<Record<string, unknown>>
+    : [];
 
   if (displayMode === "minimal") {
     const lines: string[] = [];
@@ -312,6 +351,12 @@ export class DiscordProvider {
         return;
       }
 
+      const accepted = await shouldAcceptDiscordInboundMessage(this.channelId, message);
+      if (!accepted) {
+        console.log(`[Discord:${this.channelId}] Ignoring message ${message.id}: mention required by inbound config`);
+        return;
+      }
+
       console.log(`[Discord:${this.channelId}] ← Message received:`, {
         author: `${message.author.tag} (${message.author.id})`,
         channelId: message.channelId,
@@ -430,7 +475,7 @@ export class DiscordProvider {
         return { success: false as const, error: `Channel is not text-based: ${cmd.externalChatId}` };
       }
 
-      const { text, imageUris } = buildDiscordOutboundPayload({
+      const { text, imageUris } = await buildDiscordOutboundPayload(this.channelId, {
         ...cmd,
         meta: {
           ...(cmd.meta ?? {}),

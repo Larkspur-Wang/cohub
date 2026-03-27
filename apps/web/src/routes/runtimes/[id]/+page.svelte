@@ -3,10 +3,14 @@ import { onMount } from "svelte";
 import {
   forkSession,
   getRuntime,
+  getRuntimeChannels,
   getRuntimeProvisioning,
   getRuntimeSessions,
   getRuntimeStreamUrl,
   getSessionMessages,
+  updateRuntimeChannelConfig,
+  type RuntimeChannelConfigInput,
+  type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
   type RuntimeRecord,
   type SessionRecord,
@@ -47,6 +51,7 @@ const { data }: Props = $props();
 
 let runtime = $state<RuntimeRecord>({} as RuntimeRecord);
 let runtimeSessions = $state<SessionRecord[]>([]);
+let runtimeChannels = $state<RuntimeChannelRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
 let input = $state("");
@@ -61,6 +66,8 @@ let eventSource: EventSource | null = null;
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let initializedFromData = $state(false);
+let savingChannelConfigById = $state<Record<string, boolean>>({});
+let channelConfigErrorById = $state<Record<string, string>>({});
 
 $effect(() => {
   if (initializedFromData) return;
@@ -228,11 +235,56 @@ function getSessionSubLabel(session: SessionRecord) {
   return null;
 }
 
+function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): RuntimeChannelConfigInput {
+  return runtimeChannel.config ?? {
+    inbound: {
+      requireMentionInGuild: true,
+    },
+    outbound: {
+      showThinking: false,
+      showToolCalls: false,
+      defaultDisplayMode: "minimal",
+    },
+  };
+}
+
+async function saveRuntimeChannelConfig(runtimeChannelId: string, config: RuntimeChannelConfigInput) {
+  savingChannelConfigById = { ...savingChannelConfigById, [runtimeChannelId]: true };
+  channelConfigErrorById = { ...channelConfigErrorById, [runtimeChannelId]: "" };
+
+  try {
+    const updated = await updateRuntimeChannelConfig(runtimeChannelId, { config });
+    runtimeChannels = runtimeChannels.map((item) => (item.id === runtimeChannelId ? updated : item));
+  } catch (error) {
+    channelConfigErrorById = {
+      ...channelConfigErrorById,
+      [runtimeChannelId]: error instanceof Error ? error.message : "Failed to update channel config",
+    };
+  } finally {
+    savingChannelConfigById = { ...savingChannelConfigById, [runtimeChannelId]: false };
+  }
+}
+
+function patchDiscordRuntimeChannelConfig(
+  runtimeChannel: RuntimeChannelRecord,
+  updater: (config: RuntimeChannelConfigInput) => RuntimeChannelConfigInput,
+) {
+  const nextConfig = updater(getDiscordRuntimeChannelConfig(runtimeChannel));
+  runtimeChannels = runtimeChannels.map((item) =>
+    item.id === runtimeChannel.id ? { ...item, config: nextConfig } : item,
+  );
+  void saveRuntimeChannelConfig(runtimeChannel.id, nextConfig);
+}
+
 async function loadRuntime() {
   try {
     runtime = await getRuntime(runtime.id);
-    const sessionsResponse = await getRuntimeSessions(runtime.id);
+    const [sessionsResponse, runtimeChannelRows] = await Promise.all([
+      getRuntimeSessions(runtime.id),
+      getRuntimeChannels(runtime.id),
+    ]);
     runtimeSessions = sessionsResponse.sessions;
+    runtimeChannels = runtimeChannelRows;
 
     if (!activeSessionId && runtimeSessions.length > 0) {
       activeSessionId = runtimeSessions.at(-1)?.id ?? null;
@@ -318,77 +370,57 @@ function connectStream() {
       const payload = JSON.parse(event.data);
       if (payload.type === "agent_event") {
         const agentEvent = payload.event as Record<string, unknown>;
-        if (agentEvent.type === "message_update") {
-          const message = agentEvent.message as { content?: Array<{ type?: string; text?: string }> };
-          const text = Array.isArray(message?.content)
-            ? message.content
-                .filter((item) => item?.type === "text" && typeof item.text === "string")
-                .map((item) => item.text as string)
-                .join("\n")
-            : "";
-          streamingAssistantText = text;
+        if (agentEvent.type === "assistant_delta") {
+          const text = typeof agentEvent.text === "string" ? agentEvent.text : "";
+          streamingAssistantText = `${streamingAssistantText}${text}`;
+          return;
         }
-        if (agentEvent.type === "turn_end" || agentEvent.type === "message_end") {
+        if (agentEvent.type === "turn_end") {
           streamingAssistantText = "";
           if (activeSessionId) {
             await loadSessionState(activeSessionId, true);
           }
           await loadRuntime();
+          return;
         }
       }
     } catch {
-      // ignore malformed payloads
+      // ignore malformed stream events
     }
   };
 }
 
 async function handleSend() {
-  const sessionId = activeSessionId;
-  if (!sessionId || !input.trim()) return;
+  if (!activeSessionState || !input.trim() || sending) return;
   sending = true;
+
   try {
-    const text = input;
+    const { sendSessionMessage } = await import("$lib/api");
+    await sendSessionMessage(activeSessionState.session.id, { text: input.trim() });
     input = "";
-    const response = await fetch(`/api/sessions/${sessionId}/messages`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    await loadSessionState(sessionId, true);
-    await loadRuntime();
-  } catch (error) {
-    input = input || "";
-    alert(error instanceof Error ? error.message : "Failed to send message");
+    streamingAssistantText = "";
+    await loadSessionState(activeSessionState.session.id, true);
   } finally {
     sending = false;
   }
 }
 
 async function handleFork(messageId: string) {
-  if (!activeSessionId) return;
-  try {
-    const response = await forkSession(activeSessionId, { fromMessageId: messageId });
-    await loadRuntime();
-    activeSessionId = response.session.id;
-    await loadSessionState(response.session.id, true);
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to fork session");
-  }
+  if (!activeSessionState) return;
+  const result = await forkSession(activeSessionState.session.id, { fromMessageId: messageId });
+  runtimeSessions = [...runtimeSessions, result.session];
+  activeSessionId = result.session.id;
+  await loadSessionState(result.session.id, true);
 }
-
 
 onMount(() => {
   void loadRuntime();
   void loadProvisioning();
   connectStream();
+
   provisioningPollingTimer = setInterval(() => {
     void loadProvisioning();
-    void loadRuntime();
-  }, 3000);
+  }, 5000);
 
   return () => {
     eventSource?.close();
@@ -459,7 +491,7 @@ $effect(() => {
     </div>
   </aside>
 
-  <section class="flex min-w-0 flex-col bg-[#141414]">
+  <section class="flex min-w-0 flex-col bg-[#141414] overflow-hidden">
     <div class="border-b border-white/5 px-6 py-4 text-sm text-white/70">
       {#if activeSessionState}
         <div class="flex items-center justify-between gap-4">
@@ -489,28 +521,138 @@ $effect(() => {
       {/if}
     </div>
 
-    {#if activeSessionState?.error}
-      <div class="m-6 rounded-lg border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{activeSessionState.error}</div>
-    {:else}
-      <ChatTimeline bindListEl={listEl} timeline={timeline} />
-    {/if}
+    <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px]">
+      <div class="flex min-w-0 flex-col overflow-hidden">
+        {#if activeSessionState?.error}
+          <div class="m-6 rounded-lg border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{activeSessionState.error}</div>
+        {:else}
+          <ChatTimeline bindListEl={listEl} timeline={timeline} />
+        {/if}
 
-    {#if activeSessionState}
-      <div class="border-t border-white/5 px-6 py-3">
-        <div class="mb-3 flex flex-wrap gap-2">
-          {#each activeSessionState.messages as message (message.id)}
-            <button
-              class="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.06]"
-              onclick={() => handleFork(message.id)}
-              type="button"
-              title="Fork from this message"
-            >
-              fork #{message.sequence}: {(message.text || message.role).slice(0, 32)}
-            </button>
-          {/each}
-        </div>
-        <SessionComposer bind:value={input} disabled={sending || !activeSessionState} onsubmit={handleSend} />
+        {#if activeSessionState}
+          <div class="border-t border-white/5 px-6 py-3">
+            <div class="mb-3 flex flex-wrap gap-2">
+              {#each activeSessionState.messages as message (message.id)}
+                <button
+                  class="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.06]"
+                  onclick={() => handleFork(message.id)}
+                  type="button"
+                  title="Fork from this message"
+                >
+                  fork #{message.sequence}: {(message.text || message.role).slice(0, 32)}
+                </button>
+              {/each}
+            </div>
+            <SessionComposer bind:value={input} disabled={sending || !activeSessionState} onsubmit={handleSend} />
+          </div>
+        {/if}
       </div>
-    {/if}
+
+      <aside class="border-l border-white/5 bg-[#101010] p-4 overflow-y-auto">
+        <div class="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Runtime Channels</div>
+        {#if runtimeChannels.length === 0}
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm text-white/50">No runtime channels bound.</div>
+        {:else}
+          <div class="space-y-3">
+            {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
+              <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+                <div>
+                  <div class="font-medium text-white">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider || runtimeChannel.id}</div>
+                  <div class="mt-1 text-[11px] uppercase tracking-[0.18em] text-white/35">{runtimeChannel.channel?.provider ?? "unknown"}</div>
+                  <div class="mt-1 text-[11px] break-all text-white/30">{runtimeChannel.id}</div>
+                </div>
+
+                {#if runtimeChannel.channel?.provider === "discord"}
+                  {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
+                  <div class="space-y-3">
+                    <div>
+                      <div class="text-[11px] uppercase tracking-[0.18em] text-white/35">Inbound</div>
+                      <label class="mt-2 flex items-center gap-3 text-sm text-white/75">
+                        <input
+                          type="checkbox"
+                          checked={config.inbound?.requireMentionInGuild !== false}
+                          onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                            ...current,
+                            inbound: {
+                              ...(current.inbound ?? {}),
+                              requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked,
+                            },
+                          }))}
+                          class="rounded border-white/20 bg-transparent text-brand focus:ring-brand"
+                        />
+                        Require mention in non-DM messages
+                      </label>
+                    </div>
+
+                    <div>
+                      <div class="text-[11px] uppercase tracking-[0.18em] text-white/35">Outbound</div>
+                      <div class="mt-2 space-y-2">
+                        <label class="flex items-center gap-3 text-sm text-white/75">
+                          <input
+                            type="checkbox"
+                            checked={config.outbound?.showThinking === true}
+                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                              ...current,
+                              outbound: {
+                                ...(current.outbound ?? {}),
+                                showThinking: (event.currentTarget as HTMLInputElement).checked,
+                              },
+                            }))}
+                            class="rounded border-white/20 bg-transparent text-brand focus:ring-brand"
+                          />
+                          Show thinking
+                        </label>
+                        <label class="flex items-center gap-3 text-sm text-white/75">
+                          <input
+                            type="checkbox"
+                            checked={config.outbound?.showToolCalls === true}
+                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                              ...current,
+                              outbound: {
+                                ...(current.outbound ?? {}),
+                                showToolCalls: (event.currentTarget as HTMLInputElement).checked,
+                              },
+                            }))}
+                            class="rounded border-white/20 bg-transparent text-brand focus:ring-brand"
+                          />
+                          Show tool calls
+                        </label>
+                        <div>
+                          <div class="mb-1 block text-sm font-medium text-white/75">Default display mode</div>
+                          <select
+                            value={config.outbound?.defaultDisplayMode ?? "minimal"}
+                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                              ...current,
+                              outbound: {
+                                ...(current.outbound ?? {}),
+                                defaultDisplayMode: (event.currentTarget as HTMLSelectElement).value as "full" | "compact" | "minimal",
+                              },
+                            }))}
+                            class="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-brand"
+                          >
+                            <option value="minimal">minimal</option>
+                            <option value="compact">compact</option>
+                            <option value="full">full</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <div class="text-sm text-white/45">No editable provider config yet.</div>
+                {/if}
+
+                {#if savingChannelConfigById[runtimeChannel.id]}
+                  <div class="text-[11px] text-white/35">Saving...</div>
+                {/if}
+                {#if channelConfigErrorById[runtimeChannel.id]}
+                  <div class="text-[11px] break-all text-red-300">{channelConfigErrorById[runtimeChannel.id]}</div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </aside>
+    </div>
   </section>
 </div>

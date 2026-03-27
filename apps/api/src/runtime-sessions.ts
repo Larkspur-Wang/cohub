@@ -32,7 +32,7 @@ import {
 } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
-import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding } from "./channels.js";
+import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding, getRuntimeChannelRecord } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 
 export type SessionMessageBlock = UnifiedContentBlock;
@@ -1146,6 +1146,9 @@ export const updateProviderRenderForSession = async (input: {
 
     if (content.length === 0) continue;
 
+    const runtimeChannel = await getRuntimeChannelRecord(binding.runtimeChannelId);
+    const runtimeChannelConfig = (runtimeChannel?.config as Record<string, unknown> | null) ?? null;
+
     await dispatchOutboundMessage({
       runtimeChannelId: binding.runtimeChannelId,
       runtimeId: input.runtimeId,
@@ -1162,6 +1165,7 @@ export const updateProviderRenderForSession = async (input: {
         answer: input.render.answer ?? "",
         editExternalMessageId: existingRef?.externalMessageId ?? null,
         providerMeta: (binding.meta as Record<string, unknown> | null)?.providerMeta ?? null,
+        runtimeChannelConfig,
       },
     });
   }

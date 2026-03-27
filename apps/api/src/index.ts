@@ -56,7 +56,7 @@ import {
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
-import { handleInboundEvent, getBindingsByRuntimeId } from "./channels.js";
+import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { startGatewayLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, isRedisReady } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
@@ -735,12 +735,21 @@ app.post("/api/runtimes", async (c) => {
   })).runtime;
 
   if (normalizedChannelBindings.length > 0) {
-    await db.insert(runtimeChannels).values(
+    const insertedRuntimeChannels = await db.insert(runtimeChannels).values(
       normalizedChannelBindings.map((binding) => ({
         runtimeId: runtime.id,
         channelId: binding.channelId,
         config: binding.config,
       })),
+    ).returning();
+
+    await Promise.all(
+      insertedRuntimeChannels.map((runtimeChannel) =>
+        syncRuntimeChannelConfigCache({
+          runtimeChannelId: runtimeChannel.id,
+          config: (runtimeChannel.config as Record<string, unknown> | null) ?? null,
+        }),
+      ),
     );
   }
 
@@ -821,6 +830,67 @@ app.get("/api/runtimes/:id", async (c) => {
     ...runtime,
     liveStatus: runtime.status ?? null,
   });
+});
+
+app.get("/api/runtimes/:id/channels", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const runtimeChannelRows = await getRuntimeChannelsByRuntimeId(runtime.id);
+  const userChannelIds = runtimeChannelRows.map((item) => item.channelId);
+  const channelRows = userChannelIds.length > 0
+    ? await db
+        .select()
+        .from(userChannels)
+        .where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, userChannelIds)))
+    : [];
+
+  const userChannelById = new Map(channelRows.map((item) => [item.id, item]));
+
+  return c.json(
+    runtimeChannelRows.map((runtimeChannel) => ({
+      ...runtimeChannel,
+      channel: userChannelById.get(runtimeChannel.channelId) ?? null,
+    })),
+  );
+});
+
+app.patch("/api/runtime-channels/:id/config", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeChannelId = c.req.param("id");
+  if (!requireValidId(runtimeChannelId)) return c.json({ message: "runtime channel not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeChannel = await getRuntimeChannelById(runtimeChannelId);
+  if (!runtimeChannel) return c.json({ message: "runtime channel not found" }, 404);
+
+  const runtime = await getRuntimeById(runtimeChannel.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) {
+    return c.json({ message: "runtime channel not found" }, 404);
+  }
+
+  const body = await c.req.json<{ config?: Record<string, unknown> | null }>().catch(() => null);
+  if (!body || (body.config !== null && body.config !== undefined && (typeof body.config !== "object" || Array.isArray(body.config)))) {
+    return c.json({ message: "config must be an object or null" }, 400);
+  }
+
+  const updated = await updateRuntimeChannelConfig({
+    runtimeChannelId,
+    config: body.config ?? null,
+  });
+
+  if (!updated) return c.json({ message: "runtime channel not found" }, 404);
+
+  return c.json(updated);
 });
 
 app.get("/api/runtimes/:id/sessions", async (c) => {

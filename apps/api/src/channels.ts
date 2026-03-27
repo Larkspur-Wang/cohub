@@ -1,8 +1,14 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { providerMessageRefs, runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
 import { redisCommandClient } from "./redis.js";
-import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, ChannelProvider } from "@cohub/protocol";
+import type {
+  GatewayInboundEvent,
+  GatewayOutboundCommand,
+  UnifiedContentBlock,
+  ChannelProvider,
+  RuntimeChannelConfig,
+} from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
 import { createUserMessageNode, enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
 
@@ -23,6 +29,27 @@ async function pickGatewayNode(): Promise<string> {
     throw new Error("Failed to pick gateway node");
   }
   return nodeId;
+}
+
+const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
+
+export async function syncRuntimeChannelConfigCache(input: {
+  runtimeChannelId: string;
+  config: RuntimeChannelConfig | Record<string, unknown> | null;
+}) {
+  const key = getRuntimeChannelConfigKey(input.runtimeChannelId);
+  const payload = JSON.stringify(input.config ?? {});
+  await redisCommandClient.set(key, payload);
+}
+
+export async function getRuntimeChannelRecord(runtimeChannelId: string) {
+  const [rc] = await db
+    .select()
+    .from(runtimeChannels)
+    .where(eq(runtimeChannels.id, runtimeChannelId))
+    .limit(1);
+
+  return rc ?? null;
 }
 
 /**
@@ -51,6 +78,11 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
       provider: uc.provider,
       credentials: uc.credentials,
     };
+
+    await syncRuntimeChannelConfigCache({
+      runtimeChannelId: rc.id,
+      config: (rc.config as RuntimeChannelConfig | Record<string, unknown> | null) ?? null,
+    });
 
     // 1. 塞进节点的专属任务 Hash
     await redisCommandClient.hset(`gateway:tasks:${nodeId}`, rc.id, JSON.stringify(config));
@@ -158,6 +190,45 @@ export async function getBindingsByRuntimeId(runtimeId: string) {
     .select()
     .from(runtimeSessionBindings)
     .where(eq(runtimeSessionBindings.runtimeId, runtimeId));
+}
+
+export async function getRuntimeChannelsByRuntimeId(runtimeId: string) {
+  return db
+    .select()
+    .from(runtimeChannels)
+    .where(eq(runtimeChannels.runtimeId, runtimeId));
+}
+
+export async function getRuntimeChannelById(runtimeChannelId: string) {
+  const [runtimeChannel] = await db
+    .select()
+    .from(runtimeChannels)
+    .where(eq(runtimeChannels.id, runtimeChannelId))
+    .limit(1);
+
+  return runtimeChannel ?? null;
+}
+
+export async function updateRuntimeChannelConfig(input: {
+  runtimeChannelId: string;
+  config: Record<string, unknown> | null;
+}) {
+  const [updated] = await db
+    .update(runtimeChannels)
+    .set({
+      config: input.config ?? null,
+    })
+    .where(eq(runtimeChannels.id, input.runtimeChannelId))
+    .returning();
+
+  if (!updated) return null;
+
+  await syncRuntimeChannelConfigCache({
+    runtimeChannelId: updated.id,
+    config: (updated.config as Record<string, unknown> | null) ?? null,
+  });
+
+  return updated;
 }
 
 export async function getBindingsBySessionId(runtimeSessionId: string) {

@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+import type { RuntimeChannelConfig } from "@cohub/protocol";
 
 export type RedisStreamEntry = [string, string[]];
 
@@ -34,6 +35,39 @@ redisCommandClient.on("close", () => {
 redisCommandClient.on("reconnecting", () => {
   console.log("[Redis] Command client reconnecting...");
 });
+
+const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
+const runtimeChannelConfigCache = new Map<string, { expiresAt: number; value: RuntimeChannelConfig | null }>();
+const RUNTIME_CHANNEL_CONFIG_TTL_MS = 3000;
+
+export const getRuntimeChannelConfig = async <TConfig extends RuntimeChannelConfig = RuntimeChannelConfig>(
+  runtimeChannelId: string,
+): Promise<TConfig | null> => {
+  const now = Date.now();
+  const cached = runtimeChannelConfigCache.get(runtimeChannelId);
+  if (cached && cached.expiresAt > now) {
+    return (cached.value as TConfig | null) ?? null;
+  }
+
+  const raw = await redisCommandClient.get(getRuntimeChannelConfigKey(runtimeChannelId));
+  if (!raw) {
+    runtimeChannelConfigCache.set(runtimeChannelId, { expiresAt: now + RUNTIME_CHANNEL_CONFIG_TTL_MS, value: null });
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as TConfig;
+    runtimeChannelConfigCache.set(runtimeChannelId, {
+      expiresAt: now + RUNTIME_CHANNEL_CONFIG_TTL_MS,
+      value: parsed,
+    });
+    return parsed;
+  } catch (error) {
+    console.error(`[Redis] Failed to parse runtime channel config for ${runtimeChannelId}:`, error);
+    runtimeChannelConfigCache.set(runtimeChannelId, { expiresAt: now + 1000, value: null });
+    return null;
+  }
+};
 
 /**
  * Creates a dedicated Redis connection for long-lived blocking consumers.

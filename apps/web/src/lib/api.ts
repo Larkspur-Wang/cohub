@@ -426,9 +426,29 @@ export type RuntimeEnvInput = {
   value: string;
 };
 
+export type RuntimeChannelConfigInput = {
+  inbound?: {
+    requireMentionInGuild?: boolean;
+  };
+  outbound?: {
+    showThinking?: boolean;
+    showToolCalls?: boolean;
+    defaultDisplayMode?: "full" | "compact" | "minimal";
+  };
+};
+
 export type RuntimeChannelBindingInput = {
   channelId: string;
-  config?: Record<string, unknown> | null;
+  config?: RuntimeChannelConfigInput | null;
+};
+
+export type RuntimeChannelRecord = {
+  id: string;
+  runtimeId: string;
+  channelId: string;
+  config?: RuntimeChannelConfigInput | null;
+  createdAt: string;
+  channel?: Channel | null;
 };
 
 export type RuntimeSessionsResponse = {
@@ -478,6 +498,25 @@ export const getRuntimeSessions = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/runtimes/${id}/sessions`, {
     fetch: customFetch,
   }) as Promise<RuntimeSessionsResponse>;
+};
+
+export const getRuntimeChannels = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/runtimes/${id}/channels`, {
+    fetch: customFetch,
+  }) as Promise<RuntimeChannelRecord[]>;
+};
+
+export const updateRuntimeChannelConfig = async (
+  id: string,
+  input: { config: RuntimeChannelConfigInput | null },
+) => {
+  return apiFetch(`/api/runtime-channels/${id}/config`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  }) as Promise<RuntimeChannelRecord>;
 };
 
 export const getRuntimeSessionGraph = async (id: string, customFetch?: Fetch) => {

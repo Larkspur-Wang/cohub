@@ -10,3 +10,4 @@
 - [ ] runtime 安全问题，当前暴露了 redis url，可能要换一种通信方式
 - [ ] runtime 的休眠和恢复
 - [ ] 指令系统，简单的 /new 等指令
+- [ ] 规划统一 Cohub CLI：先形成长期愿景与命令结构，再逐步收敛现有 scripts；见 `docs/cli-vision.md`
