@@ -728,6 +728,8 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   const sequence = await getNextSessionSequence(input.sessionId);
   const content = input.message.content;
   const text = input.message.text === undefined ? extractPlainText(content) : (input.message.text ?? null);
+  const messageRole = input.message.role ?? "assistant";
+  const shouldDispatchToProvider = messageRole === "assistant";
 
   let messageNode: typeof sessionMessages.$inferSelect | undefined;
   try {
@@ -735,7 +737,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
       .insert(sessionMessages)
       .values({
         sessionId: input.sessionId,
-        role: input.message.role ?? "assistant",
+        role: messageRole,
         source: input.message.source ?? "internal",
         externalMessageId: input.message.externalMessageId ?? null,
         protocolMessageId: input.message.protocolMessageId ?? null,
@@ -797,6 +799,13 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   }
 
   await updateSessionAfterAppend(input.sessionId, messageNode);
+
+  if (!shouldDispatchToProvider) {
+    console.log(
+      `[RuntimeSessions] Skip outbound dispatch for non-assistant message ${messageNode.id} role=${messageRole}`,
+    );
+    return messageNode;
+  }
 
   const bindings = await getBindingsBySessionId(session.id);
 
