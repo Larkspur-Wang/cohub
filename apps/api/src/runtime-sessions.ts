@@ -246,7 +246,7 @@ export const validateRuntimeEnv = (envs: RuntimeEnvVar[]) => {
 
   const seen = new Set<string>();
   for (const env of envs) {
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(env.name)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env.name)) {
       throw new Error(`invalid env name: ${env.name}`);
     }
 
