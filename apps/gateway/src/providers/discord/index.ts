@@ -438,6 +438,16 @@ export class DiscordProvider {
       const content = truncate(text || "(empty message)", 1900);
       const files = imageUris;
       const textChannel = channel as TextBasedChannel;
+      const renderMode = String(cmd.meta?.renderMode ?? "message");
+      const hasRenderableContent = Boolean(text.trim()) || files.length > 0;
+
+      if (renderMode === "rich_status" && !hasRenderableContent) {
+        console.log(`[Discord:${this.channelId}] Skipping empty rich_status update`, {
+          commandId: cmd.commandId,
+          sessionMessageId: cmd.sessionMessageId ?? "none",
+        });
+        return { success: true as const };
+      }
 
       const turnAnchorMessageId = typeof cmd.meta?.turnAnchorMessageId === "string"
         ? cmd.meta.turnAnchorMessageId.trim()
