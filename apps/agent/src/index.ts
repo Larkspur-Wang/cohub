@@ -132,7 +132,7 @@ function summarizeThinking(thinking: string): string {
   return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 2).join("\n").slice(0, 320);
 }
 
-async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "compact" | "minimal" = "compact") {
+async function emitProviderRenderUpdate(handle: SessionHandle) {
   const now = Date.now();
   if (now - handle.streamState.lastRenderAt < 900) return;
   handle.streamState.lastRenderAt = now;
@@ -140,16 +140,13 @@ async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "c
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
 
-  const thinking = mode === "full"
-    ? handle.streamState.thinking
-    : summarizeThinking(handle.streamState.thinking);
+  const thinking = handle.streamState.thinking.trim();
 
   await sendOutput({
     type: "provider_render_update",
     runtimeId: env.RUNTIME_ID,
     sessionId: handle.sessionId,
     renderMode: "rich_status",
-    displayMode: mode,
     thinking,
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
@@ -160,7 +157,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle, mode: "full" | "c
     runtimeId: env.RUNTIME_ID,
     runtimeSessionId: handle.sessionId,
     renderMode: "rich_status",
-    displayMode: mode,
     thinking,
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
@@ -193,7 +189,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
       const message = event.message as unknown as Record<string, unknown>;
       if (message.role === "assistant") {
         resetStreamState(handle);
-        void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+        void emitProviderRenderUpdate(handle);
       }
     }
 
@@ -201,7 +197,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
       const message = event.message as unknown as Record<string, unknown>;
       handle.streamState.assistantText = extractAssistantText(message);
       handle.streamState.thinking = extractThinkingText(message);
-      void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+      void emitProviderRenderUpdate(handle);
     }
 
     if (event.type === "tool_execution_start") {
@@ -214,7 +210,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
           summary: summarizeToolArgs(event.toolName, event.args),
         },
       ];
-      void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+      void emitProviderRenderUpdate(handle);
     }
 
     if (event.type === "tool_execution_end") {
@@ -228,7 +224,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
           summary: existing?.summary ?? "",
         },
       ];
-      void emitProviderRenderUpdate(handle, handle.streamState.preferredDisplayMode);
+      void emitProviderRenderUpdate(handle);
     }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
@@ -246,7 +242,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "turn_end" || event.type === "message_end") {
-      void emitProviderRenderUpdate(handle, "full");
+      void emitProviderRenderUpdate(handle);
     }
   });
 }

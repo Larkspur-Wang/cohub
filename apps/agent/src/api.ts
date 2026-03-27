@@ -244,7 +244,6 @@ export async function updateProviderRender(input: {
   runtimeId: string;
   runtimeSessionId: string;
   renderMode?: string | null;
-  displayMode?: string | null;
   thinking?: string | null;
   toolCalls?: Array<Record<string, unknown>> | null;
   answer?: string | null;

@@ -155,24 +155,15 @@ const summarizeThinkingForMinimal = (thinking: string) => {
 };
 
 const buildProviderRenderBlocks = (input: {
-  displayMode?: string | null;
   thinking?: string | null;
   toolCalls?: Array<Record<string, unknown>> | null;
   answer?: string | null;
 }) => {
-  const displayMode = input.displayMode === "full" ? "full" : input.displayMode === "minimal" ? "minimal" : "compact";
   const sections: string[] = [];
 
   const thinking = (input.thinking ?? "").trim();
   if (thinking) {
-    const renderedThinking = displayMode === "full"
-      ? thinking
-      : displayMode === "minimal"
-        ? summarizeThinkingForMinimal(thinking)
-        : summarizeThinkingForCompact(thinking);
-    if (renderedThinking) {
-      sections.push(displayMode === "minimal" ? `🤔 ${renderedThinking}` : `🤔 Thinking\n${renderedThinking}`);
-    }
+    sections.push(`🤔 Thinking\n${thinking}`);
   }
 
   const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
@@ -183,17 +174,12 @@ const buildProviderRenderBlocks = (input: {
       const summary = typeof tool.summary === "string" && tool.summary.trim().length > 0 ? ` ${tool.summary.trim()}` : "";
       return `[${status}] ${toolName}${summary}`;
     });
-    if (displayMode === "minimal") {
-      sections.push(...lines.slice(0, 2).map((line) => `🛠 ${line}`));
-      if (lines.length > 2) sections.push(`🛠 +${lines.length - 2} more`);
-    } else {
-      sections.push(`🛠 Tools\n${lines.join("\n")}`);
-    }
+    sections.push(`🛠 Tools\n${lines.join("\n")}`);
   }
 
   const answer = (input.answer ?? "").trim();
   if (answer) {
-    sections.push(displayMode === "minimal" ? `💬 ${answer.slice(0, 280)}` : `💬 Answer\n${answer}`);
+    sections.push(`💬 Answer\n${answer}`);
   }
 
   const text = sections.join("\n\n").trim();
@@ -833,9 +819,11 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   }
 
   let replyToExternalMessageId: string | undefined;
+  let previousUserMessageId: string | undefined;
   if (messageNode.prevMessageId) {
     const [previousMessage] = await db
       .select({
+        id: sessionMessages.id,
         role: sessionMessages.role,
         externalMessageId: sessionMessages.externalMessageId,
       })
@@ -848,8 +836,11 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
       )
       .limit(1);
 
-    if (previousMessage?.role === "user" && previousMessage.externalMessageId?.trim()) {
-      replyToExternalMessageId = previousMessage.externalMessageId.trim();
+    if (previousMessage?.role === "user") {
+      previousUserMessageId = previousMessage.id;
+      if (previousMessage.externalMessageId?.trim()) {
+        replyToExternalMessageId = previousMessage.externalMessageId.trim();
+      }
     }
   }
 
@@ -857,6 +848,13 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
 
   if (bindings.length > 0) {
     for (const binding of bindings) {
+      const existingTurnRef = previousUserMessageId
+        ? await findLatestOutboundRefForSessionMessage({
+            provider: binding.provider,
+            externalConversationId: binding.externalChatId,
+            sessionMessageId: previousUserMessageId,
+          })
+        : null;
       await touchRuntimeSessionBinding(binding.id).catch(console.error);
       await dispatchOutboundMessage({
         runtimeChannelId: binding.runtimeChannelId,
@@ -868,10 +866,12 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         content: messageNode.content,
         replyToExternalMessageId,
         meta: {
-          bindingKey: binding.bindingKey,
-          sessionMessageRole: messageNode.role,
-          source: "session_persist",
-        },
+        bindingKey: binding.bindingKey,
+        sessionMessageRole: messageNode.role,
+        source: "session_persist",
+        editExternalMessageId: existingTurnRef?.externalMessageId ?? null,
+        turnAnchorMessageId: previousUserMessageId ?? messageNode.id,
+      },
       }).catch(console.error);
     }
   } else {
@@ -1164,7 +1164,6 @@ export const updateProviderRenderForSession = async (input: {
   runtimeSessionId: string;
   render: {
     renderMode?: string | null;
-    displayMode?: string | null;
     thinking?: string | null;
     toolCalls?: Array<Record<string, unknown>> | null;
     answer?: string | null;
@@ -1194,13 +1193,29 @@ export const updateProviderRenderForSession = async (input: {
     });
 
     const content = buildProviderRenderBlocks({
-      displayMode: input.render.displayMode,
       thinking: input.render.thinking,
       toolCalls: input.render.toolCalls,
       answer: input.render.answer,
     });
 
     if (content.length === 0) continue;
+
+    if (existingRef?.externalMessageId) {
+      await createProviderMessageRef({
+        provider: binding.provider,
+        runtimeId: input.runtimeId,
+        runtimeSessionId: input.runtimeSessionId,
+        runtimeChannelId: binding.runtimeChannelId,
+        sessionMessageId: sourceMessageId,
+        direction: "outbound",
+        externalConversationId: binding.externalChatId,
+        externalMessageId: existingRef.externalMessageId,
+        meta: {
+          kind: "provider_render",
+          sourceMessageId,
+        },
+      }).catch(console.error);
+    }
 
     const runtimeChannel = await getRuntimeChannelRecord(binding.runtimeChannelId);
     const runtimeChannelConfig = (runtimeChannel?.config as Record<string, unknown> | null) ?? null;
@@ -1216,13 +1231,13 @@ export const updateProviderRenderForSession = async (input: {
       replyToExternalMessageId,
       meta: {
         renderMode: "rich_status",
-        displayMode: input.render.displayMode ?? ((binding.meta as Record<string, unknown> | null)?.displayMode as string | undefined) ?? "compact",
         thinking: input.render.thinking ?? "",
         toolCalls: input.render.toolCalls ?? [],
         answer: input.render.answer ?? "",
         editExternalMessageId: existingRef?.externalMessageId ?? null,
         providerMeta: (binding.meta as Record<string, unknown> | null)?.providerMeta ?? null,
         runtimeChannelConfig,
+        turnAnchorMessageId: sourceMessageId,
       },
     });
   }

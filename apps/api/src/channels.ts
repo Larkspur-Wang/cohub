@@ -597,6 +597,20 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
   }
 
   const conversationId = event.conversation?.id?.trim() || event.externalChatId;
+  const existingInboundRef = await getProviderMessageRef({
+    provider: event.provider,
+    externalConversationId: conversationId,
+    externalMessageId: event.externalMessageId,
+    direction: "inbound",
+  });
+
+  if (existingInboundRef) {
+    console.log(
+      `[Channels] Duplicate inbound ignored provider=${event.provider} conversation=${conversationId} message=${event.externalMessageId}`,
+    );
+    return;
+  }
+
   const bindingKey =
     event.bindingKey?.trim() ||
     `${event.provider}:conversation:${conversationId}`;

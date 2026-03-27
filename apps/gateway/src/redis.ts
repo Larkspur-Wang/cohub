@@ -37,8 +37,11 @@ redisCommandClient.on("reconnecting", () => {
 });
 
 const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
+const getTurnMessageRefKey = (runtimeChannelId: string, turnAnchorMessageId: string) =>
+  `gateway:turn_message_ref:${runtimeChannelId}:${turnAnchorMessageId}`;
 const runtimeChannelConfigCache = new Map<string, { expiresAt: number; value: RuntimeChannelConfig | null }>();
 const RUNTIME_CHANNEL_CONFIG_TTL_MS = 3000;
+const TURN_MESSAGE_REF_TTL_SECONDS = 60 * 30;
 
 export const getRuntimeChannelConfig = async <TConfig extends RuntimeChannelConfig = RuntimeChannelConfig>(
   runtimeChannelId: string,
@@ -67,6 +70,24 @@ export const getRuntimeChannelConfig = async <TConfig extends RuntimeChannelConf
     runtimeChannelConfigCache.set(runtimeChannelId, { expiresAt: now + 1000, value: null });
     return null;
   }
+};
+
+export const getTurnMessageExternalRef = async (runtimeChannelId: string, turnAnchorMessageId: string) => {
+  const value = await redisCommandClient.get(getTurnMessageRefKey(runtimeChannelId, turnAnchorMessageId));
+  return value?.trim() || null;
+};
+
+export const setTurnMessageExternalRef = async (
+  runtimeChannelId: string,
+  turnAnchorMessageId: string,
+  externalMessageId: string,
+) => {
+  await redisCommandClient.set(
+    getTurnMessageRefKey(runtimeChannelId, turnAnchorMessageId),
+    externalMessageId,
+    "EX",
+    TURN_MESSAGE_REF_TTL_SECONDS,
+  );
 };
 
 /**

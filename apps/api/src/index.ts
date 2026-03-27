@@ -1145,7 +1145,6 @@ app.post("/internal/runtimes/:id/sessions/:sessionId/provider-render", async (c)
 
   const body = await c.req.json<{
     renderMode?: string | null;
-    displayMode?: string | null;
     thinking?: string | null;
     toolCalls?: Array<Record<string, unknown>> | null;
     answer?: string | null;

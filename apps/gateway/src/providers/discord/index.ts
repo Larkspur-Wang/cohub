@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Messag
 import { randomUUID } from "node:crypto";
 import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, DiscordRuntimeChannelConfig } from "@cohub/protocol";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
-import { getRuntimeChannelConfig } from "../../redis.js";
+import { getRuntimeChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 
 const buildDiscordBindingKey = (message: Message) => {
   return `discord:conversation:${message.channelId}`;
@@ -94,42 +94,18 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
 
   const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
   const outboundConfig = getDiscordOutboundConfig(channelConfig);
-  const displayMode = String(cmd.meta?.displayMode ?? "compact");
   const thinking = outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
   const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : buildDiscordRenderText(cmd.content).text;
   const toolCalls = outboundConfig.showToolCalls && Array.isArray(cmd.meta?.toolCalls)
     ? cmd.meta.toolCalls as Array<Record<string, unknown>>
     : [];
 
-  if (displayMode === "minimal") {
-    const lines: string[] = [];
-    if (thinking.trim()) {
-      lines.push(`🤔 ${summarizeThinkingForMinimal(thinking) || "Thinking..."}`);
-    }
-    if (toolCalls.length > 0) {
-      const firstTwo = toolCalls.slice(0, 2).map((tool) => buildToolLine(
-        typeof tool.status === "string" ? tool.status : undefined,
-        typeof tool.toolName === "string" ? tool.toolName : undefined,
-        typeof tool.summary === "string" ? tool.summary : undefined,
-      ));
-      lines.push(...firstTwo.map((line) => `🛠 ${line}`));
-      if (toolCalls.length > 2) lines.push(`🛠 +${toolCalls.length - 2} more`);
-    }
-    if (answer.trim()) {
-      lines.push(`💬 ${truncate(answer.trim(), 280)}`);
-    }
-    return {
-      text: lines.join("\n").trim(),
-      imageUris: [],
-    };
-  }
-
-  const sections: string[] = [];
+  const lines: string[] = [];
   if (thinking.trim()) {
-    sections.push(`🤔 Thinking\n${thinking.trim()}`);
+    lines.push(`🤔 Thinking\n${thinking.trim()}`);
   }
   if (toolCalls.length > 0) {
-    sections.push(
+    lines.push(
       `🛠 Tools\n${toolCalls
         .map((tool) => buildToolLine(
           typeof tool.status === "string" ? tool.status : undefined,
@@ -140,11 +116,11 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
     );
   }
   if (answer.trim()) {
-    sections.push(`💬 Answer\n${answer.trim()}`);
+    lines.push(`💬 Answer\n${answer.trim()}`);
   }
 
   return {
-    text: sections.join("\n\n").trim(),
+    text: lines.join("\n\n").trim(),
     imageUris: [],
   };
 };
@@ -163,19 +139,8 @@ const buildThreadConversationMeta = async (thread: AnyThreadChannel) => {
   };
 };
 
-function resolveDiscordDisplayMode(cmd: GatewayOutboundCommand) {
-  const explicit = typeof cmd.meta?.displayMode === "string" ? cmd.meta.displayMode : null;
-  if (explicit === "full" || explicit === "compact" || explicit === "minimal") {
-    return explicit;
-  }
-
-  const providerMeta = cmd.meta?.providerMeta;
-  const providerObject = providerMeta && typeof providerMeta === "object" ? providerMeta as Record<string, unknown> : null;
-  const isThread = providerObject?.isThread === true;
-  const isDm = providerObject?.isDm === true;
-
-  if (isThread || isDm) return "compact";
-  return "minimal";
+function resolveDiscordDisplayMode(_cmd: GatewayOutboundCommand) {
+  return "full";
 }
 
 export class DiscordProvider {
@@ -469,25 +434,28 @@ export class DiscordProvider {
         return { success: false as const, error: `Channel is not text-based: ${cmd.externalChatId}` };
       }
 
-      const { text, imageUris } = await buildDiscordOutboundPayload(this.channelId, {
-        ...cmd,
-        meta: {
-          ...(cmd.meta ?? {}),
-          displayMode: resolveDiscordDisplayMode(cmd),
-        },
-      });
+      const { text, imageUris } = await buildDiscordOutboundPayload(this.channelId, cmd);
       const content = truncate(text || "(empty message)", 1900);
       const files = imageUris;
       const textChannel = channel as TextBasedChannel;
 
-      const editTargetMessageId = typeof cmd.meta?.editExternalMessageId === "string"
+      const turnAnchorMessageId = typeof cmd.meta?.turnAnchorMessageId === "string"
+        ? cmd.meta.turnAnchorMessageId.trim()
+        : "";
+      const cachedTurnMessageId = turnAnchorMessageId
+        ? await getTurnMessageExternalRef(this.channelId, turnAnchorMessageId).catch(() => null)
+        : null;
+      const editTargetMessageId = typeof cmd.meta?.editExternalMessageId === "string" && cmd.meta.editExternalMessageId.trim().length > 0
         ? cmd.meta.editExternalMessageId
-        : undefined;
+        : (cachedTurnMessageId ?? undefined);
 
       if (editTargetMessageId && "messages" in textChannel) {
         const target = await textChannel.messages.fetch(editTargetMessageId).catch(() => null);
         if (target) {
           await target.edit({ content });
+          if (turnAnchorMessageId) {
+            await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch(console.error);
+          }
           console.log(`[Discord:${this.channelId}] ✓ Message edited successfully: ${target.id}`);
           return { success: true as const, externalMessageId: target.id };
         }
@@ -505,6 +473,9 @@ export class DiscordProvider {
 
       const sendableChannel = textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>;
       const sentMsg = (await sendableChannel.send(messageOptions)) as { id: string };
+      if (turnAnchorMessageId) {
+        await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, sentMsg.id).catch(console.error);
+      }
       console.log(`[Discord:${this.channelId}] ✓ Message sent successfully: ${sentMsg.id}`);
       return { success: true as const, externalMessageId: sentMsg.id };
     } catch (error) {
