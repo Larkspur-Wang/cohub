@@ -35,9 +35,8 @@ READINESS_TIMEOUT: "2"
 READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== API 配置 ==========
-# Private DNS zone 已配置，使用 HTTP 协议通过 NLB 内网访问
-AUTH_BASE_URL: "http://api.talesofai.com"
-GITEA_BASE_URL: "http://gitea.cohub.run/"
+AUTH_BASE_URL: "https://api.talesofai.com"
+GITEA_BASE_URL: "https://gitea.cohub.run/"
 GITEA_MANAGED_EMAIL_DOMAIN: "cohub.local"
 WEB_ORIGIN: "https://cohub.run"
 SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:v20260325"
