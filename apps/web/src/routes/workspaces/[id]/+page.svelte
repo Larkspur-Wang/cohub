@@ -10,16 +10,14 @@ import {
   FileCode,
   Folder,
   GitFork,
-  ArrowLeft,
 } from "lucide-svelte";
-import { getWorkspace, getWorkspaceByUser, forkWorkspace, getTreeByUser, type Tree, type WorkspaceDetail } from "$lib/api";
+import { getWorkspaceById, getWorkspaceTree, forkWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
 let { params } = $props();
 
-let owner = $derived(params.owner);
-let repo = $derived(params.repo);
+let workspaceId = $derived(params.id);
 
 let workspace = $state<WorkspaceDetail | null>(null);
 let tree = $state<Tree | null>(null);
@@ -28,55 +26,17 @@ let isLoading = $state(true);
 let isForking = $state(false);
 let loadError = $state("");
 let copied = $state(false);
-let currentUserUuid = $state<string | null>(null);
 
 const gitRemoteUrl = $derived(workspace?.sshUrl || workspace?.cloneUrl || "");
-const isOwner = $derived(currentUserUuid && workspace?.owner === currentUserUuid);
+const isOwner = $derived(Boolean(workspace?.isOwner));
 
 async function loadWorkspace() {
   isLoading = true;
   loadError = "";
   try {
-    // Try to get current user info
-    const me = await fetch("/api/me", { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null);
-    currentUserUuid = me?.uuid || null;
-
-    // Try to get workspace - first try as owner (by-user), then as public
-    try {
-      if (currentUserUuid && owner === currentUserUuid) {
-        workspace = await getWorkspaceByUser(owner, repo);
-      } else {
-        // Try public access first
-        const publicWs = await getWorkspace(owner, repo);
-        // Then get detailed info if we're logged in
-        if (currentUserUuid) {
-          try {
-            workspace = await getWorkspaceByUser(currentUserUuid, repo);
-          } catch {
-            // Not the owner, use public info
-            workspace = publicWs as WorkspaceDetail;
-          }
-        } else {
-          workspace = publicWs as WorkspaceDetail;
-        }
-      }
-    } catch {
-      // If public access fails and we're logged in, try as the current user
-      if (currentUserUuid) {
-        workspace = await getWorkspaceByUser(currentUserUuid, repo);
-      } else {
-        throw new Error("Workspace not found or access denied");
-      }
-    }
-
-    // Get tree if we have access
-    if (workspace && currentUserUuid) {
-      tree = await getTreeByUser(workspace.owner, repo, "").catch(() => null);
-      isEmpty = !tree || !tree.entries || tree.entries.length === 0;
-    } else {
-      tree = null;
-      isEmpty = true;
-    }
+    workspace = await getWorkspaceById(workspaceId);
+    tree = await getWorkspaceTree(workspaceId, "").catch(() => null);
+    isEmpty = !tree || !tree.entries || tree.entries.length === 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace not found or access denied";
     if (message.includes("unauthorized") || message.includes("401")) {
@@ -106,9 +66,8 @@ async function handleFork() {
   if (isForking || !workspace) return;
   isForking = true;
   try {
-    const result = await forkWorkspace(owner, repo);
-    // Navigate to the forked workspace
-    goto(`/workspaces/${result.owner}/${result.giteaRepoName}`);
+    const result = await forkWorkspace(workspace.id);
+    goto(`/workspaces/${result.id}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fork workspace";
     alert(message);
@@ -144,12 +103,14 @@ async function handleFork() {
             </span>
           </div>
           <div class="flex items-center gap-2 mt-1 text-sm text-gray-500">
-            <span>Owned by <span class="font-medium text-gray-700">{owner}</span></span>
+            <span>
+              Owned by <span class="font-medium text-gray-700">{workspace.ownerUsername || workspace.owner}</span>
+            </span>
             {#if workspace.forkedFrom}
               <span class="text-gray-300">•</span>
-              <a href="/workspaces/{workspace.forkedFrom.ownerUsername || workspace.forkedFrom.owner}/{workspace.forkedFrom.name}" class="flex items-center gap-1 text-brand hover:underline">
+              <a href="/workspaces/{workspace.forkedFrom.id}" class="flex items-center gap-1 text-brand hover:underline">
                 <GitFork class="w-3 h-3" />
-                forked from {workspace.forkedFrom.ownerUsername}/{workspace.forkedFrom.name}
+                forked from {workspace.forkedFrom.ownerUsername || workspace.forkedFrom.owner}/{workspace.forkedFrom.name}
               </a>
             {/if}
           </div>
@@ -172,7 +133,7 @@ async function handleFork() {
             class="px-4 py-2 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors shadow-sm flex items-center gap-2 group"
             onclick={async () => {
               if (isLoading || !workspace) return;
-              await goto(`/workspaces/${owner}/${repo}/runtimes/new`);
+              await goto(`/workspaces/${workspace.id}/runtimes/new`);
             }}
           >
             <Play class="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
@@ -182,7 +143,7 @@ async function handleFork() {
       </div>
     </div>
 
-    {#if !isOwner && !currentUserUuid}
+    {#if !isOwner && workspace.visibility === "public"}
       <div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm">
         <p>Log in to fork this workspace and start your own runtime.</p>
       </div>

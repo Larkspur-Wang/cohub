@@ -21,6 +21,7 @@ import {
   addDeployKeyToRepo,
   forkRepository,
   updateRepositoryVisibility,
+  deleteRepository,
 } from "./gitea.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 import type {
@@ -258,50 +259,159 @@ app.delete("/api/channels/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/api/workspaces/:owner/:repo", async (c) => {
-  const { owner, repo } = c.req.param();
-  const data = await getRepository(owner, repo);
-  if (!data) return c.json({ message: "workspace not found" }, 404);
-  return c.json(data);
-});
-
-app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
+app.get("/api/workspaces", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const { userUuid, repo: repoParam } = c.req.param();
-  if (!repoParam) return c.json({ message: "workspace not found" }, 404);
-  const repo = repoParam;
-  if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
-  const gitAccount = await ensureUserGitAccount(user.uuid);
-  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
 
-  const [workspace] = await db
+  const items = await db
     .select()
     .from(workspaces)
-    .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, repo)))
-    .limit(1);
-  if (!workspace) return c.json({ message: "workspace not found" }, 404);
+    .where(eq(workspaces.userUuid, user.uuid))
+    .orderBy(desc(workspaces.updatedAt), desc(workspaces.createdAt));
 
-  const repoData = await getRepository(gitAccount.giteaUsername, repo);
+  return c.json(items.map((workspace) => ({ ...workspace, owner: workspace.userUuid })));
+});
+
+app.post("/api/workspaces", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = await c.req
+    .json<{
+      name?: string;
+      description?: string;
+      private?: boolean;
+    }>()
+    .catch(() => null);
+
+  const name = body?.name?.trim();
+  if (!name) return c.json({ message: "name is required" }, 400);
+
+  const repoSlug = normalizeWorkspaceSlug(name);
+  if (!repoSlug) {
+    return c.json({ message: "workspace name must contain letters or numbers" }, 400);
+  }
+
+  const [existingWorkspace] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, repoSlug)))
+    .limit(1);
+  if (existingWorkspace) {
+    return c.json({ message: "workspace slug already exists" }, 409);
+  }
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  const repo = await createRepository(gitAccount.giteaAccessToken, repoSlug, body?.private ?? true).catch((error) => error as Error);
+  if (repo instanceof Error) {
+    return c.json({ message: repo.message }, 500);
+  }
+  if ("alreadyExists" in repo && repo.alreadyExists) {
+    return c.json({ message: "workspace slug already exists" }, 409);
+  }
+
+  const [workspace] = await db
+    .insert(workspaces)
+    .values({
+      userUuid: user.uuid,
+      name,
+      description: body?.description?.trim() || null,
+      giteaRepoName: repoSlug,
+      visibility: body?.private === false ? "public" : "private",
+    })
+    .returning();
+  if (!workspace) {
+    return c.json({ message: "failed to create workspace" }, 500);
+  }
+
+  const repoOwner = gitAccount.giteaUsername;
+  if (!repoOwner) {
+    return c.json({ message: "managed git account is incomplete" }, 500);
+  }
+  const repoData = await getRepository(repoOwner, repoSlug);
+  return c.json({
+    ...workspace,
+    owner: workspace.userUuid,
+    private: body?.private ?? true,
+    cloneUrl: repoData && "clone_url" in repoData ? String(repoData.clone_url) : null,
+    sshUrl: repoData && "ssh_url" in repoData ? String(repoData.ssh_url) : null,
+    htmlUrl: repoData && "html_url" in repoData ? String(repoData.html_url) : null,
+    fullName: repoData && "full_name" in repoData ? String(repoData.full_name) : null,
+    forkedFrom: null,
+  });
+});
+
+app.get("/api/workspaces/public", async (c) => {
+  const page = Math.max(1, Number(c.req.query("page") ?? "1") || 1);
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? "20") || 20));
+  const search = c.req.query("search")?.trim();
+  const conditions = [eq(workspaces.visibility, "public")];
+
+  if (search) {
+    conditions.push(sql`${workspaces.name} ILIKE ${`%${search}%`}`);
+  }
+
+  const countRows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(workspaces)
+    .where(and(...conditions));
+  const total = countRows[0]?.count ?? 0;
+
+  const items = await db
+    .select()
+    .from(workspaces)
+    .where(and(...conditions))
+    .orderBy(desc(workspaces.forkCount), desc(workspaces.updatedAt), desc(workspaces.createdAt))
+    .limit(limit)
+    .offset((page - 1) * limit);
+
+  return c.json({
+    items: items.map((workspace) => ({ ...workspace, owner: workspace.userUuid })),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+  });
+});
+
+app.get("/api/workspaces/:id", async (c) => {
+  const workspaceId = c.req.param("id");
+  if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
+
+  const token = c.get("token");
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  if (!workspace) return c.json({ message: "workspace not found" }, 404);
+  if (workspace.visibility !== "public" && workspace.userUuid !== user?.uuid) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  const [gitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
+  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+
+  const repoData = await getRepository(gitAccount.giteaUsername, workspace.giteaRepoName);
   if (!repoData) return c.json({ message: "workspace not found" }, 404);
 
   let forkedFrom = null;
   if (workspace.parentId) {
-    const [parentWs] = await db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, workspace.parentId))
-      .limit(1);
-
+    const [parentWs] = await db.select().from(workspaces).where(eq(workspaces.id, workspace.parentId)).limit(1);
     if (parentWs) {
       const [parentGitAccount] = await db
         .select()
         .from(userGitAccounts)
         .where(eq(userGitAccounts.userUuid, parentWs.userUuid))
         .limit(1);
-
       forkedFrom = {
         id: parentWs.id,
         name: parentWs.name,
@@ -313,68 +423,221 @@ app.get("/api/workspaces/by-user/:userUuid/:repo", async (c) => {
 
   return c.json({
     ...workspace,
-    owner: user.uuid,
-    private: repoData.private,
-    cloneUrl: repoData.clone_url,
-    sshUrl: repoData.ssh_url,
-    htmlUrl: repoData.html_url,
-    fullName: repoData.full_name,
+    owner: workspace.userUuid,
+    ownerUsername: gitAccount.giteaUsername,
+    private: workspace.visibility !== "public",
+    cloneUrl: "clone_url" in repoData ? String(repoData.clone_url) : null,
+    sshUrl: "ssh_url" in repoData ? String(repoData.ssh_url) : null,
+    htmlUrl: "html_url" in repoData ? String(repoData.html_url) : null,
+    fullName: "full_name" in repoData ? String(repoData.full_name) : null,
     forkedFrom,
+    isOwner: workspace.userUuid === user?.uuid,
   });
 });
 
-app.get("/api/workspaces/by-user/:userUuid/:repo/tree", async (c) => {
+app.patch("/api/workspaces/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const { userUuid, repo: repoParam } = c.req.param();
-  if (!repoParam) return c.json({ message: "workspace not found" }, 404);
-  const repo = repoParam;
-  if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
-  const gitAccount = await ensureUserGitAccount(user.uuid);
-  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
-  const path = c.req.query("path") ?? "";
-  const ref = c.req.query("ref");
-  const entries = await getDirectoryEntries(gitAccount.giteaUsername, repo, path, ref);
-  if (entries === null) return c.json({ message: "path not found" }, 404);
-  return c.json({ owner: gitAccount.giteaUsername, repo, path, ref: ref ?? null, entries });
+
+  const workspaceId = c.req.param("id");
+  if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  if (!workspace || workspace.userUuid !== user.uuid) return c.json({ message: "workspace not found" }, 404);
+
+  const body = await c.req
+    .json<{
+      name?: string;
+      description?: string;
+      visibility?: "public" | "private";
+    }>()
+    .catch(() => null);
+  if (!body) return c.json({ message: "invalid body" }, 400);
+
+  const updates: Partial<typeof workspaces.$inferInsert> & { updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
+  if (typeof body.name === "string" && body.name.trim()) updates.name = body.name.trim();
+  if (typeof body.description === "string") updates.description = body.description.trim() || null;
+  if (body.visibility === "public" || body.visibility === "private") updates.visibility = body.visibility;
+
+  if (updates.visibility && updates.visibility !== workspace.visibility) {
+    const [gitAccount] = await db
+      .select()
+      .from(userGitAccounts)
+      .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+      .limit(1);
+    if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+    await updateRepositoryVisibility(gitAccount.giteaUsername, workspace.giteaRepoName, updates.visibility === "private");
+  }
+
+  const [updated] = await db
+    .update(workspaces)
+    .set(updates)
+    .where(eq(workspaces.id, workspaceId))
+    .returning();
+  if (!updated) return c.json({ message: "workspace not found" }, 404);
+
+  return c.json({ ...updated, owner: updated.userUuid });
 });
 
-app.get("/api/workspaces/by-user/:userUuid/:repo/file", async (c) => {
+app.delete("/api/workspaces/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const { userUuid, repo: repoParam } = c.req.param();
-  if (!repoParam) return c.json({ message: "workspace not found" }, 404);
-  const repo = repoParam;
-  if (userUuid !== user.uuid) return c.json({ message: "forbidden" }, 403);
-  const gitAccount = await ensureUserGitAccount(user.uuid);
+
+  const workspaceId = c.req.param("id");
+  if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  if (!workspace || workspace.userUuid !== user.uuid) return c.json({ message: "workspace not found" }, 404);
+
+  const [gitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
   if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
-  const path = c.req.query("path") ?? "";
-  const ref = c.req.query("ref");
-  if (!path.trim()) return c.json({ message: "path is required" }, 400);
-  const file = await getFileContent(gitAccount.giteaUsername, repo, path, ref);
-  if (!file) return c.json({ message: "file not found" }, 404);
-  return c.json(file);
+
+  await deleteRepository(gitAccount.giteaUsername, workspace.giteaRepoName);
+  await db.delete(workspaces).where(eq(workspaces.id, workspaceId));
+  return c.body(null, 204);
 });
 
-app.get("/api/workspaces/:owner/:repo/tree", async (c) => {
-  const { owner, repo } = c.req.param();
+app.post("/api/workspaces/:id/fork", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const workspaceId = c.req.param("id");
+  if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  if (!workspace) return c.json({ message: "workspace not found" }, 404);
+  if (workspace.visibility !== "public") return c.json({ message: "workspace not found" }, 404);
+  if (workspace.userUuid === user.uuid) return c.json({ message: "cannot fork your own workspace" }, 400);
+
+  const [sourceGitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
+  if (!sourceGitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+
+  const targetGitAccount = await ensureUserGitAccount(user.uuid);
+  const body = (await c.req.json<{ name?: string }>().catch(() => ({}))) as { name?: string };
+  const requestedName = body.name?.trim();
+  const targetRepoName = requestedName ? normalizeWorkspaceSlug(requestedName) : workspace.giteaRepoName;
+  if (!targetRepoName) {
+    return c.json({ message: "workspace name must contain letters or numbers" }, 400);
+  }
+
+  const [existingWorkspace] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, targetRepoName)))
+    .limit(1);
+  if (existingWorkspace) {
+    return c.json({ message: "workspace slug already exists" }, 409);
+  }
+
+  const forkedRepo = await forkRepository(
+    sourceGitAccount.giteaUsername,
+    workspace.giteaRepoName,
+    targetGitAccount.giteaAccessToken,
+    targetRepoName,
+  );
+
+  const [forkedWorkspace] = await db
+    .insert(workspaces)
+    .values({
+      userUuid: user.uuid,
+      name: requestedName || workspace.name,
+      description: workspace.description,
+      giteaRepoName: forkedRepo.name,
+      visibility: workspace.visibility,
+      parentId: workspace.id,
+    })
+    .returning();
+  if (!forkedWorkspace) {
+    return c.json({ message: "failed to create forked workspace" }, 500);
+  }
+
+  await db
+    .update(workspaces)
+    .set({
+      forkCount: sql`${workspaces.forkCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, workspace.id));
+
+  return c.json({
+    ...forkedWorkspace,
+    owner: forkedWorkspace.userUuid,
+    forkedFrom: {
+      id: workspace.id,
+      name: workspace.name,
+      owner: workspace.userUuid,
+      ownerUsername: sourceGitAccount.giteaUsername,
+    },
+  });
+});
+
+app.get("/api/workspaces/:id/tree", async (c) => {
+  const workspaceId = c.req.param("id");
+  if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
+
+  const token = c.get("token");
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  if (!workspace) return c.json({ message: "workspace not found" }, 404);
+  if (workspace.visibility !== "public" && workspace.userUuid !== user?.uuid) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  const [gitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
+  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+
   const path = c.req.query("path") ?? "";
   const ref = c.req.query("ref");
-  const entries = await getDirectoryEntries(owner, repo, path, ref);
+  const entries = await getDirectoryEntries(gitAccount.giteaUsername, workspace.giteaRepoName, path, ref);
   if (entries === null) return c.json({ message: "path not found" }, 404);
-  return c.json({ owner, repo, path, ref: ref ?? null, entries });
+  return c.json({ owner: gitAccount.giteaUsername, repo: workspace.giteaRepoName, path, ref: ref ?? null, entries });
 });
 
-app.get("/api/workspaces/:owner/:repo/file", async (c) => {
-  const { owner, repo } = c.req.param();
+app.get("/api/workspaces/:id/file", async (c) => {
+  const workspaceId = c.req.param("id");
+  if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
+
+  const token = c.get("token");
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  if (!workspace) return c.json({ message: "workspace not found" }, 404);
+  if (workspace.visibility !== "public" && workspace.userUuid !== user?.uuid) {
+    return c.json({ message: "workspace not found" }, 404);
+  }
+
+  const [gitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, workspace.userUuid))
+    .limit(1);
+  if (!gitAccount?.giteaUsername) return c.json({ message: "workspace not found" }, 404);
+
   const path = c.req.query("path") ?? "";
   const ref = c.req.query("ref");
   if (!path.trim()) return c.json({ message: "path is required" }, 400);
-  const file = await getFileContent(owner, repo, path, ref);
+  const file = await getFileContent(gitAccount.giteaUsername, workspace.giteaRepoName, path, ref);
   if (!file) return c.json({ message: "file not found" }, 404);
   return c.json(file);
 });

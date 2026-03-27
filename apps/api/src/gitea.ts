@@ -453,3 +453,26 @@ export const updateRepositoryVisibility = async (
 
   return (await response.json()) as GiteaRepository;
 };
+
+export const deleteRepository = async (owner: string, repo: string) => {
+  const headers = createGiteaHeaders();
+  if (!headers) {
+    throw new Error("GITEA_TOKEN is not configured");
+  }
+
+  const response = await fetch(`${config.giteaBaseUrl}/api/v1/repos/${owner}/${repo}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (response.status === 404) {
+    return { ok: true, notFound: true };
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea delete repo error: ${response.status} ${text}`);
+  }
+
+  return { ok: true, notFound: false };
+};

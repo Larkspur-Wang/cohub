@@ -63,7 +63,7 @@ onMount(async () => {
       {:else}
         <div class="space-y-4">
           {#each workspaces.slice(0, 3) as workspace}
-            <a href="/workspaces/{workspace.owner}/{workspace.giteaRepoName}" class="group block p-4 rounded-xl border border-gray-100 hover:border-brand/30 hover:bg-brand/5 transition-all">
+            <a href="/workspaces/{workspace.id}" class="group block p-4 rounded-xl border border-gray-100 hover:border-brand/30 hover:bg-brand/5 transition-all">
               <div class="flex items-center gap-4">
                 <div class="w-12 h-12 rounded-lg bg-brand/5 text-brand flex items-center justify-center shrink-0">
                   <FolderKanban class="w-6 h-6" />

@@ -96,7 +96,7 @@ function goToPage(newPage: number) {
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {#each workspaces as workspace}
-        <a href="/workspaces/{workspace.owner}/{workspace.giteaRepoName}" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col group hover:border-brand/30 transition-colors">
+        <a href="/workspaces/{workspace.id}" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col group hover:border-brand/30 transition-colors">
           <div class="flex items-start justify-between mb-4">
             <div class="w-12 h-12 rounded-xl bg-brand/5 text-brand flex items-center justify-center group-hover:bg-brand group-hover:text-white transition-colors">
               <FolderKanban class="w-6 h-6" />

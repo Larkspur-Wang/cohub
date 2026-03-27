@@ -165,27 +165,14 @@ export const getMe = async (customFetch?: Fetch) => {
   return apiFetch("/api/me", { fetch: customFetch });
 };
 
-export const getWorkspace = async (
-  owner: string,
-  repo: string,
-  customFetch?: Fetch,
-) => {
-  return apiFetch(`/api/workspaces/${owner}/${repo}`, { fetch: customFetch });
-};
-
-export const getWorkspaceByUser = async (
-  userUuid: string,
-  repo: string,
-  customFetch?: Fetch,
-) => {
-  return apiFetch(`/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}`, {
+export const getWorkspaceById = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/workspaces/${id}`, {
     fetch: customFetch,
-  }) as Promise<WorkspaceDetail>;
+  }) as Promise<WorkspaceByIdResponse>;
 };
 
-export const getTreeByUser = async (
-  userUuid: string,
-  repo: string,
+export const getWorkspaceTree = async (
+  id: string,
   path = "",
   ref?: string,
   customFetch?: Fetch,
@@ -198,15 +185,13 @@ export const getTreeByUser = async (
     params.set("ref", ref);
   }
   const query = params.toString();
-  return apiFetch(
-    `/api/workspaces/by-user/${encodeURIComponent(userUuid)}/${repo}/tree${query ? `?${query}` : ""}`,
-    { fetch: customFetch },
-  ) as Promise<Tree>;
+  return apiFetch(`/api/workspaces/${id}/tree${query ? `?${query}` : ""}`, {
+    fetch: customFetch,
+  }) as Promise<Tree>;
 };
 
-export const getFile = async (
-  owner: string,
-  repo: string,
+export const getWorkspaceFile = async (
+  id: string,
   path: string,
   ref?: string,
   customFetch?: Fetch,
@@ -215,12 +200,9 @@ export const getFile = async (
   if (ref) {
     params.set("ref", ref);
   }
-  return apiFetch(
-    `/api/workspaces/${owner}/${repo}/file?${params.toString()}`,
-    {
-      fetch: customFetch,
-    },
-  );
+  return apiFetch(`/api/workspaces/${id}/file?${params.toString()}`, {
+    fetch: customFetch,
+  });
 };
 
 export const getSession = async (id: string, customFetch?: Fetch) => {
@@ -295,17 +277,19 @@ export type Workspace = {
 };
 
 export type WorkspaceDetail = Workspace & {
+  ownerUsername?: string | null;
   private: boolean;
-  cloneUrl: string;
-  sshUrl: string;
-  htmlUrl: string;
-  fullName: string;
+  cloneUrl: string | null;
+  sshUrl: string | null;
+  htmlUrl: string | null;
+  fullName: string | null;
   forkedFrom?: {
     id: string;
     name: string;
     owner: string;
     ownerUsername: string | null;
   } | null;
+  isOwner?: boolean;
 };
 
 export type PublicWorkspace = Workspace & {
@@ -533,8 +517,7 @@ export const getPublicWorkspaces = async (
   }) as Promise<PublicWorkspacesResponse>;
 };
 
-export type ForkWorkspaceResponse = Workspace & {
-  owner: string;
+export type ForkWorkspaceResponse = WorkspaceDetail & {
   forkedFrom: {
     id: string;
     name: string;
@@ -543,12 +526,8 @@ export type ForkWorkspaceResponse = Workspace & {
   };
 };
 
-export const forkWorkspace = async (
-  owner: string,
-  repo: string,
-  name?: string,
-) => {
-  return apiFetch(`/api/workspaces/${owner}/${repo}/fork`, {
+export const forkWorkspace = async (id: string, name?: string) => {
+  return apiFetch(`/api/workspaces/${id}/fork`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -557,7 +536,7 @@ export const forkWorkspace = async (
   }) as Promise<ForkWorkspaceResponse>;
 };
 
-export type WorkspaceByIdResponse = Workspace & {
+export type WorkspaceByIdResponse = WorkspaceDetail & {
   owner: string;
   ownerUsername: string | null;
   forkedFrom: {
@@ -567,12 +546,6 @@ export type WorkspaceByIdResponse = Workspace & {
     ownerUsername: string | null;
   } | null;
   isOwner: boolean;
-};
-
-export const getWorkspaceById = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/workspaces/${id}`, {
-    fetch: customFetch,
-  }) as Promise<WorkspaceByIdResponse>;
 };
 
 export const updateWorkspace = async (

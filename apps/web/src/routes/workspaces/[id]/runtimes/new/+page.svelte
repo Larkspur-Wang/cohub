@@ -4,7 +4,7 @@ import { onMount } from "svelte";
 import {
   createRuntime,
   getChannels,
-  getWorkspaceByUser,
+  getWorkspaceById,
   type Channel,
   type RuntimeChannelBindingInput,
   type RuntimeEnvInput,
@@ -31,7 +31,7 @@ async function loadPage() {
 
   try {
     const [workspaceData, channelsData] = await Promise.all([
-      getWorkspaceByUser(params.owner, params.repo),
+      getWorkspaceById(params.id),
       getChannels(),
     ]);
 
@@ -222,56 +222,48 @@ async function handleSubmit(event: SubmitEvent) {
 
         {#if channels.length === 0}
           <div class="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-            No channels available yet. You can still create a runtime without bindings.
+            No channels available yet.
           </div>
         {:else}
-          <div class="space-y-4">
+          <div class="space-y-3">
             {#each channels as channel}
-              {@const checked = selectedChannelIds.includes(channel.id)}
-              <div class="rounded-xl border border-gray-200 p-4 space-y-3">
-                <label class="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onchange={(event) =>
-                      toggleChannel(channel.id, (event.currentTarget as HTMLInputElement).checked)}
-                    class="mt-1 rounded border-gray-300 text-brand focus:ring-brand"
-                  />
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <span class="font-medium text-gray-900">{channel.name}</span>
-                      <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-md capitalize">{channel.provider}</span>
-                      <span class="px-2 py-0.5 text-xs bg-green-50 text-green-700 rounded-md capitalize">{channel.status}</span>
-                    </div>
-                    <div class="mt-1 text-xs text-gray-500 break-all">{channel.id}</div>
-                  </div>
-                </label>
-              </div>
+              <label class="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedChannelIds.includes(channel.id)}
+                  onchange={(event) => toggleChannel(channel.id, (event.currentTarget as HTMLInputElement).checked)}
+                  class="rounded border-gray-300 text-brand focus:ring-brand"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium text-gray-900">{channel.name || channel.provider}</div>
+                  <div class="text-xs text-gray-500 uppercase tracking-wide">{channel.provider}</div>
+                </div>
+              </label>
             {/each}
           </div>
         {/if}
       </div>
 
       {#if submitError}
-        <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-sm break-all">
+        <div class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {submitError}
         </div>
       {/if}
 
-      <div class="flex items-center gap-3">
+      <div class="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onclick={() => goto(`/workspaces/${params.id}`)}
+          class="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
         <button
           type="submit"
           disabled={isSubmitting}
-          class="px-5 py-2.5 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors shadow-sm disabled:opacity-50"
+          class="px-4 py-2 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           {isSubmitting ? "Creating runtime..." : "Create Runtime"}
-        </button>
-        <button
-          type="button"
-          onclick={() => goto(`/workspaces/${params.owner}/${params.repo}`)}
-          class="px-5 py-2.5 border border-gray-200 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
-        >
-          Cancel
         </button>
       </div>
     </form>
