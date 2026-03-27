@@ -224,6 +224,31 @@ const findLatestOutboundRefForSessionMessage = async (input: {
   return ref ?? null;
 };
 
+const getSessionMessageRef = async (input: {
+  sessionId: string;
+  messageId?: string | null;
+}) => {
+  if (!input.messageId) return null;
+
+  const [message] = await db
+    .select({
+      id: sessionMessages.id,
+      role: sessionMessages.role,
+      externalMessageId: sessionMessages.externalMessageId,
+      prevMessageId: sessionMessages.prevMessageId,
+    })
+    .from(sessionMessages)
+    .where(
+      and(
+        eq(sessionMessages.id, input.messageId),
+        eq(sessionMessages.sessionId, input.sessionId),
+      ),
+    )
+    .limit(1);
+
+  return message ?? null;
+};
+
 export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
   if (!Array.isArray(input)) return [];
 
@@ -1152,6 +1177,13 @@ export const updateProviderRenderForSession = async (input: {
   }
 
   const sourceMessageId = input.render.sourceMessageId?.trim() || null;
+  const sourceMessage = await getSessionMessageRef({
+    sessionId: input.runtimeSessionId,
+    messageId: sourceMessageId,
+  });
+  const replyToExternalMessageId = sourceMessage?.role === "user" && sourceMessage.externalMessageId?.trim()
+    ? sourceMessage.externalMessageId.trim()
+    : undefined;
 
   const bindings = await getBindingsBySessionId(input.runtimeSessionId);
   for (const binding of bindings) {
@@ -1181,6 +1213,7 @@ export const updateProviderRenderForSession = async (input: {
       provider: binding.provider,
       externalChatId: binding.externalChatId,
       content,
+      replyToExternalMessageId,
       meta: {
         renderMode: "rich_status",
         displayMode: input.render.displayMode ?? ((binding.meta as Record<string, unknown> | null)?.displayMode as string | undefined) ?? "compact",
