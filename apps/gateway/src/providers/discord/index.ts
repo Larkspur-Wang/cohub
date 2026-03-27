@@ -102,11 +102,11 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
 
   const lines: string[] = [];
   if (thinking.trim()) {
-    lines.push(`🤔 Thinking\n${thinking.trim()}`);
+    lines.push(thinking.trim());
   }
   if (toolCalls.length > 0) {
     lines.push(
-      `🛠 Tools\n${toolCalls
+      `${toolCalls
         .map((tool) => buildToolLine(
           typeof tool.status === "string" ? tool.status : undefined,
           typeof tool.toolName === "string" ? tool.toolName : undefined,
@@ -116,7 +116,7 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
     );
   }
   if (answer.trim()) {
-    lines.push(`💬 Answer\n${answer.trim()}`);
+    lines.push(answer.trim());
   }
 
   return {

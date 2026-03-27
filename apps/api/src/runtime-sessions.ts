@@ -163,7 +163,7 @@ const buildProviderRenderBlocks = (input: {
 
   const thinking = (input.thinking ?? "").trim();
   if (thinking) {
-    sections.push(`🤔 Thinking\n${thinking}`);
+    sections.push(thinking);
   }
 
   const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
@@ -174,12 +174,12 @@ const buildProviderRenderBlocks = (input: {
       const summary = typeof tool.summary === "string" && tool.summary.trim().length > 0 ? ` ${tool.summary.trim()}` : "";
       return `[${status}] ${toolName}${summary}`;
     });
-    sections.push(`🛠 Tools\n${lines.join("\n")}`);
+    sections.push(lines.join("\n"));
   }
 
   const answer = (input.answer ?? "").trim();
   if (answer) {
-    sections.push(`💬 Answer\n${answer}`);
+    sections.push(answer);
   }
 
   const text = sections.join("\n\n").trim();
