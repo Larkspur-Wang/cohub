@@ -185,7 +185,7 @@ app.use(
       if (!config.webOrigin) return origin;
       return origin === config.webOrigin ? origin : config.webOrigin;
     },
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "neta-token", "Authorization"],
     credentials: true,
   }),
