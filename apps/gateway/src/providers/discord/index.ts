@@ -11,6 +11,30 @@ const buildDiscordBindingKey = (message: Message) => {
 const truncate = (value: string, limit = 120) =>
   value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 
+const splitDiscordMessage = (value: string, limit = 1900) => {
+  const text = value.trim();
+  if (!text) return [] as string[];
+  if (text.length <= limit) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > limit) {
+    const candidate = remaining.slice(0, limit);
+    const breakIndex = Math.max(
+      candidate.lastIndexOf("\n\n"),
+      candidate.lastIndexOf("\n"),
+      candidate.lastIndexOf(" "),
+    );
+    const cut = breakIndex > Math.floor(limit * 0.5) ? breakIndex : limit;
+    chunks.push(remaining.slice(0, cut).trim());
+    remaining = remaining.slice(cut).trim();
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks.filter(Boolean);
+};
+
 const summarizeThinkingForMinimal = (thinking: string) => {
   const trimmed = thinking.trim();
   if (!trimmed) return "";
@@ -435,7 +459,6 @@ export class DiscordProvider {
       }
 
       const { text, imageUris } = await buildDiscordOutboundPayload(this.channelId, cmd);
-      const content = truncate(text || "(empty message)", 1900);
       const files = imageUris;
       const textChannel = channel as TextBasedChannel;
       const renderMode = String(cmd.meta?.renderMode ?? "message");
@@ -459,13 +482,31 @@ export class DiscordProvider {
         ? cmd.meta.editExternalMessageId
         : (cachedTurnMessageId ?? undefined);
 
-      if (editTargetMessageId && "messages" in textChannel) {
+      const isFinalAssistant = cmd.meta?.source === "session_persist" && cmd.meta?.sessionMessageRole === "assistant";
+      const messageChunks = isFinalAssistant
+        ? splitDiscordMessage(text, 1900)
+        : [truncate(text || "", 1900)].filter((item) => item.trim().length > 0);
+      const primaryContent = messageChunks[0] ?? "";
+
+      if (editTargetMessageId && "messages" in textChannel && primaryContent) {
         const target = await textChannel.messages.fetch(editTargetMessageId).catch(() => null);
         if (target) {
-          await target.edit({ content });
+          await target.edit({ content: primaryContent });
           if (turnAnchorMessageId) {
             await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch(console.error);
           }
+
+          let previousMessageId = target.id;
+          for (const chunk of messageChunks.slice(1)) {
+            const continuationOptions: MessageCreateOptions = {
+              content: chunk,
+              files: [],
+              reply: { messageReference: previousMessageId },
+            };
+            const continuation = (await (textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>).send(continuationOptions)) as { id: string };
+            previousMessageId = continuation.id;
+          }
+
           console.log(`[Discord:${this.channelId}] ✓ Message edited successfully: ${target.id}`);
           return { success: true as const, externalMessageId: target.id };
         }
@@ -476,7 +517,7 @@ export class DiscordProvider {
         return { success: false as const, error: "Channel does not support sending messages" };
       }
 
-      const messageOptions: MessageCreateOptions = { content, files };
+      const messageOptions: MessageCreateOptions = { content: primaryContent || "(empty message)", files };
       if (cmd.replyToExternalMessageId) {
         messageOptions.reply = { messageReference: cmd.replyToExternalMessageId };
       }
@@ -486,6 +527,18 @@ export class DiscordProvider {
       if (turnAnchorMessageId) {
         await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, sentMsg.id).catch(console.error);
       }
+
+      let previousMessageId = sentMsg.id;
+      for (const chunk of messageChunks.slice(1)) {
+        const continuationOptions: MessageCreateOptions = {
+          content: chunk,
+          files: [],
+          reply: { messageReference: previousMessageId },
+        };
+        const continuation = (await sendableChannel.send(continuationOptions)) as { id: string };
+        previousMessageId = continuation.id;
+      }
+
       console.log(`[Discord:${this.channelId}] ✓ Message sent successfully: ${sentMsg.id}`);
       return { success: true as const, externalMessageId: sentMsg.id };
     } catch (error) {
