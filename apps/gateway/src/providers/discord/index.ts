@@ -488,6 +488,16 @@ export class DiscordProvider {
         : [truncate(text || "", 1900)].filter((item) => item.trim().length > 0);
       const primaryContent = messageChunks[0] ?? "";
 
+      if (!primaryContent && files.length === 0) {
+        console.log(`[Discord:${this.channelId}] Skipping empty outbound message`, {
+          commandId: cmd.commandId,
+          renderMode,
+          source: typeof cmd.meta?.source === "string" ? cmd.meta.source : "unknown",
+          sessionMessageId: cmd.sessionMessageId ?? "none",
+        });
+        return { success: true as const };
+      }
+
       if (editTargetMessageId && "messages" in textChannel && primaryContent) {
         const target = await textChannel.messages.fetch(editTargetMessageId).catch(() => null);
         if (target) {
@@ -517,7 +527,7 @@ export class DiscordProvider {
         return { success: false as const, error: "Channel does not support sending messages" };
       }
 
-      const messageOptions: MessageCreateOptions = { content: primaryContent || "(empty message)", files };
+      const messageOptions: MessageCreateOptions = { content: primaryContent, files };
       if (cmd.replyToExternalMessageId) {
         messageOptions.reply = { messageReference: cmd.replyToExternalMessageId };
       }
