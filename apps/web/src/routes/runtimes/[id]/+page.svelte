@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import {
   getRuntime,
   getRuntimeChannels,
@@ -252,7 +252,7 @@ async function loadRuntime() {
 async function loadSessionState(sessionId: string, force = false) {
   const existing = sessionStateById[sessionId];
   if (loadingSessionIds[sessionId] && !force) return;
-  if (existing && existing.loaded && !force) return;
+  if (existing?.loaded && !force) return;
 
   const fallbackSession = runtimeSessions.find((item) => item.id === sessionId) ?? existing?.session;
   if (!fallbackSession) return;
@@ -285,8 +285,7 @@ async function loadSessionState(sessionId: string, force = false) {
     };
 
     if (activeSessionId === sessionId) {
-      queueMicrotask(() => {
-        listEl?.scrollTo({ top: listEl.scrollHeight, behavior: "auto" });
+      void forceScrollToBottom().then(() => {
         shouldAutoFollow = true;
         didInitialScrollBySession = { ...didInitialScrollBySession, [sessionId]: true };
       });
@@ -380,6 +379,22 @@ async function handleSend() {
   }
 }
 
+function scrollToBottomNow() {
+  if (!listEl) return;
+  listEl.scrollTop = listEl.scrollHeight;
+}
+
+async function forceScrollToBottom() {
+  await tick();
+  scrollToBottomNow();
+  requestAnimationFrame(() => {
+    scrollToBottomNow();
+    setTimeout(() => {
+      scrollToBottomNow();
+    }, 0);
+  });
+}
+
 function runtimeStatusColor(status: string) {
   if (status === "running") return "text-emerald-400";
   if (status === "starting" || status === "active") return "text-amber-400";
@@ -426,8 +441,7 @@ $effect(() => {
   const state = sessionStateById[sessionId];
   if (!state?.loaded || didInitialScrollBySession[sessionId]) return;
 
-  queueMicrotask(() => {
-    listEl?.scrollTo({ top: listEl.scrollHeight, behavior: "auto" });
+  void forceScrollToBottom().then(() => {
     shouldAutoFollow = true;
     didInitialScrollBySession = { ...didInitialScrollBySession, [sessionId]: true };
   });
@@ -436,7 +450,7 @@ $effect(() => {
 $effect(() => {
   if (!listEl || !shouldAutoFollow) return;
   queueMicrotask(() => {
-    listEl?.scrollTo({ top: listEl.scrollHeight, behavior: "auto" });
+    scrollToBottomNow();
   });
 });
 </script>
