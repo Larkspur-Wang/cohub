@@ -19,10 +19,7 @@ import {
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
-import {
-  toChatMessages,
-  type TimelineItem,
-} from "$lib/session-tree";
+import { toChatMessages, type TimelineItem } from "$lib/session-tree";
 
 type PersistedData = {
   runtime: RuntimeRecord;
@@ -412,6 +409,13 @@ async function handleFork(messageId: string) {
   await loadSessionState(result.session.id, true);
 }
 
+function runtimeStatusBadge(status: string) {
+  if (status === "running") return "neo-badge neo-badge-green";
+  if (status === "starting" || status === "active") return "neo-badge neo-badge-yellow";
+  if (status === "error") return "neo-badge neo-badge-red";
+  return "neo-badge neo-badge-white";
+}
+
 onMount(() => {
   void loadRuntime();
   void loadProvisioning();
@@ -442,198 +446,194 @@ $effect(() => {
 });
 </script>
 
-<div class="grid h-[calc(100vh-7rem)] grid-cols-[260px_minmax(0,1fr)] overflow-hidden rounded-2xl border border-gray-200 bg-white">
-  <aside class="border-r border-gray-200 bg-gray-50 p-4 overflow-y-auto">
-    <div class="mb-4">
-      <h1 class="text-lg font-semibold text-gray-900">{runtime.title || "Untitled Runtime"}</h1>
-      <div class="mt-1 text-xs text-gray-500 break-all">{runtime.id}</div>
-      <div class="mt-2 text-xs text-gray-500">status: {runtime.liveStatus ?? runtime.status ?? "unknown"}</div>
-      {#if provisioning}
-        <div class="mt-2 text-xs text-gray-500">provision: {provisioning.status} · {provisioning.currentStep}</div>
-      {/if}
-      {#if provisioningError}
-        <div class="mt-2 text-xs text-red-600 break-all">{provisioningError}</div>
-      {/if}
-      {#if runtimeLoadError}
-        <div class="mt-2 text-xs text-red-600 break-all">{runtimeLoadError}</div>
-      {/if}
-    </div>
+<div class="h-[calc(100vh-4rem)] min-h-0 pb-4">
+  <div class="grid h-full min-h-0 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_280px]">
+    <aside class="neo-card min-h-0 overflow-hidden neo-fill-paper hidden xl:block">
+      <div class="border-b-[4px] border-black px-4 py-3 neo-fill-yellow">
+        <h1 class="text-lg font-black uppercase tracking-tight line-clamp-2">{runtime.title || "Untitled Runtime"}</h1>
+        <div class="mt-2 text-[11px] font-mono break-all text-black/55">{runtime.id}</div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <span class={runtimeStatusBadge(runtime.liveStatus ?? runtime.status ?? "unknown")}>{runtime.liveStatus ?? runtime.status ?? "unknown"}</span>
+          <span class="neo-badge neo-badge-white">stream: {streamStatus}</span>
+        </div>
+        {#if provisioning}
+          <div class="mt-2 text-[11px] font-bold text-black/65">Provision: {provisioning.status} · {provisioning.currentStep}</div>
+        {/if}
+        {#if provisioningError}
+          <div class="mt-2 text-[11px] font-bold text-red-600 break-all">{provisioningError}</div>
+        {/if}
+        {#if runtimeLoadError}
+          <div class="mt-2 text-[11px] font-bold text-red-600 break-all">{runtimeLoadError}</div>
+        {/if}
+      </div>
 
-    <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">Sessions</div>
-    <div class="space-y-2">
-      {#if runtimeSessions.length === 0}
-        <div class="rounded-lg border border-dashed border-gray-200 bg-white p-3 text-sm text-gray-500">No sessions yet.</div>
-      {:else}
-        {#each runtimeSessions as session, index (session.id)}
-          <button
-            class={`w-full rounded-lg border p-3 text-left text-sm transition ${activeSessionId === session.id ? 'border-brand bg-brand/5' : 'border-gray-200 bg-white hover:border-gray-300'}`}
-            onclick={async () => {
-              activeSessionId = session.id;
-              await loadSessionState(session.id);
-            }}
-            type="button"
-          >
-            <div class="font-medium text-gray-900">{getSessionTitle(session, index)}</div>
-            {#if getBindingDisplayLabel(session)}
-              <div class="mt-1 text-xs text-brand/80">{getBindingDisplayLabel(session)}</div>
-            {/if}
-            {#if getSessionSubLabel(session)}
-              <div class="mt-1 text-[11px] text-gray-400">{getSessionSubLabel(session)}</div>
-            {/if}
-            <div class="mt-1 text-xs text-gray-500">messages: {session.totalMessages ?? 0} · depth: {session.forkDepth ?? 0}</div>
-            {#if session.parentSessionId}
-              <div class="mt-1 text-[11px] text-gray-400 break-all">parent: {session.parentSessionId}</div>
-            {/if}
-          </button>
-        {/each}
-      {/if}
-    </div>
-  </aside>
+      <div class="px-3 py-3 min-h-0 overflow-y-auto h-[calc(100%-122px)]">
+        <div class="neo-meta mb-3">Sessions</div>
+        <div class="space-y-2">
+          {#if runtimeSessions.length === 0}
+            <div class="neo-card-sm p-3 bg-white text-xs font-bold text-black/60">No sessions yet.</div>
+          {:else}
+            {#each runtimeSessions as session, index (session.id)}
+              <button
+                class={`w-full rounded-2xl border-[3px] p-3 text-left transition-all ${activeSessionId === session.id ? 'border-black bg-[#FF85B3] shadow-[4px_4px_0_0_#000]' : 'border-black bg-white shadow-[3px_3px_0_0_#000] hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[5px_5px_0_0_#000] active:translate-x-1 active:translate-y-1 active:shadow-none'}`}
+                onclick={async () => {
+                  activeSessionId = session.id;
+                  await loadSessionState(session.id);
+                }}
+                type="button"
+              >
+                <div class="font-black uppercase tracking-tight line-clamp-2">{getSessionTitle(session, index)}</div>
+                {#if getBindingDisplayLabel(session)}
+                  <div class="mt-2 text-[11px] font-bold text-black/70">{getBindingDisplayLabel(session)}</div>
+                {/if}
+                {#if getSessionSubLabel(session)}
+                  <div class="mt-1 text-[11px] font-bold text-black/50">{getSessionSubLabel(session)}</div>
+                {/if}
+                <div class="mt-2 text-[11px] font-bold text-black/60">msgs: {session.totalMessages ?? 0} · depth: {session.forkDepth ?? 0}</div>
+              </button>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </aside>
 
-  <section class="flex min-w-0 flex-col bg-[#141414] overflow-hidden">
-    <div class="border-b border-white/5 px-6 py-4 text-sm text-white/70">
-      {#if activeSessionState}
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <div class="font-medium text-white">{activeSessionState.session.title || activeSessionState.session.latestMessageText || activeSessionState.session.id}</div>
-            {#if getBindingDisplayLabel(activeSessionState.session)}
-              <div class="mt-1 text-xs text-brand/80">{getBindingDisplayLabel(activeSessionState.session)}</div>
-            {/if}
-            {#if getSessionSubLabel(activeSessionState.session)}
-              <div class="mt-1 text-[11px] text-white/40">{getSessionSubLabel(activeSessionState.session)}</div>
-            {/if}
-            {#if getAllBindingDisplayLabels(activeSessionState.session).length > 1}
+    <section class="neo-card min-h-0 overflow-hidden bg-white flex flex-col">
+      <div class="border-b-[4px] border-black px-4 py-3 neo-fill-blue flex items-start justify-between gap-3">
+        {#if activeSessionState}
+          <div class="min-w-0">
+            <div class="text-lg font-black uppercase tracking-tight line-clamp-2">{activeSessionState.session.title || activeSessionState.session.latestMessageText || activeSessionState.session.id}</div>
+            <div class="mt-1 text-[11px] font-mono break-all text-black/55">session: {activeSessionState.session.id}</div>
+            {#if getAllBindingDisplayLabels(activeSessionState.session).length > 0}
               <div class="mt-2 flex flex-wrap gap-2">
                 {#each getAllBindingDisplayLabels(activeSessionState.session) as label (label)}
-                  <span class="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/65">{label}</span>
+                  <span class="neo-badge neo-badge-white normal-case tracking-normal">{label}</span>
                 {/each}
               </div>
             {/if}
-            <div class="mt-1 text-xs text-white/40 break-all">session: {activeSessionState.session.id}</div>
           </div>
-          <div class="flex items-center gap-2">
-            <a class="rounded-md border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5" href={`/runtimes/${runtime.id}/graph`}>Session Graph</a>
-          </div>
-        </div>
-      {:else}
-        <div class="text-white/50">Select a session.</div>
-      {/if}
-    </div>
+          <a class="neo-btn neo-btn-secondary !px-3 !py-2 text-xs shrink-0" href={`/runtimes/${runtime.id}/graph`}>Session Graph</a>
+        {:else}
+          <div class="font-black uppercase tracking-tight">Select a session</div>
+        {/if}
+      </div>
 
-    <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px]">
-      <div class="flex min-w-0 flex-col overflow-hidden">
+      <div class="min-h-0 flex-1 flex flex-col bg-[#FFF9F0]">
         {#if activeSessionState?.error}
-          <div class="m-6 rounded-lg border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{activeSessionState.error}</div>
+          <div class="m-4 neo-card-sm neo-fill-red p-4 text-sm font-bold text-white">{activeSessionState.error}</div>
         {:else}
           <ChatTimeline bindListEl={listEl} timeline={timeline} />
         {/if}
 
         {#if activeSessionState}
-          <div class="border-t border-white/5 px-6 py-3">
-            <div class="mb-3 flex flex-wrap gap-2">
-              {#each activeSessionState.messages as message (message.id)}
-                <button
-                  class="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.06]"
-                  onclick={() => handleFork(message.id)}
-                  type="button"
-                  title="Fork from this message"
-                >
-                  fork #{message.sequence}: {(message.text || message.role).slice(0, 32)}
-                </button>
-              {/each}
-            </div>
-            <SessionComposer bind:value={input} disabled={sending || !activeSessionState} onsubmit={handleSend} />
+          <div class="border-t-[4px] border-black px-4 py-3 bg-white">
+            {#if activeSessionState.messages.length > 0}
+              <div class="mb-3 flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
+                {#each activeSessionState.messages as message (message.id)}
+                  <button
+                    class="neo-badge neo-badge-white normal-case tracking-normal hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all"
+                    onclick={() => handleFork(message.id)}
+                    type="button"
+                    title="Fork from this message"
+                  >
+                    fork #{message.sequence}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+            <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
           </div>
         {/if}
       </div>
+    </section>
 
-      <aside class="border-l border-white/5 bg-[#101010] p-4 overflow-y-auto">
-        <div class="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Runtime Channels</div>
+    <aside class="neo-card min-h-0 overflow-hidden bg-white hidden xl:block">
+      <div class="border-b-[4px] border-black px-4 py-3 neo-fill-purple text-white">
+        <div class="neo-meta text-white">Runtime Channels</div>
+      </div>
+      <div class="p-3 space-y-3 min-h-0 overflow-y-auto h-[calc(100%-58px)]">
         {#if runtimeChannels.length === 0}
-          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm text-white/50">No runtime channels bound.</div>
+          <div class="neo-card-sm p-3 neo-fill-paper text-xs font-bold text-black/60">No runtime channels bound.</div>
         {:else}
-          <div class="space-y-3">
-            {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
-              <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-                <div>
-                  <div class="font-medium text-white">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider || runtimeChannel.id}</div>
-                  <div class="mt-1 text-[11px] uppercase tracking-[0.18em] text-white/35">{runtimeChannel.channel?.provider ?? "unknown"}</div>
-                  <div class="mt-1 text-[11px] break-all text-white/30">{runtimeChannel.id}</div>
-                </div>
+          {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
+            <div class="neo-card-sm p-3 neo-fill-paper space-y-3">
+              <div>
+                <div class="font-black uppercase tracking-tight">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider || runtimeChannel.id}</div>
+                <div class="mt-1 text-[11px] font-bold uppercase tracking-widest text-black/50">{runtimeChannel.channel?.provider ?? "unknown"}</div>
+                <div class="mt-1 text-[11px] font-mono break-all text-black/45">{runtimeChannel.id}</div>
+              </div>
 
-                {#if runtimeChannel.channel?.provider === "discord"}
-                  {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
-                  <div class="space-y-3">
-                    <div>
-                      <div class="text-[11px] uppercase tracking-[0.18em] text-white/35">Inbound</div>
-                      <label class="mt-2 flex items-center gap-3 text-sm text-white/75">
+              {#if runtimeChannel.channel?.provider === "discord"}
+                {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
+                <div class="space-y-3">
+                  <div>
+                    <div class="neo-meta mb-2">Inbound</div>
+                    <label class="flex items-start gap-3 text-sm font-bold text-black/75 rounded-2xl border-[3px] border-black bg-white px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={config.inbound?.requireMentionInGuild !== false}
+                        onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                          ...current,
+                          inbound: {
+                            ...(current.inbound ?? {}),
+                            requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked,
+                          },
+                        }))}
+                        class="mt-0.5 h-4 w-4 accent-black"
+                      />
+                      <span>Require mention in non-DM messages</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <div class="neo-meta mb-2">Outbound</div>
+                    <div class="space-y-2">
+                      <label class="flex items-start gap-3 text-sm font-bold text-black/75 rounded-2xl border-[3px] border-black bg-white px-3 py-3">
                         <input
                           type="checkbox"
-                          checked={config.inbound?.requireMentionInGuild !== false}
+                          checked={config.outbound?.showThinking === true}
                           onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
                             ...current,
-                            inbound: {
-                              ...(current.inbound ?? {}),
-                              requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked,
+                            outbound: {
+                              ...(current.outbound ?? {}),
+                              showThinking: (event.currentTarget as HTMLInputElement).checked,
                             },
                           }))}
-                          class="rounded border-white/20 bg-transparent text-brand focus:ring-brand"
+                          class="mt-0.5 h-4 w-4 accent-black"
                         />
-                        Require mention in non-DM messages
+                        <span>Show thinking</span>
+                      </label>
+                      <label class="flex items-start gap-3 text-sm font-bold text-black/75 rounded-2xl border-[3px] border-black bg-white px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={config.outbound?.showToolCalls === true}
+                          onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                            ...current,
+                            outbound: {
+                              ...(current.outbound ?? {}),
+                              showToolCalls: (event.currentTarget as HTMLInputElement).checked,
+                            },
+                          }))}
+                          class="mt-0.5 h-4 w-4 accent-black"
+                        />
+                        <span>Show tool calls</span>
                       </label>
                     </div>
-
-                    <div>
-                      <div class="text-[11px] uppercase tracking-[0.18em] text-white/35">Outbound</div>
-                      <div class="mt-2 space-y-2">
-                        <label class="flex items-center gap-3 text-sm text-white/75">
-                          <input
-                            type="checkbox"
-                            checked={config.outbound?.showThinking === true}
-                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                              ...current,
-                              outbound: {
-                                ...(current.outbound ?? {}),
-                                showThinking: (event.currentTarget as HTMLInputElement).checked,
-                              },
-                            }))}
-                            class="rounded border-white/20 bg-transparent text-brand focus:ring-brand"
-                          />
-                          Show thinking
-                        </label>
-                        <label class="flex items-center gap-3 text-sm text-white/75">
-                          <input
-                            type="checkbox"
-                            checked={config.outbound?.showToolCalls === true}
-                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                              ...current,
-                              outbound: {
-                                ...(current.outbound ?? {}),
-                                showToolCalls: (event.currentTarget as HTMLInputElement).checked,
-                              },
-                            }))}
-                            class="rounded border-white/20 bg-transparent text-brand focus:ring-brand"
-                          />
-                          Show tool calls
-                        </label>
-                      </div>
-                    </div>
                   </div>
-                {:else}
-                  <div class="text-sm text-white/45">No editable provider config yet.</div>
-                {/if}
+                </div>
+              {:else}
+                <div class="text-sm font-bold text-black/50">No editable provider config yet.</div>
+              {/if}
 
-                {#if savingChannelConfigById[runtimeChannel.id]}
-                  <div class="text-[11px] text-white/35">Saving...</div>
-                {/if}
-                {#if channelConfigErrorById[runtimeChannel.id]}
-                  <div class="text-[11px] break-all text-red-300">{channelConfigErrorById[runtimeChannel.id]}</div>
-                {/if}
-              </div>
-            {/each}
-          </div>
+              {#if savingChannelConfigById[runtimeChannel.id]}
+                <div class="text-[11px] font-bold text-black/45">Saving...</div>
+              {/if}
+              {#if channelConfigErrorById[runtimeChannel.id]}
+                <div class="text-[11px] font-bold break-all text-red-600">{channelConfigErrorById[runtimeChannel.id]}</div>
+              {/if}
+            </div>
+          {/each}
         {/if}
-      </aside>
-    </div>
-  </section>
+      </div>
+    </aside>
+  </div>
 </div>

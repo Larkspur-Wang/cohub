@@ -14,9 +14,9 @@ let {
 }: Props = $props();
 </script>
 
-<div class="border-t border-white/5 bg-[#111111] px-4 py-3">
+<div>
   {#if streamError}
-    <div class="mb-2 text-[11px] text-red-300/76">{streamError}</div>
+    <div class="mb-3 neo-card-sm neo-fill-red px-3 py-2 text-[11px] font-bold text-white">{streamError}</div>
   {/if}
 
   <form
@@ -30,14 +30,10 @@ let {
       bind:value
       rows="3"
       placeholder="Message session..."
-      class="min-h-[72px] flex-1 resize-none rounded-md border border-white/6 bg-white/[0.022] px-3 py-2 text-[12px] leading-6 text-white/84 outline-none transition-all duration-150 placeholder:text-white/18 focus:border-white/11 focus:bg-white/[0.035]"
+      class="neo-input min-h-[72px] flex-1 resize-none font-medium"
     ></textarea>
-    <button
-      type="submit"
-      disabled={disabled || !value.trim()}
-      class="rounded-md border border-white/6 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-white/70 transition-all duration-150 hover:bg-white/[0.035] hover:text-white/88 disabled:cursor-not-allowed disabled:opacity-35 cursor-pointer"
-    >
-      {disabled ? 'sending' : 'send'}
+    <button type="submit" disabled={disabled || !value.trim()} class="neo-btn neo-btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0_0_#000]">
+      {disabled ? 'Sending' : 'Send'}
     </button>
   </form>
 </div>

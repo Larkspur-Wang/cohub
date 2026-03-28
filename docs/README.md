@@ -10,11 +10,15 @@
    - 项目统一术语
    - Runtime / Session / Channel 的边界
 
-2. [`runtime-session-model.md`](./runtime-session-model.md)
+2. [`design-system.md`](./design-system.md)
+   - 前端统一视觉风格
+   - Neo-Brutalism 组件与样式复用规范
+
+3. [`runtime-session-model.md`](./runtime-session-model.md)
    - 当前最重要的运行时模型
    - 线性 Session + Session Fork 设计
 
-3. [`technical-architecture.md`](./technical-architecture.md)
+4. [`technical-architecture.md`](./technical-architecture.md)
    - 整体系统架构
    - Web / API / Agent / Gateway / Redis / K8s / Gitea / Pi 的关系
    - 关键时序链路
