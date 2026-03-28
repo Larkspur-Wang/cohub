@@ -36,7 +36,7 @@ const navItems = [
     {@render children?.()}
   </main>
 {:else if isRuntimeDetail}
-  <main class="h-screen overflow-hidden bg-[#FFF9F0] text-black selection:bg-black selection:text-white">
+  <main class="h-screen overflow-hidden bg-black text-white selection:bg-white/20">
     {@render children?.()}
   </main>
 {:else}
