@@ -126,9 +126,10 @@ const buildRuntimeContainerEnv = (input: {
   return [
     { name: "RUNTIME_ID", value: input.runtimeId },
     { name: "REDIS_URL", value: input.redisUrl },
-    { name: "WORKSPACE_DIR", value: "/workspace" },
-    { name: "LITELLM_API_KEY", value: input.litellmApiKey ?? "" },
     { name: "ENV", value: input.env ?? "" },
+    { name: "WORKSPACE_DIR", value: "/workspace" },
+    { name: "SESSIONS_DIR", value: "/sessions" },
+    { name: "LITELLM_API_KEY", value: input.litellmApiKey ?? "" },
     { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
     { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },
     { name: "WORKSPACE_GIT_EMAIL", value: input.workspaceGitEmail ?? "" },

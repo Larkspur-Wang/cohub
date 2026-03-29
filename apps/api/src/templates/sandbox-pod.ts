@@ -64,9 +64,10 @@ export const SANDBOX_POD_TEMPLATE = {
         env: [
           { name: "RUNTIME_ID", value: "${RUNTIME_ID}" },
           { name: "REDIS_URL", value: "${REDIS_URL}" },
-          { name: "WORKSPACE_DIR", value: "/workspace" },
-          { name: "LITELLM_API_KEY", value: "${LITELLM_API_KEY}" },
           { name: "ENV", value: "${ENV}" },
+          { name: "WORKSPACE_DIR", value: "/workspace" },
+          { name: "SESSIONS_DIR", value: "/sessions" },
+          { name: "LITELLM_API_KEY", value: "${LITELLM_API_KEY}" },
           { name: "WORKSPACE_REPO_URL", value: "${WORKSPACE_REPO_URL}" },
           { name: "WORKSPACE_GIT_USERNAME", value: "${WORKSPACE_GIT_USERNAME}" },
           { name: "WORKSPACE_GIT_EMAIL", value: "${WORKSPACE_GIT_EMAIL}" },
@@ -75,7 +76,12 @@ export const SANDBOX_POD_TEMPLATE = {
           {
             name: "workspace-storage",
             mountPath: "/workspace",
-            subPath: "${RUNTIME_ID}",
+            subPath: "cohub-${ENV}/${RUNTIME_ID}/workspace",
+          },
+          {
+            name: "workspace-storage",
+            mountPath: "/sessions",
+            subPath: "cohub-${ENV}/${RUNTIME_ID}/sessions",
           },
         ],
       },
