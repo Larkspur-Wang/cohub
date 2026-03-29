@@ -57,6 +57,7 @@ let streamingAssistantText = $state("");
 let eventSource: EventSource | null = null;
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
+let contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
 let channelConfigErrorById = $state<Record<string, string>>({});
 let loadingSessionIds = $state<Record<string, boolean>>({});
@@ -381,7 +382,8 @@ async function handleSend() {
 
 function scrollToBottomNow() {
   if (!listEl) return;
-  listEl.scrollTop = listEl.scrollHeight;
+  const target = contentEl?.scrollHeight ?? listEl.scrollHeight;
+  listEl.scrollTop = target;
 }
 
 async function forceScrollToBottom() {
@@ -578,7 +580,7 @@ $effect(() => {
             </div>
           {/if}
 
-          <ChatTimeline bindListEl={listEl} timeline={timeline} onScrollChange={updateAutoFollow} />
+          <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
 
           <div class="border-t border-white/10 bg-[#0A0A0A]">
             <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
