@@ -38,8 +38,26 @@ vim secrets.yaml
 ### 2. 运行数据库迁移
 
 ```bash
-./run-migration.sh [IMAGE_TAG]
+# 查看帮助
+./run-migration.sh -h
+
+# 使用 values.yaml 中的 IMAGE_TAG 运行迁移
+./run-migration.sh
+
+# 使用指定镜像 tag
+./run-migration.sh v1.2.3
+
+# 查看迁移状态
+./run-migration.sh -s
+
+# 查看迁移日志
+./run-migration.sh -l
+
+# 强制重新运行（删除已存在的 job）
+./run-migration.sh -f
 ```
+
+Migration 使用 Drizzle ORM，基于 `apps/api/drizzle/` 目录下的 SQL 文件执行。
 
 ### 3. 部署应用
 

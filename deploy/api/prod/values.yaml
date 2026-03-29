@@ -7,7 +7,7 @@ APP_NAME: "cohub-api"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-api"
-IMAGE_TAG: "latest"
+IMAGE_TAG: "main-f94a3c6"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: "gitea-registry"
 
@@ -17,8 +17,8 @@ CONTAINER_PORT: "8787"
 
 # ========== 副本与资源 ==========
 REPLICAS: "1"
-REQUEST_CPU: "100m"
-REQUEST_MEMORY: "128Mi"
+REQUEST_CPU: "200m"
+REQUEST_MEMORY: "256Mi"
 LIMIT_CPU: "500m"
 LIMIT_MEMORY: "512Mi"
 
@@ -37,9 +37,9 @@ READINESS_FAILURE_THRESHOLD: "3"
 # ========== API 配置 ==========
 AUTH_BASE_URL: "https://api.talesofai.com"
 GITEA_BASE_URL: "https://gitea.cohub.run/"
-GITEA_MANAGED_EMAIL_DOMAIN: "cohub.local"
+GITEA_MANAGED_EMAIL_DOMAIN: "cohub.run"
 WEB_ORIGIN: "https://cohub.run"
-SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:v20260325"
+SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:main-f94a3c6"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
