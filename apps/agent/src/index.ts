@@ -72,7 +72,7 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
 }
 
 async function findSessionFileById(sessionId: string) {
-  const sessions = await SessionManager.list(env.WORKSPACE_DIR).catch((error) => {
+  const sessions = await SessionManager.list(env.WORKSPACE_DIR, env.SESSIONS_DIR).catch((error) => {
     console.error(`[Supervisor] Failed to list sessions for lookup ${sessionId}:`, error);
     return [];
   });
@@ -276,7 +276,7 @@ async function loadOrCreateSessionHandle(input: {
     console.log(
       `[Supervisor] Restoring pi session ${input.sessionId} from ${existingSessionFile}`,
     );
-    sessionManager = SessionManager.open(existingSessionFile);
+    sessionManager = SessionManager.open(existingSessionFile, env.SESSIONS_DIR);
 
     if (sessionManager.getSessionId() !== input.sessionId) {
       console.warn(
@@ -292,12 +292,12 @@ async function loadOrCreateSessionHandle(input: {
       console.log(
         `[Supervisor] Forking pi session ${input.sessionId} from parent=${parentSessionId} entry=${forkSourceProtocolMessageId}`,
       );
-      const parentManager = SessionManager.open(parentSessionFile);
+      const parentManager = SessionManager.open(parentSessionFile, env.SESSIONS_DIR);
       const forkedSessionFile = parentManager.createBranchedSession(forkSourceProtocolMessageId);
       if (!forkedSessionFile) {
         throw new Error(`Failed to create branched session file for ${input.sessionId}`);
       }
-      const forkedManager = SessionManager.open(forkedSessionFile);
+      const forkedManager = SessionManager.open(forkedSessionFile, env.SESSIONS_DIR);
       const forkedEntries = forkedManager.getEntries();
       forkedManager.newSession({ id: input.sessionId, parentSession: parentSessionFile });
       for (const entry of forkedEntries) {
@@ -321,10 +321,10 @@ async function loadOrCreateSessionHandle(input: {
       if (!rewrittenSessionFile) {
         throw new Error(`Failed to rewrite forked session file for ${input.sessionId}`);
       }
-      sessionManager = SessionManager.open(rewrittenSessionFile);
+      sessionManager = SessionManager.open(rewrittenSessionFile, env.SESSIONS_DIR);
     } else {
       console.log(`[Supervisor] Creating new pi session ${input.sessionId}`);
-      sessionManager = SessionManager.create(env.WORKSPACE_DIR);
+      sessionManager = SessionManager.create(env.WORKSPACE_DIR, env.SESSIONS_DIR);
       sessionManager.newSession({ id: input.sessionId });
     }
   }

@@ -24,6 +24,13 @@ export const EnvSchema = z.object({
       message: "WORKSPACE_DIR must be an absolute path",
     })
     .default("/workspace"),
+  SESSIONS_DIR: z
+    .string()
+    .min(1)
+    .refine((value) => value.startsWith("/"), {
+      message: "SESSIONS_DIR must be an absolute path",
+    })
+    .default("/sessions"),
   ENV: z.enum(["dev", "prod"]).default("dev"),
   WORKSPACE_REPO_URL: z.string().optional(),
   WORKSPACE_GIT_USERNAME: z.string().optional(),
