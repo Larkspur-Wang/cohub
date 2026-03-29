@@ -68,6 +68,22 @@ export class GatewayManager {
     // 从活跃节点中注销自己 (让 API 更快发现)
     console.log("[Manager] Unregistering node from gateway:nodes...");
     await redisCommandClient.zrem("gateway:nodes", this.nodeId).catch(console.error);
+
+    // 清理本节点的任务列表和 channel 路由
+    console.log("[Manager] Cleaning up task assignments...");
+    const channelIds = Array.from(this.providers.keys());
+    for (const channelId of channelIds) {
+      // 从全局路由表中移除（如果当前节点仍然持有该 channel）
+      const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);
+      if (currentNode === this.nodeId) {
+        await redisCommandClient.hdel("gateway:channel_routing", channelId).catch(console.error);
+        console.log(`[Manager] Removed routing for channel ${channelId}`);
+      }
+    }
+    // 删除本节点的任务列表
+    await redisCommandClient.del(`gateway:tasks:${this.nodeId}`).catch(console.error);
+    console.log(`[Manager] Cleaned up ${channelIds.length} task assignments`);
+
     console.log(`[Manager] Node ${this.nodeId} stopped`);
   }
 
@@ -122,7 +138,7 @@ export class GatewayManager {
 
       // 2. 需要断开的连接 (本地有，但 Redis 里没有了)
       for (const channelId of toRemove) {
-        this.stopProvider(channelId);
+        await this.stopProvider(channelId);
       }
 
       console.log(`[Manager] Sync completed in ${Date.now() - syncStart}ms`);
@@ -146,8 +162,8 @@ export class GatewayManager {
     }
   }
 
-  private stopProvider(channelId: string) {
-    console.log(`[Manager] Stopping provider for channel ${channelId}`);
+  private async stopProvider(channelId: string) {
+    console.log(`[Manager] Stopping provider for ${channelId}`);
     const provider = this.providers.get(channelId);
     if (provider) {
       try {
@@ -157,6 +173,17 @@ export class GatewayManager {
         console.error(`[Manager] Error destroying provider for ${channelId}:`, error);
       }
       this.providers.delete(channelId);
+    }
+
+    // 尝试清理路由表（如果当前节点仍然持有该 channel）
+    try {
+      const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);
+      if (currentNode === this.nodeId) {
+        await redisCommandClient.hdel("gateway:channel_routing", channelId);
+        console.log(`[Manager] Removed routing for channel ${channelId}`);
+      }
+    } catch (error) {
+      console.error(`[Manager] Error cleaning up routing for ${channelId}:`, error);
     }
   }
 

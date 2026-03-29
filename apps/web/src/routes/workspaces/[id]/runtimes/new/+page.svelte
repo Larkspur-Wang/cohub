@@ -34,8 +34,8 @@ const getDefaultChannelConfig = (channel: Channel): RuntimeChannelConfigInput =>
         requireMentionInGuild: true,
       },
       outbound: {
-        showThinking: false,
-        showToolCalls: false,
+        showThinking: true,
+        showToolCalls: true,
       },
     };
   }

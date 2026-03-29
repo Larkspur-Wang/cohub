@@ -70,6 +70,19 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
 
     if (!uc || uc.status !== "active") continue;
 
+    // 检查 channel 是否已经被分配且目标节点仍然活跃
+    const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", rc.id);
+    if (existingNodeId) {
+      const now = Date.now();
+      const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
+      const nodeLastHeartbeat = typeof nodeLastHeartbeatStr === "string" ? Number.parseFloat(nodeLastHeartbeatStr) : null;
+      if (nodeLastHeartbeat && now - nodeLastHeartbeat < 15000) {
+        console.log(`[Channels] Channel ${rc.id} already assigned to active node ${existingNodeId}, skipping`);
+        continue;
+      }
+      console.log(`[Channels] Channel ${rc.id} was assigned to node ${existingNodeId} but node is inactive, reassigning`);
+    }
+
     const nodeId = await pickGatewayNode();
 
     // 构造分配给 Gateway 的配置
