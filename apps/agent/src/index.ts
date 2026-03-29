@@ -1,11 +1,15 @@
 import {
   AuthStorage,
+  DefaultResourceLoader,
   ModelRegistry,
   SessionManager,
   createAgentSession,
-  createReadOnlyTools,
+  createCodingTools,
+  getAgentDir,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import { persistAssistantMessage, registerRuntimeSession, updateProviderRender } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
@@ -251,7 +255,8 @@ async function loadOrCreateSessionHandle(input: {
   sessionId: string;
   authStorage: AuthStorage;
   modelRegistry: ModelRegistry;
-  tools: ReturnType<typeof createReadOnlyTools>;
+  tools: ReturnType<typeof createCodingTools>;
+  resourceLoader: DefaultResourceLoader;
 }) {
   const existing = sessionHandles.get(input.sessionId);
   if (existing) return existing;
@@ -335,6 +340,7 @@ async function loadOrCreateSessionHandle(input: {
     modelRegistry: input.modelRegistry,
     tools: input.tools,
     sessionManager,
+    resourceLoader: input.resourceLoader,
   });
 
   const handle: SessionHandle = {
@@ -381,7 +387,23 @@ async function main() {
 
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
-  const tools = createReadOnlyTools(env.WORKSPACE_DIR);
+  const tools = createCodingTools(env.WORKSPACE_DIR);
+
+  // Load custom system prompt from global configs
+  const agentDir = getAgentDir();
+  const systemPromptPath = join(agentDir, "system-prompt.md");
+  let systemPrompt: string | undefined;
+  if (existsSync(systemPromptPath)) {
+    systemPrompt = readFileSync(systemPromptPath, "utf-8");
+    console.log("[Supervisor] Loaded system prompt from", systemPromptPath);
+  }
+
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: env.WORKSPACE_DIR,
+    agentDir,
+    systemPrompt,
+  });
+  await resourceLoader.reload();
 
   await setRuntimeStatus("running");
   console.log("[Supervisor] Runtime is now running and listening for input.");
@@ -401,6 +423,7 @@ async function main() {
           authStorage,
           modelRegistry,
           tools,
+          resourceLoader,
         });
 
         resetStreamState(handle);
