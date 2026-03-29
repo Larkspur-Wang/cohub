@@ -11,7 +11,7 @@ import {
   Folder,
   GitFork,
 } from "lucide-svelte";
-import { getWorkspaceById, getWorkspaceTree, forkWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";
+import { getWorkspaceById, getWorkspaceTree, forkWorkspace, updateWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
@@ -24,6 +24,7 @@ let tree = $state<Tree | null>(null);
 let isEmpty = $state(false);
 let isLoading = $state(true);
 let isForking = $state(false);
+let isPublishing = $state(false);
 let loadError = $state("");
 let copied = $state(false);
 
@@ -75,6 +76,22 @@ async function handleFork() {
     isForking = false;
   }
 }
+
+async function handlePublish() {
+  if (isPublishing || !workspace) return;
+  if (workspace.visibility === "public") return;
+  
+  isPublishing = true;
+  try {
+    const result = await updateWorkspace(workspace.id, { visibility: "public" });
+    workspace = result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to publish workspace";
+    alert(message);
+  } finally {
+    isPublishing = false;
+  }
+}
 </script>
 
 <div class="neo-page-shell">
@@ -124,10 +141,16 @@ async function handleFork() {
               {isForking ? "Forking..." : "Fork Workspace"}
             </button>
           {/if}
+          {#if isOwner && workspace.visibility === "private"}
+            <button onclick={handlePublish} disabled={isPublishing} class="neo-btn neo-btn-secondary disabled:opacity-50">
+              <Globe class="w-4 h-4" />
+              {isPublishing ? "Publishing..." : "Make Public"}
+            </button>
+          {/if}
           {#if isOwner && !isEmpty}
-            <a href="/runtimes" class="neo-btn neo-btn-primary">
+            <a href="/workspaces/{workspace.id}/runtimes/new" class="neo-btn neo-btn-primary">
               <Play class="w-4 h-4" />
-              View Runtimes
+              Create Runtime
             </a>
           {/if}
         </div>
