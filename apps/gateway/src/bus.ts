@@ -9,6 +9,7 @@ import {
 export const INBOUND_STREAM = "stream:gateway:inbound";
 export const OUTBOUND_STREAM = "stream:gateway:outbound";
 export const LOG_STREAM = "stream:gateway:logs";
+const MAX_STREAM_LEN = 100000; // 最多保留约 10 万条日志消息
 
 console.log(`[Bus] Stream names: inbound=${INBOUND_STREAM}, outbound=${OUTBOUND_STREAM}, logs=${LOG_STREAM}`);
 
@@ -21,9 +22,13 @@ const publishLogEvent = async (event: GatewayLogEvent) => {
     channelId: event.channelId,
     status: event.status,
   });
-  await redisCommandClient.xadd(LOG_STREAM, "*", "payload", JSON.stringify(event)).catch((err) => {
-    console.error("[Bus] Failed to publish log event:", err);
-  });
+  // 使用 MAXLEN ~ 限制 Stream 长度，防止无限增长
+  // "~" 表示近似裁剪，性能更好（不保证精确数量）
+  await redisCommandClient
+    .xadd(LOG_STREAM, "MAXLEN", "~", MAX_STREAM_LEN, "*", "payload", JSON.stringify(event))
+    .catch((err) => {
+      console.error("[Bus] Failed to publish log event:", err);
+    });
 };
 
 // 发送给 API（同时记录 inbound 日志）

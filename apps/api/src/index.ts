@@ -60,7 +60,7 @@ import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
 import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
-import { startGatewayLogConsumer } from "./gateway-logs.js";
+import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, isRedisReady } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
@@ -147,8 +147,31 @@ const startGatewayInboundListener = async () => {
   }
 };
 
+// 初始化并启动 Gateway 日志消费者（使用消费者组模式）
+const initGatewayLogConsumer = async () => {
+  try {
+    await initLogConsumerGroup();
+    await startGatewayLogConsumer();
+  } catch (err) {
+    console.error("[Init] Failed to start gateway log consumer:", err);
+    throw err;
+  }
+};
+initGatewayLogConsumer().catch(console.error);
+
+// 启动 Gateway 入站事件监听
 startGatewayInboundListener().catch(console.error);
-startGatewayLogConsumer().catch(console.error);
+
+// 优雅关闭处理
+const shutdown = async (signal: string) => {
+  console.log(`[Shutdown] Received ${signal}, stopping consumers...`);
+  await stopLogConsumer();
+  console.log("[Shutdown] Consumers stopped, exiting...");
+  process.exit(0);
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 type Variables = { token: string | null };
 const app = new Hono<{ Variables: Variables }>();
