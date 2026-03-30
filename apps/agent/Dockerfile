@@ -4,12 +4,12 @@
 # ============================================
 # Stage 1: builder
 # ============================================
-FROM node:22-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
 # Use Corepack to manage pnpm
-RUN corepack enable && corepack prepare pnpm@9.12.1 --activate
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 # 拷贝 workspace 配置和依赖描述
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
@@ -31,7 +31,7 @@ RUN pnpm --filter @cohub/agent build
 # ============================================
 # Stage 2: runtime
 # ============================================
-FROM oven/bun:1.3.10-slim AS runtime
+FROM node:24-slim AS runtime
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
@@ -53,8 +53,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
-# 全局安装 pi coding agent，保留容器内 pi 命令
-RUN bun install -g @mariozechner/pi-coding-agent
+# 安装 Bun（保留兼容性）
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+# 启用 corepack 管理 pnpm
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
+
+# 全局安装 pi coding agent（使用 pnpm）
+RUN pnpm add -g @mariozechner/pi-coding-agent
 
 WORKDIR /app
 
@@ -69,4 +76,4 @@ RUN mkdir -p "$WORKSPACE_DIR"
 WORKDIR /app/apps/agent
 
 # 启动
-CMD ["bun", "dist/index.js"]
+CMD ["node", "dist/index.js"]

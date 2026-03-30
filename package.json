@@ -2,6 +2,10 @@
   "name": "cohub",
   "private": true,
   "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:all": "node scripts/dev.mjs",
