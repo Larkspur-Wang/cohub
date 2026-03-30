@@ -11,3 +11,6 @@
 - [ ] runtime 的休眠和恢复
 - [ ] 指令系统，简单的 /new 等指令
 - [ ] 规划统一 Cohub CLI：先形成长期愿景与命令结构，再逐步收敛现有 scripts；见 `docs/cli-vision.md`
+- [ ] review gateway 的重启对 redis 的影响，当前 gateway 的 redis 数据结构
+- [ ] 静态页面托管
+- [ ] workspace 取色器
