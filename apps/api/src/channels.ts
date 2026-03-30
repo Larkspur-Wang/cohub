@@ -98,7 +98,7 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
     });
 
     // 1. 塞进节点的专属任务 Hash
-    await redisCommandClient.hset(`gateway:tasks:${nodeId}`, rc.id, JSON.stringify(config));
+    await redisCommandClient.hset(`gateway:node:${nodeId}:channels`, rc.id, JSON.stringify(config));
 
     // 2. 记录路由反查表
     await redisCommandClient.hset("gateway:channel_routing", rc.id, nodeId);

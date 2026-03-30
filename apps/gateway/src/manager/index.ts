@@ -81,7 +81,7 @@ export class GatewayManager {
       }
     }
     // 删除本节点的任务列表
-    await redisCommandClient.del(`gateway:tasks:${this.nodeId}`).catch(console.error);
+    await redisCommandClient.del(`gateway:node:${this.nodeId}:channels`).catch(console.error);
     console.log(`[Manager] Cleaned up ${channelIds.length} task assignments`);
 
     console.log(`[Manager] Node ${this.nodeId} stopped`);
@@ -101,9 +101,9 @@ export class GatewayManager {
     try {
       const syncStart = Date.now();
       // 获取分配给本节点的专属任务
-      // 数据结构: HASH gateway:tasks:<nodeId>
+      // 数据结构: HASH gateway:node:<nodeId>:channels
       // Field: channelId, Value: JSON string of ChannelConfig
-      const tasksStr = await redisCommandClient.hgetall(`gateway:tasks:${this.nodeId}`);
+      const tasksStr = await redisCommandClient.hgetall(`gateway:node:${this.nodeId}:channels`);
 
       const expectedChannelIds = new Set(Object.keys(tasksStr));
       const currentChannelIds = new Set(this.providers.keys());
