@@ -1098,6 +1098,15 @@ export const enqueueRuntimePrompt = async (input: {
   };
   meta?: Record<string, unknown> | null;
 }) => {
+  console.log("[RuntimeSessions] enqueueRuntimePrompt", {
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    userMessageId: input.userMessageId ?? null,
+    textLength: input.message.text.length,
+    imageCount: input.message.images?.length ?? 0,
+    meta: input.meta ?? null,
+  });
+
   await redisCommandClient.rpush(
     getRuntimeInputQueueKey(input.runtimeId),
     JSON.stringify({
@@ -1617,8 +1626,11 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
   for (const ch of channels) {
     if (ch.id) {
       await redisCommandClient.hdel("gateway:channel_routing", ch.id);
+      await redisCommandClient.hdel(`gateway:node:*:channels`, ch.id);
     }
   }
+
+  await db.delete(runtimeChannels).where(eq(runtimeChannels.runtimeId, input.runtimeId));
 
   const keysToDelete = [
     getRuntimeMetaKey(input.runtimeId),

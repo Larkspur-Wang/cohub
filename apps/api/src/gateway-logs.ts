@@ -30,7 +30,9 @@ export const startGatewayLogConsumer = async () => {
   isRunning = true;
 
   consumerClient = createBlockingRedisClient();
-  await consumerClient.connect();
+  if (consumerClient.status === "wait") {
+    await consumerClient.connect();
+  }
 
   console.log("[GatewayLogs] Consumer started", { group: GROUP_NAME, consumer: CONSUMER_NAME });
 

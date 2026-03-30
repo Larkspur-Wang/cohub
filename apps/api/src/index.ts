@@ -135,7 +135,11 @@ const startGatewayInboundListener = async () => {
   await initInboundConsumerGroup();
 
   const client = createBlockingRedisClient();
-  await client.connect();
+  console.log("[Channels] Inbound redis client status before connect:", client.status);
+  if (client.status === "wait") {
+    await client.connect();
+  }
+  console.log("[Channels] Inbound redis client status after connect:", client.status);
 
   console.log("[Channels] Inbound listener started", {
     group: INBOUND_CONSUMER_GROUP,
@@ -164,9 +168,20 @@ const startGatewayInboundListener = async () => {
           }
 
           try {
+            const event = JSON.parse(payload) as GatewayInboundEvent;
+            console.log("[Channels] Consuming inbound event", {
+              streamId: id,
+              eventId: event.eventId,
+              channelId: event.channelId,
+              provider: event.provider,
+              externalChatId: event.externalChatId,
+              externalMessageId: event.externalMessageId,
+              bindingKey: event.bindingKey,
+            });
             // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
-            await handleInboundEvent(JSON.parse(payload) as GatewayInboundEvent);
+            await handleInboundEvent(event);
             await redisCommandClient.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
+            console.log("[Channels] Acked inbound event", { streamId: id, eventId: event.eventId });
           } catch (err) {
             console.error(`[Channels] Failed to process ${id}:`, err);
             await redisCommandClient.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
@@ -364,7 +379,38 @@ app.get("/api/channels", async (c) => {
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const channels = await db.select().from(userChannels).where(eq(userChannels.userUuid, user.uuid));
-  return c.json(channels);
+
+  const channelIds = channels.map((ch) => ch.id);
+  const runtimeBindings = channelIds.length > 0
+    ? await db
+        .select({
+          channelId: runtimeChannels.channelId,
+          runtimeId: runtimeChannels.runtimeId,
+          runtimeTitle: runtimes.title,
+          runtimeStatus: runtimes.status,
+        })
+        .from(runtimeChannels)
+        .innerJoin(runtimes, eq(runtimeChannels.runtimeId, runtimes.id))
+        .where(inArray(runtimeChannels.channelId, channelIds))
+    : [];
+
+  const bindingMap = new Map(runtimeBindings.map((b) => [b.channelId, b]));
+
+  const channelsWithRuntime = channels.map((ch) => {
+    const binding = bindingMap.get(ch.id);
+    return {
+      ...ch,
+      boundRuntime: binding
+        ? {
+            id: binding.runtimeId,
+            title: binding.runtimeTitle,
+            status: binding.runtimeStatus,
+          }
+        : null,
+    };
+  });
+
+  return c.json(channelsWithRuntime);
 });
 
 app.post("/api/channels", async (c) => {
@@ -896,7 +942,42 @@ app.get("/api/runtimes", async (c) => {
     .where(eq(runtimes.userUuid, user.uuid))
     .orderBy(runtimes.updatedAt, runtimes.createdAt);
 
-  return c.json(runtimeList);
+  const runtimeIds = runtimeList.map((r) => r.id);
+  const channelBindings = runtimeIds.length > 0
+    ? await db
+        .select({
+          runtimeId: runtimeChannels.runtimeId,
+          channelId: runtimeChannels.channelId,
+          channelName: userChannels.name,
+          channelProvider: userChannels.provider,
+          channelStatus: userChannels.status,
+        })
+        .from(runtimeChannels)
+        .innerJoin(userChannels, eq(runtimeChannels.channelId, userChannels.id))
+        .where(inArray(runtimeChannels.runtimeId, runtimeIds))
+    : [];
+
+  const bindingsByRuntime = new Map<string, typeof channelBindings>();
+  for (const binding of channelBindings) {
+    const list = bindingsByRuntime.get(binding.runtimeId) ?? [];
+    list.push(binding);
+    bindingsByRuntime.set(binding.runtimeId, list);
+  }
+
+  const runtimesWithChannels = runtimeList.map((rt) => {
+    const bindings = bindingsByRuntime.get(rt.id) ?? [];
+    return {
+      ...rt,
+      channels: bindings.map((b) => ({
+        id: b.channelId,
+        name: b.channelName,
+        provider: b.channelProvider,
+        status: b.channelStatus,
+      })),
+    };
+  });
+
+  return c.json(runtimesWithChannels);
 });
 
 app.get("/api/runtimes/:id", async (c) => {

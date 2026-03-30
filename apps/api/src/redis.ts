@@ -32,7 +32,7 @@ export const redisCommandClient = new Redis(config.redisUrl);
  * - SUBSCRIBE / PSUBSCRIBE
  */
 export const createBlockingRedisClient = () => {
-  const client = redisCommandClient.duplicate();
+  const client = redisCommandClient.duplicate({ lazyConnect: true });
   return client;
 };
 
@@ -43,7 +43,7 @@ export const createBlockingRedisClient = () => {
  * for a while and should not share the main command connection.
  */
 export const createStreamingRedisClient = () => {
-  const client = redisCommandClient.duplicate();
+  const client = redisCommandClient.duplicate({ lazyConnect: true });
   return client;
 };
 

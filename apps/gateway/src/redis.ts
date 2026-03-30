@@ -107,7 +107,7 @@ export const setTurnMessageExternalRef = async (
  * Creates a dedicated Redis connection for long-lived blocking consumers.
  */
 export const createBlockingRedisClient = () => {
-  const client = redisCommandClient.duplicate();
+  const client = redisCommandClient.duplicate({ lazyConnect: true });
 
   client.on("connect", () => {
     console.log("[Redis] Blocking client connected successfully");

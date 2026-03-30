@@ -509,12 +509,26 @@ async function resolveOrCreateSessionBindingForEvent(input: {
   bindingKey: string;
   event: GatewayInboundEvent;
 }) {
+  console.log("[Channels] resolveOrCreateSessionBindingForEvent", {
+    runtimeId: input.runtimeId,
+    runtimeChannelId: input.runtimeChannelId,
+    provider: input.provider,
+    externalChatId: input.externalChatId,
+    bindingKey: input.bindingKey,
+    eventType: input.event.eventType,
+  });
+
   let binding = await getBindingByRuntimeChannelAndKey({
     runtimeChannelId: input.runtimeChannelId,
     bindingKey: input.bindingKey,
   });
 
   if (binding?.runtimeSessionId) {
+    console.log("[Channels] Reusing existing session binding", {
+      bindingId: binding.id,
+      runtimeSessionId: binding.runtimeSessionId,
+      runtimeChannelId: binding.runtimeChannelId,
+    });
     const lifecycleUpdate = {
       lifecycle: {
         sourceEventType: input.event.eventType ?? "message_create",
@@ -572,6 +586,14 @@ async function resolveOrCreateSessionBindingForEvent(input: {
         },
       });
 
+  console.log("[Channels] Created new runtime session for inbound", {
+    runtimeSessionId: session.id,
+    forked: Boolean(forkSource),
+    parentSessionId: forkSource?.parentSessionId ?? null,
+    fromMessageId: forkSource?.fromMessageId ?? null,
+  });
+
+
   const bindingMeta = buildDefaultBindingMeta(input.event);
 
   binding = await createRuntimeSessionBinding({
@@ -592,6 +614,15 @@ async function resolveOrCreateSessionBindingForEvent(input: {
     },
   });
 
+  console.log("[Channels] Created runtime session binding", {
+    bindingId: binding.id,
+    runtimeSessionId: binding.runtimeSessionId,
+    runtimeChannelId: binding.runtimeChannelId,
+    bindingKey: binding.bindingKey,
+    externalChatId: binding.externalChatId,
+  });
+
+
   return binding;
 }
 
@@ -599,6 +630,16 @@ async function resolveOrCreateSessionBindingForEvent(input: {
  * 处理网关发来的入站事件
  */
 export async function handleInboundEvent(event: GatewayInboundEvent) {
+  console.log("[Channels] handleInboundEvent begin", {
+    eventId: event.eventId,
+    channelId: event.channelId,
+    provider: event.provider,
+    externalChatId: event.externalChatId,
+    externalMessageId: event.externalMessageId,
+    bindingKey: event.bindingKey,
+    eventType: event.eventType,
+  });
+
   const [rc] = await db
     .select()
     .from(runtimeChannels)
@@ -609,6 +650,11 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     console.warn(`[Channels] Received inbound event for unknown runtime-channel: ${event.channelId}`);
     return;
   }
+
+  console.log("[Channels] Resolved runtime channel", {
+    runtimeChannelId: rc.id,
+    runtimeId: rc.runtimeId,
+  });
 
   const conversationId = event.conversation?.id?.trim() || event.externalChatId;
   const existingInboundRef = await getProviderMessageRef({
@@ -625,6 +671,12 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     return;
   }
 
+  console.log("[Channels] Inbound message is new", {
+    provider: event.provider,
+    conversationId,
+    externalMessageId: event.externalMessageId,
+  });
+
   const bindingKey =
     event.bindingKey?.trim() ||
     `${event.provider}:conversation:${conversationId}`;
@@ -638,9 +690,21 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     event,
   });
 
+  console.log("[Channels] Resolved binding", {
+    bindingId: binding.id,
+    runtimeSessionId: binding.runtimeSessionId,
+    runtimeChannelId: binding.runtimeChannelId,
+    externalChatId: binding.externalChatId,
+  });
+
+
   const sessionId = binding.runtimeSessionId;
 
   if (event.eventType === "conversation_create") {
+    console.log("[Channels] conversation_create handled without materializing user message", {
+      eventId: event.eventId,
+      runtimeSessionId: sessionId,
+    });
     return;
   }
 
@@ -663,6 +727,14 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
       providerMeta: event.meta ?? null,
     },
   });
+
+  console.log("[Channels] Created user message node", {
+    runtimeSessionId: sessionId,
+    userMessageId: userMessage.id,
+    textLength: text.length,
+    imageCount: images.length,
+  });
+
 
   await updateRuntimeSessionBindingMeta({
     bindingId: binding.id,
@@ -711,5 +783,11 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     userMessageId: userMessage.id,
     message: { text, images },
     meta: { intent: binding?.meta ? "continue" : "auto", source: `channel:${event.provider}` },
+  });
+
+  console.log("[Channels] Enqueued runtime prompt", {
+    runtimeId: rc.runtimeId,
+    runtimeSessionId: sessionId,
+    userMessageId: userMessage.id,
   });
 }

@@ -102,7 +102,11 @@ export const listenOutboundCommands = async (
   console.log(`[Bus] Listening: ${OUTBOUND_STREAM}`);
 
   const client = createBlockingRedisClient();
-  await client.connect();
+  console.log("[Bus] Outbound redis client status before connect:", client.status);
+  if (client.status === "wait") {
+    await client.connect();
+  }
+  console.log("[Bus] Outbound redis client status after connect:", client.status);
 
   while (true) {
     try {
@@ -126,9 +130,24 @@ export const listenOutboundCommands = async (
           try {
             // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
             const cmd = JSON.parse(payload) as GatewayOutboundCommand;
+            console.log("[Bus] Consuming outbound command", {
+              streamId: id,
+              commandId: cmd.commandId,
+              channelId: cmd.channelId,
+              provider: cmd.provider,
+              externalChatId: cmd.externalChatId,
+              replyToExternalMessageId: cmd.replyToExternalMessageId ?? null,
+            });
             const result = await onCommand(cmd);
             await publishOutboundLog({ cmd, result });
             await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
+            console.log("[Bus] Acked outbound command", {
+              streamId: id,
+              commandId: cmd.commandId,
+              success: result.success,
+              externalMessageId: result.externalMessageId ?? null,
+              error: result.error ?? null,
+            });
           } catch (err) {
             console.error(`[Bus] Failed ${id}:`, err);
             await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);

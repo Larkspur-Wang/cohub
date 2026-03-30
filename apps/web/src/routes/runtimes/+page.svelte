@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Cpu, Play, FolderKanban, Power, Moon, Trash2, Loader2 } from "lucide-svelte";
+import { Cpu, Play, FolderKanban, Power, Moon, Trash2, Loader2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte";
 import { getRuntimes, hibernateRuntime, wakeRuntime, deleteRuntime, type RuntimeListItem } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
@@ -125,6 +125,24 @@ onMount(() => {
             <span class="neo-badge neo-badge-white normal-case tracking-normal">workspace: {runtime.workspaceId ?? "unbound"}</span>
             <span class="neo-badge neo-badge-white normal-case tracking-normal">sessions: —</span>
           </div>
+
+          {#if runtime.channels && runtime.channels.length > 0}
+            <div class="flex flex-wrap gap-1.5">
+              {#each runtime.channels as channel}
+                {@const ChannelIcon = channel.provider === 'discord' ? MessageSquare : channel.provider === 'feishu' ? Webhook : MonitorPlay}
+                <a
+                  href="/channels"
+                  class="inline-flex items-center gap-1 px-2 py-1 bg-black/5 hover:bg-black/10 rounded text-[10px] font-bold text-black/70 transition-colors"
+                  title="{channel.provider}: {channel.name}"
+                >
+                  <ChannelIcon class="w-3 h-3" />
+                  <span class="truncate max-w-[80px]">{channel.name}</span>
+                </a>
+              {/each}
+            </div>
+          {:else}
+            <div class="text-[11px] text-black/40 italic">No channels bound</div>
+          {/if}
 
           <div class="flex flex-wrap gap-2 mt-2">
             {#if status === "running"}

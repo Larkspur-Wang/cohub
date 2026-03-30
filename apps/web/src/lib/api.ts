@@ -260,6 +260,11 @@ export type Channel = {
   status: string;
   createdAt: string;
   updatedAt: string;
+  boundRuntime: {
+    id: string;
+    title: string | null;
+    status: string;
+  } | null;
 };
 
 export type WorkspaceListItem = {
@@ -411,6 +416,12 @@ export type RuntimeRecord = {
   meta?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
+  channels?: {
+    id: string;
+    name: string | null;
+    provider: string;
+    status: string;
+  }[];
 };
 
 export type RuntimeListItem = RuntimeRecord;

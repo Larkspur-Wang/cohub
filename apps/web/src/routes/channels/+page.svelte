@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay, X } from "lucide-svelte";
+import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay, X, Box } from "lucide-svelte";
 import { createChannel, deleteChannel, getChannels, type Channel } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
@@ -165,6 +165,23 @@ async function handleDelete(id: string) {
             <h3 class="text-lg font-black uppercase tracking-tight truncate">{channel.name}</h3>
             <p class="mt-1 text-xs font-bold uppercase tracking-widest text-black/60">{channel.provider}</p>
           </div>
+          {#if channel.boundRuntime}
+            <div class="flex items-center gap-2 text-xs">
+              <Box class="w-3.5 h-3.5 text-black/50" />
+              <span class="text-black/60">Bound to:</span>
+              <a href="/runtimes/{channel.boundRuntime.id}" class="font-bold text-black hover:underline truncate">
+                {channel.boundRuntime.title || 'Untitled Runtime'}
+              </a>
+              <span class="neo-badge neo-badge-xs {channel.boundRuntime.status === 'running' ? 'neo-badge-green' : channel.boundRuntime.status === 'deleted' ? 'neo-badge-red' : 'neo-badge-gray'}">
+                {channel.boundRuntime.status}
+              </span>
+            </div>
+          {:else}
+            <div class="flex items-center gap-2 text-xs text-black/40">
+              <Box class="w-3.5 h-3.5" />
+              <span>Not bound to any runtime</span>
+            </div>
+          {/if}
           <div class="mt-auto flex items-center justify-between gap-3 border-t-[3px] border-black pt-3 text-[11px] font-bold text-black/55">
             <span class="truncate">ID: {channel.id.slice(0, 8)}...</span>
             <span>{new Date(channel.createdAt).toLocaleDateString()}</span>
