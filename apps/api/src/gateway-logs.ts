@@ -21,9 +21,9 @@ export const initLogConsumerGroup = async () => {
     // 从 0 开始消费，确保不遗漏历史消息
     await redisCommandClient.xgroup("CREATE", LOG_STREAM, GROUP_NAME, "0", "MKSTREAM");
     console.log("[GatewayLogs] Consumer group created:", GROUP_NAME);
-  } catch (err: any) {
+  } catch (err) {
     // 组已存在是正常的（ioredis 会抛出错误）
-    const errorMessage = err?.message || String(err);
+    const errorMessage = err instanceof Error ? err.message : String(err);
     if (errorMessage.includes("already exists")) {
       console.log("[GatewayLogs] Consumer group already exists:", GROUP_NAME);
     } else {
