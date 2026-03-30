@@ -1181,17 +1181,24 @@ export const updateProviderRenderForSession = async (input: {
     sessionId: input.runtimeSessionId,
     messageId: sourceMessageId,
   });
-  const replyToExternalMessageId = sourceMessage?.role === "user" && sourceMessage.externalMessageId?.trim()
+
+  // 对于 user message，使用其 externalMessageId 作为 replyTo（回复用户消息）
+  // 对于 assistant message，不需要 replyTo（编辑已有消息）
+  const replyToExternalMessageId = sourceMessage?.role === "user" && sourceMessage?.externalMessageId?.trim()
     ? sourceMessage.externalMessageId.trim()
     : undefined;
 
   const bindings = await getBindingsBySessionId(input.runtimeSessionId);
   for (const binding of bindings) {
-    const existingRef = await findLatestOutboundRefForSessionMessage({
-      provider: binding.provider,
-      externalConversationId: binding.externalChatId,
-      sessionMessageId: sourceMessageId,
-    });
+    // 对于 user message，不要尝试查找 existingRef（避免编辑 user message 或使用错误的 message ID）
+    // 对于 assistant message，正常查找 existingRef 以支持消息编辑
+    const existingRef = sourceMessage?.role !== "user"
+      ? await findLatestOutboundRefForSessionMessage({
+          provider: binding.provider,
+          externalConversationId: binding.externalChatId,
+          sessionMessageId: sourceMessageId,
+        })
+      : null;
 
     const content = buildProviderRenderBlocks({
       thinking: input.render.thinking,
