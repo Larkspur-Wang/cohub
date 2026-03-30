@@ -380,7 +380,7 @@ async function main() {
   await initializeContainer();
 
   const authStorage = AuthStorage.create();
-  const modelRegistry = new ModelRegistry(authStorage);
+  const modelRegistry = ModelRegistry.create(authStorage);
   const tools = createCodingTools(env.WORKSPACE_DIR);
 
   await setRuntimeStatus("running");
