@@ -29,6 +29,7 @@ let isForking = $state(false);
 let isPublishing = $state(false);
 let loadError = $state("");
 let copied = $state(false);
+let forkName = $state("");
 
 const gitRemoteUrl = $derived(workspace?.sshUrl || workspace?.cloneUrl || "");
 const isOwner = $derived(Boolean(workspace?.isOwner));
@@ -83,15 +84,26 @@ function copyCloneUrl() {
   }, 2000);
 }
 
-async function handleFork() {
+async function handleFork(preferredName?: string) {
   if (isForking || !workspace) return;
   isForking = true;
   try {
-    const result = await forkWorkspace(workspace.id);
+    const result = await forkWorkspace(workspace.id, preferredName);
     goto(`/workspaces/${result.id}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fork workspace";
-    alert(message);
+    if (message.includes("forbidden") || message.includes("403")) {
+      alert("You don't have permission to fork this workspace");
+    } else if (message.includes("already exists") || message.includes("409")) {
+      const newName = prompt("A workspace with this name already exists. Enter a new name:");
+      if (newName && newName.trim()) {
+        isForking = false;
+        handleFork(newName.trim());
+        return;
+      }
+    } else {
+      alert(message);
+    }
   } finally {
     isForking = false;
   }
@@ -155,8 +167,8 @@ async function handlePublish() {
         </div>
 
         <div class="flex items-center gap-3 flex-wrap shrink-0">
-          {#if !isOwner && workspace.visibility === "public"}
-            <button onclick={handleFork} disabled={isForking} class="neo-btn neo-btn-secondary disabled:opacity-50">
+          {#if workspace.isOwner !== undefined}
+            <button onclick={() => handleFork()} disabled={isForking} class="neo-btn neo-btn-secondary disabled:opacity-50">
               <GitFork class="w-4 h-4" />
               {isForking ? "Forking..." : "Fork Workspace"}
             </button>
@@ -177,7 +189,8 @@ async function handlePublish() {
       </div>
     </div>
 
-    {#if !isOwner && workspace.visibility === "public"}
+    <!-- public workspace 未登录时显示提示 -->
+    {#if workspace.visibility === "public" && workspace.isOwner === undefined}
       <div class="neo-card-sm neo-fill-yellow p-4 text-sm font-bold text-black">
         Sign in to fork this workspace and run your own copy.
       </div>

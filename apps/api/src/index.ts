@@ -606,8 +606,10 @@ app.post("/api/workspaces/:id/fork", async (c) => {
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   if (!workspace) return c.json({ message: "workspace not found" }, 404);
-  if (workspace.visibility !== "public") return c.json({ message: "workspace not found" }, 404);
-  if (workspace.userUuid === user.uuid) return c.json({ message: "cannot fork your own workspace" }, 400);
+  // private workspace 只有 owner 能 fork；public workspace 任何人都能 fork
+  if (workspace.visibility !== "public" && workspace.userUuid !== user.uuid) {
+    return c.json({ message: "forbidden" }, 403);
+  }
 
   const [sourceGitAccount] = await db
     .select()
@@ -630,7 +632,7 @@ app.post("/api/workspaces/:id/fork", async (c) => {
     .where(and(eq(workspaces.userUuid, user.uuid), eq(workspaces.giteaRepoName, targetRepoName)))
     .limit(1);
   if (existingWorkspace) {
-    return c.json({ message: "workspace slug already exists" }, 409);
+    return c.json({ message: "workspace with this name already exists" }, 409);
   }
 
   const forkedRepo = await forkRepository(
