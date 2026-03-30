@@ -96,7 +96,7 @@ async function handleFork(preferredName?: string) {
       alert("You don't have permission to fork this workspace");
     } else if (message.includes("already exists") || message.includes("409")) {
       const newName = prompt("A workspace with this name already exists. Enter a new name:");
-      if (newName && newName.trim()) {
+      if (newName?.trim()) {
         isForking = false;
         handleFork(newName.trim());
         return;

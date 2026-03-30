@@ -1626,7 +1626,7 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
   for (const ch of channels) {
     if (ch.id) {
       await redisCommandClient.hdel("gateway:channel_routing", ch.id);
-      await redisCommandClient.hdel(`gateway:node:*:channels`, ch.id);
+      await redisCommandClient.hdel("gateway:node:*:channels", ch.id);
     }
   }
 
