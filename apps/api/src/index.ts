@@ -33,6 +33,7 @@ import {
   createRuntime,
   createInitialRuntimeSession,
   createUserMessageNode,
+  deleteRuntime,
   enqueueRuntimePrompt,
   forkRuntimeSession,
   getRuntimeById,
@@ -40,6 +41,7 @@ import {
   getRuntimeSessionBootstrap,
   getRuntimeSessionById,
   getRuntimeSessionGraph,
+  hibernateRuntime,
   listRuntimeSessions,
   listSessionMessages,
   listToolCallsByMessageIds,
@@ -51,6 +53,7 @@ import {
   updateProviderRenderForSession,
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
+  wakeRuntime,
   writeInitialRuntimeProvision,
 } from "./runtime-sessions.js";
 import { db } from "./db/index.js";
@@ -732,6 +735,7 @@ app.post("/api/runtimes", async (c) => {
       ...(body.meta ?? {}),
       extraEnv: normalizedExtraEnv,
     },
+    start: body.start,
   })).runtime;
 
   if (normalizedChannelBindings.length > 0) {
@@ -860,6 +864,69 @@ app.get("/api/runtimes/:id/channels", async (c) => {
       channel: userChannelById.get(runtimeChannel.channelId) ?? null,
     })),
   );
+});
+
+app.post("/api/runtimes/:id/hibernate", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  try {
+    const result = await hibernateRuntime({ runtimeId, userUuid: user.uuid });
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Can only hibernate")) {
+      return c.json({ message }, 400);
+    }
+    return c.json({ message: "failed to hibernate runtime" }, 500);
+  }
+});
+
+app.post("/api/runtimes/:id/wake", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  try {
+    const result = await wakeRuntime({ runtimeId, userUuid: user.uuid });
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Can only wake")) {
+      return c.json({ message }, 400);
+    }
+    return c.json({ message: "failed to wake runtime" }, 500);
+  }
+});
+
+app.delete("/api/runtimes/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  try {
+    const result = await deleteRuntime({ runtimeId, userUuid: user.uuid });
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Can only delete")) {
+      return c.json({ message }, 400);
+    }
+    if (message.includes("Unauthorized")) {
+      return c.json({ message: "runtime not found" }, 404);
+    }
+    return c.json({ message: "failed to delete runtime" }, 500);
+  }
 });
 
 app.patch("/api/runtime-channels/:id/config", async (c) => {

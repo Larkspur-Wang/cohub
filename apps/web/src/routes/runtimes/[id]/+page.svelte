@@ -400,7 +400,9 @@ async function forceScrollToBottom() {
 function runtimeStatusColor(status: string) {
   if (status === "running") return "text-emerald-400";
   if (status === "starting" || status === "active") return "text-amber-400";
-  if (status === "error") return "text-rose-400";
+  if (status === "error" || status === "boot_failed") return "text-rose-400";
+  if (status === "hibernated") return "text-gray-400";
+  if (status === "hibernating") return "text-blue-400";
   return "text-white/40";
 }
 

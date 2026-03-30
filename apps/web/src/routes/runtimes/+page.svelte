@@ -1,12 +1,13 @@
 <script lang="ts">
-import { Cpu, Play, FolderKanban } from "lucide-svelte";
-import { getRuntimes, type RuntimeListItem } from "$lib/api";
+import { Cpu, Play, FolderKanban, Power, Moon, Trash2, Loader2 } from "lucide-svelte";
+import { getRuntimes, hibernateRuntime, wakeRuntime, deleteRuntime, type RuntimeListItem } from "$lib/api";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
 let runtimes = $state<RuntimeListItem[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
+let actionInProgress = $state<Record<string, string>>({});
 
 function displayStatus(runtime: RuntimeListItem) {
   return runtime.liveStatus ?? runtime.status ?? "unknown";
@@ -15,7 +16,9 @@ function displayStatus(runtime: RuntimeListItem) {
 function statusBadge(status: string) {
   if (status === "running") return "neo-badge neo-badge-green";
   if (status === "starting" || status === "active") return "neo-badge neo-badge-yellow";
-  if (status === "error") return "neo-badge neo-badge-red";
+  if (status === "error" || status === "boot_failed") return "neo-badge neo-badge-red";
+  if (status === "hibernated") return "neo-badge neo-badge-gray";
+  if (status === "hibernating") return "neo-badge neo-badge-blue";
   return "neo-badge neo-badge-white";
 }
 
@@ -33,6 +36,46 @@ async function loadRuntimes() {
     loadError = message;
   } finally {
     isLoading = false;
+  }
+}
+
+async function handleHibernate(runtimeId: string) {
+  actionInProgress[runtimeId] = "hibernate";
+  try {
+    await hibernateRuntime(runtimeId);
+    await loadRuntimes();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to hibernate";
+    alert(message);
+  } finally {
+    delete actionInProgress[runtimeId];
+  }
+}
+
+async function handleWake(runtimeId: string) {
+  actionInProgress[runtimeId] = "wake";
+  try {
+    await wakeRuntime(runtimeId);
+    await loadRuntimes();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to wake";
+    alert(message);
+  } finally {
+    delete actionInProgress[runtimeId];
+  }
+}
+
+async function handleDelete(runtimeId: string) {
+  if (!confirm("Are you sure you want to delete this runtime?")) return;
+  actionInProgress[runtimeId] = "delete";
+  try {
+    await deleteRuntime(runtimeId);
+    await loadRuntimes();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete";
+    alert(message);
+  } finally {
+    delete actionInProgress[runtimeId];
   }
 }
 
@@ -64,7 +107,8 @@ onMount(() => {
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {#each runtimes as runtime}
         {@const status = displayStatus(runtime)}
-        <a href="/runtimes/{runtime.id}" class="neo-list-card p-4 bg-white flex flex-col gap-4">
+        {@const isBusy = actionInProgress[runtime.id]}
+        <div class="neo-list-card p-4 bg-white flex flex-col gap-4">
           <div class="flex items-start justify-between gap-3">
             <div class="neo-icon-box neo-fill-pink">
               <Play class="w-5 h-5" />
@@ -72,21 +116,67 @@ onMount(() => {
             <span class={statusBadge(status)}>{status}</span>
           </div>
 
-          <div>
-            <h3 class="text-lg font-black uppercase tracking-tight line-clamp-2">{runtime.title || "Untitled Runtime"}</h3>
-            <div class="text-xs font-mono break-all text-black/55">{runtime.id}</div>
-          </div>
+          <a href="/runtimes/{runtime.id}" class="block">
+            <h3 class="text-lg font-black uppercase tracking-tight line-clamp-2 hover:underline">{runtime.title || "Untitled Runtime"}</h3>
+          </a>
+          <div class="text-xs font-mono break-all text-black/55">{runtime.id}</div>
 
           <div class="flex flex-wrap gap-2 text-[11px] font-bold text-black/70">
             <span class="neo-badge neo-badge-white normal-case tracking-normal">workspace: {runtime.workspaceId ?? "unbound"}</span>
             <span class="neo-badge neo-badge-white normal-case tracking-normal">sessions: —</span>
           </div>
 
+          <div class="flex flex-wrap gap-2 mt-2">
+            {#if status === "running"}
+              <button
+                class="neo-btn neo-btn-sm neo-btn-secondary"
+                onclick={() => handleHibernate(runtime.id)}
+                disabled={!!isBusy}
+              >
+                {#if isBusy === "hibernate"}
+                  <Loader2 class="w-4 h-4 animate-spin" />
+                {:else}
+                  <Moon class="w-4 h-4" />
+                {/if}
+                Hibernate
+              </button>
+            {:else if status === "hibernated"}
+              <button
+                class="neo-btn neo-btn-sm neo-btn-primary"
+                onclick={() => handleWake(runtime.id)}
+                disabled={!!isBusy}
+              >
+                {#if isBusy === "wake"}
+                  <Loader2 class="w-4 h-4 animate-spin" />
+                {:else}
+                  <Power class="w-4 h-4" />
+                {/if}
+                Wake
+              </button>
+            {/if}
+            {#if status === "hibernated" || status === "error" || status === "boot_failed"}
+              <button
+                class="neo-btn neo-btn-sm neo-btn-danger"
+                onclick={() => handleDelete(runtime.id)}
+                disabled={!!isBusy}
+              >
+                {#if isBusy === "delete"}
+                  <Loader2 class="w-4 h-4 animate-spin" />
+                {:else}
+                  <Trash2 class="w-4 h-4" />
+                {/if}
+                Delete
+              </button>
+            {/if}
+          </div>
+
           <div class="mt-auto flex items-center justify-between gap-3 border-t-[3px] border-black pt-3 text-[11px] font-bold text-black/55">
-            <span class="inline-flex items-center gap-1"><FolderKanban class="w-3.5 h-3.5" /> Runtime Console</span>
+            <a href="/runtimes/{runtime.id}" class="inline-flex items-center gap-1 hover:underline">
+              <FolderKanban class="w-3.5 h-3.5" /> Runtime Console
+            </a>
             <span>{new Date(runtime.updatedAt).toLocaleString()}</span>
           </div>
-        </a>
+        </div>
       {/each}
     </div>
   {/if}

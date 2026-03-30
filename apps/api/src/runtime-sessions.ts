@@ -454,7 +454,9 @@ export const createRuntime = async (input: {
   cwd?: string | null;
   protocol?: "pi" | "acp" | "internal" | null;
   meta?: Record<string, unknown> | null;
+  start?: boolean;
 }) => {
+  const shouldStart = input.start ?? false;
   const [runtime] = await db
     .insert(runtimes)
     .values({
@@ -462,7 +464,7 @@ export const createRuntime = async (input: {
       workspaceId: input.workspaceId ?? null,
       agentId: input.agentId ?? null,
       title: input.title ?? null,
-      status: "active",
+      status: shouldStart ? "starting" : "hibernated",
       meta: {
         cwd: input.cwd ?? null,
         protocol: input.protocol ?? "pi",
@@ -1545,4 +1547,98 @@ export const provisionRuntimeInBackground = async (input: {
     }).catch(() => undefined);
     await updateRuntimeStatus(runtimeId, "error").catch(() => undefined);
   }
+};
+
+export const hibernateRuntime = async (input: { runtimeId: string; userUuid: string }) => {
+  const runtime = await getRuntimeById(input.runtimeId);
+  if (!runtime) throw new Error("Runtime not found");
+  if (runtime.userUuid !== input.userUuid) throw new Error("Unauthorized");
+  if (runtime.status !== "running") throw new Error("Can only hibernate running runtime");
+
+  await updateRuntimeStatus(input.runtimeId, "hibernating");
+
+  const podName = `sandbox-${input.runtimeId}`;
+  try {
+    await k8sCoreApi.deleteNamespacedPod({
+      namespace: sessionsNamespace,
+      name: podName,
+    });
+  } catch (error) {
+    console.log(`[Hibernate] Pod ${podName} might not exist:`, error);
+  }
+
+  await redisCommandClient.hset(getRuntimeMetaKey(input.runtimeId), "status", "hibernated");
+
+  await db
+    .update(runtimes)
+    .set({ status: "hibernated", updatedAt: new Date() })
+    .where(eq(runtimes.id, input.runtimeId));
+
+  return { runtime: await getRuntimeById(input.runtimeId) };
+};
+
+export const wakeRuntime = async (input: { runtimeId: string; userUuid: string }) => {
+  const runtime = await getRuntimeById(input.runtimeId);
+  if (!runtime) throw new Error("Runtime not found");
+  if (runtime.userUuid !== input.userUuid) throw new Error("Unauthorized");
+  if (runtime.status !== "hibernated") throw new Error("Can only wake hibernated runtime");
+
+  provisionRuntimeInBackground({ runtimeId: input.runtimeId, userUuid: input.userUuid }).catch(
+    console.error,
+  );
+
+  return { runtime };
+};
+
+export const deleteRuntime = async (input: { runtimeId: string; userUuid: string }) => {
+  const runtime = await getRuntimeById(input.runtimeId);
+  if (!runtime) throw new Error("Runtime not found");
+  if (runtime.userUuid !== input.userUuid) throw new Error("Unauthorized");
+
+  const deletableStatuses = ["hibernated", "boot_failed", "error"];
+  if (!deletableStatuses.includes(runtime.status ?? "")) {
+    throw new Error("Can only delete hibernated, boot_failed or error runtime");
+  }
+
+  const podName = `sandbox-${input.runtimeId}`;
+  try {
+    await k8sCoreApi.deleteNamespacedPod({
+      namespace: sessionsNamespace,
+      name: podName,
+    });
+  } catch {
+    // Ignore if pod doesn't exist
+  }
+
+  const channels = await db
+    .select()
+    .from(runtimeChannels)
+    .where(eq(runtimeChannels.runtimeId, input.runtimeId));
+  for (const ch of channels) {
+    if (ch.id) {
+      await redisCommandClient.hdel("gateway:channel_routing", ch.id);
+    }
+  }
+
+  const keysToDelete = [
+    getRuntimeMetaKey(input.runtimeId),
+    getRuntimeInputQueueKey(input.runtimeId),
+    getRuntimeOutputStreamKey(input.runtimeId),
+    getRuntimeProvisionMetaKey(input.runtimeId),
+    getRuntimeProvisionStreamKey(input.runtimeId),
+  ].filter((k): k is string => k !== null && k !== undefined);
+  if (keysToDelete.length > 0) {
+    await redisCommandClient.del(...keysToDelete);
+  }
+
+  await db
+    .update(runtimes)
+    .set({
+      status: "deleted",
+      meta: { ...(runtime.meta as Record<string, unknown> | null), deletedAt: new Date().toISOString() },
+      updatedAt: new Date(),
+    })
+    .where(eq(runtimes.id, input.runtimeId));
+
+  return { success: true };
 };

@@ -596,3 +596,21 @@ export const deleteWorkspace = async (id: string) => {
     method: "DELETE",
   }) as Promise<null>;
 };
+
+export const hibernateRuntime = async (id: string) => {
+  return apiFetch(`/api/runtimes/${id}/hibernate`, {
+    method: "POST",
+  }) as Promise<{ runtime: RuntimeRecord }>;
+};
+
+export const wakeRuntime = async (id: string) => {
+  return apiFetch(`/api/runtimes/${id}/wake`, {
+    method: "POST",
+  }) as Promise<{ runtime: RuntimeRecord }>;
+};
+
+export const deleteRuntime = async (id: string) => {
+  return apiFetch(`/api/runtimes/${id}`, {
+    method: "DELETE",
+  }) as Promise<{ success: boolean }>;
+};
