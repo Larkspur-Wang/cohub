@@ -1,7 +1,7 @@
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { providerMessageRefs, runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
-import { redisCommandClient } from "./redis.js";
+import { redisCommandClient, GATEWAY_OUTBOUND_STREAM, xaddWithMaxlen } from "./redis.js";
 import type {
   GatewayInboundEvent,
   GatewayOutboundCommand,
@@ -171,12 +171,13 @@ export async function dispatchOutboundMessage(input: {
     `[Channels] Dispatch outbound runtimeChannel=${input.runtimeChannelId} provider=${command.provider} externalChatId=${command.externalChatId} replyTo=${command.replyToExternalMessageId ?? "none"}`,
   );
 
-  // 3. 塞进 Outbound Stream
-  await redisCommandClient.xadd(
-    "stream:gateway:outbound",
+  // 3. 塞进 Outbound Stream（使用 MAXLEN 限制长度）
+  await xaddWithMaxlen(
+    redisCommandClient,
+    GATEWAY_OUTBOUND_STREAM,
     "*",
     "payload",
-    JSON.stringify(command)
+    JSON.stringify(command),
   );
 }
 

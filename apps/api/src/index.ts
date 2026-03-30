@@ -61,7 +61,7 @@ import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } 
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
 import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
-import { createBlockingRedisClient, isRedisReady } from "./redis.js";
+import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
@@ -118,31 +118,64 @@ const buildWorkspaceDetail = async (
   };
 };
 
-const startGatewayInboundListener = async () => {
-  let lastId = "$";
-  const client = createBlockingRedisClient();
+const CONSUMER_NAME = `api-${process.env.POD_NAME || process.env.HOSTNAME || Math.random().toString(36).slice(2, 8)}`;
+const INBOUND_BATCH_SIZE = 10;
+const INBOUND_BLOCK_MS = 5000;
 
-  await client.connect().catch(() => undefined);
-  console.log("[Channels] API Gateway Inbound Listener started.");
+const initInboundConsumerGroup = async () => {
+  await ensureConsumerGroup(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, "0");
+  console.log("[Channels] Inbound consumer group ready:", INBOUND_CONSUMER_GROUP);
+};
+
+/**
+ * 启动 Gateway Inbound 监听器（使用消费者组模式）
+ * 支持多实例负载均衡和自动故障转移
+ */
+const startGatewayInboundListener = async () => {
+  await initInboundConsumerGroup();
+
+  const client = createBlockingRedisClient();
+  await client.connect();
+
+  console.log("[Channels] Inbound listener started", {
+    group: INBOUND_CONSUMER_GROUP,
+    consumer: CONSUMER_NAME,
+  });
+
   while (true) {
     try {
-      const result = await client.xread("BLOCK", 0, "STREAMS", "stream:gateway:inbound", lastId);
-      if (!result) continue;
-      for (const [, messages] of result) {
+      const result = await client.xreadgroup(
+        "GROUP",
+        INBOUND_CONSUMER_GROUP,
+        CONSUMER_NAME,
+        "COUNT", INBOUND_BATCH_SIZE,
+        "BLOCK", INBOUND_BLOCK_MS,
+        "STREAMS", GATEWAY_INBOUND_STREAM, ">"
+      );
+
+      if (!result || result.length === 0) continue;
+
+      for (const [, messages] of result as Array<[string, Array<[string, string[]]>]>) {
         for (const [id, fields] of messages) {
-          lastId = id;
-          const payloadIndex = fields.findIndex((f) => f === "payload");
-          if (payloadIndex !== -1) {
-            const payload = fields[payloadIndex + 1];
-            if (!payload) continue;
-            const event = JSON.parse(payload) as GatewayInboundEvent;
-            await handleInboundEvent(event).catch(console.error);
+          const payload = fields[fields.indexOf("payload") + 1];
+          if (!payload) {
+            await redisCommandClient.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
+            continue;
+          }
+
+          try {
+            // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
+            await handleInboundEvent(JSON.parse(payload) as GatewayInboundEvent);
+            await redisCommandClient.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
+          } catch (err) {
+            console.error(`[Channels] Failed to process ${id}:`, err);
+            await redisCommandClient.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
           }
         }
       }
     } catch (e) {
-      console.error("[Channels] Error reading gateway inbound stream:", e);
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      console.error("[Channels] Inbound error:", e);
+      await new Promise((r) => setTimeout(r, 5000));
     }
   }
 };
@@ -224,6 +257,27 @@ app.get("/readyz", async (c) => {
     return c.json({ ok: false, redis: false }, 503);
   }
   return c.json({ ok: true, redis: true });
+});
+
+app.get("/internal/metrics", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const { getStreamInfo, checkPendingMessages, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP } = await import("./redis.js");
+
+  const [inbound, logs, inboundPending, logsPending] = await Promise.all([
+    getStreamInfo(GATEWAY_INBOUND_STREAM),
+    getStreamInfo(GATEWAY_LOGS_STREAM),
+    checkPendingMessages(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP),
+    checkPendingMessages(GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP),
+  ]);
+
+  return c.json({
+    streams: {
+      inbound: { ...inbound, pending: inboundPending.total },
+      logs: { ...logs, pending: logsPending.total },
+    },
+  });
 });
 
 app.post("/api/auth/token", async (c) => {

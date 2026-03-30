@@ -36,6 +36,19 @@ redisCommandClient.on("reconnecting", () => {
   console.log("[Redis] Command client reconnecting...");
 });
 
+// Stream 配置
+export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
+export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
+export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
+export const STREAM_MAXLEN = 10000;
+export const STREAM_APPROX = "~";
+
+export const xaddWithMaxlen = async (
+  client: Redis,
+  streamKey: string,
+  ...args: (string | number)[]
+) => client.xadd(streamKey, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, ...args);
+
 const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
 const getTurnMessageRefKey = (runtimeChannelId: string, turnAnchorMessageId: string) =>
   `gateway:turn_message_ref:${runtimeChannelId}:${turnAnchorMessageId}`;

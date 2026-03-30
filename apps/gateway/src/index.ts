@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { GatewayManager } from "./manager/index.js";
-import { listenOutboundCommands, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
-import { createBlockingRedisClient } from "./redis.js";
+import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
+import { createBlockingRedisClient, xaddWithMaxlen } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
 function logStartupInfo() {
@@ -16,6 +16,9 @@ function logStartupInfo() {
 
 async function main() {
   logStartupInfo();
+
+  // 初始化 Outbound Stream 消费者组
+  await initOutboundConsumerGroup();
 
   const manager = new GatewayManager();
   await manager.start();
@@ -112,7 +115,7 @@ async function main() {
                 content: [{ type: "text", text: `pong from ${payload.provider} 🏓` }],
                 replyToExternalMessageId: payload.externalMessageId, // 尝试在各个平台触发 "回复" 功能
               };
-              await redis.xadd(OUTBOUND_STREAM, "*", "payload", JSON.stringify(pongCmd));
+              await xaddWithMaxlen(redis, OUTBOUND_STREAM, "*", "payload", JSON.stringify(pongCmd));
             }
           }
         }
