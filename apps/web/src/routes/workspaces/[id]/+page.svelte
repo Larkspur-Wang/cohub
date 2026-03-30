@@ -11,7 +11,8 @@ import {
   Folder,
   GitFork,
 } from "lucide-svelte";
-import { getWorkspaceById, getWorkspaceTree, forkWorkspace, updateWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";
+import { getWorkspaceById, getWorkspaceTree, getWorkspaceFile, forkWorkspace, updateWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";
+import { renderMarkdown } from "$lib/markdown";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 
@@ -22,6 +23,7 @@ let workspaceId = $derived(params.id);
 let workspace = $state<WorkspaceDetail | null>(null);
 let tree = $state<Tree | null>(null);
 let isEmpty = $state(false);
+let readmeHtml = $state<string | null>(null);
 let isLoading = $state(true);
 let isForking = $state(false);
 let isPublishing = $state(false);
@@ -34,10 +36,28 @@ const isOwner = $derived(Boolean(workspace?.isOwner));
 async function loadWorkspace() {
   isLoading = true;
   loadError = "";
+  readmeHtml = null;
   try {
     workspace = await getWorkspaceById(workspaceId);
     tree = await getWorkspaceTree(workspaceId, "").catch(() => null);
     isEmpty = !tree || !tree.entries || tree.entries.length === 0;
+
+    // 如果非空，尝试查找并加载 README
+    if (!isEmpty && tree?.entries) {
+      const readmeEntry = tree.entries.find((e) =>
+        /^readme(\.[\w]+)?$/i.test(e.name),
+      );
+      if (readmeEntry) {
+        try {
+          const fileData = await getWorkspaceFile(workspaceId, readmeEntry.path);
+          if (fileData && typeof fileData.content === "string") {
+            readmeHtml = await renderMarkdown(fileData.content);
+          }
+        } catch {
+          // README 加载失败，静默忽略，展示文件列表
+        }
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace not found or access denied";
     if (message.includes("unauthorized") || message.includes("401")) {
@@ -207,6 +227,18 @@ git push -u origin main</pre>
             </div>
           </div>
         {/if}
+      </div>
+    {:else if readmeHtml}
+      <div class="neo-card overflow-hidden bg-white">
+        <div class="px-5 py-4 border-b-[4px] border-black neo-fill-green flex items-center justify-between gap-3">
+          <h2 class="neo-section-title">README</h2>
+          <span class="neo-badge neo-badge-white">Documentation</span>
+        </div>
+        <div class="p-6 bg-white">
+          <article class="prose prose-slate max-w-none">
+            {@html readmeHtml}
+          </article>
+        </div>
       </div>
     {:else if tree}
       <div class="neo-card overflow-hidden bg-white">
