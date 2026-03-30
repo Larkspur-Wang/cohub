@@ -60,8 +60,8 @@ ENV PATH="/root/.bun/bin:${PATH}"
 # 启用 corepack 管理 pnpm
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
-# 全局安装 pi coding agent（使用 pnpm）
-RUN pnpm add -g @mariozechner/pi-coding-agent
+# 全局安装 pi coding agent（使用 npm）
+RUN npm install -g @mariozechner/pi-coding-agent
 
 WORKDIR /app
 
