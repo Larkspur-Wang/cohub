@@ -170,9 +170,10 @@ async function handleMakePrivate() {
               <span>Owned by <span class="text-black">{workspace.ownerUsername || workspace.ownerUserUuid}</span></span>
               {#if workspace.forkedFrom}
                 <span>•</span>
-                <a href="/workspaces/{workspace.forkedFrom.id}" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${workspace.forkedFrom?.id}`); }} class="inline-flex items-center gap-1 text-black underline decoration-[3px] underline-offset-4 cursor-pointer">
+                {@const forkedFrom = workspace.forkedFrom}
+                <a href="/workspaces/{forkedFrom.id}" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${forkedFrom.id}`); }} class="inline-flex items-center gap-1 text-black underline decoration-[3px] underline-offset-4 cursor-pointer">
                   <GitFork class="w-4 h-4" />
-                  forked from {workspace.forkedFrom.ownerUsername || workspace.forkedFrom.ownerUserUuid}/{workspace.forkedFrom.name}
+                  forked from {forkedFrom.ownerUsername || forkedFrom.ownerUserUuid}/{forkedFrom.name}
                 </a>
               {/if}
             </div>
