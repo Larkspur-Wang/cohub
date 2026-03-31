@@ -61,6 +61,7 @@ const parseRequestBody = async (c: Context): Promise<OpenAIResponsesCreateReques
 
 export const registerResponsesProviderRoutes = (app: Hono<{ Variables: SessionResponseVariables }>) => {
   app.get("/healthz", (c) => c.json({ ok: true, apiBaseUrl: gatewayConfig.apiBaseUrl }));
+  app.get("/readyz", (c) => c.json({ ok: true }));
 
   app.post(
     "/v1/runtimes/:runtimeId/sessions/:sessionId/responses",

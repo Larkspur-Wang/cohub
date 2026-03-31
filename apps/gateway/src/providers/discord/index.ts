@@ -483,6 +483,9 @@ export class DiscordProvider implements GatewayProvider {
         ? cmd.meta.editExternalMessageId
         : (cachedTurnMessageId ?? undefined);
 
+      const isPrimaryDisplay = renderMode === "rich_status"
+        || cmd.meta?.source === "session_persist"
+        || cmd.meta?.source === "session_persist_broadcast";
       const isFinalAssistant = cmd.meta?.source === "session_persist" && cmd.meta?.sessionMessageRole === "assistant";
       const messageChunks = isFinalAssistant
         ? splitDiscordMessage(text, 1900)
@@ -507,15 +510,17 @@ export class DiscordProvider implements GatewayProvider {
             await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch(console.error);
           }
 
-          let previousMessageId = target.id;
-          for (const chunk of messageChunks.slice(1)) {
-            const continuationOptions: MessageCreateOptions = {
-              content: chunk,
-              files: [],
-              reply: { messageReference: previousMessageId },
-            };
-            const continuation = (await (textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>).send(continuationOptions)) as { id: string };
-            previousMessageId = continuation.id;
+          if (!isPrimaryDisplay) {
+            let previousMessageId = target.id;
+            for (const chunk of messageChunks.slice(1)) {
+              const continuationOptions: MessageCreateOptions = {
+                content: chunk,
+                files: [],
+                reply: { messageReference: previousMessageId },
+              };
+              const continuation = (await (textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>).send(continuationOptions)) as { id: string };
+              previousMessageId = continuation.id;
+            }
           }
 
           console.log(`[Discord:${this.channelId}] ✓ Message edited successfully: ${target.id}`);

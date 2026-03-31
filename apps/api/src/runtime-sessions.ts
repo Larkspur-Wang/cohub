@@ -236,6 +236,27 @@ const getSessionMessageRef = async (input: {
   return message ?? null;
 };
 
+const resolveAnchorUserMessageRef = async (input: {
+  sessionId: string;
+  messageId?: string | null;
+}) => {
+  let currentMessageId = input.messageId?.trim() || null;
+  const visited = new Set<string>();
+
+  while (currentMessageId && !visited.has(currentMessageId)) {
+    visited.add(currentMessageId);
+    const current = await getSessionMessageRef({
+      sessionId: input.sessionId,
+      messageId: currentMessageId,
+    });
+    if (!current) return null;
+    if (current.role === "user") return current;
+    currentMessageId = current.prevMessageId?.trim() || null;
+  }
+
+  return null;
+};
+
 export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
   if (!Array.isArray(input)) return [];
 
@@ -749,7 +770,14 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   const shouldDispatchToProvider = messageRole === "assistant";
 
   const toolCalls = input.toolCalls ?? [];
-  const anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
+  let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
+  if (!anchorUserMessageId) {
+    const fallbackAnchor = await resolveAnchorUserMessageRef({
+      sessionId: input.sessionId,
+      messageId: input.previousMessageId ?? session.lastMessageId ?? null,
+    });
+    anchorUserMessageId = fallbackAnchor?.id ?? null;
+  }
   const messageKind = (() => {
     if (messageRole !== "assistant") return messageRole;
     if (input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted") {

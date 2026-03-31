@@ -1347,6 +1347,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   const body = await c.req
     .json<{
       previousMessageId?: string | null;
+      anchorUserMessageId?: string | null;
       idempotencyKey?: string;
       message?: PersistMessageInput["message"];
       toolCalls?: PersistMessageInput["toolCalls"];
@@ -1362,6 +1363,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
     runtimeId,
     sessionId,
     previousMessageId: body.previousMessageId ?? null,
+    anchorUserMessageId: body.anchorUserMessageId ?? null,
     idempotencyKey: body.idempotencyKey,
     message: {
       ...(body.message as PersistMessageInput["message"]),
@@ -1482,6 +1484,7 @@ app.post("/internal/runtimes/:id/sessions/:sessionId/provider-render", async (c)
     toolCalls?: Array<Record<string, unknown>> | null;
     answer?: string | null;
     sourceMessageId?: string | null;
+    anchorUserMessageId?: string | null;
   }>().catch(() => null);
 
   if (!body) return c.json({ message: "invalid body" }, 400);
