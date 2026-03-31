@@ -1,5 +1,9 @@
 # Gateway Session Responses API
 
+## 相关文档
+
+- `docs/gateway-interaction-layering.md`
+
 ## 背景
 
 当前系统中：

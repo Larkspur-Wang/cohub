@@ -5,9 +5,9 @@ import {
   getRuntimeChannels,
   getRuntimeProvisioning,
   getRuntimeSessions,
-  getRuntimeStreamUrl,
   getSessionMessages,
   updateRuntimeChannelConfig,
+  createSessionResponseStream,
   type RuntimeChannelConfigInput,
   type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
@@ -49,12 +49,11 @@ let openedSessionIds = $state<string[]>([]);
 let input = $state("");
 let sending = $state(false);
 let runtimeLoadError = $state("");
-let streamStatus = $state<"connecting" | "open" | "closed" | "error">("connecting");
+let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
 let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let streamingAssistantText = $state("");
-let eventSource: EventSource | null = null;
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let contentEl = $state<HTMLDivElement | null>(null);
@@ -317,48 +316,6 @@ async function loadProvisioning() {
   }
 }
 
-function connectStream() {
-  eventSource?.close();
-  streamStatus = "connecting";
-  streamError = "";
-  streamingAssistantText = "";
-
-  const url = getRuntimeStreamUrl(runtimeId);
-  eventSource = new EventSource(url, { withCredentials: true });
-
-  eventSource.onopen = () => {
-    streamStatus = "open";
-  };
-
-  eventSource.onerror = () => {
-    streamStatus = "error";
-    streamError = "Stream disconnected";
-  };
-
-  eventSource.onmessage = async (event) => {
-    try {
-      const payload = JSON.parse(event.data);
-      if (payload.type === "agent_event") {
-        const agentEvent = payload.event as Record<string, unknown>;
-        if (agentEvent.type === "assistant_delta") {
-          const text = typeof agentEvent.text === "string" ? agentEvent.text : "";
-          streamingAssistantText = `${streamingAssistantText}${text}`;
-          return;
-        }
-        if (agentEvent.type === "turn_end") {
-          streamingAssistantText = "";
-          if (activeSessionId) {
-            await loadSessionState(activeSessionId, true);
-          }
-          await loadRuntime();
-          return;
-        }
-      }
-    } catch {
-      // ignore malformed stream events
-    }
-  };
-}
 
 function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
   if (!provision) return true;
@@ -366,16 +323,83 @@ function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
 }
 
 async function handleSend() {
-  if (!activeSessionState || !input.trim() || sending) return;
+  if (!activeSessionState || !input.trim() || sending || !runtime) return;
   sending = true;
+  streamError = "";
+  streamStatus = "streaming";
+
+  const text = input.trim();
+  const sessionId = activeSessionState.session.id;
 
   try {
-    const { sendSessionMessage } = await import("$lib/api");
-    await sendSessionMessage(activeSessionState.session.id, { text: input.trim() });
     input = "";
     streamingAssistantText = "";
-    await loadSessionState(activeSessionState.session.id, true);
+
+    const currentState = sessionStateById[sessionId];
+    if (currentState) {
+      sessionStateById = {
+        ...sessionStateById,
+        [sessionId]: {
+          ...currentState,
+          messages: [
+            ...currentState.messages,
+            {
+              id: `optimistic-user-${Date.now()}`,
+              sessionId,
+              role: "user",
+              content: [{ type: "text", text }],
+              text,
+              externalMessageId: null,
+              protocolMessageId: null,
+              sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
+              prevMessageId: currentState.messages.at(-1)?.id ?? null,
+              provider: null,
+              model: null,
+              stopReason: null,
+              errorMessage: null,
+              usageInput: null,
+              usageOutput: null,
+              usageTotalTokens: null,
+              costTotal: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      };
+    }
+
+    for await (const event of createSessionResponseStream({
+      runtimeId: runtime.id,
+      sessionId,
+      text,
+    })) {
+      if (event.type === "response.output_text.delta") {
+        streamingAssistantText = `${streamingAssistantText}${event.delta}`;
+        await tick();
+        if (shouldAutoFollow) {
+          scrollToBottomNow();
+        }
+      }
+
+      if (event.type === "response.failed") {
+        streamError = event.response.error?.message ?? "Response failed";
+        streamStatus = "error";
+      }
+
+      if (event.type === "response.completed") {
+        streamStatus = "done";
+      }
+    }
+
+    streamingAssistantText = "";
+    await loadSessionState(sessionId, true);
+    await loadRuntime();
+  } catch (error) {
+    streamError = error instanceof Error ? error.message : "Failed to send message";
+    streamStatus = "error";
+    await loadSessionState(sessionId, true).catch(() => undefined);
   } finally {
+    streamingAssistantText = "";
     sending = false;
   }
 }
@@ -417,7 +441,6 @@ onMount(() => {
   void Promise.all([loadRuntime(), loadProvisioning()]).finally(() => {
     bootstrapping = false;
   });
-  connectStream();
 
   provisioningPollingTimer = setInterval(() => {
     if (!shouldPollProvisioning(provisioning)) return;
@@ -425,7 +448,6 @@ onMount(() => {
   }, 5000);
 
   return () => {
-    eventSource?.close();
     if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
   };
 });
@@ -479,7 +501,7 @@ $effect(() => {
     <div class="flex items-center gap-4 text-xs font-mono text-white/40 shrink-0">
       <div class="flex items-center gap-1.5">
         <Activity class="w-3.5 h-3.5" />
-        <span class={streamStatus === 'open' ? 'text-emerald-400' : streamStatus === 'connecting' ? 'text-amber-400' : 'text-rose-400'}>{streamStatus}</span>
+        <span class={streamStatus === 'done' ? 'text-emerald-400' : streamStatus === 'streaming' ? 'text-amber-400' : streamStatus === 'error' ? 'text-rose-400' : 'text-white/40'}>{streamStatus}</span>
       </div>
     </div>
   </header>
@@ -610,7 +632,7 @@ $effect(() => {
               </div>
               <div>
                 <div class="text-white/30">stream</div>
-                <div class={streamStatus === 'open' ? 'text-emerald-400' : streamStatus === 'connecting' ? 'text-amber-400' : 'text-rose-400'}>{streamStatus}</div>
+                <div class={streamStatus === 'done' ? 'text-emerald-400' : streamStatus === 'streaming' ? 'text-amber-400' : streamStatus === 'error' ? 'text-rose-400' : 'text-white/40'}>{streamStatus}</div>
               </div>
             </div>
           </div>

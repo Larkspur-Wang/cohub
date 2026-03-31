@@ -104,6 +104,49 @@ const waitForAcceptedResult = async (input: {
   }
 };
 
+const waitForLifecycleResult = async (input: {
+  interactionId: string;
+  expectedType: "started" | "completed";
+  signal?: AbortSignal;
+}) => {
+  const client = createBlockingRedisClient();
+  await client.connect();
+  const streamKey = getGatewaySessionResponseResultStreamKey(input.interactionId);
+  let lastId = "$";
+  const startedAt = Date.now();
+
+  try {
+    while (!input.signal?.aborted && Date.now() - startedAt < 10 * 60 * 1000) {
+      const result = await client.xread("BLOCK", 15000, "STREAMS", streamKey, lastId);
+      if (!result) continue;
+
+      for (const [, entries] of result as Array<[string, Array<[string, string[]]>]>) {
+        for (const [id, fields] of entries) {
+          lastId = id;
+          const payloadIndex = fields.indexOf("payload");
+          const payloadRaw = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
+          if (!payloadRaw) continue;
+
+          const payload = JSON.parse(payloadRaw) as GatewaySessionResponseResultEvent;
+          if (payload.interactionId !== input.interactionId) continue;
+          if (payload.type === "failed") {
+            throw new Error(payload.error.message);
+          }
+          if (payload.type === input.expectedType) {
+            return payload;
+          }
+        }
+      }
+    }
+
+    throw new Error(input.signal?.aborted ? "request aborted" : `Timed out waiting for interaction ${input.expectedType}`);
+  } finally {
+    await client.quit().catch(async () => {
+      client.disconnect();
+    });
+  }
+};
+
 export const createSessionResponse = async (input: {
   token: string;
   actorUserId: string;
@@ -141,6 +184,12 @@ export const createSessionResponse = async (input: {
     signal: input.signal,
   });
 
+  void waitForLifecycleResult({
+    interactionId,
+    expectedType: "started",
+    signal: input.signal,
+  }).catch(() => undefined);
+
   const streamKey = getRuntimeOutputStreamKey(input.request.runtimeId);
   const client = createBlockingRedisClient();
   await client.connect();
@@ -151,6 +200,12 @@ export const createSessionResponse = async (input: {
   const startedAt = Date.now();
 
   try {
+    await waitForLifecycleResult({
+      interactionId,
+      expectedType: "completed",
+      signal: input.signal,
+    }).catch(() => undefined);
+
     while (!input.signal?.aborted && Date.now() - startedAt < 10 * 60 * 1000) {
       const result = await client.xread("BLOCK", 15000, "STREAMS", streamKey, lastId);
       if (!result) continue;

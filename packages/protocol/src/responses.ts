@@ -49,6 +49,22 @@ export type GatewaySessionResponseResultEvent =
       userMessageId: string;
     }
   | {
+      type: "started";
+      interactionId: string;
+      timestamp: number;
+      runtimeId: string;
+      sessionId: string;
+      userMessageId: string;
+    }
+  | {
+      type: "completed";
+      interactionId: string;
+      timestamp: number;
+      runtimeId: string;
+      sessionId: string;
+      userMessageId: string;
+    }
+  | {
       type: "failed";
       interactionId: string;
       timestamp: number;
