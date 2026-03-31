@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
 import { config } from "./config.js";
@@ -10,12 +10,9 @@ import {
   createManagedGiteaUser,
 } from "./gitea.js";
 
-const shortHash = (input: string) =>
-  createHash("sha256").update(input).digest("hex").slice(0, 12);
-
 const buildManagedUsername = (userUuid: string) => {
   const prefix = config.env === "prod" ? "u_" : "dev_u_";
-  return `${prefix}${shortHash(userUuid)}`;
+  return `${prefix}${userUuid}`;
 };
 
 const buildManagedEmail = (username: string) =>
@@ -55,6 +52,7 @@ export async function ensureUserGitAccount(userUuid: string) {
     password,
     mustChangePassword: false,
     sendNotify: false,
+    visibility: "limited",
   }).catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("422") || message.includes("already exists") || message.includes("has already been taken")) {
@@ -85,6 +83,7 @@ export async function ensureUserGitAccount(userUuid: string) {
       meta: {
         source: "managed",
         env: config.env,
+        giteaUserVisibility: "limited",
       },
     })
     .returning();

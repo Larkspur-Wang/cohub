@@ -51,7 +51,7 @@ export const workspaces = pgTable(
     description: text("description"),
     giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
     defaultBranch: varchar("default_branch", { length: 50 }).default("main"),
-    visibility: varchar("visibility", { length: 20 }).default("public"),
+    visibility: varchar("visibility", { length: 20 }).default("private"),
     parentId: uuid("parent_id"),
     forkCount: integer("fork_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

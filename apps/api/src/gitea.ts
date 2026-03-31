@@ -49,6 +49,8 @@ type ManagedGiteaAccessToken = {
   token_last_eight?: string;
 };
 
+export type GiteaUserVisibility = "public" | "limited" | "private";
+
 const createGiteaHeaders = () => {
   if (!config.giteaToken) {
     return undefined;
@@ -113,6 +115,7 @@ export const createManagedGiteaUser = async (input: {
   password: string;
   mustChangePassword?: boolean;
   sendNotify?: boolean;
+  visibility?: GiteaUserVisibility;
 }) => {
   return giteaPost<ManagedGiteaUser>("/admin/users", {
     email: input.email,
@@ -122,7 +125,7 @@ export const createManagedGiteaUser = async (input: {
     must_change_password: input.mustChangePassword ?? false,
     send_notify: input.sendNotify ?? false,
     restricted: false,
-    visibility: "private",
+    visibility: input.visibility ?? "limited",
   });
 };
 
