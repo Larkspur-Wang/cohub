@@ -9,8 +9,6 @@ type SandboxPodTemplateVariables = {
   WORKSPACE_REPO_URL?: string;
   WORKSPACE_GIT_USERNAME?: string;
   WORKSPACE_GIT_EMAIL?: string;
-  OSS_BUCKET_NAME?: string;
-  OSS_ENDPOINT?: string;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -73,14 +71,6 @@ export const SANDBOX_POD_TEMPLATE = {
           { name: "WORKSPACE_REPO_URL", value: "${WORKSPACE_REPO_URL}" },
           { name: "WORKSPACE_GIT_USERNAME", value: "${WORKSPACE_GIT_USERNAME}" },
           { name: "WORKSPACE_GIT_EMAIL", value: "${WORKSPACE_GIT_EMAIL}" },
-          ...(config.ossPublicUrlPrefix
-            ? [
-                {
-                  name: "PUBLIC_URL_PREFIX",
-                  value: `${config.ossPublicUrlPrefix}/\${ENV}/runtimes/\${RUNTIME_ID}/public`,
-                },
-              ]
-            : []),
         ],
         volumeMounts: [
           {
@@ -93,14 +83,6 @@ export const SANDBOX_POD_TEMPLATE = {
             mountPath: "/sessions",
             subPath: "cohub-${ENV}/${RUNTIME_ID}/sessions",
           },
-          ...(config.ossPublicUrlPrefix
-            ? [
-                {
-                  name: "oss-public-storage",
-                  mountPath: "/workspace/public",
-                },
-              ]
-            : []),
         ],
       },
     ],
@@ -111,25 +93,6 @@ export const SANDBOX_POD_TEMPLATE = {
           claimName: "cohub-sessions-pvc",
         },
       },
-      ...(config.ossPublicUrlPrefix
-        ? [
-            {
-              name: "oss-public-storage",
-              csi: {
-                driver: "ossplugin.csi.alibabacloud.com",
-                volumeAttributes: {
-                  bucket: "${OSS_BUCKET_NAME}",
-                  url: "${OSS_ENDPOINT}",
-                  otherOpts: "-o max_stat_cache_size=0 -o allow_other",
-                  path: "/${ENV}/runtimes/${RUNTIME_ID}/public",
-                },
-                nodePublishSecretRef: {
-                  name: "oss-secret",
-                },
-              },
-            },
-          ]
-        : []),
     ],
   },
 };

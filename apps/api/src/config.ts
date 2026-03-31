@@ -9,9 +9,6 @@ export type AppConfig = {
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
   sandboxRuntimeImage: string;
-  ossPublicUrlPrefix?: string;
-  ossBucketName?: string;
-  ossEndpoint?: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -40,9 +37,6 @@ export const config: AppConfig = {
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   sandboxRuntimeImage:
     process.env.SANDBOX_RUNTIME_IMAGE ?? getDefaultSandboxRuntimeImage(env),
-  ossPublicUrlPrefix: process.env.OSS_PUBLIC_URL_PREFIX,
-  ossBucketName: process.env.OSS_BUCKET_NAME,
-  ossEndpoint: process.env.OSS_ENDPOINT,
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
