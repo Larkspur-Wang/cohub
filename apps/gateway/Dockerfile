@@ -63,6 +63,8 @@ COPY apps/gateway/package.json ./apps/gateway/package.json
 # Run as non-root
 USER node
 
+EXPOSE 8788
+
 WORKDIR /app/apps/gateway
 
 CMD ["node", "dist/index.js"]
