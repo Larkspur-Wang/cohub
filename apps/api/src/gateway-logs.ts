@@ -120,6 +120,16 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
         replyToExternalMessageId: rawPayload.replyToExternalMessageId ?? null,
         gatewayLogId: event.logId,
         providerMeta: rawPayload.meta ?? null,
+        kind:
+          (rawPayload.meta as Record<string, unknown> | null)?.renderMode === "rich_status"
+            ? "primary_display"
+            : ((rawPayload.meta as Record<string, unknown> | null)?.source === "session_persist"
+                ? "primary_display"
+                : "outbound_message"),
+        anchorUserMessageId:
+          typeof (rawPayload.meta as Record<string, unknown> | null)?.turnAnchorMessageId === "string"
+            ? (rawPayload.meta as Record<string, unknown>).turnAnchorMessageId
+            : null,
       },
       updatedAt: new Date(),
     })
@@ -140,6 +150,16 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
           replyToExternalMessageId: rawPayload.replyToExternalMessageId ?? null,
           gatewayLogId: event.logId,
           providerMeta: rawPayload.meta ?? null,
+          kind:
+            (rawPayload.meta as Record<string, unknown> | null)?.renderMode === "rich_status"
+              ? "primary_display"
+              : ((rawPayload.meta as Record<string, unknown> | null)?.source === "session_persist"
+                  ? "primary_display"
+                  : "outbound_message"),
+          anchorUserMessageId:
+            typeof (rawPayload.meta as Record<string, unknown> | null)?.turnAnchorMessageId === "string"
+              ? (rawPayload.meta as Record<string, unknown>).turnAnchorMessageId
+              : null,
         },
         updatedAt: new Date(),
       },

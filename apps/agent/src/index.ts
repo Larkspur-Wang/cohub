@@ -139,6 +139,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
 
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
+  const anchorUserMessageId = sourceMessageId;
 
   const thinking = handle.streamState.thinking.trim();
 
@@ -161,6 +162,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
     sourceMessageId,
+    anchorUserMessageId,
   }).catch((error) => {
     console.error(`[Supervisor] Failed to update provider render for ${handle.sessionId}:`, error);
   });

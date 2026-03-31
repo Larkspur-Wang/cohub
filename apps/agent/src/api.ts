@@ -248,6 +248,7 @@ export async function updateProviderRender(input: {
   toolCalls?: Array<Record<string, unknown>> | null;
   answer?: string | null;
   sourceMessageId?: string | null;
+  anchorUserMessageId?: string | null;
 }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/provider-render`;
   const response = await fetch(url, {
@@ -289,6 +290,7 @@ export async function persistAssistantMessage(input: {
     runtimeId: input.runtimeId,
     sessionId: input.runtimeSessionId,
     previousMessageId: input.userMessageId,
+    anchorUserMessageId: input.userMessageId,
     idempotencyKey: "",
     message: {
       role: "assistant",

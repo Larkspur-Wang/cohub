@@ -696,7 +696,10 @@ export const createUserMessageNode = async (input: {
       protocolMessageId: null,
       content,
       text: extractPlainText(content),
-      meta: input.meta ?? null,
+      meta: {
+        ...(input.meta ?? {}),
+        messageKind: "user",
+      },
       sequence,
       prevMessageId: session.lastMessageId ?? null,
     })
@@ -745,6 +748,19 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   const messageRole = input.message.role ?? "assistant";
   const shouldDispatchToProvider = messageRole === "assistant";
 
+  const toolCalls = input.toolCalls ?? [];
+  const anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
+  const messageKind = (() => {
+    if (messageRole !== "assistant") return messageRole;
+    if (input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted") {
+      return "assistant_error";
+    }
+    if (toolCalls.length > 0 || input.message.stopReason === "toolUse") {
+      return "assistant_intermediate";
+    }
+    return "assistant_final";
+  })();
+
   let messageNode: typeof sessionMessages.$inferSelect | undefined;
   try {
     [messageNode] = await db
@@ -757,7 +773,13 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         protocolMessageId: input.message.protocolMessageId ?? null,
         content,
         text,
-        meta: input.message.meta ?? null,
+        meta: {
+          ...((input.message.meta as Record<string, unknown> | null) ?? {}),
+          messageKind,
+          anchorUserMessageId,
+          providerResponseId:
+            ((input.message.meta as Record<string, unknown> | null)?.responseId as string | undefined) ?? null,
+        },
         idempotencyKey: input.idempotencyKey,
         sequence,
         prevMessageId: session.lastMessageId ?? null,
@@ -788,7 +810,6 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
 
   if (!messageNode) throw new Error("Failed to persist message");
 
-  const toolCalls = input.toolCalls ?? [];
   if (toolCalls.length > 0) {
     await db.insert(sessionToolCalls).values(
       toolCalls.map((toolCall: PersistToolCall) => ({
@@ -822,28 +843,13 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   }
 
   let replyToExternalMessageId: string | undefined;
-  let previousUserMessageId: string | undefined;
-  if (messageNode.prevMessageId) {
-    const [previousMessage] = await db
-      .select({
-        id: sessionMessages.id,
-        role: sessionMessages.role,
-        externalMessageId: sessionMessages.externalMessageId,
-      })
-      .from(sessionMessages)
-      .where(
-        and(
-          eq(sessionMessages.id, messageNode.prevMessageId),
-          eq(sessionMessages.sessionId, input.sessionId),
-        ),
-      )
-      .limit(1);
-
-    if (previousMessage?.role === "user") {
-      previousUserMessageId = previousMessage.id;
-      if (previousMessage.externalMessageId?.trim()) {
-        replyToExternalMessageId = previousMessage.externalMessageId.trim();
-      }
+  if (anchorUserMessageId) {
+    const anchorUserMessage = await getSessionMessageRef({
+      sessionId: input.sessionId,
+      messageId: anchorUserMessageId,
+    });
+    if (anchorUserMessage?.externalMessageId?.trim()) {
+      replyToExternalMessageId = anchorUserMessage.externalMessageId.trim();
     }
   }
 
@@ -851,11 +857,11 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
 
   if (bindings.length > 0) {
     for (const binding of bindings) {
-      const existingTurnRef = previousUserMessageId
+      const existingTurnRef = anchorUserMessageId
         ? await findLatestOutboundRefForSessionMessage({
             provider: binding.provider,
             externalConversationId: binding.externalChatId,
-            sessionMessageId: previousUserMessageId,
+            sessionMessageId: anchorUserMessageId,
           })
         : null;
       await touchRuntimeSessionBinding(binding.id).catch(console.error);
@@ -873,7 +879,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         sessionMessageRole: messageNode.role,
         source: "session_persist",
         editExternalMessageId: existingTurnRef?.externalMessageId ?? null,
-        turnAnchorMessageId: previousUserMessageId ?? messageNode.id,
+        turnAnchorMessageId: anchorUserMessageId ?? messageNode.id,
       },
       }).catch(console.error);
     }
@@ -1180,6 +1186,7 @@ export const updateProviderRenderForSession = async (input: {
     toolCalls?: Array<Record<string, unknown>> | null;
     answer?: string | null;
     sourceMessageId?: string | null;
+    anchorUserMessageId?: string | null;
   };
 }) => {
   const session = await getRuntimeSessionById(input.runtimeSessionId);
@@ -1188,26 +1195,23 @@ export const updateProviderRenderForSession = async (input: {
   }
 
   const sourceMessageId = input.render.sourceMessageId?.trim() || null;
-  const sourceMessage = await getSessionMessageRef({
+  const anchorUserMessageId = input.render.anchorUserMessageId?.trim() || sourceMessageId;
+  const anchorUserMessage = await getSessionMessageRef({
     sessionId: input.runtimeSessionId,
-    messageId: sourceMessageId,
+    messageId: anchorUserMessageId,
   });
 
-  // 对于 user message，使用其 externalMessageId 作为 replyTo（回复用户消息）
-  // 对于 assistant message，不需要 replyTo（编辑已有消息）
-  const replyToExternalMessageId = sourceMessage?.role === "user" && sourceMessage?.externalMessageId?.trim()
-    ? sourceMessage.externalMessageId.trim()
+  const replyToExternalMessageId = anchorUserMessage?.externalMessageId?.trim()
+    ? anchorUserMessage.externalMessageId.trim()
     : undefined;
 
   const bindings = await getBindingsBySessionId(input.runtimeSessionId);
   for (const binding of bindings) {
-    // 对于 user message，不要尝试查找 existingRef（避免编辑 user message 或使用错误的 message ID）
-    // 对于 assistant message，正常查找 existingRef 以支持消息编辑
-    const existingRef = sourceMessage?.role !== "user"
+    const existingRef = anchorUserMessageId
       ? await findLatestOutboundRefForSessionMessage({
           provider: binding.provider,
           externalConversationId: binding.externalChatId,
-          sessionMessageId: sourceMessageId,
+          sessionMessageId: anchorUserMessageId,
         })
       : null;
 
@@ -1225,13 +1229,14 @@ export const updateProviderRenderForSession = async (input: {
         runtimeId: input.runtimeId,
         runtimeSessionId: input.runtimeSessionId,
         runtimeChannelId: binding.runtimeChannelId,
-        sessionMessageId: sourceMessageId,
+        sessionMessageId: anchorUserMessageId,
         direction: "outbound",
         externalConversationId: binding.externalChatId,
         externalMessageId: existingRef.externalMessageId,
         meta: {
           kind: "provider_render",
           sourceMessageId,
+          anchorUserMessageId,
         },
       }).catch(console.error);
     }
@@ -1256,7 +1261,7 @@ export const updateProviderRenderForSession = async (input: {
         editExternalMessageId: existingRef?.externalMessageId ?? null,
         providerMeta: (binding.meta as Record<string, unknown> | null)?.providerMeta ?? null,
         runtimeChannelConfig,
-        turnAnchorMessageId: sourceMessageId,
+        turnAnchorMessageId: anchorUserMessageId ?? sourceMessageId,
       },
     });
   }

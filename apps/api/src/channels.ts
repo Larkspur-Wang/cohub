@@ -755,27 +755,31 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     },
   }).catch(console.error);
 
-  await createProviderMessageRef({
-    provider: event.provider,
-    runtimeId: rc.runtimeId,
-    runtimeSessionId: sessionId,
-    runtimeChannelId: rc.id,
-    sessionMessageId: userMessage.id,
-    direction: "inbound",
-    externalConversationId: conversationId,
-    externalMessageId: event.externalMessageId,
-    parentExternalConversationId: event.conversation?.parentId ?? null,
-    parentExternalMessageId: event.message?.parentMessageId ?? null,
-    externalAuthorId: event.sender.id,
-    externalAuthorName: event.sender.name ?? null,
-    meta: {
-      bindingKey,
-      conversation: event.conversation ?? null,
-      message: event.message ?? null,
-      content: event.content,
-      providerMeta: event.meta ?? null,
-    },
-  });
+  await db
+    .insert(providerMessageRefs)
+    .values({
+      provider: event.provider,
+      runtimeId: rc.runtimeId,
+      runtimeSessionId: sessionId,
+      runtimeChannelId: rc.id,
+      sessionMessageId: userMessage.id,
+      direction: "inbound",
+      externalConversationId: conversationId,
+      externalMessageId: event.externalMessageId,
+      parentExternalConversationId: event.conversation?.parentId ?? null,
+      parentExternalMessageId: event.message?.parentMessageId ?? null,
+      externalAuthorId: event.sender.id,
+      externalAuthorName: event.sender.name ?? null,
+      meta: {
+        bindingKey,
+        conversation: event.conversation ?? null,
+        message: event.message ?? null,
+        content: event.content,
+        providerMeta: event.meta ?? null,
+        messageKind: "user",
+        anchorUserMessageId: userMessage.id,
+      },
+    });
 
   await enqueueRuntimePrompt({
     runtimeId: rc.runtimeId,
