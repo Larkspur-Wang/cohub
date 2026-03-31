@@ -35,6 +35,7 @@ export const EnvSchema = z.object({
   WORKSPACE_REPO_URL: z.string().optional(),
   WORKSPACE_GIT_USERNAME: z.string().optional(),
   WORKSPACE_GIT_EMAIL: z.string().optional(),
+  PUBLIC_URL_PREFIX: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

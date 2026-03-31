@@ -53,6 +53,23 @@ export async function initializeContainer() {
 
   try {
     await mkdir(env.WORKSPACE_DIR, { recursive: true });
+    
+    // 如果配置了 OSS Public URL Prefix，确保 /workspace/public 目录存在
+    // 这个目录将被 CSI 插件挂载，或者在这里创建供 Agent 使用
+    if (env.PUBLIC_URL_PREFIX) {
+      const publicDir = join(env.WORKSPACE_DIR, "public");
+      await mkdir(publicDir, { recursive: true }).catch(() => {});
+      console.log(`[Init] Public directory ready: ${publicDir}`);
+      
+      // 写入一个提示文件，告诉 Agent 这里的公开链接
+      const readmePath = join(publicDir, "README_PUBLIC.md");
+      const readmeContent = `# Public Directory\n\nFiles placed in this directory will be publicly accessible via the internet.\n\n**Base URL:** \`${env.PUBLIC_URL_PREFIX}\`\n\nFor example, if you create \`index.html\` here, it will be available at \`${env.PUBLIC_URL_PREFIX}/index.html\`.\n`;
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(readmePath, readmeContent, "utf-8").catch((err) => {
+        console.warn("[Init] Failed to write README_PUBLIC.md:", err);
+      });
+    }
+
     console.log(`[Init] Workspace directory ready: ${env.WORKSPACE_DIR}`);
   } catch (error) {
     console.error("[Init] Failed to create workspace directory:", error);

@@ -1,7 +1,8 @@
 import { goto } from "$app/navigation";
-import { PUBLIC_API_ORIGIN } from "$env/static/public";
+import { PUBLIC_API_ORIGIN, PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
+const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
 
 type ApiError = {
   message: string;
@@ -108,11 +109,6 @@ export type SessionMessagesResponse = {
   toolCalls: SessionToolCallRecord[];
 };
 
-type SessionStreamEvent = {
-  type: string;
-  [key: string]: unknown;
-};
-
 const apiFetch = async (
   path: string,
   init?: RequestInit & { fetch?: Fetch },
@@ -143,6 +139,58 @@ const apiFetch = async (
   }
 
   return response.json();
+};
+
+const gatewayFetch = async (
+  path: string,
+  init?: RequestInit & { fetch?: Fetch },
+) => {
+  const fetcher = init?.fetch ?? fetch;
+  const url = GATEWAY_BASE_URL ? `${GATEWAY_BASE_URL}${path}` : path;
+
+  const response = await fetcher(url, {
+    credentials: "include",
+    ...init,
+  });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    await goto("/login");
+    throw new Error("unauthorized");
+  }
+
+  return response;
+};
+
+const readSseEvents = async function* (response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundaryIndex = buffer.indexOf("\n\n");
+    while (boundaryIndex >= 0) {
+      const chunk = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
+
+      const dataLines = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim());
+
+      const data = dataLines.join("\n");
+      if (data) {
+        yield data;
+      }
+
+      boundaryIndex = buffer.indexOf("\n\n");
+    }
+  }
 };
 
 export const setAuthToken = async (token: string) => {
@@ -208,7 +256,7 @@ export const getWorkspaceFile = async (
 export const getSession = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/sessions/${id}`, {
     fetch: customFetch,
-  }) as Promise<{ runtime: RuntimeRecord; session: SessionRecord }>;
+  }) as Promise<{ runtime: RuntimeRecord; session: SessionRecord }>; 
 };
 
 export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
@@ -217,20 +265,47 @@ export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
   }) as Promise<SessionMessagesResponse>;
 };
 
-export const sendSessionMessage = async (
-  id: string,
-  input: {
-    text: string;
-    images?: Array<{ url: string }>;
-  },
-) => {
-  return apiFetch(`/api/sessions/${id}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+export type SessionResponseStreamEvent =
+  | { type: "response.created"; response: { id: string; status: string; model: string } }
+  | { type: "response.output_text.delta"; delta: string }
+  | { type: "response.completed"; response: { id: string; status: string } }
+  | { type: "response.failed"; response: { error?: { message?: string; type?: string } } };
+
+export const createSessionResponseStream = async function* (input: {
+  runtimeId: string;
+  sessionId: string;
+  text: string;
+  fetch?: Fetch;
+}) {
+  const response = await gatewayFetch(
+    `/v1/runtimes/${input.runtimeId}/sessions/${input.sessionId}/responses`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "cohub-agent",
+        input: input.text,
+        stream: true,
+      }),
+      fetch: input.fetch,
     },
-    body: JSON.stringify(input),
-  });
+  );
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const message = contentType.includes("application/json")
+      ? JSON.stringify(await response.json().catch(() => null))
+      : await response.text().catch(() => response.statusText);
+    throw new Error(message || response.statusText);
+  }
+
+  for await (const data of readSseEvents(response)) {
+    if (data === "[DONE]") break;
+    const parsed = JSON.parse(data) as SessionResponseStreamEvent;
+    yield parsed;
+  }
 };
 
 export const forkSession = async (
@@ -246,10 +321,8 @@ export const forkSession = async (
   }) as Promise<{ ok: true; session: SessionRecord }>;
 };
 
-
 export type {
   ApiError,
-  SessionStreamEvent,
 };
 
 export type Channel = {
@@ -533,13 +606,6 @@ export const getRuntimeSessionGraph = async (id: string, customFetch?: Fetch) =>
   return apiFetch(`/api/runtimes/${id}/session-graph`, {
     fetch: customFetch,
   }) as Promise<RuntimeSessionsResponse>;
-};
-
-export const getRuntimeStreamUrl = (id: string) => {
-  const base = API_BASE_URL;
-  return base
-    ? `${base}/api/runtimes/${id}/stream`
-    : `/api/runtimes/${id}/stream`;
 };
 
 export type PublicWorkspacesResponse = {

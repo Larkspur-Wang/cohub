@@ -1355,6 +1355,8 @@ export const launchRuntimeSandbox = async (input: {
     WORKSPACE_REPO_URL: workspaceRepoUrl,
     WORKSPACE_GIT_USERNAME: workspaceGitUsername,
     WORKSPACE_GIT_EMAIL: workspaceGitEmail,
+    OSS_BUCKET_NAME: config.ossBucketName,
+    OSS_ENDPOINT: config.ossEndpoint,
   }) as V1Pod;
 
   if (pod.spec?.containers?.[0]) {
@@ -1466,6 +1468,8 @@ export const provisionRuntimeInBackground = async (input: {
       WORKSPACE_REPO_URL: workspaceRepoUrl,
       WORKSPACE_GIT_USERNAME: workspaceGitUsername,
       WORKSPACE_GIT_EMAIL: workspaceGitEmail,
+      OSS_BUCKET_NAME: config.ossBucketName,
+      OSS_ENDPOINT: config.ossEndpoint,
     }) as V1Pod;
 
     if (pod.spec?.containers?.[0]) {
