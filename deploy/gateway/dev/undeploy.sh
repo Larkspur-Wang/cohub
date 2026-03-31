@@ -16,11 +16,17 @@ get_value() {
 
 NAMESPACE=$(get_value "NAMESPACE")
 APP_NAME=$(get_value "APP_NAME")
+ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
 
 echo -e "${BLUE}卸载 Cohub Gateway Dev 环境...${NC}"
 
 kubectl delete statefulset "$APP_NAME" -n "$NAMESPACE" --ignore-not-found
+kubectl delete service "$APP_NAME" -n "$NAMESPACE" --ignore-not-found
 kubectl delete configmap "$APP_NAME-config" -n "$NAMESPACE" --ignore-not-found
 kubectl delete secret "$APP_NAME-secrets" -n "$NAMESPACE" --ignore-not-found
+
+if [ "$ROUTE_ENABLED" = "true" ]; then
+  kubectl delete httproute "$APP_NAME-route" -n "$NAMESPACE" --ignore-not-found
+fi
 
 echo -e "${GREEN}✅ 卸载完成${NC}"

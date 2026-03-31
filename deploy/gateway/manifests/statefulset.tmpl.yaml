@@ -21,6 +21,9 @@ __IMAGE_PULL_SECRETS_BLOCK__
         - name: __APP_NAME__
           image: __IMAGE_REPOSITORY__:__IMAGE_TAG__
           imagePullPolicy: __IMAGE_PULL_POLICY__
+          ports:
+            - containerPort: __CONTAINER_PORT__
+              name: http
           envFrom:
             - configMapRef:
                 name: __APP_NAME__-config
@@ -38,3 +41,19 @@ __IMAGE_PULL_SECRETS_BLOCK__
             limits:
               cpu: "__LIMIT_CPU__"
               memory: "__LIMIT_MEMORY__"
+          livenessProbe:
+            httpGet:
+              path: __LIVENESS_PATH__
+              port: http
+            initialDelaySeconds: __LIVENESS_INITIAL_DELAY__
+            periodSeconds: __LIVENESS_PERIOD__
+            timeoutSeconds: __LIVENESS_TIMEOUT__
+            failureThreshold: __LIVENESS_FAILURE_THRESHOLD__
+          readinessProbe:
+            httpGet:
+              path: __READINESS_PATH__
+              port: http
+            initialDelaySeconds: __READINESS_INITIAL_DELAY__
+            periodSeconds: __READINESS_PERIOD__
+            timeoutSeconds: __READINESS_TIMEOUT__
+            failureThreshold: __READINESS_FAILURE_THRESHOLD__

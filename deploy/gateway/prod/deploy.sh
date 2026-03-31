@@ -23,11 +23,26 @@ IMAGE_REPOSITORY=$(get_value "IMAGE_REPOSITORY")
 IMAGE_TAG=$(get_value "IMAGE_TAG")
 IMAGE_PULL_POLICY=$(get_value "IMAGE_PULL_POLICY")
 IMAGE_PULL_SECRET=$(get_value "IMAGE_PULL_SECRET")
+SERVICE_PORT=$(get_value "SERVICE_PORT")
+CONTAINER_PORT=$(get_value "CONTAINER_PORT")
 REPLICAS=$(get_value "REPLICAS")
 REQUEST_CPU=$(get_value "REQUEST_CPU")
 REQUEST_MEMORY=$(get_value "REQUEST_MEMORY")
 LIMIT_CPU=$(get_value "LIMIT_CPU")
 LIMIT_MEMORY=$(get_value "LIMIT_MEMORY")
+LIVENESS_PATH=$(get_value "LIVENESS_PATH")
+LIVENESS_INITIAL_DELAY=$(get_value "LIVENESS_INITIAL_DELAY")
+LIVENESS_PERIOD=$(get_value "LIVENESS_PERIOD")
+LIVENESS_TIMEOUT=$(get_value "LIVENESS_TIMEOUT")
+LIVENESS_FAILURE_THRESHOLD=$(get_value "LIVENESS_FAILURE_THRESHOLD")
+READINESS_PATH=$(get_value "READINESS_PATH")
+READINESS_INITIAL_DELAY=$(get_value "READINESS_INITIAL_DELAY")
+READINESS_PERIOD=$(get_value "READINESS_PERIOD")
+READINESS_TIMEOUT=$(get_value "READINESS_TIMEOUT")
+READINESS_FAILURE_THRESHOLD=$(get_value "READINESS_FAILURE_THRESHOLD")
+API_BASE_URL=$(get_value "API_BASE_URL")
+ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
+GATEWAY_HOSTNAME=$(get_value "GATEWAY_HOSTNAME")
 ENV=$(get_value "ENV")
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
@@ -71,11 +86,25 @@ PY
     -e "s|__IMAGE_REPOSITORY__|${IMAGE_REPOSITORY}|g" \
     -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
     -e "s|__IMAGE_PULL_POLICY__|${IMAGE_PULL_POLICY}|g" \
+    -e "s|__SERVICE_PORT__|${SERVICE_PORT}|g" \
+    -e "s|__CONTAINER_PORT__|${CONTAINER_PORT}|g" \
     -e "s|__REPLICAS__|${REPLICAS}|g" \
     -e "s|__REQUEST_CPU__|${REQUEST_CPU}|g" \
     -e "s|__REQUEST_MEMORY__|${REQUEST_MEMORY}|g" \
     -e "s|__LIMIT_CPU__|${LIMIT_CPU}|g" \
     -e "s|__LIMIT_MEMORY__|${LIMIT_MEMORY}|g" \
+    -e "s|__LIVENESS_PATH__|${LIVENESS_PATH}|g" \
+    -e "s|__LIVENESS_INITIAL_DELAY__|${LIVENESS_INITIAL_DELAY}|g" \
+    -e "s|__LIVENESS_PERIOD__|${LIVENESS_PERIOD}|g" \
+    -e "s|__LIVENESS_TIMEOUT__|${LIVENESS_TIMEOUT}|g" \
+    -e "s|__LIVENESS_FAILURE_THRESHOLD__|${LIVENESS_FAILURE_THRESHOLD}|g" \
+    -e "s|__READINESS_PATH__|${READINESS_PATH}|g" \
+    -e "s|__READINESS_INITIAL_DELAY__|${READINESS_INITIAL_DELAY}|g" \
+    -e "s|__READINESS_PERIOD__|${READINESS_PERIOD}|g" \
+    -e "s|__READINESS_TIMEOUT__|${READINESS_TIMEOUT}|g" \
+    -e "s|__READINESS_FAILURE_THRESHOLD__|${READINESS_FAILURE_THRESHOLD}|g" \
+    -e "s|__API_BASE_URL__|${API_BASE_URL}|g" \
+    -e "s|__GATEWAY_HOSTNAME__|${GATEWAY_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
     "$dst"
   rm -f "$dst.bak"
@@ -83,9 +112,16 @@ PY
 
 render_template "$MANIFESTS_DIR/configmap.tmpl.yaml" rendered/configmap.yaml
 render_template "$MANIFESTS_DIR/statefulset.tmpl.yaml" rendered/statefulset.yaml
+render_template "$MANIFESTS_DIR/service.tmpl.yaml" rendered/service.yaml
 
 kubectl apply -f rendered/configmap.yaml
+kubectl apply -f rendered/service.yaml
 kubectl apply -f rendered/statefulset.yaml
+
+if [ "$ROUTE_ENABLED" = "true" ]; then
+  render_template "$MANIFESTS_DIR/httproute.tmpl.yaml" rendered/httproute.yaml
+  kubectl apply -f rendered/httproute.yaml
+fi
 
 echo ""
 echo -e "${GREEN}✅ Prod 环境部署完成${NC}"

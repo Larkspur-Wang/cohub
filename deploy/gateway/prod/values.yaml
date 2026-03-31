@@ -10,12 +10,35 @@ IMAGE_TAG: "main-f94a3c6"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: "gitea-registry"
 
+# ========== 服务端口 ==========
+SERVICE_PORT: "8788"
+CONTAINER_PORT: "8788"
+
 # ========== 副本与资源 ==========
 REPLICAS: "1"
 REQUEST_CPU: "200m"
 REQUEST_MEMORY: "256Mi"
 LIMIT_CPU: "1000m"
 LIMIT_MEMORY: "1Gi"
+
+# ========== 健康检查 ==========
+LIVENESS_PATH: "/healthz"
+LIVENESS_INITIAL_DELAY: "10"
+LIVENESS_PERIOD: "10"
+LIVENESS_TIMEOUT: "2"
+LIVENESS_FAILURE_THRESHOLD: "3"
+READINESS_PATH: "/readyz"
+READINESS_INITIAL_DELAY: "5"
+READINESS_PERIOD: "5"
+READINESS_TIMEOUT: "2"
+READINESS_FAILURE_THRESHOLD: "3"
+
+# ========== Gateway 配置 ==========
+API_BASE_URL: "http://cohub-api.cohub.svc.cluster.local:8787"
+
+# ========== 路由配置 ==========
+ROUTE_ENABLED: "true"
+GATEWAY_HOSTNAME: "gateway.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "prod"
