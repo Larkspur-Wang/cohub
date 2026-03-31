@@ -112,13 +112,29 @@ async function handleFork(preferredName?: string) {
 async function handlePublish() {
   if (isPublishing || !workspace) return;
   if (workspace.visibility === "public") return;
-  
+
   isPublishing = true;
   try {
     const result = await updateWorkspace(workspace.id, { visibility: "public" });
     workspace = result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to publish workspace";
+    alert(message);
+  } finally {
+    isPublishing = false;
+  }
+}
+
+async function handleMakePrivate() {
+  if (isPublishing || !workspace) return;
+  if (workspace.visibility === "private") return;
+
+  isPublishing = true;
+  try {
+    const result = await updateWorkspace(workspace.id, { visibility: "private" });
+    workspace = result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to make workspace private";
     alert(message);
   } finally {
     isPublishing = false;
@@ -154,7 +170,7 @@ async function handlePublish() {
               <span>Owned by <span class="text-black">{workspace.ownerUsername || workspace.ownerUserUuid}</span></span>
               {#if workspace.forkedFrom}
                 <span>•</span>
-                <a href="/workspaces/{workspace.forkedFrom.id}" class="inline-flex items-center gap-1 text-black underline decoration-[3px] underline-offset-4">
+                <a href="/workspaces/{workspace.forkedFrom.id}" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${workspace.forkedFrom?.id}`); }} class="inline-flex items-center gap-1 text-black underline decoration-[3px] underline-offset-4 cursor-pointer">
                   <GitFork class="w-4 h-4" />
                   forked from {workspace.forkedFrom.ownerUsername || workspace.forkedFrom.ownerUserUuid}/{workspace.forkedFrom.name}
                 </a>
@@ -177,6 +193,12 @@ async function handlePublish() {
             <button onclick={handlePublish} disabled={isPublishing} class="neo-btn neo-btn-secondary disabled:opacity-50">
               <Globe class="w-4 h-4" />
               {isPublishing ? "Publishing..." : "Make Public"}
+            </button>
+          {/if}
+          {#if isOwner && workspace.visibility === "public"}
+            <button onclick={handleMakePrivate} disabled={isPublishing} class="neo-btn neo-btn-secondary disabled:opacity-50">
+              <Lock class="w-4 h-4" />
+              {isPublishing ? "Updating..." : "Make Private"}
             </button>
           {/if}
           {#if isOwner && !isEmpty}

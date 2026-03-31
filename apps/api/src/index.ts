@@ -801,7 +801,7 @@ app.post("/api/workspaces/:id/fork", async (c) => {
       name: requestedName || workspace.name,
       description: workspace.description,
       giteaRepoName: forkedRepo.name,
-      visibility: workspace.visibility,
+      visibility: "private",
       parentId: workspace.id,
     })
     .returning();
