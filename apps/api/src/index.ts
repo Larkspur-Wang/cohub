@@ -33,9 +33,7 @@ import type {
 import {
   createRuntime,
   createInitialRuntimeSession,
-  createUserMessageNode,
   deleteRuntime,
-  enqueueRuntimePrompt,
   forkRuntimeSession,
   getRuntimeById,
   getRuntimeProvision,
@@ -56,13 +54,16 @@ import {
   validateRuntimeEnv,
   wakeRuntime,
   writeInitialRuntimeProvision,
+  createUserMessageNode,
+  enqueueRuntimePrompt,
 } from "./runtime-sessions.js";
+import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
 import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
-import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, publishGatewaySessionResponseResult } from "./redis.js";
+import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, publishGatewaySessionResponseResult, getRuntimeOutputStreamKey } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
@@ -239,28 +240,17 @@ const startGatewaySessionResponseListener = async () => {
           let event: GatewaySessionResponseRequestEvent | null = null;
           try {
             event = JSON.parse(payload) as GatewaySessionResponseRequestEvent;
-            const userMessage = await createUserMessageNode({
-              runtimeSessionId: event.sessionId,
-              text: event.inputText,
-              meta: {
-                source: `channel:${event.actor.source}`,
-                interactionId: event.interactionId,
-                responseModel: event.model ?? null,
-                responseMetadata: event.metadata ?? null,
-                actorUserId: event.actor.userId,
-              },
-            });
-
-            await enqueueRuntimePrompt({
+            const result = await executeSessionInteraction({
               runtimeId: event.runtimeId,
               sessionId: event.sessionId,
-              userMessageId: userMessage.id,
-              message: { text: event.inputText, images: [] },
-              meta: {
-                source: `channel:${event.actor.source}`,
-                intent: "continue",
-                interactionId: event.interactionId,
-              } as Record<string, unknown>,
+              inputText: event.inputText,
+              source: `channel:${event.actor.source}`,
+              interactionId: event.interactionId,
+              actorUserId: event.actor.userId,
+              metadata: {
+                responseModel: event.model ?? null,
+                responseMetadata: event.metadata ?? null,
+              },
             });
 
             await publishGatewaySessionResponseResult({
@@ -269,8 +259,94 @@ const startGatewaySessionResponseListener = async () => {
               timestamp: Date.now(),
               runtimeId: event.runtimeId,
               sessionId: event.sessionId,
-              userMessageId: userMessage.id,
+              userMessageId: result.userMessageId,
             });
+
+            void (async () => {
+              const streamKey = getRuntimeOutputStreamKey(event.runtimeId);
+              const streamClient = createBlockingRedisClient();
+              try {
+                if (streamClient.status === "wait") {
+                  await streamClient.connect();
+                }
+                let lastId = "$";
+                const deadline = Date.now() + 10 * 60 * 1000;
+                let startedPublished = false;
+
+                while (Date.now() < deadline) {
+                  const output = await streamClient.xread("BLOCK", 15000, "STREAMS", streamKey, lastId);
+                  if (!output) continue;
+
+                  for (const [, entries] of output as Array<[string, Array<[string, string[]]>]>) {
+                    for (const [entryId, streamFields] of entries) {
+                      lastId = entryId;
+                      const payloadValue = streamFields[streamFields.indexOf("payload") + 1];
+                      if (!payloadValue) continue;
+
+                      let runtimeEvent: Record<string, unknown> | null = null;
+                      try {
+                        runtimeEvent = JSON.parse(payloadValue) as Record<string, unknown>;
+                      } catch {
+                        continue;
+                      }
+
+                      if (runtimeEvent?.runtimeId !== event.runtimeId) continue;
+                      if (runtimeEvent?.sessionId !== event.sessionId) continue;
+
+                      if (runtimeEvent?.type === "provider_render_update" && runtimeEvent?.sourceMessageId === result.userMessageId && !startedPublished) {
+                        startedPublished = true;
+                        await publishGatewaySessionResponseResult({
+                          type: "started",
+                          interactionId: event.interactionId,
+                          timestamp: Date.now(),
+                          runtimeId: event.runtimeId,
+                          sessionId: event.sessionId,
+                          userMessageId: result.userMessageId,
+                        });
+                      }
+
+                      if (runtimeEvent?.type === "agent_event") {
+                        const agentEvent = runtimeEvent.event as Record<string, unknown> | undefined;
+                        const eventType = typeof agentEvent?.type === "string" ? agentEvent.type : "";
+                        const message = agentEvent?.message as Record<string, unknown> | undefined;
+                        if (eventType !== "turn_end" || !message || typeof message !== "object") continue;
+                        const meta = (message.meta as Record<string, unknown> | null) ?? null;
+                        const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
+                        if (anchorUserMessageId && anchorUserMessageId !== result.userMessageId) continue;
+
+                        if (!startedPublished) {
+                          startedPublished = true;
+                          await publishGatewaySessionResponseResult({
+                            type: "started",
+                            interactionId: event.interactionId,
+                            timestamp: Date.now(),
+                            runtimeId: event.runtimeId,
+                            sessionId: event.sessionId,
+                            userMessageId: result.userMessageId,
+                          });
+                        }
+
+                        await publishGatewaySessionResponseResult({
+                          type: "completed",
+                          interactionId: event.interactionId,
+                          timestamp: Date.now(),
+                          runtimeId: event.runtimeId,
+                          sessionId: event.sessionId,
+                          userMessageId: result.userMessageId,
+                        });
+                        return;
+                      }
+                    }
+                  }
+                }
+              } catch (streamError) {
+                console.error("[Responses] Failed to publish started/completed events:", streamError);
+              } finally {
+                await streamClient.quit().catch(async () => {
+                  streamClient.disconnect();
+                });
+              }
+            })().catch(console.error);
 
             await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
           } catch (err) {

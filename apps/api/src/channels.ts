@@ -10,7 +10,8 @@ import type {
   RuntimeChannelConfig,
 } from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
-import { createUserMessageNode, enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
+import { forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
+import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 
 /**
  * 分配算法：目前简单采用随机分配活跃节点
@@ -397,7 +398,7 @@ export async function createProviderMessageRef(input: {
   return ref ?? null;
 }
 
-async function getProviderMessageRef(input: {
+export async function getProviderMessageRef(input: {
   provider: string;
   externalConversationId: string;
   externalMessageId: string;
@@ -426,7 +427,7 @@ async function getProviderMessageRef(input: {
   return ref ?? null;
 }
 
-async function resolveForkSourceForInboundEvent(input: {
+export async function resolveForkSourceForInboundEvent(input: {
   runtimeId: string;
   runtimeChannelId: string;
   provider: string;
@@ -475,7 +476,7 @@ async function resolveForkSourceForInboundEvent(input: {
   return null;
 }
 
-function buildDefaultBindingMeta(event: GatewayInboundEvent) {
+export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
   return {
     conversation: event.conversation ?? null,
     message: event.message ?? null,
@@ -640,55 +641,10 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     eventType: event.eventType,
   });
 
-  const [rc] = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.id, event.channelId))
-    .limit(1);
+  const resolved = await resolveSessionInteractionForInboundEvent(event);
+  if (!resolved) return;
 
-  if (!rc) {
-    console.warn(`[Channels] Received inbound event for unknown runtime-channel: ${event.channelId}`);
-    return;
-  }
-
-  console.log("[Channels] Resolved runtime channel", {
-    runtimeChannelId: rc.id,
-    runtimeId: rc.runtimeId,
-  });
-
-  const conversationId = event.conversation?.id?.trim() || event.externalChatId;
-  const existingInboundRef = await getProviderMessageRef({
-    provider: event.provider,
-    externalConversationId: conversationId,
-    externalMessageId: event.externalMessageId,
-    direction: "inbound",
-  });
-
-  if (existingInboundRef) {
-    console.log(
-      `[Channels] Duplicate inbound ignored provider=${event.provider} conversation=${conversationId} message=${event.externalMessageId}`,
-    );
-    return;
-  }
-
-  console.log("[Channels] Inbound message is new", {
-    provider: event.provider,
-    conversationId,
-    externalMessageId: event.externalMessageId,
-  });
-
-  const bindingKey =
-    event.bindingKey?.trim() ||
-    `${event.provider}:conversation:${conversationId}`;
-
-  const binding = await resolveOrCreateSessionBindingForEvent({
-    runtimeId: rc.runtimeId,
-    runtimeChannelId: rc.id,
-    provider: event.provider,
-    externalChatId: event.externalChatId,
-    bindingKey,
-    event,
-  });
+  const { runtimeId, runtimeChannelId, sessionId, binding, conversationId, bindingKey } = resolved;
 
   console.log("[Channels] Resolved binding", {
     bindingId: binding.id,
@@ -696,9 +652,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     runtimeChannelId: binding.runtimeChannelId,
     externalChatId: binding.externalChatId,
   });
-
-
-  const sessionId = binding.runtimeSessionId;
 
   if (event.eventType === "conversation_create") {
     console.log("[Channels] conversation_create handled without materializing user message", {
@@ -708,33 +661,47 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     return;
   }
 
-  const textBlock = event.content.find((block): block is { type: 'text'; text: string } => block.type === 'text');
+  const textBlock = event.content.find((block): block is { type: "text"; text: string } => block.type === "text");
   const text = textBlock?.text || "";
-  const images = event.content
-    .filter((block): block is { type: 'image'; uri: string } => block.type === 'image' && !!block.uri)
-    .map((block) => ({ url: block.uri }));
 
-  const userMessage = await createUserMessageNode({
-    runtimeSessionId: sessionId,
-    text,
-    images,
+  const result = await executeSessionInteraction({
+    runtimeId,
+    sessionId,
+    inputText: text,
+    source: `channel:${event.provider}`,
+    interactionId: event.eventId,
+    actorUserId: event.sender.id,
     externalMessageId: event.externalMessageId,
-    meta: {
+    metadata: {
       provider: event.provider,
       externalConversationId: conversationId,
       sender: event.sender,
       eventMessage: event.message ?? null,
       providerMeta: event.meta ?? null,
     },
+    inboundRef: {
+      provider: event.provider,
+      runtimeChannelId,
+      externalConversationId: conversationId,
+      externalMessageId: event.externalMessageId,
+      externalAuthorId: event.sender.id,
+      externalAuthorName: event.sender.name ?? null,
+      meta: {
+        bindingKey,
+        conversation: event.conversation ?? null,
+        message: event.message ?? null,
+        content: event.content,
+        providerMeta: event.meta ?? null,
+      },
+    },
   });
 
-  console.log("[Channels] Created user message node", {
+  console.log("[Channels] Executed session interaction", {
+    runtimeId,
     runtimeSessionId: sessionId,
-    userMessageId: userMessage.id,
-    textLength: text.length,
-    imageCount: images.length,
+    userMessageId: result.userMessageId,
+    interactionId: event.eventId,
   });
-
 
   await updateRuntimeSessionBindingMeta({
     bindingId: binding.id,
@@ -754,44 +721,4 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
       },
     },
   }).catch(console.error);
-
-  await db
-    .insert(providerMessageRefs)
-    .values({
-      provider: event.provider,
-      runtimeId: rc.runtimeId,
-      runtimeSessionId: sessionId,
-      runtimeChannelId: rc.id,
-      sessionMessageId: userMessage.id,
-      direction: "inbound",
-      externalConversationId: conversationId,
-      externalMessageId: event.externalMessageId,
-      parentExternalConversationId: event.conversation?.parentId ?? null,
-      parentExternalMessageId: event.message?.parentMessageId ?? null,
-      externalAuthorId: event.sender.id,
-      externalAuthorName: event.sender.name ?? null,
-      meta: {
-        bindingKey,
-        conversation: event.conversation ?? null,
-        message: event.message ?? null,
-        content: event.content,
-        providerMeta: event.meta ?? null,
-        messageKind: "user",
-        anchorUserMessageId: userMessage.id,
-      },
-    });
-
-  await enqueueRuntimePrompt({
-    runtimeId: rc.runtimeId,
-    sessionId,
-    userMessageId: userMessage.id,
-    message: { text, images },
-    meta: { intent: binding?.meta ? "continue" : "auto", source: `channel:${event.provider}` },
-  });
-
-  console.log("[Channels] Enqueued runtime prompt", {
-    runtimeId: rc.runtimeId,
-    runtimeSessionId: sessionId,
-    userMessageId: userMessage.id,
-  });
 }
