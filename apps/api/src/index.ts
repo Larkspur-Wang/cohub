@@ -28,6 +28,7 @@ import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
   RegisterRuntimeSessionInput,
+  GatewaySessionResponseRequestEvent,
 } from "@cohub/protocol";
 import {
   createRuntime,
@@ -61,7 +62,7 @@ import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } 
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
 import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
-import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
+import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, publishGatewaySessionResponseResult } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
@@ -127,6 +128,11 @@ const initInboundConsumerGroup = async () => {
   console.log("[Channels] Inbound consumer group ready:", INBOUND_CONSUMER_GROUP);
 };
 
+const initSessionResponseConsumerGroup = async () => {
+  await ensureConsumerGroup(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, "0");
+  console.log("[Responses] Session response consumer group ready:", SESSION_RESPONSE_CONSUMER_GROUP);
+};
+
 /**
  * 启动 Gateway Inbound 监听器（使用消费者组模式）
  * 支持多实例负载均衡和自动故障转移
@@ -178,7 +184,6 @@ const startGatewayInboundListener = async () => {
               externalMessageId: event.externalMessageId,
               bindingKey: event.bindingKey,
             });
-            // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
             await handleInboundEvent(event);
             await redisCommandClient.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
             console.log("[Channels] Acked inbound event", { streamId: id, eventId: event.eventId });
@@ -190,6 +195,106 @@ const startGatewayInboundListener = async () => {
       }
     } catch (e) {
       console.error("[Channels] Inbound error:", e);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+};
+
+const startGatewaySessionResponseListener = async () => {
+  await initSessionResponseConsumerGroup();
+
+  const client = createBlockingRedisClient();
+  console.log("[Responses] Redis client status before connect:", client.status);
+  if (client.status === "wait") {
+    await client.connect();
+  }
+  console.log("[Responses] Redis client status after connect:", client.status);
+
+  console.log("[Responses] Session response listener started", {
+    group: SESSION_RESPONSE_CONSUMER_GROUP,
+    consumer: CONSUMER_NAME,
+  });
+
+  while (true) {
+    try {
+      const result = await client.xreadgroup(
+        "GROUP",
+        SESSION_RESPONSE_CONSUMER_GROUP,
+        CONSUMER_NAME,
+        "COUNT", INBOUND_BATCH_SIZE,
+        "BLOCK", INBOUND_BLOCK_MS,
+        "STREAMS", GATEWAY_SESSION_RESPONSES_STREAM, ">"
+      );
+
+      if (!result || result.length === 0) continue;
+
+      for (const [, messages] of result as Array<[string, Array<[string, string[]]>]>) {
+        for (const [id, fields] of messages) {
+          const payload = fields[fields.indexOf("payload") + 1];
+          if (!payload) {
+            await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
+            continue;
+          }
+
+          let event: GatewaySessionResponseRequestEvent | null = null;
+          try {
+            event = JSON.parse(payload) as GatewaySessionResponseRequestEvent;
+            const userMessage = await createUserMessageNode({
+              runtimeSessionId: event.sessionId,
+              text: event.inputText,
+              meta: {
+                source: `channel:${event.actor.source}`,
+                interactionId: event.interactionId,
+                responseModel: event.model ?? null,
+                responseMetadata: event.metadata ?? null,
+                actorUserId: event.actor.userId,
+              },
+            });
+
+            await enqueueRuntimePrompt({
+              runtimeId: event.runtimeId,
+              sessionId: event.sessionId,
+              userMessageId: userMessage.id,
+              message: { text: event.inputText, images: [] },
+              meta: {
+                source: `channel:${event.actor.source}`,
+                intent: "continue",
+                interactionId: event.interactionId,
+              } as Record<string, unknown>,
+            });
+
+            await publishGatewaySessionResponseResult({
+              type: "accepted",
+              interactionId: event.interactionId,
+              timestamp: Date.now(),
+              runtimeId: event.runtimeId,
+              sessionId: event.sessionId,
+              userMessageId: userMessage.id,
+            });
+
+            await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`[Responses] Failed to process ${id}:`, err);
+            if (event) {
+              await publishGatewaySessionResponseResult({
+                type: "failed",
+                interactionId: event.interactionId,
+                timestamp: Date.now(),
+                runtimeId: event.runtimeId,
+                sessionId: event.sessionId,
+                error: {
+                  message,
+                  type: "server_error",
+                },
+              }).catch(console.error);
+            }
+            await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[Responses] Listener error:", e);
       await new Promise((r) => setTimeout(r, 5000));
     }
   }
@@ -209,6 +314,7 @@ initGatewayLogConsumer().catch(console.error);
 
 // 启动 Gateway 入站事件监听
 startGatewayInboundListener().catch(console.error);
+startGatewaySessionResponseListener().catch(console.error);
 
 // 优雅关闭处理
 const shutdown = async (signal: string) => {
@@ -1278,7 +1384,7 @@ app.get("/api/sessions/:id", async (c) => {
   if (!session) return c.json({ message: "session not found" }, 404);
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  return c.json({ runtime, session });
+  return c.json({ runtime, session, user });
 });
 
 app.get("/api/sessions/:id/messages", async (c) => {

@@ -1,6 +1,7 @@
 import os from "node:os";
 import { redisCommandClient } from "../redis.js";
 import { DiscordProvider } from "../providers/discord/index.js";
+import type { GatewayProvider } from "../providers/base.js";
 
 interface ChannelConfig {
   provider: string;
@@ -16,7 +17,7 @@ export class GatewayManager {
   private syncInterval?: ReturnType<typeof setInterval>;
 
   // 本地维持的实例集合 Map<ChannelId, ProviderInstance>
-  private providers = new Map<string, DiscordProvider>();
+  private providers = new Map<string, GatewayProvider>();
 
   constructor() {
     // 优先使用 k8s 的 pod name (如 gateway-0)，回退到 hostname，再回退到随机生成的 id

@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
 import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, DiscordRuntimeChannelConfig } from "@cohub/protocol";
+import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getRuntimeChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 
@@ -167,7 +168,7 @@ function resolveDiscordDisplayMode(_cmd: GatewayOutboundCommand) {
   return "full";
 }
 
-export class DiscordProvider {
+export class DiscordProvider implements GatewayProvider {
   private client: Client;
   private channelId: string; // 在我们的数据库中定义的该 Channel 实体 ID
   private isConnected = false;

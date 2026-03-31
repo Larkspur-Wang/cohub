@@ -1,5 +1,9 @@
 import { Redis } from "ioredis";
 import type { RuntimeChannelConfig } from "@cohub/protocol";
+import type {
+  GatewaySessionResponseRequestEvent,
+  GatewaySessionResponseResultEvent,
+} from "@cohub/protocol";
 
 export type RedisStreamEntry = [string, string[]];
 
@@ -8,15 +12,6 @@ console.log(`[Redis] Connecting to Redis: ${redisUrl.slice(0, 30)}...`);
 
 /**
  * Shared command client for short-lived, non-blocking Redis commands only.
- *
- * Safe examples:
- * - ZADD / ZREM
- * - HGETALL / HSET
- * - XADD
- *
- * Do NOT use this client for blocking commands such as:
- * - XREAD BLOCK
- * - SUBSCRIBE / PSUBSCRIBE
  */
 export const redisCommandClient = new Redis(redisUrl);
 
@@ -36,10 +31,10 @@ redisCommandClient.on("reconnecting", () => {
   console.log("[Redis] Command client reconnecting...");
 });
 
-// Stream 配置
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
+export const GATEWAY_SESSION_RESPONSES_STREAM = "stream:gateway:session_responses";
 export const STREAM_MAXLEN = 10000;
 export const STREAM_APPROX = "~";
 
@@ -48,6 +43,10 @@ export const xaddWithMaxlen = async (
   streamKey: string,
   ...args: (string | number)[]
 ) => client.xadd(streamKey, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, ...args);
+
+export const getRuntimeOutputStreamKey = (runtimeId: string) => `runtimes:${runtimeId}:output_stream`;
+export const getGatewaySessionResponseResultStreamKey = (interactionId: string) =>
+  `gateway:session_response_result:${interactionId}`;
 
 const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
 const getTurnMessageRefKey = (runtimeChannelId: string, turnAnchorMessageId: string) =>
@@ -103,9 +102,6 @@ export const setTurnMessageExternalRef = async (
   );
 };
 
-/**
- * Creates a dedicated Redis connection for long-lived blocking consumers.
- */
 export const createBlockingRedisClient = () => {
   const client = redisCommandClient.duplicate({ lazyConnect: true });
 
@@ -126,4 +122,24 @@ export const createBlockingRedisClient = () => {
   });
 
   return client;
+};
+
+export const publishGatewaySessionResponseRequest = async (event: GatewaySessionResponseRequestEvent) => {
+  await xaddWithMaxlen(
+    redisCommandClient,
+    GATEWAY_SESSION_RESPONSES_STREAM,
+    "*",
+    "payload",
+    JSON.stringify(event),
+  );
+};
+
+export const publishGatewaySessionResponseResult = async (event: GatewaySessionResponseResultEvent) => {
+  await xaddWithMaxlen(
+    redisCommandClient,
+    getGatewaySessionResponseResultStreamKey(event.interactionId),
+    "*",
+    "payload",
+    JSON.stringify(event),
+  );
 };

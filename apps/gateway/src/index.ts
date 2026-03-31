@@ -1,8 +1,12 @@
 import "dotenv/config";
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
 import { GatewayManager } from "./manager/index.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
 import { createBlockingRedisClient, xaddWithMaxlen } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
+import { registerResponsesProviderRoutes, type SessionResponseVariables } from "./providers/responses/index.js";
+import { gatewayConfig } from "./config.js";
 
 function logStartupInfo() {
   console.log("=".repeat(60));
@@ -11,13 +15,14 @@ function logStartupInfo() {
   console.log(`  ENV: ${process.env.ENV || "unknown"}`);
   console.log(`  DEBUG_MODE: ${process.env.DEBUG_MODE || "false"}`);
   console.log(`  REDIS_URL: ${process.env.REDIS_URL ? `${process.env.REDIS_URL.slice(0, 30)}...` : "not set"}`);
+  console.log(`  API_BASE_URL: ${gatewayConfig.apiBaseUrl}`);
+  console.log(`  PORT: ${gatewayConfig.port}`);
   console.log("=".repeat(60));
 }
 
 async function main() {
   logStartupInfo();
 
-  // 初始化 Outbound Stream 消费者组
   await initOutboundConsumerGroup();
 
   const manager = new GatewayManager();
@@ -25,14 +30,13 @@ async function main() {
 
   console.log("[Gateway] Listening for outbound commands from API...");
 
-  // 监听来自 API 的出站指令
   listenOutboundCommands(async (cmd: GatewayOutboundCommand) => {
     console.log("[Gateway] Received outbound command:", {
       commandId: cmd.commandId,
       channelId: cmd.channelId,
       provider: cmd.provider,
       externalChatId: cmd.externalChatId,
-      contentPreview: cmd.content.map(c => c.type).join(", "),
+      contentPreview: cmd.content.map((c) => c.type).join(", "),
     });
 
     const provider = manager.getProvider(cmd.channelId);
@@ -50,7 +54,11 @@ async function main() {
     console.error("[Gateway] Fatal error listening to outbound stream:", error);
   });
 
-  // 优雅退出处理
+  const app = new Hono<{ Variables: SessionResponseVariables }>();
+  registerResponsesProviderRoutes(app);
+  serve({ fetch: app.fetch, port: gatewayConfig.port });
+  console.log(`@cohub/gateway listening on :${gatewayConfig.port}`);
+
   const shutdown = async () => {
     console.log("[Gateway] Received shutdown signal, stopping...");
     await manager.stop();
@@ -61,20 +69,18 @@ async function main() {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  // === 调试模式：多渠道自动 Pong 逻辑 ===
   if (process.env.DEBUG_MODE === "true") {
     console.log("[Gateway] DEBUG_MODE enabled.");
 
     const startDebugProvider = async (channelId: string, providerType: string, token: string) => {
       console.log(`[Debug] Initializing test channel: ${channelId} (${providerType})`);
-      
+
       if (providerType === "discord") {
         const { DiscordProvider } = await import("./providers/discord/index.js");
         const provider = new DiscordProvider(channelId, token);
         // @ts-ignore
         manager.providers.set(channelId, provider);
       }
-      // 后续在这里增加其他平台的 import 和实例化逻辑
     };
 
     if (process.env.DEBUG_DISCORD_BOT_TOKEN) {
@@ -84,7 +90,6 @@ async function main() {
       await startDebugProvider("debug-telegram", "telegram", process.env.DEBUG_TELEGRAM_BOT_TOKEN);
     }
 
-    // 2. 模拟 API：监听 Inbound 并自动回复 Pong (无差别回复)
     const redis = createBlockingRedisClient();
 
     await redis.connect().catch(() => undefined);
@@ -94,16 +99,15 @@ async function main() {
       while (true) {
         const result = await redis.xread("BLOCK", 0, "STREAMS", INBOUND_STREAM, lastId);
         if (!result) continue;
-        for (const [stream, messages] of result) {
+        for (const [, messages] of result) {
           for (const [id, fields] of messages) {
             lastId = id;
             const payloadIdx = fields.indexOf("payload");
             const payloadStr = payloadIdx >= 0 ? fields[payloadIdx + 1] : undefined;
             if (!payloadStr) continue;
-            
+
             const payload = JSON.parse(payloadStr) as GatewayInboundEvent;
 
-            // 只要是 debug 前缀的 channel，收到消息就回复 Pong
             if (payload.channelId.startsWith("debug-")) {
               console.log(`[Debug] Received ping from ${payload.sender.name} via ${payload.provider}, sending pong...`);
               const pongCmd: GatewayOutboundCommand = {
@@ -113,7 +117,7 @@ async function main() {
                 provider: payload.provider,
                 externalChatId: payload.externalChatId,
                 content: [{ type: "text", text: `pong from ${payload.provider} 🏓` }],
-                replyToExternalMessageId: payload.externalMessageId, // 尝试在各个平台触发 "回复" 功能
+                replyToExternalMessageId: payload.externalMessageId,
               };
               await xaddWithMaxlen(redis, OUTBOUND_STREAM, "*", "payload", JSON.stringify(pongCmd));
             }

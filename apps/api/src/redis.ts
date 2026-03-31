@@ -1,5 +1,6 @@
 import { Redis } from "ioredis";
 import { config } from "./config.js";
+import type { GatewaySessionResponseRequestEvent, GatewaySessionResponseResultEvent } from "@cohub/protocol";
 
 export type RedisStreamEntry = [string, string[]];
 
@@ -85,14 +86,20 @@ export const getRuntimeSessionOutputStreamKey = (
   runtimeSessionId: string,
 ) => `${redisRuntimeSessionPrefix(runtimeId, runtimeSessionId)}:output_stream`;
 
+export const getGatewaySessionResponseResultStreamKey = (interactionId: string) =>
+  `gateway:session_response_result:${interactionId}`;
+
 // Gateway Stream Keys
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
+export const GATEWAY_SESSION_RESPONSES_STREAM = "stream:gateway:session_responses";
+export const GATEWAY_SESSION_RESPONSE_RESULTS_STREAM = "stream:gateway:session_response_results";
 
 // Consumer Groups
 export const INBOUND_CONSUMER_GROUP = "api-inbound-consumers";
 export const LOG_CONSUMER_GROUP = "api-loggers";
+export const SESSION_RESPONSE_CONSUMER_GROUP = "api-session-response-consumers";
 
 export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: (string | number)[]) => {
   return client.xadd(streamKey, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, ...args);
@@ -128,6 +135,26 @@ export const getStreamInfo = async (streamKey: string) => {
   } catch {
     return { length: 0, exists: false };
   }
+};
+
+export const publishGatewaySessionResponseRequest = async (event: GatewaySessionResponseRequestEvent) => {
+  await xaddWithMaxlen(
+    redisCommandClient,
+    GATEWAY_SESSION_RESPONSES_STREAM,
+    "*",
+    "payload",
+    JSON.stringify(event),
+  );
+};
+
+export const publishGatewaySessionResponseResult = async (event: GatewaySessionResponseResultEvent) => {
+  await xaddWithMaxlen(
+    redisCommandClient,
+    getGatewaySessionResponseResultStreamKey(event.interactionId),
+    "*",
+    "payload",
+    JSON.stringify(event),
+  );
 };
 
 
