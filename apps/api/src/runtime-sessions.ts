@@ -742,6 +742,24 @@ export const createUserMessageNode = async (input: {
     .returning();
 
   if (!message) throw new Error("Failed to create user message node");
+
+  // 如果 session 还没有 title 且这是第一条消息，用 user message 缩略文本自动填充
+  const shouldSetTitle = !session.title?.trim() && session.totalMessages === 0;
+  if (shouldSetTitle) {
+    const titleText = input.text
+      .replace(/\s+/g, " ")
+      .replace(/^[:\-\s]+/, "")
+      .trim()
+      .slice(0, 60);
+
+    if (titleText) {
+      await db
+        .update(runtimeSessions)
+        .set({ title: titleText, updatedAt: new Date() })
+        .where(eq(runtimeSessions.id, input.runtimeSessionId));
+    }
+  }
+
   await updateSessionAfterAppend(input.runtimeSessionId, message);
   return message;
 };

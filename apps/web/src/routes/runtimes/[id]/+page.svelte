@@ -20,7 +20,7 @@ import {
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus } from "lucide-svelte";
+import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus, Zap } from "lucide-svelte";
 
 type Props = {
   data: {
@@ -56,8 +56,8 @@ let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let streamingAssistantText = $state("");
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
-let listEl = $state<HTMLDivElement | null>(null);
-let contentEl = $state<HTMLDivElement | null>(null);
+const listEl = $state<HTMLDivElement | null>(null);
+const contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
 let channelConfigErrorById = $state<Record<string, string>>({});
 let loadingSessionIds = $state<Record<string, boolean>>({});
@@ -602,6 +602,7 @@ $effect(() => {
           <div class="px-3 py-4 text-xs text-white/30 text-center">No sessions yet</div>
         {:else}
           {#each runtimeSessions as session, index (session.id)}
+            {@const isStreaming = streamStatus === 'streaming' && activeSessionId === session.id}
             <button
               class={`w-full flex flex-col px-3 py-2 rounded-md text-left transition-colors relative ${activeSessionId === session.id ? 'bg-[#1A1A1A] text-white border border-white/10' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
               onclick={() => openSession(session.id)}
@@ -612,10 +613,18 @@ $effect(() => {
               {/if}
               <div class="flex items-center gap-2 w-full">
                 <div class="text-xs font-medium truncate flex-1">{getSessionTitle(session, index)}</div>
-                {#if loadingSessionIds[session.id]}
+                {#if isStreaming}
+                  <div class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 shrink-0">
+                    <Zap class="w-3 h-3" />
+                    <span class="text-[10px] font-medium">running</span>
+                  </div>
+                {:else if loadingSessionIds[session.id]}
                   <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin shrink-0"></div>
                 {/if}
               </div>
+              {#if session.source}
+                <div class="text-[10px] text-white/30 mt-0.5 truncate">{session.source}</div>
+              {/if}
             </button>
           {/each}
         {/if}
