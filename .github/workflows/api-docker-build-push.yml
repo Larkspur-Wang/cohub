@@ -134,8 +134,8 @@ jobs:
                       - name: DATABASE_URL
                         valueFrom:
                           secretKeyRef:
-                            name: cohub-api-secrets
-                            key: database-url
+                            name: cohub-api-dev-secrets
+                            key: DATABASE_URL
           EOF
           
           kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
@@ -210,7 +210,7 @@ jobs:
                         valueFrom:
                           secretKeyRef:
                             name: cohub-api-secrets
-                            key: database-url
+                            key: DATABASE_URL
           EOF
           
           kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
