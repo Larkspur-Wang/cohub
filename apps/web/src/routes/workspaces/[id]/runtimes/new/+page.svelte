@@ -31,7 +31,7 @@ const getDefaultChannelConfig = (channel: Channel): RuntimeChannelConfigInput =>
   if (channel.provider === "discord") {
     return {
       inbound: {
-        requireMentionInGuild: true,
+        requireMentionInGuild: false,
       },
       outbound: {
         showThinking: true,
