@@ -265,8 +265,8 @@ async function loadSessionState(sessionId: string, force = false) {
       messages: existing?.messages ?? [],
       toolCalls: existing?.toolCalls ?? [],
       loading: true,
-      loaded: false,
-      error: "",
+      loaded: existing?.loaded ?? false,
+      error: existing?.error ?? "",
     },
   };
 

@@ -157,30 +157,34 @@ const createResponseEnvelope = (input: {
   request: CohubSessionResponseRequest;
   actorUserId: string;
   source: GatewaySessionResponseRequestEvent["actor"]["source"];
-}) => ({
-  interactionId: randomUUID(),
-  responseId: `resp_${randomUUID().replace(/-/g, "")}`,
-  itemId: `resp_${randomUUID().replace(/-/g, "")}_output_0`,
-  createdAt: Math.floor(Date.now() / 1000),
-  model: input.request.model ?? "cohub-agent",
-  runtimeId: input.request.runtimeId,
-  sessionId: input.request.sessionId,
-  async publish() {
-    await publishGatewaySessionResponseRequest({
-      interactionId: this.interactionId,
-      timestamp: Date.now(),
-      runtimeId: input.request.runtimeId,
-      sessionId: input.request.sessionId,
-      inputText: input.request.inputText,
-      model: input.request.model ?? null,
-      metadata: input.request.metadata ?? null,
-      actor: {
-        userId: input.actorUserId,
-        source: input.source,
-      },
-    });
-  },
-});
+}) => {
+  const responseId = `resp_${randomUUID().replace(/-/g, "")}`;
+
+  return {
+    interactionId: randomUUID(),
+    responseId,
+    itemId: `${responseId}_output_0`,
+    createdAt: Math.floor(Date.now() / 1000),
+    model: input.request.model ?? "cohub-agent",
+    runtimeId: input.request.runtimeId,
+    sessionId: input.request.sessionId,
+    async publish() {
+      await publishGatewaySessionResponseRequest({
+        interactionId: this.interactionId,
+        timestamp: Date.now(),
+        runtimeId: input.request.runtimeId,
+        sessionId: input.request.sessionId,
+        inputText: input.request.inputText,
+        model: input.request.model ?? null,
+        metadata: input.request.metadata ?? null,
+        actor: {
+          userId: input.actorUserId,
+          source: input.source,
+        },
+      });
+    },
+  };
+};
 
 export const streamSessionResponse = async function* (input: {
   actorUserId: string;
