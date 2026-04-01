@@ -1,5 +1,10 @@
 import { goto } from "$app/navigation";
 import { PUBLIC_API_ORIGIN, PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
+import {
+  clearAuthToken as clearStoredAuthToken,
+  getAuthToken,
+  setAuthToken as setStoredAuthToken,
+} from "$lib/auth";
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -109,6 +114,22 @@ export type SessionMessagesResponse = {
   toolCalls: SessionToolCallRecord[];
 };
 
+const withAuthorization = (init?: RequestInit): RequestInit => {
+  const headers = new Headers(init?.headers);
+  const token = getAuthToken();
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    headers.delete("Authorization");
+  }
+
+  return {
+    ...init,
+    headers,
+  };
+};
+
 const apiFetch = async (
   path: string,
   init?: RequestInit & { fetch?: Fetch },
@@ -116,10 +137,8 @@ const apiFetch = async (
   const fetcher = init?.fetch ?? fetch;
   const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 
-  const response = await fetcher(url, {
-    credentials: "include",
-    ...init,
-  });
+  const response = await fetcher(url, withAuthorization(init));
+
 
   if (response.status === 401 && typeof window !== "undefined") {
     await goto("/login");
@@ -148,10 +167,8 @@ const gatewayFetch = async (
   const fetcher = init?.fetch ?? fetch;
   const url = GATEWAY_BASE_URL ? `${GATEWAY_BASE_URL}${path}` : path;
 
-  const response = await fetcher(url, {
-    credentials: "include",
-    ...init,
-  });
+  const response = await fetcher(url, withAuthorization(init));
+
 
   if (response.status === 401 && typeof window !== "undefined") {
     await goto("/login");
@@ -194,19 +211,28 @@ const readSseEvents = async function* (response: Response) {
 };
 
 export const setAuthToken = async (token: string) => {
-  return apiFetch("/api/auth/token", {
-    method: "POST",
+  const trimmedToken = token.trim();
+  const response = await fetch(API_BASE_URL ? `${API_BASE_URL}/api/me` : "/api/me", {
     headers: {
-      "Content-Type": "application/json",
+      Authorization: `Bearer ${trimmedToken}`,
     },
-    body: JSON.stringify({ token }),
   });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const message = contentType.includes("application/json")
+      ? JSON.stringify(await response.json().catch(() => null))
+      : await response.text().catch(() => response.statusText);
+    throw new Error(message || response.statusText);
+  }
+
+  setStoredAuthToken(trimmedToken);
+  return response.json();
 };
 
 export const clearAuthToken = async () => {
-  return apiFetch("/api/auth/token", {
-    method: "DELETE",
-  });
+  clearStoredAuthToken();
+  return null;
 };
 
 export const getMe = async (customFetch?: Fetch) => {

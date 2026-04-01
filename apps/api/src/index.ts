@@ -5,10 +5,8 @@ import { cors } from "hono/cors";
 import { Hono, type Context } from "hono";
 
 import {
-  clearTokenCookie,
   fetchAuthUser,
   getTokenFromRequest,
-  setTokenCookie,
 } from "./auth.js";
 import { assertRequiredConfig, config } from "./config.js";
 import {
@@ -442,8 +440,8 @@ app.use(
       return origin === config.webOrigin ? origin : config.webOrigin;
     },
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "neta-token", "Authorization"],
-    credentials: true,
+    allowHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
   }),
 );
 
@@ -477,36 +475,18 @@ app.get("/internal/metrics", async (c) => {
   });
 });
 
-app.post("/api/auth/token", async (c) => {
-  const body = await c.req.json<{ token?: string }>().catch(() => null);
-  const token = body?.token?.trim();
-  if (!token) return c.json({ message: "token is required" }, 400);
-  const user = await fetchAuthUser(token).catch((error: unknown) => error);
-  if (!user || user instanceof Error) {
-    return c.json({ message: "invalid token" }, 401);
-  }
-  setTokenCookie(c, token);
-  return c.json({ user });
-});
-
-app.delete("/api/auth/token", (c) => {
-  clearTokenCookie(c);
-  return c.body(null, 204);
-});
-
 app.get("/api/me", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user) {
-    clearTokenCookie(c);
     return c.json({ message: "unauthorized" }, 401);
   }
   return c.json(user);
 });
 
 app.get("/v1/user/", async (c) => {
-  const token = c.req.header("neta-token");
+  const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user) return c.json({ message: "unauthorized" }, 401);
@@ -514,7 +494,7 @@ app.get("/v1/user/", async (c) => {
 });
 
 app.post("/api/v1/user/repos", async (c) => {
-  const token = c.req.header("neta-token");
+  const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ name: string; private?: boolean }>();
   try {
@@ -526,7 +506,7 @@ app.post("/api/v1/user/repos", async (c) => {
 });
 
 app.post("/api/v1/user/keys", async (c) => {
-  const token = c.req.header("neta-token");
+  const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ key: string; title: string }>();
   try {

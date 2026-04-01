@@ -1,9 +1,6 @@
 import type { Context } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { config } from "./config.js";
-
-const TOKEN_COOKIE_NAME = "neta-token";
 
 const parseBearer = (value?: string | null) => {
   if (!value) {
@@ -17,32 +14,7 @@ const parseBearer = (value?: string | null) => {
 };
 
 export const getTokenFromRequest = (c: Context) => {
-  const tokenFromHeader = c.req.header("neta-token");
-  if (tokenFromHeader) {
-    return tokenFromHeader;
-  }
-
-  const tokenFromBearer = parseBearer(c.req.header("authorization"));
-  if (tokenFromBearer) {
-    return tokenFromBearer;
-  }
-
-  return getCookie(c, TOKEN_COOKIE_NAME) ?? null;
-};
-
-export const setTokenCookie = (c: Context, token: string) => {
-  setCookie(c, TOKEN_COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "Lax",
-    path: "/",
-    secure: c.req.url.startsWith("https://"),
-  });
-};
-
-export const clearTokenCookie = (c: Context) => {
-  deleteCookie(c, TOKEN_COOKIE_NAME, {
-    path: "/",
-  });
+  return parseBearer(c.req.header("authorization"));
 };
 
 export type AuthUserProfile = {

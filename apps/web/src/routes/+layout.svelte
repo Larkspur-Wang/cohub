@@ -3,12 +3,21 @@ import "../app.css";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { clearAuthToken } from "$lib/api";
+import { getAuthToken } from "$lib/auth";
 import { LayoutDashboard, FolderKanban, Network, Cpu, LogOut, Globe, Menu, X } from "lucide-svelte";
 import { fade, slide } from "svelte/transition";
 
 const { children } = $props();
 
 let isMobileMenuOpen = $state(false);
+
+$effect(() => {
+  if (typeof window === "undefined") return;
+  if (page.url.pathname === "/login") return;
+  if (!getAuthToken()) {
+    goto("/login");
+  }
+});
 
 async function handleLogout() {
   try {
