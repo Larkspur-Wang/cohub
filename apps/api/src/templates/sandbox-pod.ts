@@ -67,6 +67,13 @@ export const SANDBOX_POD_TEMPLATE = {
           { name: "ENV", value: "${ENV}" },
           { name: "WORKSPACE_DIR", value: "/workspace" },
           { name: "SESSIONS_DIR", value: "/sessions" },
+          {
+            name: "PUBLIC_URL_PREFIX",
+            value:
+              config.env === "prod"
+                ? "https://public.cohub.run/r/${RUNTIME_ID}"
+                : "https://public.cohub.run/dev/r/${RUNTIME_ID}",
+          },
           { name: "LITELLM_API_KEY", value: "${LITELLM_API_KEY}" },
           { name: "WORKSPACE_REPO_URL", value: "${WORKSPACE_REPO_URL}" },
           { name: "WORKSPACE_GIT_USERNAME", value: "${WORKSPACE_GIT_USERNAME}" },
@@ -83,6 +90,14 @@ export const SANDBOX_POD_TEMPLATE = {
             mountPath: "/sessions",
             subPath: "cohub-${ENV}/${RUNTIME_ID}/sessions",
           },
+          {
+            name: "public-storage",
+            mountPath: "/public",
+            subPath:
+              config.env === "prod"
+                ? "r/${RUNTIME_ID}"
+                : "dev/r/${RUNTIME_ID}",
+          },
         ],
       },
     ],
@@ -91,6 +106,12 @@ export const SANDBOX_POD_TEMPLATE = {
         name: "workspace-storage",
         persistentVolumeClaim: {
           claimName: "cohub-sessions-pvc",
+        },
+      },
+      {
+        name: "public-storage",
+        persistentVolumeClaim: {
+          claimName: "cohub-sessions-public-pvc",
         },
       },
     ],
