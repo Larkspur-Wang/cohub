@@ -510,7 +510,7 @@ export class DiscordProvider implements GatewayProvider {
             await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch(console.error);
           }
 
-          if (!isPrimaryDisplay) {
+          if (isFinalAssistant) {
             let previousMessageId = target.id;
             for (const chunk of messageChunks.slice(1)) {
               const continuationOptions: MessageCreateOptions = {
