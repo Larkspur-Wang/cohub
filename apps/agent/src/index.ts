@@ -368,9 +368,13 @@ async function loadOrCreateSessionHandle(input: {
 async function main() {
   console.log(`[Supervisor] Starting for Runtime: ${env.RUNTIME_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
+  console.log(`[Supervisor] Runtime version: ${env.RUNTIME_VERSION || "unknown"}`);
+  console.log(`[Supervisor] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
     runtimeId: env.RUNTIME_ID,
+    runtimeVersion: env.RUNTIME_VERSION || null,
+    publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
       env.ENV === "prod"
         ? "http://cohub-api.cohub.svc.cluster.local:8787"

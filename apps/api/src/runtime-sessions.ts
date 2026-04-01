@@ -85,6 +85,8 @@ const RESERVED_RUNTIME_ENV_NAMES = new Set([
   "WORKSPACE_REPO_URL",
   "WORKSPACE_GIT_USERNAME",
   "WORKSPACE_GIT_EMAIL",
+  "PUBLIC_URL_PREFIX",
+  "RUNTIME_VERSION",
 ]);
 
 const nowIso = () => new Date().toISOString();
@@ -125,12 +127,21 @@ const buildRuntimeContainerEnv = (input: {
   workspaceGitEmail?: string;
   extraEnv?: RuntimeEnvVar[];
 }) => {
+  const publicUrlPrefix = input.env === "prod"
+    ? `https://public.cohub.run/r/${input.runtimeId}`
+    : `https://public.cohub.run/dev/r/${input.runtimeId}`;
+  const runtimeVersion = config.sandboxRuntimeImage.includes(":")
+    ? config.sandboxRuntimeImage.split(":").pop() ?? config.sandboxRuntimeImage
+    : config.sandboxRuntimeImage;
+
   return [
     { name: "RUNTIME_ID", value: input.runtimeId },
     { name: "REDIS_URL", value: input.redisUrl },
     { name: "ENV", value: input.env ?? "" },
     { name: "WORKSPACE_DIR", value: "/workspace" },
     { name: "SESSIONS_DIR", value: "/sessions" },
+    { name: "PUBLIC_URL_PREFIX", value: publicUrlPrefix },
+    { name: "RUNTIME_VERSION", value: runtimeVersion },
     { name: "LITELLM_API_KEY", value: input.litellmApiKey ?? "" },
     { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
     { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },
