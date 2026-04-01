@@ -53,15 +53,6 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║   Cohub API Dev 环境部署         ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
-if [ "$ENV" = "prod" ]; then
-  SESSIONS_NAMESPACE="cohub-sessions"
-else
-  SESSIONS_NAMESPACE="cohub-sessions-dev"
-fi
-
-kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace "$SESSIONS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml${NC}"
   exit 1

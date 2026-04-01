@@ -49,8 +49,6 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║   Cohub Gateway Prod 环境部署          ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
-kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml，请复制 secrets.template.yaml 并填入真实值${NC}"
   exit 1
