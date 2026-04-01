@@ -50,7 +50,7 @@ const buildToolLine = (status: string | undefined, toolName: string | undefined,
   return `[${safeStatus}] ${safeToolName}${suffix}`;
 };
 
-const buildDiscordRenderText = (content: UnifiedContentBlock[]) => {
+const buildDiscordRenderText = (content: UnifiedContentBlock[], includeThinking = false) => {
   const textParts: string[] = [];
   const imageUris: string[] = [];
 
@@ -61,7 +61,9 @@ const buildDiscordRenderText = (content: UnifiedContentBlock[]) => {
     }
 
     if (block.type === "thinking") {
-      textParts.push(block.thinking);
+      if (includeThinking) {
+        textParts.push(block.thinking);
+      }
       continue;
     }
 
@@ -125,14 +127,18 @@ const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Mes
 
 const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutboundCommand) => {
   const renderMode = String(cmd.meta?.renderMode ?? "message");
+  const isFinalMessage = cmd.meta?.source === "session_persist";
+
   if (renderMode !== "rich_status") {
-    return buildDiscordRenderText(cmd.content);
+    // For final messages, exclude thinking blocks
+    return buildDiscordRenderText(cmd.content, !isFinalMessage);
   }
 
   const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
   const outboundConfig = getDiscordOutboundConfig(channelConfig);
-  const thinking = outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
-  const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : buildDiscordRenderText(cmd.content).text;
+  // Only show thinking for intermediate status updates, not final messages
+  const thinking = !isFinalMessage && outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
+  const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : buildDiscordRenderText(cmd.content, false).text;
   const toolCalls = outboundConfig.showToolCalls && Array.isArray(cmd.meta?.toolCalls)
     ? cmd.meta.toolCalls as Array<Record<string, unknown>>
     : [];

@@ -9,14 +9,24 @@ type Props = {
 
 const { message }: Props = $props();
 let renderedHtml = $state("");
+let thinkingExpanded = $state(true);
+
+// Extract thinking blocks and text blocks separately
+const thinkingContent = $derived(
+  message.blocks
+    ?.filter((block) => block.type === "thinking")
+    .map((block) => (block.type === "thinking" ? block.thinking : ""))
+    .join("\n\n")
+    .trim() || ""
+);
 
 $effect(() => {
   let cancelled = false;
 
   void renderMarkdown(
     message.blocks
-      ?.filter((block) => block.type === "text" || block.type === "thinking")
-      .map((block) => (block.type === "text" ? block.text : block.thinking))
+      ?.filter((block) => block.type === "text")
+      .map((block) => (block.type === "text" ? block.text : ""))
       .join("\n\n") || message.text,
   ).then((html) => {
     if (!cancelled) {
@@ -38,7 +48,26 @@ $effect(() => {
       {#if message.title}
         <div class="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">{message.title}</div>
       {/if}
-      
+
+      {#if thinkingContent}
+        <div class="mb-3 rounded-md border border-white/5 bg-white/[0.02] overflow-hidden">
+          <button
+            type="button"
+            class="w-full px-3 py-2 flex items-center justify-between gap-3 text-left cursor-pointer hover:bg-white/[0.02] transition-colors"
+            onclick={() => (thinkingExpanded = !thinkingExpanded)}
+          >
+            <div class="flex items-center gap-2">
+              <div class="text-[10px] uppercase tracking-[0.16em] font-medium text-white/30">Thinking</div>
+              <div class="text-xs text-white/25">{thinkingExpanded ? 'Hide' : 'Show'}</div>
+            </div>
+            <div class="text-white/30 text-xs">{thinkingExpanded ? '▾' : '▸'}</div>
+          </button>
+          {#if thinkingExpanded}
+            <pre class="px-3 pb-3 whitespace-pre-wrap break-words text-[11px] leading-6 text-white/50 border-t border-white/5">{thinkingContent}</pre>
+          {/if}
+        </div>
+      {/if}
+
       <div class="prose prose-sm max-w-none prose-pre:whitespace-pre-wrap prose-pre:break-words prose-code:before:content-none prose-code:after:content-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-headings:my-2 prose-strong:text-white prose-code:text-emerald-400 prose-invert text-inherit">
         {@html renderedHtml}
       </div>
