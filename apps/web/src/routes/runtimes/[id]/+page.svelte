@@ -20,7 +20,7 @@ import {
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus, Zap } from "lucide-svelte";
+import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus, ArrowDown } from "lucide-svelte";
 
 type Props = {
   data: {
@@ -614,12 +614,7 @@ $effect(() => {
               <div class="flex items-center gap-2 w-full">
                 <div class="text-xs font-medium truncate flex-1">{getSessionTitle(session, index)}</div>
                 {#if isStreaming}
-                  <div class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 shrink-0">
-                    <Zap class="w-3 h-3" />
-                    <span class="text-[10px] font-medium">running</span>
-                  </div>
-                {:else if loadingSessionIds[session.id]}
-                  <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin shrink-0"></div>
+                  <div class="w-3.5 h-3.5 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin shrink-0"></div>
                 {/if}
               </div>
               {#if session.source}
@@ -708,7 +703,23 @@ $effect(() => {
             </div>
           {/if}
 
-          <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
+          <div class="relative flex-1 min-h-0">
+            <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
+
+            {#if !shouldAutoFollow && timeline.length > 0}
+              <button
+                type="button"
+                class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 text-xs text-white/70 hover:text-white transition-all shadow-lg backdrop-blur-sm"
+                onclick={() => {
+                  shouldAutoFollow = true;
+                  forceScrollToBottom();
+                }}
+              >
+                <ArrowDown class="w-3.5 h-3.5" />
+                <span>Scroll to bottom</span>
+              </button>
+            {/if}
+          </div>
 
           <div class="border-t border-white/10 bg-[#0A0A0A]">
             <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
