@@ -536,6 +536,7 @@ export const createInitialRuntimeSession = async (input: RegisterRuntimeSessionI
       id: input.sessionId,
       runtimeId: input.runtimeId,
       title: input.title ?? null,
+      source: input.source ?? null,
       status: "active",
       cwd: input.cwd ?? null,
       protocol: input.protocol ?? "pi",
@@ -564,6 +565,7 @@ export const registerRuntimeSession = async (input: RegisterRuntimeSessionInput)
         id: input.sessionId,
         runtimeId: input.runtimeId,
         title: input.title ?? runtime.title ?? null,
+        source: input.source ?? null,
         status: "active",
         cwd: input.cwd ?? null,
         protocol: input.protocol ?? "pi",
@@ -1000,6 +1002,7 @@ export const forkRuntimeSession = async (input: {
   fromMessageId: string;
   newSessionId?: string;
   title?: string | null;
+  source?: string | null;
 }) => {
   const parentSession = await getRuntimeSessionById(input.parentSessionId);
   if (!parentSession || parentSession.runtimeId !== input.runtimeId) {
@@ -1030,6 +1033,7 @@ export const forkRuntimeSession = async (input: {
       id: newSessionId,
       runtimeId: input.runtimeId,
       title: input.title ?? parentSession.title ?? null,
+      source: input.source ?? parentSession.source ?? null,
       status: "active",
       cwd: parentSession.cwd,
       protocol: parentSession.protocol,

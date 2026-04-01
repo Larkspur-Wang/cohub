@@ -86,6 +86,7 @@ export type RegisterRuntimeSessionInput = {
   runtimeId: string;
   sessionId: string;
   title?: string | null;
+  source?: string | null;
   protocol?: ProtocolSource | null;
   externalSessionId?: string | null;
   cwd?: string | null;

@@ -10,6 +10,7 @@ import {
   updateRuntimeSessionBindingMeta,
   buildDefaultBindingMeta,
 } from "./channels.js";
+import { buildSessionSourceChannel } from "@cohub/protocol";
 import { providerMessageRefs, runtimeChannels } from "./db/schema.js";
 import { db } from "./db/index.js";
 import { eq } from "drizzle-orm";
@@ -125,18 +126,20 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
       parentMessageId: event.message?.parentMessageId ?? null,
     });
 
+    const sessionSource = buildSessionSourceChannel(event);
+
     const session = forkSource
       ? await forkRuntimeSession({
           runtimeId: rc.runtimeId,
           parentSessionId: forkSource.parentSessionId,
           fromMessageId: forkSource.fromMessageId,
           newSessionId: randomUUID(),
-          title: `${event.provider}:${event.conversation?.id?.trim() || event.externalChatId}`,
+          source: sessionSource,
         })
       : await registerRuntimeSession({
           runtimeId: rc.runtimeId,
           sessionId: randomUUID(),
-          title: `${event.provider}:${event.conversation?.id?.trim() || event.externalChatId}`,
+          source: sessionSource,
           protocol: "pi",
           cwd: null,
           externalSessionId: null,

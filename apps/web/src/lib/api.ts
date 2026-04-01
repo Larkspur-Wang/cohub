@@ -34,6 +34,7 @@ export type SessionRecord = {
   id: string;
   runtimeId: string;
   title: string | null;
+  source: string | null;
   status: string | null;
   cwd: string | null;
   protocol: string | null;

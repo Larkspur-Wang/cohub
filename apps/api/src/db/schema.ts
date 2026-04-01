@@ -151,6 +151,7 @@ export const runtimeSessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     runtimeId: uuid("runtime_id").notNull(),
     title: varchar("title", { length: 255 }),
+    source: varchar("source", { length: 255 }),
     status: varchar("status", { length: 50 }).default("active"),
     cwd: text("cwd"),
     protocol: varchar("protocol", { length: 30 }),

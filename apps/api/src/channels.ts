@@ -9,6 +9,7 @@ import type {
   ChannelProvider,
   RuntimeChannelConfig,
 } from "@cohub/protocol";
+import { buildSessionSourceChannel } from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
 import { forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
 import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
@@ -564,18 +565,20 @@ async function resolveOrCreateSessionBindingForEvent(input: {
     parentMessageId: input.event.message?.parentMessageId ?? null,
   });
 
+  const sessionSource = buildSessionSourceChannel(input.event);
+
   const session = forkSource
     ? await forkRuntimeSession({
         runtimeId: input.runtimeId,
         parentSessionId: forkSource.parentSessionId,
         fromMessageId: forkSource.fromMessageId,
         newSessionId: randomUUID(),
-        title: `${input.provider}:${input.event.conversation?.id?.trim() || input.externalChatId}`,
+        source: sessionSource,
       })
     : await registerRuntimeSession({
         runtimeId: input.runtimeId,
         sessionId: randomUUID(),
-        title: `${input.provider}:${input.event.conversation?.id?.trim() || input.externalChatId}`,
+        source: sessionSource,
         protocol: "pi",
         cwd: null,
         externalSessionId: null,
