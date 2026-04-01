@@ -8,6 +8,7 @@ import {
   getSessionMessages,
   updateRuntimeChannelConfig,
   createSessionResponseStream,
+  createRuntimeSession,
   type RuntimeChannelConfigInput,
   type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
@@ -19,7 +20,7 @@ import {
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X } from "lucide-svelte";
+import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus } from "lucide-svelte";
 
 type Props = {
   data: {
@@ -63,6 +64,8 @@ let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
 let didInitialScrollBySession = $state<Record<string, boolean>>({});
 let shouldAutoFollow = $state(true);
+let creatingSession = $state(false);
+let createSessionError = $state("");
 
 const activeSessionState = $derived(activeSessionId ? sessionStateById[activeSessionId] ?? null : null);
 const openedSessions = $derived(
@@ -136,6 +139,36 @@ function closeSessionTab(sessionId: string) {
     if (activeSessionId) {
       ensureSessionOpened(activeSessionId);
     }
+  }
+}
+
+async function handleCreateNewSession() {
+  if (creatingSession || !runtime) return;
+  creatingSession = true;
+  createSessionError = "";
+
+  try {
+    const result = await createRuntimeSession(runtime.id);
+    const newSession = result.session;
+
+    runtimeSessions = [...runtimeSessions, newSession];
+    sessionStateById = {
+      ...sessionStateById,
+      [newSession.id]: {
+        session: newSession,
+        messages: [],
+        toolCalls: [],
+        loading: false,
+        loaded: true,
+        error: "",
+      },
+    };
+
+    openSession(newSession.id);
+  } catch (error) {
+    createSessionError = error instanceof Error ? error.message : "Failed to create session";
+  } finally {
+    creatingSession = false;
   }
 }
 
@@ -542,9 +575,24 @@ $effect(() => {
 
   <div class="flex-1 flex min-h-0">
     <aside class="w-56 md:w-60 flex flex-col border-r border-white/10 bg-[#0A0A0A] shrink-0">
-      <div class="h-9 flex items-center px-3 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/40 select-none">
-        <MessageSquare class="w-3.5 h-3.5 mr-2" />
-        Sessions
+      <div class="h-9 flex items-center justify-between px-3 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/40 select-none">
+        <div class="flex items-center">
+          <MessageSquare class="w-3.5 h-3.5 mr-2" />
+          Sessions
+        </div>
+        <button
+          type="button"
+          class="flex items-center gap-1 px-2 py-1 rounded-sm text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors disabled:opacity-50"
+          onclick={() => handleCreateNewSession()}
+          disabled={creatingSession || !runtime}
+          title="New session"
+        >
+          {#if creatingSession}
+            <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin"></div>
+          {:else}
+            <Plus class="w-3.5 h-3.5" />
+          {/if}
+        </button>
       </div>
 
       <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
@@ -610,6 +658,19 @@ $effect(() => {
             </button>
           {/each}
         {/if}
+        <button
+          type="button"
+          class="flex items-center justify-center h-full px-2 text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors shrink-0 disabled:opacity-50"
+          onclick={() => handleCreateNewSession()}
+          disabled={creatingSession || !runtime}
+          title="New tab"
+        >
+          {#if creatingSession}
+            <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin"></div>
+          {:else}
+            <Plus class="w-3.5 h-3.5" />
+          {/if}
+        </button>
       </div>
 
       <div class="flex-1 flex flex-col min-h-0 relative">

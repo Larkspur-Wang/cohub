@@ -646,6 +646,15 @@ export const getRuntimeProvisioning = async (id: string, customFetch?: Fetch) =>
   }) as Promise<RuntimeProvisionResponse>;
 };
 
+export const createRuntimeSession = async (id: string, input?: { title?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }) => {
+  return apiFetch(`/api/runtimes/${id}/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input ?? {}),
+  }) as Promise<{ ok: true; session: SessionRecord }>;};
+
 export const getRuntimeSessions = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/runtimes/${id}/sessions`, {
     fetch: customFetch,

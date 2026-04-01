@@ -1282,6 +1282,32 @@ app.patch("/api/runtime-channels/:id/config", async (c) => {
   return c.json(updated);
 });
 
+app.post("/api/runtimes/:id/sessions", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<{ title?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, cwd: undefined, protocol: undefined }));
+
+  const session = await createInitialRuntimeSession({
+    runtimeId: runtime.id,
+    sessionId: crypto.randomUUID(),
+    title: body.title ?? runtime.title ?? null,
+    protocol: body.protocol ?? ((runtime.meta as Record<string, unknown>)?.protocol as "pi" | "acp" | "internal" | undefined) ?? "pi",
+    cwd: body.cwd ?? ((runtime.meta as Record<string, unknown>)?.cwd as string | undefined) ?? null,
+    externalSessionId: null,
+    meta: { source: "web", createdBy: "api_session_create" },
+  });
+
+  return c.json({ ok: true, session });
+});
+
 app.get("/api/runtimes/:id/sessions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
