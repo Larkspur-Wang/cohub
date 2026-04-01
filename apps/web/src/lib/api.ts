@@ -185,30 +185,57 @@ const readSseEvents = async function* (response: Response) {
   const decoder = new TextDecoder();
   let buffer = "";
 
+  const extractNextChunk = () => {
+    const lfBoundary = buffer.indexOf("\n\n");
+    const crlfBoundary = buffer.indexOf("\r\n\r\n");
+
+    if (lfBoundary === -1 && crlfBoundary === -1) {
+      return null;
+    }
+
+    if (crlfBoundary !== -1 && (lfBoundary === -1 || crlfBoundary < lfBoundary)) {
+      const chunk = buffer.slice(0, crlfBoundary);
+      buffer = buffer.slice(crlfBoundary + 4);
+      return chunk;
+    }
+
+    const chunk = buffer.slice(0, lfBoundary);
+    buffer = buffer.slice(lfBoundary + 2);
+    return chunk;
+  };
+
+  const parseChunk = (chunk: string) => {
+    const normalizedChunk = chunk.replace(/\r\n/g, "\n");
+    const dataLines = normalizedChunk
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""));
+
+    return dataLines.join("\n");
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    let boundaryIndex = buffer.indexOf("\n\n");
-    while (boundaryIndex >= 0) {
-      const chunk = buffer.slice(0, boundaryIndex);
-      buffer = buffer.slice(boundaryIndex + 2);
-
-      const dataLines = chunk
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim());
-
-      const data = dataLines.join("\n");
+    let chunk = extractNextChunk();
+    while (chunk !== null) {
+      const data = parseChunk(chunk);
       if (data) {
         yield data;
       }
-
-      boundaryIndex = buffer.indexOf("\n\n");
+      chunk = extractNextChunk();
     }
   }
+
+  buffer += decoder.decode();
+  const trailingData = parseChunk(buffer);
+  if (trailingData) {
+    yield trailingData;
+  }
 };
+
 
 export const setAuthToken = async (token: string) => {
   const trimmedToken = token.trim();

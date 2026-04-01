@@ -6,9 +6,9 @@ import { gatewayConfig, OpenAIResponsesCreateRequestSchema } from "../../config.
 import { authorizeSessionAccess } from "../../api-client.js";
 import {
   buildResponseObject,
-  buildStreamEvents,
   createSessionResponse,
   normalizeSessionResponseRequest,
+  streamSessionResponse,
 } from "../../interaction/index.js";
 
 export type SessionResponseVariables = {
@@ -85,15 +85,12 @@ export const registerResponsesProviderRoutes = (app: Hono<{ Variables: SessionRe
       if (request.stream) {
         return streamSSE(c, async (stream) => {
           try {
-            const result = await createSessionResponse({
-              token,
+            for await (const event of streamSessionResponse({
               actorUserId: authUser.uuid,
               source: "responses",
               request,
               signal: c.req.raw.signal,
-            });
-
-            for (const event of buildStreamEvents(result)) {
+            })) {
               await stream.writeSSE({ data: JSON.stringify(event) });
             }
             await stream.writeSSE({ data: "[DONE]" });
