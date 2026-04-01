@@ -84,9 +84,6 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -99,28 +96,18 @@ jobs:
 
       - name: Deploy to Dev
         run: |
-          cd deploy/gateway/dev
-          OVERRIDE_IMAGE_TAG="${{ github.sha }}" ./deploy.sh
+          # Dev 使用 latest + Always pull，只需 rollout restart
+          kubectl rollout restart statefulset/cohub-gateway-dev -n cohub-dev
 
       - name: Verify deployment
         run: |
           kubectl rollout status statefulset/cohub-gateway-dev -n cohub-dev --timeout=300s
-          kubectl get pods -n cohub-dev -l app.kubernetes.io/name=cogateway-dev
 
   deploy-prod:
     needs: build-and-push
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get release tag
-        id: get-tag
-        run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -131,12 +118,18 @@ jobs:
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
 
+      - name: Get release tag
+        id: get-tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
       - name: Deploy to Prod
         run: |
-          cd deploy/gateway/prod
-          OVERRIDE_IMAGE_TAG="${{ steps.get-tag.outputs.tag }}" ./deploy.sh
+          TAG="${{ steps.get-tag.outputs.tag }}"
+          # 更新 StatefulSet image
+          kubectl set image statefulset/cohub-gateway cohub-gateway=git.talesofai.com/talesofai/cohub-gateway:$TAG -n cohub
 
       - name: Verify deployment
         run: |
           kubectl rollout status statefulset/cohub-gateway -n cohub --timeout=300s
-          kubectl get pods -n cohub -l app.kubernetes.io/name=cohub-gateway
