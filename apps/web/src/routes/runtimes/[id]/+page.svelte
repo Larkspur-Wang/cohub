@@ -388,12 +388,46 @@ async function handleSend() {
 
       if (event.type === "response.completed") {
         streamStatus = "done";
+
+        const finalText = event.response.output?.[0]?.content?.[0]?.text ?? streamingAssistantText;
+        const latestState = sessionStateById[sessionId];
+        if (latestState && finalText.trim()) {
+          sessionStateById = {
+            ...sessionStateById,
+            [sessionId]: {
+              ...latestState,
+              messages: [
+                ...latestState.messages,
+                {
+                  id: `optimistic-assistant-${Date.now()}`,
+                  sessionId,
+                  role: "assistant",
+                  content: [{ type: "text", text: finalText }],
+                  text: finalText,
+                  externalMessageId: null,
+                  protocolMessageId: null,
+                  sequence: (latestState.messages.at(-1)?.sequence ?? 0) + 1,
+                  prevMessageId: latestState.messages.at(-1)?.id ?? null,
+                  provider: null,
+                  model: event.response.model ?? null,
+                  stopReason: null,
+                  errorMessage: null,
+                  usageInput: null,
+                  usageOutput: null,
+                  usageTotalTokens: null,
+                  costTotal: null,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+            },
+          };
+        }
+
+        streamingAssistantText = "";
       }
     }
 
-    streamingAssistantText = "";
     await loadSessionState(sessionId, true);
-    await loadRuntime();
   } catch (error) {
     streamError = error instanceof Error ? error.message : "Failed to send message";
     streamStatus = "error";

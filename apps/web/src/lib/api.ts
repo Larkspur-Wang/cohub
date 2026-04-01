@@ -321,7 +321,19 @@ export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
 export type SessionResponseStreamEvent =
   | { type: "response.created"; response: { id: string; status: string; model: string } }
   | { type: "response.output_text.delta"; delta: string }
-  | { type: "response.completed"; response: { id: string; status: string } }
+  | {
+      type: "response.completed";
+      response: {
+        id: string;
+        status: string;
+        model: string;
+        output?: Array<{
+          content?: Array<{
+            text?: string;
+          }>;
+        }>;
+      };
+    }
   | { type: "response.failed"; response: { error?: { message?: string; type?: string } } };
 
 export const createSessionResponseStream = async function* (input: {
