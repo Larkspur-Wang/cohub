@@ -82,7 +82,11 @@ async function moveToDeadLetterQueue(rawMessage: string, reason: string) {
 }
 
 export async function listenForInput(
-  handler: (input: AgentInput) => Promise<void>,
+  handler: (
+    input: AgentInput,
+    ack: () => Promise<void>,
+    reject: (reason: string) => Promise<void>,
+  ) => void,
 ) {
   console.log(`[Redis] Listening for input on ${LIST_KEY_IN}...`);
   while (true) {
@@ -93,8 +97,35 @@ export async function listenForInput(
       if (!rawMessage) continue;
 
       const parsed = InputSchema.parse(JSON.parse(rawMessage));
-      await handler(parsed);
-      await redis.lrem(PROCESSING_KEY, 1, rawMessage);
+      const currentRawMessage = rawMessage;
+      let handled = false;
+
+      const ack = async () => {
+        if (handled) return;
+        handled = true;
+        await redis.lrem(PROCESSING_KEY, 1, currentRawMessage).catch((e) => {
+          console.error("[Redis] Failed to ack message:", e);
+        });
+      };
+
+      const reject = async (reason: string) => {
+        if (handled) return;
+        handled = true;
+        try {
+          await moveToDeadLetterQueue(currentRawMessage, reason);
+          await redis.lrem(PROCESSING_KEY, 1, currentRawMessage);
+        } catch (e) {
+          console.error("[Redis] Failed to reject message:", e);
+        }
+      };
+
+      try {
+        // Fire and forget - handler manages its own ack/reject
+        handler(parsed, ack, reject);
+      } catch (syncErr) {
+        console.error("[Redis] Sync error in handler:", syncErr);
+        await reject(syncErr instanceof Error ? syncErr.message : String(syncErr));
+      }
     } catch (err) {
       console.error("[Redis] Error processing input:", err);
 

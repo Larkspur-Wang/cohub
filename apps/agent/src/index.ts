@@ -16,10 +16,16 @@ import {
   setRuntimeStatus,
 } from "./redis.js";
 
+type PendingUserMessage = {
+  messageKey: string;
+  userMessageId: string;
+};
+
 type SessionHandle = {
   sessionId: string;
   session: AgentSession;
   sessionManager: SessionManager;
+  pendingUserMessages: PendingUserMessage[];
   currentUserMessageId: string | null;
   streamState: {
     thinking: string;
@@ -29,6 +35,52 @@ type SessionHandle = {
     preferredDisplayMode: "full" | "compact" | "minimal";
   };
 };
+
+/**
+ * Build a base64 key from message text and images for matching.
+ */
+function buildMessageKey(text: string, images?: Array<{ data: string; mimeType: string }>): string {
+  const imageCount = images?.length ?? 0;
+  const payload = JSON.stringify({ text, imageCount });
+  return Buffer.from(payload).toString("base64");
+}
+
+/**
+ * Extract user message text from a message_start event for matching.
+ */
+function extractUserMessageText(message: Record<string, unknown>): string {
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item): item is { type: string; text?: string } =>
+      !!item && typeof item === "object" && "type" in item
+    )
+    .filter((item) => item.type === "text" && typeof item.text === "string")
+    .map((item) => item.text ?? "")
+    .join("\n")
+    .trim();
+}
+
+/**
+ * Extract image count from a message_start event for matching.
+ */
+function extractUserImageCount(message: Record<string, unknown>): number {
+  const content = message.content;
+  if (!Array.isArray(content)) return 0;
+  return content.filter(
+    (item) => !!item && typeof item === "object" && "type" in item && item.type === "image"
+  ).length;
+}
+
+/**
+ * Build message key from a message_start event.
+ */
+function buildMessageKeyFromEvent(message: Record<string, unknown>): string {
+  const text = extractUserMessageText(message);
+  const imageCount = extractUserImageCount(message);
+  return Buffer.from(JSON.stringify({ text, imageCount })).toString("base64");
+}
 
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
@@ -189,6 +241,28 @@ function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "message_start") {
       const message = event.message as unknown as Record<string, unknown>;
+      
+      // Match user message from pending queue
+      if (message.role === "user") {
+        const eventKey = buildMessageKeyFromEvent(message);
+        const matchIndex = handle.pendingUserMessages.findIndex(
+          (item) => item.messageKey === eventKey
+        );
+        if (matchIndex !== -1) {
+          const matched = handle.pendingUserMessages[matchIndex];
+          if (matched) {
+            handle.currentUserMessageId = matched.userMessageId;
+            console.log(
+              `[Supervisor] Matched user message ${handle.currentUserMessageId} for session ${handle.sessionId}`
+            );
+          }
+        } else {
+          console.warn(
+            `[Supervisor] No matching user message found for key ${eventKey} in session ${handle.sessionId}`
+          );
+        }
+      }
+      
       if (message.role === "assistant") {
         resetStreamState(handle);
         void emitProviderRenderUpdate(handle);
@@ -241,6 +315,13 @@ function subscribeSessionEvents(handle: SessionHandle) {
           error,
         );
       });
+
+      // Remove matched user message from queue
+      const matchedId = handle.currentUserMessageId;
+      handle.pendingUserMessages = handle.pendingUserMessages.filter(
+        (item) => item.userMessageId !== matchedId
+      );
+      handle.currentUserMessageId = null;
     }
 
     if (event.type === "turn_end" || event.type === "message_end") {
@@ -343,6 +424,7 @@ async function loadOrCreateSessionHandle(input: {
     sessionId: input.sessionId,
     session,
     sessionManager,
+    pendingUserMessages: [],
     currentUserMessageId: null,
     streamState: {
       thinking: "",
@@ -392,59 +474,81 @@ async function main() {
   await setRuntimeStatus("running");
   console.log("[Supervisor] Runtime is now running and listening for input.");
 
-  await listenForInput(async (inputEntry) => {
+  await listenForInput((inputEntry, ack, reject) => {
     console.log("[Supervisor] Received input from Redis:", inputEntry);
 
-    try {
-      if (inputEntry.action === "prompt") {
-        const sessionId = inputEntry.sessionId;
-        if (!sessionId) {
-          throw new Error("sessionId is required for prompt inputs");
-        }
-
-        const handle = await loadOrCreateSessionHandle({
-          sessionId,
-          authStorage,
-          modelRegistry,
-          tools,
-        });
-
-        resetStreamState(handle);
-        handle.currentUserMessageId = inputEntry.userMessageId ?? null;
-
-        try {
-          await handle.session.prompt(inputEntry.message.text, {
-            images: inputEntry.message.images,
-          });
-        } finally {
-          handle.currentUserMessageId = null;
-        }
-      } else if (inputEntry.action === "abort") {
-        if (inputEntry.sessionId) {
-          const handle = sessionHandles.get(inputEntry.sessionId);
-          if (!handle) {
-            console.warn(
-              `[Supervisor] Abort requested for unknown session ${inputEntry.sessionId}`,
-            );
-            return;
+    // Fire and forget async handler
+    (async () => {
+      try {
+        if (inputEntry.action === "prompt") {
+          const sessionId = inputEntry.sessionId;
+          if (!sessionId) {
+            throw new Error("sessionId is required for prompt inputs");
           }
-          await handle.session.abort();
-        } else {
-          await Promise.all(
-            Array.from(sessionHandles.values()).map((handle) => handle.session.abort()),
+
+          const handle = await loadOrCreateSessionHandle({
+            sessionId,
+            authStorage,
+            modelRegistry,
+            tools,
+          });
+
+          // Build message key and add to pending queue
+          const messageKey = buildMessageKey(
+            inputEntry.message.text,
+            inputEntry.message.images,
           );
+          const userMessageId = inputEntry.userMessageId;
+          if (userMessageId) {
+            handle.pendingUserMessages.push({ messageKey, userMessageId });
+          }
+
+          // Decide whether to use prompt or steer based on streaming state
+          if (handle.session.isStreaming) {
+            console.log(
+              `[Supervisor] Session ${sessionId} is streaming, using steer for new message`
+            );
+            await handle.session.steer(inputEntry.message.text, inputEntry.message.images);
+          } else {
+            console.log(
+              `[Supervisor] Session ${sessionId} is idle, using prompt for new message`
+            );
+            await handle.session.prompt(inputEntry.message.text, {
+              images: inputEntry.message.images,
+            });
+          }
+
+          await ack();
+        } else if (inputEntry.action === "abort") {
+          if (inputEntry.sessionId) {
+            const handle = sessionHandles.get(inputEntry.sessionId);
+            if (!handle) {
+              console.warn(
+                `[Supervisor] Abort requested for unknown session ${inputEntry.sessionId}`,
+              );
+            } else {
+              await handle.session.abort();
+            }
+          } else {
+            await Promise.all(
+              Array.from(sessionHandles.values()).map((handle) => handle.session.abort()),
+            );
+          }
+          await ack();
+        } else {
+          await reject(`Unknown action: ${(inputEntry as { action?: string }).action}`);
         }
+      } catch (error) {
+        console.error("[Supervisor] Error processing input:", error);
+        await sendOutput({
+          type: "error",
+          runtimeId: env.RUNTIME_ID,
+          sessionId: inputEntry.sessionId ?? null,
+          error: String(error),
+        });
+        await reject(error instanceof Error ? error.message : String(error));
       }
-    } catch (error) {
-      console.error("[Supervisor] Error processing input:", error);
-      await sendOutput({
-        type: "error",
-        runtimeId: env.RUNTIME_ID,
-        sessionId: inputEntry.sessionId ?? null,
-        error: String(error),
-      });
-      throw error;
-    }
+    })();
   });
 }
 
