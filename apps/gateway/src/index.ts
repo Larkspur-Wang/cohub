@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { GatewayManager } from "./manager/index.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
 import { createBlockingRedisClient, xaddWithMaxlen } from "./redis.js";
@@ -55,6 +56,9 @@ async function main() {
   });
 
   const app = new Hono<{ Variables: SessionResponseVariables }>();
+
+  app.use("*", cors());
+
   registerResponsesProviderRoutes(app);
   serve({ fetch: app.fetch, port: gatewayConfig.port });
   console.log(`@cohub/gateway listening on :${gatewayConfig.port}`);
