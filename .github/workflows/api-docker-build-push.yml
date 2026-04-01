@@ -19,6 +19,8 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,3 +78,69 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
+
+  deploy-dev:
+    needs: build-and-push
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > ~/.kube/config
+
+      - name: Deploy to Dev
+        run: |
+          cd deploy/api/dev
+          OVERRIDE_IMAGE_TAG="${{ github.sha }}" \
+          OVERRIDE_SANDBOX_IMAGE="git.talesofai.com/talesofai/cohub-agent:${{ github.sha }}" \
+          ./deploy.sh
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/cohub-api-dev -n cohub-dev --timeout=300s
+          kubectl get pods -n cohub-dev -l app.kubernetes.io/name=cohub-api-dev
+
+  deploy-prod:
+    needs: build-and-push
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get release tag
+        id: get-tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
+
+      - name: Deploy to Prod
+        run: |
+          cd deploy/api/prod
+          OVERRIDE_IMAGE_TAG="${{ steps.get-tag.outputs.tag }}" \
+          OVERRIDE_SANDBOX_IMAGE="git.talesofai.com/talesofai/cohub-agent:${{ steps.get-tag.outputs.tag }}" \
+          ./deploy.sh
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/cohub-api -n cohub --timeout=300s
+          kubectl get pods -n cohub -l app.kubernetes.io/name=cohub-api
