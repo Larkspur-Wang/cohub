@@ -5,19 +5,14 @@ on:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # 更新各服务的 values.yaml 中的 IMAGE_TAG
-  update-image-tags:
+  deploy-api:
     runs-on: ubuntu-latest
-    outputs:
-      release_tag: ${{ steps.get-tag.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get release tag
         id: get-tag
@@ -25,40 +20,6 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/}
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Release tag: $TAG"
-
-      - name: Update API prod values.yaml
-        run: |
-          sed -i 's/IMAGE_TAG: ".*"/IMAGE_TAG: "${{ steps.get-tag.outputs.tag }}"/' deploy/api/prod/values.yaml
-          # 同时更新 SANDBOX_RUNTIME_IMAGE 的 tag
-          sed -i 's|SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:.*"|SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:${{ steps.get-tag.outputs.tag }}"|' deploy/api/prod/values.yaml
-
-      - name: Update Gateway prod values.yaml
-        run: |
-          sed -i 's/IMAGE_TAG: ".*"/IMAGE_TAG: "${{ steps.get-tag.outputs.tag }}"/' deploy/gateway/prod/values.yaml
-
-      - name: Show changes
-        run: |
-          echo "API values.yaml:"
-          grep "IMAGE_TAG:" deploy/api/prod/values.yaml
-          grep "SANDBOX_RUNTIME_IMAGE:" deploy/api/prod/values.yaml
-          echo ""
-          echo "Gateway values.yaml:"
-          grep "IMAGE_TAG:" deploy/gateway/prod/values.yaml
-
-      - name: Commit changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add deploy/
-          git commit -m "chore: update prod image tags to ${{ steps.get-tag.outputs.tag }}" || echo "No changes to commit"
-          git push
-
-  deploy-api:
-    needs: update-image-tags
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -75,6 +36,8 @@ jobs:
       - name: Deploy API to Prod
         run: |
           cd deploy/api/prod
+          OVERRIDE_IMAGE_TAG="${{ steps.get-tag.outputs.tag }}" \
+          OVERRIDE_SANDBOX_IMAGE="git.talesofai.com/talesofai/cohub-agent:${{ steps.get-tag.outputs.tag }}" \
           ./deploy.sh
 
       - name: Verify deployment
@@ -83,11 +46,17 @@ jobs:
           kubectl get pods -n cohub -l app.kubernetes.io/name=cohub-api
 
   deploy-gateway:
-    needs: update-image-tags
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Get release tag
+        id: get-tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -104,7 +73,7 @@ jobs:
       - name: Deploy Gateway to Prod
         run: |
           cd deploy/gateway/prod
-          ./deploy.sh
+          OVERRIDE_IMAGE_TAG="${{ steps.get-tag.outputs.tag }}" ./deploy.sh
 
       - name: Verify deployment
         run: |

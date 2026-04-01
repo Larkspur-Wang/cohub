@@ -37,7 +37,9 @@ jobs:
       - name: Deploy API to Dev
         run: |
           cd deploy/api/dev
-          OVERRIDE_IMAGE_TAG="${{ github.sha }}" ./deploy.sh
+          OVERRIDE_IMAGE_TAG="${{ github.sha }}" \
+          OVERRIDE_SANDBOX_IMAGE="git.talesofai.com/talesofai/cohub-agent:${{ github.sha }}" \
+          ./deploy.sh
 
       - name: Verify deployment
         run: |
@@ -74,25 +76,11 @@ jobs:
           kubectl get pods -n cohub-dev -l app.kubernetes.io/name=cohub-gateway-dev
 
   update-agent-image-ref:
-    # Agent 镜像更新后，更新 API values.yaml 中的 SANDBOX_RUNTIME_IMAGE 引用
+    # Agent 镜像更新后，Dev 环境无需特殊处理，因为 Dev 使用 Always 拉取策略
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Agent Docker Build and Push' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Update API dev values.yaml
+      - name: Agent image built
         run: |
-          sed -i 's|SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:.*"|SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:${{ github.sha }}"|' deploy/api/dev/values.yaml
-
-      - name: Show changes
-        run: |
-          grep "SANDBOX_RUNTIME_IMAGE" deploy/api/dev/values.yaml
-
-      - name: Commit changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add deploy/api/dev/values.yaml
-          git commit -m "chore: update dev agent image to ${{ github.sha }}" || echo "No changes to commit"
-          git push
+          echo "Agent image built with tag: ${{ github.sha }}"
+          echo "Dev environment uses Always pull policy, new sessions will use latest image"
