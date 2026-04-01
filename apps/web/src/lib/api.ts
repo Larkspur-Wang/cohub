@@ -58,14 +58,15 @@ export type SessionRecord = {
 
 export type SessionMessageBlock =
   | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
   | { type: "image"; url: string; mimeType?: string }
   | {
       type: "tool_call";
       toolCallId: string;
       toolName: string;
-      args?: Record<string, unknown>;
+      args?: Record<string, unknown> | null;
+      status?: "pending" | "running" | "completed" | "failed";
       resultPreview?: string | null;
-      isError?: boolean;
     }
   | {
       type: "system_note";
@@ -100,6 +101,9 @@ export type SessionToolCallRecord = {
   messageId: string;
   toolCallId: string;
   toolName: string;
+  title?: string | null;
+  kind?: string | null;
+  status?: string | null;
   args: Record<string, unknown> | null;
   result: unknown;
   resultPreview: string | null;

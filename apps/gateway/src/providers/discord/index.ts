@@ -60,6 +60,18 @@ const buildDiscordRenderText = (content: UnifiedContentBlock[]) => {
       continue;
     }
 
+    if (block.type === "thinking") {
+      textParts.push(block.thinking);
+      continue;
+    }
+
+    if (block.type === "tool_call") {
+      const summary = block.resultPreview?.trim() ? ` — ${truncate(block.resultPreview.trim(), 160)}` : "";
+      const status = block.status ?? "pending";
+      textParts.push(`[${status}] ${block.toolName}${summary}`);
+      continue;
+    }
+
     if (block.type === "image" && block.uri) {
       imageUris.push(block.uri);
       continue;

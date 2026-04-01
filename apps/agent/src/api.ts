@@ -87,11 +87,18 @@ const extractThinkingFromContent = (content: unknown): string => {
     .trim();
 };
 
-const toAcpCompatibleContent = (assistantMessage: Record<string, unknown>): UnifiedContentBlock[] => {
+const toAcpCompatibleContent = (
+  assistantMessage: Record<string, unknown>,
+  toolResults: Array<Record<string, unknown>>,
+): UnifiedContentBlock[] => {
   const content = assistantMessage.content;
   const blocks: PersistMessagePayload["message"]["content"] = [];
 
   if (!Array.isArray(content)) return blocks;
+
+  const toolResultsById = new Map(
+    toolResults.map((toolResult) => [String(toolResult.toolCallId ?? ""), toolResult]),
+  );
 
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
@@ -102,12 +109,34 @@ const toAcpCompatibleContent = (assistantMessage: Record<string, unknown>): Unif
       continue;
     }
 
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      blocks.push({ type: "thinking", thinking: block.thinking });
+      continue;
+    }
+
     if (block.type === "image") {
       blocks.push({
         type: "image",
         mimeType: typeof block.mimeType === "string" ? block.mimeType : undefined,
         data: typeof block.data === "string" ? block.data : undefined,
         uri: typeof block.uri === "string" ? block.uri : undefined,
+      });
+      continue;
+    }
+
+    if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
+      const matched = toolResultsById.get(block.id);
+      const matchedText = matched ? extractTextFromContent(matched.content) : "";
+      blocks.push({
+        type: "tool_call",
+        toolCallId: block.id,
+        toolName: block.name,
+        args:
+          block.arguments && typeof block.arguments === "object"
+            ? (block.arguments as Record<string, unknown>)
+            : null,
+        status: matched ? (matched.isError ? "failed" : "completed") : "running",
+        resultPreview: matchedText || (matched ? JSON.stringify(matched.content ?? null) : null),
       });
     }
   }
@@ -280,11 +309,21 @@ export async function persistAssistantMessage(input: {
   }
 
   const assistant = assistantMessage as Record<string, unknown>;
-  const toolCalls = toToolCallRecords(assistant, toolResultsRaw);
+  const toolCalls = toToolCallRecords(assistant, toolResultsRaw) ?? [];
   const thinking = extractThinkingFromContent(assistant.content);
   const toolCallRenderStates = toToolCallRenderStates(assistant, toolResultsRaw);
-  const content = toAcpCompatibleContent(assistant);
+  const content = toAcpCompatibleContent(assistant, toolResultsRaw);
   const text = extractTextFromContent(assistant.content);
+
+  if (content.length === 0 && !text.trim() && toolCalls.length === 0) {
+    console.warn("[Persist] skipping empty assistant message", {
+      runtimeId: input.runtimeId,
+      runtimeSessionId: input.runtimeSessionId,
+      userMessageId: input.userMessageId,
+      stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
+    });
+    return;
+  }
 
   const payload: PersistMessagePayload = {
     runtimeId: input.runtimeId,
@@ -344,7 +383,7 @@ export async function persistAssistantMessage(input: {
   payload.idempotencyKey = buildAssistantIdempotencyKey({
     previousMessageId: payload.previousMessageId ?? "root",
     message: payload.message,
-    toolCalls: payload.toolCalls,
+    toolCalls: payload.toolCalls ?? [],
   });
 
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/messages`;

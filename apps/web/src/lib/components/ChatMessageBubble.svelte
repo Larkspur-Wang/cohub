@@ -13,7 +13,12 @@ let renderedHtml = $state("");
 $effect(() => {
   let cancelled = false;
 
-  void renderMarkdown(message.text).then((html) => {
+  void renderMarkdown(
+    message.blocks
+      ?.filter((block) => block.type === "text" || block.type === "thinking")
+      .map((block) => (block.type === "text" ? block.text : block.thinking))
+      .join("\n\n") || message.text,
+  ).then((html) => {
     if (!cancelled) {
       renderedHtml = html;
     }
@@ -44,11 +49,14 @@ $effect(() => {
             <div class="rounded-md border border-white/10 bg-black/40 px-3 py-2">
               <div class="mb-1 flex items-center justify-between gap-3">
                 <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Tool Call</div>
-                <div class={`text-[10px] font-bold uppercase tracking-[0.16em] ${block.isError ? 'text-rose-400' : 'text-emerald-400/60'}`}>
-                  {block.isError ? 'error' : 'done'}
+                <div class={`text-[10px] font-bold uppercase tracking-[0.16em] ${block.status === 'failed' ? 'text-rose-400' : block.status === 'running' || block.status === 'pending' ? 'text-amber-400' : 'text-emerald-400/60'}`}>
+                  {block.status ?? 'completed'}
                 </div>
               </div>
               <div class="text-[11px] font-mono text-white/70">{block.toolName}</div>
+              {#if block.args && Object.keys(block.args).length > 0}
+                <pre class="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-white/40 font-mono">{JSON.stringify(block.args, null, 2)}</pre>
+              {/if}
               {#if block.resultPreview}
                 <pre class="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-white/40 font-mono">{block.resultPreview}</pre>
               {/if}

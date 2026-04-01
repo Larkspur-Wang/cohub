@@ -95,6 +95,8 @@ const extractPlainText = (blocks: SessionMessageBlock[]) => {
       switch (block.type) {
         case "text":
           return [block.text];
+        case "thinking":
+          return [block.thinking];
         case "resource":
           return block.resource.text ? [block.resource.text] : [];
         case "resource_link":
@@ -770,6 +772,9 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   const shouldDispatchToProvider = messageRole === "assistant";
 
   const toolCalls = input.toolCalls ?? [];
+  if (messageRole === "assistant" && content.length === 0 && !text?.trim() && toolCalls.length === 0) {
+    throw new Error("Refusing to persist empty assistant message");
+  }
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   if (!anchorUserMessageId) {
     const fallbackAnchor = await resolveAnchorUserMessageRef({

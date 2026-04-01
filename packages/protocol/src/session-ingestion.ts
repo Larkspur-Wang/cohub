@@ -8,6 +8,12 @@ export type UnifiedContentBlock =
       _meta?: Record<string, unknown>;
     }
   | {
+      type: "thinking";
+      thinking: string;
+      annotations?: Record<string, unknown>;
+      _meta?: Record<string, unknown>;
+    }
+  | {
       type: "image";
       mimeType?: string;
       data?: string;
@@ -36,7 +42,17 @@ export type UnifiedContentBlock =
       size?: number;
       annotations?: Record<string, unknown>;
       _meta?: Record<string, unknown>;
+    }
+  | {
+      type: "tool_call";
+      toolCallId: string;
+      toolName: string;
+      args?: Record<string, unknown> | null;
+      status?: "pending" | "running" | "completed" | "failed";
+      resultPreview?: string | null;
+      _meta?: Record<string, unknown>;
     };
+
 
 export type ToolCallContentBlock =
   | {

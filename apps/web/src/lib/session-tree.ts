@@ -11,13 +11,14 @@ export type ChatMessage = {
   tone?: "default" | "thinking";
   blocks?: Array<
     | { type: "text"; text: string }
+    | { type: "thinking"; thinking: string }
     | {
         type: "tool_call";
         toolCallId: string;
         toolName: string;
-        args?: Record<string, unknown>;
+        args?: Record<string, unknown> | null;
+        status?: "pending" | "running" | "completed" | "failed";
         resultPreview?: string | null;
-        isError?: boolean;
       }
   >;
   meta?: {
@@ -110,14 +111,16 @@ export const toChatMessages = (
     for (const block of message.content ?? []) {
       if (block.type === "text") {
         blocks.push({ type: "text", text: block.text });
+      } else if (block.type === "thinking") {
+        blocks.push({ type: "thinking", thinking: block.thinking });
       } else if (block.type === "tool_call") {
         blocks.push({
           type: "tool_call",
           toolCallId: block.toolCallId,
           toolName: block.toolName,
           args: block.args,
+          status: block.status,
           resultPreview: block.resultPreview ?? null,
-          isError: block.isError ?? false,
         });
       }
     }
@@ -138,8 +141,17 @@ export const toChatMessages = (
         toolCallId: toolCall.toolCallId,
         toolName: toolCall.toolName,
         args: toolCall.args ?? undefined,
+        status:
+          toolCall.status === "failed"
+            ? "failed"
+            : toolCall.status === "completed"
+              ? "completed"
+              : toolCall.status === "running"
+                ? "running"
+                : toolCall.status === "pending"
+                  ? "pending"
+                  : undefined,
         resultPreview: toolCall.resultPreview,
-        isError: toolCall.isError,
       });
     }
 
