@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - 'apps/web/**'
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
       environment:
@@ -39,10 +42,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Determine environment
+        id: env
+        run: |
+          # Release 触发 → prod
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "env=prod" >> $GITHUB_OUTPUT
+            echo "config=wrangler.prod.toml" >> $GITHUB_OUTPUT
+          # 手动触发 → 根据用户选择
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "env=prod" >> $GITHUB_OUTPUT
+            echo "config=wrangler.prod.toml" >> $GITHUB_OUTPUT
+          # Push main → dev
+          else
+            echo "env=dev" >> $GITHUB_OUTPUT
+            echo "config=wrangler.toml" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup web environment
         working-directory: apps/web
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "prod" ]]; then
+          if [[ "${{ steps.env.outputs.env }}" == "prod" ]]; then
             echo "PUBLIC_API_ORIGIN=https://api.cohub.run" > .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway.cohub.run" >> .env
           else
@@ -61,15 +81,6 @@ jobs:
       - name: Build
         run: pnpm build
         working-directory: apps/web
-
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "prod" ]]; then
-            echo "config=wrangler.prod.toml" >> $GITHUB_OUTPUT
-          else
-            echo "config=wrangler.toml" >> $GITHUB_OUTPUT
-          fi
 
       - name: Deploy to Cloudflare
         run: pnpm run deploy --config ${{ steps.env.outputs.config }}
