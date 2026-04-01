@@ -6,6 +6,9 @@ on:
       - main
     tags:
       - 'v*'
+    paths:
+      - 'apps/api/**'
+      - 'packages/**'
   workflow_dispatch:
 
 permissions:

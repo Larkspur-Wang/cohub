@@ -6,6 +6,9 @@ on:
       - main
     tags:
       - 'v*'
+    paths:
+      - 'apps/agent/**'
+      - 'packages/**'
   workflow_dispatch:
 
 permissions:
