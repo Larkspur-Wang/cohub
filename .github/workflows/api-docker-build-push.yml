@@ -87,6 +87,11 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -97,9 +102,47 @@ jobs:
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > ~/.kube/config
 
+      - name: Run migration if needed
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
+            'apps/api/src/db/schema.ts' \
+            'apps/api/drizzle/*.sql' 2>/dev/null || true)
+          
+          if [ -z "$CHANGED" ]; then
+            echo "No migration needed"
+            exit 0
+          fi
+          
+          echo "Migration needed, running..."
+          kubectl apply -f - <<EOF
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: api-migrate-${{ github.run_id }}
+            namespace: cohub-dev
+          spec:
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+                    command: ["node", "dist/db/migrate.js"]
+                    env:
+                      - name: DATABASE_URL
+                        valueFrom:
+                          secretKeyRef:
+                            name: cohub-api-secrets
+                            key: database-url
+          EOF
+          
+          kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
+            -n cohub-dev --timeout=300s
+
       - name: Deploy to Dev
         run: |
-          # Dev 使用 latest + Always pull，只需 rollout restart
           kubectl rollout restart deployment/cohub-api-dev -n cohub-dev
 
       - name: Verify deployment
@@ -111,6 +154,11 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -127,13 +175,52 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/}
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
+      - name: Run migration if needed
+        env:
+          TAG: ${{ steps.get-tag.outputs.tag }}
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
+            'apps/api/src/db/schema.ts' \
+            'apps/api/drizzle/*.sql' 2>/dev/null || true)
+          
+          if [ -z "$CHANGED" ]; then
+            echo "No migration needed"
+            exit 0
+          fi
+          
+          echo "Migration needed, running..."
+          kubectl apply -f - <<EOF
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: api-migrate-${{ github.run_id }}
+            namespace: cohub
+          spec:
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+                    command: ["node", "dist/db/migrate.js"]
+                    env:
+                      - name: DATABASE_URL
+                        valueFrom:
+                          secretKeyRef:
+                            name: cohub-api-secrets
+                            key: database-url
+          EOF
+          
+          kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
+            -n cohub --timeout=300s
+
       - name: Deploy to Prod
         run: |
           TAG="${{ steps.get-tag.outputs.tag }}"
-          # 更新 Deployment image (container 名字与 deployment 名字相同)
-          kubectl set image deployment/cohub-api cohub-api=git.talesofai.com/talesofai/cohub-api:$TAG -n cohub
-          # 更新 ConfigMap 中的 agent image
-          kubectl patch configmap cohub-api-config -n cohub --type=json -p='[{"op":"replace","path":"/data/SANDBOX_RUNTIME_IMAGE","value":"git.talesofai.com/talesofai/cohub-agent:'$TAG'"}]'
+          kubectl set image deployment/cohub-api cohub-api=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:$TAG -n cohub
+          kubectl patch configmap cohub-api-config -n cohub --type=json -p='[{"op":"replace","path":"/data/SANDBOX_RUNTIME_IMAGE","value":"${{ env.REGISTRY }}/${{ env.NAMESPACE }}/cohub-agent:$TAG"}]'
 
       - name: Verify deployment
         run: |
