@@ -17,9 +17,9 @@ import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth.js";
 
-let { params } = $props();
+const { params } = $props();
 
-let workspaceId = $derived(params.id);
+const workspaceId = $derived(params.id);
 
 let workspace = $state<WorkspaceDetail | null>(null);
 let tree = $state<Tree | null>(null);
@@ -30,7 +30,7 @@ let isForking = $state(false);
 let isPublishing = $state(false);
 let loadError = $state("");
 let copied = $state(false);
-let forkName = $state("");
+const forkName = $state("");
 
 const gitRemoteUrl = $derived(workspace?.sshUrl || workspace?.cloneUrl || "");
 const isOwner = $derived(Boolean(workspace?.isOwner));

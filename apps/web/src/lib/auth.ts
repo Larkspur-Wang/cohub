@@ -35,3 +35,14 @@ export const clearAuthToken = () => {
   if (typeof localStorage === "undefined") return;
   localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 };
+
+export const ensureAuth = async (redirectPath?: string) => {
+  const isAuthenticated = await logtoClient.isAuthenticated();
+  if (!isAuthenticated) {
+    const callback = redirectPath
+      ? `${window.location.origin}${redirectPath}`
+      : `${window.location.origin}/callback`;
+    await logtoClient.signIn(callback);
+  }
+  return isAuthenticated;
+};

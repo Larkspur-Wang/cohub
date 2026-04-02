@@ -21,6 +21,7 @@ import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
 import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus, ArrowDown } from "lucide-svelte";
+import { ensureAuth } from "$lib/auth";
 
 type Props = {
   data: {
@@ -240,6 +241,7 @@ function patchDiscordRuntimeChannelConfig(
 }
 
 async function loadRuntime() {
+  if (!(await ensureAuth())) return;
   runtimeLoadError = "";
 
   const [runtimeResult, sessionsResult, channelsResult] = await Promise.allSettled([

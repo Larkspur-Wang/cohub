@@ -3,6 +3,7 @@ import { FolderKanban, Network, Activity, ArrowRight, Plus, Rocket, Zap } from "
 import { getWorkspaces, type Workspace } from "$lib/api";
 import { onMount } from "svelte";
 import { fly } from "svelte/transition";
+import { ensureAuth } from "$lib/auth";
 
 let workspaces = $state<Workspace[]>([]);
 let isLoading = $state(true);
@@ -15,10 +16,16 @@ const stats = $derived([
 ]);
 
 onMount(async () => {
+  if (!(await ensureAuth())) return;
   try {
     workspaces = await getWorkspaces();
   } catch (error) {
-    loadError = error instanceof Error ? error.message : "Failed to load workspaces";
+    const message = error instanceof Error ? error.message : "Failed to load workspaces";
+    if (message.includes("unauthorized") || message.includes("401")) {
+      await ensureAuth();
+      return;
+    }
+    loadError = message;
   } finally {
     isLoading = false;
   }

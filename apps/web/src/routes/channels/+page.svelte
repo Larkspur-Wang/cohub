@@ -3,7 +3,7 @@ import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay, X, Box } from "lucid
 import { createChannel, deleteChannel, getChannels, type Channel } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
-import { logtoClient } from "$lib/auth";
+import { ensureAuth, logtoClient } from "$lib/auth";
 
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
@@ -23,6 +23,7 @@ const providerIcons: Record<string, typeof import("lucide-svelte").MessageSquare
 };
 
 async function loadChannels() {
+  if (!(await ensureAuth())) return;
   isLoading = true;
   loadError = "";
   try {

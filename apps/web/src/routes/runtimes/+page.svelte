@@ -2,12 +2,12 @@
 import { Cpu, Play, FolderKanban, Power, Moon, Trash2, Loader2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte";
 import { getRuntimes, hibernateRuntime, wakeRuntime, deleteRuntime, type RuntimeListItem } from "$lib/api";
 import { onMount } from "svelte";
-import { logtoClient } from "$lib/auth";
+import { ensureAuth, logtoClient } from "$lib/auth";
 
 let runtimes = $state<RuntimeListItem[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
-let actionInProgress = $state<Record<string, string>>({});
+const actionInProgress = $state<Record<string, string>>({});
 
 function displayStatus(runtime: RuntimeListItem) {
   return runtime.liveStatus ?? runtime.status ?? "unknown";
@@ -23,6 +23,7 @@ function statusBadge(status: string) {
 }
 
 async function loadRuntimes() {
+  if (!(await ensureAuth())) return;
   isLoading = true;
   loadError = "";
   try {

@@ -11,6 +11,7 @@ import {
   type RuntimeEnvInput,
   type WorkspaceDetail,
 } from "$lib/api";
+import { ensureAuth } from "$lib/auth";
 
 let { params } = $props();
 
@@ -44,6 +45,7 @@ const getDefaultChannelConfig = (channel: Channel): RuntimeChannelConfigInput =>
 };
 
 async function loadPage() {
+  if (!(await ensureAuth())) return;
   isLoading = true;
   loadError = "";
 

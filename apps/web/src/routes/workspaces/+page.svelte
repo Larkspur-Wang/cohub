@@ -4,7 +4,7 @@ import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { createWorkspace, getMe, getWorkspaces, type Workspace } from "$lib/api";
 import { fade, fly } from "svelte/transition";
 import { onMount } from "svelte";
-import { logtoClient } from "$lib/auth";
+import { ensureAuth, logtoClient } from "$lib/auth";
 
 let workspaces = $state<Workspace[]>([]);
 let isLoading = $state(true);
@@ -19,9 +19,10 @@ let formDescription = $state("");
 let formPrivate = $state(true);
 let user = $state<{ uuid?: string; nick_name?: string } | null>(null);
 
-let previewSlug = $derived(normalizeWorkspaceSlug(formName));
+const previewSlug = $derived(normalizeWorkspaceSlug(formName));
 
 async function loadData() {
+  if (!(await ensureAuth())) return;
   isLoading = true;
   loadError = "";
   try {

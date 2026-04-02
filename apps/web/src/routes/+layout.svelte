@@ -10,21 +10,9 @@ const { children } = $props();
 
 let isMobileMenuOpen = $state(false);
 
-onMount(() => {
-  if (page.url.pathname === "/callback") {
-    return;
-  }
-
-  logtoClient.isAuthenticated().then((_isAuthenticated) => {
-    if (!_isAuthenticated) {
-      handleSignIn();
-    }
-  });
-})
-
-async function handleSignIn() {
-  await logtoClient.signIn(`${window.location.origin}/callback`);
-}
+// Auth is now handled per-page:
+// - Public pages: /callback, /explore, /workspaces/[id] (public workspaces only)
+// - Protected pages: all others call ensureAuth() on mount
 
 async function handleLogout() {
   await logtoClient.signOut(`${window.location.origin}/`);

@@ -1,10 +1,11 @@
-import { error, redirect } from "@sveltejs/kit";
+import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
 import {
   getRuntime,
   getRuntimeSessionGraph,
   getSessionMessages,
 } from "$lib/api";
+import { logtoClient } from "$lib/auth";
 
 export const load: PageLoad = async ({ params, fetch }) => {
   try {
@@ -38,7 +39,8 @@ export const load: PageLoad = async ({ params, fetch }) => {
       message.includes("401") ||
       message.includes("403")
     ) {
-      throw redirect(302, "/");
+      await logtoClient.signIn(`${window.location.origin}/callback`);
+      return { runtime: null, sessions: [], messagePreviewById: {} } as never;
     }
 
     if (message.includes("runtime not found") || message.includes("404")) {
