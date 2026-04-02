@@ -3,6 +3,7 @@ import { PUBLIC_API_ORIGIN, PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
 import {
   clearAuthToken as clearStoredAuthToken,
   getAuthToken,
+  logtoClient,
   setAuthToken as setStoredAuthToken,
 } from "$lib/auth";
 
@@ -119,9 +120,9 @@ export type SessionMessagesResponse = {
   toolCalls: SessionToolCallRecord[];
 };
 
-const withAuthorization = (init?: RequestInit): RequestInit => {
+const withAuthorization = async (init?: RequestInit): Promise<RequestInit> => {
   const headers = new Headers(init?.headers);
-  const token = getAuthToken();
+  const token = await getAuthToken();
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -142,11 +143,10 @@ const apiFetch = async (
   const fetcher = init?.fetch ?? fetch;
   const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 
-  const response = await fetcher(url, withAuthorization(init));
-
+  const response = await fetcher(url, await withAuthorization(init));
 
   if (response.status === 401 && typeof window !== "undefined") {
-    await goto("/login");
+    await logtoClient.signIn(`${window.location.origin}/callback`);
     throw new Error("unauthorized");
   }
 
@@ -172,11 +172,10 @@ const gatewayFetch = async (
   const fetcher = init?.fetch ?? fetch;
   const url = GATEWAY_BASE_URL ? `${GATEWAY_BASE_URL}${path}` : path;
 
-  const response = await fetcher(url, withAuthorization(init));
-
+  const response = await fetcher(url, await withAuthorization(init));
 
   if (response.status === 401 && typeof window !== "undefined") {
-    await goto("/login");
+    await logtoClient.signIn(`${window.location.origin}/`);
     throw new Error("unauthorized");
   }
 
@@ -198,7 +197,10 @@ const readSseEvents = async function* (response: Response) {
       return null;
     }
 
-    if (crlfBoundary !== -1 && (lfBoundary === -1 || crlfBoundary < lfBoundary)) {
+    if (
+      crlfBoundary !== -1 &&
+      (lfBoundary === -1 || crlfBoundary < lfBoundary)
+    ) {
       const chunk = buffer.slice(0, crlfBoundary);
       buffer = buffer.slice(crlfBoundary + 4);
       return chunk;
@@ -241,14 +243,16 @@ const readSseEvents = async function* (response: Response) {
   }
 };
 
-
 export const setAuthToken = async (token: string) => {
   const trimmedToken = token.trim();
-  const response = await fetch(API_BASE_URL ? `${API_BASE_URL}/api/me` : "/api/me", {
-    headers: {
-      Authorization: `Bearer ${trimmedToken}`,
+  const response = await fetch(
+    API_BASE_URL ? `${API_BASE_URL}/api/me` : "/api/me",
+    {
+      headers: {
+        Authorization: `Bearer ${trimmedToken}`,
+      },
     },
-  });
+  );
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
@@ -314,7 +318,7 @@ export const getWorkspaceFile = async (
 export const getSession = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/sessions/${id}`, {
     fetch: customFetch,
-  }) as Promise<{ runtime: RuntimeRecord; session: SessionRecord }>; 
+  }) as Promise<{ runtime: RuntimeRecord; session: SessionRecord }>;
 };
 
 export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
@@ -324,7 +328,10 @@ export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
 };
 
 export type SessionResponseStreamEvent =
-  | { type: "response.created"; response: { id: string; status: string; model: string } }
+  | {
+      type: "response.created";
+      response: { id: string; status: string; model: string };
+    }
   | { type: "response.output_text.delta"; delta: string }
   | {
       type: "response.completed";
@@ -339,7 +346,10 @@ export type SessionResponseStreamEvent =
         }>;
       };
     }
-  | { type: "response.failed"; response: { error?: { message?: string; type?: string } } };
+  | {
+      type: "response.failed";
+      response: { error?: { message?: string; type?: string } };
+    };
 
 export const createSessionResponseStream = async function* (input: {
   runtimeId: string;
@@ -391,9 +401,7 @@ export const forkSession = async (
   }) as Promise<{ ok: true; session: SessionRecord }>;
 };
 
-export type {
-  ApiError,
-};
+export type { ApiError };
 
 export type Channel = {
   id: string;
@@ -474,7 +482,10 @@ export type GiteaRepo = {
 };
 
 export const getChannels = async (customFetch?: Fetch) => {
-  return apiFetch("/api/channels", { method: "GET", fetch: customFetch }) as Promise<Channel[]>;
+  return apiFetch("/api/channels", {
+    method: "GET",
+    fetch: customFetch,
+  }) as Promise<Channel[]>;
 };
 
 export const createChannel = async (data: {
@@ -496,7 +507,10 @@ export const deleteChannel = async (id: string) => {
 };
 
 export const getWorkspaces = async (customFetch?: Fetch) => {
-  return apiFetch("/api/workspaces", { method: "GET", fetch: customFetch }) as Promise<WorkspaceListItem[]>;
+  return apiFetch("/api/workspaces", {
+    method: "GET",
+    fetch: customFetch,
+  }) as Promise<WorkspaceListItem[]>;
 };
 
 export const createWorkspace = async (data: {
@@ -513,7 +527,11 @@ export const createWorkspace = async (data: {
   }) as Promise<WorkspaceDetail>;
 };
 
-export type RuntimeProvisionStatus = "queued" | "running" | "succeeded" | "failed";
+export type RuntimeProvisionStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
 export type RuntimeProvisionLevel = "info" | "success" | "error";
 export type RuntimeProvisionStep =
   | "queued"
@@ -641,20 +659,31 @@ export const getRuntime = async (id: string, customFetch?: Fetch) => {
   }) as Promise<RuntimeRecord>;
 };
 
-export const getRuntimeProvisioning = async (id: string, customFetch?: Fetch) => {
+export const getRuntimeProvisioning = async (
+  id: string,
+  customFetch?: Fetch,
+) => {
   return apiFetch(`/api/runtimes/${id}/provisioning`, {
     fetch: customFetch,
   }) as Promise<RuntimeProvisionResponse>;
 };
 
-export const createRuntimeSession = async (id: string, input?: { title?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }) => {
+export const createRuntimeSession = async (
+  id: string,
+  input?: {
+    title?: string;
+    cwd?: string;
+    protocol?: "pi" | "acp" | "internal";
+  },
+) => {
   return apiFetch(`/api/runtimes/${id}/sessions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input ?? {}),
-  }) as Promise<{ ok: true; session: SessionRecord }>;};
+  }) as Promise<{ ok: true; session: SessionRecord }>;
+};
 
 export const getRuntimeSessions = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/runtimes/${id}/sessions`, {
@@ -681,7 +710,10 @@ export const updateRuntimeChannelConfig = async (
   }) as Promise<RuntimeChannelRecord>;
 };
 
-export const getRuntimeSessionGraph = async (id: string, customFetch?: Fetch) => {
+export const getRuntimeSessionGraph = async (
+  id: string,
+  customFetch?: Fetch,
+) => {
   return apiFetch(`/api/runtimes/${id}/session-graph`, {
     fetch: customFetch,
   }) as Promise<RuntimeSessionsResponse>;

@@ -1,34 +1,37 @@
 <script lang="ts">
 import "../app.css";
-import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { clearAuthToken } from "$lib/api";
-import { getAuthToken } from "$lib/auth";
+import { logtoClient } from "$lib/auth";
 import { LayoutDashboard, FolderKanban, Network, Cpu, LogOut, Globe, Menu, X } from "lucide-svelte";
 import { fade, slide } from "svelte/transition";
+import { onMount } from "svelte";
 
 const { children } = $props();
 
 let isMobileMenuOpen = $state(false);
 
-$effect(() => {
-  if (typeof window === "undefined") return;
-  if (page.url.pathname === "/login") return;
-  if (!getAuthToken()) {
-    goto("/login");
+onMount(() => {
+  if (page.url.pathname === "/callback") {
+    return;
   }
-});
+
+  logtoClient.isAuthenticated().then((_isAuthenticated) => {
+    if (!_isAuthenticated) {
+      handleSignIn();
+    }
+  });
+})
+
+async function handleSignIn() {
+  await logtoClient.signIn(`${window.location.origin}/callback`);
+}
 
 async function handleLogout() {
-  try {
-    await clearAuthToken();
-  } finally {
-    goto("/login");
-  }
+  await logtoClient.signOut(`${window.location.origin}/`);
 }
 
 const currentPath = $derived(page.url.pathname);
-const isLogin = $derived(currentPath === "/login");
+const isLogin = $derived(currentPath === "/callback");
 const isRuntimeDetail = $derived(/^\/runtimes\/[^/]+$/.test(currentPath));
 
 const navItems = [

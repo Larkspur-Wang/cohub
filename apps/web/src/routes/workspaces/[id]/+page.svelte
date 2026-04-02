@@ -15,6 +15,7 @@ import { getWorkspaceById, getWorkspaceTree, getWorkspaceFile, forkWorkspace, up
 import { renderMarkdown } from "$lib/markdown";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
+import { logtoClient } from "$lib/auth.js";
 
 let { params } = $props();
 
@@ -62,7 +63,7 @@ async function loadWorkspace() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace not found or access denied";
     if (message.includes("unauthorized") || message.includes("401")) {
-      goto("/login");
+      await logtoClient.signIn(`${window.location.origin}/callback`);
       return;
     }
     loadError = message;

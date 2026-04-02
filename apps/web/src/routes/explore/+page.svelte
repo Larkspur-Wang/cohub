@@ -2,7 +2,7 @@
 import { FolderKanban, GitFork, Search, Globe } from "lucide-svelte";
 import { getPublicWorkspaces, type PublicWorkspace } from "$lib/api";
 import { onMount } from "svelte";
-import { goto } from "$app/navigation";
+import { logtoClient } from "$lib/auth";
 
 let workspaces = $state<PublicWorkspace[]>([]);
 let isLoading = $state(true);
@@ -24,7 +24,7 @@ async function loadData() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load public workspaces";
     if (message.includes("unauthorized") || message.includes("401")) {
-      goto("/login");
+      await logtoClient.signIn(`${window.location.origin}/callback`);
       return;
     }
     loadError = message;

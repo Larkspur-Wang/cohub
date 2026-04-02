@@ -38,7 +38,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
       message.includes("401") ||
       message.includes("403")
     ) {
-      throw redirect(302, "/login");
+      throw redirect(302, "/");
     }
 
     if (message.includes("runtime not found") || message.includes("404")) {

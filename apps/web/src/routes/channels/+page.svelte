@@ -3,7 +3,7 @@ import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay, X, Box } from "lucid
 import { createChannel, deleteChannel, getChannels, type Channel } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
-import { goto } from "$app/navigation";
+import { logtoClient } from "$lib/auth";
 
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
@@ -30,7 +30,7 @@ async function loadChannels() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load channels";
     if (message.includes("unauthorized") || message.includes("401")) {
-      goto("/login");
+      await logtoClient.signIn(`${window.location.origin}/callback`);
       return;
     }
     loadError = message;

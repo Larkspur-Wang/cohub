@@ -4,7 +4,7 @@ import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { createWorkspace, getMe, getWorkspaces, type Workspace } from "$lib/api";
 import { fade, fly } from "svelte/transition";
 import { onMount } from "svelte";
-import { goto } from "$app/navigation";
+import { logtoClient } from "$lib/auth";
 
 let workspaces = $state<Workspace[]>([]);
 let isLoading = $state(true);
@@ -31,7 +31,7 @@ async function loadData() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load workspaces";
     if (message.includes("unauthorized") || message.includes("401")) {
-      goto("/login");
+      await logtoClient.signIn(`${window.location.origin}/callback`);
       return;
     }
     loadError = message;

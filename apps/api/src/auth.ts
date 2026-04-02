@@ -29,7 +29,7 @@ export type AuthUserProfile = {
 export const fetchAuthUser = async (token: string) => {
   const response = await fetch(`${config.authBaseUrl}/v1/user/`, {
     headers: {
-      "x-token": token,
+      "Authorization": `Bearer ${token}`,
     },
   });
 

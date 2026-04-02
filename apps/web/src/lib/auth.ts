@@ -1,9 +1,31 @@
+import LogtoClient from "@logto/browser";
+
+const IS_DEV =
+  location.hostname.startsWith("dev") || process.env.NODE_ENV === "development";
+
+export const logtoClient = new LogtoClient(
+  IS_DEV
+    ? {
+        endpoint: "https://dev-auth.talesofai.com/",
+        appId: "vpikk7sl9zwvefiptowtn",
+        scopes: ["profile", "email", "offline_access"],
+        resources: ["https://dev.api.talesofai.com"],
+      }
+    : {
+        endpoint: "https://auth.talesofai.com/",
+        appId: "16ai0wao2mud3xqkbzqo0",
+        scopes: ["profile", "email", "offline_access"],
+        resources: ["https://api.talesofai.com"],
+      },
+);
+
 export const AUTH_TOKEN_STORAGE_KEY = "cohub_token";
 
-export const getAuthToken = () => {
-  if (typeof localStorage === "undefined") return null;
-  const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim();
-  return token || null;
+export const getAuthToken = async () => {
+  if (!(await logtoClient.isAuthenticated())) return null;
+  return await logtoClient.getAccessToken(
+    IS_DEV ? "https://dev.api.talesofai.com" : "https://api.talesofai.com",
+  );
 };
 
 export const setAuthToken = (token: string) => {

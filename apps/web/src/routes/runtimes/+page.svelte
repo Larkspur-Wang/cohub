@@ -2,7 +2,7 @@
 import { Cpu, Play, FolderKanban, Power, Moon, Trash2, Loader2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte";
 import { getRuntimes, hibernateRuntime, wakeRuntime, deleteRuntime, type RuntimeListItem } from "$lib/api";
 import { onMount } from "svelte";
-import { goto } from "$app/navigation";
+import { logtoClient } from "$lib/auth";
 
 let runtimes = $state<RuntimeListItem[]>([]);
 let isLoading = $state(true);
@@ -30,7 +30,7 @@ async function loadRuntimes() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load runtimes";
     if (message.includes("unauthorized") || message.includes("401")) {
-      goto("/login");
+      await logtoClient.signIn(`${window.location.origin}/callback`);
       return;
     }
     loadError = message;
