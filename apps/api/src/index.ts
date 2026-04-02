@@ -34,6 +34,7 @@ import {
   deleteRuntime,
   forkRuntimeSession,
   getRuntimeById,
+  getRuntimeLiveStatus,
   getRuntimeProvision,
   getRuntimeSessionBootstrap,
   getRuntimeSessionById,
@@ -1154,9 +1155,10 @@ app.get("/api/runtimes/:id", async (c) => {
 
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  const liveStatus = await getRuntimeLiveStatus(runtimeId);
   return c.json({
     ...runtime,
-    liveStatus: runtime.status ?? null,
+    liveStatus: liveStatus ?? runtime.status ?? null,
   });
 });
 

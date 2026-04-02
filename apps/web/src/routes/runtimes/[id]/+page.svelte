@@ -57,6 +57,7 @@ let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let streamingAssistantText = $state("");
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
+let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
 const listEl = $state<HTMLDivElement | null>(null);
 const contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
@@ -357,6 +358,13 @@ function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
   return provision.status === "queued" || provision.status === "running";
 }
 
+function shouldPollRuntime(runtime: RuntimeRecord | null) {
+  if (!runtime) return true;
+  const status = runtime.liveStatus ?? runtime.status;
+  if (!status) return true;
+  return status === "starting" || status === "hibernating";
+}
+
 async function handleSend() {
   if (!activeSessionState || !input.trim() || sending || !runtime) return;
   sending = true;
@@ -516,8 +524,14 @@ onMount(() => {
     void loadProvisioning();
   }, 5000);
 
+  runtimePollingTimer = setInterval(() => {
+    if (!shouldPollRuntime(runtime)) return;
+    void loadRuntime();
+  }, 1000);
+
   return () => {
     if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
+    if (runtimePollingTimer) clearInterval(runtimePollingTimer);
   };
 });
 
@@ -743,10 +757,6 @@ $effect(() => {
             <div class="text-[10px] text-white/35 uppercase tracking-wider">ID</div>
             <div class="text-xs text-white/70 break-all font-mono">{runtime?.id || runtimeId}</div>
             <div class="pt-1 grid grid-cols-2 gap-2 text-[11px]">
-              <div>
-                <div class="text-white/30">status</div>
-                <div class={runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}>{runtime?.liveStatus ?? runtime?.status ?? 'unknown'}</div>
-              </div>
               <div>
                 <div class="text-white/30">stream</div>
                 <div class={streamStatus === 'done' ? 'text-emerald-400' : streamStatus === 'streaming' ? 'text-amber-400' : streamStatus === 'error' ? 'text-rose-400' : 'text-white/40'}>{streamStatus}</div>
