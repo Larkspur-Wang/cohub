@@ -1574,7 +1574,7 @@ export const provisionRuntimeInBackground = async (input: {
       message: "Waiting for runtime to report running status.",
     });
 
-    const ready = await waitForRuntimeRunning(runtimeId, 30000);
+    const ready = await waitForRuntimeRunning(runtimeId, 60000);
     if (!ready) {
       const liveStatus = await getRuntimeLiveStatus(runtimeId);
       logProvision(runtimeId, "wait_runtime_running", "error", {
