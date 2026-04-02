@@ -316,11 +316,17 @@ function subscribeSessionEvents(handle: SessionHandle) {
         );
       });
 
-      // Remove matched user message from queue
+      // Remove matched user message from queue after first turn
       const matchedId = handle.currentUserMessageId;
       handle.pendingUserMessages = handle.pendingUserMessages.filter(
         (item) => item.userMessageId !== matchedId
       );
+      // NOTE: Don't clear currentUserMessageId here - keep it for subsequent turns
+      // It will be cleared on agent_end or when a new user message is matched
+    }
+
+    if (event.type === "agent_end") {
+      // Clear the currentUserMessageId when the entire agent loop completes
       handle.currentUserMessageId = null;
     }
 
