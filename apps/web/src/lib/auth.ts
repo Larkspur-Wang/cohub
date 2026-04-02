@@ -1,11 +1,23 @@
 import LogtoClient from "@logto/browser";
 
-export const logtoClient = new LogtoClient({
-  endpoint: "https://auth.talesofai.com/",
-  appId: "16ai0wao2mud3xqkbzqo0",
-  scopes: ["profile", "email", "offline_access"],
-  resources: ["https://api.talesofai.com"],
-});
+const IS_DEV =
+  location.hostname.startsWith("dev") || process.env.NODE_ENV === "development";
+
+export const logtoClient = new LogtoClient(
+  IS_DEV
+    ? {
+        endpoint: "https://auth.talesofai.com/",
+        appId: "u2l5j2mb1lsyyvcssa55e",
+        scopes: ["profile", "email", "offline_access"],
+        resources: ["https://api.talesofai.com"],
+      }
+    : {
+        endpoint: "https://auth.talesofai.com/",
+        appId: "16ai0wao2mud3xqkbzqo0",
+        scopes: ["profile", "email", "offline_access"],
+        resources: ["https://api.talesofai.com"],
+      },
+);
 
 export const AUTH_TOKEN_STORAGE_KEY = "cohub_token";
 
