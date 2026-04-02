@@ -13,6 +13,33 @@ function displayStatus(runtime: RuntimeListItem) {
   return runtime.liveStatus ?? runtime.status ?? "unknown";
 }
 
+function statusPriority(status: string): number {
+  switch (status) {
+    case "starting":
+    case "hibernating":
+      return 0;
+    case "running":
+    case "active":
+      return 1;
+    case "hibernated":
+      return 2;
+    case "error":
+    case "boot_failed":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function sortedRuntimes(list: RuntimeListItem[]): RuntimeListItem[] {
+  return list.toSorted((a, b) => {
+    const pa = statusPriority(displayStatus(a));
+    const pb = statusPriority(displayStatus(b));
+    if (pa !== pb) return pa - pb;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+}
+
 function statusBadge(status: string) {
   if (status === "running") return "neo-badge neo-badge-green";
   if (status === "starting" || status === "active") return "neo-badge neo-badge-yellow";
@@ -106,7 +133,7 @@ onMount(() => {
     </div>
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {#each runtimes as runtime}
+      {#each sortedRuntimes(runtimes) as runtime}
         {@const status = displayStatus(runtime)}
         {@const isBusy = actionInProgress[runtime.id]}
         <div class="neo-list-card p-4 bg-white flex flex-col gap-4">
