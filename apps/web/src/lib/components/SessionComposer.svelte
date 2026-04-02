@@ -31,6 +31,14 @@ let {
       rows="3"
       placeholder="Message session..."
       class="min-h-[76px] flex-1 resize-none rounded-md border border-white/10 bg-[#111111] px-3 py-2.5 text-[13px] leading-6 text-white/88 outline-none transition-colors placeholder:text-white/20 focus:border-white/20 focus:bg-[#141414]"
+      onkeydown={(event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          if (!disabled && value.trim()) {
+            onsubmit();
+          }
+        }
+      }}
     ></textarea>
     <button
       type="submit"

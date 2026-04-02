@@ -703,7 +703,7 @@ $effect(() => {
             </div>
           {/if}
 
-          <div class="relative flex-1 min-h-0">
+          <div class="relative flex-1 min-h-0 flex flex-col">
             <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
 
             {#if !shouldAutoFollow && timeline.length > 0}
