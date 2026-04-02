@@ -564,7 +564,7 @@ export const registerRuntimeSession = async (input: RegisterRuntimeSessionInput)
       .values({
         id: input.sessionId,
         runtimeId: input.runtimeId,
-        title: input.title ?? runtime.title ?? null,
+        title: input.title ?? null,
         source: input.source ?? null,
         status: "active",
         cwd: input.cwd ?? null,

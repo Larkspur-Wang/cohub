@@ -130,6 +130,7 @@ async function handleSubmit(event: SubmitEvent) {
     const result = await createRuntime({
       workspaceId: workspace.id,
       title: title.trim() || workspace.name,
+      source: "web",
       start: startNow,
       extraEnv: normalizedExtraEnv,
       channelBindings,

@@ -631,6 +631,7 @@ export const createRuntime = async (input?: {
   workspaceId?: string;
   agentId?: string;
   title?: string;
+  source?: string;
   cwd?: string;
   protocol?: "pi" | "acp" | "internal";
   start?: boolean;
@@ -672,6 +673,7 @@ export const createRuntimeSession = async (
   id: string,
   input?: {
     title?: string;
+    source?: string;
     cwd?: string;
     protocol?: "pi" | "acp" | "internal";
   },

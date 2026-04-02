@@ -950,6 +950,7 @@ app.post("/api/runtimes", async (c) => {
       workspaceId?: string;
       agentId?: string;
       title?: string;
+      source?: string;
       cwd?: string;
       protocol?: "pi" | "acp" | "internal";
       meta?: Record<string, unknown>;
@@ -961,6 +962,7 @@ app.post("/api/runtimes", async (c) => {
     workspaceId?: string;
     agentId?: string;
     title?: string;
+    source?: string;
     cwd?: string;
     protocol?: "pi" | "acp" | "internal";
     meta?: Record<string, unknown>;
@@ -1048,11 +1050,11 @@ app.post("/api/runtimes", async (c) => {
     runtimeId: runtime.id,
     sessionId: crypto.randomUUID(),
     title: body.title ?? null,
+    source: body.source ?? null,
     protocol: body.protocol ?? "pi",
     cwd: body.cwd ?? null,
     externalSessionId: null,
     meta: {
-      source: "web",
       createdBy: "api_runtime_create",
       channelBindings: normalizedChannelBindings.length,
     },
@@ -1293,16 +1295,17 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
-  const body = await c.req.json<{ title?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, cwd: undefined, protocol: undefined }));
+  const body = await c.req.json<{ title?: string; source?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, source: undefined, cwd: undefined, protocol: undefined }));
 
   const session = await createInitialRuntimeSession({
     runtimeId: runtime.id,
     sessionId: crypto.randomUUID(),
     title: body.title ?? runtime.title ?? null,
+    source: body.source ?? null,
     protocol: body.protocol ?? ((runtime.meta as Record<string, unknown>)?.protocol as "pi" | "acp" | "internal" | undefined) ?? "pi",
     cwd: body.cwd ?? ((runtime.meta as Record<string, unknown>)?.cwd as string | undefined) ?? null,
     externalSessionId: null,
-    meta: { source: "web", createdBy: "api_session_create" },
+    meta: { createdBy: "api_session_create" },
   });
 
   return c.json({ ok: true, session });

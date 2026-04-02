@@ -148,7 +148,7 @@ async function handleCreateNewSession() {
   createSessionError = "";
 
   try {
-    const result = await createRuntimeSession(runtime.id);
+    const result = await createRuntimeSession(runtime.id, { source: "web" });
     const newSession = result.session;
 
     runtimeSessions = [...runtimeSessions, newSession];
