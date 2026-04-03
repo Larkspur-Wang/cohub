@@ -112,6 +112,62 @@ const getDiscordInboundConfig = (config: DiscordRuntimeChannelConfig | null | un
   };
 };
 
+/**
+ * Resolve Discord mention patterns to readable names.
+ * Converts <@USER_ID> → @username, <@&ROLE_ID> → @role, <#CHANNEL_ID> → #channel.
+ * Bot's own mention is stripped entirely.
+ */
+const resolveMentions = (message: Message): string => {
+  let content = message.content;
+  const botUserId = message.client.user?.id;
+
+  // Build a map of all mention IDs → display names, sorted by ID length descending
+  // to avoid partial matches (e.g. shorter ID matching inside a longer one)
+  const replacements: Map<string, string> = new Map();
+
+  // Guild members have display names (nicknames), fall back to user.username
+  for (const [id, member] of message.mentions.members ?? []) {
+    const prefix = id === botUserId ? "__BOT__" : "@";
+    replacements.set(id, `${prefix}${member.displayName}`);
+  }
+  // Users not in members (e.g. DMs)
+  for (const [id, user] of message.mentions.users) {
+    if (!replacements.has(id)) {
+      const prefix = id === botUserId ? "__BOT__" : "@";
+      replacements.set(id, `${prefix}${user.username}`);
+    }
+  }
+  // Roles
+  for (const [id, role] of message.mentions.roles ?? []) {
+    replacements.set(`&${id}`, `@${role.name}`);
+  }
+  // Channels
+  for (const [id, channel] of message.mentions.channels ?? []) {
+    replacements.set(`#${id}`, `#${"name" in channel ? channel.name : id}`);
+  }
+
+  // Replace mentions by building a single regex, sorted by ID length descending
+  const sortedEntries = [...replacements.entries()].sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+
+  for (const [id, name] of sortedEntries) {
+    if (name.startsWith("__BOT__")) {
+      // Strip bot mention entirely
+      content = content.replace(new RegExp(`<@!?${id}>`, "g"), "");
+    } else {
+      const isUser = !id.startsWith("&") && !id.startsWith("#");
+      const rawId = isUser ? id : id.slice(1);
+      const pattern = isUser ? "<@!?(\\d+)>" : id.startsWith("&") ? "<@&(\\d+)>" : "<#(\\d+)>";
+      content = content.replace(new RegExp(pattern, "g"), (match, capturedId) => {
+        return capturedId === rawId ? name : match;
+      });
+    }
+  }
+
+  return content.replace(/\s{2,}/g, " ").trim();
+};
+
 const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Message) => {
   const isDM = message.channel?.isDMBased?.() ?? false;
   if (isDM) return true;
@@ -369,7 +425,8 @@ export class DiscordProvider implements GatewayProvider {
         attachments: message.attachments.size,
       });
 
-      const content: UnifiedContentBlock[] = [{ type: "text", text: message.content }];
+      const cleanedContent = resolveMentions(message);
+      const content: UnifiedContentBlock[] = [{ type: "text", text: cleanedContent }];
 
       for (const attachment of message.attachments.values()) {
         if (attachment.contentType?.startsWith("image/")) {
