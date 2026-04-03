@@ -34,7 +34,17 @@ async function runGitCommand(args: string[], cwd?: string) {
 }
 
 async function runGitClone(repositoryUrl: string, targetDir: string) {
-  await runGitCommand(["clone", repositoryUrl, targetDir]);
+  // --depth 1: shallow clone to reduce transfer size
+  // -c checkout.workers=4: parallel checkout to amortize NFS metadata latency
+  await runGitCommand([
+    "-c",
+    "checkout.workers=4",
+    "clone",
+    "--depth",
+    "1",
+    repositoryUrl,
+    targetDir,
+  ]);
 }
 
 async function copyConfigToHome(sourceDir: string, name: string) {
