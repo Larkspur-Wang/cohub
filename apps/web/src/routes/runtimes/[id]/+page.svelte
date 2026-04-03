@@ -20,7 +20,7 @@ import {
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Activity, Box, Hash, MessageSquare, ArrowLeft, X, Plus, ArrowDown } from "lucide-svelte";
+import { Terminal, Box, Hash, MessageSquare, ArrowLeft, X, Plus, ArrowDown } from "lucide-svelte";
 import { ensureAuth } from "$lib/auth";
 
 type Props = {
@@ -581,12 +581,6 @@ $effect(() => {
       </div>
     </div>
 
-    <div class="flex items-center gap-4 text-xs font-mono text-white/40 shrink-0">
-      <div class="flex items-center gap-1.5">
-        <Activity class="w-3.5 h-3.5" />
-        <span class={streamStatus === 'done' ? 'text-emerald-400' : streamStatus === 'streaming' ? 'text-amber-400' : streamStatus === 'error' ? 'text-rose-400' : 'text-white/40'}>{streamStatus}</span>
-      </div>
-    </div>
   </header>
 
   <div class="flex-1 flex min-h-0">
@@ -628,7 +622,7 @@ $effect(() => {
                 <div class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-emerald-400"></div>
               {/if}
               <div class="flex items-center gap-2 w-full">
-                <div class="text-xs font-medium truncate flex-1">{getSessionTitle(session, index)}</div>
+                <div class="text-xs font-medium leading-none truncate flex-1">{getSessionTitle(session, index)}</div>
                 {#if isStreaming}
                   <div class="w-3.5 h-3.5 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin shrink-0"></div>
                 {/if}
@@ -756,12 +750,7 @@ $effect(() => {
           <div class="rounded-md border border-white/8 bg-white/[0.02] p-3 space-y-2">
             <div class="text-[10px] text-white/35 uppercase tracking-wider">ID</div>
             <div class="text-xs text-white/70 break-all font-mono">{runtime?.id || runtimeId}</div>
-            <div class="pt-1 grid grid-cols-2 gap-2 text-[11px]">
-              <div>
-                <div class="text-white/30">stream</div>
-                <div class={streamStatus === 'done' ? 'text-emerald-400' : streamStatus === 'streaming' ? 'text-amber-400' : streamStatus === 'error' ? 'text-rose-400' : 'text-white/40'}>{streamStatus}</div>
-              </div>
-            </div>
+
           </div>
         </section>
 
