@@ -222,7 +222,49 @@ export const addSshKey = async (token: string, key: string, title: string) => {
     throw new Error(`Gitea add SSH key error: ${response.status} ${text}`);
   }
 
-  return response.json();
+  return response.json() as Promise<GiteaSshKey>;
+};
+
+export type GiteaSshKey = {
+  id: number;
+  key: string;
+  title: string;
+  read_only: boolean;
+};
+
+export const deleteSshKey = async (token: string, keyId: number) => {
+  const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/keys/${keyId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `token ${token}`,
+    },
+  });
+
+  if (response.status === 404) {
+    return { notFound: true };
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea delete SSH key error: ${response.status} ${text}`);
+  }
+
+  return { ok: true };
+};
+
+export const listSshKeys = async (token: string): Promise<GiteaSshKey[]> => {
+  const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/keys`, {
+    headers: {
+      Authorization: `token ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gitea list SSH keys error: ${response.status} ${text}`);
+  }
+
+  return response.json() as Promise<GiteaSshKey[]>;
 };
 
 export const createAnonymousRepository = async (

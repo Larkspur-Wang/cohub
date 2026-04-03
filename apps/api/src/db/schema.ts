@@ -25,6 +25,13 @@ export const userGitAccounts = pgTable(
     giteaAccessTokenEncrypted: text("gitea_access_token_encrypted").notNull(),
     status: varchar("status", { length: 20 }).default("active"),
     lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    sshPublicKeys: jsonb("ssh_public_keys").$type<Array<{
+      id: string;
+      key: string;
+      title: string;
+      giteaKeyId: number;
+      createdAt: string;
+    }>>(),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

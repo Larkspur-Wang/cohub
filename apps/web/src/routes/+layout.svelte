@@ -2,7 +2,7 @@
 import "../app.css";
 import { page } from "$app/state";
 import { logtoClient } from "$lib/auth";
-import { LayoutDashboard, FolderKanban, Network, Cpu, LogOut, Globe, Menu, X } from "lucide-svelte";
+import { LayoutDashboard, FolderKanban, Network, Cpu, LogOut, Globe, Menu, X, Settings } from "lucide-svelte";
 import { fade, slide } from "svelte/transition";
 import { onMount } from "svelte";
 import type { IdTokenClaims } from "@logto/browser";
@@ -41,6 +41,7 @@ const navItems = [
   { name: "Workspaces", href: "/workspaces", icon: FolderKanban, color: "bg-[#28B463]" },
   { name: "Runtimes", href: "/runtimes", icon: Cpu, color: "bg-[#FF85B3]" },
   { name: "Channels", href: "/channels", icon: Network, color: "bg-[#9D4EDD]" },
+  { name: "Settings", href: "/settings", icon: Settings, color: "bg-[#FF5A5F]" },
 ];
 </script>
 

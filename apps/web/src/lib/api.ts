@@ -804,3 +804,36 @@ export const deleteRuntime = async (id: string) => {
     method: "DELETE",
   }) as Promise<{ success: boolean }>;
 };
+
+// ─── SSH Key Management ──────────────────────────────
+
+export type UserSshKey = {
+  id: string;
+  key: string;
+  title: string;
+  giteaKeyId: number;
+  createdAt: string;
+};
+
+export const getSshKeys = async (customFetch?: Fetch) => {
+  return apiFetch("/api/user/ssh-keys", {
+    method: "GET",
+    fetch: customFetch,
+  }) as Promise<UserSshKey[]>;
+};
+
+export const createSshKey = async (data: { key: string; title: string }) => {
+  return apiFetch("/api/user/ssh-keys", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  }) as Promise<UserSshKey>;
+};
+
+export const deleteSshKey = async (id: string) => {
+  return apiFetch(`/api/user/ssh-keys/${id}`, {
+    method: "DELETE",
+  }) as Promise<{ ok: true }>;
+};

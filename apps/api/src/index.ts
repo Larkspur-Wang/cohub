@@ -15,6 +15,7 @@ import {
   getRepository,
   createRepository,
   addSshKey,
+  deleteSshKey,
   createAnonymousRepository,
   addDeployKeyToRepo,
   forkRepository,
@@ -517,6 +518,104 @@ app.post("/api/v1/user/keys", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });
+
+// ─── User SSH Key Management ──────────────────────────────
+
+app.get("/api/user/ssh-keys", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const [account] = await db
+    .select({ sshPublicKeys: userGitAccounts.sshPublicKeys })
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, user.uuid))
+    .limit(1);
+
+  return c.json(account?.sshPublicKeys ?? []);
+});
+
+app.post("/api/user/ssh-keys", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = await c.req.json<{ key: string; title: string }>().catch(() => null);
+  if (!body?.key || !body?.title) {
+    return c.json({ message: "key and title are required" }, 400);
+  }
+
+  if (!body.key.trim().startsWith("ssh-")) {
+    return c.json({ message: "invalid SSH public key format" }, 400);
+  }
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  const giteaKey = await addSshKey(gitAccount.giteaAccessToken, body.key.trim(), body.title.trim());
+
+  if ("alreadyExists" in giteaKey) {
+    return c.json({ message: "this SSH key already exists on Gitea" }, 409);
+  }
+
+  const entry = {
+    id: crypto.randomUUID(),
+    key: body.key.trim(),
+    title: body.title.trim(),
+    giteaKeyId: (giteaKey as { id: number }).id,
+    createdAt: new Date().toISOString(),
+  };
+
+  const existingKeys = gitAccount.sshPublicKeys ?? [];
+  const updatedKeys = [...existingKeys, entry];
+
+  const accountId = gitAccount.id;
+  if (!accountId) throw new Error("git account id is missing");
+
+  await db
+    .update(userGitAccounts)
+    .set({ sshPublicKeys: updatedKeys, updatedAt: new Date() })
+    .where(eq(userGitAccounts.id, accountId));
+
+  return c.json(entry);
+});
+
+app.delete("/api/user/ssh-keys/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const sshKeyId = c.req.param("id");
+
+  const [account] = await db
+    .select({ sshPublicKeys: userGitAccounts.sshPublicKeys, id: userGitAccounts.id, giteaAccessTokenEncrypted: userGitAccounts.giteaAccessTokenEncrypted })
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, user.uuid))
+    .limit(1);
+
+  if (!account) return c.json({ message: "git account not found" }, 404);
+
+  const keys = account.sshPublicKeys ?? [];
+  const targetEntry = keys.find((k) => k.id === sshKeyId);
+  if (!targetEntry) return c.json({ message: "SSH key not found" }, 404);
+
+  const { decryptSecret } = await import("./crypto.js");
+  const gitAccessToken = decryptSecret(account.giteaAccessTokenEncrypted);
+
+  await deleteSshKey(gitAccessToken, targetEntry.giteaKeyId).catch(() => {
+    // Ignore Gitea delete errors — key may have been removed manually
+  });
+
+  const updatedKeys = keys.filter((k) => k.id !== sshKeyId);
+  await db
+    .update(userGitAccounts)
+    .set({ sshPublicKeys: updatedKeys, updatedAt: new Date() })
+    .where(eq(userGitAccounts.id, account.id));
+
+  return c.json({ ok: true });
+});
+
 
 app.post("/api/v1/share/init", async (c) => {
   try {
