@@ -5,10 +5,23 @@ import { logtoClient } from "$lib/auth";
 import { LayoutDashboard, FolderKanban, Network, Cpu, LogOut, Globe, Menu, X } from "lucide-svelte";
 import { fade, slide } from "svelte/transition";
 import { onMount } from "svelte";
+import type { IdTokenClaims } from "@logto/browser";
 
 const { children } = $props();
 
 let isMobileMenuOpen = $state(false);
+let userClaims = $state<IdTokenClaims | null>(null);
+
+onMount(async () => {
+  const authenticated = await logtoClient.isAuthenticated();
+  if (authenticated) {
+    try {
+      userClaims = await logtoClient.getIdTokenClaims();
+    } catch {
+      // ignore
+    }
+  }
+});
 
 // Auth is now handled per-page:
 // - Public pages: /callback, /explore, /workspaces/[id] (public workspaces only)
@@ -71,11 +84,15 @@ const navItems = [
       <div class="p-4 border-t-[3px] border-black">
         <div class="flex items-center gap-3 p-3 rounded-3xl border-[3px] border-black bg-[#FFD93D] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
           <div class="w-10 h-10 rounded-2xl border-[3px] border-black bg-white overflow-hidden shrink-0">
-            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=neta-user" alt="avatar" class="w-full h-full object-cover" />
+            {#if userClaims?.picture}
+              <img src={userClaims.picture} alt="avatar" class="w-full h-full object-cover" />
+            {:else}
+              <img src="https://api.dicebear.com/7.x/notionists/svg?seed={userClaims?.sub ?? 'anonymous'}" alt="avatar" class="w-full h-full object-cover" />
+            {/if}
           </div>
           <div class="flex-1 min-w-0">
-            <p class="font-black text-sm truncate uppercase tracking-tighter">Admin</p>
-            <p class="text-[10px] font-bold uppercase tracking-widest opacity-60">Manager</p>
+            <p class="font-black text-sm truncate uppercase tracking-tighter">{userClaims?.name ?? 'Guest'}</p>
+            <p class="text-[10px] font-bold uppercase tracking-widest opacity-60">{userClaims?.email ?? 'Not signed in'}</p>
           </div>
           <button
             onclick={handleLogout}
