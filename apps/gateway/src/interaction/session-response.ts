@@ -135,24 +135,6 @@ const waitForAcceptedResult = async (input: {
   return accepted;
 };
 
-const extractFinalAssistantText = (payload: Record<string, unknown>, fallbackText: string) => {
-  const event = payload.event as Record<string, unknown> | undefined;
-  const message = event?.message as Record<string, unknown> | undefined;
-  if (!message || typeof message !== "object") {
-    return fallbackText;
-  }
-
-  const content = Array.isArray(message.content) ? message.content : [];
-  const text = content
-    .filter((item): item is { type?: string; text?: string } => !!item && typeof item === "object")
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text)
-    .join("\n")
-    .trim();
-
-  return text || fallbackText;
-};
-
 const createResponseEnvelope = (input: {
   request: CohubSessionResponseRequest;
   actorUserId: string;
@@ -289,16 +271,13 @@ export const streamSessionResponse = async function* (input: {
             }
           }
 
-          if (payload?.type === "agent_event") {
-            const event = payload.event as Record<string, unknown> | undefined;
-            const eventType = typeof event?.type === "string" ? event.type : "";
-            const message = event?.message as Record<string, unknown> | undefined;
-            const meta = (message?.meta as Record<string, unknown> | null) ?? null;
-            const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
-            if (eventType !== "turn_end") continue;
+          if (payload?.type === "provider_render_update" && payload?.turnEnd === true) {
+            const anchorUserMessageId = typeof payload.anchorUserMessageId === "string"
+              ? payload.anchorUserMessageId
+              : null;
             if (anchorUserMessageId && anchorUserMessageId !== userMessageId) continue;
 
-            const finalText = extractFinalAssistantText(payload, assistantText);
+            const finalText = typeof payload.answer === "string" ? payload.answer : assistantText;
             const trailingDelta = finalText.startsWith(assistantText) ? finalText.slice(assistantText.length) : "";
             assistantText = finalText;
 

@@ -61,10 +61,13 @@ export async function setRuntimeStatus(
   });
 }
 
+const STREAM_MAXLEN = 10000;
+const STREAM_APPROX = "~";
+
 export async function sendOutput(data: unknown) {
   try {
     const payload = typeof data === "string" ? data : JSON.stringify(data);
-    await redis.xadd(STREAM_KEY_OUT, "*", "payload", payload);
+    await redis.xadd(STREAM_KEY_OUT, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, "*", "payload", payload);
   } catch (err) {
     console.error("[Redis] Failed to send output:", err);
   }

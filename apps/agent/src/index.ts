@@ -184,9 +184,9 @@ function summarizeThinking(thinking: string): string {
   return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 2).join("\n").slice(0, 320);
 }
 
-async function emitProviderRenderUpdate(handle: SessionHandle) {
+async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
   const now = Date.now();
-  if (now - handle.streamState.lastRenderAt < 900) return;
+  if (!force && now - handle.streamState.lastRenderAt < 900) return;
   handle.streamState.lastRenderAt = now;
 
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
@@ -232,13 +232,6 @@ function resetStreamState(handle: SessionHandle) {
 
 function subscribeSessionEvents(handle: SessionHandle) {
   handle.session.subscribe((event) => {
-    void sendOutput({
-      type: "agent_event",
-      runtimeId: env.RUNTIME_ID,
-      sessionId: handle.sessionId,
-      event,
-    });
-
     if (event.type === "message_start") {
       const message = event.message as unknown as Record<string, unknown>;
       
@@ -304,6 +297,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
+      // Persist to DB (uses local event object, not Redis)
       void persistAssistantMessage({
         runtimeId: env.RUNTIME_ID,
         runtimeSessionId: handle.sessionId,
@@ -316,21 +310,34 @@ function subscribeSessionEvents(handle: SessionHandle) {
         );
       });
 
-      // Remove matched user message from queue after first turn
+      // Immediately emit final render update with turnEnd flag (bypass throttle)
+      void sendOutput({
+        type: "provider_render_update",
+        runtimeId: env.RUNTIME_ID,
+        sessionId: handle.sessionId,
+        renderMode: "rich_status",
+        thinking: handle.streamState.thinking.trim(),
+        toolCalls: handle.streamState.toolCalls,
+        answer: handle.streamState.assistantText,
+        sourceMessageId: handle.currentUserMessageId,
+        turnEnd: true,
+        anchorUserMessageId: handle.currentUserMessageId,
+      });
+
+      // Remove matched user message from queue
       const matchedId = handle.currentUserMessageId;
       handle.pendingUserMessages = handle.pendingUserMessages.filter(
-        (item) => item.userMessageId !== matchedId
+        (item) => item.userMessageId !== matchedId,
       );
       // NOTE: Don't clear currentUserMessageId here - keep it for subsequent turns
-      // It will be cleared on agent_end or when a new user message is matched
+      // It will be cleared on agent_end
     }
 
     if (event.type === "agent_end") {
-      // Clear the currentUserMessageId when the entire agent loop completes
       handle.currentUserMessageId = null;
     }
 
-    if (event.type === "turn_end" || event.type === "message_end") {
+    if (event.type === "message_end") {
       void emitProviderRenderUpdate(handle);
     }
   });

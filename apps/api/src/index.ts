@@ -305,13 +305,10 @@ const startGatewaySessionResponseListener = async () => {
                         });
                       }
 
-                      if (runtimeEvent?.type === "agent_event") {
-                        const agentEvent = runtimeEvent.event as Record<string, unknown> | undefined;
-                        const eventType = typeof agentEvent?.type === "string" ? agentEvent.type : "";
-                        const message = agentEvent?.message as Record<string, unknown> | undefined;
-                        if (eventType !== "turn_end" || !message || typeof message !== "object") continue;
-                        const meta = (message.meta as Record<string, unknown> | null) ?? null;
-                        const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
+                      if (runtimeEvent?.type === "provider_render_update" && runtimeEvent?.turnEnd === true) {
+                        const anchorUserMessageId = typeof runtimeEvent.anchorUserMessageId === "string"
+                          ? runtimeEvent.anchorUserMessageId
+                          : null;
                         if (anchorUserMessageId && anchorUserMessageId !== result.userMessageId) continue;
 
                         if (!startedPublished) {
