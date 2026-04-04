@@ -204,6 +204,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
     sourceMessageId,
+    timestamp: now,
   });
 
   await updateProviderRender({
@@ -320,6 +321,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
         toolCalls: handle.streamState.toolCalls,
         answer: handle.streamState.assistantText,
         sourceMessageId: handle.currentUserMessageId,
+        timestamp: Date.now(),
         turnEnd: true,
         anchorUserMessageId: handle.currentUserMessageId,
       });

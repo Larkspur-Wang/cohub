@@ -88,11 +88,12 @@ export type CohubSessionResponseEvent =
       };
     }
   | {
-      type: "response.output_text.delta";
+      type: "response.output_text.content";
       item_id: string;
       output_index: 0;
       content_index: 0;
-      delta: string;
+      content: string;
+      timestamp: number;
     }
   | {
       type: "response.completed";

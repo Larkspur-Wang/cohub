@@ -56,6 +56,7 @@ let streamError = $state("");
 let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let streamingAssistantText = $state("");
+let streamingContentTs = $state(0);
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
 const listEl = $state<HTMLDivElement | null>(null);
@@ -378,6 +379,7 @@ async function handleSend() {
   try {
     input = "";
     streamingAssistantText = "";
+    streamingContentTs = 0;
 
     const currentState = sessionStateById[sessionId];
     if (currentState) {
@@ -417,11 +419,14 @@ async function handleSend() {
       sessionId,
       text,
     })) {
-      if (event.type === "response.output_text.delta") {
-        streamingAssistantText = `${streamingAssistantText}${event.delta}`;
-        await tick();
-        if (shouldAutoFollow) {
-          scrollToBottomNow();
+      if (event.type === "response.output_text.content") {
+        if (event.timestamp >= streamingContentTs) {
+          streamingAssistantText = event.content;
+          streamingContentTs = event.timestamp;
+          await tick();
+          if (shouldAutoFollow) {
+            scrollToBottomNow();
+          }
         }
       }
 
@@ -468,6 +473,7 @@ async function handleSend() {
         }
 
         streamingAssistantText = "";
+        streamingContentTs = 0;
       }
     }
 
@@ -478,6 +484,7 @@ async function handleSend() {
     await loadSessionState(sessionId, true).catch(() => undefined);
   } finally {
     streamingAssistantText = "";
+    streamingContentTs = 0;
     sending = false;
   }
 }

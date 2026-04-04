@@ -332,7 +332,11 @@ export type SessionResponseStreamEvent =
       type: "response.created";
       response: { id: string; status: string; model: string };
     }
-  | { type: "response.output_text.delta"; delta: string }
+  | {
+      type: "response.output_text.content";
+      content: string;
+      timestamp: number;
+    }
   | {
       type: "response.completed";
       response: {

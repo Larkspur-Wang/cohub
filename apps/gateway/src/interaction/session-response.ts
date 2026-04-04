@@ -257,18 +257,17 @@ export const streamSessionResponse = async function* (input: {
             const answer = typeof payload.answer === "string" ? payload.answer : "";
             if (!answer) continue;
 
-            const delta = answer.startsWith(assistantText) ? answer.slice(assistantText.length) : answer;
+            const ts = typeof payload.timestamp === "number" ? payload.timestamp : Date.now();
             assistantText = answer;
 
-            if (delta) {
-              yield {
-                type: "response.output_text.delta",
-                item_id: envelope.itemId,
-                output_index: 0,
-                content_index: 0,
-                delta,
-              } satisfies CohubSessionResponseEvent;
-            }
+            yield {
+              type: "response.output_text.content",
+              item_id: envelope.itemId,
+              output_index: 0,
+              content_index: 0,
+              content: answer,
+              timestamp: ts,
+            } satisfies CohubSessionResponseEvent;
           }
 
           if (payload?.type === "provider_render_update" && payload?.turnEnd === true) {
@@ -278,18 +277,17 @@ export const streamSessionResponse = async function* (input: {
             if (anchorUserMessageId && anchorUserMessageId !== userMessageId) continue;
 
             const finalText = typeof payload.answer === "string" ? payload.answer : assistantText;
-            const trailingDelta = finalText.startsWith(assistantText) ? finalText.slice(assistantText.length) : "";
+            const ts = typeof payload.timestamp === "number" ? payload.timestamp : Date.now();
             assistantText = finalText;
 
-            if (trailingDelta) {
-              yield {
-                type: "response.output_text.delta",
-                item_id: envelope.itemId,
-                output_index: 0,
-                content_index: 0,
-                delta: trailingDelta,
-              } satisfies CohubSessionResponseEvent;
-            }
+            yield {
+              type: "response.output_text.content",
+              item_id: envelope.itemId,
+              output_index: 0,
+              content_index: 0,
+              content: finalText,
+              timestamp: ts,
+            } satisfies CohubSessionResponseEvent;
 
             yield {
               type: "response.completed",
@@ -354,9 +352,9 @@ export const createSessionResponse = async (input: {
       continue;
     }
 
-    if (event.type === "response.output_text.delta") {
+    if (event.type === "response.output_text.content") {
       itemId = event.item_id;
-      text = `${text}${event.delta}`;
+      text = event.content;
       continue;
     }
 
