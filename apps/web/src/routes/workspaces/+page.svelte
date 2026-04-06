@@ -1,19 +1,28 @@
 <script lang="ts">
-import { Plus, FolderKanban, Lock, Globe, GitFork, X } from "lucide-svelte";
+import { Plus, FolderKanban, Lock, Globe, GitFork, X, Search } from "lucide-svelte";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
-import { createWorkspace, getMe, getWorkspaces, type Workspace } from "$lib/api";
+import { createWorkspace, getMe, getWorkspaces, type Workspace, getPublicWorkspaces, type PublicWorkspace } from "$lib/api";
 import { fade, fly } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
 
 let workspaces = $state<Workspace[]>([]);
+let publicWorkspaces = $state<PublicWorkspace[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
+let viewMode = $state<"my" | "explore">("my");
 
+// Explore state
+let exploreSearch = $state("");
+let explorePage = $state(1);
+let exploreTotalPages = $state(1);
+let exploreLoading = $state(false);
+let exploreError = $state("");
+
+// Create form
 let isAdding = $state(false);
 let isSubmitting = $state(false);
-let createStatusText = $state("");
-
+let createError = $state("");
 let formName = $state("");
 let formDescription = $state("");
 let formPrivate = $state(true);
@@ -21,7 +30,7 @@ let user = $state<{ uuid?: string; nick_name?: string } | null>(null);
 
 const previewSlug = $derived(normalizeWorkspaceSlug(formName));
 
-async function loadData() {
+async function loadMyWorkspaces() {
   if (!(await ensureAuth())) return;
   isLoading = true;
   loadError = "";
@@ -41,9 +50,36 @@ async function loadData() {
   }
 }
 
+async function loadExplore() {
+  exploreLoading = true;
+  exploreError = "";
+  try {
+    const response = await getPublicWorkspaces(explorePage, 20, exploreSearch || undefined);
+    publicWorkspaces = response.items;
+    exploreTotalPages = response.pagination.totalPages;
+  } catch (error) {
+    exploreError = error instanceof Error ? error.message : "Failed to load public workspaces";
+  } finally {
+    exploreLoading = false;
+  }
+}
+
 onMount(() => {
-  loadData();
+  void loadMyWorkspaces();
+  void loadExplore();
 });
+
+function handleExploreSearch(e: Event) {
+  e.preventDefault();
+  explorePage = 1;
+  void loadExplore();
+}
+
+function goToExplorePage(newPage: number) {
+  if (newPage < 1 || newPage > exploreTotalPages) return;
+  explorePage = newPage;
+  void loadExplore();
+}
 
 async function handleSubmit(e: Event) {
   e.preventDefault();
@@ -51,12 +87,12 @@ async function handleSubmit(e: Event) {
 
   const normalizedSlug = normalizeWorkspaceSlug(formName);
   if (!normalizedSlug) {
-    alert("Workspace name must contain letters or numbers.");
+    createError = "Workspace name must contain letters or numbers.";
     return;
   }
 
   isSubmitting = true;
-  createStatusText = "Preparing workspace...";
+  createError = "";
   try {
     await createWorkspace({
       name: formName.trim(),
@@ -67,152 +103,255 @@ async function handleSubmit(e: Event) {
     formName = "";
     formDescription = "";
     formPrivate = true;
-    createStatusText = "";
-    await loadData();
+    await loadMyWorkspaces();
   } catch (error) {
-    createStatusText = "";
     const message = error instanceof Error ? error.message : "Failed to create workspace";
     if (message.includes("workspace slug already exists") || message.includes("409")) {
-      alert("A workspace with the same repository slug already exists.");
+      createError = "A workspace with the same repository slug already exists.";
       return;
     }
     if (message.includes("workspace name must contain letters or numbers")) {
-      alert("Workspace name must contain letters or numbers.");
+      createError = "Workspace name must contain letters or numbers.";
       return;
     }
-    alert(message);
+    createError = message;
   } finally {
     isSubmitting = false;
   }
 }
 </script>
 
-<div class="neo-page-shell">
-  <div class="neo-page-header" in:fly={{ y: 20, duration: 300 }}>
-    <div>
-      <h1 class="neo-page-title text-black">Workspaces</h1>
-      <p class="neo-page-desc mt-3 max-w-2xl">Manage code, prompts, and assets for every agent workspace in one place.</p>
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+  <!-- Header -->
+  <div class="h-10 flex items-center justify-between px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+    <div class="flex items-center gap-1">
+      <button
+        type="button"
+        class={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${viewMode === "my" ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/5"}`}
+        onclick={() => viewMode = "my"}
+      >
+        My Workspaces
+      </button>
+      <button
+        type="button"
+        class={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${viewMode === "explore" ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/5"}`}
+        onclick={() => viewMode = "explore"}
+      >
+        Explore
+      </button>
     </div>
-    <button onclick={() => (isAdding = true)} class="neo-btn neo-btn-primary">
-      <Plus class="w-4 h-4" />
-      New Workspace
-    </button>
+
+    {#if viewMode === "my"}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/60 hover:text-white hover:bg-white/8 transition-colors"
+        onclick={() => isAdding = true}
+      >
+        <Plus class="w-3.5 h-3.5" />
+        New Workspace
+      </button>
+    {/if}
   </div>
 
-  {#if isAdding}
-    <div class="neo-card p-5 md:p-6 bg-white" transition:fade>
-      <div class="flex items-center justify-between gap-4 mb-5">
-        <div>
-          <h2 class="neo-section-title">Create Workspace</h2>
-          <p class="neo-page-desc mt-2 text-sm">Create a new hosted repository for your agent project.</p>
+  <div class="flex-1 p-4 overflow-y-auto">
+    <!-- Create Form -->
+    {#if isAdding && viewMode === "my"}
+      <div class="mb-4 border border-white/10 rounded-lg bg-[#121212] p-4" in:fade>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-medium text-white/90">Create Workspace</h2>
+          <button onclick={() => isAdding = false} class="text-white/30 hover:text-white/70 transition-colors">
+            <X class="w-4 h-4" />
+          </button>
         </div>
-        <button onclick={() => (isAdding = false)} class="neo-btn neo-btn-secondary !px-3 !py-2">
-          <X class="w-4 h-4" />
-          Close
-        </button>
-      </div>
 
-      <form onsubmit={handleSubmit} class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-5">
-        <div class="space-y-4">
+        <form onsubmit={handleSubmit} class="space-y-3">
           <div>
-            <label class="neo-meta mb-2 block" for="name">Workspace Name</label>
+            <label class="block text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5" for="ws-name">Name</label>
             <div class="flex items-center gap-2">
-              <span class="neo-badge neo-badge-yellow shrink-0">{user?.nick_name || "owner"}</span>
+              <span class="text-[10px] text-white/30 font-mono shrink-0">{user?.nick_name || "owner"}/</span>
               <input
+                id="ws-name"
                 type="text"
-                id="name"
                 bind:value={formName}
-                placeholder="My Awesome Agent"
-                class="neo-input"
+                placeholder="my-workspace"
+                class="flex-1 px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none font-mono"
                 required
               />
             </div>
-            <p class="mt-2 text-xs font-bold text-black/60">
-              Repository slug: <span class="font-mono text-black">{previewSlug || "my-awesome-agent"}</span>
-            </p>
-          </div>
-
-          <div>
-            <label class="neo-meta mb-2 block" for="description">Description</label>
-            <input
-              type="text"
-              id="description"
-              bind:value={formDescription}
-              placeholder="A brief description of this workspace"
-              class="neo-input"
-            />
-          </div>
-        </div>
-
-        <div class="neo-card-sm neo-fill-paper p-4 space-y-4 self-start">
-          <div>
-            <div class="neo-meta mb-2">Visibility</div>
-            <label class="flex items-center gap-3 cursor-pointer rounded-2xl border-[3px] border-black bg-white px-4 py-3">
-              <input type="checkbox" bind:checked={formPrivate} class="h-4 w-4 accent-black" />
-              <div>
-                <div class="font-black uppercase tracking-tight text-sm">Private Workspace</div>
-                <div class="text-xs font-bold text-black/60 mt-1">Only you can access this repository.</div>
-              </div>
-            </label>
-          </div>
-
-          <button type="submit" disabled={isSubmitting} class="neo-btn neo-btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0_0_#000]">
-            {isSubmitting ? (createStatusText || "Creating...") : "Create Workspace"}
-          </button>
-        </div>
-      </form>
-    </div>
-  {/if}
-
-  {#if isLoading}
-    <div class="neo-loading">Loading workspaces...</div>
-  {:else if loadError}
-    <div class="neo-error">
-      <h2 class="neo-section-title text-white">Load Failed</h2>
-      <p class="mt-2 text-sm font-bold break-all">{loadError}</p>
-    </div>
-  {:else if workspaces.length === 0}
-    <div class="neo-empty">
-      <div class="neo-icon-box neo-fill-yellow mx-auto mb-4">
-        <FolderKanban class="w-5 h-5" />
-      </div>
-      <h3 class="neo-section-title">No Workspaces Yet</h3>
-      <p class="neo-page-desc mt-3 text-sm">Create a workspace to start hosting your agent files.</p>
-      <div class="mt-5">
-        <button onclick={() => (isAdding = true)} class="neo-btn neo-btn-primary">Create First Workspace</button>
-      </div>
-    </div>
-  {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {#each workspaces as workspace}
-        <a href="/workspaces/{workspace.id}" class="neo-list-card p-4 bg-white flex flex-col gap-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="neo-icon-box neo-fill-blue">
-              <FolderKanban class="w-5 h-5" />
-            </div>
-            {#if workspace.visibility === "private"}
-              <span class="neo-badge neo-badge-yellow"><Lock class="w-3 h-3" /> Private</span>
-            {:else}
-              <span class="neo-badge neo-badge-green"><Globe class="w-3 h-3" /> Public</span>
+            {#if formName}
+              <p class="mt-1 text-[10px] text-white/25 font-mono">repo: {previewSlug || "my-workspace"}</p>
             {/if}
           </div>
 
           <div>
-            <h3 class="text-lg font-black uppercase tracking-tight line-clamp-1">{workspace.name}</h3>
-            <p class="mt-2 text-sm font-bold text-black/60 line-clamp-2 min-h-[2.5rem]">{workspace.description || "No description provided."}</p>
+            <label class="block text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5" for="ws-desc">Description</label>
+            <input
+              id="ws-desc"
+              type="text"
+              bind:value={formDescription}
+              placeholder="A brief description"
+              class="w-full px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none"
+            />
           </div>
 
-          <div class="mt-auto flex items-center justify-between gap-3 border-t-[3px] border-black pt-3 text-[11px] font-bold text-black/55">
-            <span class="font-mono truncate">{workspace.giteaRepoName}</span>
-            <div class="flex items-center gap-3 shrink-0">
-              {#if workspace.forkCount && workspace.forkCount > 0}
-                <span class="inline-flex items-center gap-1"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
-              {/if}
-              <span>{new Date(workspace.createdAt).toLocaleDateString()}</span>
-            </div>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" bind:checked={formPrivate} class="rounded-sm bg-black/40 border-white/20 checked:bg-emerald-500" />
+            <span class="text-xs text-white/60">Private workspace</span>
+          </label>
+
+          {#if createError}
+            <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-2 text-xs text-rose-400">{createError}</div>
+          {/if}
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            class="px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors disabled:opacity-50"
+          >
+            {isSubmitting ? "Creating..." : "Create"}
+          </button>
+        </form>
+      </div>
+    {/if}
+
+    <!-- My Workspaces -->
+    {#if viewMode === "my"}
+      {#if isLoading}
+        <div class="flex items-center justify-center py-12 text-xs text-white/30">
+          <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+          Loading workspaces...
+        </div>
+      {:else if loadError}
+        <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+      {:else if workspaces.length === 0}
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <div class="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3">
+            <FolderKanban class="w-4 h-4 text-white/20" />
           </div>
-        </a>
-      {/each}
-    </div>
-  {/if}
+          <p class="text-sm text-white/40">No workspaces yet</p>
+          <p class="text-xs text-white/25 mt-1">Create a workspace to get started</p>
+          <button onclick={() => isAdding = true} class="mt-4 px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors">
+            Create your first workspace
+          </button>
+        </div>
+      {:else}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {#each workspaces as workspace}
+            <a
+              href="/workspaces/{workspace.id}"
+              class="group block p-3 rounded-lg border border-white/10 bg-[#121212] hover:border-white/20 hover:bg-[#161616] transition-colors"
+            >
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="w-8 h-8 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                  <FolderKanban class="w-4 h-4 text-blue-400/70" />
+                </div>
+                {#if workspace.visibility === "private"}
+                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/10 text-yellow-400/70 border border-yellow-500/20">
+                    <Lock class="w-2.5 h-2.5" />
+                  </span>
+                {:else}
+                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20">
+                    <Globe class="w-2.5 h-2.5" />
+                  </span>
+                {/if}
+              </div>
+
+              <h3 class="text-sm font-medium text-white/90 group-hover:text-white truncate">{workspace.name}</h3>
+              <p class="mt-1 text-xs text-white/35 line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
+
+              <div class="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-white/25 font-mono">
+                <span class="truncate">{workspace.giteaRepoName}</span>
+                {#if workspace.forkCount && workspace.forkCount > 0}
+                  <span class="flex items-center gap-1 shrink-0"><GitFork class="w-2.5 h-2.5" /> {workspace.forkCount}</span>
+                {/if}
+              </div>
+            </a>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+
+    <!-- Explore -->
+    {#if viewMode === "explore"}
+      <form onsubmit={handleExploreSearch} class="mb-4 flex gap-2">
+        <div class="relative flex-1">
+          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
+          <input
+            type="text"
+            bind:value={exploreSearch}
+            placeholder="Search public workspaces..."
+            class="w-full pl-8 pr-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none"
+          />
+        </div>
+        <button type="submit" class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors">
+          Search
+        </button>
+      </form>
+
+      {#if exploreLoading}
+        <div class="flex items-center justify-center py-12 text-xs text-white/30">
+          <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+          Loading...
+        </div>
+      {:else if exploreError}
+        <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{exploreError}</div>
+      {:else if publicWorkspaces.length === 0}
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <div class="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3">
+            <Globe class="w-4 h-4 text-white/20" />
+          </div>
+          <p class="text-sm text-white/40">No public workspaces found</p>
+          <p class="text-xs text-white/25 mt-1">{exploreSearch ? "Try a different search term" : "Be the first to make a workspace public"}</p>
+        </div>
+      {:else}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {#each publicWorkspaces as workspace}
+            <a
+              href="/workspaces/{workspace.id}"
+              class="group block p-3 rounded-lg border border-white/10 bg-[#121212] hover:border-white/20 hover:bg-[#161616] transition-colors"
+            >
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="w-8 h-8 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                  <Globe class="w-4 h-4 text-emerald-400/70" />
+                </div>
+                <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20">
+                  <Globe class="w-2.5 h-2.5" />
+                </span>
+              </div>
+
+              <h3 class="text-sm font-medium text-white/90 group-hover:text-white truncate">{workspace.name}</h3>
+              <p class="mt-1 text-xs text-white/35 line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
+
+              <div class="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-white/25 font-mono">
+                <span class="truncate">{workspace.giteaRepoName}</span>
+                {#if workspace.forkCount > 0}
+                  <span class="flex items-center gap-1 shrink-0"><GitFork class="w-2.5 h-2.5" /> {workspace.forkCount}</span>
+                {/if}
+              </div>
+            </a>
+          {/each}
+        </div>
+
+        {#if exploreTotalPages > 1}
+          <div class="flex items-center justify-center gap-3 mt-4">
+            <button
+              onclick={() => goToExplorePage(explorePage - 1)}
+              disabled={explorePage === 1}
+              class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span class="text-[10px] text-white/30">Page {explorePage} / {exploreTotalPages}</span>
+            <button
+              onclick={() => goToExplorePage(explorePage + 1)}
+              disabled={explorePage === exploreTotalPages}
+              class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        {/if}
+      {/if}
+    {/if}
+  </div>
 </div>

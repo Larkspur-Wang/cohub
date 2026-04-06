@@ -50,64 +50,92 @@ function goToPage(newPage: number) {
 }
 </script>
 
-<div class="neo-page-shell">
-  <div>
-    <h1 class="neo-page-title">Explore</h1>
-    <p class="neo-page-desc mt-3 max-w-2xl">Discover and fork public workspaces from the community.</p>
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+  <!-- Header -->
+  <div class="h-10 flex items-center px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+    <span class="text-xs font-medium text-white/60">Explore</span>
   </div>
 
-  <form onsubmit={handleSearch} class="neo-card p-4 bg-white flex flex-col md:flex-row gap-3 md:items-center">
-    <div class="relative flex-1">
-      <Search class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" />
-      <input type="text" bind:value={searchQuery} placeholder="Search workspaces..." class="neo-input pl-11" />
-    </div>
-    <button type="submit" class="neo-btn neo-btn-secondary">Search</button>
-  </form>
+  <div class="flex-1 p-4 overflow-y-auto">
+    <!-- Search -->
+    <form onsubmit={handleSearch} class="mb-4 flex gap-2">
+      <div class="relative flex-1">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
+        <input
+          type="text"
+          bind:value={searchQuery}
+          placeholder="Search public workspaces..."
+          class="w-full pl-8 pr-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none"
+        />
+      </div>
+      <button type="submit" class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors">
+        Search
+      </button>
+    </form>
 
-  {#if isLoading}
-    <div class="neo-loading">Loading workspaces...</div>
-  {:else if loadError}
-    <div class="neo-error">
-      <h2 class="neo-section-title text-white">Load Failed</h2>
-      <p class="mt-2 text-sm font-bold break-all">{loadError}</p>
-    </div>
-  {:else if workspaces.length === 0}
-    <div class="neo-empty">
-      <div class="neo-icon-box neo-fill-yellow mx-auto mb-4"><Globe class="w-5 h-5" /></div>
-      <h3 class="neo-section-title">No Public Workspaces Found</h3>
-      <p class="neo-page-desc mt-3 text-sm">{searchQuery ? "Try a different search term." : "Be the first to make a workspace public."}</p>
-    </div>
-  {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {#each workspaces as workspace}
-        <a href="/workspaces/{workspace.id}" class="neo-list-card p-4 bg-white flex flex-col gap-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="neo-icon-box neo-fill-green"><FolderKanban class="w-5 h-5" /></div>
-            <span class="neo-badge neo-badge-green"><Globe class="w-3 h-3" /> Public</span>
-          </div>
-          <div>
-            <h3 class="text-lg font-black uppercase tracking-tight truncate">{workspace.name}</h3>
-            <p class="mt-2 text-sm font-bold text-black/60 line-clamp-2 min-h-[2.5rem]">{workspace.description || "No description provided."}</p>
-          </div>
-          <div class="mt-auto flex items-center justify-between gap-3 border-t-[3px] border-black pt-3 text-[11px] font-bold text-black/55">
-            <div class="flex items-center gap-3 min-w-0">
-              <span class="font-mono truncate">{workspace.giteaRepoName}</span>
+    {#if isLoading}
+      <div class="flex items-center justify-center py-12 text-xs text-white/30">
+        <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+        Loading...
+      </div>
+    {:else if loadError}
+      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+    {:else if workspaces.length === 0}
+      <div class="flex flex-col items-center justify-center py-12 text-center">
+        <div class="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3">
+          <Globe class="w-4 h-4 text-white/20" />
+        </div>
+        <p class="text-sm text-white/40">No public workspaces found</p>
+        <p class="text-xs text-white/25 mt-1">{searchQuery ? "Try a different search term" : "Be the first to make a workspace public"}</p>
+      </div>
+    {:else}
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {#each workspaces as workspace}
+          <a
+            href="/workspaces/{workspace.id}"
+            class="group block p-3 rounded-lg border border-white/10 bg-[#121212] hover:border-white/20 hover:bg-[#161616] transition-colors"
+          >
+            <div class="flex items-start justify-between gap-2 mb-2">
+              <div class="w-8 h-8 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                <Globe class="w-4 h-4 text-emerald-400/70" />
+              </div>
+              <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20">
+                <Globe class="w-2.5 h-2.5" />
+              </span>
+            </div>
+
+            <h3 class="text-sm font-medium text-white/90 group-hover:text-white truncate">{workspace.name}</h3>
+            <p class="mt-1 text-xs text-white/35 line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
+
+            <div class="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-white/25 font-mono">
+              <span class="truncate">{workspace.giteaRepoName}</span>
               {#if workspace.forkCount > 0}
-                <span class="inline-flex items-center gap-1 shrink-0"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
+                <span class="flex items-center gap-1 shrink-0"><GitFork class="w-2.5 h-2.5" /> {workspace.forkCount}</span>
               {/if}
             </div>
-            <span class="shrink-0">{new Date(workspace.createdAt).toLocaleDateString()}</span>
-          </div>
-        </a>
-      {/each}
-    </div>
-
-    {#if totalPages > 1}
-      <div class="flex items-center justify-center gap-3 flex-wrap">
-        <button onclick={() => goToPage(page - 1)} disabled={page === 1} class="neo-btn neo-btn-secondary disabled:opacity-50">Previous</button>
-        <span class="neo-badge neo-badge-white normal-case tracking-normal">Page {page} / {totalPages} · {total} total</span>
-        <button onclick={() => goToPage(page + 1)} disabled={page === totalPages} class="neo-btn neo-btn-secondary disabled:opacity-50">Next</button>
+          </a>
+        {/each}
       </div>
+
+      {#if totalPages > 1}
+        <div class="flex items-center justify-center gap-3 mt-4">
+          <button
+            onclick={() => goToPage(page - 1)}
+            disabled={page === 1}
+            class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Previous
+          </button>
+          <span class="text-[10px] text-white/30">Page {page} / {totalPages} · {total} total</span>
+          <button
+            onclick={() => goToPage(page + 1)}
+            disabled={page === totalPages}
+            class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+      {/if}
     {/if}
-  {/if}
+  </div>
 </div>

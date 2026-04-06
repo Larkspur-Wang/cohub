@@ -1,52 +1,39 @@
 <script lang="ts">
-import { Cpu, Play, FolderKanban, Power, Moon, Trash2, Loader2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte";
+import { Cpu, Play, Moon, Power, Trash2, Loader2, MessageSquare, Webhook, MonitorPlay, X } from "lucide-svelte";
 import { getRuntimes, hibernateRuntime, wakeRuntime, deleteRuntime, type RuntimeListItem } from "$lib/api";
 import { onMount } from "svelte";
+import { goto } from "$app/navigation";
 import { ensureAuth, logtoClient } from "$lib/auth";
 
 let runtimes = $state<RuntimeListItem[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
 const actionInProgress = $state<Record<string, string>>({});
+let actionError = $state("");
 
 function displayStatus(runtime: RuntimeListItem) {
   return runtime.liveStatus ?? runtime.status ?? "unknown";
 }
 
-function statusPriority(status: string): number {
-  switch (status) {
-    case "starting":
-    case "hibernating":
-      return 0;
-    case "running":
-    case "active":
-      return 1;
-    case "hibernated":
-      return 2;
-    case "error":
-    case "boot_failed":
-      return 3;
-    default:
-      return 4;
-  }
+function statusColor(status: string) {
+  if (status === "running") return "bg-emerald-400";
+  if (status === "starting" || status === "active") return "bg-amber-400";
+  if (status === "error" || status === "boot_failed") return "bg-rose-400";
+  if (status === "hibernated") return "bg-gray-500";
+  if (status === "hibernating") return "bg-blue-400";
+  return "bg-white/20";
 }
 
 function sortedRuntimes(list: RuntimeListItem[]): RuntimeListItem[] {
   return list.toSorted((a, b) => {
-    const pa = statusPriority(displayStatus(a));
-    const pb = statusPriority(displayStatus(b));
-    if (pa !== pb) return pa - pb;
+    const statusOrder = ["starting", "hibernating", "running", "active", "hibernated", "error", "boot_failed"];
+    const pa = statusOrder.indexOf(displayStatus(a));
+    const pb = statusOrder.indexOf(displayStatus(b));
+    const orderA = pa === -1 ? Number.POSITIVE_INFINITY : pa;
+    const orderB = pb === -1 ? Number.POSITIVE_INFINITY : pb;
+    if (orderA !== orderB) return orderA - orderB;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
-}
-
-function statusBadge(status: string) {
-  if (status === "running") return "neo-badge neo-badge-green";
-  if (status === "starting" || status === "active") return "neo-badge neo-badge-yellow";
-  if (status === "error" || status === "boot_failed") return "neo-badge neo-badge-red";
-  if (status === "hibernated") return "neo-badge neo-badge-gray";
-  if (status === "hibernating") return "neo-badge neo-badge-blue";
-  return "neo-badge neo-badge-white";
 }
 
 async function loadRuntimes() {
@@ -69,12 +56,12 @@ async function loadRuntimes() {
 
 async function handleHibernate(runtimeId: string) {
   actionInProgress[runtimeId] = "hibernate";
+  actionError = "";
   try {
     await hibernateRuntime(runtimeId);
     await loadRuntimes();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to hibernate";
-    alert(message);
+    actionError = error instanceof Error ? error.message : "Failed to hibernate";
   } finally {
     delete actionInProgress[runtimeId];
   }
@@ -82,12 +69,12 @@ async function handleHibernate(runtimeId: string) {
 
 async function handleWake(runtimeId: string) {
   actionInProgress[runtimeId] = "wake";
+  actionError = "";
   try {
     await wakeRuntime(runtimeId);
     await loadRuntimes();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to wake";
-    alert(message);
+    actionError = error instanceof Error ? error.message : "Failed to wake";
   } finally {
     delete actionInProgress[runtimeId];
   }
@@ -96,12 +83,12 @@ async function handleWake(runtimeId: string) {
 async function handleDelete(runtimeId: string) {
   if (!confirm("Are you sure you want to delete this runtime?")) return;
   actionInProgress[runtimeId] = "delete";
+  actionError = "";
   try {
     await deleteRuntime(runtimeId);
     await loadRuntimes();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to delete";
-    alert(message);
+    actionError = error instanceof Error ? error.message : "Failed to delete";
   } finally {
     delete actionInProgress[runtimeId];
   }
@@ -112,118 +99,121 @@ onMount(() => {
 });
 </script>
 
-<div class="neo-page-shell">
-  <div>
-    <h1 class="neo-page-title">Runtimes</h1>
-    <p class="neo-page-desc mt-3 max-w-2xl">Inspect active runtimes and jump directly into the console for each running agent.</p>
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+  <!-- Header -->
+  <div class="h-10 flex items-center justify-between px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+    <span class="text-xs font-medium text-white/60">Runtimes</span>
   </div>
 
-  {#if isLoading}
-    <div class="neo-loading">Loading runtimes...</div>
-  {:else if loadError}
-    <div class="neo-error">
-      <h2 class="neo-section-title text-white">Load Failed</h2>
-      <p class="mt-2 text-sm font-bold break-all">{loadError}</p>
-    </div>
-  {:else if runtimes.length === 0}
-    <div class="neo-empty">
-      <div class="neo-icon-box neo-fill-yellow mx-auto mb-4"><Cpu class="w-5 h-5" /></div>
-      <h3 class="neo-section-title">No Runtimes Yet</h3>
-      <p class="neo-page-desc mt-3 text-sm">Create a runtime from a workspace to see it here.</p>
-    </div>
-  {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {#each sortedRuntimes(runtimes) as runtime}
-        {@const status = displayStatus(runtime)}
-        {@const isBusy = actionInProgress[runtime.id]}
-        <div class="neo-list-card p-4 bg-white flex flex-col gap-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="neo-icon-box neo-fill-pink">
-              <Play class="w-5 h-5" />
-            </div>
-            <span class={statusBadge(status)}>{status}</span>
-          </div>
-
-          <a href="/runtimes/{runtime.id}" class="block">
-            <h3 class="text-lg font-black uppercase tracking-tight line-clamp-2 hover:underline">{runtime.title || "Untitled Runtime"}</h3>
-          </a>
-          <div class="text-xs font-mono break-all text-black/55">{runtime.id}</div>
-
-          <div class="flex flex-wrap gap-2 text-[11px] font-bold text-black/70">
-            <span class="neo-badge neo-badge-white normal-case tracking-normal">workspace: {runtime.workspaceId ?? "unbound"}</span>
-            <span class="neo-badge neo-badge-white normal-case tracking-normal">sessions: —</span>
-          </div>
-
-          {#if runtime.channels && runtime.channels.length > 0}
-            <div class="flex flex-wrap gap-1.5">
-              {#each runtime.channels as channel}
-                {@const ChannelIcon = channel.provider === 'discord' ? MessageSquare : channel.provider === 'feishu' ? Webhook : MonitorPlay}
-                <a
-                  href="/channels"
-                  class="inline-flex items-center gap-1 px-2 py-1 bg-black/5 hover:bg-black/10 rounded text-[10px] font-bold text-black/70 transition-colors"
-                  title="{channel.provider}: {channel.name}"
-                >
-                  <ChannelIcon class="w-3 h-3" />
-                  <span class="truncate max-w-[80px]">{channel.name}</span>
-                </a>
-              {/each}
-            </div>
-          {:else}
-            <div class="text-[11px] text-black/40 italic">No channels bound</div>
-          {/if}
-
-          <div class="flex flex-wrap gap-2 mt-2">
-            {#if status === "running"}
-              <button
-                class="neo-btn neo-btn-sm neo-btn-secondary"
-                onclick={() => handleHibernate(runtime.id)}
-                disabled={!!isBusy}
-              >
-                {#if isBusy === "hibernate"}
-                  <Loader2 class="w-4 h-4 animate-spin" />
-                {:else}
-                  <Moon class="w-4 h-4" />
-                {/if}
-                Hibernate
-              </button>
-            {:else if status === "hibernated"}
-              <button
-                class="neo-btn neo-btn-sm neo-btn-primary"
-                onclick={() => handleWake(runtime.id)}
-                disabled={!!isBusy}
-              >
-                {#if isBusy === "wake"}
-                  <Loader2 class="w-4 h-4 animate-spin" />
-                {:else}
-                  <Power class="w-4 h-4" />
-                {/if}
-                Wake
-              </button>
-            {/if}
-            {#if status === "hibernated" || status === "error" || status === "boot_failed"}
-              <button
-                class="neo-btn neo-btn-sm neo-btn-danger"
-                onclick={() => handleDelete(runtime.id)}
-                disabled={!!isBusy}
-              >
-                {#if isBusy === "delete"}
-                  <Loader2 class="w-4 h-4 animate-spin" />
-                {:else}
-                  <Trash2 class="w-4 h-4" />
-                {/if}
-                Delete
-              </button>
-            {/if}
-          </div>
-
-          <div class="mt-auto flex items-center justify-between gap-3 border-t-[3px] border-black pt-3 text-[11px] font-bold text-black/55">
-            <a href="/runtimes/{runtime.id}" class="inline-flex items-center gap-1 hover:underline">
-              <FolderKanban class="w-3.5 h-3.5" /> Runtime Console
-            </a>
-            <span>{new Date(runtime.updatedAt).toLocaleString()}</span>
-          </div>
+  <div class="flex-1 p-4 overflow-y-auto">
+    {#if isLoading}
+      <div class="flex items-center justify-center py-12 text-xs text-white/30">
+        <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+        Loading runtimes...
+      </div>
+    {:else if loadError}
+      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+    {:else if actionError}
+      <div class="mx-4 mb-3 rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all flex items-center justify-between">
+        <span>{actionError}</span>
+        <button onclick={() => actionError = ""} class="ml-3 text-white/30 hover:text-white/70 shrink-0"><X class="w-3 h-3" /></button>
+      </div>
+    {:else if runtimes.length === 0}
+      <div class="flex flex-col items-center justify-center py-12 text-center">
+        <div class="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3">
+          <Cpu class="w-4 h-4 text-white/20" />
         </div>
-      {/each}
-    </div>
-  {/if}
+        <p class="text-sm text-white/40">No runtimes yet</p>
+        <p class="text-xs text-white/25 mt-1">Create a runtime from a workspace to see it here</p>
+      </div>
+    {:else}
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {#each sortedRuntimes(runtimes) as runtime (runtime.id)}
+          {@const status = displayStatus(runtime)}
+          {@const isBusy = actionInProgress[runtime.id]}
+          <div class="p-3 rounded-lg border border-white/10 bg-[#121212] hover:border-white/20 transition-colors">
+            <div class="flex items-start justify-between gap-2 mb-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <div class="w-2 h-2 rounded-full shrink-0 {statusColor(status)}"></div>
+                <a href="/runtimes/{runtime.id}" class="text-sm font-medium text-white/90 hover:text-white truncate block">
+                  {runtime.title || "Untitled Runtime"}
+                </a>
+              </div>
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-white/40 border border-white/10 shrink-0 font-mono">
+                {status}
+              </span>
+            </div>
+
+            <p class="text-[10px] font-mono text-white/20 mb-3 truncate">{runtime.id}</p>
+
+            <div class="flex flex-wrap gap-1 mb-3">
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-white/30 border border-white/5 font-mono">
+                ws: {runtime.workspaceId?.slice(0, 8) ?? "unbound"}
+              </span>
+            </div>
+
+            {#if runtime.channels && runtime.channels.length > 0}
+              <div class="flex flex-wrap gap-1 mb-3">
+                {#each runtime.channels as channel}
+                  {@const ChannelIcon = channel.provider === 'discord' ? MessageSquare : channel.provider === 'feishu' ? Webhook : MonitorPlay}
+                  <a
+                    href="/channels"
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-white/30 border border-white/5 hover:bg-white/10 hover:text-white/50 transition-colors"
+                    title="{channel.provider}: {channel.name}"
+                  >
+                    <ChannelIcon class="w-2.5 h-2.5" />
+                    {channel.name || channel.provider}
+                  </a>
+                {/each}
+              </div>
+            {/if}
+
+            <div class="flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
+              {#if status === "running"}
+                <button
+                  class="px-2 py-1 rounded text-[10px] bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/70 border border-white/10 transition-colors disabled:opacity-50"
+                  onclick={() => handleHibernate(runtime.id)}
+                  disabled={!!isBusy}
+                >
+                  {#if isBusy === "hibernate"}
+                    <Loader2 class="w-3 h-3 animate-spin inline" />
+                  {:else}
+                    <Moon class="w-3 h-3 inline" />
+                  {/if}
+                  Hibernate
+                </button>
+              {:else if status === "hibernated"}
+                <button
+                  class="px-2 py-1 rounded text-[10px] bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400/70 border border-emerald-500/20 transition-colors disabled:opacity-50"
+                  onclick={() => handleWake(runtime.id)}
+                  disabled={!!isBusy}
+                >
+                  {#if isBusy === "wake"}
+                    <Loader2 class="w-3 h-3 animate-spin inline" />
+                  {:else}
+                    <Power class="w-3 h-3 inline" />
+                  {/if}
+                  Wake
+                </button>
+              {/if}
+              {#if status === "hibernated" || status === "error" || status === "boot_failed"}
+                <button
+                  class="px-2 py-1 rounded text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400/70 border border-rose-500/20 transition-colors disabled:opacity-50"
+                  onclick={() => handleDelete(runtime.id)}
+                  disabled={!!isBusy}
+                >
+                  {#if isBusy === "delete"}
+                    <Loader2 class="w-3 h-3 animate-spin inline" />
+                  {:else}
+                    <Trash2 class="w-3 h-3 inline" />
+                  {/if}
+                  Delete
+                </button>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </div>

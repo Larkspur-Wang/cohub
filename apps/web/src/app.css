@@ -2,278 +2,33 @@
 
 :root {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --bg-primary: #FFF9F0;
-  --text-primary: #000000;
-  --accent: #FF5A5F;
+  --bg-primary: #0A0A0A;
+  --text-primary: #ffffff;
 }
 
 html,
 body {
   scrollbar-width: thin;
-  scrollbar-color: #000000 transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
 }
 
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
   background: transparent;
-  border-left: 2px solid #000;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #000000;
-  border: 2px solid var(--bg-primary);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 999px;
 }
 
-@theme {
-  --color-brand: #FF5A5F;
-  --color-neo-blue: #4D96FF;
-  --color-neo-green: #28B463;
-  --color-neo-yellow: #FFD93D;
-  --color-neo-pink: #FF85B3;
-  --color-neo-purple: #9D4EDD;
-  --color-paper: #FFF9F0;
-}
-
-:root {
-  --neo-shadow-sm: 3px 3px 0 0 #000;
-  --neo-shadow-md: 4px 4px 0 0 #000;
-  --neo-shadow-lg: 6px 6px 0 0 #000;
-  --neo-shadow-xl: 8px 8px 0 0 #000;
-}
-
-.neo-shadow {
-  box-shadow: var(--neo-shadow-md);
-}
-
-.neo-shadow-lg {
-  box-shadow: 8px 8px 0px 0px rgba(0,0,0,1);
-}
-
-.neo-shadow-sm {
-  box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
-}
-
-.neo-active:active {
-  transform: translate(4px, 4px) !important;
-  box-shadow: none !important;
-}
-
-.neo-active-lg:active {
-  transform: translate(8px, 8px) !important;
-  box-shadow: none !important;
-}
-
-/* =========================
-   Reusable Neo-Brutalism UI
-   ========================= */
-
-.neo-page-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  padding-bottom: 3rem;
-}
-
-.neo-page-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.neo-card {
-  border: 4px solid #000;
-  border-radius: 1.75rem;
-  background: #fff;
-  box-shadow: var(--neo-shadow-lg);
-}
-
-.neo-card-sm {
-  border: 3px solid #000;
-  border-radius: 1.25rem;
-  background: #fff;
-  box-shadow: var(--neo-shadow-md);
-}
-
-.neo-panel {
-  border: 4px solid #000;
-  border-radius: 1.75rem;
-  box-shadow: var(--neo-shadow-lg);
-}
-
-.neo-list-card {
-  border: 4px solid #000;
-  border-radius: 1.5rem;
-  background: #fff;
-  box-shadow: var(--neo-shadow-lg);
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-
-.neo-list-card:hover {
-  transform: translate(-4px, -4px);
-  box-shadow: var(--neo-shadow-xl);
-}
-
-.neo-empty {
-  border: 4px solid #000;
-  border-radius: 1.75rem;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  box-shadow: var(--neo-shadow-lg);
-}
-
-.neo-error {
-  border: 4px solid #000;
-  border-radius: 1.5rem;
-  background: #FF5A5F;
-  color: #fff;
-  padding: 1.25rem;
-  box-shadow: var(--neo-shadow-lg);
-}
-
-.neo-loading {
-  border: 4px solid #000;
-  border-radius: 1.5rem;
-  background: #fff;
-  padding: 1.25rem;
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.6);
-  box-shadow: var(--neo-shadow-lg);
-}
-
-.neo-fill-paper { background: #FFF9F0; }
-.neo-fill-white { background: #FFFFFF; }
-.neo-fill-red { background: #FF5A5F; }
-.neo-fill-blue { background: #4D96FF; }
-.neo-fill-green { background: #28B463; }
-.neo-fill-yellow { background: #FFD93D; }
-.neo-fill-pink { background: #FF85B3; }
-.neo-fill-purple { background: #9D4EDD; }
-
-.neo-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 3px solid #000;
-  border-radius: 1rem;
-  padding: 0.75rem 1.25rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-  transition: all 150ms ease;
-  box-shadow: var(--neo-shadow-md);
-}
-
-.neo-btn:hover {
-  transform: translate(-4px, -4px);
-  box-shadow: var(--neo-shadow-lg);
-}
-
-.neo-btn:active {
-  transform: translate(4px, 4px);
-  box-shadow: none;
-}
-
-.neo-btn-primary {
-  background: #FF5A5F;
-  color: #fff;
-}
-
-.neo-btn-secondary {
-  background: #fff;
-  color: #000;
-}
-
-.neo-btn-yellow {
-  background: #FFD93D;
-  color: #000;
-}
-
-.neo-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  border: 3px solid #000;
-  border-radius: 999px;
-  padding: 0.375rem 0.75rem;
-  font-size: 0.6875rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-}
-
-.neo-badge-white { background: #fff; color: #000; }
-.neo-badge-red { background: #FF5A5F; color: #fff; }
-.neo-badge-blue { background: #4D96FF; color: #000; }
-.neo-badge-green { background: #28B463; color: #fff; }
-.neo-badge-yellow { background: #FFD93D; color: #000; }
-.neo-badge-purple { background: #9D4EDD; color: #fff; }
-
-.neo-icon-box {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 3rem;
-  height: 3rem;
-  border: 3px solid #000;
-  border-radius: 0.875rem;
-  background: #fff;
-  box-shadow: 3px 3px 0 0 #000;
-}
-
-.neo-input {
-  width: 100%;
-  border: 3px solid #000;
-  border-radius: 1rem;
-  background: #fff;
-  padding: 0.875rem 1rem;
-  font-weight: 600;
-  outline: none;
-}
-
-.neo-input:focus {
-  box-shadow: 4px 4px 0 0 #000;
-}
-
-.neo-page-title {
-  font-size: clamp(3rem, 6vw, 4.5rem);
-  line-height: 1.02;
-  font-weight: 900;
-  letter-spacing: -0.05em;
-  text-transform: uppercase;
-}
-
-.neo-page-desc {
-  font-size: 1rem;
-  line-height: 1.7;
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
-}
-
-.neo-section-title {
-  font-size: 1.5rem;
-  line-height: 1.1;
-  font-weight: 900;
-  letter-spacing: -0.04em;
-  text-transform: uppercase;
-}
-
-.neo-meta {
-  font-size: 0.75rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }

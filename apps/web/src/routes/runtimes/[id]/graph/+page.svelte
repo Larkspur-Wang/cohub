@@ -1,5 +1,7 @@
 <script lang="ts">
 import type { RuntimeRecord, SessionRecord } from "$lib/api";
+import { goto } from "$app/navigation";
+import { ArrowLeft } from "lucide-svelte";
 
 type Props = {
   data: {
@@ -30,36 +32,43 @@ function getSessionTitle(session: SessionRecord, index: number) {
 }
 </script>
 
-<svelte:head>
-  <title>Session Graph · {data.runtime.title || data.runtime.id}</title>
-</svelte:head>
-
-<div class="space-y-6">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">Session Graph</h1>
-      <div class="mt-1 text-sm text-gray-500">Runtime: {data.runtime.title || data.runtime.id}</div>
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+  <!-- Header -->
+  <div class="h-10 flex items-center justify-between px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+    <div class="flex items-center gap-3 min-w-0">
+      <button class="text-white/40 hover:text-white transition-colors shrink-0" onclick={() => goto(`/runtimes/${data.runtime.id}`)}>
+        <ArrowLeft class="w-4 h-4" />
+      </button>
+      <div class="w-[1px] h-4 bg-white/10 shrink-0"></div>
+      <span class="text-xs font-medium text-white/60">Session Graph</span>
+      <span class="text-[10px] text-white/25 truncate font-mono">{data.runtime.title || data.runtime.id}</span>
     </div>
-    <a href={`/runtimes/${data.runtime.id}`} class="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Back to Runtime</a>
   </div>
 
-  <div class="rounded-2xl border border-gray-200 bg-white p-6">
-    <div class="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Sessions</div>
-    <div class="space-y-4">
+  <div class="flex-1 p-4 overflow-y-auto">
+    <div class="space-y-3">
       {#each data.sessions.filter((session) => !session.parentSessionId) as root, rootIndex (root.id)}
-        <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-          <div class="font-medium text-gray-900">{getSessionTitle(root, rootIndex)}</div>
-          <div class="mt-1 text-xs text-gray-500 break-all">{root.id}</div>
-          <div class="mt-2 text-xs text-gray-500">messages: — · depth: {root.forkDepth ?? 0}</div>
+        <div class="rounded-lg border border-white/10 bg-[#121212] p-4">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></div>
+            <span class="text-sm font-medium text-white/80">{getSessionTitle(root, rootIndex)}</span>
+          </div>
+          <div class="text-[10px] text-white/25 font-mono ml-3.5">{root.id}</div>
+          <div class="text-[10px] text-white/25 ml-3.5 mt-1">depth: {root.forkDepth ?? 0}</div>
 
           {#if (byParent.get(root.id)?.length ?? 0) > 0}
-            <div class="mt-4 space-y-3 border-l-2 border-gray-200 pl-4">
+            <div class="mt-3 ml-3 space-y-2 border-l border-white/10 pl-4">
               {#each byParent.get(root.id) ?? [] as child, childIndex (child.id)}
-                <div class="rounded-lg border border-gray-200 bg-white p-3">
-                  <div class="font-medium text-gray-900">{getSessionTitle(child, childIndex)}</div>
-                  <div class="mt-1 text-xs text-gray-500 break-all">{child.id}</div>
-                  <div class="mt-2 text-xs text-gray-500">forked from message: {data.messagePreviewById[child.forkedFromMessageId ?? ""] ?? child.forkedFromMessageId ?? "unknown"}</div>
-                  <div class="mt-1 text-xs text-gray-500">messages: — · depth: {child.forkDepth ?? 0}</div>
+                <div class="rounded-md border border-white/5 bg-black/20 p-3">
+                  <div class="flex items-center gap-2 mb-1">
+                    <div class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></div>
+                    <span class="text-xs text-white/70">{getSessionTitle(child, childIndex)}</span>
+                  </div>
+                  <div class="text-[10px] text-white/25 font-mono ml-3.5">{child.id}</div>
+                  <div class="text-[10px] text-white/25 ml-3.5 mt-1">
+                    forked from: {data.messagePreviewById[child.forkedFromMessageId ?? ""] ?? child.forkedFromMessageId ?? "unknown"}
+                  </div>
+                  <div class="text-[10px] text-white/25 ml-3.5">depth: {child.forkDepth ?? 0}</div>
                 </div>
               {/each}
             </div>

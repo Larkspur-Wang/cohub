@@ -10,6 +10,8 @@ import {
   FileCode,
   Folder,
   GitFork,
+  ArrowLeft,
+  X,
 } from "lucide-svelte";
 import { getWorkspaceById, getWorkspaceTree, getWorkspaceFile, forkWorkspace, updateWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";
 import { renderMarkdown } from "$lib/markdown";
@@ -30,7 +32,7 @@ let isForking = $state(false);
 let isPublishing = $state(false);
 let loadError = $state("");
 let copied = $state(false);
-const forkName = $state("");
+let actionError = $state("");
 
 const gitRemoteUrl = $derived(workspace?.sshUrl || workspace?.cloneUrl || "");
 const isOwner = $derived(Boolean(workspace?.isOwner));
@@ -44,7 +46,6 @@ async function loadWorkspace() {
     tree = await getWorkspaceTree(workspaceId, "").catch(() => null);
     isEmpty = !tree || !tree.entries || tree.entries.length === 0;
 
-    // 如果非空，尝试查找并加载 README
     if (!isEmpty && tree?.entries) {
       const readmeEntry = tree.entries.find((e) =>
         /^readme(\.[\w]+)?$/i.test(e.name),
@@ -56,7 +57,7 @@ async function loadWorkspace() {
             readmeHtml = await renderMarkdown(fileData.content);
           }
         } catch {
-          // README 加载失败，静默忽略，展示文件列表
+          // Silently ignore
         }
       }
     }
@@ -80,9 +81,7 @@ function copyCloneUrl() {
   if (!gitRemoteUrl) return;
   navigator.clipboard.writeText(gitRemoteUrl);
   copied = true;
-  setTimeout(() => {
-    copied = false;
-  }, 2000);
+  setTimeout(() => { copied = false; }, 2000);
 }
 
 async function handleFork(preferredName?: string) {
@@ -94,7 +93,7 @@ async function handleFork(preferredName?: string) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fork workspace";
     if (message.includes("forbidden") || message.includes("403")) {
-      alert("You don't have permission to fork this workspace");
+      actionError = "You don't have permission to fork this workspace";
     } else if (message.includes("already exists") || message.includes("409")) {
       const newName = prompt("A workspace with this name already exists. Enter a new name:");
       if (newName?.trim()) {
@@ -103,7 +102,7 @@ async function handleFork(preferredName?: string) {
         return;
       }
     } else {
-      alert(message);
+      actionError = message;
     }
   } finally {
     isForking = false;
@@ -112,15 +111,14 @@ async function handleFork(preferredName?: string) {
 
 async function handlePublish() {
   if (isPublishing || !workspace) return;
-  if (workspace.visibility === "public") return;
-
+  if (workspace?.visibility === "public") return;
   isPublishing = true;
+  actionError = "";
   try {
     const result = await updateWorkspace(workspace.id, { visibility: "public" });
     workspace = result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to publish workspace";
-    alert(message);
+    actionError = error instanceof Error ? error.message : "Failed to publish workspace";
   } finally {
     isPublishing = false;
   }
@@ -128,181 +126,207 @@ async function handlePublish() {
 
 async function handleMakePrivate() {
   if (isPublishing || !workspace) return;
-  if (workspace.visibility === "private") return;
-
+  if (workspace?.visibility === "private") return;
   isPublishing = true;
+  actionError = "";
   try {
     const result = await updateWorkspace(workspace.id, { visibility: "private" });
     workspace = result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to make workspace private";
-    alert(message);
+    actionError = error instanceof Error ? error.message : "Failed to make workspace private";
   } finally {
     isPublishing = false;
   }
 }
 </script>
 
-<div class="neo-page-shell">
-  {#if isLoading}
-    <div class="neo-loading">Loading workspace...</div>
-  {:else if loadError}
-    <div class="neo-error">
-      <h2 class="neo-section-title text-white">Error</h2>
-      <p class="mt-2 text-sm font-bold break-all">{loadError}</p>
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+  <!-- Header -->
+  <div class="h-10 flex items-center justify-between px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="/workspaces" class="text-white/40 hover:text-white transition-colors shrink-0" onclick={(e) => { e.preventDefault(); goto("/workspaces"); }}>
+        <ArrowLeft class="w-4 h-4" />
+      </a>
+      <div class="w-[1px] h-4 bg-white/10 shrink-0"></div>
+      <FolderKanban class="w-4 h-4 text-white/50 shrink-0" />
+      <span class="font-mono text-xs text-white/90 truncate max-w-[320px]">{workspace?.name || workspaceId}</span>
+      {#if workspace?.visibility === "private"}
+        <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/10 text-yellow-400/70 border border-yellow-500/20 shrink-0">
+          <Lock class="w-2.5 h-2.5" />
+        </span>
+      {:else if workspace?.visibility === "public"}
+        <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20 shrink-0">
+          <Globe class="w-2.5 h-2.5" />
+        </span>
+      {/if}
     </div>
-  {:else if workspace}
-    <div class="neo-card p-5 md:p-6 neo-fill-white">
-      <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
-        <div class="flex items-start gap-4 min-w-0">
-          <div class="neo-icon-box neo-fill-blue shrink-0">
-            <FolderKanban class="w-5 h-5" />
-          </div>
-          <div class="min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <h1 class="text-3xl md:text-4xl font-black tracking-tighter uppercase min-w-0 break-words">{workspace.name}</h1>
-              {#if workspace.visibility === "private"}
-                <span class="neo-badge neo-badge-yellow"><Lock class="w-3 h-3" /> Private</span>
-              {:else}
-                <span class="neo-badge neo-badge-green"><Globe class="w-3 h-3" /> Public</span>
-              {/if}
-            </div>
-            <div class="mt-3 flex flex-wrap items-center gap-2 text-sm font-bold text-black/60">
-              <span>Owned by <span class="text-black">{workspace.ownerUsername || workspace.ownerUserUuid}</span></span>
-              {#if workspace.forkedFrom}
-                <span>•</span>
-                {@const forkedFrom = workspace.forkedFrom}
-                <a href="/workspaces/{forkedFrom.id}" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${forkedFrom.id}`); }} class="inline-flex items-center gap-1 text-black underline decoration-[3px] underline-offset-4 cursor-pointer">
-                  <GitFork class="w-4 h-4" />
-                  forked from {forkedFrom.ownerUsername || forkedFrom.ownerUserUuid}/{forkedFrom.name}
-                </a>
-              {/if}
-            </div>
-            {#if workspace.description}
-              <p class="mt-3 neo-page-desc max-w-3xl">{workspace.description}</p>
+
+    <div class="flex items-center gap-1.5">
+      {#if workspace?.isOwner !== undefined}
+        <button
+          onclick={() => handleFork()}
+          disabled={isForking}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/50 hover:text-white/80 hover:bg-white/8 transition-colors disabled:opacity-50"
+        >
+          <GitFork class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">{isForking ? "Forking..." : "Fork"}</span>
+        </button>
+      {/if}
+      {#if isOwner && workspace?.visibility === "private"}
+        <button
+          onclick={handlePublish}
+          disabled={isPublishing}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/50 hover:text-white/80 hover:bg-white/8 transition-colors disabled:opacity-50"
+        >
+          <Globe class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">{isPublishing ? "Publishing..." : "Make Public"}</span>
+        </button>
+      {/if}
+      {#if isOwner && workspace?.visibility === "public"}
+        <button
+          onclick={handleMakePrivate}
+          disabled={isPublishing}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/50 hover:text-white/80 hover:bg-white/8 transition-colors disabled:opacity-50"
+        >
+          <Lock class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">{isPublishing ? "Updating..." : "Make Private"}</span>
+        </button>
+      {/if}
+      {#if isOwner && !isEmpty}
+        <a
+          href="/workspaces/{workspace!.id}/runtimes/new"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors"
+        >
+          <Play class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">Create Runtime</span>
+        </a>
+      {/if}
+    </div>
+  </div>
+
+  <div class="flex-1 p-4 overflow-y-auto">
+    {#if isLoading}
+      <div class="flex items-center justify-center py-12 text-xs text-white/30">
+        <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+        Loading workspace...
+      </div>
+    {:else if loadError}
+      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+    {:else if workspace}
+      <!-- Action Error -->
+      {#if actionError}
+        <div class="m-4 rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onclick={() => actionError = ""} class="ml-3 text-white/30 hover:text-white/70 shrink-0"><X class="w-3 h-3" /></button>
+        </div>
+      {/if}
+
+      <!-- Description -->
+      {#if workspace.description}
+        <p class="text-xs text-white/40 mb-4">{workspace.description}</p>
+      {/if}
+
+      {#if workspace.ownerUsername || workspace.ownerUserUuid}
+        <p class="text-[10px] text-white/25 mb-4">
+          Owned by <span class="text-white/50">{workspace.ownerUsername || workspace.ownerUserUuid}</span>
+          {#if workspace && workspace.forkedFrom}
+            {@const ff = workspace.forkedFrom}
+            · forked from <a href="/workspaces/{ff.id}" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${ff.id}`); }} class="text-white/40 hover:text-white/70 underline">{ff.ownerUsername || ff.ownerUserUuid}/{ff.name}</a>
+          {/if}
+        </p>
+      {/if}
+
+      <!-- Git clone info -->
+      {#if gitRemoteUrl}
+        <div class="mb-4 flex items-center gap-2 p-2.5 rounded-md border border-white/10 bg-[#121212]">
+          <Terminal class="w-3.5 h-3.5 text-white/30 shrink-0" />
+          <code class="flex-1 text-[10px] font-mono text-white/40 truncate">{gitRemoteUrl}</code>
+          <button
+            onclick={copyCloneUrl}
+            class="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors shrink-0"
+          >
+            {#if copied}
+              <Check class="w-3 h-3" /> Copied
+            {:else}
+              <Copy class="w-3 h-3" /> Copy
             {/if}
-          </div>
+          </button>
         </div>
+      {/if}
 
-        <div class="flex items-center gap-3 flex-wrap shrink-0">
-          {#if workspace.isOwner !== undefined}
-            <button onclick={() => handleFork()} disabled={isForking} class="neo-btn neo-btn-secondary disabled:opacity-50">
-              <GitFork class="w-4 h-4" />
-              {isForking ? "Forking..." : "Fork Workspace"}
-            </button>
-          {/if}
-          {#if isOwner && workspace.visibility === "private"}
-            <button onclick={handlePublish} disabled={isPublishing} class="neo-btn neo-btn-secondary disabled:opacity-50">
-              <Globe class="w-4 h-4" />
-              {isPublishing ? "Publishing..." : "Make Public"}
-            </button>
-          {/if}
-          {#if isOwner && workspace.visibility === "public"}
-            <button onclick={handleMakePrivate} disabled={isPublishing} class="neo-btn neo-btn-secondary disabled:opacity-50">
-              <Lock class="w-4 h-4" />
-              {isPublishing ? "Updating..." : "Make Private"}
-            </button>
-          {/if}
-          {#if isOwner && !isEmpty}
-            <a href="/workspaces/{workspace.id}/runtimes/new" class="neo-btn neo-btn-primary">
-              <Play class="w-4 h-4" />
-              Create Runtime
-            </a>
-          {/if}
-        </div>
-      </div>
-    </div>
-
-    <!-- public workspace 未登录时显示提示 -->
-    {#if workspace.visibility === "public" && workspace.isOwner === undefined}
-      <div class="neo-card-sm neo-fill-yellow p-4 text-sm font-bold text-black">
-        Sign in to fork this workspace and run your own copy.
-      </div>
-    {/if}
-
-    {#if isEmpty}
-      <div class="neo-card overflow-hidden bg-white">
-        <div class="px-5 py-4 border-b-[4px] border-black neo-fill-blue flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div>
-            <h2 class="neo-section-title">Repository Setup</h2>
-            <p class="mt-2 text-sm font-bold text-black/70">This workspace is empty. Initialize it with Git.</p>
+      <!-- Empty workspace -->
+      {#if isEmpty}
+        <div class="border border-white/10 rounded-lg bg-[#121212] overflow-hidden">
+          <div class="px-4 py-3 border-b border-white/5 bg-[#0F0F0F]">
+            <h2 class="text-sm font-medium text-white/70">Repository Setup</h2>
+            <p class="text-xs text-white/35 mt-1">This workspace is empty. Initialize it with Git.</p>
           </div>
+
           {#if gitRemoteUrl}
-            <button onclick={copyCloneUrl} class="neo-btn neo-btn-secondary !px-4 !py-2 text-xs">
-              {#if copied}
-                <Check class="w-4 h-4" /> Copied
-              {:else}
-                <Copy class="w-4 h-4" /> Copy Remote
-              {/if}
-            </button>
-          {/if}
-        </div>
-
-        {#if gitRemoteUrl}
-          <div class="p-5 grid grid-cols-1 xl:grid-cols-2 gap-4 bg-white">
-            <div class="neo-card-sm neo-fill-paper p-4">
-              <div class="flex items-center gap-2 mb-3">
-                <Terminal class="w-4 h-4" />
-                <span class="neo-meta">Create a new repository</span>
-              </div>
-              <pre class="font-mono text-xs leading-6 whitespace-pre-wrap break-words text-black/80">touch README.md
-
+            <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="p-3 rounded-md bg-black/30 border border-white/5">
+                <div class="flex items-center gap-2 mb-2">
+                  <Terminal class="w-3 h-3 text-white/30" />
+                  <span class="text-[10px] uppercase tracking-wider text-white/40 font-medium">Create a new repository</span>
+                </div>
+                <pre class="font-mono text-[10px] leading-5 text-white/35 whitespace-pre-wrap">touch README.md
 git init
 git checkout -b main
 git add README.md
 git commit -m "first commit"
 git remote add origin {gitRemoteUrl}
 git push -u origin main</pre>
-            </div>
-            <div class="neo-card-sm neo-fill-paper p-4">
-              <div class="flex items-center gap-2 mb-3">
-                <Terminal class="w-4 h-4" />
-                <span class="neo-meta">Push existing repository</span>
               </div>
-              <pre class="font-mono text-xs leading-6 whitespace-pre-wrap break-words text-black/80">git remote add origin {gitRemoteUrl}
+              <div class="p-3 rounded-md bg-black/30 border border-white/5">
+                <div class="flex items-center gap-2 mb-2">
+                  <Terminal class="w-3 h-3 text-white/30" />
+                  <span class="text-[10px] uppercase tracking-wider text-white/40 font-medium">Push existing repository</span>
+                </div>
+                <pre class="font-mono text-[10px] leading-5 text-white/35 whitespace-pre-wrap">git remote add origin {gitRemoteUrl}
 git push -u origin main</pre>
+              </div>
             </div>
+          {/if}
+        </div>
+      {:else if readmeHtml}
+        <!-- README -->
+        <div class="border border-white/10 rounded-lg bg-[#121212] overflow-hidden">
+          <div class="px-4 py-3 border-b border-white/5 bg-[#0F0F0F] flex items-center justify-between">
+            <h2 class="text-sm font-medium text-white/70">README</h2>
+            <span class="text-[10px] text-white/25">Documentation</span>
           </div>
-        {/if}
-      </div>
-    {:else if readmeHtml}
-      <div class="neo-card overflow-hidden bg-white">
-        <div class="px-5 py-4 border-b-[4px] border-black neo-fill-green flex items-center justify-between gap-3">
-          <h2 class="neo-section-title">README</h2>
-          <span class="neo-badge neo-badge-white">Documentation</span>
-        </div>
-        <div class="p-6 bg-white">
-          <article class="prose prose-slate max-w-none">
+          <div class="p-4 prose prose-invert prose-sm max-w-none prose-headings:text-white/80 prose-p:text-white/60 prose-a:text-blue-400 prose-code:text-white/70 prose-code:bg-white/5 prose-code:px-1 prose-code:rounded prose-pre:bg-black/30 prose-pre:border prose-pre:border-white/10">
             {@html readmeHtml}
-          </article>
+          </div>
         </div>
-      </div>
-    {:else if tree}
-      <div class="neo-card overflow-hidden bg-white">
-        <div class="px-5 py-4 border-b-[4px] border-black neo-fill-yellow flex items-center justify-between gap-3">
-          <h2 class="neo-section-title">Repository Files</h2>
-          <span class="neo-badge neo-badge-white">{tree.entries.length} entries</span>
-        </div>
-        <div class="p-4 space-y-3">
-          {#each tree.entries as entry}
-            <div class="neo-card-sm neo-fill-paper px-4 py-3 flex items-center gap-3">
-              {#if entry.type === "dir"}
-                <div class="neo-icon-box neo-fill-blue !w-10 !h-10 !rounded-xl !shadow-[2px_2px_0_0_#000]"><Folder class="w-4 h-4" /></div>
+      {:else if tree}
+        <!-- File List -->
+        <div class="border border-white/10 rounded-lg bg-[#121212] overflow-hidden">
+          <div class="px-4 py-3 border-b border-white/5 bg-[#0F0F0F] flex items-center justify-between">
+            <h2 class="text-sm font-medium text-white/70">Files</h2>
+            <span class="text-[10px] text-white/25">{tree.entries.length} entries</span>
+          </div>
+          <div class="divide-y divide-white/5">
+            {#each tree.entries as entry}
+              <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors">
+                {#if entry.type === "dir"}
+                  <div class="w-7 h-7 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                    <Folder class="w-3.5 h-3.5 text-blue-400/70" />
+                  </div>
+                {:else}
+                  <div class="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                    <FileCode class="w-3.5 h-3.5 text-white/30" />
+                  </div>
+                {/if}
                 <div class="min-w-0 flex-1">
-                  <div class="font-black uppercase tracking-tight truncate">{entry.name}</div>
-                  <div class="text-xs font-bold text-black/50">Directory</div>
+                  <div class="text-xs text-white/70 font-mono truncate">{entry.name}</div>
+                  <div class="text-[10px] text-white/25">{entry.type === "dir" ? "Directory" : "File"}</div>
                 </div>
-              {:else}
-                <div class="neo-icon-box neo-fill-white !w-10 !h-10 !rounded-xl !shadow-[2px_2px_0_0_#000]"><FileCode class="w-4 h-4" /></div>
-                <div class="min-w-0 flex-1">
-                  <div class="font-black uppercase tracking-tight truncate">{entry.name}</div>
-                  <div class="text-xs font-bold text-black/50">File</div>
-                </div>
-              {/if}
-            </div>
-          {/each}
+              </div>
+            {/each}
+          </div>
         </div>
-      </div>
+      {/if}
     {/if}
-  {/if}
+  </div>
 </div>

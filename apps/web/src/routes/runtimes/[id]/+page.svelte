@@ -1,5 +1,7 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
+import { page } from "$app/state";
+import { goto } from "$app/navigation";
 import {
   getRuntime,
   getRuntimeChannels,
@@ -21,7 +23,7 @@ import {
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Hash, MessageSquare, ArrowLeft, X, Plus, ArrowDown, Settings } from "lucide-svelte";
+import { Terminal, Hash, X, Plus, ArrowDown, Settings } from "lucide-svelte";
 import { ensureAuth } from "$lib/auth";
 
 type Props = {
@@ -42,12 +44,14 @@ const props = $props();
 const data = $derived((props as Props).data);
 const runtimeId = $derived(data.runtimeId);
 
+// Session from URL query param
+const urlSessionId = $derived(page.url.searchParams.get("session"));
+
 let runtime = $state<RuntimeRecord | null>(null);
 let runtimeSessions = $state<SessionRecord[]>([]);
 let runtimeChannels = $state<RuntimeChannelRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
-let openedSessionIds = $state<string[]>([]);
 let input = $state("");
 let sending = $state(false);
 let runtimeLoadError = $state("");
@@ -59,7 +63,7 @@ let streamingAssistantText = $state("");
 let streamingThinking = $state("");
 let streamingToolCalls = $state<Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>>([]);
 
-// SSE — one page-level connection, started on mount
+// SSE
 let sseAbortController: AbortController | null = null;
 
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
@@ -77,11 +81,7 @@ let createSessionError = $state("");
 let showSettings = $state(false);
 
 const activeSessionState = $derived(activeSessionId ? sessionStateById[activeSessionId] ?? null : null);
-const openedSessions = $derived(
-  openedSessionIds
-    .map((id) => sessionStateById[id]?.session ?? runtimeSessions.find((session) => session.id === id) ?? null)
-    .filter(Boolean) as SessionRecord[],
-);
+
 const timeline = $derived.by<TimelineItem[]>(() => {
   const state = activeSessionState;
   if (!state) return [];
@@ -91,10 +91,9 @@ const timeline = $derived.by<TimelineItem[]>(() => {
     message,
   }));
 
-  // Streaming tool calls
   if (streamingToolCalls.length > 0) {
     for (const tc of streamingToolCalls) {
-      const toolItem: TimelineItem = {
+      items.push({
         id: `stream-tool-${tc.toolCallId}`,
         kind: "tool",
         tool: {
@@ -104,8 +103,7 @@ const timeline = $derived.by<TimelineItem[]>(() => {
           status: tc.status === "running" ? "running" : tc.status === "done" ? "done" : "error",
           output: tc.summary ?? "",
         },
-      };
-      items.push(toolItem);
+      });
     }
   }
 
@@ -119,7 +117,7 @@ const timeline = $derived.by<TimelineItem[]>(() => {
     if (streamingAssistantText.trim()) {
       contentBlocks.push({ type: "text", text: streamingAssistantText });
     }
-    const streamItem: TimelineItem = {
+    items.push({
       id: "assistant-streaming",
       kind: "message",
       message: {
@@ -129,56 +127,29 @@ const timeline = $derived.by<TimelineItem[]>(() => {
         text: streamingAssistantText,
         sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
       },
-    };
-    items.push(streamItem);
+    });
   }
 
   return items;
 });
 
-function getSessionTitle(session: SessionRecord, index: number) {
-  const candidates = [
-    session.title,
-    session.latestMessageText,
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = candidate
-      ?.replace(/\s+/g, " ")
-      .replace(/^[:\-\s]+/, "")
-      .trim();
-
-    if (normalized) {
-      return normalized.slice(0, 48);
-    }
+// Sync active session with URL
+$effect(() => {
+  if (urlSessionId && urlSessionId !== activeSessionId) {
+    activeSessionId = urlSessionId;
+    shouldAutoFollow = true;
+    didInitialScrollBySession = { ...didInitialScrollBySession, [urlSessionId]: false };
   }
+});
 
-  return `Session ${index + 1}`;
-}
-
-function ensureSessionOpened(sessionId: string) {
-  if (!openedSessionIds.includes(sessionId)) {
-    openedSessionIds = [...openedSessionIds, sessionId];
+function updateUrlSession(sessionId: string | null) {
+  const params = new URLSearchParams(page.url.searchParams);
+  if (sessionId) {
+    params.set("session", sessionId);
+  } else {
+    params.delete("session");
   }
-}
-
-function openSession(sessionId: string) {
-  activeSessionId = sessionId;
-  shouldAutoFollow = true;
-  didInitialScrollBySession = { ...didInitialScrollBySession, [sessionId]: false };
-  ensureSessionOpened(sessionId);
-}
-
-function closeSessionTab(sessionId: string) {
-  const next = openedSessionIds.filter((id) => id !== sessionId);
-  openedSessionIds = next;
-
-  if (activeSessionId === sessionId) {
-    activeSessionId = next.at(-1) ?? runtimeSessions.at(-1)?.id ?? null;
-    if (activeSessionId) {
-      ensureSessionOpened(activeSessionId);
-    }
-  }
+  void goto(`/runtimes/${runtimeId}?${params.toString()}`, { replaceState: true });
 }
 
 async function handleCreateNewSession() {
@@ -202,7 +173,8 @@ async function handleCreateNewSession() {
       },
     };
 
-    openSession(newSession.id);
+    activeSessionId = newSession.id;
+    updateUrlSession(newSession.id);
   } catch (error) {
     createSessionError = error instanceof Error ? error.message : "Failed to create session";
   } finally {
@@ -211,9 +183,7 @@ async function handleCreateNewSession() {
 }
 
 function seedSessions(sessions: SessionRecord[]) {
-  if (sessions.length === 0 && runtimeSessions.length > 0) {
-    return;
-  }
+  if (sessions.length === 0 && runtimeSessions.length > 0) return;
 
   runtimeSessions = sessions;
   const nextState = { ...sessionStateById };
@@ -234,17 +204,21 @@ function seedSessions(sessions: SessionRecord[]) {
     }
   }
   sessionStateById = nextState;
+
+  // Auto-select session from URL or fallback to latest
+  if (urlSessionId && !sessionStateById[urlSessionId]?.loaded) {
+    // Will be loaded by the effect below
+  } else if (!activeSessionId && sessions.length > 0) {
+    const nextId = sessions.at(-1)?.id ?? null;
+    activeSessionId = nextId;
+    updateUrlSession(nextId);
+  }
 }
 
 function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): RuntimeChannelConfigInput {
   return runtimeChannel.config ?? {
-    inbound: {
-      requireMentionInGuild: true,
-    },
-    outbound: {
-      showThinking: false,
-      showToolCalls: false,
-    },
+    inbound: { requireMentionInGuild: true },
+    outbound: { showThinking: false, showToolCalls: false },
   };
 }
 
@@ -295,16 +269,7 @@ async function loadRuntime() {
   }
 
   if (sessionsResult.status === "fulfilled") {
-    const sessions = sessionsResult.value.sessions ?? [];
-    seedSessions(sessions);
-
-    if (!activeSessionId && sessions.length > 0) {
-      const nextId = sessions.at(-1)?.id ?? null;
-      activeSessionId = nextId;
-      if (nextId) {
-        openedSessionIds = [nextId];
-      }
-    }
+    seedSessions(sessionsResult.value.sessions ?? []);
   } else if (!runtimeLoadError) {
     runtimeLoadError = sessionsResult.reason instanceof Error
       ? sessionsResult.reason.message
@@ -384,7 +349,6 @@ async function loadProvisioning() {
   }
 }
 
-
 function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
   if (!provision) return true;
   return provision.status === "queued" || provision.status === "running";
@@ -397,7 +361,7 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
   return status === "starting" || status === "hibernating";
 }
 
-// ─── SSE streaming (page-level, single connection) ───
+// ─── SSE streaming ───
 
 function clearStreamingState() {
   streamingAssistantText = "";
@@ -406,7 +370,6 @@ function clearStreamingState() {
 }
 
 async function handleSSEEvent(event: RuntimeStreamEvent) {
-  // Only process events for the currently active session
   if (activeSessionId == null || event.sessionId !== activeSessionId) return;
 
   if (event.type === "provider_render_update") {
@@ -492,7 +455,6 @@ async function handleSend() {
       };
     }
 
-    // Post user message (triggers agent processing)
     await postSessionMessage(sessionId, [{ type: "text", text }]);
   } catch (error) {
     streamError = error instanceof Error ? error.message : "Failed to send message";
@@ -515,9 +477,7 @@ async function forceScrollToBottom() {
   scrollToBottomNow();
   requestAnimationFrame(() => {
     scrollToBottomNow();
-    setTimeout(() => {
-      scrollToBottomNow();
-    }, 0);
+    setTimeout(() => scrollToBottomNow(), 0);
   });
 }
 
@@ -552,13 +512,11 @@ onMount(() => {
     void loadRuntime();
   }, 1000);
 
-  // Start page-level SSE connection
   startSSE();
 
   return () => {
     if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
     if (runtimePollingTimer) clearInterval(runtimePollingTimer);
-    // Abort SSE on unmount
     if (sseAbortController) {
       sseAbortController.abort();
       sseAbortController = null;
@@ -574,7 +532,6 @@ $effect(() => {
 
 $effect(() => {
   if (activeSessionId) {
-    ensureSessionOpened(activeSessionId);
     void loadSessionState(activeSessionId).finally(() => {
       bootstrapping = false;
     });
@@ -595,300 +552,216 @@ $effect(() => {
 
 $effect(() => {
   if (!listEl || !shouldAutoFollow) return;
-  queueMicrotask(() => {
-    scrollToBottomNow();
-  });
+  queueMicrotask(() => scrollToBottomNow());
 });
 </script>
 
-<div class="h-screen w-full flex flex-col bg-[#0A0A0A] text-white/80 font-sans text-sm selection:bg-white/20">
-  <header class="h-10 flex items-center justify-between px-3 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
-    <div class="flex items-center gap-3 min-w-0">
-      <a href="/runtimes" class="text-white/40 hover:text-white transition-colors shrink-0" title="Back to runtimes">
-        <ArrowLeft class="w-4 h-4" />
-      </a>
-      <div class="w-[1px] h-4 bg-white/10 shrink-0"></div>
-      <Terminal class="w-4 h-4 text-white/50 shrink-0" />
-      <span class="font-mono text-xs text-white/90 truncate max-w-[260px]">{runtime?.title || runtime?.id || runtimeId}</span>
-      <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded bg-white/5 border border-white/5 shrink-0">
-        <div class="w-1.5 h-1.5 rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-amber-400' : runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}"></div>
-        <span class="text-[10px] uppercase tracking-wider font-medium text-white/60">
-          {#if provisioning && shouldPollProvisioning(provisioning)}
-            {provisioning.currentStep}
-          {:else}
-            {runtime?.liveStatus ?? runtime?.status ?? "unknown"}
-          {/if}
-        </span>
-      </div>
+<!-- Runtime Header -->
+<header class="h-10 flex items-center justify-between px-3 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+  <div class="flex items-center gap-3 min-w-0">
+    <Terminal class="w-4 h-4 text-white/50 shrink-0" />
+    <span class="font-mono text-xs text-white/90 truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
+    <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded bg-white/5 border border-white/5 shrink-0">
+      <div class="w-1.5 h-1.5 rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-amber-400' : runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}"></div>
+      <span class="text-[10px] uppercase tracking-wider font-medium text-white/60">
+        {#if provisioning && shouldPollProvisioning(provisioning)}
+          {provisioning.currentStep}
+        {:else}
+          {runtime?.liveStatus ?? runtime?.status ?? "unknown"}
+        {/if}
+      </span>
     </div>
+  </div>
 
+  <div class="flex items-center gap-1.5">
     <button
       type="button"
-      class="flex items-center justify-center w-7 h-7 rounded-md text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors shrink-0"
+      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/50 hover:text-white/80 hover:bg-white/8 transition-colors disabled:opacity-50"
+      onclick={() => handleCreateNewSession()}
+      disabled={creatingSession || !runtime}
+      title="New session"
+    >
+      {#if creatingSession}
+        <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin"></div>
+      {:else}
+        <Plus class="w-3.5 h-3.5" />
+      {/if}
+      <span class="hidden sm:inline">New Session</span>
+    </button>
+    <button
+      type="button"
+      class="flex items-center justify-center w-7 h-7 rounded-md text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors"
       onclick={() => showSettings = !showSettings}
       title="Settings"
     >
       <Settings class="w-4 h-4" />
     </button>
-  </header>
+  </div>
+</header>
 
-  <div class="flex-1 flex min-h-0">
-    <aside class="w-56 md:w-60 flex flex-col border-r border-white/10 bg-[#0A0A0A] shrink-0">
-      <div class="h-9 flex items-center justify-between px-3 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/40 select-none">
-        <div class="flex items-center">
-          <MessageSquare class="w-3.5 h-3.5 mr-2" />
-          Sessions
+<!-- Main Content -->
+<div class="flex-1 flex min-h-0">
+  <div class="flex-1 flex flex-col min-w-0 bg-[#0F0F0F]">
+    {#if bootstrapping && !activeSessionState}
+      <div class="flex-1 flex items-center justify-center bg-[#0F0F0F]">
+        <div class="flex flex-col items-center gap-3 text-white/35">
+          <div class="w-8 h-8 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin"></div>
+          <div class="text-xs font-mono">Loading runtime…</div>
         </div>
+      </div>
+    {:else if !activeSessionState}
+      <div class="flex-1 flex flex-col items-center justify-center text-white/30 gap-4">
+        <div class="text-sm">No session selected</div>
         <button
           type="button"
-          class="flex items-center gap-1 px-2 py-1 rounded-sm text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors disabled:opacity-50"
           onclick={() => handleCreateNewSession()}
           disabled={creatingSession || !runtime}
-          title="New session"
         >
-          {#if creatingSession}
-            <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin"></div>
-          {:else}
-            <Plus class="w-3.5 h-3.5" />
-          {/if}
+          <Plus class="w-3.5 h-3.5" />
+          Create a session
         </button>
       </div>
-
-      <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
-        {#if bootstrapping && runtimeSessions.length === 0}
-          <div class="px-3 py-4 text-xs text-white/30 text-center">Loading sessions...</div>
-        {:else if runtimeSessions.length === 0}
-          <div class="px-3 py-4 text-xs text-white/30 text-center">No sessions yet</div>
-        {:else}
-          {#each runtimeSessions as session, index (session.id)}
-            {@const isStreaming = streamStatus === 'streaming' && activeSessionId === session.id}
-            <button
-              class={`w-full flex flex-col px-3 py-2 rounded-md text-left transition-colors relative ${activeSessionId === session.id ? 'bg-[#1A1A1A] text-white border border-white/10' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
-              onclick={() => openSession(session.id)}
-              type="button"
-            >
-              {#if activeSessionId === session.id}
-                <div class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-emerald-400"></div>
-              {/if}
-              <div class="flex items-center gap-2 w-full">
-                <div class="text-xs font-medium leading-none truncate flex-1">{getSessionTitle(session, index)}</div>
-                {#if isStreaming}
-                  <div class="w-3.5 h-3.5 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin shrink-0"></div>
-                {/if}
-              </div>
-              {#if session.source}
-                <div class="text-[10px] text-white/30 mt-0.5 truncate">{session.source}</div>
-              {/if}
-            </button>
-          {/each}
-        {/if}
+    {:else if activeSessionState.loading && !activeSessionState.loaded}
+      <div class="flex-1 flex items-center justify-center bg-[#0F0F0F]">
+        <div class="flex flex-col items-center gap-3 text-white/35">
+          <div class="w-7 h-7 rounded-full border-2 border-white/12 border-t-emerald-400 animate-spin"></div>
+          <div class="text-xs font-mono">Loading messages…</div>
+        </div>
       </div>
-    </aside>
+    {:else}
+      {#if activeSessionState.error}
+        <div class="m-4 rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">
+          {activeSessionState.error}
+        </div>
+      {/if}
 
-    <main class="flex-1 flex flex-col min-w-0 bg-[#0F0F0F]">
-      <div class="h-9 flex items-center border-b border-white/10 bg-[#0A0A0A] overflow-x-auto">
-        {#if openedSessions.length === 0}
-          <div class="px-4 text-[11px] text-white/30">{bootstrapping ? 'Loading session...' : 'No open session'}</div>
-        {:else}
-          {#each openedSessions as session, index (session.id)}
-            <button
-              type="button"
-              class={`group flex items-center h-full px-3 border-r border-white/10 min-w-36 max-w-xs ${activeSessionId === session.id ? 'bg-[#0F0F0F] border-t-2 border-t-emerald-500/50 text-white/92' : 'bg-[#0A0A0A] text-white/45 hover:text-white/72'}`}
-              onclick={() => openSession(session.id)}
-            >
-              <span class="text-xs truncate mr-3">{getSessionTitle(session, index)}</span>
-              <span class="text-[10px] text-white/22 font-mono mr-2 hidden xl:inline">{session.id.slice(0, 6)}</span>
-              {#if openedSessions.length > 1}
-                <span
-                  role="button"
-                  tabindex="0"
-                  class="ml-auto rounded-sm p-0.5 text-white/25 hover:text-white/70 hover:bg-white/8"
-                  onclick={(event) => {
-                    event.stopPropagation();
-                    closeSessionTab(session.id);
-                  }}
-                  onkeydown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      closeSessionTab(session.id);
-                    }
-                  }}
-                >
-                  <X class="w-3 h-3" />
-                </span>
-              {/if}
-            </button>
-          {/each}
-        {/if}
-        <button
-          type="button"
-          class="flex items-center justify-center h-full px-2 text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors shrink-0 disabled:opacity-50"
-          onclick={() => handleCreateNewSession()}
-          disabled={creatingSession || !runtime}
-          title="New tab"
-        >
-          {#if creatingSession}
-            <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin"></div>
-          {:else}
-            <Plus class="w-3.5 h-3.5" />
-          {/if}
-        </button>
-      </div>
+      <div class="relative flex-1 min-h-0 flex flex-col">
+        <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
 
-      <div class="flex-1 flex flex-col min-h-0 relative">
-        {#if bootstrapping && !activeSessionState}
-          <div class="absolute inset-0 flex items-center justify-center bg-[#0F0F0F]">
-            <div class="flex flex-col items-center gap-3 text-white/35">
-              <div class="w-8 h-8 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin"></div>
-              <div class="text-xs font-mono">Loading runtime…</div>
-            </div>
-          </div>
-        {:else if !activeSessionState}
-          <div class="absolute inset-0 flex items-center justify-center text-white/30 text-sm">
-            Select a session to start
-          </div>
-        {:else if activeSessionState.loading && !activeSessionState.loaded}
-          <div class="absolute inset-0 flex items-center justify-center bg-[#0F0F0F] z-10">
-            <div class="flex flex-col items-center gap-3 text-white/35">
-              <div class="w-7 h-7 rounded-full border-2 border-white/12 border-t-emerald-400 animate-spin"></div>
-              <div class="text-xs font-mono">Loading messages…</div>
-            </div>
-          </div>
-        {:else}
-          {#if activeSessionState.error}
-            <div class="m-4 rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">
-              {activeSessionState.error}
-            </div>
-          {/if}
-
-          <div class="relative flex-1 min-h-0 flex flex-col">
-            <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
-
-            {#if !shouldAutoFollow && timeline.length > 0}
-              <button
-                type="button"
-                class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 text-xs text-white/70 hover:text-white transition-all shadow-lg backdrop-blur-sm"
-                onclick={() => {
-                  shouldAutoFollow = true;
-                  forceScrollToBottom();
-                }}
-              >
-                <ArrowDown class="w-3.5 h-3.5" />
-                <span>Scroll to bottom</span>
-              </button>
-            {/if}
-          </div>
-
-          <div class="border-t border-white/10 bg-[#0A0A0A]">
-            <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
-          </div>
-        {/if}
-      </div>
-    </main>
-
-    {#if showSettings}
-      <div class="flex w-80 flex-col border-l border-white/10 bg-[#0A0A0A] shrink-0 overflow-y-auto">
-        <div class="h-9 flex items-center justify-between px-3 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/40 select-none sticky top-0 bg-[#0A0A0A] z-10">
-          <span>Settings</span>
+        {#if !shouldAutoFollow && timeline.length > 0}
           <button
             type="button"
-            class="flex items-center justify-center w-6 h-6 rounded-sm text-white/30 hover:text-white/70 hover:bg-white/8 transition-colors"
-            onclick={() => showSettings = false}
-            title="Close settings"
+            class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 text-xs text-white/70 hover:text-white transition-all shadow-lg backdrop-blur-sm"
+            onclick={() => {
+              shouldAutoFollow = true;
+              forceScrollToBottom();
+            }}
           >
-            <X class="w-3.5 h-3.5" />
+            <ArrowDown class="w-3.5 h-3.5" />
+            <span>Scroll to bottom</span>
           </button>
-        </div>
+        {/if}
+      </div>
 
-        <div class="p-4 space-y-6">
-          <section class="space-y-3">
-            <div class="text-[10px] font-bold text-white/30 uppercase tracking-widest flex items-center justify-between">
-              <span>Channels</span>
-              <span class="px-1.5 py-0.5 rounded-sm bg-white/10 text-white/55">{runtimeChannels.length}</span>
-            </div>
-
-            {#if runtimeChannels.length === 0}
-              <div class="rounded-md border border-white/8 bg-white/[0.02] p-3 text-xs text-white/35">No channels bound.</div>
-            {:else}
-              <div class="space-y-3">
-                {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
-                  <div class="border border-white/10 rounded-md bg-[#121212] overflow-hidden">
-                    <div class="px-3 py-2 border-b border-white/5 bg-[#1A1A1A] flex items-center gap-2">
-                      <Hash class="w-3 h-3 text-white/40" />
-                      <span class="text-xs font-medium text-white/80 truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
-                    </div>
-
-                    <div class="p-3">
-                      {#if runtimeChannel.channel?.provider === "discord"}
-                        {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
-                        <div class="space-y-4">
-                          <label class="flex items-start gap-2 cursor-pointer group">
-                            <input
-                              type="checkbox"
-                              checked={config.inbound?.requireMentionInGuild !== false}
-                              onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                                ...current,
-                                inbound: { ...(current.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
-                              }))}
-                              class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
-                            />
-                            <div class="flex flex-col min-w-0">
-                              <span class="text-xs text-white/70 group-hover:text-white transition-colors">Require mention in Guild</span>
-                              <span class="text-[10px] text-white/28">Respond only when mentioned</span>
-                            </div>
-                          </label>
-
-                          <div class="w-full h-px bg-white/5"></div>
-
-                          <label class="flex items-start gap-2 cursor-pointer group">
-                            <input
-                              type="checkbox"
-                              checked={config.outbound?.showThinking === true}
-                              onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                                ...current,
-                                outbound: { ...(current.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
-                              }))}
-                              class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
-                            />
-                            <div class="flex flex-col">
-                              <span class="text-xs text-white/70 group-hover:text-white transition-colors">Show thinking</span>
-                            </div>
-                          </label>
-
-                          <label class="flex items-start gap-2 cursor-pointer group">
-                            <input
-                              type="checkbox"
-                              checked={config.outbound?.showToolCalls === true}
-                              onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                                ...current,
-                                outbound: { ...(current.outbound ?? {}), showToolCalls: (event.currentTarget as HTMLInputElement).checked },
-                              }))}
-                              class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
-                            />
-                            <div class="flex flex-col">
-                              <span class="text-xs text-white/70 group-hover:text-white transition-colors">Show tool calls</span>
-                            </div>
-                          </label>
-                        </div>
-                      {:else}
-                        <div class="text-xs text-white/35">No configuration available.</div>
-                      {/if}
-
-                      {#if savingChannelConfigById[runtimeChannel.id]}
-                        <div class="mt-3 text-[10px] text-emerald-400/70">Saving changes...</div>
-                      {/if}
-                      {#if channelConfigErrorById[runtimeChannel.id]}
-                        <div class="mt-3 text-[10px] text-rose-400 break-all">{channelConfigErrorById[runtimeChannel.id]}</div>
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </section>
-        </div>
+      <div class="border-t border-white/10 bg-[#0A0A0A]">
+        <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
       </div>
     {/if}
   </div>
+
+  <!-- Settings Panel -->
+  {#if showSettings}
+    <div class="flex w-80 flex-col border-l border-white/10 bg-[#0A0A0A] shrink-0 overflow-y-auto">
+      <div class="h-9 flex items-center justify-between px-3 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/40 select-none sticky top-0 bg-[#0A0A0A] z-10">
+        <span>Settings</span>
+        <button
+          type="button"
+          class="flex items-center justify-center w-6 h-6 rounded-sm text-white/30 hover:text-white/70 hover:bg-white/8 transition-colors"
+          onclick={() => showSettings = false}
+          title="Close settings"
+        >
+          <X class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div class="p-4 space-y-6">
+        <section class="space-y-3">
+          <div class="text-[10px] font-bold text-white/30 uppercase tracking-widest flex items-center justify-between">
+            <span>Channels</span>
+            <span class="px-1.5 py-0.5 rounded-sm bg-white/10 text-white/55">{runtimeChannels.length}</span>
+          </div>
+
+          {#if runtimeChannels.length === 0}
+            <div class="rounded-md border border-white/8 bg-white/[0.02] p-3 text-xs text-white/35">No channels bound.</div>
+          {:else}
+            <div class="space-y-3">
+              {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
+                <div class="border border-white/10 rounded-md bg-[#121212] overflow-hidden">
+                  <div class="px-3 py-2 border-b border-white/5 bg-[#1A1A1A] flex items-center gap-2">
+                    <Hash class="w-3 h-3 text-white/40" />
+                    <span class="text-xs font-medium text-white/80 truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
+                  </div>
+
+                  <div class="p-3">
+                    {#if runtimeChannel.channel?.provider === "discord"}
+                      {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
+                      <div class="space-y-4">
+                        <label class="flex items-start gap-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={config.inbound?.requireMentionInGuild !== false}
+                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                              ...current,
+                              inbound: { ...(current.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
+                            }))}
+                            class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
+                          />
+                          <div class="flex flex-col min-w-0">
+                            <span class="text-xs text-white/70 group-hover:text-white transition-colors">Require mention in Guild</span>
+                            <span class="text-[10px] text-white/28">Respond only when mentioned</span>
+                          </div>
+                        </label>
+
+                        <div class="w-full h-px bg-white/5"></div>
+
+                        <label class="flex items-start gap-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={config.outbound?.showThinking === true}
+                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                              ...current,
+                              outbound: { ...(current.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
+                            }))}
+                            class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
+                          />
+                          <div class="flex flex-col">
+                            <span class="text-xs text-white/70 group-hover:text-white transition-colors">Show thinking</span>
+                          </div>
+                        </label>
+
+                        <label class="flex items-start gap-2 cursor-pointer group">
+                          <input
+                          type="checkbox"
+                          checked={config.outbound?.showToolCalls === true}
+                          onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                            ...current,
+                            outbound: { ...(current.outbound ?? {}), showToolCalls: (event.currentTarget as HTMLInputElement).checked },
+                          }))}
+                          class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
+                        />
+                          <div class="flex flex-col">
+                            <span class="text-xs text-white/70 group-hover:text-white transition-colors">Show tool calls</span>
+                          </div>
+                        </label>
+                      </div>
+                    {:else}
+                      <div class="text-xs text-white/35">No configuration available.</div>
+                    {/if}
+
+                    {#if savingChannelConfigById[runtimeChannel.id]}
+                      <div class="mt-3 text-[10px] text-emerald-400/70">Saving changes...</div>
+                    {/if}
+                    {#if channelConfigErrorById[runtimeChannel.id]}
+                      <div class="mt-3 text-[10px] text-rose-400 break-all">{channelConfigErrorById[runtimeChannel.id]}</div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      </div>
+    </div>
+  {/if}
 </div>

@@ -59,7 +59,7 @@ async function handleSubmit(e: Event) {
 }
 
 async function handleDelete(id: string) {
-  if (!confirm("Are you sure you want to delete this SSH key? This may affect your ability to push to Gitea.")) return;
+  if (!confirm("Are you sure you want to delete this SSH key?")) return;
   try {
     await deleteSshKey(id);
     await loadKeys();
@@ -69,87 +69,106 @@ async function handleDelete(id: string) {
 }
 </script>
 
-<div class="neo-page-shell">
-  <div class="neo-page-header">
-    <div>
-      <h1 class="neo-page-title">Settings</h1>
-      <p class="neo-page-desc mt-3 max-w-2xl">Manage your account settings including SSH keys for Git access.</p>
-    </div>
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+  <!-- Header -->
+  <div class="h-10 flex items-center px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+    <span class="text-xs font-medium text-white/60">Settings</span>
   </div>
 
-  <div class="space-y-6">
-    <h2 class="neo-section-title">SSH Keys</h2>
-    <p class="neo-page-desc text-sm">Add your SSH public keys to enable pushing to your workspace repositories via SSH. Your keys are registered with Gitea automatically.</p>
+  <div class="flex-1 p-4 overflow-y-auto max-w-3xl">
+    <!-- SSH Keys Section -->
+    <div class="mb-6">
+      <h2 class="text-sm font-medium text-white/80 mb-1">SSH Keys</h2>
+      <p class="text-xs text-white/35 mb-4">Add your SSH public keys to enable pushing to workspace repositories via SSH.</p>
 
-    {#if isAdding}
-      <div transition:fade class="neo-card p-5 md:p-6 bg-white">
-        <div class="flex items-center justify-between gap-4 mb-5">
-          <div>
-            <h3 class="neo-section-title">Add SSH Key</h3>
-            <p class="neo-page-desc mt-2 text-sm">Paste your public key. You can find it by running <code class="px-1.5 py-0.5 bg-black/5 rounded text-xs font-mono">cat ~/.ssh/id_ed25519.pub</code> on your machine.</p>
-          </div>
-          <button onclick={() => (isAdding = false)} class="neo-btn neo-btn-secondary !px-3 !py-2">
-            <X class="w-4 h-4" />
-            Close
-          </button>
-        </div>
-
-        <form onsubmit={handleSubmit} class="space-y-4">
-          <div>
-            <label class="neo-meta mb-2 block" for="title">Title</label>
-            <input type="text" id="title" bind:value={formTitle} placeholder="MacBook Pro" class="neo-input" required />
-          </div>
-
-          <div>
-            <label class="neo-meta mb-2 block" for="key">Public Key</label>
-            <textarea id="key" bind:value={formKey} placeholder="ssh-ed25519 AAAA..." class="neo-input resize-y min-h-[5rem] font-mono text-sm" required rows={3}></textarea>
-          </div>
-
-          <div>
-            <button type="submit" disabled={isSubmitting} class="neo-btn neo-btn-primary disabled:opacity-50">
-              {isSubmitting ? "Saving..." : "Add Key"}
+      {#if isAdding}
+        <div class="mb-4 border border-white/10 rounded-lg bg-[#121212] p-4" in:fade>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-medium text-white/90">Add SSH Key</h3>
+            <button onclick={() => isAdding = false} class="text-white/30 hover:text-white/70 transition-colors">
+              <X class="w-4 h-4" />
             </button>
           </div>
-        </form>
-      </div>
-    {:else}
-      <button onclick={() => (isAdding = true)} class="neo-btn neo-btn-primary w-fit">
-        <Plus class="w-4 h-4" />
-        Add SSH Key
-      </button>
-    {/if}
 
+          <form onsubmit={handleSubmit} class="space-y-3">
+            <div>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5" for="key-title">Title</label>
+              <input
+                id="key-title"
+                type="text"
+                bind:value={formTitle}
+                placeholder="MacBook Pro"
+                class="w-full px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none"
+                required
+              />
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5" for="key-value">Public Key</label>
+              <textarea
+                id="key-value"
+                bind:value={formKey}
+                placeholder="ssh-ed25519 AAAA..."
+                class="w-full px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none font-mono resize-y min-h-[4rem]"
+                rows={3}
+                required
+              ></textarea>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              class="px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? "Saving..." : "Add Key"}
+            </button>
+          </form>
+        </div>
+      {:else}
+        <button
+          onclick={() => isAdding = true}
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors mb-4"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          Add SSH Key
+        </button>
+      {/if}
+    </div>
+
+    <!-- Keys List -->
     {#if isLoading}
-      <div class="neo-loading">Loading SSH keys...</div>
-    {:else if loadError}
-      <div class="neo-error">
-        <h3 class="neo-section-title text-white">Load Failed</h3>
-        <p class="mt-2 text-sm font-bold break-all">{loadError}</p>
+      <div class="flex items-center justify-center py-12 text-xs text-white/30">
+        <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+        Loading SSH keys...
       </div>
+    {:else if loadError}
+      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
     {:else if keys.length === 0}
-      <div class="neo-empty">
-        <div class="neo-icon-box neo-fill-yellow mx-auto mb-4"><KeyRound class="w-5 h-5" /></div>
-        <h3 class="neo-section-title">No SSH Keys</h3>
-        <p class="neo-page-desc mt-3 text-sm">Add an SSH key to push to your workspace repositories via SSH.</p>
+      <div class="flex flex-col items-center justify-center py-12 text-center">
+        <div class="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3">
+          <KeyRound class="w-4 h-4 text-white/20" />
+        </div>
+        <p class="text-sm text-white/40">No SSH keys</p>
+        <p class="text-xs text-white/25 mt-1">Add an SSH key to push to your workspace repositories</p>
       </div>
     {:else}
-      <div class="space-y-3">
-        {#each keys as key}
-          <div class="neo-list-card p-4 bg-white flex flex-col sm:flex-row sm:items-center gap-4 group">
-            <div class="flex items-start gap-3 flex-1 min-w-0">
-              <div class="neo-icon-box neo-fill-yellow shrink-0"><KeyRound class="w-5 h-5" /></div>
-              <div class="min-w-0">
-                <h4 class="text-lg font-black uppercase tracking-tight">{key.title}</h4>
-                <code class="mt-1 block text-xs font-mono bg-black/5 px-2 py-1 rounded truncate w-full">{key.key.slice(0, 60)}...</code>
-                <p class="mt-1 text-[11px] font-bold uppercase tracking-widest text-black/40">Added {new Date(key.createdAt).toLocaleDateString()}</p>
-              </div>
+      <div class="space-y-2">
+        {#each keys as key (key.id)}
+          <div class="group flex items-start gap-3 p-3 rounded-lg border border-white/10 bg-[#121212] hover:border-white/20 transition-colors">
+            <div class="w-8 h-8 rounded-md bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <KeyRound class="w-4 h-4 text-yellow-400/70" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h4 class="text-sm font-medium text-white/80">{key.title}</h4>
+              <code class="mt-1 block text-[10px] font-mono bg-black/30 px-2 py-1 rounded text-white/30 truncate">{key.key.slice(0, 60)}...</code>
+              <p class="mt-1 text-[10px] text-white/20">Added {new Date(key.createdAt).toLocaleDateString()}</p>
             </div>
             <button
               onclick={() => handleDelete(key.id)}
-              class="neo-btn neo-btn-secondary !px-2.5 !py-2 shrink-0 opacity-0 group-hover:opacity-100"
+              class="p-1.5 rounded text-white/20 hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
               title="Delete SSH key"
             >
-              <Trash2 class="w-4 h-4 text-red-600" />
+              <Trash2 class="w-3.5 h-3.5" />
             </button>
           </div>
         {/each}
