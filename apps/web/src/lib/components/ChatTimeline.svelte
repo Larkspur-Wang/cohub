@@ -20,7 +20,7 @@ let {
 
 <div
   bind:this={bindListEl}
-  class="flex-1 min-h-0 overflow-y-auto bg-[#0F0F0F] px-5 py-4"
+  class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-5 py-4"
   onscroll={() => onScrollChange?.()}
 >
   <div bind:this={bindContentEl} class="mx-auto flex w-full max-w-4xl flex-col gap-3">

@@ -52,48 +52,48 @@ function goToPage(newPage: number) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-10 flex items-center px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
-    <span class="text-xs font-medium text-white/60">Explore</span>
+  <div class="h-10 flex items-center px-4 border-b border-border-primary shrink-0 bg-bg-primary">
+    <span class="text-xs font-medium text-text-secondary">Explore</span>
   </div>
 
   <div class="flex-1 p-4 overflow-y-auto">
     <!-- Search -->
     <form onsubmit={handleSearch} class="mb-4 flex gap-2">
       <div class="relative flex-1">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-placeholder" />
         <input
           type="text"
           bind:value={searchQuery}
           placeholder="Search public workspaces..."
-          class="w-full pl-8 pr-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none"
+          class="w-full pl-8 pr-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none"
         />
       </div>
-      <button type="submit" class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors">
+      <button type="submit" class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors">
         Search
       </button>
     </form>
 
     {#if isLoading}
-      <div class="flex items-center justify-center py-12 text-xs text-white/30">
-        <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
+      <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
+        <div class="w-4 h-4 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin mr-2"></div>
         Loading...
       </div>
     {:else if loadError}
       <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
     {:else if workspaces.length === 0}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <div class="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3">
-          <Globe class="w-4 h-4 text-white/20" />
+        <div class="w-10 h-10 rounded-full bg-hover border border-border-primary flex items-center justify-center mb-3">
+          <Globe class="w-4 h-4 text-text-placeholder" />
         </div>
-        <p class="text-sm text-white/40">No public workspaces found</p>
-        <p class="text-xs text-white/25 mt-1">{searchQuery ? "Try a different search term" : "Be the first to make a workspace public"}</p>
+        <p class="text-sm text-text-tertiary">No public workspaces found</p>
+        <p class="text-xs text-text-placeholder mt-1">{searchQuery ? "Try a different search term" : "Be the first to make a workspace public"}</p>
       </div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {#each workspaces as workspace}
           <a
             href="/workspaces/{workspace.id}"
-            class="group block p-3 rounded-lg border border-white/10 bg-[#121212] hover:border-white/20 hover:bg-[#161616] transition-colors"
+            class="group block p-3 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 hover:bg-bg-surface-hover transition-colors"
           >
             <div class="flex items-start justify-between gap-2 mb-2">
               <div class="w-8 h-8 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
@@ -104,10 +104,10 @@ function goToPage(newPage: number) {
               </span>
             </div>
 
-            <h3 class="text-sm font-medium text-white/90 group-hover:text-white truncate">{workspace.name}</h3>
-            <p class="mt-1 text-xs text-white/35 line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
+            <h3 class="text-sm font-medium text-text-primary truncate">{workspace.name}</h3>
+            <p class="mt-1 text-xs text-text-tertiary line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
 
-            <div class="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-white/25 font-mono">
+            <div class="mt-3 pt-2 border-t border-border-subtle flex items-center justify-between text-[10px] text-text-placeholder font-mono">
               <span class="truncate">{workspace.giteaRepoName}</span>
               {#if workspace.forkCount > 0}
                 <span class="flex items-center gap-1 shrink-0"><GitFork class="w-2.5 h-2.5" /> {workspace.forkCount}</span>
@@ -122,15 +122,15 @@ function goToPage(newPage: number) {
           <button
             onclick={() => goToPage(page - 1)}
             disabled={page === 1}
-            class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Previous
           </button>
-          <span class="text-[10px] text-white/30">Page {page} / {totalPages} · {total} total</span>
+          <span class="text-[10px] text-text-tertiary">Page {page} / {totalPages} · {total} total</span>
           <button
             onclick={() => goToPage(page + 1)}
             disabled={page === totalPages}
-            class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Next
           </button>

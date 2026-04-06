@@ -71,7 +71,7 @@ function statusColor(status: string) {
   if (status === "error" || status === "boot_failed") return "bg-rose-400";
   if (status === "hibernated") return "bg-gray-500";
   if (status === "hibernating") return "bg-blue-400";
-  return "bg-white/20";
+  return "bg-text-placeholder";
 }
 
 function toggleRuntime(runtimeId: string) {
@@ -217,22 +217,22 @@ onMount(() => {
 });
 </script>
 
-<aside class="w-64 flex flex-col bg-[#0A0A0A] border-r border-white/10 shrink-0 h-screen">
+<aside class="w-64 flex flex-col bg-bg-primary border-r border-border-primary shrink-0 h-screen">
   <!-- Logo -->
-  <div class="h-12 flex items-center px-4 border-b border-white/10 shrink-0">
+  <div class="h-12 flex items-center px-4 border-b border-border-primary shrink-0">
     <a href="/" class="flex items-center gap-2.5 group" aria-label="Cohub">
       <div class="w-7 h-7 bg-[#FF5A5F] rounded-lg flex items-center justify-center font-bold text-xs text-white group-hover:bg-[#FF5A5F]/80 transition-colors">
         C
       </div>
-      <span class="font-semibold text-sm text-white/90 tracking-tight">Cohub</span>
+      <span class="font-semibold text-sm text-text-primary tracking-tight">Cohub</span>
     </a>
   </div>
 
   <!-- Top Navigation -->
-  <nav class="px-2 py-3 space-y-0.5 shrink-0 border-b border-white/10">
+  <nav class="px-2 py-3 space-y-0.5 shrink-0 border-b border-border-primary">
     <a
       href="/workspaces"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/workspaces') ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/workspaces') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/workspaces'); }}
     >
       <FolderKanban class="w-4 h-4 shrink-0" />
@@ -240,7 +240,7 @@ onMount(() => {
     </a>
     <a
       href="/channels"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/channels') ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/channels') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/channels'); }}
     >
       <Network class="w-4 h-4 shrink-0" />
@@ -248,7 +248,7 @@ onMount(() => {
     </a>
     <a
       href="/explore"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/explore'); }}
     >
       <MessageSquare class="w-4 h-4 shrink-0" />
@@ -259,13 +259,13 @@ onMount(() => {
   <!-- Runtimes Section -->
   <div class="flex flex-col min-h-0 flex-1">
     <div class="h-8 flex items-center justify-between px-3 shrink-0">
-      <div class="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/30 select-none">
+      <div class="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-text-tertiary select-none">
         <Cpu class="w-3.5 h-3.5" />
         Runtimes
       </div>
       <button
         type="button"
-        class="flex items-center justify-center w-5 h-5 rounded text-white/30 hover:text-white/60 hover:bg-white/8 transition-colors"
+        class="flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
         onclick={() => handleNavigate('/runtimes')}
         title="View all runtimes"
       >
@@ -275,14 +275,14 @@ onMount(() => {
 
     <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
       {#if isLoading}
-        <div class="px-3 py-4 text-xs text-white/30 text-center flex items-center justify-center gap-2">
+        <div class="px-3 py-4 text-xs text-text-tertiary text-center flex items-center justify-center gap-2">
           <Loader2 class="w-3 h-3 animate-spin" />
           Loading...
         </div>
       {:else if loadError}
         <div class="px-3 py-3 text-xs text-rose-400/70 text-center">{loadError}</div>
       {:else if runtimes.length === 0}
-        <div class="px-3 py-4 text-xs text-white/30 text-center">No runtimes</div>
+        <div class="px-3 py-4 text-xs text-text-tertiary text-center">No runtimes</div>
       {:else}
         {#each runtimes as runtime (runtime.id)}
           {@const isExpanded = expandedRuntimes.has(runtime.id)}
@@ -296,7 +296,7 @@ onMount(() => {
             <div
               role="button"
               tabindex="0"
-              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors {isActive ? 'bg-white/10 text-white/90' : 'text-white/50 hover:text-white/70 hover:bg-white/5'}"
+              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors {isActive ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
               onclick={() => {
                 toggleRuntime(runtime.id);
                 if (!isExpanded) void loadSessions(runtime.id);
@@ -312,7 +312,7 @@ onMount(() => {
               }}
             >
               <span
-                class="flex items-center justify-center w-4 h-4 shrink-0 text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
               >
                 {#if isExpanded}
                   <ChevronDown class="w-3 h-3" />
@@ -323,14 +323,14 @@ onMount(() => {
               <div class="w-1.5 h-1.5 rounded-full shrink-0 {statusColor(status)}"></div>
               <span class="truncate text-xs font-mono flex-1">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if isBusy}
-                <Loader2 class="w-3 h-3 animate-spin text-white/30 shrink-0" />
+                <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
               {/if}
               <!-- Runtime actions (hover) -->
               <div class="hidden group-hover:flex items-center gap-0.5 shrink-0">
                 {#if status === "running"}
                   <button
                     type="button"
-                    class="p-0.5 rounded text-white/30 hover:text-amber-400 hover:bg-white/10 transition-colors"
+                    class="p-0.5 rounded text-text-tertiary hover:text-amber-400 hover:bg-hover-strong transition-colors"
                     onclick={(e) => handleHibernate(runtime.id, e)}
                     title="Hibernate"
                   >
@@ -339,7 +339,7 @@ onMount(() => {
                 {:else if status === "hibernated"}
                   <button
                     type="button"
-                    class="p-0.5 rounded text-white/30 hover:text-emerald-400 hover:bg-white/10 transition-colors"
+                    class="p-0.5 rounded text-text-tertiary hover:text-emerald-400 hover:bg-hover-strong transition-colors"
                     onclick={(e) => handleWake(runtime.id, e)}
                     title="Wake"
                   >
@@ -351,17 +351,17 @@ onMount(() => {
 
             <!-- Sessions (when expanded) -->
             {#if isExpanded}
-              <div class="ml-4 pl-3 border-l border-white/8 space-y-0.5 py-0.5">
+              <div class="ml-4 pl-3 border-l border-border-subtle space-y-0.5 py-0.5">
                 {#if sessions.length === 0}
-                  <div class="px-2 py-1.5 text-[11px] text-white/20">No sessions</div>
+                  <div class="px-2 py-1.5 text-[11px] text-text-placeholder">No sessions</div>
                 {:else}
                   {#each sessions as session, index (session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
-                      class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors {isSessionActive(session.id) ? 'text-white bg-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/5'}"
+                      class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors {isSessionActive(session.id) ? 'text-text-primary bg-hover-strong' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
                     >
-                      <div class="w-1 h-1 rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-emerald-400' : 'bg-white/20'}"></div>
+                      <div class="w-1 h-1 rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-emerald-400' : 'bg-text-placeholder'}"></div>
                       <span class="truncate">{getSessionTitle(session, index)}</span>
                     </a>
                   {/each}
@@ -375,17 +375,17 @@ onMount(() => {
   </div>
 
   <!-- Bottom: User + Settings -->
-  <div class="border-t border-white/10 p-2 space-y-0.5 shrink-0">
+  <div class="border-t border-border-primary p-2 space-y-0.5 shrink-0">
     <a
       href="/settings"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
       onclick={(e) => { e.preventDefault(); handleNavigate('/settings'); }}
     >
       <Settings class="w-4 h-4" />
       <span>Settings</span>
     </a>
     <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-md">
-      <div class="w-6 h-6 rounded-full bg-white/10 overflow-hidden shrink-0">
+      <div class="w-6 h-6 rounded-full bg-hover-strong overflow-hidden shrink-0">
         {#if userClaims?.picture}
           <img src={userClaims.picture} alt="avatar" class="w-full h-full object-cover" />
         {:else}
@@ -393,11 +393,11 @@ onMount(() => {
         {/if}
       </div>
       <div class="flex-1 min-w-0">
-        <p class="text-xs text-white/60 truncate">{userClaims?.name ?? 'Guest'}</p>
+        <p class="text-xs text-text-secondary truncate">{userClaims?.name ?? 'Guest'}</p>
       </div>
       <button
         onclick={handleLogout}
-        class="p-1.5 rounded text-white/30 hover:text-white/60 hover:bg-white/8 transition-colors"
+        class="p-1.5 rounded text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
         title="Sign out"
       >
         <LogOut class="w-3.5 h-3.5" />

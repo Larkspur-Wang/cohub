@@ -145,19 +145,19 @@ async function handleSubmit(event: SubmitEvent) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-10 flex items-center px-4 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+  <div class="h-10 flex items-center px-4 border-b border-border-primary shrink-0 bg-bg-primary">
     <div class="flex items-center gap-3 min-w-0">
-      <a href="/workspaces/{params.id}" class="text-white/40 hover:text-white transition-colors shrink-0" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${params.id}`); }}>
+      <a href="/workspaces/{params.id}" class="text-text-tertiary hover:text-text-primary transition-colors shrink-0" onclick={(e) => { e.preventDefault(); goto(`/workspaces/${params.id}`); }}>
         <ArrowLeft class="w-4 h-4" />
       </a>
-      <div class="w-[1px] h-4 bg-white/10 shrink-0"></div>
-      <span class="text-xs font-medium text-white/60">New Runtime</span>
+      <div class="w-[1px] h-4 bg-border-primary shrink-0"></div>
+      <span class="text-xs font-medium text-text-secondary">New Runtime</span>
     </div>
   </div>
 
   <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
     {#if isLoading}
-      <div class="flex items-center justify-center py-12 text-xs text-white/30">
+      <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
         <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
         Loading form...
       </div>
@@ -166,38 +166,38 @@ async function handleSubmit(event: SubmitEvent) {
     {:else if workspace}
       <form onsubmit={handleSubmit} class="space-y-4">
         <!-- Basic Info -->
-        <div class="border border-white/10 rounded-lg bg-[#121212] p-4 space-y-3">
+        <div class="border border-border-primary rounded-lg bg-bg-surface p-4 space-y-3">
           <div>
-            <div class="text-[10px] uppercase tracking-wider text-white/30 font-medium">Workspace</div>
-            <h2 class="mt-1 text-sm font-medium text-white/80">{workspace.name}</h2>
+            <div class="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Workspace</div>
+            <h2 class="mt-1 text-sm font-medium text-text-primary">{workspace.name}</h2>
           </div>
 
           <div>
-            <label class="block text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5" for="rt-title">Title</label>
+            <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="rt-title">Title</label>
             <input
               id="rt-title"
               bind:value={title}
               type="text"
               placeholder="Runtime title"
-              class="w-full px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none font-mono"
+              class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none font-mono"
             />
           </div>
 
           <label class="flex items-center gap-2 cursor-pointer">
-            <input bind:checked={startNow} type="checkbox" class="rounded-sm bg-black/40 border-white/20 checked:bg-emerald-500" />
-            <span class="text-xs text-white/60">Start runtime immediately</span>
+            <input bind:checked={startNow} type="checkbox" class="rounded-sm bg-bg-input border-border-primary checked:bg-emerald-500" />
+            <span class="text-xs text-text-secondary">Start runtime immediately</span>
           </label>
         </div>
 
         <!-- Env Vars -->
-        <div class="border border-white/10 rounded-lg bg-[#121212] p-4 space-y-3">
+        <div class="border border-border-primary rounded-lg bg-bg-surface p-4 space-y-3">
           <div>
-            <div class="text-[10px] uppercase tracking-wider text-white/30 font-medium">Environment Variables</div>
-            <p class="text-xs text-white/35 mt-1">Extra env vars injected at runtime startup.</p>
+            <div class="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Environment Variables</div>
+            <p class="text-xs text-text-tertiary mt-1">Extra env vars injected at runtime startup.</p>
           </div>
 
           {#if extraEnv.length === 0}
-            <div class="text-xs text-white/25 py-2">No extra env configured</div>
+            <div class="text-xs text-text-placeholder py-2">No extra env configured</div>
           {:else}
             <div class="space-y-2">
               {#each extraEnv as envItem, index}
@@ -207,19 +207,19 @@ async function handleSubmit(event: SubmitEvent) {
                     value={envItem.name}
                     placeholder="ENV_NAME"
                     oninput={(event) => updateEnvName(index, (event.currentTarget as HTMLInputElement).value)}
-                    class="flex-1 px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none font-mono"
+                    class="flex-1 px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none font-mono"
                   />
                   <input
                     type="text"
                     value={envItem.value}
                     placeholder="value"
                     oninput={(event) => updateEnvValue(index, (event.currentTarget as HTMLInputElement).value)}
-                    class="flex-1 px-3 py-1.5 rounded-md bg-black/40 border border-white/10 text-xs text-white placeholder:text-white/20 focus:border-white/30 focus:outline-none font-mono"
+                    class="flex-1 px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none font-mono"
                   />
                   <button
                     type="button"
                     onclick={() => removeEnvRow(index)}
-                    class="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/40 hover:text-white/70 transition-colors"
+                    class="px-2 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors"
                   >
                     ✕
                   </button>
@@ -231,40 +231,40 @@ async function handleSubmit(event: SubmitEvent) {
           <button
             type="button"
             onclick={addEnvRow}
-            class="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white/80 transition-colors"
+            class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors"
           >
             + Add env
           </button>
         </div>
 
         <!-- Channel Bindings -->
-        <div class="border border-white/10 rounded-lg bg-[#121212] p-4 space-y-3">
+        <div class="border border-border-primary rounded-lg bg-bg-surface p-4 space-y-3">
           <div>
-            <div class="text-[10px] uppercase tracking-wider text-white/30 font-medium">Channel Bindings</div>
-            <p class="text-xs text-white/35 mt-1">Connect channels to this runtime.</p>
+            <div class="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Channel Bindings</div>
+            <p class="text-xs text-text-tertiary mt-1">Connect channels to this runtime.</p>
           </div>
 
           {#if channels.length === 0}
-            <div class="text-xs text-white/25 py-2">No channels available</div>
+            <div class="text-xs text-text-placeholder py-2">No channels available</div>
           {:else}
             <div class="space-y-2">
               {#each channels as channel}
-                <div class="rounded-md border border-white/5 bg-black/20 p-3">
+                <div class="rounded-md border border-white/5 bg-bg-code p-3">
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={selectedChannelIds.includes(channel.id)}
                       onchange={(event) => toggleChannel(channel.id, (event.currentTarget as HTMLInputElement).checked)}
-                      class="rounded-sm bg-black/40 border-white/20 checked:bg-emerald-500"
+                      class="rounded-sm bg-bg-input border-border-primary checked:bg-emerald-500"
                     />
                     <div class="min-w-0 flex-1">
-                      <div class="text-xs text-white/70">{channel.name || channel.provider}</div>
-                      <div class="text-[10px] uppercase tracking-wider text-white/30">{channel.provider}</div>
+                      <div class="text-xs text-text-secondary">{channel.name || channel.provider}</div>
+                      <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</div>
                     </div>
                   </label>
 
                   {#if selectedChannelIds.includes(channel.id) && channel.provider === "discord"}
-                    <div class="mt-3 ml-5 space-y-2 rounded-md bg-black/30 border border-white/5 p-3">
+                    <div class="mt-3 ml-5 space-y-2 rounded-md bg-bg-code border border-border-subtle p-3">
                       <label class="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -273,9 +273,9 @@ async function handleSubmit(event: SubmitEvent) {
                             ...config,
                             inbound: { ...(config.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
                           }))}
-                          class="rounded-sm bg-black/40 border-white/20 checked:bg-emerald-500"
+                          class="rounded-sm bg-bg-input border-border-primary checked:bg-emerald-500"
                         />
-                        <span class="text-xs text-white/50">Require mention in non-DM</span>
+                        <span class="text-xs text-text-tertiary">Require mention in non-DM</span>
                       </label>
                       <label class="flex items-center gap-2 cursor-pointer">
                         <input
@@ -285,9 +285,9 @@ async function handleSubmit(event: SubmitEvent) {
                             ...config,
                             outbound: { ...(config.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
                           }))}
-                          class="rounded-sm bg-black/40 border-white/20 checked:bg-emerald-500"
+                          class="rounded-sm bg-bg-input border-border-primary checked:bg-emerald-500"
                         />
-                        <span class="text-xs text-white/50">Show thinking</span>
+                        <span class="text-xs text-text-tertiary">Show thinking</span>
                       </label>
                       <label class="flex items-center gap-2 cursor-pointer">
                         <input
@@ -297,9 +297,9 @@ async function handleSubmit(event: SubmitEvent) {
                             ...config,
                             outbound: { ...(config.outbound ?? {}), showToolCalls: (event.currentTarget as HTMLInputElement).checked },
                           }))}
-                          class="rounded-sm bg-black/40 border-white/20 checked:bg-emerald-500"
+                          class="rounded-sm bg-bg-input border-border-primary checked:bg-emerald-500"
                         />
-                        <span class="text-xs text-white/50">Show tool calls</span>
+                        <span class="text-xs text-text-tertiary">Show tool calls</span>
                       </label>
                     </div>
                   {/if}
@@ -317,7 +317,7 @@ async function handleSubmit(event: SubmitEvent) {
           <button
             type="button"
             onclick={() => goto(`/workspaces/${params.id}`)}
-            class="px-4 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/50 hover:text-white/80 transition-colors"
+            class="px-4 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors"
           >
             Cancel
           </button>

@@ -487,7 +487,7 @@ function runtimeStatusColor(status: string) {
   if (status === "error" || status === "boot_failed") return "text-rose-400";
   if (status === "hibernated") return "text-gray-400";
   if (status === "hibernating") return "text-blue-400";
-  return "text-white/40";
+  return "text-text-tertiary";
 }
 
 function updateAutoFollow() {
@@ -557,13 +557,13 @@ $effect(() => {
 </script>
 
 <!-- Runtime Header -->
-<header class="h-10 flex items-center justify-between px-3 border-b border-white/10 shrink-0 bg-[#0A0A0A]">
+<header class="h-10 flex items-center justify-between px-3 border-b border-border-primary shrink-0 bg-bg-primary">
   <div class="flex items-center gap-3 min-w-0">
-    <Terminal class="w-4 h-4 text-white/50 shrink-0" />
-    <span class="font-mono text-xs text-white/90 truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
-    <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded bg-white/5 border border-white/5 shrink-0">
+    <Terminal class="w-4 h-4 text-text-tertiary shrink-0" />
+    <span class="font-mono text-xs text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
+    <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded bg-hover border border-border-subtle shrink-0">
       <div class="w-1.5 h-1.5 rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-amber-400' : runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}"></div>
-      <span class="text-[10px] uppercase tracking-wider font-medium text-white/60">
+      <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
         {#if provisioning && shouldPollProvisioning(provisioning)}
           {provisioning.currentStep}
         {:else}
@@ -576,13 +576,13 @@ $effect(() => {
   <div class="flex items-center gap-1.5">
     <button
       type="button"
-      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/50 hover:text-white/80 hover:bg-white/8 transition-colors disabled:opacity-50"
+      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors disabled:opacity-50"
       onclick={() => handleCreateNewSession()}
       disabled={creatingSession || !runtime}
       title="New session"
     >
       {#if creatingSession}
-        <div class="w-3 h-3 rounded-full border border-white/15 border-t-emerald-400 animate-spin"></div>
+        <div class="w-3 h-3 rounded-full border border-border-primary border-t-emerald-400 animate-spin"></div>
       {:else}
         <Plus class="w-3.5 h-3.5" />
       {/if}
@@ -590,7 +590,7 @@ $effect(() => {
     </button>
     <button
       type="button"
-      class="flex items-center justify-center w-7 h-7 rounded-md text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors"
+      class="flex items-center justify-center w-7 h-7 rounded-md text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
       onclick={() => showSettings = !showSettings}
       title="Settings"
     >
@@ -601,20 +601,20 @@ $effect(() => {
 
 <!-- Main Content -->
 <div class="flex-1 flex min-h-0">
-  <div class="flex-1 flex flex-col min-w-0 bg-[#0F0F0F]">
+  <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if bootstrapping && !activeSessionState}
-      <div class="flex-1 flex items-center justify-center bg-[#0F0F0F]">
-        <div class="flex flex-col items-center gap-3 text-white/35">
-          <div class="w-8 h-8 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin"></div>
+      <div class="flex-1 flex items-center justify-center bg-bg-content">
+        <div class="flex flex-col items-center gap-3 text-text-tertiary">
+          <div class="w-8 h-8 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin"></div>
           <div class="text-xs font-mono">Loading runtime…</div>
         </div>
       </div>
     {:else if !activeSessionState}
-      <div class="flex-1 flex flex-col items-center justify-center text-white/30 gap-4">
+      <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
         <div class="text-sm">No session selected</div>
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/60 hover:text-white transition-colors disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-2 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
           onclick={() => handleCreateNewSession()}
           disabled={creatingSession || !runtime}
         >
@@ -623,9 +623,9 @@ $effect(() => {
         </button>
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
-      <div class="flex-1 flex items-center justify-center bg-[#0F0F0F]">
-        <div class="flex flex-col items-center gap-3 text-white/35">
-          <div class="w-7 h-7 rounded-full border-2 border-white/12 border-t-emerald-400 animate-spin"></div>
+      <div class="flex-1 flex items-center justify-center bg-bg-content">
+        <div class="flex flex-col items-center gap-3 text-text-tertiary">
+          <div class="w-7 h-7 rounded-full border-2 border-border-subtle border-t-emerald-400 animate-spin"></div>
           <div class="text-xs font-mono">Loading messages…</div>
         </div>
       </div>
@@ -642,7 +642,7 @@ $effect(() => {
         {#if !shouldAutoFollow && timeline.length > 0}
           <button
             type="button"
-            class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 text-xs text-white/70 hover:text-white transition-all shadow-lg backdrop-blur-sm"
+            class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-hover-strong hover:bg-active border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-all shadow-lg backdrop-blur-sm"
             onclick={() => {
               shouldAutoFollow = true;
               forceScrollToBottom();
@@ -654,7 +654,7 @@ $effect(() => {
         {/if}
       </div>
 
-      <div class="border-t border-white/10 bg-[#0A0A0A]">
+      <div class="border-t border-border-primary bg-bg-primary">
         <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
       </div>
     {/if}
@@ -662,12 +662,12 @@ $effect(() => {
 
   <!-- Settings Panel -->
   {#if showSettings}
-    <div class="flex w-80 flex-col border-l border-white/10 bg-[#0A0A0A] shrink-0 overflow-y-auto">
-      <div class="h-9 flex items-center justify-between px-3 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/40 select-none sticky top-0 bg-[#0A0A0A] z-10">
+    <div class="flex w-80 flex-col border-l border-border-primary bg-bg-primary shrink-0 overflow-y-auto">
+      <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[11px] font-medium uppercase tracking-wider text-text-tertiary select-none sticky top-0 bg-bg-primary z-10">
         <span>Settings</span>
         <button
           type="button"
-          class="flex items-center justify-center w-6 h-6 rounded-sm text-white/30 hover:text-white/70 hover:bg-white/8 transition-colors"
+          class="flex items-center justify-center w-6 h-6 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
           onclick={() => showSettings = false}
           title="Close settings"
         >
@@ -677,20 +677,20 @@ $effect(() => {
 
       <div class="p-4 space-y-6">
         <section class="space-y-3">
-          <div class="text-[10px] font-bold text-white/30 uppercase tracking-widest flex items-center justify-between">
+          <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
             <span>Channels</span>
-            <span class="px-1.5 py-0.5 rounded-sm bg-white/10 text-white/55">{runtimeChannels.length}</span>
+            <span class="px-1.5 py-0.5 rounded-sm bg-hover-strong text-text-secondary">{runtimeChannels.length}</span>
           </div>
 
           {#if runtimeChannels.length === 0}
-            <div class="rounded-md border border-white/8 bg-white/[0.02] p-3 text-xs text-white/35">No channels bound.</div>
+            <div class="rounded-md border border-border-subtle bg-hover p-3 text-xs text-text-tertiary">No channels bound.</div>
           {:else}
             <div class="space-y-3">
               {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
-                <div class="border border-white/10 rounded-md bg-[#121212] overflow-hidden">
-                  <div class="px-3 py-2 border-b border-white/5 bg-[#1A1A1A] flex items-center gap-2">
-                    <Hash class="w-3 h-3 text-white/40" />
-                    <span class="text-xs font-medium text-white/80 truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
+                <div class="border border-border-primary rounded-md bg-bg-surface overflow-hidden">
+                  <div class="px-3 py-2 border-b border-border-subtle bg-bg-header-alt flex items-center gap-2">
+                    <Hash class="w-3 h-3 text-text-tertiary" />
+                    <span class="text-xs font-medium text-text-primary truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
                   </div>
 
                   <div class="p-3">
@@ -708,12 +708,12 @@ $effect(() => {
                             class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
                           />
                           <div class="flex flex-col min-w-0">
-                            <span class="text-xs text-white/70 group-hover:text-white transition-colors">Require mention in Guild</span>
-                            <span class="text-[10px] text-white/28">Respond only when mentioned</span>
+                            <span class="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Require mention in Guild</span>
+                            <span class="text-[10px] text-text-placeholder">Respond only when mentioned</span>
                           </div>
                         </label>
 
-                        <div class="w-full h-px bg-white/5"></div>
+                        <div class="w-full h-px bg-border-subtle"></div>
 
                         <label class="flex items-start gap-2 cursor-pointer group">
                           <input
@@ -726,7 +726,7 @@ $effect(() => {
                             class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
                           />
                           <div class="flex flex-col">
-                            <span class="text-xs text-white/70 group-hover:text-white transition-colors">Show thinking</span>
+                            <span class="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Show thinking</span>
                           </div>
                         </label>
 
@@ -741,12 +741,12 @@ $effect(() => {
                           class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
                         />
                           <div class="flex flex-col">
-                            <span class="text-xs text-white/70 group-hover:text-white transition-colors">Show tool calls</span>
+                            <span class="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Show tool calls</span>
                           </div>
                         </label>
                       </div>
                     {:else}
-                      <div class="text-xs text-white/35">No configuration available.</div>
+                      <div class="text-xs text-text-tertiary">No configuration available.</div>
                     {/if}
 
                     {#if savingChannelConfigById[runtimeChannel.id]}
