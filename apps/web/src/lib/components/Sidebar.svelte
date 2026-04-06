@@ -241,6 +241,14 @@ onMount(() => {
   <!-- Top Navigation -->
   <nav class="px-2 py-2.5 space-y-0.5 shrink-0 border-b border-border-primary">
     <a
+      href="/explore"
+      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
+      onclick={(e) => { e.preventDefault(); handleNavigate('/explore'); }}
+    >
+      <MessageSquare class="w-4 h-4 shrink-0" />
+      <span>Explore</span>
+    </a>
+    <a
       href="/workspaces"
       class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/workspaces') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/workspaces'); }}
@@ -256,21 +264,13 @@ onMount(() => {
       <Network class="w-4 h-4 shrink-0" />
       <span>Channels</span>
     </a>
-    <a
-      href="/explore"
-      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/explore'); }}
-    >
-      <MessageSquare class="w-4 h-4 shrink-0" />
-      <span>Explore</span>
-    </a>
   </nav>
 
   <!-- Runtimes Section -->
   <div class="flex flex-col min-h-0 flex-1">
     <div class="h-8 flex items-center justify-between px-2 shrink-0">
-      <span class="flex items-center gap-2.5 select-none">
-        <span class="w-4 shrink-0" />
+      <span class="flex items-center gap-2 select-none">
+        <span class="w-0 shrink-0" />
         <span class="text-[11px] font-semibold uppercase tracking-wider text-text-placeholder">
           Runtimes
         </span>
