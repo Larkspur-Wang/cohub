@@ -104,7 +104,7 @@ async function loadRuntimes() {
 }
 
 async function loadSessions(runtimeId: string) {
-  if (sessionsByRuntime[runtimeId]) return;
+  if (runtimeId in sessionsByRuntime) return;
   try {
     const result = await getRuntimeSessions(runtimeId);
     sessionsByRuntime = {
@@ -204,6 +204,12 @@ onMount(() => {
       }
     }
     await loadRuntimes();
+
+    // Pre-load sessions for the current runtime
+    if (currentRuntimeId) {
+      expandedRuntimes = new Set(expandedRuntimes).add(currentRuntimeId);
+      void loadSessions(currentRuntimeId);
+    }
 
     pollingTimer = setInterval(() => {
       if (!shouldPoll()) return;
