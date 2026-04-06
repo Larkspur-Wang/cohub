@@ -7,12 +7,9 @@ let error = $state("");
 
 onMount(async () => {
   try {
-    // Logto handles the callback automatically via redirect.
-    // Just check if we're authenticated now and redirect.
-    const isAuth = await logtoClient.isAuthenticated();
-    if (isAuth) {
-      goto("/");
-    }
+    // Exchange the authorization code from the URL for tokens.
+    await logtoClient.handleSignInCallback(window.location.href);
+    goto("/");
   } catch (err) {
     error = err instanceof Error ? err.message : "Authentication failed";
   }

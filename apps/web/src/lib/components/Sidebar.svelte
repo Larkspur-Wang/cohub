@@ -1,11 +1,10 @@
 <script lang="ts">
-import { onMount, tick } from "svelte";
+import { onMount } from "svelte";
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
   FolderKanban,
   Network,
-  Cpu,
   Plus,
   ChevronRight,
   ChevronDown,
@@ -32,6 +31,7 @@ let sessionsByRuntime = $state<Record<string, SessionRecord[]>>({});
 let expandedRuntimes = $state<Set<string>>(new Set());
 let isLoading = $state(true);
 let loadError = $state("");
+let showUserMenu = $state(false);
 const actionInProgress = $state<Record<string, string>>({});
 
 const currentPath = $derived(page.url.pathname);
@@ -211,8 +211,18 @@ onMount(() => {
     }, 3000);
   })();
 
+  function handleClickOutside(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    // Close if clicking outside the user menu trigger and dropdown
+    if (!target.closest('[data-user-menu]')) {
+      showUserMenu = false;
+    }
+  }
+  document.addEventListener('click', handleClickOutside);
+
   return () => {
     if (pollingTimer) clearInterval(pollingTimer);
+    document.removeEventListener('click', handleClickOutside);
   };
 });
 </script>
@@ -229,10 +239,10 @@ onMount(() => {
   </div>
 
   <!-- Top Navigation -->
-  <nav class="px-2 py-3 space-y-0.5 shrink-0 border-b border-border-primary">
+  <nav class="px-2 py-2.5 space-y-0.5 shrink-0 border-b border-border-primary">
     <a
       href="/workspaces"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/workspaces') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
+      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/workspaces') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/workspaces'); }}
     >
       <FolderKanban class="w-4 h-4 shrink-0" />
@@ -240,7 +250,7 @@ onMount(() => {
     </a>
     <a
       href="/channels"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/channels') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
+      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/channels') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/channels'); }}
     >
       <Network class="w-4 h-4 shrink-0" />
@@ -248,7 +258,7 @@ onMount(() => {
     </a>
     <a
       href="/explore"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
+      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/explore'); }}
     >
       <MessageSquare class="w-4 h-4 shrink-0" />
@@ -258,16 +268,18 @@ onMount(() => {
 
   <!-- Runtimes Section -->
   <div class="flex flex-col min-h-0 flex-1">
-    <div class="h-8 flex items-center justify-between px-3 shrink-0">
-      <div class="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-text-tertiary select-none">
-        <Cpu class="w-3.5 h-3.5" />
-        Runtimes
-      </div>
+    <div class="h-8 flex items-center justify-between px-2 shrink-0">
+      <span class="flex items-center gap-2.5 select-none">
+        <span class="w-4 shrink-0" />
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-text-placeholder">
+          Runtimes
+        </span>
+      </span>
       <button
         type="button"
-        class="flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
-        onclick={() => handleNavigate('/runtimes')}
-        title="View all runtimes"
+        class="flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-primary hover:bg-hover transition-colors cursor-pointer"
+        onclick={() => handleNavigate('/runtimes/new')}
+        title="Create runtime"
       >
         <Plus class="w-3.5 h-3.5" />
       </button>
@@ -296,7 +308,7 @@ onMount(() => {
             <div
               role="button"
               tabindex="0"
-              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors {isActive ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
+              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors {isActive ? 'bg-hover-strong text-text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-hover'}"
               onclick={() => {
                 toggleRuntime(runtime.id);
                 if (!isExpanded) void loadSessions(runtime.id);
@@ -312,7 +324,7 @@ onMount(() => {
               }}
             >
               <span
-                class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary group-hover:text-text-secondary transition-colors"
               >
                 {#if isExpanded}
                   <ChevronDown class="w-3 h-3" />
@@ -321,7 +333,7 @@ onMount(() => {
                 {/if}
               </span>
               <div class="w-1.5 h-1.5 rounded-full shrink-0 {statusColor(status)}"></div>
-              <span class="truncate text-xs font-mono flex-1">{runtime.title || runtime.id.slice(0, 12)}</span>
+              <span class="truncate font-mono flex-1 text-[13px] leading-none">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
               {/if}
@@ -351,18 +363,18 @@ onMount(() => {
 
             <!-- Sessions (when expanded) -->
             {#if isExpanded}
-              <div class="ml-4 pl-3 border-l border-border-subtle space-y-0.5 py-0.5">
+              <div class="ml-5 pl-3 border-l border-border-primary/50 space-y-0.5 py-0.5">
                 {#if sessions.length === 0}
-                  <div class="px-2 py-1.5 text-[11px] text-text-placeholder">No sessions</div>
+                  <div class="px-2 py-1 text-[11px] text-text-placeholder italic">No sessions</div>
                 {:else}
                   {#each sessions as session, index (session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
-                      class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors {isSessionActive(session.id) ? 'text-text-primary bg-hover-strong' : 'text-text-tertiary hover:text-text-secondary hover:bg-hover'}"
+                      class="flex items-center gap-2 px-2 py-1 rounded-md text-xs transition-colors {isSessionActive(session.id) ? 'text-text-primary bg-hover-strong' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
                     >
-                      <div class="w-1 h-1 rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-emerald-400' : 'bg-text-placeholder'}"></div>
-                      <span class="truncate">{getSessionTitle(session, index)}</span>
+                      <div class="w-1.5 h-1.5 rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-emerald-400' : 'bg-text-placeholder'}"></div>
+                      <span class="truncate leading-tight">{getSessionTitle(session, index)}</span>
                     </a>
                   {/each}
                 {/if}
@@ -374,17 +386,38 @@ onMount(() => {
     </div>
   </div>
 
-  <!-- Bottom: User + Settings -->
-  <div class="border-t border-border-primary p-2 space-y-0.5 shrink-0">
-    <a
-      href="/settings"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/settings'); }}
+  <!-- Bottom: User Menu -->
+  <div class="border-t border-border-primary p-2 shrink-0 relative">
+    <!-- Dropdown -->
+    {#if showUserMenu}
+      <div
+        data-user-menu
+        class="absolute bottom-full left-2 right-2 mb-1 bg-bg-primary border border-border-primary rounded-lg shadow-lg overflow-hidden z-50"
+      >
+        <a
+          href="/settings"
+          class="flex items-center gap-2.5 px-3 py-2 text-sm text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings'); }}
+        >
+          <Settings class="w-4 h-4" />
+          <span>Settings</span>
+        </a>
+        <button
+          class="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-text-tertiary hover:text-rose-400 hover:bg-hover transition-colors"
+          onclick={() => { showUserMenu = false; void handleLogout(); }}
+        >
+          <LogOut class="w-4 h-4" />
+          <span>Sign out</span>
+        </button>
+      </div>
+    {/if}
+
+    <button
+      type="button"
+      data-user-menu
+      class="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md hover:bg-hover transition-colors cursor-pointer"
+      onclick={() => { showUserMenu = !showUserMenu; }}
     >
-      <Settings class="w-4 h-4" />
-      <span>Settings</span>
-    </a>
-    <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-md">
       <div class="w-6 h-6 rounded-full bg-hover-strong overflow-hidden shrink-0">
         {#if userClaims?.picture}
           <img src={userClaims.picture} alt="avatar" class="w-full h-full object-cover" />
@@ -392,16 +425,10 @@ onMount(() => {
           <img src="https://api.dicebear.com/7.x/notionists/svg?seed={userClaims?.sub ?? 'anonymous'}" alt="avatar" class="w-full h-full object-cover" />
         {/if}
       </div>
-      <div class="flex-1 min-w-0">
+      <div class="flex-1 min-w-0 text-left">
         <p class="text-xs text-text-secondary truncate">{userClaims?.name ?? 'Guest'}</p>
       </div>
-      <button
-        onclick={handleLogout}
-        class="p-1.5 rounded text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
-        title="Sign out"
-      >
-        <LogOut class="w-3.5 h-3.5" />
-      </button>
-    </div>
+      <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform {showUserMenu ? 'rotate-180' : ''}" />
+    </button>
   </div>
 </aside>

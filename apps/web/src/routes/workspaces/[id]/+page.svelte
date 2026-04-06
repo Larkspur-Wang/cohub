@@ -194,7 +194,7 @@ async function handleMakePrivate() {
       {/if}
       {#if isOwner && !isEmpty}
         <a
-          href="/workspaces/{workspace!.id}/runtimes/new"
+          href="/runtimes/new?workspaceId={workspace!.id}"
           class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors"
         >
           <Play class="w-3.5 h-3.5" />

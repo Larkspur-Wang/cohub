@@ -122,7 +122,7 @@ async function handleDelete(id: string) {
         <div class="mb-4 border border-border-primary rounded-lg bg-bg-surface p-4" in:fade>
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-medium text-text-primary">Add SSH Key</h3>
-            <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors">
+            <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
               <X class="w-4 h-4" />
             </button>
           </div>
@@ -164,7 +164,7 @@ async function handleDelete(id: string) {
       {:else}
         <button
           onclick={() => isAdding = true}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors mb-4"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors mb-4 cursor-pointer"
         >
           <Plus class="w-3.5 h-3.5" />
           Add SSH Key
@@ -202,7 +202,7 @@ async function handleDelete(id: string) {
             </div>
             <button
               onclick={() => handleDelete(key.id)}
-              class="p-1.5 rounded text-text-placeholder hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+              class="p-1.5 rounded text-text-placeholder hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0 cursor-pointer"
               title="Delete SSH key"
             >
               <Trash2 class="w-3.5 h-3.5" />
