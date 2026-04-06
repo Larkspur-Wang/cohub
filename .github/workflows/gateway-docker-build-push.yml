@@ -99,8 +99,9 @@ jobs:
 
       - name: Deploy to Dev
         run: |
-          # Dev 使用 latest + Always pull，只需 rollout restart
-          kubectl rollout restart statefulset/cohub-gateway-dev -n cohub-dev
+          # StatefulSet 在 Pod not-ready 时 rollout restart 不会重建，改用 delete pod 强制重建
+          # StatefulSet 会自动用最新模板拉起新 Pod
+          kubectl delete pod -l app.kubernetes.io/name=cohub-gateway-dev -n cohub-dev
 
       - name: Verify deployment
         run: |
