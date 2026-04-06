@@ -797,3 +797,62 @@ export const deleteSshKey = async (id: string) => {
     method: "DELETE",
   }) as Promise<{ ok: true }>;
 };
+
+// ─── SSE Streaming ──────────────────────────────
+
+export type ProviderRenderUpdateEvent = {
+  type: "provider_render_update";
+  runtimeId: string;
+  sessionId: string;
+  renderMode: string;
+  thinking: string | null;
+  toolCalls: Array<{
+    toolCallId: string;
+    toolName: string;
+    status: string;
+    summary?: string;
+  }> | null;
+  answer: string | null;
+  sourceMessageId: string | null;
+  timestamp: number;
+  turnEnd?: boolean;
+  anchorUserMessageId?: string | null;
+};
+
+export type RuntimeStreamEvent = ProviderRenderUpdateEvent;
+
+export const streamRuntimeEvents = async function* (
+  runtimeId: string,
+  lastEventId?: string,
+  signal?: AbortSignal,
+) {
+  const url = API_BASE_URL
+    ? `${API_BASE_URL}/api/runtimes/${runtimeId}/stream`
+    : `/api/runtimes/${runtimeId}/stream`;
+
+  const headers = new Headers();
+  const token = await getAuthToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (lastEventId) {
+    headers.set("Last-Event-ID", lastEventId);
+  }
+
+  const response = await fetch(url, {
+    headers,
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
+  }
+
+  for await (const data of readSseEvents(response)) {
+    try {
+      yield JSON.parse(data) as RuntimeStreamEvent;
+    } catch {
+      // Skip non-JSON events (e.g. "ready" event)
+    }
+  }
+};

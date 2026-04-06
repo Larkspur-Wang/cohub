@@ -9,12 +9,14 @@ import {
   postSessionMessage,
   updateRuntimeChannelConfig,
   createRuntimeSession,
+  streamRuntimeEvents,
   type RuntimeChannelConfigInput,
   type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
   type RuntimeRecord,
   type SessionRecord,
   type SessionMessageRecord,
+  type RuntimeStreamEvent,
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
@@ -54,7 +56,12 @@ let streamError = $state("");
 let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let streamingAssistantText = $state("");
-let streamingContentTs = $state(0);
+let streamingThinking = $state("");
+let streamingToolCalls = $state<Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>>([]);
+
+// SSE — one page-level connection, started on mount
+let sseAbortController: AbortController | null = null;
+
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
 const listEl = $state<HTMLDivElement | null>(null);
@@ -78,24 +85,52 @@ const openedSessions = $derived(
 const timeline = $derived.by<TimelineItem[]>(() => {
   const state = activeSessionState;
   if (!state) return [];
-  const items = toChatMessages(state.messages).map((message) => ({
+  const items: TimelineItem[] = toChatMessages(state.messages).map((message) => ({
     id: message.id,
-    kind: "message" as const,
+    kind: "message",
     message,
   }));
 
-  if (streamingAssistantText.trim()) {
-    items.push({
+  // Streaming tool calls
+  if (streamingToolCalls.length > 0) {
+    for (const tc of streamingToolCalls) {
+      const toolItem: TimelineItem = {
+        id: `stream-tool-${tc.toolCallId}`,
+        kind: "tool",
+        tool: {
+          id: tc.toolCallId,
+          name: tc.toolName,
+          input: {},
+          status: tc.status === "running" ? "running" : tc.status === "done" ? "done" : "error",
+          output: tc.summary ?? "",
+        },
+      };
+      items.push(toolItem);
+    }
+  }
+
+  if (streamingAssistantText.trim() || streamingThinking.trim()) {
+    const contentBlocks: Array<
+      { type: "thinking"; thinking: string } | { type: "text"; text: string }
+    > = [];
+    if (streamingThinking.trim()) {
+      contentBlocks.push({ type: "thinking", thinking: streamingThinking });
+    }
+    if (streamingAssistantText.trim()) {
+      contentBlocks.push({ type: "text", text: streamingAssistantText });
+    }
+    const streamItem: TimelineItem = {
       id: "assistant-streaming",
       kind: "message",
       message: {
         id: "assistant-streaming",
         role: "assistant",
-        content: [{ type: "text", text: streamingAssistantText }],
+        content: contentBlocks as never,
         text: streamingAssistantText,
         sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
       },
-    });
+    };
+    items.push(streamItem);
   }
 
   return items;
@@ -362,6 +397,59 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
   return status === "starting" || status === "hibernating";
 }
 
+// ─── SSE streaming (page-level, single connection) ───
+
+function clearStreamingState() {
+  streamingAssistantText = "";
+  streamingThinking = "";
+  streamingToolCalls = [];
+}
+
+async function handleSSEEvent(event: RuntimeStreamEvent) {
+  // Only process events for the currently active session
+  if (activeSessionId == null || event.sessionId !== activeSessionId) return;
+
+  if (event.type === "provider_render_update") {
+    if (event.thinking != null) streamingThinking = event.thinking;
+    if (event.toolCalls != null) streamingToolCalls = event.toolCalls;
+    if (event.answer != null) {
+      streamingAssistantText = event.answer;
+      await tick();
+      if (shouldAutoFollow) scrollToBottomNow();
+    }
+
+    if (event.turnEnd) {
+      clearStreamingState();
+      streamStatus = "done";
+      await loadSessionState(activeSessionId, true);
+    }
+  }
+}
+
+function startSSE() {
+  if (sseAbortController) return;
+  sseAbortController = new AbortController();
+
+  (async () => {
+    while (!sseAbortController.signal.aborted) {
+      try {
+        for await (const event of streamRuntimeEvents(
+          runtimeId,
+          undefined,
+          sseAbortController.signal,
+        )) {
+          void handleSSEEvent(event);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") break;
+        console.error("[SSE] Stream error, reconnecting in 2s:", error);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    sseAbortController = null;
+  })();
+}
+
 async function handleSend() {
   if (!activeSessionState || !input.trim() || sending || !runtime) return;
   sending = true;
@@ -373,8 +461,7 @@ async function handleSend() {
 
   try {
     input = "";
-    streamingAssistantText = "";
-    streamingContentTs = 0;
+    clearStreamingState();
 
     const currentState = sessionStateById[sessionId];
     if (currentState) {
@@ -407,72 +494,12 @@ async function handleSend() {
 
     // Post user message (triggers agent processing)
     await postSessionMessage(sessionId, [{ type: "text", text }]);
-
-    // Poll for assistant response
-    const lastSequence = currentState?.messages.at(-1)?.sequence ?? 0;
-    const deadline = Date.now() + 10 * 60 * 1000;
-    let assistantMessage: SessionMessageRecord | null = null;
-
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const response = await getSessionMessages(sessionId);
-      const newMsg = response.messages.find((m) => m.sequence > lastSequence && m.role === "assistant");
-      if (newMsg) {
-        assistantMessage = newMsg;
-        // Update streaming text during polling
-        const textContent = newMsg.content.find((b) => b.type === "text");
-        if (textContent?.type === "text" && textContent.text) {
-          streamingAssistantText = textContent.text;
-          streamingContentTs = Date.now();
-          await tick();
-          if (shouldAutoFollow) {
-            scrollToBottomNow();
-          }
-        }
-        break;
-      }
-    }
-
-    if (assistantMessage) {
-      streamStatus = "done";
-      const latestState = sessionStateById[sessionId];
-      if (latestState) {
-        sessionStateById = {
-          ...sessionStateById,
-          [sessionId]: {
-            ...latestState,
-            messages: [
-              ...latestState.messages,
-              {
-                id: assistantMessage.id,
-                sessionId,
-                role: "assistant",
-                content: assistantMessage.content,
-                text: assistantMessage.text ?? "",
-                sequence: assistantMessage.sequence,
-                provider: assistantMessage.provider,
-                model: assistantMessage.model,
-                stopReason: assistantMessage.stopReason,
-                errorMessage: assistantMessage.errorMessage,
-                usageInput: assistantMessage.usageInput,
-                usageOutput: assistantMessage.usageOutput,
-                costTotal: assistantMessage.costTotal,
-                createdAt: assistantMessage.createdAt,
-              },
-            ],
-          },
-        };
-      }
-    }
-
-    await loadSessionState(sessionId, true);
   } catch (error) {
     streamError = error instanceof Error ? error.message : "Failed to send message";
     streamStatus = "error";
+    clearStreamingState();
     await loadSessionState(sessionId, true).catch(() => undefined);
   } finally {
-    streamingAssistantText = "";
-    streamingContentTs = 0;
     sending = false;
   }
 }
@@ -525,10 +552,24 @@ onMount(() => {
     void loadRuntime();
   }, 1000);
 
+  // Start page-level SSE connection
+  startSSE();
+
   return () => {
     if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
     if (runtimePollingTimer) clearInterval(runtimePollingTimer);
+    // Abort SSE on unmount
+    if (sseAbortController) {
+      sseAbortController.abort();
+      sseAbortController = null;
+    }
   };
+});
+
+// Clear streaming state when switching sessions
+$effect(() => {
+  void activeSessionId;
+  clearStreamingState();
 });
 
 $effect(() => {
