@@ -27,7 +27,7 @@ import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
   RegisterRuntimeSessionInput,
-  GatewaySessionResponseRequestEvent,
+  ContentBlock,
 } from "@cohub/protocol";
 import {
   createRuntime,
@@ -43,13 +43,11 @@ import {
   hibernateRuntime,
   listRuntimeSessions,
   listSessionMessages,
-  listToolCallsByMessageIds,
   normalizeRuntimeEnv,
   persistMessageNode,
   provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
-  updateProviderRenderForSession,
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
   wakeRuntime,
@@ -63,7 +61,7 @@ import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } 
 import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
 import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
-import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, publishGatewaySessionResponseResult, getRuntimeOutputStreamKey } from "./redis.js";
+import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 
@@ -129,10 +127,8 @@ const initInboundConsumerGroup = async () => {
   console.log("[Channels] Inbound consumer group ready:", INBOUND_CONSUMER_GROUP);
 };
 
-const initSessionResponseConsumerGroup = async () => {
-  await ensureConsumerGroup(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, "0");
-  console.log("[Responses] Session response consumer group ready:", SESSION_RESPONSE_CONSUMER_GROUP);
-};
+// Session response listener has been removed.
+// Sessions now work via POST /sessions/:id/messages.
 
 /**
  * 启动 Gateway Inbound 监听器（使用消费者组模式）
@@ -201,177 +197,8 @@ const startGatewayInboundListener = async () => {
   }
 };
 
-const startGatewaySessionResponseListener = async () => {
-  await initSessionResponseConsumerGroup();
-
-  const client = createBlockingRedisClient();
-  console.log("[Responses] Redis client status before connect:", client.status);
-  if (client.status === "wait") {
-    await client.connect();
-  }
-  console.log("[Responses] Redis client status after connect:", client.status);
-
-  console.log("[Responses] Session response listener started", {
-    group: SESSION_RESPONSE_CONSUMER_GROUP,
-    consumer: CONSUMER_NAME,
-  });
-
-  while (true) {
-    try {
-      const result = await client.xreadgroup(
-        "GROUP",
-        SESSION_RESPONSE_CONSUMER_GROUP,
-        CONSUMER_NAME,
-        "COUNT", INBOUND_BATCH_SIZE,
-        "BLOCK", INBOUND_BLOCK_MS,
-        "STREAMS", GATEWAY_SESSION_RESPONSES_STREAM, ">"
-      );
-
-      if (!result || result.length === 0) continue;
-
-      for (const [, messages] of result as Array<[string, Array<[string, string[]]>]>) {
-        for (const [id, fields] of messages) {
-          const payload = fields[fields.indexOf("payload") + 1];
-          if (!payload) {
-            await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
-            continue;
-          }
-
-          let event: GatewaySessionResponseRequestEvent | null = null;
-          try {
-            event = JSON.parse(payload) as GatewaySessionResponseRequestEvent;
-            const result = await executeSessionInteraction({
-              runtimeId: event.runtimeId,
-              sessionId: event.sessionId,
-              inputText: event.inputText,
-              source: `channel:${event.actor.source}`,
-              interactionId: event.interactionId,
-              actorUserId: event.actor.userId,
-              metadata: {
-                responseModel: event.model ?? null,
-                responseMetadata: event.metadata ?? null,
-              },
-            });
-
-            await publishGatewaySessionResponseResult({
-              type: "accepted",
-              interactionId: event.interactionId,
-              timestamp: Date.now(),
-              runtimeId: event.runtimeId,
-              sessionId: event.sessionId,
-              userMessageId: result.userMessageId,
-            });
-
-            void (async () => {
-              const streamKey = getRuntimeOutputStreamKey(event.runtimeId);
-              const streamClient = createBlockingRedisClient();
-              try {
-                if (streamClient.status === "wait") {
-                  await streamClient.connect();
-                }
-                let lastId = "$";
-                const deadline = Date.now() + 10 * 60 * 1000;
-                let startedPublished = false;
-
-                while (Date.now() < deadline) {
-                  const output = await streamClient.xread("BLOCK", 15000, "STREAMS", streamKey, lastId);
-                  if (!output) continue;
-
-                  for (const [, entries] of output as Array<[string, Array<[string, string[]]>]>) {
-                    for (const [entryId, streamFields] of entries) {
-                      lastId = entryId;
-                      const payloadValue = streamFields[streamFields.indexOf("payload") + 1];
-                      if (!payloadValue) continue;
-
-                      let runtimeEvent: Record<string, unknown> | null = null;
-                      try {
-                        runtimeEvent = JSON.parse(payloadValue) as Record<string, unknown>;
-                      } catch {
-                        continue;
-                      }
-
-                      if (runtimeEvent?.runtimeId !== event.runtimeId) continue;
-                      if (runtimeEvent?.sessionId !== event.sessionId) continue;
-
-                      if (runtimeEvent?.type === "provider_render_update" && runtimeEvent?.sourceMessageId === result.userMessageId && !startedPublished) {
-                        startedPublished = true;
-                        await publishGatewaySessionResponseResult({
-                          type: "started",
-                          interactionId: event.interactionId,
-                          timestamp: Date.now(),
-                          runtimeId: event.runtimeId,
-                          sessionId: event.sessionId,
-                          userMessageId: result.userMessageId,
-                        });
-                      }
-
-                      if (runtimeEvent?.type === "provider_render_update" && runtimeEvent?.turnEnd === true) {
-                        const anchorUserMessageId = typeof runtimeEvent.anchorUserMessageId === "string"
-                          ? runtimeEvent.anchorUserMessageId
-                          : null;
-                        if (anchorUserMessageId && anchorUserMessageId !== result.userMessageId) continue;
-
-                        if (!startedPublished) {
-                          startedPublished = true;
-                          await publishGatewaySessionResponseResult({
-                            type: "started",
-                            interactionId: event.interactionId,
-                            timestamp: Date.now(),
-                            runtimeId: event.runtimeId,
-                            sessionId: event.sessionId,
-                            userMessageId: result.userMessageId,
-                          });
-                        }
-
-                        await publishGatewaySessionResponseResult({
-                          type: "completed",
-                          interactionId: event.interactionId,
-                          timestamp: Date.now(),
-                          runtimeId: event.runtimeId,
-                          sessionId: event.sessionId,
-                          userMessageId: result.userMessageId,
-                        });
-                        return;
-                      }
-                    }
-                  }
-                }
-              } catch (streamError) {
-                console.error("[Responses] Failed to publish started/completed events:", streamError);
-              } finally {
-                await streamClient.quit().catch(async () => {
-                  streamClient.disconnect();
-                });
-              }
-            })().catch(console.error);
-
-            await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            console.error(`[Responses] Failed to process ${id}:`, err);
-            if (event) {
-              await publishGatewaySessionResponseResult({
-                type: "failed",
-                interactionId: event.interactionId,
-                timestamp: Date.now(),
-                runtimeId: event.runtimeId,
-                sessionId: event.sessionId,
-                error: {
-                  message,
-                  type: "server_error",
-                },
-              }).catch(console.error);
-            }
-            await redisCommandClient.xack(GATEWAY_SESSION_RESPONSES_STREAM, SESSION_RESPONSE_CONSUMER_GROUP, id);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("[Responses] Listener error:", e);
-      await new Promise((r) => setTimeout(r, 5000));
-    }
-  }
-};
+// Session response listener has been removed.
+// Sessions now work via POST /sessions/:id/messages.
 
 // 初始化并启动 Gateway 日志消费者（使用消费者组模式）
 const initGatewayLogConsumer = async () => {
@@ -387,7 +214,6 @@ initGatewayLogConsumer().catch(console.error);
 
 // 启动 Gateway 入站事件监听
 startGatewayInboundListener().catch(console.error);
-startGatewaySessionResponseListener().catch(console.error);
 
 // 优雅关闭处理
 const shutdown = async (signal: string) => {
@@ -1533,7 +1359,6 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
       anchorUserMessageId?: string | null;
       idempotencyKey?: string;
       message?: PersistMessageInput["message"];
-      toolCalls?: PersistMessageInput["toolCalls"];
     }>()
     .catch(() => null);
 
@@ -1552,7 +1377,6 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
       ...(body.message as PersistMessageInput["message"]),
       content: body.message.content as never,
     },
-    toolCalls: body.toolCalls ?? undefined,
   });
 
   return c.json({ ok: true, message: messageNode });
@@ -1584,8 +1408,7 @@ app.get("/api/sessions/:id/messages", async (c) => {
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
   const messages = await listSessionMessages(session.id);
-  const toolCalls = await listToolCallsByMessageIds(messages.map((message) => message.id));
-  return c.json({ runtime, session, messages, toolCalls });
+  return c.json({ runtime, session, messages });
 });
 
 app.post("/api/sessions/:id/messages", async (c) => {
@@ -1601,23 +1424,23 @@ app.post("/api/sessions/:id/messages", async (c) => {
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
 
   const body = await c.req.json<{
-    text: string;
-    images?: Array<{ url: string }>;
+    content: ContentBlock[];
   }>();
 
-  if (!body.text?.trim()) return c.json({ message: "text is required" }, 400);
+  if (!body.content || body.content.length === 0) {
+    return c.json({ message: "content is required" }, 400);
+  }
 
   const userMessage = await createUserMessageNode({
     runtimeSessionId: session.id,
-    text: body.text,
-    images: body.images,
+    content: body.content,
   });
 
   await enqueueRuntimePrompt({
     runtimeId: runtime.id,
     sessionId: session.id,
     userMessageId: userMessage.id,
-    message: { text: body.text, images: body.images },
+    message: { text: body.content.filter((b) => b.type === "text").map((b) => b.type === "text" ? b.text : "").join("\n").trim() },
     meta: { intent: "continue", source: "web" },
   });
 
@@ -1649,36 +1472,6 @@ app.post("/api/sessions/:id/fork", async (c) => {
   });
 
   return c.json({ ok: true, session: forked });
-});
-
-app.post("/internal/runtimes/:id/sessions/:sessionId/provider-render", async (c) => {
-  const forbidden = ensureInternalRequest(c);
-  if (forbidden) return forbidden;
-
-  const runtimeId = c.req.param("id");
-  const sessionId = c.req.param("sessionId");
-  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
-    return c.json({ message: "runtime session not found" }, 404);
-  }
-
-  const body = await c.req.json<{
-    renderMode?: string | null;
-    thinking?: string | null;
-    toolCalls?: Array<Record<string, unknown>> | null;
-    answer?: string | null;
-    sourceMessageId?: string | null;
-    anchorUserMessageId?: string | null;
-  }>().catch(() => null);
-
-  if (!body) return c.json({ message: "invalid body" }, 400);
-
-  await updateProviderRenderForSession({
-    runtimeId,
-    runtimeSessionId: sessionId,
-    render: body,
-  });
-
-  return c.json({ ok: true });
 });
 
 app.get("/api/runtimes/:id/stream", async (c) => {

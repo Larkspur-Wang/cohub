@@ -61,18 +61,22 @@ export type SessionRecord = {
 export type SessionMessageBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
-  | { type: "image"; url: string; mimeType?: string }
+  | { type: "image"; source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string } }
   | {
-      type: "tool_call";
-      toolCallId: string;
-      toolName: string;
-      args?: Record<string, unknown> | null;
-      status?: "pending" | "running" | "completed" | "failed";
-      resultPreview?: string | null;
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string | SessionMessageBlock[];
+      is_error?: boolean;
     }
   | {
       type: "system_note";
-      noteType: "compaction" | "info";
+      note_type: "session_created" | "forked" | "compacted" | "info";
       text: string;
     };
 
@@ -82,34 +86,14 @@ export type SessionMessageRecord = {
   role: "user" | "assistant" | "system";
   content: SessionMessageBlock[];
   text: string | null;
-  externalMessageId?: string | null;
-  protocolMessageId?: string | null;
   sequence: number;
-  prevMessageId: string | null;
   provider: string | null;
   model: string | null;
   stopReason: string | null;
   errorMessage: string | null;
   usageInput: number | null;
   usageOutput: number | null;
-  usageTotalTokens: number | null;
   costTotal: string | null;
-  createdAt: string;
-};
-
-export type SessionToolCallRecord = {
-  id: string;
-  sessionId: string;
-  messageId: string;
-  toolCallId: string;
-  toolName: string;
-  title?: string | null;
-  kind?: string | null;
-  status?: string | null;
-  args: Record<string, unknown> | null;
-  result: unknown;
-  resultPreview: string | null;
-  isError: boolean;
   createdAt: string;
 };
 
@@ -117,7 +101,6 @@ export type SessionMessagesResponse = {
   runtime: RuntimeRecord;
   session: SessionRecord;
   messages: SessionMessageRecord[];
-  toolCalls: SessionToolCallRecord[];
 };
 
 const withAuthorization = async (init?: RequestInit): Promise<RequestInit> => {
@@ -355,41 +338,14 @@ export type SessionResponseStreamEvent =
       response: { error?: { message?: string; type?: string } };
     };
 
-export const createSessionResponseStream = async function* (input: {
-  runtimeId: string;
-  sessionId: string;
-  text: string;
-  fetch?: Fetch;
-}) {
-  const response = await gatewayFetch(
-    `/v1/runtimes/${input.runtimeId}/sessions/${input.sessionId}/responses`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "cohub-agent",
-        input: input.text,
-        stream: true,
-      }),
-      fetch: input.fetch,
+export const postSessionMessage = async (sessionId: string, content: SessionMessageBlock[]) => {
+  return apiFetch(`/api/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
-  );
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") ?? "";
-    const message = contentType.includes("application/json")
-      ? JSON.stringify(await response.json().catch(() => null))
-      : await response.text().catch(() => response.statusText);
-    throw new Error(message || response.statusText);
-  }
-
-  for await (const data of readSseEvents(response)) {
-    if (data === "[DONE]") break;
-    const parsed = JSON.parse(data) as SessionResponseStreamEvent;
-    yield parsed;
-  }
+    body: JSON.stringify({ content }),
+  }) as Promise<{ ok: true; userMessage: SessionMessageRecord }>;
 };
 
 export const forkSession = async (

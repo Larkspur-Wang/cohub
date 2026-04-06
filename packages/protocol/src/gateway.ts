@@ -82,7 +82,7 @@ export interface GatewayInboundEvent {
     id: string;
     name?: string;
   };
-  content: import("./session-ingestion.js").UnifiedContentBlock[];
+  content: import("./session-ingestion.js").ContentBlock[];
   meta?: Record<string, unknown> | null;
 }
 
@@ -94,7 +94,7 @@ export interface GatewayOutboundCommand {
   provider: ChannelProvider;
   externalChatId: string;
 
-  content: import("./session-ingestion.js").UnifiedContentBlock[];
+  content: import("./session-ingestion.js").ContentBlock[];
 
   replyToExternalMessageId?: string;
   runtimeId?: string;

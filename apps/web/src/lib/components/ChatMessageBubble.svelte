@@ -13,7 +13,7 @@ let thinkingExpanded = $state(true);
 
 // Extract thinking blocks and text blocks separately
 const thinkingContent = $derived(
-  message.blocks
+  message.content
     ?.filter((block) => block.type === "thinking")
     .map((block) => (block.type === "thinking" ? block.thinking : ""))
     .join("\n\n")
@@ -24,7 +24,7 @@ $effect(() => {
   let cancelled = false;
 
   void renderMarkdown(
-    message.blocks
+    message.content
       ?.filter((block) => block.type === "text")
       .map((block) => (block.type === "text" ? block.text : ""))
       .join("\n\n") || message.text,
@@ -40,14 +40,11 @@ $effect(() => {
 });
 </script>
 
-{#if message.role === 'system' && message.tone === 'thinking'}
-  <ThinkingBlock title={message.title ?? 'Thinking'} content={message.text} isStreaming={message.id === 'assistant-thinking'} />
+{#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
+  <ThinkingBlock title='Thinking' content={thinkingContent} isStreaming={message.id === 'assistant-thinking'} />
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-[52rem]' : 'max-w-[52rem]'}`}>
     <div class={`rounded-lg border px-4 py-3 text-[13px] leading-6 transition-colors duration-150 ${message.role === 'user' ? 'border-white/10 bg-white/5 text-white/90' : message.role === 'assistant' ? 'border-transparent bg-transparent text-white/80' : message.role === 'system' ? 'border-blue-500/20 bg-blue-500/5 text-blue-300/80' : 'border-rose-500/20 bg-rose-500/5 text-rose-300/80'}`}>
-      {#if message.title}
-        <div class="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">{message.title}</div>
-      {/if}
 
       {#if thinkingContent}
         <div class="mb-3 rounded-md border border-white/5 bg-white/[0.02] overflow-hidden">
@@ -72,22 +69,18 @@ $effect(() => {
         {@html renderedHtml}
       </div>
 
-      {#if message.blocks?.some((block) => block.type === 'tool_call')}
+      {#if message.content?.some((block) => block.type === 'tool_use')}
         <div class="mt-2.5 space-y-2 border-t border-white/5 pt-2.5">
-          {#each message.blocks.filter((block) => block.type === 'tool_call') as block (block.toolCallId)}
+          {#each message.content.filter((block) => block.type === 'tool_use') as block (block.id)}
             <div class="rounded-md border border-white/10 bg-black/40 px-3 py-2">
               <div class="mb-1 flex items-center justify-between gap-3">
                 <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Tool Call</div>
-                <div class={`text-[10px] font-bold uppercase tracking-[0.16em] ${block.status === 'failed' ? 'text-rose-400' : block.status === 'running' || block.status === 'pending' ? 'text-amber-400' : 'text-emerald-400/60'}`}>
-                  {block.status ?? 'completed'}
+                <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">
+                  {block.name}
                 </div>
               </div>
-              <div class="text-[11px] font-mono text-white/70">{block.toolName}</div>
-              {#if block.args && Object.keys(block.args).length > 0}
-                <pre class="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-white/40 font-mono">{JSON.stringify(block.args, null, 2)}</pre>
-              {/if}
-              {#if block.resultPreview}
-                <pre class="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-white/40 font-mono">{block.resultPreview}</pre>
+              {#if block.input && Object.keys(block.input).length > 0}
+                <pre class="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-white/40 font-mono">{JSON.stringify(block.input, null, 2)}</pre>
               {/if}
             </div>
           {/each}

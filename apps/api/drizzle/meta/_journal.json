@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1774509034231,
-      "tag": "0000_normal_radioactive_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1774952243867,
-      "tag": "0001_tired_husk",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1775053676577,
-      "tag": "0002_sweet_energizer",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1775203850692,
-      "tag": "0003_ambitious_johnny_blaze",
+      "when": 1775457269656,
+      "tag": "0000_wonderful_puff_adder",
       "breakpoints": true
     }
   ]

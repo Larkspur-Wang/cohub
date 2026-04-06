@@ -1,72 +1,56 @@
-export type ProtocolSource = "pi" | "acp" | "internal";
+// ─── Content Block — Anthropic-style, single source of truth ───
 
-export type UnifiedContentBlock =
-  | {
-      type: "text";
-      text: string;
-      annotations?: Record<string, unknown>;
-      _meta?: Record<string, unknown>;
-    }
-  | {
-      type: "thinking";
-      thinking: string;
-      annotations?: Record<string, unknown>;
-      _meta?: Record<string, unknown>;
-    }
+export type ContentBlockMeta = Record<string, unknown>;
+
+export type ContentBlock =
+  // ─── 文本 ───
+  | { type: "text"; text: string; _meta?: ContentBlockMeta }
+
+  // ─── 思考 ───
+  | { type: "thinking"; thinking: string; signature?: string; _meta?: ContentBlockMeta }
+
+  // ─── 图片 ───
   | {
       type: "image";
-      mimeType?: string;
-      data?: string;
-      uri?: string;
-      annotations?: Record<string, unknown>;
-      _meta?: Record<string, unknown>;
+      source:
+        | { type: "url"; url: string }
+        | { type: "base64"; media_type: string; data: string };
+      _meta?: ContentBlockMeta;
     }
+
+  // ─── 工具调用（对标 Anthropic tool_use） ───
   | {
-      type: "resource";
-      resource: {
-        uri: string;
-        mimeType?: string;
-        text?: string;
-        blob?: string;
-        _meta?: Record<string, unknown>;
-      };
-      _meta?: Record<string, unknown>;
-    }
-  | {
-      type: "resource_link";
-      uri: string;
+      type: "tool_use";
+      id: string;
       name: string;
-      mimeType?: string;
-      title?: string;
-      description?: string;
-      size?: number;
-      annotations?: Record<string, unknown>;
-      _meta?: Record<string, unknown>;
+      input: Record<string, unknown>;
+      _meta?: ContentBlockMeta;
     }
+
+  // ─── 工具结果（对标 Anthropic tool_result） ───
   | {
-      type: "tool_call";
-      toolCallId: string;
-      toolName: string;
-      args?: Record<string, unknown> | null;
-      status?: "pending" | "running" | "completed" | "failed";
-      resultPreview?: string | null;
-      _meta?: Record<string, unknown>;
+      type: "tool_result";
+      tool_use_id: string;
+      content: string | ContentBlock[];
+      is_error?: boolean;
+      _meta?: ContentBlockMeta;
+    }
+
+  // ─── 系统注解（cohub 扩展） ───
+  | {
+      type: "system_note";
+      note_type: "session_created" | "forked" | "compacted" | "info";
+      text: string;
+      _meta?: ContentBlockMeta;
     };
 
+// ─── Backward compatibility alias ───
+/** @deprecated Use ContentBlock instead */
+export type UnifiedContentBlock = ContentBlock;
 
-export type ToolCallContentBlock =
-  | {
-      type: "content";
-      content: UnifiedContentBlock;
-      _meta?: Record<string, unknown>;
-    }
-  | {
-      type: "diff";
-      path: string;
-      oldText?: string | null;
-      newText: string;
-      _meta?: Record<string, unknown>;
-    };
+// ─── Input types ───
+
+export type ProtocolSource = "pi" | "acp" | "internal";
 
 export type RuntimePromptInput = {
   runtimeId: string;
@@ -101,10 +85,9 @@ export type PersistMessageInput = {
   idempotencyKey: string;
   message: {
     role?: "user" | "assistant" | "system";
-    source?: ProtocolSource | null;
     externalMessageId?: string | null;
     protocolMessageId?: string | null;
-    content: UnifiedContentBlock[];
+    content: ContentBlock[];
     text?: string | null;
     provider?: string | null;
     model?: string | null;
@@ -114,35 +97,9 @@ export type PersistMessageInput = {
     usage?: {
       input?: number;
       output?: number;
-      totalTokens?: number;
       costTotal?: number;
     } | null;
   };
-  toolCalls?: PersistToolCall[];
-};
-
-export type PersistToolCall = {
-  toolCallId: string;
-  toolName: string;
-  title?: string | null;
-  kind?: string | null;
-  status?: string | null;
-  args?: unknown;
-  result?: unknown;
-  content?: ToolCallContentBlock[] | null;
-  locations?: unknown;
-  rawInput?: unknown;
-  rawOutput?: unknown;
-  resultPreview?: string | null;
-  isError?: boolean;
-  meta?: Record<string, unknown> | null;
-};
-
-export type PersistToolCallsInput = {
-  runtimeId: string;
-  sessionId: string;
-  messageId: string;
-  toolCalls: PersistToolCall[];
 };
 
 export type PersistSessionInfoUpdateInput = {

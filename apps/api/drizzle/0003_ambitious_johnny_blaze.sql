@@ -1,1 +1,0 @@
-ALTER TABLE "user_git_accounts" ADD COLUMN "ssh_public_keys" jsonb;

@@ -573,8 +573,7 @@ async function resolveOrCreateSessionBindingForEvent(input: {
         parentSessionId: forkSource.parentSessionId,
         fromMessageId: forkSource.fromMessageId,
         newSessionId: randomUUID(),
-        source: sessionSource,
-      })
+        })
     : await registerRuntimeSession({
         runtimeId: input.runtimeId,
         sessionId: randomUUID(),
@@ -639,7 +638,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     channelId: event.channelId,
     provider: event.provider,
     externalChatId: event.externalChatId,
-    externalMessageId: event.externalMessageId,
     bindingKey: event.bindingKey,
     eventType: event.eventType,
   });
@@ -674,7 +672,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     source: `channel:${event.provider}`,
     interactionId: event.eventId,
     actorUserId: event.sender.id,
-    externalMessageId: event.externalMessageId,
     metadata: {
       provider: event.provider,
       externalConversationId: conversationId,

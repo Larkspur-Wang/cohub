@@ -6,7 +6,6 @@ import { GatewayManager } from "./manager/index.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
 import { createBlockingRedisClient, xaddWithMaxlen } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
-import { registerResponsesProviderRoutes, type SessionResponseVariables } from "./providers/responses/index.js";
 import { gatewayConfig } from "./config.js";
 
 function logStartupInfo() {
@@ -55,11 +54,11 @@ async function main() {
     console.error("[Gateway] Fatal error listening to outbound stream:", error);
   });
 
-  const app = new Hono<{ Variables: SessionResponseVariables }>();
+  const app = new Hono();
 
   app.use("*", cors());
 
-  registerResponsesProviderRoutes(app);
+  app.get("/healthz", (c) => c.json({ ok: true }));
   serve({ fetch: app.fetch, port: gatewayConfig.port });
   console.log(`@cohub/gateway listening on :${gatewayConfig.port}`);
 

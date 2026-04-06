@@ -50,7 +50,7 @@ function getSessionTitle(session: SessionRecord, index: number) {
         <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
           <div class="font-medium text-gray-900">{getSessionTitle(root, rootIndex)}</div>
           <div class="mt-1 text-xs text-gray-500 break-all">{root.id}</div>
-          <div class="mt-2 text-xs text-gray-500">messages: {root.totalMessages ?? 0} · depth: {root.forkDepth ?? 0}</div>
+          <div class="mt-2 text-xs text-gray-500">messages: — · depth: {root.forkDepth ?? 0}</div>
 
           {#if (byParent.get(root.id)?.length ?? 0) > 0}
             <div class="mt-4 space-y-3 border-l-2 border-gray-200 pl-4">
@@ -59,7 +59,7 @@ function getSessionTitle(session: SessionRecord, index: number) {
                   <div class="font-medium text-gray-900">{getSessionTitle(child, childIndex)}</div>
                   <div class="mt-1 text-xs text-gray-500 break-all">{child.id}</div>
                   <div class="mt-2 text-xs text-gray-500">forked from message: {data.messagePreviewById[child.forkedFromMessageId ?? ""] ?? child.forkedFromMessageId ?? "unknown"}</div>
-                  <div class="mt-1 text-xs text-gray-500">messages: {child.totalMessages ?? 0} · depth: {child.forkDepth ?? 0}</div>
+                  <div class="mt-1 text-xs text-gray-500">messages: — · depth: {child.forkDepth ?? 0}</div>
                 </div>
               {/each}
             </div>

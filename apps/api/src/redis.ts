@@ -1,48 +1,22 @@
 import { Redis } from "ioredis";
 import { config } from "./config.js";
-import type { GatewaySessionResponseRequestEvent, GatewaySessionResponseResultEvent } from "@cohub/protocol";
 
 export type RedisStreamEntry = [string, string[]];
 
 // Stream 长度限制配置
-export const STREAM_MAXLEN = 10000; // 每个 Stream 最多保留 10000 条消息
-export const STREAM_APPROX = "~"; // 使用近似裁剪，性能更好
+export const STREAM_MAXLEN = 10000;
+export const STREAM_APPROX = "~";
 
 /**
  * Shared command client for short-lived, non-blocking Redis commands only.
- *
- * Safe examples:
- * - HSET / HGET / HGETALL
- * - XADD / XREVRANGE
- * - RPUSH
- * - ZRANGEBYSCORE
- *
- * Do NOT use this client for blocking commands such as:
- * - XREAD BLOCK
- * - SUBSCRIBE / PSUBSCRIBE
- *
- * Those commands occupy the connection and can starve normal request traffic.
  */
 export const redisCommandClient = new Redis(config.redisUrl);
 
-/**
- * Creates a dedicated Redis connection for long-lived blocking consumers.
- *
- * Intended for commands like:
- * - XREAD BLOCK 0
- * - SUBSCRIBE / PSUBSCRIBE
- */
 export const createBlockingRedisClient = () => {
   const client = redisCommandClient.duplicate({ lazyConnect: true });
   return client;
 };
 
-/**
- * Creates a dedicated Redis connection for streaming/read-loop style access.
- *
- * Intended for per-request or per-session stream readers that may stay open
- * for a while and should not share the main command connection.
- */
 export const createStreamingRedisClient = () => {
   const client = redisCommandClient.duplicate({ lazyConnect: true });
   return client;
@@ -58,8 +32,6 @@ export const isRedisReady = async () => {
 };
 
 const redisRuntimePrefix = (runtimeId: string) => `runtimes:${runtimeId}`;
-const redisRuntimeSessionPrefix = (runtimeId: string, runtimeSessionId: string) =>
-  `${redisRuntimePrefix(runtimeId)}:sessions:${runtimeSessionId}`;
 
 export const getRuntimeMetaKey = (runtimeId: string) =>
   `${redisRuntimePrefix(runtimeId)}:meta`;
@@ -76,30 +48,14 @@ export const getRuntimeProvisionMetaKey = (runtimeId: string) =>
 export const getRuntimeProvisionStreamKey = (runtimeId: string) =>
   `${redisRuntimePrefix(runtimeId)}:provision:stream`;
 
-export const getRuntimeSessionMetaKey = (
-  runtimeId: string,
-  runtimeSessionId: string,
-) => `${redisRuntimeSessionPrefix(runtimeId, runtimeSessionId)}:meta`;
-
-export const getRuntimeSessionOutputStreamKey = (
-  runtimeId: string,
-  runtimeSessionId: string,
-) => `${redisRuntimeSessionPrefix(runtimeId, runtimeSessionId)}:output_stream`;
-
-export const getGatewaySessionResponseResultStreamKey = (interactionId: string) =>
-  `gateway:session_response_result:${interactionId}`;
-
 // Gateway Stream Keys
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
-export const GATEWAY_SESSION_RESPONSES_STREAM = "stream:gateway:session_responses";
-export const GATEWAY_SESSION_RESPONSE_RESULTS_STREAM = "stream:gateway:session_response_results";
 
 // Consumer Groups
 export const INBOUND_CONSUMER_GROUP = "api-inbound-consumers";
 export const LOG_CONSUMER_GROUP = "api-loggers";
-export const SESSION_RESPONSE_CONSUMER_GROUP = "api-session-response-consumers";
 
 export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: (string | number)[]) => {
   return client.xadd(streamKey, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, ...args);
@@ -136,25 +92,3 @@ export const getStreamInfo = async (streamKey: string) => {
     return { length: 0, exists: false };
   }
 };
-
-export const publishGatewaySessionResponseRequest = async (event: GatewaySessionResponseRequestEvent) => {
-  await xaddWithMaxlen(
-    redisCommandClient,
-    GATEWAY_SESSION_RESPONSES_STREAM,
-    "*",
-    "payload",
-    JSON.stringify(event),
-  );
-};
-
-export const publishGatewaySessionResponseResult = async (event: GatewaySessionResponseResultEvent) => {
-  await xaddWithMaxlen(
-    redisCommandClient,
-    getGatewaySessionResponseResultStreamKey(event.interactionId),
-    "*",
-    "payload",
-    JSON.stringify(event),
-  );
-};
-
-

@@ -23,6 +23,25 @@ CREATE TABLE "gateway_logs" (
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
+CREATE TABLE "provider_message_refs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"provider" varchar(50) NOT NULL,
+	"runtime_id" uuid NOT NULL,
+	"runtime_session_id" uuid NOT NULL,
+	"runtime_channel_id" uuid,
+	"session_message_id" uuid,
+	"direction" varchar(20) NOT NULL,
+	"external_conversation_id" varchar(255) NOT NULL,
+	"external_message_id" varchar(255) NOT NULL,
+	"parent_external_conversation_id" varchar(255),
+	"parent_external_message_id" varchar(255),
+	"external_author_id" varchar(255),
+	"external_author_name" varchar(255),
+	"meta" jsonb,
+	"created_at" timestamp with time zone DEFAULT now(),
+	"updated_at" timestamp with time zone DEFAULT now()
+);
+--> statement-breakpoint
 CREATE TABLE "runtime_channels" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"runtime_id" uuid NOT NULL,
@@ -50,6 +69,7 @@ CREATE TABLE "runtime_sessions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"runtime_id" uuid NOT NULL,
 	"title" varchar(255),
+	"source" varchar(255),
 	"status" varchar(50) DEFAULT 'active',
 	"cwd" text,
 	"protocol" varchar(30),
@@ -62,11 +82,6 @@ CREATE TABLE "runtime_sessions" (
 	"latest_message_text" text,
 	"last_message_at" timestamp with time zone,
 	"last_message_id" uuid,
-	"total_messages" integer DEFAULT 0 NOT NULL,
-	"total_tool_calls" integer DEFAULT 0 NOT NULL,
-	"total_input_tokens" integer DEFAULT 0 NOT NULL,
-	"total_output_tokens" integer DEFAULT 0 NOT NULL,
-	"total_cost" numeric(18, 8) DEFAULT '0' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now(),
 	"updated_at" timestamp with time zone DEFAULT now()
 );
@@ -85,66 +100,21 @@ CREATE TABLE "runtimes" (
 	"updated_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "provider_message_refs" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"provider" varchar(50) NOT NULL,
-	"runtime_id" uuid NOT NULL,
-	"runtime_session_id" uuid NOT NULL,
-	"runtime_channel_id" uuid,
-	"session_message_id" uuid,
-	"direction" varchar(20) NOT NULL,
-	"external_conversation_id" varchar(255) NOT NULL,
-	"external_message_id" varchar(255) NOT NULL,
-	"parent_external_conversation_id" varchar(255),
-	"parent_external_message_id" varchar(255),
-	"external_author_id" varchar(255),
-	"external_author_name" varchar(255),
-	"meta" jsonb,
-	"created_at" timestamp with time zone DEFAULT now(),
-	"updated_at" timestamp with time zone DEFAULT now()
-);
---> statement-breakpoint
 CREATE TABLE "session_messages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"session_id" uuid NOT NULL,
 	"role" varchar(20) NOT NULL,
-	"source" varchar(30),
-	"external_message_id" text,
-	"protocol_message_id" varchar(128),
 	"content" jsonb NOT NULL,
 	"text" text,
-	"meta" jsonb,
-	"idempotency_key" varchar(255),
-	"sequence" integer NOT NULL,
-	"prev_message_id" uuid,
 	"provider" varchar(100),
 	"model" varchar(255),
 	"stop_reason" varchar(50),
 	"error_message" text,
+	"sequence" integer NOT NULL,
+	"idempotency_key" varchar(255),
 	"usage_input" integer,
 	"usage_output" integer,
-	"usage_total_tokens" integer,
 	"cost_total" numeric(18, 8),
-	"created_at" timestamp with time zone DEFAULT now()
-);
---> statement-breakpoint
-CREATE TABLE "session_tool_calls" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"session_id" uuid NOT NULL,
-	"message_id" uuid NOT NULL,
-	"tool_call_id" varchar(255) NOT NULL,
-	"tool_name" varchar(255) NOT NULL,
-	"title" text,
-	"kind" varchar(50),
-	"status" varchar(30),
-	"args" jsonb,
-	"result" jsonb,
-	"content" jsonb,
-	"locations" jsonb,
-	"raw_input" jsonb,
-	"raw_output" jsonb,
-	"result_preview" text,
-	"is_error" boolean DEFAULT false NOT NULL,
 	"meta" jsonb,
 	"created_at" timestamp with time zone DEFAULT now()
 );
@@ -170,6 +140,7 @@ CREATE TABLE "user_git_accounts" (
 	"gitea_access_token_encrypted" text NOT NULL,
 	"status" varchar(20) DEFAULT 'active',
 	"last_verified_at" timestamp with time zone,
+	"ssh_public_keys" jsonb,
 	"meta" jsonb,
 	"created_at" timestamp with time zone DEFAULT now(),
 	"updated_at" timestamp with time zone DEFAULT now()
@@ -182,7 +153,7 @@ CREATE TABLE "workspaces" (
 	"description" text,
 	"gitea_repo_name" varchar(255) NOT NULL,
 	"default_branch" varchar(50) DEFAULT 'main',
-	"visibility" varchar(20) DEFAULT 'public',
+	"visibility" varchar(20) DEFAULT 'private',
 	"parent_id" uuid,
 	"fork_count" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now(),
@@ -193,6 +164,12 @@ CREATE INDEX "idx_agents_user_uuid" ON "agents" USING btree ("user_uuid");--> st
 CREATE INDEX "idx_gateway_logs_channel" ON "gateway_logs" USING btree ("channel_id");--> statement-breakpoint
 CREATE INDEX "idx_gateway_logs_direction" ON "gateway_logs" USING btree ("direction");--> statement-breakpoint
 CREATE INDEX "idx_gateway_logs_created" ON "gateway_logs" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_provider_conversation" ON "provider_message_refs" USING btree ("provider","external_conversation_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_provider_message_refs_provider_message" ON "provider_message_refs" USING btree ("provider","external_conversation_id","external_message_id","direction");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_runtime_session" ON "provider_message_refs" USING btree ("runtime_session_id");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_session_message" ON "provider_message_refs" USING btree ("session_message_id");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_parent_message" ON "provider_message_refs" USING btree ("provider","parent_external_conversation_id","parent_external_message_id");--> statement-breakpoint
+CREATE INDEX "idx_provider_message_refs_runtime_channel" ON "provider_message_refs" USING btree ("runtime_channel_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_channels_runtime" ON "runtime_channels" USING btree ("runtime_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_runtime_channels_channel" ON "runtime_channels" USING btree ("channel_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_session_bindings_runtime" ON "runtime_session_bindings" USING btree ("runtime_id");--> statement-breakpoint
@@ -207,27 +184,12 @@ CREATE INDEX "idx_runtime_sessions_lineage_root_session_id" ON "runtime_sessions
 CREATE INDEX "idx_runtime_sessions_forked_from_message_id" ON "runtime_sessions" USING btree ("forked_from_message_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_sessions_last_message_id" ON "runtime_sessions" USING btree ("last_message_id");--> statement-breakpoint
 CREATE INDEX "idx_runtime_sessions_last_message_at" ON "runtime_sessions" USING btree ("last_message_at");--> statement-breakpoint
-CREATE INDEX "idx_provider_message_refs_provider_conversation" ON "provider_message_refs" USING btree ("provider","external_conversation_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "uq_provider_message_refs_provider_message" ON "provider_message_refs" USING btree ("provider","external_conversation_id","external_message_id","direction");--> statement-breakpoint
-CREATE INDEX "idx_provider_message_refs_runtime_session" ON "provider_message_refs" USING btree ("runtime_session_id");--> statement-breakpoint
-CREATE INDEX "idx_provider_message_refs_session_message" ON "provider_message_refs" USING btree ("session_message_id");--> statement-breakpoint
-CREATE INDEX "idx_provider_message_refs_parent_message" ON "provider_message_refs" USING btree ("provider","parent_external_conversation_id","parent_external_message_id");--> statement-breakpoint
-CREATE INDEX "idx_provider_message_refs_runtime_channel" ON "provider_message_refs" USING btree ("runtime_channel_id");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_user_uuid" ON "runtimes" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_workspace_id" ON "runtimes" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "idx_runtimes_agent_id" ON "runtimes" USING btree ("agent_id");--> statement-breakpoint
 CREATE INDEX "idx_session_messages_session_id" ON "session_messages" USING btree ("session_id");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_prev_message_id" ON "session_messages" USING btree ("prev_message_id");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_external_message_id" ON "session_messages" USING btree ("external_message_id");--> statement-breakpoint
-CREATE INDEX "idx_session_messages_protocol_message_id" ON "session_messages" USING btree ("protocol_message_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_session_messages_session_sequence" ON "session_messages" USING btree ("session_id","sequence");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_session_messages_session_id_idempotency_key" ON "session_messages" USING btree ("session_id","idempotency_key");--> statement-breakpoint
-CREATE INDEX "idx_session_tool_calls_session_id" ON "session_tool_calls" USING btree ("session_id");--> statement-breakpoint
-CREATE INDEX "idx_session_tool_calls_message_id" ON "session_tool_calls" USING btree ("message_id");--> statement-breakpoint
-CREATE INDEX "idx_session_tool_calls_tool_name" ON "session_tool_calls" USING btree ("tool_name");--> statement-breakpoint
-CREATE INDEX "idx_session_tool_calls_kind" ON "session_tool_calls" USING btree ("kind");--> statement-breakpoint
-CREATE INDEX "idx_session_tool_calls_status" ON "session_tool_calls" USING btree ("status");--> statement-breakpoint
-CREATE UNIQUE INDEX "uq_session_tool_calls_session_tool_call_id" ON "session_tool_calls" USING btree ("session_id","tool_call_id");--> statement-breakpoint
 CREATE INDEX "idx_user_channels_user_uuid" ON "user_channels" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "idx_user_channels_provider" ON "user_channels" USING btree ("provider");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_user_git_accounts_user_provider" ON "user_git_accounts" USING btree ("user_uuid","provider");--> statement-breakpoint

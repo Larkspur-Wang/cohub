@@ -1,1 +1,0 @@
-ALTER TABLE "runtime_sessions" ADD COLUMN "source" varchar(255);

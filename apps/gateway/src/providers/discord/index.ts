@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayOutboundCommand, UnifiedContentBlock, DiscordRuntimeChannelConfig } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, DiscordRuntimeChannelConfig } from "@cohub/protocol";
 import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getRuntimeChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
@@ -50,7 +50,7 @@ const buildToolLine = (status: string | undefined, toolName: string | undefined,
   return `[${safeStatus}] ${safeToolName}${suffix}`;
 };
 
-const buildDiscordRenderText = (content: UnifiedContentBlock[], includeThinking = false) => {
+const buildDiscordRenderText = (content: ContentBlock[], includeThinking = false) => {
   const textParts: string[] = [];
   const imageUris: string[] = [];
 
@@ -67,26 +67,27 @@ const buildDiscordRenderText = (content: UnifiedContentBlock[], includeThinking 
       continue;
     }
 
-    if (block.type === "tool_call") {
-      const summary = block.resultPreview?.trim() ? ` — ${truncate(block.resultPreview.trim(), 160)}` : "";
-      const status = block.status ?? "pending";
-      textParts.push(`[${status}] ${block.toolName}${summary}`);
+    if (block.type === "tool_use") {
+      const name = block.name;
+      const inputSummary = block.input && typeof block.input === "object"
+        ? Object.values(block.input as Record<string, unknown>).filter(v => typeof v === "string").join(" ").slice(0, 80)
+        : "";
+      textParts.push(`🔧 ${name}${inputSummary ? ` — ${inputSummary}` : ""}`);
       continue;
     }
 
-    if (block.type === "image" && block.uri) {
-      imageUris.push(block.uri);
+    if (block.type === "tool_result") {
+      // Tool results are typically not shown in final messages
       continue;
     }
 
-    if (block.type === "resource") {
-      const label = block.resource.uri;
-      textParts.push(`📎 Resource: ${label}`);
+    if (block.type === "image" && block.source.type === "url") {
+      imageUris.push(block.source.url);
       continue;
     }
 
-    if (block.type === "resource_link") {
-      textParts.push(`📎 ${block.title ?? block.name}: ${block.uri}`);
+    if (block.type === "system_note") {
+      textParts.push(`ℹ️ ${block.text}`);
     }
   }
 
@@ -426,11 +427,11 @@ export class DiscordProvider implements GatewayProvider {
       });
 
       const cleanedContent = resolveMentions(message);
-      const content: UnifiedContentBlock[] = [{ type: "text", text: cleanedContent }];
+      const content: ContentBlock[] = [{ type: "text", text: cleanedContent }];
 
       for (const attachment of message.attachments.values()) {
         if (attachment.contentType?.startsWith("image/")) {
-          content.push({ type: "image", uri: attachment.url });
+          content.push({ type: "image", source: { type: "url", url: attachment.url } });
           console.log(`[Discord:${this.channelId}] Attachment: ${attachment.name} (${attachment.contentType})`);
         } else {
           console.log(

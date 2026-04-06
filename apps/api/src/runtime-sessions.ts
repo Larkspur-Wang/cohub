@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, lt, desc } from "drizzle-orm";
 import type { V1Pod } from "@kubernetes/client-node";
 import type {
   PersistMessageInput,
   PersistSessionInfoUpdateInput,
-  PersistToolCall,
   RegisterRuntimeSessionInput,
-  UnifiedContentBlock,
+  ContentBlock,
   GatewayOutboundCommand,
 } from "@cohub/protocol";
 import { db } from "./db/index.js";
@@ -14,7 +13,6 @@ import {
   runtimeSessions,
   runtimes,
   sessionMessages,
-  sessionToolCalls,
   runtimeChannels,
   workspaces,
   providerMessageRefs,
@@ -35,7 +33,7 @@ import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding, getRuntimeChannelRecord } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 
-export type SessionMessageBlock = UnifiedContentBlock;
+export type SessionMessageBlock = ContentBlock;
 
 type RuntimeProvisionStatus = "queued" | "running" | "succeeded" | "failed";
 type RuntimeProvisionLevel = "info" | "success" | "error";
@@ -91,7 +89,9 @@ const RESERVED_RUNTIME_ENV_NAMES = new Set([
 
 const nowIso = () => new Date().toISOString();
 
-const extractPlainText = (blocks: SessionMessageBlock[]) => {
+// ─── Content extraction helpers ───
+
+const extractPlainText = (blocks: SessionMessageBlock[]): string => {
   return blocks
     .flatMap((block) => {
       switch (block.type) {
@@ -99,10 +99,14 @@ const extractPlainText = (blocks: SessionMessageBlock[]) => {
           return [block.text];
         case "thinking":
           return [block.thinking];
-        case "resource":
-          return block.resource.text ? [block.resource.text] : [];
-        case "resource_link":
-          return [block.title ?? block.name ?? block.uri];
+        case "image":
+          return block.source.type === "url" ? [block.source.url] : [];
+        case "tool_use":
+          return [`${block.name}(...)`];
+        case "tool_result":
+          return typeof block.content === "string" ? [block.content] : [];
+        case "system_note":
+          return [block.text];
         default:
           return [];
       }
@@ -110,6 +114,112 @@ const extractPlainText = (blocks: SessionMessageBlock[]) => {
     .join("\n")
     .trim();
 };
+
+const countToolCallsInContent = (blocks: SessionMessageBlock[]): number => {
+  return blocks.filter((b) => b.type === "tool_use").length;
+};
+
+// ─── External message resolution via providerMessageRefs ───
+
+const findLatestOutboundRefForSessionMessage = async (input: {
+  provider: string;
+  externalConversationId: string;
+  sessionMessageId?: string | null;
+}) => {
+  if (!input.sessionMessageId) return null;
+
+  const [ref] = await db
+    .select()
+    .from(providerMessageRefs)
+    .where(
+      and(
+        eq(providerMessageRefs.provider, input.provider),
+        eq(providerMessageRefs.externalConversationId, input.externalConversationId),
+        eq(providerMessageRefs.sessionMessageId, input.sessionMessageId),
+        eq(providerMessageRefs.direction, "outbound"),
+      ),
+    )
+    .orderBy(sql`${providerMessageRefs.createdAt} desc`)
+    .limit(1);
+
+  return ref ?? null;
+};
+
+const resolveAnchorUserMessage = async (input: {
+  sessionId: string;
+  messageId?: string | null;
+}): Promise<{ id: string } | null> => {
+  let msgId = input.messageId?.trim();
+  if (!msgId) return null;
+
+  const MAX_DEPTH = 200;
+  for (let depth = 0; depth < MAX_DEPTH; depth++) {
+    const [msgWithSeq] = await db
+      .select({ id: sessionMessages.id, role: sessionMessages.role, sequence: sessionMessages.sequence })
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.id, msgId),
+          eq(sessionMessages.sessionId, input.sessionId),
+        ),
+      )
+      .limit(1);
+
+    if (!msgWithSeq) return null;
+    if (msgWithSeq.role === "user") return { id: msgWithSeq.id };
+
+    const [prev] = await db
+      .select({ id: sessionMessages.id, role: sessionMessages.role })
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.sessionId, input.sessionId),
+          lt(sessionMessages.sequence, msgWithSeq.sequence),
+        ),
+      )
+      .orderBy(desc(sessionMessages.sequence))
+      .limit(1);
+
+    if (!prev) return null;
+    if (prev.role === "user") return prev;
+    msgId = prev.id;
+  }
+
+  console.warn(`[resolveAnchorUserMessage] Exceeded max depth (${MAX_DEPTH}) for session ${input.sessionId}`);
+  return null;
+};
+
+const resolveAnchorExternalMessageId = async (input: {
+  sessionId: string;
+  messageId?: string | null;
+  provider: string;
+  externalConversationId: string;
+}): Promise<string | null> => {
+  const anchorMsg = await resolveAnchorUserMessage({
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+  });
+  if (!anchorMsg) return null;
+
+  // Find the inbound providerMessageRef for this anchor user message
+  const [ref] = await db
+    .select()
+    .from(providerMessageRefs)
+    .where(
+      and(
+        eq(providerMessageRefs.provider, input.provider),
+        eq(providerMessageRefs.externalConversationId, input.externalConversationId),
+        eq(providerMessageRefs.sessionMessageId, anchorMsg.id),
+        eq(providerMessageRefs.direction, "inbound"),
+      ),
+    )
+    .orderBy(sql`${providerMessageRefs.createdAt} desc`)
+    .limit(1);
+
+  return ref?.externalMessageId ?? null;
+};
+
+// ─── Env helpers ───
 
 const getSessionExtraEnv = (runtimeMeta: unknown): RuntimeEnvVar[] => {
   if (!runtimeMeta || typeof runtimeMeta !== "object") return [];
@@ -150,171 +260,7 @@ const buildRuntimeContainerEnv = (input: {
   ];
 };
 
-const summarizeThinkingForCompact = (thinking: string) => {
-  const trimmed = thinking.trim();
-  if (!trimmed) return "";
-  return trimmed
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("\n")
-    .slice(0, 320);
-};
-
-const summarizeThinkingForMinimal = (thinking: string) => {
-  const trimmed = thinking.trim();
-  if (!trimmed) return "";
-  return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 1).join("\n").slice(0, 100);
-};
-
-const buildProviderRenderBlocks = (input: {
-  thinking?: string | null;
-  toolCalls?: Array<Record<string, unknown>> | null;
-  answer?: string | null;
-}) => {
-  const sections: string[] = [];
-
-  const thinking = (input.thinking ?? "").trim();
-  if (thinking) {
-    sections.push(thinking);
-  }
-
-  const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
-  if (toolCalls.length > 0) {
-    const lines = toolCalls.map((tool) => {
-      const status = typeof tool.status === "string" ? tool.status : "queued";
-      const toolName = typeof tool.toolName === "string" ? tool.toolName : "tool";
-      const summary = typeof tool.summary === "string" && tool.summary.trim().length > 0 ? ` ${tool.summary.trim()}` : "";
-      return `[${status}] ${toolName}${summary}`;
-    });
-    sections.push(lines.join("\n"));
-  }
-
-  const answer = (input.answer ?? "").trim();
-  if (answer) {
-    sections.push(answer);
-  }
-
-  const text = sections.join("\n\n").trim();
-  return text ? [{ type: "text", text }] satisfies UnifiedContentBlock[] : [];
-};
-
-const findLatestOutboundRefForSessionMessage = async (input: {
-  provider: string;
-  externalConversationId: string;
-  sessionMessageId?: string | null;
-}) => {
-  if (!input.sessionMessageId) return null;
-
-  const [ref] = await db
-    .select()
-    .from(providerMessageRefs)
-    .where(
-      and(
-        eq(providerMessageRefs.provider, input.provider),
-        eq(providerMessageRefs.externalConversationId, input.externalConversationId),
-        eq(providerMessageRefs.sessionMessageId, input.sessionMessageId),
-        eq(providerMessageRefs.direction, "outbound"),
-      ),
-    )
-    .orderBy(sql`${providerMessageRefs.createdAt} desc`)
-    .limit(1);
-
-  return ref ?? null;
-};
-
-const getSessionMessageRef = async (input: {
-  sessionId: string;
-  messageId?: string | null;
-}) => {
-  if (!input.messageId) return null;
-
-  const [message] = await db
-    .select({
-      id: sessionMessages.id,
-      role: sessionMessages.role,
-      externalMessageId: sessionMessages.externalMessageId,
-      prevMessageId: sessionMessages.prevMessageId,
-    })
-    .from(sessionMessages)
-    .where(
-      and(
-        eq(sessionMessages.id, input.messageId),
-        eq(sessionMessages.sessionId, input.sessionId),
-      ),
-    )
-    .limit(1);
-
-  return message ?? null;
-};
-
-const resolveAnchorUserMessageRef = async (input: {
-  sessionId: string;
-  messageId?: string | null;
-}) => {
-  let currentMessageId = input.messageId?.trim() || null;
-  const visited = new Set<string>();
-
-  while (currentMessageId && !visited.has(currentMessageId)) {
-    visited.add(currentMessageId);
-    const current = await getSessionMessageRef({
-      sessionId: input.sessionId,
-      messageId: currentMessageId,
-    });
-    if (!current) return null;
-    if (current.role === "user") return current;
-    currentMessageId = current.prevMessageId?.trim() || null;
-  }
-
-  return null;
-};
-
-export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
-  if (!Array.isArray(input)) return [];
-
-  return input
-    .filter(
-      (item): item is { name?: unknown; value?: unknown } =>
-        Boolean(item) && typeof item === "object",
-    )
-    .map((item) => ({
-      name: String(item.name ?? "").trim(),
-      value: String(item.value ?? ""),
-    }))
-    .filter((item) => item.name.length > 0);
-};
-
-export const validateRuntimeEnv = (envs: RuntimeEnvVar[]) => {
-  if (envs.length > 50) {
-    throw new Error("extraEnv cannot exceed 50 entries");
-  }
-
-  const seen = new Set<string>();
-  for (const env of envs) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env.name)) {
-      throw new Error(`invalid env name: ${env.name}`);
-    }
-
-    if (env.name.length > 128) {
-      throw new Error(`env name too long: ${env.name}`);
-    }
-
-    if (env.value.length > 4000) {
-      throw new Error(`env value too long for: ${env.name}`);
-    }
-
-    if (RESERVED_RUNTIME_ENV_NAMES.has(env.name)) {
-      throw new Error(`env name is reserved: ${env.name}`);
-    }
-
-    if (seen.has(env.name)) {
-      throw new Error(`duplicate env name: ${env.name}`);
-    }
-
-    seen.add(env.name);
-  }
-};
+// ─── Provision helpers ───
 
 const logProvision = (
   runtimeId: string,
@@ -480,6 +426,54 @@ export const getRuntimeProvision = async (
   };
 };
 
+// ─── Runtime CRUD ───
+
+export const normalizeRuntimeEnv = (input: unknown): RuntimeEnvVar[] => {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .filter(
+      (item): item is { name?: unknown; value?: unknown } =>
+        Boolean(item) && typeof item === "object",
+    )
+    .map((item) => ({
+      name: String(item.name ?? "").trim(),
+      value: String(item.value ?? ""),
+    }))
+    .filter((item) => item.name.length > 0);
+};
+
+export const validateRuntimeEnv = (envs: RuntimeEnvVar[]) => {
+  if (envs.length > 50) {
+    throw new Error("extraEnv cannot exceed 50 entries");
+  }
+
+  const seen = new Set<string>();
+  for (const env of envs) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env.name)) {
+      throw new Error(`invalid env name: ${env.name}`);
+    }
+
+    if (env.name.length > 128) {
+      throw new Error(`env name too long: ${env.name}`);
+    }
+
+    if (env.value.length > 4000) {
+      throw new Error(`env value too long for: ${env.name}`);
+    }
+
+    if (RESERVED_RUNTIME_ENV_NAMES.has(env.name)) {
+      throw new Error(`env name is reserved: ${env.name}`);
+    }
+
+    if (seen.has(env.name)) {
+      throw new Error(`duplicate env name: ${env.name}`);
+    }
+
+    seen.add(env.name);
+  }
+};
+
 export const createRuntime = async (input: {
   userUuid: string;
   workspaceId?: string | null;
@@ -623,21 +617,15 @@ export const getRuntimeSessionBootstrap = async (runtimeSessionId: string) => {
   const session = await getRuntimeSessionById(runtimeSessionId);
   if (!session) return null;
 
-  let forkSourceProtocolMessageId: string | null = null;
-  if (session.forkedFromMessageId) {
-    const [message] = await db
-      .select({ protocolMessageId: sessionMessages.protocolMessageId })
-      .from(sessionMessages)
-      .where(eq(sessionMessages.id, session.forkedFromMessageId))
-      .limit(1);
-    forkSourceProtocolMessageId = message?.protocolMessageId ?? null;
-  }
+  const forkSourceMessageId = session.forkedFromMessageId;
 
   return {
     session,
-    forkSourceProtocolMessageId,
+    forkSourceProtocolMessageId: forkSourceMessageId,
   };
 };
+
+// ─── Session message helpers ───
 
 const getNextSessionSequence = async (sessionId: string) => {
   const [row] = await db
@@ -647,59 +635,13 @@ const getNextSessionSequence = async (sessionId: string) => {
   return (row?.max ?? 0) + 1;
 };
 
-const recalcSessionTotals = async (sessionId: string) => {
-  const [toolCallCountRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionToolCalls)
-    .where(eq(sessionToolCalls.sessionId, sessionId));
-
-  const [messageCountRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, sessionId));
-
-  const totals = await db
-    .select({
-      usageInput: sessionMessages.usageInput,
-      usageOutput: sessionMessages.usageOutput,
-      costTotal: sessionMessages.costTotal,
-    })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, sessionId));
-
-  const totalInputTokens = totals.reduce((sum, row) => sum + (row.usageInput ?? 0), 0);
-  const totalOutputTokens = totals.reduce((sum, row) => sum + (row.usageOutput ?? 0), 0);
-  const totalCost = totals.reduce((sum, row) => {
-    const value = Number(row.costTotal ?? 0);
-    return Number.isFinite(value) ? sum + value : sum;
-  }, 0);
-
-  return {
-    totalMessages: messageCountRow?.count ?? 0,
-    totalToolCalls: toolCallCountRow?.count ?? 0,
-    totalInputTokens,
-    totalOutputTokens,
-    totalCost: String(totalCost),
-  };
-};
-
 const updateSessionAfterAppend = async (sessionId: string, message: typeof sessionMessages.$inferSelect) => {
-  const session = await getRuntimeSessionById(sessionId);
-  if (!session) throw new Error("Runtime session not found");
-
-  const totals = await recalcSessionTotals(sessionId);
-
   await db
     .update(runtimeSessions)
     .set({
       lastMessageId: message.id,
       latestMessageText: message.text,
       lastMessageAt: message.createdAt ?? new Date(),
-      totalMessages: totals.totalMessages,
-      totalToolCalls: totals.totalToolCalls,
-      totalInputTokens: totals.totalInputTokens,
-      totalOutputTokens: totals.totalOutputTokens,
-      totalCost: totals.totalCost,
       updatedAt: new Date(),
     })
     .where(eq(runtimeSessions.id, sessionId));
@@ -707,18 +649,14 @@ const updateSessionAfterAppend = async (sessionId: string, message: typeof sessi
 
 export const createUserMessageNode = async (input: {
   runtimeSessionId: string;
-  text: string;
-  images?: Array<{ url: string }>;
-  externalMessageId?: string | null;
+  content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 }) => {
   const session = await getRuntimeSessionById(input.runtimeSessionId);
   if (!session) throw new Error("Runtime session not found");
 
-  const content: SessionMessageBlock[] = [
-    { type: "text", text: input.text },
-    ...(input.images?.map((image) => ({ type: "image" as const, uri: image.url, mimeType: undefined })) ?? []),
-  ];
+  const content = input.content;
+  if (content.length === 0) throw new Error("User message content cannot be empty");
 
   const sequence = await getNextSessionSequence(input.runtimeSessionId);
 
@@ -727,9 +665,6 @@ export const createUserMessageNode = async (input: {
     .values({
       sessionId: input.runtimeSessionId,
       role: "user",
-      source: "internal",
-      externalMessageId: input.externalMessageId ?? null,
-      protocolMessageId: null,
       content,
       text: extractPlainText(content),
       meta: {
@@ -737,16 +672,14 @@ export const createUserMessageNode = async (input: {
         messageKind: "user",
       },
       sequence,
-      prevMessageId: session.lastMessageId ?? null,
     })
     .returning();
 
   if (!message) throw new Error("Failed to create user message node");
 
-  // 如果 session 还没有 title 且这是第一条消息，用 user message 缩略文本自动填充
-  const shouldSetTitle = !session.title?.trim() && session.totalMessages === 0;
-  if (shouldSetTitle) {
-    const titleText = input.text
+  // Auto-fill session title from first user message
+  if (!session.title?.trim()) {
+    const titleText = extractPlainText(content)
       .replace(/\s+/g, " ")
       .replace(/^[:\-\s]+/, "")
       .trim()
@@ -802,26 +735,26 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   const messageRole = input.message.role ?? "assistant";
   const shouldDispatchToProvider = messageRole === "assistant";
 
-  const toolCalls = input.toolCalls ?? [];
-  if (messageRole === "assistant" && content.length === 0 && !text?.trim() && toolCalls.length === 0) {
+  if (messageRole === "assistant" && content.length === 0 && !text?.trim()) {
     throw new Error("Refusing to persist empty assistant message");
   }
+
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   if (!anchorUserMessageId) {
-    const fallbackAnchor = await resolveAnchorUserMessageRef({
+    const fallbackAnchor = await resolveAnchorUserMessage({
       sessionId: input.sessionId,
       messageId: input.previousMessageId ?? session.lastMessageId ?? null,
     });
     anchorUserMessageId = fallbackAnchor?.id ?? null;
   }
+
+  const toolUseCount = countToolCallsInContent(content);
+  const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
+
   const messageKind = (() => {
     if (messageRole !== "assistant") return messageRole;
-    if (input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted") {
-      return "assistant_error";
-    }
-    if (toolCalls.length > 0 || input.message.stopReason === "toolUse") {
-      return "assistant_intermediate";
-    }
+    if (hasError) return "assistant_error";
+    if (toolUseCount > 0 || input.message.stopReason === "tool_use") return "assistant_intermediate";
     return "assistant_final";
   })();
 
@@ -832,9 +765,6 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
       .values({
         sessionId: input.sessionId,
         role: messageRole,
-        source: input.message.source ?? "internal",
-        externalMessageId: input.message.externalMessageId ?? null,
-        protocolMessageId: input.message.protocolMessageId ?? null,
         content,
         text,
         meta: {
@@ -846,14 +776,12 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         },
         idempotencyKey: input.idempotencyKey,
         sequence,
-        prevMessageId: session.lastMessageId ?? null,
         provider: input.message.provider ?? null,
         model: input.message.model ?? null,
         stopReason: input.message.stopReason ?? null,
         errorMessage: input.message.errorMessage ?? null,
         usageInput: input.message.usage?.input ?? null,
         usageOutput: input.message.usage?.output ?? null,
-        usageTotalTokens: input.message.usage?.totalTokens ?? null,
         costTotal: input.message.usage?.costTotal !== undefined ? String(input.message.usage.costTotal) : null,
       })
       .returning();
@@ -874,29 +802,6 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
 
   if (!messageNode) throw new Error("Failed to persist message");
 
-  if (toolCalls.length > 0) {
-    await db.insert(sessionToolCalls).values(
-      toolCalls.map((toolCall: PersistToolCall) => ({
-        sessionId: input.sessionId,
-        messageId: messageNode.id,
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        title: toolCall.title ?? null,
-        kind: toolCall.kind ?? null,
-        status: toolCall.status ?? (toolCall.isError ? "failed" : "completed"),
-        args: toolCall.args ?? null,
-        result: toolCall.result ?? null,
-        content: toolCall.content ?? null,
-        locations: toolCall.locations ?? null,
-        rawInput: toolCall.rawInput ?? toolCall.args ?? null,
-        rawOutput: toolCall.rawOutput ?? toolCall.result ?? null,
-        resultPreview: toolCall.resultPreview ?? null,
-        isError: toolCall.isError ?? false,
-        meta: toolCall.meta ?? null,
-      })),
-    );
-  }
-
   await updateSessionAfterAppend(input.sessionId, messageNode);
 
   if (!shouldDispatchToProvider) {
@@ -906,21 +811,18 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
     return messageNode;
   }
 
-  let replyToExternalMessageId: string | undefined;
-  if (anchorUserMessageId) {
-    const anchorUserMessage = await getSessionMessageRef({
-      sessionId: input.sessionId,
-      messageId: anchorUserMessageId,
-    });
-    if (anchorUserMessage?.externalMessageId?.trim()) {
-      replyToExternalMessageId = anchorUserMessage.externalMessageId.trim();
-    }
-  }
-
+  // Dispatch to providers — resolve reply-to via providerMessageRefs
   const bindings = await getBindingsBySessionId(session.id);
 
   if (bindings.length > 0) {
     for (const binding of bindings) {
+      const replyToExternalMsgId = await resolveAnchorExternalMessageId({
+        sessionId: input.sessionId,
+        messageId: anchorUserMessageId,
+        provider: binding.provider,
+        externalConversationId: binding.externalChatId,
+      });
+
       const existingTurnRef = anchorUserMessageId
         ? await findLatestOutboundRefForSessionMessage({
             provider: binding.provider,
@@ -928,6 +830,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
             sessionMessageId: anchorUserMessageId,
           })
         : null;
+
       await touchRuntimeSessionBinding(binding.id).catch(console.error);
       await dispatchOutboundMessage({
         runtimeChannelId: binding.runtimeChannelId,
@@ -937,14 +840,13 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         provider: binding.provider,
         externalChatId: binding.externalChatId,
         content: messageNode.content,
-        replyToExternalMessageId,
+        replyToExternalMessageId: replyToExternalMsgId ?? undefined,
         meta: {
-        bindingKey: binding.bindingKey,
-        sessionMessageRole: messageNode.role,
-        source: "session_persist",
-        editExternalMessageId: existingTurnRef?.externalMessageId ?? null,
-        turnAnchorMessageId: anchorUserMessageId ?? messageNode.id,
-      },
+          bindingKey: binding.bindingKey,
+          sessionMessageRole: messageNode.role,
+          editExternalMessageId: existingTurnRef?.externalMessageId ?? null,
+          turnAnchorMessageId: anchorUserMessageId ?? messageNode.id,
+        },
       }).catch(console.error);
     }
   } else {
@@ -960,10 +862,9 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
         runtimeSessionId: session.id,
         sessionMessageId: messageNode.id,
         content: messageNode.content,
-        replyToExternalMessageId,
+        replyToExternalMessageId: undefined,
         meta: {
           sessionMessageRole: messageNode.role,
-          source: "session_persist_broadcast",
         },
       }).catch(console.error);
     }
@@ -1005,22 +906,12 @@ export const listSessionMessages = async (runtimeSessionId: string) => {
     .orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
 };
 
-export const listToolCallsByMessageIds = async (messageIds: string[]) => {
-  if (messageIds.length === 0) return [];
-  return db
-    .select()
-    .from(sessionToolCalls)
-    .where(inArray(sessionToolCalls.messageId, messageIds))
-    .orderBy(asc(sessionToolCalls.createdAt));
-};
-
 export const forkRuntimeSession = async (input: {
   runtimeId: string;
   parentSessionId: string;
   fromMessageId: string;
   newSessionId?: string;
   title?: string | null;
-  source?: string | null;
 }) => {
   const parentSession = await getRuntimeSessionById(input.parentSessionId);
   if (!parentSession || parentSession.runtimeId !== input.runtimeId) {
@@ -1051,7 +942,6 @@ export const forkRuntimeSession = async (input: {
       id: newSessionId,
       runtimeId: input.runtimeId,
       title: input.title ?? parentSession.title ?? null,
-      source: input.source ?? parentSession.source ?? null,
       status: "active",
       cwd: parentSession.cwd,
       protocol: parentSession.protocol,
@@ -1086,61 +976,27 @@ export const forkRuntimeSession = async (input: {
       .values({
         sessionId: childSession.id,
         role: message.role,
-        source: message.source,
-        externalMessageId: message.externalMessageId,
-        protocolMessageId: message.protocolMessageId,
         content: message.content,
         text: message.text,
         meta: message.meta,
         idempotencyKey: null,
         sequence: message.sequence,
-        prevMessageId: message.prevMessageId ? (copiedIdMap.get(message.prevMessageId) ?? null) : null,
         provider: message.provider,
         model: message.model,
         stopReason: message.stopReason,
         errorMessage: message.errorMessage,
         usageInput: message.usageInput,
         usageOutput: message.usageOutput,
-        usageTotalTokens: message.usageTotalTokens,
         costTotal: message.costTotal,
       })
       .returning();
 
     if (!copiedMessage) throw new Error("Failed to copy forked message");
     copiedIdMap.set(message.id, copiedMessage.id);
-
-    const sourceToolCalls = await db
-      .select()
-      .from(sessionToolCalls)
-      .where(eq(sessionToolCalls.messageId, message.id));
-
-    if (sourceToolCalls.length > 0) {
-      await db.insert(sessionToolCalls).values(
-        sourceToolCalls.map((toolCall) => ({
-          sessionId: childSession.id,
-          messageId: copiedMessage.id,
-          toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
-          title: toolCall.title,
-          kind: toolCall.kind,
-          status: toolCall.status,
-          args: toolCall.args,
-          result: toolCall.result,
-          content: toolCall.content,
-          locations: toolCall.locations,
-          rawInput: toolCall.rawInput,
-          rawOutput: toolCall.rawOutput,
-          resultPreview: toolCall.resultPreview,
-          isError: toolCall.isError,
-          meta: toolCall.meta,
-        })),
-      );
-    }
   }
 
   const copiedMessages = await listSessionMessages(childSession.id);
   const lastMessage = copiedMessages.at(-1) ?? null;
-  const totals = await recalcSessionTotals(childSession.id);
 
   await db
     .update(runtimeSessions)
@@ -1148,17 +1004,14 @@ export const forkRuntimeSession = async (input: {
       lastMessageId: lastMessage?.id ?? null,
       latestMessageText: lastMessage?.text ?? null,
       lastMessageAt: lastMessage?.createdAt ?? null,
-      totalMessages: totals.totalMessages,
-      totalToolCalls: totals.totalToolCalls,
-      totalInputTokens: totals.totalInputTokens,
-      totalOutputTokens: totals.totalOutputTokens,
-      totalCost: totals.totalCost,
       updatedAt: new Date(),
     })
     .where(eq(runtimeSessions.id, childSession.id));
 
   return (await getRuntimeSessionById(childSession.id)) ?? childSession;
 };
+
+// ─── Prompt enqueue / stream ───
 
 export const enqueueRuntimePrompt = async (input: {
   runtimeId: string;
@@ -1262,17 +1115,24 @@ export const updateProviderRenderForSession = async (input: {
 
   const sourceMessageId = input.render.sourceMessageId?.trim() || null;
   const anchorUserMessageId = input.render.anchorUserMessageId?.trim() || sourceMessageId;
-  const anchorUserMessage = await getSessionMessageRef({
-    sessionId: input.runtimeSessionId,
-    messageId: anchorUserMessageId,
+
+  const content = buildProviderRenderBlocks({
+    thinking: input.render.thinking,
+    toolCalls: input.render.toolCalls,
+    answer: input.render.answer,
   });
 
-  const replyToExternalMessageId = anchorUserMessage?.externalMessageId?.trim()
-    ? anchorUserMessage.externalMessageId.trim()
-    : undefined;
+  if (content.length === 0) return true;
 
   const bindings = await getBindingsBySessionId(input.runtimeSessionId);
   for (const binding of bindings) {
+    const replyToExternalMsgId = await resolveAnchorExternalMessageId({
+      sessionId: input.runtimeSessionId,
+      messageId: anchorUserMessageId,
+      provider: binding.provider,
+      externalConversationId: binding.externalChatId,
+    });
+
     const existingRef = anchorUserMessageId
       ? await findLatestOutboundRefForSessionMessage({
           provider: binding.provider,
@@ -1280,14 +1140,6 @@ export const updateProviderRenderForSession = async (input: {
           sessionMessageId: anchorUserMessageId,
         })
       : null;
-
-    const content = buildProviderRenderBlocks({
-      thinking: input.render.thinking,
-      toolCalls: input.render.toolCalls,
-      answer: input.render.answer,
-    });
-
-    if (content.length === 0) continue;
 
     if (existingRef?.externalMessageId) {
       await createProviderMessageRef({
@@ -1318,7 +1170,7 @@ export const updateProviderRenderForSession = async (input: {
       provider: binding.provider,
       externalChatId: binding.externalChatId,
       content,
-      replyToExternalMessageId,
+      replyToExternalMessageId: replyToExternalMsgId ?? undefined,
       meta: {
         renderMode: "rich_status",
         thinking: input.render.thinking ?? "",
@@ -1334,6 +1186,42 @@ export const updateProviderRenderForSession = async (input: {
 
   return true;
 };
+
+// ─── Provider render blocks (for live updates) ───
+
+const buildProviderRenderBlocks = (input: {
+  thinking?: string | null;
+  toolCalls?: Array<Record<string, unknown>> | null;
+  answer?: string | null;
+}): ContentBlock[] => {
+  const sections: string[] = [];
+
+  const thinking = (input.thinking ?? "").trim();
+  if (thinking) {
+    sections.push(thinking);
+  }
+
+  const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
+  if (toolCalls.length > 0) {
+    const lines = toolCalls.map((tool) => {
+      const status = typeof tool.status === "string" ? tool.status : "queued";
+      const toolName = typeof tool.toolName === "string" ? tool.toolName : "tool";
+      const summary = typeof tool.summary === "string" && tool.summary.trim().length > 0 ? ` ${tool.summary.trim()}` : "";
+      return `[${status}] ${toolName}${summary}`;
+    });
+    sections.push(lines.join("\n"));
+  }
+
+  const answer = (input.answer ?? "").trim();
+  if (answer) {
+    sections.push(answer);
+  }
+
+  const text = sections.join("\n\n").trim();
+  return text ? [{ type: "text", text }] : [];
+};
+
+// ─── Runtime lifecycle ───
 
 export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000) => {
   const startedAt = Date.now();
@@ -1631,78 +1519,94 @@ export const provisionRuntimeInBackground = async (input: {
 
 export const hibernateRuntime = async (input: { runtimeId: string; userUuid: string }) => {
   const runtime = await getRuntimeById(input.runtimeId);
-  if (!runtime) throw new Error("Runtime not found");
-  if (runtime.userUuid !== input.userUuid) throw new Error("Unauthorized");
-  if (runtime.status !== "running") throw new Error("Can only hibernate running runtime");
-
-  await updateRuntimeStatus(input.runtimeId, "hibernating");
-
-  const podName = `sandbox-${input.runtimeId}`;
-  try {
-    await k8sCoreApi.deleteNamespacedPod({
-      namespace: sessionsNamespace,
-      name: podName,
-    });
-  } catch (error) {
-    console.log(`[Hibernate] Pod ${podName} might not exist:`, error);
+  if (!runtime) {
+    throw new Error("Runtime not found");
+  }
+  if (runtime.userUuid !== input.userUuid) {
+    throw new Error("Unauthorized");
   }
 
-  await redisCommandClient.hset(getRuntimeMetaKey(input.runtimeId), "status", "hibernated");
+  if (runtime.status !== "running") {
+    throw new Error(`Can only hibernate running runtime, current status: ${runtime.status}`);
+  }
+
+  try {
+    await k8sCoreApi.deleteNamespacedPod({
+      name: `runtime-${runtime.id}`,
+      namespace: sessionsNamespace,
+    });
+  } catch {
+    // Pod may already be gone
+  }
 
   await db
     .update(runtimes)
     .set({ status: "hibernated", updatedAt: new Date() })
-    .where(eq(runtimes.id, input.runtimeId));
+    .where(eq(runtimes.id, runtime.id));
 
-  return { runtime: await getRuntimeById(input.runtimeId) };
+  return { runtime: { ...runtime, status: "hibernated" } };
 };
 
 export const wakeRuntime = async (input: { runtimeId: string; userUuid: string }) => {
   const runtime = await getRuntimeById(input.runtimeId);
-  if (!runtime) throw new Error("Runtime not found");
-  if (runtime.userUuid !== input.userUuid) throw new Error("Unauthorized");
-  if (runtime.status !== "hibernated") throw new Error("Can only wake hibernated runtime");
+  if (!runtime) {
+    throw new Error("Runtime not found");
+  }
+  if (runtime.userUuid !== input.userUuid) {
+    throw new Error("Unauthorized");
+  }
 
-  provisionRuntimeInBackground({ runtimeId: input.runtimeId, userUuid: input.userUuid }).catch(
-    console.error,
-  );
+  if (runtime.status !== "hibernated") {
+    throw new Error(`Can only wake hibernated runtime, current status: ${runtime.status}`);
+  }
 
-  return { runtime };
+  await db
+    .update(runtimes)
+    .set({ status: "starting", updatedAt: new Date() })
+    .where(eq(runtimes.id, runtime.id));
+
+  void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid: input.userUuid }).catch(console.error);
+
+  return { runtime: { ...runtime, status: "starting" } };
 };
 
 export const deleteRuntime = async (input: { runtimeId: string; userUuid: string }) => {
   const runtime = await getRuntimeById(input.runtimeId);
-  if (!runtime) throw new Error("Runtime not found");
-  if (runtime.userUuid !== input.userUuid) throw new Error("Unauthorized");
+  if (!runtime) {
+    throw new Error("Runtime not found");
+  }
+  if (runtime.userUuid !== input.userUuid) {
+    throw new Error("Unauthorized");
+  }
 
   const deletableStatuses = ["hibernated", "boot_failed", "error"];
   if (!deletableStatuses.includes(runtime.status ?? "")) {
-    throw new Error("Can only delete hibernated, boot_failed or error runtime");
+    throw new Error(`Can only delete hibernated, boot_failed or error runtime, current status: ${runtime.status}`);
   }
 
-  const podName = `sandbox-${input.runtimeId}`;
   try {
     await k8sCoreApi.deleteNamespacedPod({
+      name: `runtime-${runtime.id}`,
       namespace: sessionsNamespace,
-      name: podName,
     });
   } catch {
-    // Ignore if pod doesn't exist
+    // Pod may already be gone
   }
 
+  // Clean up channel routing cache
   const channels = await db
     .select()
     .from(runtimeChannels)
     .where(eq(runtimeChannels.runtimeId, input.runtimeId));
   for (const ch of channels) {
     if (ch.id) {
-      await redisCommandClient.hdel("gateway:channel_routing", ch.id);
-      await redisCommandClient.hdel("gateway:node:*:channels", ch.id);
+      await redisCommandClient.hdel("gateway:channel_routing", ch.id).catch(console.error);
+      await redisCommandClient.hdel("gateway:node:*:channels", ch.id).catch(console.error);
     }
   }
-
   await db.delete(runtimeChannels).where(eq(runtimeChannels.runtimeId, input.runtimeId));
 
+  // Clean up Redis keys
   const keysToDelete = [
     getRuntimeMetaKey(input.runtimeId),
     getRuntimeInputQueueKey(input.runtimeId),
@@ -1711,7 +1615,7 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
     getRuntimeProvisionStreamKey(input.runtimeId),
   ].filter((k): k is string => k !== null && k !== undefined);
   if (keysToDelete.length > 0) {
-    await redisCommandClient.del(...keysToDelete);
+    await redisCommandClient.del(...keysToDelete).catch(console.error);
   }
 
   await db
@@ -1721,7 +1625,7 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
       meta: { ...(runtime.meta as Record<string, unknown> | null), deletedAt: new Date().toISOString() },
       updatedAt: new Date(),
     })
-    .where(eq(runtimes.id, input.runtimeId));
+    .where(eq(runtimes.id, runtime.id));
 
   return { success: true };
 };

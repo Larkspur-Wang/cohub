@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   PersistMessageInput,
   RegisterRuntimeSessionInput,
-  UnifiedContentBlock,
+  ContentBlock,
 } from "@cohub/protocol";
 import { env } from "./env.js";
 
@@ -13,7 +13,7 @@ const INTERNAL_API_BASE_URL =
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
     : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
 
-type PersistMessagePayload = PersistMessageInput;
+// ─── Idempotency ───
 
 const stableSerialize = (value: unknown): string => {
   if (value === null || value === undefined) return JSON.stringify(value);
@@ -29,76 +29,77 @@ const stableSerialize = (value: unknown): string => {
 
 const buildAssistantIdempotencyKey = (input: {
   previousMessageId: string;
-  message: PersistMessagePayload["message"];
-  toolCalls: PersistMessagePayload["toolCalls"];
-}) => {
+  message: PersistMessageInput["message"];
+}): string => {
   return createHash("sha256")
     .update(
       stableSerialize({
         previousMessageId: input.previousMessageId,
         role: "assistant",
         message: input.message,
-        toolCalls: input.toolCalls,
       }),
     )
     .digest("hex");
 };
 
+// ─── Content extraction ───
+
 const extractTextFromContent = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
 
-  return content
-    .filter(
-      (
-        item,
-      ): item is {
-        type: string;
-        text?: string;
-        resource?: { text?: string };
-        name?: string;
-        uri?: string;
-        title?: string;
-      } => !!item && typeof item === "object" && "type" in item,
-    )
-    .flatMap((item) => {
-      if (item.type === "text" && typeof item.text === "string") return [item.text];
-      if (item.type === "resource" && item.resource && typeof item.resource.text === "string") {
-        return [item.resource.text];
-      }
-      if (item.type === "resource_link") return [item.title || item.name || item.uri || ""];
-      return [];
-    })
-    .join("\n")
-    .trim();
+  const result: string[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object" || !("type" in item)) continue;
+    const block = item as Record<string, unknown>;
+    const t = block.type;
+    if (t === "text" && typeof block.text === "string") result.push(block.text);
+    else if (t === "thinking" && typeof block.thinking === "string") result.push(block.thinking);
+    else if (t === "resource" && block.resource && typeof (block.resource as Record<string, unknown>).text === "string") result.push((block.resource as Record<string, unknown>).text as string);
+    else if (t === "tool_result" && typeof block.content === "string") result.push(block.content);
+    else if (t === "resource_link") result.push(String(block.title || block.name || block.uri || ""));
+  }
+  return result.join("\n").trim();
 };
 
 const extractThinkingFromContent = (content: unknown): string => {
   if (!Array.isArray(content)) return "";
-
   return content
-    .filter(
-      (item): item is { type: string; thinking?: string } =>
-        !!item && typeof item === "object" && "type" in item,
-    )
-    .filter((item) => item.type === "thinking" && typeof item.thinking === "string")
+    .filter((item): item is { type: string; thinking?: string } =>
+      !!item && typeof item === "object" && "type" in item && item.type === "thinking" && typeof item.thinking === "string")
     .map((item) => item.thinking ?? "")
     .join("\n")
     .trim();
 };
 
-const toAcpCompatibleContent = (
-  assistantMessage: Record<string, unknown>,
-  toolResults: Array<Record<string, unknown>>,
-): UnifiedContentBlock[] => {
-  const content = assistantMessage.content;
-  const blocks: PersistMessagePayload["message"]["content"] = [];
+const summarizeThinking = (thinking: string): string => {
+  const trimmed = thinking.trim();
+  if (!trimmed) return "";
+  const lines = trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  return lines.slice(0, 3).join("\n").slice(0, 600);
+};
 
-  if (!Array.isArray(content)) return blocks;
+const summarizeToolArgs = (toolName: string, args: unknown): string => {
+  if (!args || typeof args !== "object") return "";
+  const record = args as Record<string, unknown>;
+  if (toolName === "bash" && typeof record.command === "string") return record.command.trim().slice(0, 120);
+  if (typeof record.path === "string") return record.path;
+  if (typeof record.pattern === "string" && typeof record.path === "string") return `${record.pattern} in ${record.path}`;
+  if (typeof record.query === "string") return record.query;
+  const first = Object.entries(record)
+    .filter(([, value]) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    .slice(0, 2)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(" ");
+  return first.slice(0, 120);
+};
 
-  const toolResultsById = new Map(
-    toolResults.map((toolResult) => [String(toolResult.toolCallId ?? ""), toolResult]),
-  );
+// ─── Event → ContentBlock conversion ───
+
+function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolResults: Array<Record<string, unknown>>): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
+  const toolResultsById = new Map(toolResults.map((r) => [String(r.toolCallId ?? ""), r]));
 
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
@@ -108,144 +109,45 @@ const toAcpCompatibleContent = (
       blocks.push({ type: "text", text: block.text });
       continue;
     }
-
     if (block.type === "thinking" && typeof block.thinking === "string") {
       blocks.push({ type: "thinking", thinking: block.thinking });
       continue;
     }
-
     if (block.type === "image") {
       blocks.push({
         type: "image",
-        mimeType: typeof block.mimeType === "string" ? block.mimeType : undefined,
-        data: typeof block.data === "string" ? block.data : undefined,
-        uri: typeof block.uri === "string" ? block.uri : undefined,
+        source: typeof block.uri === "string"
+          ? { type: "url", url: block.uri }
+          : typeof block.data === "string"
+            ? { type: "base64", media_type: typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream", data: block.data }
+            : { type: "url", url: "" },
       });
       continue;
     }
-
     if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      const matched = toolResultsById.get(block.id);
-      const matchedText = matched ? extractTextFromContent(matched.content) : "";
       blocks.push({
-        type: "tool_call",
-        toolCallId: block.id,
-        toolName: block.name,
-        args:
-          block.arguments && typeof block.arguments === "object"
-            ? (block.arguments as Record<string, unknown>)
-            : null,
-        status: matched ? (matched.isError ? "failed" : "completed") : "running",
-        resultPreview: matchedText || (matched ? JSON.stringify(matched.content ?? null) : null),
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: (block.arguments as Record<string, unknown>) ?? {},
+      });
+
+      // Emit corresponding tool_result
+      const result = toolResultsById.get(block.id);
+      const resultText = result ? extractTextFromContent(result.content) : "";
+      blocks.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: resultText || JSON.stringify(result?.content ?? null),
+        is_error: result ? Boolean(result.isError) : false,
       });
     }
   }
 
   return blocks;
-};
+}
 
-const toToolCallRecords = (
-  assistantMessage: Record<string, unknown>,
-  toolResults: Array<Record<string, unknown>>,
-): PersistMessagePayload["toolCalls"] => {
-  const toolResultsById = new Map(
-    toolResults.map((toolResult) => [String(toolResult.toolCallId ?? ""), toolResult]),
-  );
-  const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
-
-  const calls: PersistMessagePayload["toolCalls"] = [];
-  for (const item of content) {
-    if (!item || typeof item !== "object") continue;
-    const block = item as Record<string, unknown>;
-    if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      const matched = toolResultsById.get(block.id);
-      const matchedText = matched ? extractTextFromContent(matched.content) : "";
-      calls.push({
-        toolCallId: block.id,
-        toolName: block.name,
-        title: typeof block.title === "string" ? block.title : block.name,
-        kind: typeof block.kind === "string" ? block.kind : null,
-        status: matched ? (matched.isError ? "failed" : "completed") : "pending",
-        args: block.arguments,
-        result: matched ?? null,
-        content: matched
-          ? [
-              {
-                type: "content",
-                content: {
-                  type: "text",
-                  text: matchedText || JSON.stringify(matched.content ?? null),
-                },
-              },
-            ]
-          : null,
-        rawInput: block.arguments,
-        rawOutput: matched ?? null,
-        resultPreview: matchedText || (matched ? JSON.stringify(matched.content ?? null) : null),
-        isError: matched ? Boolean(matched.isError) : false,
-        meta: { source: "pi" },
-      });
-    }
-  }
-
-  return calls;
-};
-
-const summarizeToolArgs = (toolName: string, args: unknown): string => {
-  if (!args || typeof args !== "object") return "";
-  const record = args as Record<string, unknown>;
-
-  if (toolName === "bash" && typeof record.command === "string") {
-    return record.command.trim().slice(0, 120);
-  }
-
-  if (typeof record.path === "string") return record.path;
-  if (typeof record.pattern === "string" && typeof record.path === "string") {
-    return `${record.pattern} in ${record.path}`;
-  }
-  if (typeof record.query === "string") return record.query;
-
-  const first = Object.entries(record)
-    .filter(([, value]) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
-    .slice(0, 2)
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(" ");
-  return first.slice(0, 120);
-};
-
-const toToolCallRenderStates = (
-  assistantMessage: Record<string, unknown>,
-  toolResults: Array<Record<string, unknown>>,
-) => {
-  const toolResultsById = new Map(
-    toolResults.map((toolResult) => [String(toolResult.toolCallId ?? ""), toolResult]),
-  );
-  const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
-
-  return content
-    .filter(
-      (item): item is Record<string, unknown> =>
-        !!item && typeof item === "object" && (item as Record<string, unknown>).type === "toolCall",
-    )
-    .map((block) => {
-      const toolCallId = typeof block.id === "string" ? block.id : null;
-      const toolName = typeof block.name === "string" ? block.name : "tool";
-      const matched = toolCallId ? toolResultsById.get(toolCallId) : null;
-      return {
-        toolCallId,
-        toolName,
-        status: matched ? (matched.isError ? "failed" : "done") : "running",
-        summary: summarizeToolArgs(toolName, block.arguments),
-      };
-    });
-};
-
-const summarizeThinking = (thinking: string): string => {
-  const trimmed = thinking.trim();
-  if (!trimmed) return "";
-  const lines = trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  return lines.slice(0, 3).join("\n").slice(0, 600);
-};
+// ─── API calls ───
 
 export async function registerRuntimeSession(input: RegisterRuntimeSessionInput) {
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions`;
@@ -309,13 +211,11 @@ export async function persistAssistantMessage(input: {
   }
 
   const assistant = assistantMessage as Record<string, unknown>;
-  const toolCalls = toToolCallRecords(assistant, toolResultsRaw) ?? [];
-  const thinking = extractThinkingFromContent(assistant.content);
-  const toolCallRenderStates = toToolCallRenderStates(assistant, toolResultsRaw);
-  const content = toAcpCompatibleContent(assistant, toolResultsRaw);
+  const content = eventToContentBlocks(assistant, toolResultsRaw);
   const text = extractTextFromContent(assistant.content);
+  const thinking = extractThinkingFromContent(assistant.content);
 
-  if (content.length === 0 && !text.trim() && toolCalls.length === 0) {
+  if (content.length === 0 && !text.trim()) {
     console.warn("[Persist] skipping empty assistant message", {
       runtimeId: input.runtimeId,
       runtimeSessionId: input.runtimeSessionId,
@@ -325,7 +225,22 @@ export async function persistAssistantMessage(input: {
     return;
   }
 
-  const payload: PersistMessagePayload = {
+  // Build tool call render states for meta (live rendering)
+  const toolResultsById = new Map(toolResultsRaw.map((r) => [String(r.toolCallId ?? ""), r]));
+  const toolCallRenderStates = content
+    .filter((b) => b.type === "tool_use")
+    .map((block) => {
+      const toolBlock = block as Extract<typeof block, { type: "tool_use" }>;
+      const matched = toolResultsById.get(toolBlock.id);
+      return {
+        toolCallId: toolBlock.id,
+        toolName: toolBlock.name,
+        status: matched ? (matched.isError ? "failed" : "done") : "running",
+        summary: summarizeToolArgs(toolBlock.name, toolBlock.input),
+      };
+    });
+
+  const payload: PersistMessageInput = {
     runtimeId: input.runtimeId,
     sessionId: input.runtimeSessionId,
     previousMessageId: input.userMessageId,
@@ -333,7 +248,6 @@ export async function persistAssistantMessage(input: {
     idempotencyKey: "",
     message: {
       role: "assistant",
-      source: "pi",
       externalMessageId: typeof assistant.id === "string" ? assistant.id : null,
       protocolMessageId: typeof assistant.id === "string" ? assistant.id : null,
       content,
@@ -343,7 +257,6 @@ export async function persistAssistantMessage(input: {
       stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
       errorMessage: typeof assistant.errorMessage === "string" ? assistant.errorMessage : null,
       meta: {
-        source: "pi",
         runtimeId: input.runtimeId,
         sessionId: input.runtimeSessionId,
         rawStopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
@@ -362,28 +275,20 @@ export async function persistAssistantMessage(input: {
                 typeof (assistant.usage as Record<string, unknown>).output === "number"
                   ? ((assistant.usage as Record<string, unknown>).output as number)
                   : undefined,
-              totalTokens:
-                typeof (assistant.usage as Record<string, unknown>).totalTokens === "number"
-                  ? ((assistant.usage as Record<string, unknown>).totalTokens as number)
-                  : undefined,
               costTotal:
                 assistant.usage &&
                 typeof (assistant.usage as Record<string, unknown>).cost === "object" &&
-                typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total) ===
-                  "number"
-                  ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total as number) ??
-                      undefined)
+                typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total) === "number"
+                  ? (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total as number)
                   : undefined,
             }
           : null,
     },
-    toolCalls,
   };
 
   payload.idempotencyKey = buildAssistantIdempotencyKey({
     previousMessageId: payload.previousMessageId ?? "root",
     message: payload.message,
-    toolCalls: payload.toolCalls ?? [],
   });
 
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/messages`;

@@ -6,8 +6,8 @@ import {
   getRuntimeProvisioning,
   getRuntimeSessions,
   getSessionMessages,
+  postSessionMessage,
   updateRuntimeChannelConfig,
-  createSessionResponseStream,
   createRuntimeSession,
   type RuntimeChannelConfigInput,
   type RuntimeChannelRecord,
@@ -15,7 +15,6 @@ import {
   type RuntimeRecord,
   type SessionRecord,
   type SessionMessageRecord,
-  type SessionToolCallRecord,
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
@@ -32,7 +31,6 @@ type Props = {
 type SessionViewState = {
   session: SessionRecord;
   messages: SessionMessageRecord[];
-  toolCalls: SessionToolCallRecord[];
   loading: boolean;
   loaded: boolean;
   error: string;
@@ -80,7 +78,7 @@ const openedSessions = $derived(
 const timeline = $derived.by<TimelineItem[]>(() => {
   const state = activeSessionState;
   if (!state) return [];
-  const items = toChatMessages(state.messages, state.toolCalls).map((message) => ({
+  const items = toChatMessages(state.messages).map((message) => ({
     id: message.id,
     kind: "message" as const,
     message,
@@ -93,7 +91,9 @@ const timeline = $derived.by<TimelineItem[]>(() => {
       message: {
         id: "assistant-streaming",
         role: "assistant",
+        content: [{ type: "text", text: streamingAssistantText }],
         text: streamingAssistantText,
+        sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
       },
     });
   }
@@ -161,7 +161,6 @@ async function handleCreateNewSession() {
       [newSession.id]: {
         session: newSession,
         messages: [],
-        toolCalls: [],
         loading: false,
         loaded: true,
         error: "",
@@ -188,7 +187,6 @@ function seedSessions(sessions: SessionRecord[]) {
       nextState[session.id] = {
         session,
         messages: [],
-        toolCalls: [],
         loading: false,
         loaded: false,
         error: "",
@@ -301,7 +299,6 @@ async function loadSessionState(sessionId: string, force = false) {
     [sessionId]: {
       session: existing?.session ?? fallbackSession,
       messages: existing?.messages ?? [],
-      toolCalls: existing?.toolCalls ?? [],
       loading: true,
       loaded: existing?.loaded ?? false,
       error: existing?.error ?? "",
@@ -315,7 +312,6 @@ async function loadSessionState(sessionId: string, force = false) {
       [sessionId]: {
         session: response.session,
         messages: response.messages,
-        toolCalls: response.toolCalls,
         loading: false,
         loaded: true,
         error: "",
@@ -334,7 +330,6 @@ async function loadSessionState(sessionId: string, force = false) {
       [sessionId]: {
         session: existing?.session ?? fallbackSession,
         messages: existing?.messages ?? [],
-        toolCalls: existing?.toolCalls ?? [],
         loading: false,
         loaded: true,
         error: error instanceof Error ? error.message : "Failed to load session",
@@ -395,17 +390,13 @@ async function handleSend() {
               role: "user",
               content: [{ type: "text", text }],
               text,
-              externalMessageId: null,
-              protocolMessageId: null,
               sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
-              prevMessageId: currentState.messages.at(-1)?.id ?? null,
               provider: null,
               model: null,
               stopReason: null,
               errorMessage: null,
               usageInput: null,
               usageOutput: null,
-              usageTotalTokens: null,
               costTotal: null,
               createdAt: new Date().toISOString(),
             },
@@ -414,66 +405,63 @@ async function handleSend() {
       };
     }
 
-    for await (const event of createSessionResponseStream({
-      runtimeId: runtime.id,
-      sessionId,
-      text,
-    })) {
-      if (event.type === "response.output_text.content") {
-        if (event.timestamp >= streamingContentTs) {
-          streamingAssistantText = event.content;
-          streamingContentTs = event.timestamp;
+    // Post user message (triggers agent processing)
+    await postSessionMessage(sessionId, [{ type: "text", text }]);
+
+    // Poll for assistant response
+    const lastSequence = currentState?.messages.at(-1)?.sequence ?? 0;
+    const deadline = Date.now() + 10 * 60 * 1000;
+    let assistantMessage: SessionMessageRecord | null = null;
+
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const response = await getSessionMessages(sessionId);
+      const newMsg = response.messages.find((m) => m.sequence > lastSequence && m.role === "assistant");
+      if (newMsg) {
+        assistantMessage = newMsg;
+        // Update streaming text during polling
+        const textContent = newMsg.content.find((b) => b.type === "text");
+        if (textContent?.type === "text" && textContent.text) {
+          streamingAssistantText = textContent.text;
+          streamingContentTs = Date.now();
           await tick();
           if (shouldAutoFollow) {
             scrollToBottomNow();
           }
         }
+        break;
       }
+    }
 
-      if (event.type === "response.failed") {
-        streamError = event.response.error?.message ?? "Response failed";
-        streamStatus = "error";
-      }
-
-      if (event.type === "response.completed") {
-        streamStatus = "done";
-
-        const finalText = event.response.output?.[0]?.content?.[0]?.text ?? streamingAssistantText;
-        const latestState = sessionStateById[sessionId];
-        if (latestState && finalText.trim()) {
-          sessionStateById = {
-            ...sessionStateById,
-            [sessionId]: {
-              ...latestState,
-              messages: [
-                ...latestState.messages,
-                {
-                  id: `optimistic-assistant-${Date.now()}`,
-                  sessionId,
-                  role: "assistant",
-                  content: [{ type: "text", text: finalText }],
-                  text: finalText,
-                  externalMessageId: null,
-                  protocolMessageId: null,
-                  sequence: (latestState.messages.at(-1)?.sequence ?? 0) + 1,
-                  prevMessageId: latestState.messages.at(-1)?.id ?? null,
-                  provider: null,
-                  model: event.response.model ?? null,
-                  stopReason: null,
-                  errorMessage: null,
-                  usageInput: null,
-                  usageOutput: null,
-                  usageTotalTokens: null,
-                  costTotal: null,
-                  createdAt: new Date().toISOString(),
-                },
-              ],
-            },
-          };
-        }
-
-        streamingAssistantText = "";
-        streamingContentTs = 0;
+    if (assistantMessage) {
+      streamStatus = "done";
+      const latestState = sessionStateById[sessionId];
+      if (latestState) {
+        sessionStateById = {
+          ...sessionStateById,
+          [sessionId]: {
+            ...latestState,
+            messages: [
+              ...latestState.messages,
+              {
+                id: assistantMessage.id,
+                sessionId,
+                role: "assistant",
+                content: assistantMessage.content,
+                text: assistantMessage.text ?? "",
+                sequence: assistantMessage.sequence,
+                provider: assistantMessage.provider,
+                model: assistantMessage.model,
+                stopReason: assistantMessage.stopReason,
+                errorMessage: assistantMessage.errorMessage,
+                usageInput: assistantMessage.usageInput,
+                usageOutput: assistantMessage.usageOutput,
+                costTotal: assistantMessage.costTotal,
+                createdAt: assistantMessage.createdAt,
+              },
+            ],
+          },
+        };
       }
     }
 

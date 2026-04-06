@@ -7,21 +7,23 @@ type Props = {
 
 const { tool }: Props = $props();
 
-const prettyArgs = (args?: Record<string, unknown>) => {
-  if (!args) {
+const prettyArgs = (input?: Record<string, unknown>) => {
+  if (!input) {
     return "";
   }
 
   try {
-    return JSON.stringify(args, null, 2);
+    return JSON.stringify(input, null, 2);
   } catch {
-    return String(args);
+    return String(input);
   }
 };
 
 const isCodeTool = $derived(
   ["bash", "read", "write", "edit", "grep", "find"].includes(tool.name),
 );
+
+const toolInput = $derived(tool.input);
 </script>
 
 <div class="max-w-[52rem]">
@@ -33,14 +35,14 @@ const isCodeTool = $derived(
       </span>
     </div>
 
-    {#if tool.args && Object.keys(tool.args).length > 0}
+    {#if toolInput && Object.keys(toolInput).length > 0}
       <div class="border-b border-white/10 bg-white/[0.02] px-3 py-2">
-        {#if tool.name === 'bash' && typeof tool.args.command === 'string'}
-          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/58">$ {tool.args.command}</pre>
-        {:else if ['read', 'write', 'edit'].includes(tool.name) && typeof tool.args.path === 'string'}
-          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/58">{tool.args.path}</pre>
+        {#if tool.name === 'bash' && typeof toolInput.command === 'string'}
+          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/58">$ {toolInput.command}</pre>
+        {:else if ['read', 'write', 'edit'].includes(tool.name) && typeof toolInput.path === 'string'}
+          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/58">{toolInput.path}</pre>
         {:else}
-          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/58">{prettyArgs(tool.args)}</pre>
+          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-white/58">{prettyArgs(toolInput)}</pre>
         {/if}
       </div>
     {/if}

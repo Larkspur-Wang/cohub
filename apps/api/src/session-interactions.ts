@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent } from "@cohub/protocol";
+import type { ContentBlock, GatewayInboundEvent } from "@cohub/protocol";
 import { createUserMessageNode, enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
 import {
   createRuntimeSessionBinding,
@@ -9,6 +9,7 @@ import {
   touchRuntimeSessionBinding,
   updateRuntimeSessionBindingMeta,
   buildDefaultBindingMeta,
+  createProviderMessageRef,
 } from "./channels.js";
 import { buildSessionSourceChannel } from "@cohub/protocol";
 import { providerMessageRefs, runtimeChannels } from "./db/schema.js";
@@ -23,7 +24,6 @@ export const executeSessionInteraction = async (input: {
   interactionId: string;
   actorUserId?: string | null;
   metadata?: Record<string, unknown> | null;
-  externalMessageId?: string | null;
   inboundRef?: {
     provider: string;
     runtimeChannelId: string;
@@ -34,10 +34,10 @@ export const executeSessionInteraction = async (input: {
     meta?: Record<string, unknown> | null;
   } | null;
 }) => {
+  const content: ContentBlock[] = [{ type: "text", text: input.inputText }];
   const userMessage = await createUserMessageNode({
     runtimeSessionId: input.sessionId,
-    text: input.inputText,
-    externalMessageId: input.externalMessageId ?? null,
+    content,
     meta: {
       source: input.source,
       interactionId: input.interactionId,
@@ -46,8 +46,9 @@ export const executeSessionInteraction = async (input: {
     },
   });
 
+  // Record inbound reference in providerMessageRefs
   if (input.inboundRef) {
-    await db.insert(providerMessageRefs).values({
+    await createProviderMessageRef({
       provider: input.inboundRef.provider,
       runtimeId: input.runtimeId,
       runtimeSessionId: input.sessionId,
@@ -134,7 +135,6 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
           parentSessionId: forkSource.parentSessionId,
           fromMessageId: forkSource.fromMessageId,
           newSessionId: randomUUID(),
-          source: sessionSource,
         })
       : await registerRuntimeSession({
           runtimeId: rc.runtimeId,
