@@ -50,7 +50,7 @@ const buildToolLine = (status: string | undefined, toolName: string | undefined,
   return `[${safeStatus}] ${safeToolName}${suffix}`;
 };
 
-const buildDiscordRenderText = (content: ContentBlock[], includeThinking = false) => {
+const buildDiscordRenderText = (content: ContentBlock[], includeThinking = false, isFinalMessage = false) => {
   const textParts: string[] = [];
   const imageUris: string[] = [];
 
@@ -61,18 +61,20 @@ const buildDiscordRenderText = (content: ContentBlock[], includeThinking = false
     }
 
     if (block.type === "thinking") {
-      if (includeThinking) {
-        textParts.push(block.thinking);
+      if (includeThinking && !isFinalMessage) {
+        const summary = summarizeThinkingForMinimal(block.thinking);
+        if (summary) textParts.push(`> ${summary}`);
       }
       continue;
     }
 
     if (block.type === "tool_use") {
+      if (isFinalMessage) continue;
       const name = block.name;
       const inputSummary = block.input && typeof block.input === "object"
         ? Object.values(block.input as Record<string, unknown>).filter(v => typeof v === "string").join(" ").slice(0, 80)
         : "";
-      textParts.push(`🔧 ${name}${inputSummary ? ` — ${inputSummary}` : ""}`);
+      textParts.push(`[done] ${name}${inputSummary ? ` ${inputSummary}` : ""}`);
       continue;
     }
 
@@ -187,8 +189,7 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
   const isFinalMessage = cmd.meta?.source === "session_persist";
 
   if (renderMode !== "rich_status") {
-    // For final messages, exclude thinking blocks
-    return buildDiscordRenderText(cmd.content, !isFinalMessage);
+    return buildDiscordRenderText(cmd.content, !isFinalMessage, isFinalMessage);
   }
 
   const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
@@ -202,7 +203,7 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
 
   const lines: string[] = [];
   if (thinking.trim()) {
-    lines.push(thinking.trim());
+    lines.push(`> ${thinking.trim()}`);
   }
   if (toolCalls.length > 0) {
     lines.push(
@@ -217,6 +218,10 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
   }
   if (answer.trim()) {
     lines.push(answer.trim());
+  }
+
+  if (!isFinalMessage) {
+    lines.push("🍳 cooking…");
   }
 
   return {
