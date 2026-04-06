@@ -1,75 +1,184 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ============================================================
-   Theme System
-   All components should use CSS variables (via @theme tokens)
-   instead of hardcoded colors, so themes can be switched easily.
+   Cohub Theme System
+   All components use semantic CSS variables via @theme tokens.
+   Colors in OKLCH for perceptual uniformity.
    ============================================================ */
 
 /* --- Dark Theme (default) --- */
 :root,
 [data-theme="dark"] {
-  --bg-primary: #0a0a0a;
-  --bg-content: #0f0f0f;
-  --bg-surface: #121212;
-  --bg-surface-hover: #161616;
-  --bg-elevated: #111111;
-  --bg-input: rgba(0, 0, 0, 0.4);
-  --bg-code: rgba(0, 0, 0, 0.3);
-  --bg-header-alt: #1a1a1a;
+  /* Neutral scale — cool-tinted for tech feel (hue ~250) */
+  --neutral-0:  oklch(98%  0.003 250);
+  --neutral-5:  oklch(92%  0.005 250);
+  --neutral-10: oklch(80%  0.008 250);
+  --neutral-20: oklch(60%  0.01  250);
+  --neutral-30: oklch(45%  0.012 250);
+  --neutral-40: oklch(35%  0.012 250);
+  --neutral-50: oklch(28%  0.01  250);
+  --neutral-60: oklch(22%  0.008 250);
+  --neutral-70: oklch(18%  0.007 250);
+  --neutral-80: oklch(15%  0.006 250);
+  --neutral-90: oklch(12%  0.005 250);
+  --neutral-95: oklch(10%  0.004 250);
+  --neutral-100:oklch(8%   0.003 250);
 
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.6);
-  --text-tertiary: rgba(255, 255, 255, 0.35);
-  --text-placeholder: rgba(255, 255, 255, 0.2);
+  /* Brand: #FF3E00 → oklch(60% 0.2 30) */
+  --brand-50:  oklch(95%  0.02  30);
+  --brand-100: oklch(85%  0.06  30);
+  --brand-200: oklch(75%  0.12  30);
+  --brand-300: oklch(65%  0.16  30);
+  --brand-400: oklch(60%  0.2   30);  /* base brand */
+  --brand-500: oklch(55%  0.22  30);
+  --brand-600: oklch(45%  0.2   30);
+  --brand-700: oklch(35%  0.16  30);
 
-  --border-primary: rgba(255, 255, 255, 0.1);
-  --border-subtle: rgba(255, 255, 255, 0.05);
+  /* Semantic colors */
+  --success-400: oklch(70%  0.14 160);
+  --success-500: oklch(62%  0.16 160);
+  --success-700: oklch(40%  0.1   160);
+  --success-900: oklch(20%  0.04 160);
 
-  --bg-hover: rgba(255, 255, 255, 0.05);
-  --bg-hover-strong: rgba(255, 255, 255, 0.1);
-  --bg-active: rgba(255, 255, 255, 0.08);
+  --warning-400: oklch(75%  0.14 80);
+  --warning-500: oklch(68%  0.16 80);
+  --warning-700: oklch(45%  0.1   80);
+  --warning-900: oklch(22%  0.04 80);
 
-  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --error-400: oklch(60%  0.2  25);
+  --error-500: oklch(55%  0.22 25);
+  --error-700: oklch(35%  0.14 25);
+  --error-900: oklch(18%  0.06 25);
 
-  --selection-bg: rgba(255, 255, 255, 0.2);
+  --info-400: oklch(65%  0.12 230);
+  --info-500: oklch(58%  0.14 230);
+  --info-700: oklch(38%  0.1  230);
+  --info-900: oklch(18%  0.05 230);
+
+  /* Backgrounds — explicit colors, minimal alpha */
+  --bg-primary:       var(--neutral-95);
+  --bg-content:       var(--neutral-90);
+  --bg-surface:       var(--neutral-80);
+  --bg-surface-hover: var(--neutral-70);
+  --bg-elevated:      var(--neutral-70);
+  --bg-input:         var(--neutral-90);
+  --bg-code:          var(--neutral-100);
+  --bg-header-alt:    var(--neutral-80);
+
+  /* Text */
+  --text-primary:   var(--neutral-0);
+  --text-secondary: var(--neutral-20);
+  --text-tertiary:  var(--neutral-30);
+  --text-placeholder:var(--neutral-40);
+  --text-disabled:  var(--neutral-50);
+
+  /* Borders */
+  --border-primary: var(--neutral-60);
+  --border-subtle:  var(--neutral-70);
+
+  /* Interactive states — explicit, minimal alpha */
+  --bg-hover:        oklch(18%  0.008 250 / 1);
+  --bg-hover-strong: oklch(22%  0.01  250 / 1);
+  --bg-active:       oklch(25%  0.012 250 / 1);
+
+  /* Scrollbar */
+  --scrollbar-thumb:       var(--neutral-50);
+  --scrollbar-thumb-hover: var(--neutral-30);
+
+  /* Selection */
+  --selection-bg: oklch(40%  0.08 250);
 }
 
 /* --- Light Theme --- */
 [data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-content: #f9fafb;
-  --bg-surface: #f3f4f6;
-  --bg-surface-hover: #e5e7eb;
-  --bg-elevated: #ffffff;
-  --bg-input: #ffffff;
-  --bg-code: #f3f4f6;
-  --bg-header-alt: #f3f4f6;
+  /* Neutral scale — warm-tinted */
+  --neutral-0:  oklch(8%   0.003 250);
+  --neutral-5:  oklch(18%  0.005 250);
+  --neutral-10: oklch(35%  0.008 250);
+  --neutral-20: oklch(50%  0.01  250);
+  --neutral-30: oklch(65%  0.012 250);
+  --neutral-40: oklch(78%  0.01  250);
+  --neutral-50: oklch(85%  0.008 250);
+  --neutral-60: oklch(90%  0.006 250);
+  --neutral-70: oklch(93%  0.004 250);
+  --neutral-80: oklch(96%  0.003 250);
+  --neutral-90: oklch(98%  0.002 250);
+  --neutral-95: oklch(99%  0.001 250);
+  --neutral-100:oklch(100% 0     0);
 
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
-  --text-tertiary: #9ca3af;
-  --text-placeholder: #d1d5db;
+  /* Brand — slightly darker for light bg contrast */
+  --brand-50:  oklch(95%  0.02  30);
+  --brand-100: oklch(88%  0.05  30);
+  --brand-200: oklch(78%  0.1   30);
+  --brand-300: oklch(68%  0.14  30);
+  --brand-400: oklch(58%  0.18  30);
+  --brand-500: oklch(52%  0.2   30);
+  --brand-600: oklch(45%  0.18  30);
+  --brand-700: oklch(38%  0.15  30);
 
-  --border-primary: rgba(0, 0, 0, 0.1);
-  --border-subtle: rgba(0, 0, 0, 0.05);
+  /* Semantic colors — adjusted for light bg */
+  --success-400: oklch(45%  0.12 160);
+  --success-500: oklch(38%  0.14 160);
+  --success-700: oklch(30%  0.1  160);
+  --success-900: oklch(90%  0.04 160);
 
-  --bg-hover: rgba(0, 0, 0, 0.04);
-  --bg-hover-strong: rgba(0, 0, 0, 0.08);
-  --bg-active: rgba(0, 0, 0, 0.06);
+  --warning-400: oklch(50%  0.12 80);
+  --warning-500: oklch(42%  0.14 80);
+  --warning-700: oklch(32%  0.1  80);
+  --warning-900: oklch(92%  0.04 80);
 
-  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --error-400: oklch(45%  0.16 25);
+  --error-500: oklch(38%  0.18 25);
+  --error-700: oklch(28%  0.12 25);
+  --error-900: oklch(90%  0.04 25);
 
-  --selection-bg: rgba(0, 0, 0, 0.1);
+  --info-400: oklch(45%  0.12 230);
+  --info-500: oklch(38%  0.14 230);
+  --info-700: oklch(28%  0.1  230);
+  --info-900: oklch(90%  0.04 230);
+
+  /* Backgrounds */
+  --bg-primary:       var(--neutral-100);
+  --bg-content:       var(--neutral-95);
+  --bg-surface:       var(--neutral-90);
+  --bg-surface-hover: var(--neutral-80);
+  --bg-elevated:      var(--neutral-100);
+  --bg-input:         var(--neutral-100);
+  --bg-code:          var(--neutral-90);
+  --bg-header-alt:    var(--neutral-90);
+
+  /* Text */
+  --text-primary:   var(--neutral-0);
+  --text-secondary: var(--neutral-10);
+  --text-tertiary:  var(--neutral-20);
+  --text-placeholder:var(--neutral-30);
+  --text-disabled:  var(--neutral-40);
+
+  /* Borders */
+  --border-primary: var(--neutral-50);
+  --border-subtle:  var(--neutral-60);
+
+  /* Interactive states */
+  --bg-hover:        oklch(96%  0.003 250 / 1);
+  --bg-hover-strong: oklch(92%  0.005 250 / 1);
+  --bg-active:       oklch(88%  0.008 250 / 1);
+
+  /* Scrollbar */
+  --scrollbar-thumb:       var(--neutral-40);
+  --scrollbar-thumb-hover: var(--neutral-20);
+
+  /* Selection */
+  --selection-bg: oklch(85%  0.04 250);
 }
 
 /* ============================================================
-   Tailwind v4 @theme — maps design tokens to Tailwind utilities
+   Tailwind v4 @theme — semantic design tokens
    ============================================================ */
 @theme {
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  /* Fonts */
+  --font-sans: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 
   /* Backgrounds */
   --color-bg-primary: var(--bg-primary);
@@ -89,10 +198,39 @@
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
   --color-text-placeholder: var(--text-placeholder);
+  --color-text-disabled: var(--text-disabled);
 
   /* Borders */
   --color-border-primary: var(--border-primary);
   --color-border-subtle: var(--border-subtle);
+
+  /* Brand */
+  --color-brand: var(--brand-400);
+  --color-brand-hover: var(--brand-500);
+  --color-brand-soft: var(--brand-700);
+  --color-brand-bg: var(--brand-900);
+
+  /* Semantic */
+  --color-success: var(--success-500);
+  --color-success-soft: var(--success-700);
+  --color-success-bg: var(--success-900);
+  --color-warning: var(--warning-500);
+  --color-warning-soft: var(--warning-700);
+  --color-warning-bg: var(--warning-900);
+  --color-error: var(--error-500);
+  --color-error-soft: var(--error-700);
+  --color-error-bg: var(--error-900);
+  --color-info: var(--info-500);
+  --color-info-soft: var(--info-700);
+  --color-info-bg: var(--info-900);
+
+  /* Status */
+  --color-status-running: var(--success-400);
+  --color-status-starting: var(--warning-400);
+  --color-status-error: var(--error-400);
+  --color-status-hibernated: var(--neutral-40);
+  --color-status-hibernating: var(--info-400);
+  --color-status-unknown: var(--text-placeholder);
 }
 
 /* ============================================================
@@ -106,6 +244,11 @@ body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Dark mode: reduce font weight slightly for readability */
+[data-theme="dark"] body {
+  font-weight: 350;
 }
 
 *::-webkit-scrollbar {
@@ -128,4 +271,12 @@ body {
 
 ::selection {
   background: var(--selection-bg);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -16,7 +16,7 @@ const resolvedTheme = $derived(getResolvedTheme());
     {@render children?.()}
   </main>
 {:else}
-  <div class="h-screen flex bg-bg-primary text-text-secondary font-sans text-sm">
+  <div class="h-screen flex bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
     <Sidebar />
     <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
       {@render children?.()}

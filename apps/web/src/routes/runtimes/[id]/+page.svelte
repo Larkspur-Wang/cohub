@@ -482,11 +482,11 @@ async function forceScrollToBottom() {
 }
 
 function runtimeStatusColor(status: string) {
-  if (status === "running") return "text-emerald-400";
-  if (status === "starting" || status === "active") return "text-amber-400";
-  if (status === "error" || status === "boot_failed") return "text-rose-400";
-  if (status === "hibernated") return "text-gray-400";
-  if (status === "hibernating") return "text-blue-400";
+  if (status === "running") return "text-status-running";
+  if (status === "starting" || status === "active") return "text-status-starting";
+  if (status === "error" || status === "boot_failed") return "text-status-error";
+  if (status === "hibernated") return "text-status-hibernated";
+  if (status === "hibernating") return "text-status-hibernating";
   return "text-text-tertiary";
 }
 
@@ -557,12 +557,12 @@ $effect(() => {
 </script>
 
 <!-- Runtime Header -->
-<header class="h-10 flex items-center justify-between px-3 border-b border-border-primary shrink-0 bg-bg-primary">
+<header class="h-[40px] flex items-center justify-between px-3 border-b border-border-subtle shrink-0 bg-bg-primary">
   <div class="flex items-center gap-3 min-w-0">
     <Terminal class="w-4 h-4 text-text-tertiary shrink-0" />
-    <span class="font-mono text-xs text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
-    <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded bg-hover border border-border-subtle shrink-0">
-      <div class="w-1.5 h-1.5 rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-amber-400' : runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}"></div>
+    <span class="text-[13px] text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
+    <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-[4px] bg-bg-hover border border-border-subtle shrink-0">
+      <div class="w-[5px] h-[5px] rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-status-starting' : runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}"></div>
       <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
         {#if provisioning && shouldPollProvisioning(provisioning)}
           {provisioning.currentStep}
@@ -576,13 +576,13 @@ $effect(() => {
   <div class="flex items-center gap-1.5">
     <button
       type="button"
-      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors disabled:opacity-50"
+      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
       onclick={() => handleCreateNewSession()}
       disabled={creatingSession || !runtime}
       title="New session"
     >
       {#if creatingSession}
-        <div class="w-3 h-3 rounded-full border border-border-primary border-t-emerald-400 animate-spin"></div>
+        <div class="w-3 h-3 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
       {:else}
         <Plus class="w-3.5 h-3.5" />
       {/if}
@@ -590,7 +590,7 @@ $effect(() => {
     </button>
     <button
       type="button"
-      class="flex items-center justify-center w-7 h-7 rounded-md text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
+      class="flex items-center justify-center w-7 h-7 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
       onclick={() => showSettings = !showSettings}
       title="Settings"
     >
@@ -605,16 +605,16 @@ $effect(() => {
     {#if bootstrapping && !activeSessionState}
       <div class="flex-1 flex items-center justify-center bg-bg-content">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
-          <div class="w-8 h-8 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin"></div>
-          <div class="text-xs font-mono">Loading runtime…</div>
+          <div class="w-7 h-7 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+          <div class="text-[12px]">Loading runtime…</div>
         </div>
       </div>
     {:else if !activeSessionState}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
-        <div class="text-sm">No session selected</div>
+        <div class="text-[14px]">No session selected</div>
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
           onclick={() => handleCreateNewSession()}
           disabled={creatingSession || !runtime}
         >
@@ -625,13 +625,13 @@ $effect(() => {
     {:else if activeSessionState.loading && !activeSessionState.loaded}
       <div class="flex-1 flex items-center justify-center bg-bg-content">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
-          <div class="w-7 h-7 rounded-full border-2 border-border-subtle border-t-emerald-400 animate-spin"></div>
-          <div class="text-xs font-mono">Loading messages…</div>
+          <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+          <div class="text-[12px]">Loading messages…</div>
         </div>
       </div>
     {:else}
       {#if activeSessionState.error}
-        <div class="m-4 rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">
+        <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
           {activeSessionState.error}
         </div>
       {/if}
@@ -642,7 +642,7 @@ $effect(() => {
         {#if !shouldAutoFollow && timeline.length > 0}
           <button
             type="button"
-            class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-hover-strong hover:bg-active border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-all shadow-lg backdrop-blur-sm"
+            class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-hover-strong hover:bg-bg-active border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-all shadow-lg backdrop-blur-sm"
             onclick={() => {
               shouldAutoFollow = true;
               forceScrollToBottom();
@@ -654,7 +654,7 @@ $effect(() => {
         {/if}
       </div>
 
-      <div class="border-t border-border-primary bg-bg-primary">
+      <div class="border-t border-border-subtle bg-bg-primary">
         <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
       </div>
     {/if}
@@ -662,12 +662,12 @@ $effect(() => {
 
   <!-- Settings Panel -->
   {#if showSettings}
-    <div class="flex w-80 flex-col border-l border-border-primary bg-bg-primary shrink-0 overflow-y-auto">
-      <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[11px] font-medium uppercase tracking-wider text-text-tertiary select-none sticky top-0 bg-bg-primary z-10">
+    <div class="flex w-80 flex-col border-l border-border-subtle bg-bg-primary shrink-0 overflow-y-auto">
+      <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none sticky top-0 bg-bg-primary z-10">
         <span>Settings</span>
         <button
           type="button"
-          class="flex items-center justify-center w-6 h-6 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
+          class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
           onclick={() => showSettings = false}
           title="Close settings"
         >
@@ -679,18 +679,18 @@ $effect(() => {
         <section class="space-y-3">
           <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
             <span>Channels</span>
-            <span class="px-1.5 py-0.5 rounded-sm bg-hover-strong text-text-secondary">{runtimeChannels.length}</span>
+            <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{runtimeChannels.length}</span>
           </div>
 
           {#if runtimeChannels.length === 0}
-            <div class="rounded-md border border-border-subtle bg-hover p-3 text-xs text-text-tertiary">No channels bound.</div>
+            <div class="rounded-md border border-border-subtle bg-bg-hover p-3 text-[13px] text-text-tertiary">No channels bound.</div>
           {:else}
             <div class="space-y-3">
               {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
-                <div class="border border-border-primary rounded-md bg-bg-surface overflow-hidden">
+                <div class="border border-border-subtle rounded-[5px] bg-bg-surface overflow-hidden">
                   <div class="px-3 py-2 border-b border-border-subtle bg-bg-header-alt flex items-center gap-2">
                     <Hash class="w-3 h-3 text-text-tertiary" />
-                    <span class="text-xs font-medium text-text-primary truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
+                    <span class="text-[12px] font-medium text-text-primary truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
                   </div>
 
                   <div class="p-3">
@@ -705,11 +705,11 @@ $effect(() => {
                               ...current,
                               inbound: { ...(current.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
                             }))}
-                            class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
+                            class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
                           />
                           <div class="flex flex-col min-w-0">
-                            <span class="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Require mention in Guild</span>
-                            <span class="text-[10px] text-text-placeholder">Respond only when mentioned</span>
+                            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Require mention in Guild</span>
+                            <span class="text-[11px] text-text-placeholder">Respond only when mentioned</span>
                           </div>
                         </label>
 
@@ -723,10 +723,10 @@ $effect(() => {
                               ...current,
                               outbound: { ...(current.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
                             }))}
-                            class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
+                            class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
                           />
                           <div class="flex flex-col">
-                            <span class="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Show thinking</span>
+                            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Show thinking</span>
                           </div>
                         </label>
 
@@ -738,22 +738,22 @@ $effect(() => {
                             ...current,
                             outbound: { ...(current.outbound ?? {}), showToolCalls: (event.currentTarget as HTMLInputElement).checked },
                           }))}
-                          class="mt-0.5 rounded-sm bg-black border-white/20 checked:bg-emerald-500 checked:border-emerald-500"
+                          class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
                         />
                           <div class="flex flex-col">
-                            <span class="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Show tool calls</span>
+                            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Show tool calls</span>
                           </div>
                         </label>
                       </div>
                     {:else}
-                      <div class="text-xs text-text-tertiary">No configuration available.</div>
+                      <div class="text-[13px] text-text-tertiary">No configuration available.</div>
                     {/if}
 
                     {#if savingChannelConfigById[runtimeChannel.id]}
-                      <div class="mt-3 text-[10px] text-emerald-400/70">Saving changes...</div>
+                      <div class="mt-3 text-[10px] text-success-soft">Saving changes...</div>
                     {/if}
                     {#if channelConfigErrorById[runtimeChannel.id]}
-                      <div class="mt-3 text-[10px] text-rose-400 break-all">{channelConfigErrorById[runtimeChannel.id]}</div>
+                      <div class="mt-3 text-[10px] text-error-soft break-all">{channelConfigErrorById[runtimeChannel.id]}</div>
                     {/if}
                   </div>
                 </div>

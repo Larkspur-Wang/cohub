@@ -1,5 +1,5 @@
 <script lang="ts">
-import { FolderKanban, Network, Cpu, ArrowRight } from "lucide-svelte";
+import { FolderKanban, Cpu, ArrowRight, Terminal, MessageSquare, Clock } from "lucide-svelte";
 import { getWorkspaces, getRuntimes, getChannels } from "$lib/api";
 import { onMount } from "svelte";
 import { ensureAuth } from "$lib/auth";
@@ -7,8 +7,27 @@ import { ensureAuth } from "$lib/auth";
 let workspaceCount = $state(0);
 let runtimeCount = $state(0);
 let channelCount = $state(0);
+let recentRuntimes = $state<Array<{ id: string; title: string; status: string; workspaceId?: string }>>([]);
 let isLoading = $state(true);
 let loadError = $state("");
+
+function statusLabel(status: string) {
+  if (status === "running") return "Running";
+  if (status === "starting" || status === "active") return "Starting";
+  if (status === "error" || status === "boot_failed") return "Error";
+  if (status === "hibernated") return "Hibernated";
+  if (status === "hibernating") return "Hibernating";
+  return status;
+}
+
+function statusClass(status: string) {
+  if (status === "running") return "text-status-running";
+  if (status === "starting" || status === "active") return "text-status-starting";
+  if (status === "error" || status === "boot_failed") return "text-status-error";
+  if (status === "hibernated") return "text-status-hibernated";
+  if (status === "hibernating") return "text-status-hibernating";
+  return "text-text-placeholder";
+}
 
 onMount(async () => {
   if (!(await ensureAuth())) return;
@@ -21,6 +40,15 @@ onMount(async () => {
     workspaceCount = workspaces.length;
     runtimeCount = runtimes.length;
     channelCount = channels.length;
+    recentRuntimes = runtimes
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 5)
+      .map((r) => ({
+        id: r.id,
+        title: r.title || r.id.slice(0, 12),
+        status: r.liveStatus ?? r.status ?? "unknown",
+        workspaceId: r.workspaceId ?? undefined,
+      }));
   } catch (error) {
     loadError = error instanceof Error ? error.message : "Failed to load overview data";
   } finally {
@@ -30,82 +58,83 @@ onMount(async () => {
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
-  <div class="h-10 flex items-center px-4 border-b border-border-primary shrink-0 bg-bg-primary">
-    <span class="text-xs font-medium text-text-secondary">Overview</span>
+  <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
+    <span class="text-[11px] font-medium text-text-secondary">Overview</span>
   </div>
 
   <div class="flex-1 p-6 overflow-y-auto">
-    <div class="max-w-3xl">
-      <h1 class="text-2xl font-semibold text-text-primary tracking-tight">Welcome to Cohub</h1>
-      <p class="mt-2 text-sm text-text-tertiary">Orchestrate your autonomous AI workflows.</p>
+    <div class="max-w-[48rem]">
+      <h1 class="text-xl font-semibold text-text-primary tracking-tight">Welcome to Cohub</h1>
+      <p class="mt-1 text-[13px] text-text-tertiary">Host workspaces. Run agents.</p>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="mt-6 flex gap-2">
+      <a href="/runtimes/new" class="flex items-center gap-2 px-3 py-2 rounded-md bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors">
+        <Terminal class="w-[14px] h-[14px]" />
+        New Runtime
+      </a>
+      <a href="/workspaces" class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-surface border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-hover transition-colors">
+        <FolderKanban class="w-[14px] h-[14px]" />
+        Workspaces
+      </a>
+      <a href="/explore" class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-surface border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-hover transition-colors">
+        <MessageSquare class="w-[14px] h-[14px]" />
+        Explore
+      </a>
     </div>
 
     {#if isLoading}
-      <div class="mt-6 grid grid-cols-3 gap-3">
+      <div class="mt-8 space-y-2">
         {#each [1, 2, 3] as _}
-          <div class="h-24 rounded-lg border border-border-primary bg-bg-surface animate-pulse"></div>
+          <div class="h-10 rounded-md bg-bg-surface animate-pulse"></div>
         {/each}
       </div>
     {:else if loadError}
-      <div class="mt-6 rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+      <div class="mt-8 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
     {:else}
-      <div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <a href="/workspaces" class="block p-4 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 hover:bg-bg-surface-hover transition-colors group">
-          <div class="flex items-center justify-between mb-3">
-            <div class="w-8 h-8 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <FolderKanban class="w-4 h-4 text-blue-400/70" />
-            </div>
-            <ArrowRight class="w-4 h-4 text-text-placeholder group-hover:text-text-secondary group-hover:translate-x-0.5 transition-all" />
-          </div>
-          <p class="text-2xl font-semibold text-text-primary">{workspaceCount}</p>
-          <p class="text-xs text-text-tertiary mt-1">Workspaces</p>
-        </a>
-
-        <a href="/runtimes" class="block p-4 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 hover:bg-bg-surface-hover transition-colors group">
-          <div class="flex items-center justify-between mb-3">
-            <div class="w-8 h-8 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Cpu class="w-4 h-4 text-emerald-400/70" />
-            </div>
-            <ArrowRight class="w-4 h-4 text-text-placeholder group-hover:text-text-secondary group-hover:translate-x-0.5 transition-all" />
-          </div>
-          <p class="text-2xl font-semibold text-text-primary">{runtimeCount}</p>
-          <p class="text-xs text-text-tertiary mt-1">Runtimes</p>
-        </a>
-
-        <a href="/channels" class="block p-4 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 hover:bg-bg-surface-hover transition-colors group">
-          <div class="flex items-center justify-between mb-3">
-            <div class="w-8 h-8 rounded-md bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-              <Network class="w-4 h-4 text-indigo-400/70" />
-            </div>
-            <ArrowRight class="w-4 h-4 text-text-placeholder group-hover:text-text-secondary group-hover:translate-x-0.5 transition-all" />
-          </div>
-          <p class="text-2xl font-semibold text-text-primary">{channelCount}</p>
-          <p class="text-xs text-text-tertiary mt-1">Channels</p>
-        </a>
+      <!-- Summary Stats -->
+      <div class="mt-8 flex gap-8">
+        <div>
+          <p class="text-2xl font-semibold text-text-primary tabular-nums">{workspaceCount}</p>
+          <p class="text-[11px] text-text-tertiary mt-0.5">Workspaces</p>
+        </div>
+        <div>
+          <p class="text-2xl font-semibold text-text-primary tabular-nums">{runtimeCount}</p>
+          <p class="text-[11px] text-text-tertiary mt-0.5">Runtimes</p>
+        </div>
+        <div>
+          <p class="text-2xl font-semibold text-text-primary tabular-nums">{channelCount}</p>
+          <p class="text-[11px] text-text-tertiary mt-0.5">Channels</p>
+        </div>
       </div>
+
+      <!-- Recent Runtimes -->
+      {#if recentRuntimes.length > 0}
+        <div class="mt-8">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder">Recent</h2>
+            <a href="/runtimes" class="flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-secondary transition-colors">
+              View all
+              <ArrowRight class="w-3 h-3" />
+            </a>
+          </div>
+
+          <div class="rounded-md border border-border-subtle overflow-hidden">
+            {#each recentRuntimes as runtime, i}
+              <a
+                href="/runtimes/{runtime.id}"
+                class="flex items-center gap-3 px-3 py-[10px] border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors {i === 0 ? 'bg-bg-content' : ''}"
+              >
+                <div class="w-[6px] h-[6px] rounded-full shrink-0 {statusClass(runtime.status)}"></div>
+                <span class="flex-1 text-[13px] text-text-primary truncate">{runtime.title}</span>
+                <span class="text-[11px] {statusClass(runtime.status)}">{statusLabel(runtime.status)}</span>
+                <ArrowRight class="w-3 h-3 text-text-placeholder opacity-0 group-hover:opacity-100" />
+              </a>
+            {/each}
+          </div>
+        </div>
+      {/if}
     {/if}
-
-    <!-- Quick links -->
-    <div class="mt-8">
-      <h2 class="text-sm font-medium text-text-tertiary mb-3">Quick Links</h2>
-      <div class="space-y-1">
-        <a href="/workspaces" class="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors">
-          <ArrowRight class="w-3 h-3" />
-          Browse workspaces
-        </a>
-        <a href="/explore" class="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors">
-          <ArrowRight class="w-3 h-3" />
-          Explore public workspaces
-        </a>
-        <a href="/channels" class="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors">
-          <ArrowRight class="w-3 h-3" />
-          Manage channels
-        </a>
-        <a href="/settings" class="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors">
-          <ArrowRight class="w-3 h-3" />
-          Settings
-        </a>
-      </div>
-    </div>
   </div>
 </div>

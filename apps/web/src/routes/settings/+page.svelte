@@ -85,24 +85,24 @@ async function handleDelete(id: string) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-10 flex items-center px-4 border-b border-border-primary shrink-0 bg-bg-primary">
-    <span class="text-xs font-medium text-text-secondary">Settings</span>
+  <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
+    <span class="text-[11px] font-medium text-text-secondary">Settings</span>
   </div>
 
-  <div class="flex-1 p-4 overflow-y-auto max-w-3xl">
+  <div class="flex-1 p-6 overflow-y-auto max-w-2xl">
     <!-- Appearance Section -->
-    <div class="mb-8">
-      <h2 class="text-sm font-medium text-text-primary mb-1">Appearance</h2>
-      <p class="text-xs text-text-tertiary mb-4">Choose your preferred theme.</p>
+    <section class="mb-10">
+      <h2 class="text-[14px] font-semibold text-text-primary mb-1">Appearance</h2>
+      <p class="text-[13px] text-text-tertiary mb-4">Choose your preferred theme.</p>
 
       <div class="flex gap-2">
         {#each themeOptions as option}
           <button
             type="button"
-            class="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors {
+            class="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] border text-[13px] font-medium transition-colors duration-100 {
               theme === option.value
-                ? 'border-border-primary bg-hover-strong text-text-primary'
-                : 'border-border-primary bg-bg-surface text-text-tertiary hover:text-text-secondary hover:bg-bg-surface-hover'
+                ? 'border-brand/40 bg-brand-bg text-text-primary'
+                : 'border-border-subtle bg-bg-surface text-text-tertiary hover:text-text-secondary hover:bg-bg-surface-hover'
             }"
             onclick={() => handleThemeChange(option.value)}
           >
@@ -111,17 +111,17 @@ async function handleDelete(id: string) {
           </button>
         {/each}
       </div>
-    </div>
+    </section>
 
     <!-- SSH Keys Section -->
-    <div class="mb-6">
-      <h2 class="text-sm font-medium text-text-primary mb-1">SSH Keys</h2>
-      <p class="text-xs text-text-tertiary mb-4">Add your SSH public keys to enable pushing to workspace repositories via SSH.</p>
+    <section>
+      <h2 class="text-[14px] font-semibold text-text-primary mb-1">SSH Keys</h2>
+      <p class="text-[13px] text-text-tertiary mb-4">Add your SSH public keys to enable pushing to workspace repositories via SSH.</p>
 
       {#if isAdding}
-        <div class="mb-4 border border-border-primary rounded-lg bg-bg-surface p-4" in:fade>
+        <div class="mb-4 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-medium text-text-primary">Add SSH Key</h3>
+            <h3 class="text-[13px] font-medium text-text-primary">Add SSH Key</h3>
             <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
               <X class="w-4 h-4" />
             </button>
@@ -135,7 +135,7 @@ async function handleDelete(id: string) {
                 type="text"
                 bind:value={formTitle}
                 placeholder="MacBook Pro"
-                class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
             </div>
@@ -146,7 +146,7 @@ async function handleDelete(id: string) {
                 id="key-value"
                 bind:value={formKey}
                 placeholder="ssh-ed25519 AAAA..."
-                class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none font-mono resize-y min-h-[4rem]"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono resize-y min-h-[4rem] transition-colors"
                 rows={3}
                 required
               ></textarea>
@@ -155,7 +155,7 @@ async function handleDelete(id: string) {
             <button
               type="submit"
               disabled={isSubmitting}
-              class="px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors disabled:opacity-50"
+              class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
             >
               {isSubmitting ? "Saving..." : "Add Key"}
             </button>
@@ -164,52 +164,52 @@ async function handleDelete(id: string) {
       {:else}
         <button
           onclick={() => isAdding = true}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors mb-4 cursor-pointer"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors mb-4 cursor-pointer"
         >
           <Plus class="w-3.5 h-3.5" />
           Add SSH Key
         </button>
       {/if}
-    </div>
 
-    <!-- Keys List -->
-    {#if isLoading}
-      <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
-        <div class="w-4 h-4 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin mr-2"></div>
-        Loading SSH keys...
-      </div>
-    {:else if loadError}
-      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
-    {:else if keys.length === 0}
-      <div class="flex flex-col items-center justify-center py-12 text-center">
-        <div class="w-10 h-10 rounded-full bg-hover border border-border-primary flex items-center justify-center mb-3">
-          <KeyRound class="w-4 h-4 text-text-placeholder" />
+      <!-- Keys List -->
+      {#if isLoading}
+        <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
+          <div class="w-4 h-4 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
+          Loading SSH keys...
         </div>
-        <p class="text-sm text-text-tertiary">No SSH keys</p>
-        <p class="text-xs text-text-placeholder mt-1">Add an SSH key to push to your workspace repositories</p>
-      </div>
-    {:else}
-      <div class="space-y-2">
-        {#each keys as key (key.id)}
-          <div class="group flex items-start gap-3 p-3 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 transition-colors">
-            <div class="w-8 h-8 rounded-md bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center shrink-0 mt-0.5">
-              <KeyRound class="w-4 h-4 text-yellow-400/70" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <h4 class="text-sm font-medium text-text-primary">{key.title}</h4>
-              <code class="mt-1 block text-[10px] font-mono bg-bg-code px-2 py-1 rounded text-text-tertiary truncate">{key.key.slice(0, 60)}...</code>
-              <p class="mt-1 text-[10px] text-text-placeholder">Added {new Date(key.createdAt).toLocaleDateString()}</p>
-            </div>
-            <button
-              onclick={() => handleDelete(key.id)}
-              class="p-1.5 rounded text-text-placeholder hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0 cursor-pointer"
-              title="Delete SSH key"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </button>
+      {:else if loadError}
+        <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
+      {:else if keys.length === 0}
+        <div class="flex flex-col items-center justify-center py-16 text-center">
+          <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
+            <KeyRound class="w-5 h-5 text-text-placeholder" />
           </div>
-        {/each}
-      </div>
-    {/if}
+          <p class="text-[14px] text-text-tertiary">No SSH keys</p>
+          <p class="text-[12px] text-text-placeholder mt-1">Add an SSH key to push to your workspace repositories</p>
+        </div>
+      {:else}
+        <div class="space-y-2">
+          {#each keys as key (key.id)}
+            <div class="group flex items-start gap-3 p-3 rounded-[5px] border border-border-subtle bg-bg-surface hover:border-border-primary transition-colors duration-100">
+              <div class="w-8 h-8 rounded-[5px] bg-warning-bg border border-warning-soft/30 flex items-center justify-center shrink-0 mt-0.5">
+                <KeyRound class="w-4 h-4 text-warning-soft" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <h4 class="text-[13px] font-medium text-text-primary">{key.title}</h4>
+                <code class="mt-1 block text-[11px] font-mono bg-bg-code px-2 py-1 rounded-sm text-text-tertiary truncate">{key.key.slice(0, 60)}...</code>
+                <p class="mt-1 text-[11px] text-text-placeholder">Added {new Date(key.createdAt).toLocaleDateString()}</p>
+              </div>
+              <button
+                onclick={() => handleDelete(key.id)}
+                class="p-1.5 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg opacity-0 group-hover:opacity-100 transition-all shrink-0 cursor-pointer"
+                title="Delete SSH key"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </section>
   </div>
 </div>

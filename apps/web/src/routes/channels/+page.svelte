@@ -22,10 +22,10 @@ const providerIcons: Record<string, typeof MessageSquare> = {
   web: MonitorPlay,
 };
 
-const providerColors: Record<string, string> = {
-  discord: "text-indigo-400/70 bg-indigo-500/10 border-indigo-500/20",
-  feishu: "text-cyan-400/70 bg-cyan-500/10 border-cyan-500/20",
-  web: "text-emerald-400/70 bg-emerald-500/10 border-emerald-500/20",
+const providerDotColor: Record<string, string> = {
+  discord: "bg-indigo-400",
+  feishu: "bg-cyan-400",
+  web: "bg-status-running",
 };
 
 async function loadChannels() {
@@ -85,11 +85,11 @@ async function handleDelete(id: string) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-10 flex items-center justify-between px-4 border-b border-border-primary shrink-0 bg-bg-primary">
-    <span class="text-xs font-medium text-text-secondary">Channels</span>
+  <div class="h-[40px] flex items-center justify-between px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
+    <span class="text-[11px] font-medium text-text-secondary">Channels</span>
     <button
       type="button"
-      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-hover transition-colors"
+      class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
       onclick={() => isAdding = true}
     >
       <Plus class="w-3.5 h-3.5" />
@@ -100,9 +100,9 @@ async function handleDelete(id: string) {
   <div class="flex-1 p-4 overflow-y-auto">
     <!-- Create Form -->
     {#if isAdding}
-      <div class="mb-4 border border-border-primary rounded-lg bg-bg-surface p-4" in:fade>
+      <div class="mb-4 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-medium text-text-primary">New Channel</h2>
+          <h2 class="text-[13px] font-medium text-text-primary">New Channel</h2>
           <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors">
             <X class="w-4 h-4" />
           </button>
@@ -115,7 +115,7 @@ async function handleDelete(id: string) {
               <select
                 id="ch-provider"
                 bind:value={formProvider}
-                class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary focus:border-border-primary/30 focus:outline-none"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
               >
                 <option value="discord">Discord</option>
                 <option value="feishu">Feishu</option>
@@ -130,7 +130,7 @@ async function handleDelete(id: string) {
                 type="text"
                 bind:value={formName}
                 placeholder="Support Bot"
-                class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
             </div>
@@ -142,7 +142,7 @@ async function handleDelete(id: string) {
                 type="password"
                 bind:value={formToken}
                 placeholder="Enter token..."
-                class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
             </div>
@@ -151,7 +151,7 @@ async function handleDelete(id: string) {
           <button
             type="submit"
             disabled={isSubmitting}
-            class="px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors disabled:opacity-50"
+            class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
           >
             {isSubmitting ? "Saving..." : "Save Channel"}
           </button>
@@ -161,62 +161,63 @@ async function handleDelete(id: string) {
 
     <!-- Channel List -->
     {#if isLoading}
-      <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
-        <div class="w-4 h-4 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin mr-2"></div>
+      <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
+        <div class="w-4 h-4 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
         Loading channels...
       </div>
     {:else if loadError}
-      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+      <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
     {:else if channels.length === 0}
-      <div class="flex flex-col items-center justify-center py-12 text-center">
-        <div class="w-10 h-10 rounded-full bg-hover border border-border-primary flex items-center justify-center mb-3">
-          <Webhook class="w-4 h-4 text-text-placeholder" />
+      <div class="flex flex-col items-center justify-center py-16 text-center">
+        <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
+          <Webhook class="w-5 h-5 text-text-placeholder" />
         </div>
-        <p class="text-sm text-text-tertiary">No channels yet</p>
-        <p class="text-xs text-text-placeholder mt-1">Connect a platform to let your agents communicate</p>
+        <p class="text-[14px] text-text-tertiary">No channels yet</p>
+        <p class="text-[12px] text-text-placeholder mt-1">Connect a platform to let your agents communicate</p>
       </div>
     {:else}
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div class="rounded-md border border-border-subtle overflow-hidden">
+        <div class="grid grid-cols-[auto_1fr_auto_1fr_auto] gap-3 px-3 py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+          <span></span>
+          <span>Channel</span>
+          <span>Status</span>
+          <span>Bound Runtime</span>
+          <span></span>
+        </div>
         {#each channels as channel (channel.id)}
           {@const Icon = providerIcons[channel.provider] || Webhook}
-          {@const colorClass = providerColors[channel.provider] || providerColors.web}
-          <div class="group p-3 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 transition-colors">
-            <div class="flex items-start justify-between gap-2 mb-2">
-              <div class="w-8 h-8 rounded-md {colorClass} border flex items-center justify-center shrink-0">
-                <Icon class="w-4 h-4" />
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20">{channel.status}</span>
-                <button
-                  onclick={() => handleDelete(channel.id)}
-                  class="p-1 rounded text-text-placeholder hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                  title="Delete channel"
-                >
-                  <Trash2 class="w-3.5 h-3.5" />
-                </button>
-              </div>
+          {@const dotColor = providerDotColor[channel.provider] || providerDotColor.web}
+          <div class="group grid grid-cols-[auto_1fr_auto_1fr_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100">
+            <div class="w-7 h-7 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0 mt-0.5">
+              <div class="w-2 h-2 rounded-full {dotColor} mr-0.5"></div>
+              <Icon class="w-3.5 h-3.5 text-text-tertiary" />
             </div>
-
-            <h3 class="text-sm font-medium text-text-primary truncate">{channel.name}</h3>
-            <p class="mt-0.5 text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</p>
-
-            {#if channel.boundRuntime}
-              <div class="mt-2 flex items-center gap-1.5 text-[10px] text-text-tertiary">
-                <Box class="w-3 h-3 shrink-0" />
-                <span>Bound to:</span>
-                <a href="/runtimes/{channel.boundRuntime.id}" class="text-text-secondary hover:text-text-primary truncate font-mono">
+            <div class="min-w-0">
+              <div class="text-[13px] font-medium text-text-primary truncate">{channel.name}</div>
+              <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</div>
+            </div>
+            <div class="flex items-center pt-0.5 shrink-0">
+              <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-bg-hover text-text-tertiary border border-border-subtle">{channel.status}</span>
+            </div>
+            <div class="flex items-center gap-1.5 pt-0.5 min-w-0">
+              {#if channel.boundRuntime}
+                <Box class="w-3 h-3 shrink-0 text-text-placeholder" />
+                <a href="/runtimes/{channel.boundRuntime.id}" class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
                   {channel.boundRuntime.title || channel.boundRuntime.id.slice(0, 8)}
                 </a>
-              </div>
-            {:else}
-              <div class="mt-2 flex items-center gap-1.5 text-[10px] text-text-placeholder">
-                <Box class="w-3 h-3 shrink-0" />
-                <span>Not bound to any runtime</span>
-              </div>
-            {/if}
-
-            <div class="mt-2 pt-2 border-t border-border-subtle text-[10px] text-text-placeholder font-mono">
-              ID: {channel.id.slice(0, 8)}...
+              {:else}
+                <Box class="w-3 h-3 shrink-0 text-text-placeholder" />
+                <span class="text-[12px] text-text-placeholder">Not bound</span>
+              {/if}
+            </div>
+            <div class="flex items-center justify-end pt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button
+                onclick={() => handleDelete(channel.id)}
+                class="p-1.5 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors"
+                title="Delete channel"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         {/each}

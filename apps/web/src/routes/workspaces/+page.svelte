@@ -123,18 +123,18 @@ async function handleSubmit(e: Event) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-10 flex items-center justify-between px-4 border-b border-border-primary shrink-0 bg-bg-primary">
+  <div class="h-[40px] flex items-center justify-between px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
     <div class="flex items-center gap-1">
       <button
         type="button"
-        class={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${viewMode === "my" ? "bg-hover-strong text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-hover"}`}
+        class={`px-2.5 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${viewMode === "my" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
         onclick={() => viewMode = "my"}
       >
         My Workspaces
       </button>
       <button
         type="button"
-        class={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${viewMode === "explore" ? "bg-hover-strong text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-hover"}`}
+        class={`px-2.5 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${viewMode === "explore" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
         onclick={() => viewMode = "explore"}
       >
         Explore
@@ -144,7 +144,7 @@ async function handleSubmit(e: Event) {
     {#if viewMode === "my"}
       <button
         type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-hover transition-colors"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
         onclick={() => isAdding = true}
       >
         <Plus class="w-3.5 h-3.5" />
@@ -156,9 +156,9 @@ async function handleSubmit(e: Event) {
   <div class="flex-1 p-4 overflow-y-auto">
     <!-- Create Form -->
     {#if isAdding && viewMode === "my"}
-      <div class="mb-4 border border-border-primary rounded-lg bg-bg-surface p-4" in:fade>
+      <div class="mb-4 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-medium text-text-primary">Create Workspace</h2>
+          <h2 class="text-[13px] font-medium text-text-primary">Create Workspace</h2>
           <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors">
             <X class="w-4 h-4" />
           </button>
@@ -168,18 +168,18 @@ async function handleSubmit(e: Event) {
           <div>
             <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ws-name">Name</label>
             <div class="flex items-center gap-2">
-              <span class="text-[10px] text-text-tertiary font-mono shrink-0">{user?.nick_name || "owner"}/</span>
+              <span class="text-[11px] text-text-tertiary font-mono shrink-0">{user?.nick_name || "owner"}/</span>
               <input
                 id="ws-name"
                 type="text"
                 bind:value={formName}
                 placeholder="my-workspace"
-                class="flex-1 px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none font-mono"
+                class="flex-1 px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                 required
               />
             </div>
             {#if formName}
-              <p class="mt-1 text-[10px] text-text-placeholder font-mono">repo: {previewSlug || "my-workspace"}</p>
+              <p class="mt-1 text-[11px] text-text-placeholder font-mono">repo: {previewSlug || "my-workspace"}</p>
             {/if}
           </div>
 
@@ -190,23 +190,23 @@ async function handleSubmit(e: Event) {
               type="text"
               bind:value={formDescription}
               placeholder="A brief description"
-              class="w-full px-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none"
+              class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
             />
           </div>
 
           <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" bind:checked={formPrivate} class="rounded-sm bg-bg-input border-border-primary checked:bg-emerald-500" />
-            <span class="text-xs text-text-secondary">Private workspace</span>
+            <input type="checkbox" bind:checked={formPrivate} class="rounded-sm bg-bg-input border-border-subtle checked:bg-brand" />
+            <span class="text-[13px] text-text-secondary">Private workspace</span>
           </label>
 
           {#if createError}
-            <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-2 text-xs text-rose-400">{createError}</div>
+            <div class="rounded-md border border-error-soft/30 bg-error-bg p-2 text-[12px] text-error-soft">{createError}</div>
           {/if}
 
           <button
             type="submit"
             disabled={isSubmitting}
-            class="px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-medium transition-colors disabled:opacity-50"
+            class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[13px] text-white font-medium transition-colors disabled:opacity-50"
           >
             {isSubmitting ? "Creating..." : "Create"}
           </button>
@@ -217,52 +217,66 @@ async function handleSubmit(e: Event) {
     <!-- My Workspaces -->
     {#if viewMode === "my"}
       {#if isLoading}
-        <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
-          <div class="w-4 h-4 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin mr-2"></div>
+        <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
+          <div class="w-4 h-4 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
           Loading workspaces...
         </div>
       {:else if loadError}
-        <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+        <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if workspaces.length === 0}
-        <div class="flex flex-col items-center justify-center py-12 text-center">
-          <div class="w-10 h-10 rounded-full bg-hover border border-border-primary flex items-center justify-center mb-3">
-            <FolderKanban class="w-4 h-4 text-text-placeholder" />
+        <div class="flex flex-col items-center justify-center py-16 text-center">
+          <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
+            <FolderKanban class="w-5 h-5 text-text-placeholder" />
           </div>
-          <p class="text-sm text-text-tertiary">No workspaces yet</p>
-          <p class="text-xs text-text-placeholder mt-1">Create a workspace to get started</p>
-          <button onclick={() => isAdding = true} class="mt-4 px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors">
+          <p class="text-[14px] text-text-tertiary">No workspaces yet</p>
+          <p class="text-[12px] text-text-placeholder mt-1">Create a workspace to get started</p>
+          <button onclick={() => isAdding = true} class="mt-4 px-3 py-1.5 rounded-[5px] bg-bg-surface hover:bg-bg-surface-hover border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary transition-colors">
             Create your first workspace
           </button>
         </div>
       {:else}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <!-- List layout for density -->
+        <div class="rounded-md border border-border-subtle overflow-hidden">
+          <div class="grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+            <span></span>
+            <span>Name</span>
+            <span>Status</span>
+            <span class="text-right">Forks</span>
+          </div>
           {#each workspaces as workspace}
             <a
               href="/workspaces/{workspace.id}"
-              class="group block p-3 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 hover:bg-bg-surface-hover transition-colors"
+              class="group grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100"
             >
-              <div class="flex items-start justify-between gap-2 mb-2">
-                <div class="w-8 h-8 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
-                  <FolderKanban class="w-4 h-4 text-blue-400/70" />
-                </div>
+              <div class="w-7 h-7 rounded-[5px] bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                <FolderKanban class="w-3.5 h-3.5 text-blue-400/70" />
+              </div>
+              <div class="min-w-0">
+                <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
+                {#if workspace.description}
+                  <div class="text-[11px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
+                {:else}
+                  <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
+                {/if}
+              </div>
+              <div class="shrink-0 flex items-center gap-1.5 pt-0.5">
                 {#if workspace.visibility === "private"}
-                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/10 text-yellow-400/70 border border-yellow-500/20">
+                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-warning-bg text-warning-soft border border-warning-soft/30">
                     <Lock class="w-2.5 h-2.5" />
+                    Private
                   </span>
                 {:else}
-                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20">
+                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30">
                     <Globe class="w-2.5 h-2.5" />
+                    Public
                   </span>
                 {/if}
               </div>
-
-              <h3 class="text-sm font-medium text-text-primary truncate">{workspace.name}</h3>
-              <p class="mt-1 text-xs text-text-tertiary line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
-
-              <div class="mt-3 pt-2 border-t border-border-subtle flex items-center justify-between text-[10px] text-text-placeholder font-mono">
-                <span class="truncate">{workspace.giteaRepoName}</span>
+              <div class="text-[11px] text-text-placeholder text-right font-mono pt-0.5 shrink-0">
                 {#if workspace.forkCount && workspace.forkCount > 0}
-                  <span class="flex items-center gap-1 shrink-0"><GitFork class="w-2.5 h-2.5" /> {workspace.forkCount}</span>
+                  <span class="flex items-center gap-1 justify-end"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
+                {:else}
+                  —
                 {/if}
               </div>
             </a>
@@ -280,52 +294,55 @@ async function handleSubmit(e: Event) {
             type="text"
             bind:value={exploreSearch}
             placeholder="Search public workspaces..."
-            class="w-full pl-8 pr-3 py-1.5 rounded-md bg-bg-input border border-border-primary text-xs text-text-primary placeholder:text-text-placeholder focus:border-border-primary/30 focus:outline-none"
+            class="w-full pl-8 pr-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
           />
         </div>
-        <button type="submit" class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-secondary hover:text-text-primary transition-colors">
+        <button type="submit" class="px-3 py-[6px] rounded-[5px] bg-bg-surface hover:bg-bg-surface-hover border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary transition-colors">
           Search
         </button>
       </form>
 
       {#if exploreLoading}
-        <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
-          <div class="w-4 h-4 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin mr-2"></div>
+        <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
+          <div class="w-4 h-4 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
           Loading...
         </div>
       {:else if exploreError}
-        <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{exploreError}</div>
+        <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{exploreError}</div>
       {:else if publicWorkspaces.length === 0}
-        <div class="flex flex-col items-center justify-center py-12 text-center">
-          <div class="w-10 h-10 rounded-full bg-hover border border-border-primary flex items-center justify-center mb-3">
-            <Globe class="w-4 h-4 text-text-placeholder" />
+        <div class="flex flex-col items-center justify-center py-16 text-center">
+          <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
+            <Globe class="w-5 h-5 text-text-placeholder" />
           </div>
-          <p class="text-sm text-text-tertiary">No public workspaces found</p>
-          <p class="text-xs text-text-placeholder mt-1">{exploreSearch ? "Try a different search term" : "Be the first to make a workspace public"}</p>
+          <p class="text-[14px] text-text-tertiary">No public workspaces found</p>
+          <p class="text-[12px] text-text-placeholder mt-1">{exploreSearch ? "Try a different search term" : "Be the first to make a workspace public"}</p>
         </div>
       {:else}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="rounded-md border border-border-subtle overflow-hidden">
           {#each publicWorkspaces as workspace}
             <a
               href="/workspaces/{workspace.id}"
-              class="group block p-3 rounded-lg border border-border-primary bg-bg-surface hover:border-border-primary/20 hover:bg-bg-surface-hover transition-colors"
+              class="group grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100"
             >
-              <div class="flex items-start justify-between gap-2 mb-2">
-                <div class="w-8 h-8 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                  <Globe class="w-4 h-4 text-emerald-400/70" />
-                </div>
-                <span class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20">
-                  <Globe class="w-2.5 h-2.5" />
-                </span>
+              <div class="w-7 h-7 rounded-[5px] bg-success-bg border border-success-soft/30 flex items-center justify-center shrink-0 mt-0.5">
+                <Globe class="w-3.5 h-3.5 text-success-soft" />
               </div>
-
-              <h3 class="text-sm font-medium text-text-primary truncate">{workspace.name}</h3>
-              <p class="mt-1 text-xs text-text-tertiary line-clamp-2 min-h-[2rem]">{workspace.description || "No description"}</p>
-
-              <div class="mt-3 pt-2 border-t border-border-subtle flex items-center justify-between text-[10px] text-text-placeholder font-mono">
-                <span class="truncate">{workspace.giteaRepoName}</span>
+              <div class="min-w-0">
+                <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
+                {#if workspace.description}
+                  <div class="text-[11px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
+                {:else}
+                  <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
+                {/if}
+              </div>
+              <div class="shrink-0 flex items-center pt-0.5">
+                <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30">Public</span>
+              </div>
+              <div class="text-[11px] text-text-placeholder text-right font-mono pt-0.5 shrink-0">
                 {#if workspace.forkCount > 0}
-                  <span class="flex items-center gap-1 shrink-0"><GitFork class="w-2.5 h-2.5" /> {workspace.forkCount}</span>
+                  <span class="flex items-center gap-1 justify-end"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
+                {:else}
+                  —
                 {/if}
               </div>
             </a>
@@ -337,15 +354,15 @@ async function handleSubmit(e: Event) {
             <button
               onclick={() => goToExplorePage(explorePage - 1)}
               disabled={explorePage === 1}
-              class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              class="px-3 py-1.5 rounded-[5px] bg-bg-surface hover:bg-bg-surface-hover border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Previous
             </button>
-            <span class="text-[10px] text-text-tertiary">Page {explorePage} / {exploreTotalPages}</span>
+            <span class="text-[11px] text-text-tertiary">Page {explorePage} / {exploreTotalPages}</span>
             <button
               onclick={() => goToExplorePage(explorePage + 1)}
               disabled={explorePage === exploreTotalPages}
-              class="px-3 py-1.5 rounded-md bg-hover hover:bg-hover-strong border border-border-primary text-xs text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              class="px-3 py-1.5 rounded-[5px] bg-bg-surface hover:bg-bg-surface-hover border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Next
             </button>

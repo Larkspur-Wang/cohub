@@ -66,12 +66,12 @@ function displayStatus(runtime: RuntimeListItem) {
 }
 
 function statusColor(status: string) {
-  if (status === "running") return "bg-emerald-400";
-  if (status === "starting" || status === "active") return "bg-amber-400";
-  if (status === "error" || status === "boot_failed") return "bg-rose-400";
-  if (status === "hibernated") return "bg-gray-500";
-  if (status === "hibernating") return "bg-blue-400";
-  return "bg-text-placeholder";
+  if (status === "running") return "bg-status-running";
+  if (status === "starting" || status === "active") return "bg-status-starting";
+  if (status === "error" || status === "boot_failed") return "bg-status-error";
+  if (status === "hibernated") return "bg-status-hibernated";
+  if (status === "hibernating") return "bg-status-hibernating";
+  return "bg-status-unknown";
 }
 
 function toggleRuntime(runtimeId: string) {
@@ -227,57 +227,54 @@ onMount(() => {
 });
 </script>
 
-<aside class="w-64 flex flex-col bg-bg-primary border-r border-border-primary shrink-0 h-screen">
+<aside class="w-[240px] flex flex-col bg-bg-primary border-r border-border-subtle shrink-0 h-screen">
   <!-- Logo -->
-  <div class="h-12 flex items-center px-4 border-b border-border-primary shrink-0">
-    <a href="/" class="flex items-center gap-2.5 group" aria-label="Cohub">
-      <div class="w-7 h-7 bg-[#FF5A5F] rounded-lg flex items-center justify-center font-bold text-xs text-white group-hover:bg-[#FF5A5F]/80 transition-colors">
+  <div class="h-[48px] flex items-center px-3 border-b border-border-subtle shrink-0">
+    <a href="/" class="flex items-center gap-2 group" aria-label="Cohub">
+      <div class="w-7 h-7 bg-[#FF3E00] rounded-[6px] flex items-center justify-center font-bold text-[11px] text-white group-hover:bg-brand-hover transition-colors">
         C
       </div>
-      <span class="font-semibold text-sm text-text-primary tracking-tight">Cohub</span>
+      <span class="font-semibold text-[13px] text-text-primary tracking-tight">Cohub</span>
     </a>
   </div>
 
   <!-- Top Navigation -->
-  <nav class="px-2 py-2.5 space-y-0.5 shrink-0 border-b border-border-primary">
+  <nav class="px-1.5 py-2 space-y-[2px] shrink-0 border-b border-border-subtle">
     <a
       href="/explore"
-      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/explore') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
+      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/explore') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/explore'); }}
     >
-      <MessageSquare class="w-4 h-4 shrink-0" />
+      <MessageSquare class="w-[15px] h-[15px] shrink-0" />
       <span>Explore</span>
     </a>
     <a
       href="/workspaces"
-      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/workspaces') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
+      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/workspaces') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/workspaces'); }}
     >
-      <FolderKanban class="w-4 h-4 shrink-0" />
+      <FolderKanban class="w-[15px] h-[15px] shrink-0" />
       <span>Workspaces</span>
     </a>
     <a
       href="/channels"
-      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors {isNavItemActive('/channels') ? 'bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
+      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/channels') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/channels'); }}
     >
-      <Network class="w-4 h-4 shrink-0" />
+      <Network class="w-[15px] h-[15px] shrink-0" />
       <span>Channels</span>
     </a>
   </nav>
 
   <!-- Runtimes Section -->
   <div class="flex flex-col min-h-0 flex-1">
-    <div class="h-8 flex items-center justify-between px-2 shrink-0">
-      <span class="flex items-center gap-2 select-none">
-        <span class="w-0 shrink-0" />
-        <span class="text-[11px] font-semibold uppercase tracking-wider text-text-placeholder">
-          Runtimes
-        </span>
+    <div class="h-7 flex items-center justify-between px-2 shrink-0">
+      <span class="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
+        Runtimes
       </span>
       <button
         type="button"
-        class="flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-primary hover:bg-hover transition-colors cursor-pointer"
+        class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
         onclick={() => handleNavigate('/runtimes/new')}
         title="Create runtime"
       >
@@ -285,16 +282,16 @@ onMount(() => {
       </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+    <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
       {#if isLoading}
-        <div class="px-3 py-4 text-xs text-text-tertiary text-center flex items-center justify-center gap-2">
+        <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
           <Loader2 class="w-3 h-3 animate-spin" />
           Loading...
         </div>
       {:else if loadError}
-        <div class="px-3 py-3 text-xs text-rose-400/70 text-center">{loadError}</div>
+        <div class="px-3 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
       {:else if runtimes.length === 0}
-        <div class="px-3 py-4 text-xs text-text-tertiary text-center">No runtimes</div>
+        <div class="px-3 py-4 text-[12px] text-text-tertiary text-center">No runtimes</div>
       {:else}
         {#each runtimes as runtime (runtime.id)}
           {@const isExpanded = expandedRuntimes.has(runtime.id)}
@@ -308,7 +305,7 @@ onMount(() => {
             <div
               role="button"
               tabindex="0"
-              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors {isActive ? 'bg-hover-strong text-text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-hover'}"
+              class="group flex items-center gap-1.5 px-2 py-[5px] rounded-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'bg-bg-active text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
               onclick={() => {
                 toggleRuntime(runtime.id);
                 if (!isExpanded) void loadSessions(runtime.id);
@@ -332,8 +329,8 @@ onMount(() => {
                   <ChevronRight class="w-3 h-3" />
                 {/if}
               </span>
-              <div class="w-1.5 h-1.5 rounded-full shrink-0 {statusColor(status)}"></div>
-              <span class="truncate font-mono flex-1 text-[13px] leading-none">{runtime.title || runtime.id.slice(0, 12)}</span>
+              <div class="w-[5px] h-[5px] rounded-full shrink-0 {statusColor(status)}"></div>
+              <span class="truncate flex-1 text-[12.5px] leading-none">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
               {/if}
@@ -342,7 +339,7 @@ onMount(() => {
                 {#if status === "running"}
                   <button
                     type="button"
-                    class="p-0.5 rounded text-text-tertiary hover:text-amber-400 hover:bg-hover-strong transition-colors"
+                    class="p-0.5 rounded-sm text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
                     onclick={(e) => handleHibernate(runtime.id, e)}
                     title="Hibernate"
                   >
@@ -351,7 +348,7 @@ onMount(() => {
                 {:else if status === "hibernated"}
                   <button
                     type="button"
-                    class="p-0.5 rounded text-text-tertiary hover:text-emerald-400 hover:bg-hover-strong transition-colors"
+                    class="p-0.5 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
                     onclick={(e) => handleWake(runtime.id, e)}
                     title="Wake"
                   >
@@ -363,17 +360,17 @@ onMount(() => {
 
             <!-- Sessions (when expanded) -->
             {#if isExpanded}
-              <div class="ml-5 pl-3 border-l border-border-primary/50 space-y-0.5 py-0.5">
+              <div class="ml-[11px] pl-2.5 border-l border-border-subtle space-y-[2px] py-0.5">
                 {#if sessions.length === 0}
                   <div class="px-2 py-1 text-[11px] text-text-placeholder italic">No sessions</div>
                 {:else}
                   {#each sessions as session, index (session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
-                      class="flex items-center gap-2 px-2 py-1 rounded-md text-xs transition-colors {isSessionActive(session.id) ? 'text-text-primary bg-hover-strong' : 'text-text-tertiary hover:text-text-primary hover:bg-hover'}"
+                      class="flex items-center gap-2 px-2 py-[4px] rounded-[4px] text-[11px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
                     >
-                      <div class="w-1.5 h-1.5 rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-emerald-400' : 'bg-text-placeholder'}"></div>
+                      <div class="w-[5px] h-[5px] rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-status-running' : 'bg-text-placeholder'}"></div>
                       <span class="truncate leading-tight">{getSessionTitle(session, index)}</span>
                     </a>
                   {/each}
@@ -387,26 +384,26 @@ onMount(() => {
   </div>
 
   <!-- Bottom: User Menu -->
-  <div class="border-t border-border-primary p-2 shrink-0 relative">
+  <div class="border-t border-border-subtle p-1.5 shrink-0 relative">
     <!-- Dropdown -->
     {#if showUserMenu}
       <div
         data-user-menu
-        class="absolute bottom-full left-2 right-2 mb-1 bg-bg-primary border border-border-primary rounded-lg shadow-lg overflow-hidden z-50"
+        class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
         <a
           href="/settings"
-          class="flex items-center gap-2.5 px-3 py-2 text-sm text-text-tertiary hover:text-text-secondary hover:bg-hover transition-colors"
+          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
           onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings'); }}
         >
-          <Settings class="w-4 h-4" />
+          <Settings class="w-3.5 h-3.5" />
           <span>Settings</span>
         </a>
         <button
-          class="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-text-tertiary hover:text-rose-400 hover:bg-hover transition-colors"
+          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors duration-100"
           onclick={() => { showUserMenu = false; void handleLogout(); }}
         >
-          <LogOut class="w-4 h-4" />
+          <LogOut class="w-3.5 h-3.5" />
           <span>Sign out</span>
         </button>
       </div>
@@ -415,10 +412,10 @@ onMount(() => {
     <button
       type="button"
       data-user-menu
-      class="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md hover:bg-hover transition-colors cursor-pointer"
+      class="flex items-center gap-2 w-full px-2 py-[6px] rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
       onclick={() => { showUserMenu = !showUserMenu; }}
     >
-      <div class="w-6 h-6 rounded-full bg-hover-strong overflow-hidden shrink-0">
+      <div class="w-[22px] h-[22px] rounded-full bg-bg-hover-strong overflow-hidden shrink-0">
         {#if userClaims?.picture}
           <img src={userClaims.picture} alt="avatar" class="w-full h-full object-cover" />
         {:else}
@@ -426,9 +423,9 @@ onMount(() => {
         {/if}
       </div>
       <div class="flex-1 min-w-0 text-left">
-        <p class="text-xs text-text-secondary truncate">{userClaims?.name ?? 'Guest'}</p>
+        <p class="text-[12px] text-text-secondary truncate">{userClaims?.name ?? 'Guest'}</p>
       </div>
-      <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform {showUserMenu ? 'rotate-180' : ''}" />
+      <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {showUserMenu ? 'rotate-180' : ''}" />
     </button>
   </div>
 </aside>
