@@ -7,6 +7,7 @@ import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTB
 import { createBlockingRedisClient, xaddWithMaxlen } from "./redis.js";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 import { gatewayConfig } from "./config.js";
+import { redisCommandClient } from "./redis.js";
 
 function logStartupInfo() {
   console.log("=".repeat(60));
@@ -59,6 +60,25 @@ async function main() {
   app.use("*", cors());
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+
+  app.get("/readyz", async (c) => {
+    const checks: Record<string, boolean> = {};
+
+    // 1. Redis connectivity
+    try {
+      await redisCommandClient.ping();
+      checks.redis = true;
+    } catch {
+      checks.redis = false;
+    }
+
+    // 2. Manager initialization completed
+    checks.manager = manager.started;
+
+    const ready = Object.values(checks).every(Boolean);
+    return c.json({ ready, checks }, ready ? 200 : 503);
+  });
+
   serve({ fetch: app.fetch, port: gatewayConfig.port });
   console.log(`@cohub/gateway listening on :${gatewayConfig.port}`);
 

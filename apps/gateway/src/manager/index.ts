@@ -13,6 +13,7 @@ interface ChannelConfig {
 
 export class GatewayManager {
   public readonly nodeId: string;
+  public started = false;
   private heartbeatInterval?: ReturnType<typeof setInterval>;
   private syncInterval?: ReturnType<typeof setInterval>;
 
@@ -40,6 +41,7 @@ export class GatewayManager {
     this.syncInterval = setInterval(() => this.syncTasks(), 10000);
 
     console.log(`[Manager] Gateway Node ${this.nodeId} started successfully`);
+    this.started = true;
   }
 
   public async stop() {
