@@ -19,17 +19,17 @@ let {
 </script>
 
 <div
-  bind:this={bindListEl}
-  class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-3 sm:px-5 py-3"
-  onscroll={() => onScrollChange?.()}
+	bind:this={bindListEl}
+	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-3 sm:px-5 py-4"
+	onscroll={() => onScrollChange?.()}
 >
-  <div bind:this={bindContentEl} class="mx-auto flex w-full max-w-4xl flex-col gap-2">
-    {#each timeline as item (item.id)}
-      {#if item.kind === 'message'}
-        <ChatMessageBubble message={item.message} />
-      {:else}
-        <ToolExecutionCard tool={item.tool} />
-      {/if}
-    {/each}
-  </div>
+	<div bind:this={bindContentEl} class="mx-auto flex w-full max-w-4xl flex-col gap-3">
+		{#each timeline as item (item.id)}
+			{#if item.kind === 'message'}
+				<ChatMessageBubble message={item.message} />
+			{:else}
+				<ToolExecutionCard tool={item.tool} />
+			{/if}
+		{/each}
+	</div>
 </div>

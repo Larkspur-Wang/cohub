@@ -1001,9 +1001,7 @@ $effect(() => {
         {/if}
       </div>
 
-      <div class="border-t border-border-subtle bg-bg-primary">
-        <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
-      </div>
+      <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
     {/if}
   </div>
 
