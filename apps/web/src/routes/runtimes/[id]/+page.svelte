@@ -407,7 +407,8 @@ async function processEventQueue() {
   eventProcessing = true;
 
   while (eventQueue.length > 0) {
-    const event = eventQueue.shift()!;
+    const event = eventQueue.shift();
+    if (!event) continue;
     const currentActiveSessionId = activeSessionId;
     if (currentActiveSessionId == null || event.sessionId !== currentActiveSessionId) continue;
 
