@@ -20,7 +20,8 @@
     "@logto/browser": "^3.0.12",
     "isomorphic-dompurify": "2.15.0",
     "lucide-svelte": "^1.0.1",
-    "marked": "15.0.2"
+    "marked": "15.0.2",
+    "shiki": "^4.0.2"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
