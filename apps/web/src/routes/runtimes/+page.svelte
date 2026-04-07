@@ -12,7 +12,7 @@ let actionError = $state("");
 const actionInProgress = $state<Record<string, string>>({});
 
 function displayStatus(runtime: RuntimeListItem) {
-  return runtime.liveStatus ?? runtime.status ?? "unknown";
+  return runtime.status ?? "unknown";
 }
 
 function statusLabel(status: string) {

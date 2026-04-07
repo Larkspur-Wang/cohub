@@ -35,7 +35,6 @@ import {
   deleteRuntime,
   forkRuntimeSession,
   getRuntimeById,
-  getRuntimeLiveStatus,
   getRuntimeProvision,
   getRuntimeSessionBootstrap,
   getRuntimeSessionById,
@@ -53,6 +52,7 @@ import {
   writeInitialRuntimeProvision,
   createUserMessageNode,
   enqueueRuntimePrompt,
+  updateRuntimeStatus,
 } from "./runtime-sessions.js";
 import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
@@ -1076,11 +1076,7 @@ app.get("/api/runtimes/:id", async (c) => {
 
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
-  const liveStatus = await getRuntimeLiveStatus(runtimeId);
-  return c.json({
-    ...runtime,
-    liveStatus: liveStatus ?? runtime.status ?? null,
-  });
+  return c.json(runtime);
 });
 
 app.get("/api/runtimes/:id/channels", async (c) => {
@@ -1260,6 +1256,23 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
       bindings: bindingsBySessionId.get(session.id) ?? [],
     })),
   });
+});
+
+app.post("/internal/runtimes/:id/status", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<{ status?: string }>().catch(() => null);
+  if (!body?.status) return c.json({ message: "status is required" }, 400);
+
+  await updateRuntimeStatus(runtimeId, body.status);
+  return c.json({ ok: true });
 });
 
 app.post("/internal/runtimes/:id/sessions", async (c) => {

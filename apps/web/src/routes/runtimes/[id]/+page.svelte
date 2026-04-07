@@ -13,6 +13,9 @@ import {
   createRuntimeSession,
   streamSessionEvents,
   extractSessionRenderState,
+  hibernateRuntime,
+  wakeRuntime,
+  deleteRuntime,
   type ChannelConfig,
   type DiscordChannelConfig,
   type RuntimeChannelRecord,
@@ -26,7 +29,7 @@ import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Hash, Plus, ArrowDown, Settings } from "lucide-svelte";
+import { Terminal, Hash, Plus, ArrowDown, Settings, Moon, Power, Trash2, Loader2, X } from "lucide-svelte";
 import { ensureAuth } from "$lib/auth";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 
@@ -86,7 +89,7 @@ function notifySessionsUpdate() {
   window.dispatchEvent(new CustomEvent("cohub:sessions-updated", {
     detail: { runtimeId, sessions: runtimeSessions },
   }));
-  broadcastChannel?.postMessage({ type: "sessions-updated", runtimeId, sessions: structuredClone(runtimeSessions) });
+  broadcastChannel?.postMessage({ type: "sessions-updated", runtimeId, sessions: JSON.parse(JSON.stringify(runtimeSessions)) });
 }
 
 function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
@@ -109,6 +112,51 @@ let shouldAutoFollow = $state(true);
 let creatingSession = $state(false);
 let createSessionError = $state("");
 let showSettings = $state(false);
+
+// Runtime actions
+let runtimeActionError = $state("");
+let runtimeActionInProgress: string | null = $state(null);
+
+async function handleHibernate() {
+  if (!confirm("Hibernate this runtime? The sandbox pod will be stopped.")) return;
+  runtimeActionInProgress = "hibernate";
+  runtimeActionError = "";
+  try {
+    await hibernateRuntime(runtimeId);
+    await loadRuntime();
+  } catch (error) {
+    runtimeActionError = error instanceof Error ? error.message : "Failed to hibernate";
+  } finally {
+    runtimeActionInProgress = null;
+  }
+}
+
+async function handleWake() {
+  if (!confirm("Wake this runtime? A new sandbox pod will be provisioned.")) return;
+  runtimeActionInProgress = "wake";
+  runtimeActionError = "";
+  try {
+    await wakeRuntime(runtimeId);
+    await loadRuntime();
+  } catch (error) {
+    runtimeActionError = error instanceof Error ? error.message : "Failed to wake";
+  } finally {
+    runtimeActionInProgress = null;
+  }
+}
+
+async function handleDelete() {
+  if (!confirm("Delete this runtime permanently? This cannot be undone.")) return;
+  runtimeActionInProgress = "delete";
+  runtimeActionError = "";
+  try {
+    await deleteRuntime(runtimeId);
+    goto("/runtimes");
+  } catch (error) {
+    runtimeActionError = error instanceof Error ? error.message : "Failed to delete";
+    runtimeActionInProgress = null;
+  }
+}
 
 const activeSessionState = $derived(activeSessionId ? sessionStateById[activeSessionId] ?? null : null);
 
@@ -395,7 +443,7 @@ function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
 
 function shouldPollRuntime(runtime: RuntimeRecord | null) {
   if (!runtime) return true;
-  const status = runtime.liveStatus ?? runtime.status;
+  const status = runtime.status;
   if (!status) return true;
   return status === "starting" || status === "hibernating";
 }
@@ -667,12 +715,12 @@ $effect(() => {
     <Terminal class="w-4 h-4 text-text-tertiary shrink-0" />
     <span class="text-[13px] text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
     <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-[4px] bg-bg-hover border border-border-subtle shrink-0">
-      <div class="w-[5px] h-[5px] rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-status-starting' : runtimeStatusColor(runtime?.liveStatus ?? runtime?.status ?? 'unknown')}"></div>
+      <div class="w-[5px] h-[5px] rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-status-starting' : runtimeStatusColor(runtime?.status ?? 'unknown')}"></div>
       <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
         {#if provisioning && shouldPollProvisioning(provisioning)}
           {provisioning.currentStep}
         {:else}
-          {runtime?.liveStatus ?? runtime?.status ?? "unknown"}
+          {runtime?.status ?? "unknown"}
         {/if}
       </span>
     </div>
@@ -701,8 +749,65 @@ $effect(() => {
     >
       <Settings class="w-4 h-4" />
     </button>
+
+    <!-- Runtime lifecycle actions (after Settings) -->
+    {#if runtime?.status === "running"}
+      <button
+        type="button"
+        class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-warning-soft/10 text-warning-soft hover:bg-warning-soft/30 hover:text-warning transition-colors duration-100 disabled:opacity-50"
+        onclick={() => handleHibernate()}
+        disabled={runtimeActionInProgress !== null}
+        title="Hibernate runtime"
+      >
+        {#if runtimeActionInProgress === "hibernate"}
+          <Loader2 class="w-4 h-4 animate-spin" />
+        {:else}
+          <Moon class="w-4 h-4" />
+        {/if}
+      </button>
+    {/if}
+    {#if runtime?.status === "hibernated"}
+      <button
+        type="button"
+        class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-success-soft/10 text-success-soft hover:bg-success-soft/30 hover:text-success transition-colors duration-100 disabled:opacity-50"
+        onclick={() => handleWake()}
+        disabled={runtimeActionInProgress !== null}
+        title="Wake runtime"
+      >
+        {#if runtimeActionInProgress === "wake"}
+          <Loader2 class="w-4 h-4 animate-spin" />
+        {:else}
+          <Power class="w-4 h-4" />
+        {/if}
+      </button>
+    {/if}
+    {#if runtime?.status === "hibernated" || runtime?.status === "error" || runtime?.status === "boot_failed"}
+      <button
+        type="button"
+        class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-error-soft/10 text-error-soft hover:bg-error-soft/30 hover:text-error transition-colors duration-100 disabled:opacity-50"
+        onclick={() => handleDelete()}
+        disabled={runtimeActionInProgress !== null}
+        title="Delete runtime"
+      >
+        {#if runtimeActionInProgress === "delete"}
+          <Loader2 class="w-4 h-4 animate-spin" />
+        {:else}
+          <Trash2 class="w-4 h-4" />
+        {/if}
+      </button>
+    {/if}
   </div>
 </header>
+
+<!-- Runtime action error banner -->
+{#if runtimeActionError}
+  <div class="flex items-center justify-between px-3 py-2 border-b border-error-soft/30 bg-error-bg shrink-0">
+    <span class="text-[12px] font-mono text-error-soft truncate mr-2">{runtimeActionError}</span>
+    <button onclick={() => runtimeActionError = ""} class="text-text-tertiary hover:text-text-secondary shrink-0" title="Dismiss">
+      <X class="w-3 h-3" />
+    </button>
+  </div>
+{/if}
 
 <!-- Main Content -->
 <div class="flex-1 flex min-h-0">

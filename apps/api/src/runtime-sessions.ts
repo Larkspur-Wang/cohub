@@ -21,7 +21,6 @@ import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import {
   getRuntimeInputQueueKey,
-  getRuntimeMetaKey,
   getRuntimeOutputStreamKey,
   getRuntimeProvisionMetaKey,
   getRuntimeProvisionStreamKey,
@@ -85,6 +84,7 @@ const RESERVED_RUNTIME_ENV_NAMES = new Set([
   "WORKSPACE_GIT_EMAIL",
   "PUBLIC_URL_PREFIX",
   "RUNTIME_VERSION",
+  "INTERNAL_API_BASE_URL",
 ]);
 
 const nowIso = () => new Date().toISOString();
@@ -256,6 +256,9 @@ const buildRuntimeContainerEnv = (input: {
     { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
     { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },
     { name: "WORKSPACE_GIT_EMAIL", value: input.workspaceGitEmail ?? "" },
+    { name: "INTERNAL_API_BASE_URL", value: input.env === "prod"
+      ? "http://cohub-api.cohub.svc.cluster.local:8787"
+      : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787" },
     ...(input.extraEnv ?? []),
   ];
 };
@@ -284,7 +287,7 @@ const mapProvisionStepToRuntimeStatus = (step: RuntimeProvisionStep) => {
   }
 };
 
-const updateRuntimeStatus = async (runtimeId: string, status: string) => {
+export const updateRuntimeStatus = async (runtimeId: string, status: string) => {
   await db
     .update(runtimes)
     .set({ status, updatedAt: new Date() })
@@ -1090,18 +1093,14 @@ export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
-    if (status === "running") return true;
-    if (status === "error" || status === "stopped") return false;
+    const runtime = await getRuntimeById(runtimeId);
+    if (!runtime) return false;
+    if (runtime.status === "running") return true;
+    if (runtime.status === "error" || runtime.status === "stopped") return false;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   return false;
-};
-
-export const getRuntimeLiveStatus = async (runtimeId: string) => {
-  const status = await redisCommandClient.hget(getRuntimeMetaKey(runtimeId), "status");
-  return status?.trim() || null;
 };
 
 export const launchRuntimeSandbox = async (input: {
@@ -1327,21 +1326,21 @@ export const provisionRuntimeInBackground = async (input: {
 
     const ready = await waitForRuntimeRunning(runtimeId, 60000);
     if (!ready) {
-      const liveStatus = await getRuntimeLiveStatus(runtimeId);
+      const runtime = await getRuntimeById(runtimeId);
+      const dbStatus = runtime?.status ?? "unknown";
       logProvision(runtimeId, "wait_runtime_running", "error", {
-        liveStatus,
+        dbStatus,
       });
       await pushProvisionEvent(runtimeId, {
         status: "failed",
         step: "wait_runtime_running",
         level: "error",
         message: "Runtime did not reach running state within timeout.",
-        error: liveStatus ? `last live status: ${liveStatus}` : "timeout waiting for runtime status",
-        meta: { liveStatus },
+        error: `timeout waiting for runtime status (current: ${dbStatus})`,
+        meta: { dbStatus },
         markFinished: true,
         syncRuntimeStatus: true,
       });
-      await updateRuntimeStatus(runtimeId, liveStatus || "error");
       return;
     }
 
@@ -1471,7 +1470,6 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
 
   // Clean up Redis keys
   const keysToDelete = [
-    getRuntimeMetaKey(input.runtimeId),
     getRuntimeInputQueueKey(input.runtimeId),
     getRuntimeOutputStreamKey(input.runtimeId),
     getRuntimeProvisionMetaKey(input.runtimeId),

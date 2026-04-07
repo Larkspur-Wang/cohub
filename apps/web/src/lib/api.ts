@@ -47,7 +47,6 @@ export type SessionRecord = ProtocolSessionRecord & {
 export type RuntimeListItem = RuntimeRecord;
 
 export type RuntimeRecord = ProtocolRuntimeRecord & {
-  liveStatus?: string | null;
   channels?: {
     id: string;
     name: string | null;

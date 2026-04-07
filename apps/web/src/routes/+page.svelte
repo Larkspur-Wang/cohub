@@ -46,7 +46,7 @@ onMount(async () => {
       .map((r) => ({
         id: r.id,
         title: r.title || r.id.slice(0, 12),
-        status: r.liveStatus ?? r.status ?? "unknown",
+        status: r.status ?? "unknown",
         workspaceId: r.workspaceId ?? undefined,
       }));
   } catch (error) {

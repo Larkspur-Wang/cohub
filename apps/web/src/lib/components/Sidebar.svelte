@@ -71,7 +71,7 @@ function isSessionActive(sessionId: string) {
 }
 
 function displayStatus(runtime: RuntimeListItem) {
-  return runtime.liveStatus ?? runtime.status ?? "unknown";
+  return runtime.status ?? "unknown";
 }
 
 function statusColor(status: string) {

@@ -65,10 +65,16 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
 export async function setRuntimeStatus(
   status: "starting" | "running" | "stopped" | "error",
 ) {
-  await redis.hset(META_KEY, {
-    runtime_id: env.RUNTIME_ID,
-    status,
-    updated_at: Date.now().toString(),
+  const internalApiBaseUrl = env.ENV === "prod"
+    ? "http://cohub-api.cohub.svc.cluster.local:8787"
+    : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
+  const url = `${internalApiBaseUrl}/internal/runtimes/${env.RUNTIME_ID}/status`;
+  await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status }),
+  }).catch((err) => {
+    console.error("[Redis] Failed to report runtime status via internal API:", err);
   });
 }
 
