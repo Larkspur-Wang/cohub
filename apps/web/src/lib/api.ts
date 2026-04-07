@@ -856,3 +856,39 @@ export const streamRuntimeEvents = async function* (
     }
   }
 };
+
+export const streamSessionEvents = async function* (
+  sessionId: string,
+  lastEventId?: string,
+  signal?: AbortSignal,
+) {
+  const url = API_BASE_URL
+    ? `${API_BASE_URL}/api/sessions/${sessionId}/stream`
+    : `/api/sessions/${sessionId}/stream`;
+
+  const headers = new Headers();
+  const token = await getAuthToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (lastEventId) {
+    headers.set("Last-Event-ID", lastEventId);
+  }
+
+  const response = await fetch(url, {
+    headers,
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
+  }
+
+  for await (const data of readSseEvents(response)) {
+    try {
+      yield JSON.parse(data) as RuntimeStreamEvent;
+    } catch {
+      // Skip non-JSON events (e.g. "ready" event)
+    }
+  }
+};

@@ -1474,6 +1474,43 @@ app.post("/api/sessions/:id/fork", async (c) => {
   return c.json({ ok: true, session: forked });
 });
 
+app.get("/api/sessions/:sessionId/stream", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
+
+  return streamSSE(c, async (stream) => {
+    await stream.writeSSE({ event: "ready", data: JSON.stringify({ sessionId: session.id, runtimeId: runtime.id }) });
+    const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
+    for await (const entry of output) {
+      if (c.req.raw.signal.aborted) break;
+      // Server-side filter: only forward events for this session
+      const payload = entry.payload;
+      if (payload) {
+        try {
+          const parsed = JSON.parse(payload) as { sessionId?: string };
+          if (parsed.sessionId !== sessionId) continue;
+        } catch {
+          // Skip non-JSON payloads
+          continue;
+        }
+      }
+      await stream.writeSSE({ id: entry.id, event: "message", data: payload ?? "" });
+    }
+  });
+});
+
 app.get("/api/runtimes/:id/stream", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);

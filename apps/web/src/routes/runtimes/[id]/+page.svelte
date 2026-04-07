@@ -11,7 +11,7 @@ import {
   postSessionMessage,
   updateRuntimeChannelConfig,
   createRuntimeSession,
-  streamRuntimeEvents,
+  streamSessionEvents,
   type RuntimeChannelConfigInput,
   type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
@@ -64,9 +64,9 @@ let streamingAssistantText = $state("");
 let streamingThinking = $state("");
 let streamingToolCalls = $state<Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>>([]);
 
-// SSE
-let sseAbortController: AbortController | null = null;
-let lastEventId = $state<string | undefined>(undefined);
+// SSE - per-session connections
+let sessionSSEs = new Map<string, AbortController>();
+let sessionLastEventIds = new Map<string, string>();
 
 // Sequential event processing queue to prevent race conditions
 let eventProcessing = false;
@@ -392,7 +392,7 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
   return status === "starting" || status === "hibernating";
 }
 
-// ─── SSE streaming ───
+// ─── SSE streaming (per-session) ───
 
 function clearStreamingState() {
   streamingAssistantText = "";
@@ -401,15 +401,13 @@ function clearStreamingState() {
   streamingSessionId = null;
 }
 
-// Process events sequentially to avoid race conditions when activeSessionId changes
+// Process events sequentially to avoid race conditions
 async function processEventQueue() {
   if (eventProcessing || eventQueue.length === 0) return;
   eventProcessing = true;
 
   while (eventQueue.length > 0) {
-    const event = eventQueue.shift();
-    if (event == null) continue;
-    // Capture the current activeSessionId snapshot to avoid races during await
+    const event = eventQueue.shift()!;
     const currentActiveSessionId = activeSessionId;
     if (currentActiveSessionId == null || event.sessionId !== currentActiveSessionId) continue;
 
@@ -439,42 +437,53 @@ async function processEventQueue() {
   }
 
   eventProcessing = false;
-  // Process any events that arrived while we were working
   if (eventQueue.length > 0) {
     void processEventQueue();
   }
 }
 
-function startSSE() {
-  if (sseAbortController) return;
-  sseAbortController = new AbortController();
-  eventQueue = [];
-  eventProcessing = false;
+// Start SSE for a specific session
+function connectSessionSSE(sessionId: string) {
+  disconnectSessionSSE(sessionId);
+  const abort = new AbortController();
+  sessionSSEs.set(sessionId, abort);
+  const lastEventId = sessionLastEventIds.get(sessionId);
 
   (async () => {
-    while (!sseAbortController.signal.aborted) {
-      try {
-        for await (const event of streamRuntimeEvents(
-          runtimeId,
-          lastEventId,
-          sseAbortController.signal,
-        )) {
-          // Track lastEventId for reconnection
-          if (event.type === "provider_render_update") {
-            lastEventId = String(event.timestamp);
-          }
-          // Push to queue for sequential processing
-          eventQueue.push(event);
-          void processEventQueue();
+    try {
+      for await (const event of streamSessionEvents(sessionId, lastEventId, abort.signal)) {
+        if (event.type === "provider_render_update") {
+          sessionLastEventIds.set(sessionId, String(event.timestamp));
         }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") break;
-        console.error("[SSE] Stream error, reconnecting in 2s:", error);
-        await new Promise((r) => setTimeout(r, 2000));
+        eventQueue.push(event);
+        void processEventQueue();
       }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      console.error(`[SSE] Session ${sessionId} stream error:`, error);
+    } finally {
+      sessionSSEs.delete(sessionId);
     }
-    sseAbortController = null;
   })();
+}
+
+// Disconnect SSE for a specific session
+function disconnectSessionSSE(sessionId: string) {
+  const existing = sessionSSEs.get(sessionId);
+  if (existing) {
+    existing.abort();
+    sessionSSEs.delete(sessionId);
+  }
+}
+
+// Disconnect all SSE connections
+function disconnectAllSSE() {
+  for (const [, ctrl] of sessionSSEs) {
+    ctrl.abort();
+  }
+  sessionSSEs.clear();
+  eventQueue = [];
+  eventProcessing = false;
 }
 
 async function handleSend() {
@@ -583,26 +592,34 @@ onMount(() => {
     void loadRuntime();
   }, 1000);
 
-  startSSE();
-
   return () => {
     if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
     if (runtimePollingTimer) clearInterval(runtimePollingTimer);
-    if (sseAbortController) {
-      sseAbortController.abort();
-      sseAbortController = null;
-    }
+    disconnectAllSSE();
     broadcastChannel?.close();
     broadcastChannel = null;
   };
 });
 
-// Clear streaming state when switching sessions
+// Manage SSE connection lifecycle based on active session
 let prevActiveSessionId: string | null = null;
 $effect(() => {
   const currentId = activeSessionId;
+
+  // Disconnect SSE for sessions that are no longer active
+  for (const [id] of sessionSSEs) {
+    if (id !== currentId) {
+      disconnectSessionSSE(id);
+    }
+  }
+
+  // Connect SSE for the new active session
+  if (currentId && currentId !== prevActiveSessionId) {
+    connectSessionSSE(currentId);
+  }
+
+  // Clear streaming state when switching sessions
   if (prevActiveSessionId && prevActiveSessionId !== currentId) {
-    // Clear streaming state for the previous session
     clearStreamingState();
   }
   prevActiveSessionId = currentId;
