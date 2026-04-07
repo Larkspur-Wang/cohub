@@ -1,51 +1,63 @@
 <script lang="ts">
-import { onMount, tick } from "svelte";
-import { page } from "$app/state";
 import { goto } from "$app/navigation";
+import { page } from "$app/state";
 import {
-  getRuntime,
-  getRuntimeChannels,
-  getRuntimeProvisioning,
-  getRuntimeSessions,
-  getSessionMessages,
-  postSessionMessage,
-  updateRuntimeChannelConfig,
-  createRuntimeSession,
-  streamSessionEvents,
-  extractSessionRenderState,
-  hibernateRuntime,
-  wakeRuntime,
-  deleteRuntime,
-  type ChannelConfig,
-  type DiscordChannelConfig,
-  type RuntimeChannelRecord,
-  type RuntimeProvisionResponse,
-  type RuntimeRecord,
-  type SessionRecord,
-  type SessionStreamEvent,
+	type ChannelConfig,
+	type DiscordChannelConfig,
+	type RuntimeChannelRecord,
+	type RuntimeProvisionResponse,
+	type RuntimeRecord,
+	type SessionRecord,
+	type SessionStreamEvent,
+	createRuntimeSession,
+	deleteRuntime,
+	extractSessionRenderState,
+	getRuntime,
+	getRuntimeChannels,
+	getRuntimeProvisioning,
+	getRuntimeSessions,
+	getSessionMessages,
+	hibernateRuntime,
+	postSessionMessage,
+	streamSessionEvents,
+	updateRuntimeChannelConfig,
+	wakeRuntime,
 } from "$lib/api";
-import type { MessageRecord } from "@cohub/protocol";
+import { ensureAuth } from "$lib/auth";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
-import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Hash, Plus, ArrowDown, Settings, Moon, Power, Trash2, Loader2, X } from "lucide-svelte";
-import { ensureAuth } from "$lib/auth";
-import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
+import { type TimelineItem, toChatMessages } from "$lib/session-tree";
+import { unreadTracker } from "$lib/stores/session-state.svelte";
+import type { MessageRecord } from "@cohub/protocol";
+import {
+	ArrowDown,
+	Hash,
+	Loader2,
+	Moon,
+	MoreVertical,
+	Plus,
+	Power,
+	Settings,
+	Terminal,
+	Trash2,
+	X,
+} from "lucide-svelte";
+import { onMount, tick } from "svelte";
 
 type Props = {
-  data: {
-    runtimeId: string;
-  };
+	data: {
+		runtimeId: string;
+	};
 };
 
 type SessionViewState = {
-  session: SessionRecord;
-  messages: MessageRecord[];
-  loading: boolean;
-  loaded: boolean;
-  error: string;
+	session: SessionRecord;
+	messages: MessageRecord[];
+	loading: boolean;
+	loaded: boolean;
+	error: string;
 };
 
 const props = $props();
@@ -69,7 +81,14 @@ let provisioning = $state<RuntimeProvisionResponse | null>(null);
 let provisioningError = $state("");
 let streamingAssistantText = $state("");
 let streamingThinking = $state("");
-let streamingToolCalls = $state<Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>>([]);
+let streamingToolCalls = $state<
+	Array<{
+		toolCallId: string;
+		toolName: string;
+		status: string;
+		summary?: string;
+	}>
+>([]);
 
 // SSE - per-session connections
 let sessionSSEs = new Map<string, AbortController>();
@@ -86,18 +105,31 @@ let streamingSessionId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
 
 function notifySessionsUpdate() {
-  // Notify sidebar about session changes
-  window.dispatchEvent(new CustomEvent("cohub:sessions-updated", {
-    detail: { runtimeId, sessions: runtimeSessions },
-  }));
-  broadcastChannel?.postMessage({ type: "sessions-updated", runtimeId, sessions: JSON.parse(JSON.stringify(runtimeSessions)) });
+	// Notify sidebar about session changes
+	window.dispatchEvent(
+		new CustomEvent("cohub:sessions-updated", {
+			detail: { runtimeId, sessions: runtimeSessions },
+		}),
+	);
+	broadcastChannel?.postMessage({
+		type: "sessions-updated",
+		runtimeId,
+		sessions: JSON.parse(JSON.stringify(runtimeSessions)),
+	});
 }
 
 function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
-  window.dispatchEvent(new CustomEvent("cohub:streaming-status", {
-    detail: { runtimeId, sessionId, isStreaming },
-  }));
-  broadcastChannel?.postMessage({ type: "streaming-status", runtimeId, sessionId, isStreaming });
+	window.dispatchEvent(
+		new CustomEvent("cohub:streaming-status", {
+			detail: { runtimeId, sessionId, isStreaming },
+		}),
+	);
+	broadcastChannel?.postMessage({
+		type: "streaming-status",
+		runtimeId,
+		sessionId,
+		isStreaming,
+	});
 }
 
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
@@ -113,599 +145,680 @@ let shouldAutoFollow = $state(true);
 let creatingSession = $state(false);
 let createSessionError = $state("");
 let showSettings = $state(false);
+let showMoreMenu = $state(false);
 
 // Runtime actions
 let runtimeActionError = $state("");
 let runtimeActionInProgress: string | null = $state(null);
 
 async function handleHibernate() {
-  if (!confirm("Hibernate this runtime? The sandbox pod will be stopped.")) return;
-  runtimeActionInProgress = "hibernate";
-  runtimeActionError = "";
-  try {
-    await hibernateRuntime(runtimeId);
-    await loadRuntime();
-  } catch (error) {
-    runtimeActionError = error instanceof Error ? error.message : "Failed to hibernate";
-  } finally {
-    runtimeActionInProgress = null;
-  }
+	if (!confirm("Hibernate this runtime? The sandbox pod will be stopped."))
+		return;
+	runtimeActionInProgress = "hibernate";
+	runtimeActionError = "";
+	try {
+		await hibernateRuntime(runtimeId);
+		await loadRuntime();
+	} catch (error) {
+		runtimeActionError =
+			error instanceof Error ? error.message : "Failed to hibernate";
+	} finally {
+		runtimeActionInProgress = null;
+	}
 }
 
 async function handleWake() {
-  if (!confirm("Wake this runtime? A new sandbox pod will be provisioned.")) return;
-  runtimeActionInProgress = "wake";
-  runtimeActionError = "";
-  try {
-    await wakeRuntime(runtimeId);
-    await loadRuntime();
-  } catch (error) {
-    runtimeActionError = error instanceof Error ? error.message : "Failed to wake";
-  } finally {
-    runtimeActionInProgress = null;
-  }
+	if (!confirm("Wake this runtime? A new sandbox pod will be provisioned."))
+		return;
+	runtimeActionInProgress = "wake";
+	runtimeActionError = "";
+	try {
+		await wakeRuntime(runtimeId);
+		await loadRuntime();
+	} catch (error) {
+		runtimeActionError =
+			error instanceof Error ? error.message : "Failed to wake";
+	} finally {
+		runtimeActionInProgress = null;
+	}
 }
 
 async function handleDelete() {
-  if (!confirm("Delete this runtime permanently? This cannot be undone.")) return;
-  runtimeActionInProgress = "delete";
-  runtimeActionError = "";
-  try {
-    await deleteRuntime(runtimeId);
-    goto("/runtimes");
-  } catch (error) {
-    runtimeActionError = error instanceof Error ? error.message : "Failed to delete";
-    runtimeActionInProgress = null;
-  }
+	if (!confirm("Delete this runtime permanently? This cannot be undone."))
+		return;
+	runtimeActionInProgress = "delete";
+	runtimeActionError = "";
+	try {
+		await deleteRuntime(runtimeId);
+		goto("/runtimes");
+	} catch (error) {
+		runtimeActionError =
+			error instanceof Error ? error.message : "Failed to delete";
+		runtimeActionInProgress = null;
+	}
 }
 
-const activeSessionState = $derived(activeSessionId ? sessionStateById[activeSessionId] ?? null : null);
+const activeSessionState = $derived(
+	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
+);
 
 const timeline = $derived.by<TimelineItem[]>(() => {
-  const state = activeSessionState;
-  if (!state) return [];
-  const items: TimelineItem[] = toChatMessages(state.messages).map((message) => ({
-    id: message.id,
-    kind: "message",
-    message,
-  }));
+	const state = activeSessionState;
+	if (!state) return [];
+	const items: TimelineItem[] = toChatMessages(state.messages).map(
+		(message) => ({
+			id: message.id,
+			kind: "message",
+			message,
+		}),
+	);
 
-  if (streamingToolCalls.length > 0) {
-    for (const tc of streamingToolCalls) {
-      items.push({
-        id: `stream-tool-${tc.toolCallId}`,
-        kind: "tool",
-        tool: {
-          id: tc.toolCallId,
-          name: tc.toolName,
-          input: {},
-          status: tc.status === "running" ? "running" : tc.status === "done" ? "done" : "error",
-          output: tc.summary ?? "",
-        },
-      });
-    }
-  }
+	if (streamingToolCalls.length > 0) {
+		for (const tc of streamingToolCalls) {
+			items.push({
+				id: `stream-tool-${tc.toolCallId}`,
+				kind: "tool",
+				tool: {
+					id: tc.toolCallId,
+					name: tc.toolName,
+					input: {},
+					status:
+						tc.status === "running"
+							? "running"
+							: tc.status === "done"
+								? "done"
+								: "error",
+					output: tc.summary ?? "",
+				},
+			});
+		}
+	}
 
-  if (streamingAssistantText.trim() || streamingThinking.trim()) {
-    const contentBlocks: Array<
-      { type: "thinking"; thinking: string } | { type: "text"; text: string }
-    > = [];
-    if (streamingThinking.trim()) {
-      contentBlocks.push({ type: "thinking", thinking: streamingThinking });
-    }
-    if (streamingAssistantText.trim()) {
-      contentBlocks.push({ type: "text", text: streamingAssistantText });
-    }
-    items.push({
-      id: "assistant-streaming",
-      kind: "message",
-      message: {
-        id: "assistant-streaming",
-        role: "assistant",
-        content: contentBlocks as never,
-        text: streamingAssistantText,
-        sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
-      },
-    });
-  }
+	if (streamingAssistantText.trim() || streamingThinking.trim()) {
+		const contentBlocks: Array<
+			{ type: "thinking"; thinking: string } | { type: "text"; text: string }
+		> = [];
+		if (streamingThinking.trim()) {
+			contentBlocks.push({ type: "thinking", thinking: streamingThinking });
+		}
+		if (streamingAssistantText.trim()) {
+			contentBlocks.push({ type: "text", text: streamingAssistantText });
+		}
+		items.push({
+			id: "assistant-streaming",
+			kind: "message",
+			message: {
+				id: "assistant-streaming",
+				role: "assistant",
+				content: contentBlocks as never,
+				text: streamingAssistantText,
+				sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
+			},
+		});
+	}
 
-  return items;
+	return items;
 });
 
 // Sync active session with URL
 $effect(() => {
-  if (urlSessionId && urlSessionId !== activeSessionId) {
-    activeSessionId = urlSessionId;
-    shouldAutoFollow = true;
-    didInitialScrollBySession = { ...didInitialScrollBySession, [urlSessionId]: false };
-    // Mark session as viewed when navigating to it
-    const state = sessionStateById[urlSessionId];
-    if (state?.session?.lastMessageId) {
-      unreadTracker.markViewed(urlSessionId, state.session.lastMessageId);
-    }
-  }
+	if (urlSessionId && urlSessionId !== activeSessionId) {
+		activeSessionId = urlSessionId;
+		shouldAutoFollow = true;
+		didInitialScrollBySession = {
+			...didInitialScrollBySession,
+			[urlSessionId]: false,
+		};
+		// Mark session as viewed when navigating to it
+		const state = sessionStateById[urlSessionId];
+		if (state?.session?.lastMessageId) {
+			unreadTracker.markViewed(urlSessionId, state.session.lastMessageId);
+		}
+	}
 });
 
 function updateUrlSession(sessionId: string | null) {
-  const params = new URLSearchParams(page.url.searchParams);
-  if (sessionId) {
-    params.set("session", sessionId);
-  } else {
-    params.delete("session");
-  }
-  void goto(`/runtimes/${runtimeId}?${params.toString()}`, { replaceState: true });
+	const params = new URLSearchParams(page.url.searchParams);
+	if (sessionId) {
+		params.set("session", sessionId);
+	} else {
+		params.delete("session");
+	}
+	void goto(`/runtimes/${runtimeId}?${params.toString()}`, {
+		replaceState: true,
+	});
 }
 
 async function handleCreateNewSession() {
-  if (creatingSession || !runtime) return;
-  creatingSession = true;
-  createSessionError = "";
+	if (creatingSession || !runtime) return;
+	creatingSession = true;
+	createSessionError = "";
 
-  try {
-    const result = await createRuntimeSession(runtime.id, { source: "web" });
-    const newSession = result.session;
+	try {
+		const result = await createRuntimeSession(runtime.id, { source: "web" });
+		const newSession = result.session;
 
-    runtimeSessions = [...runtimeSessions, newSession];
-    sessionStateById = {
-      ...sessionStateById,
-      [newSession.id]: {
-        session: newSession,
-        messages: [],
-        loading: false,
-        loaded: true,
-        error: "",
-      },
-    };
+		runtimeSessions = [...runtimeSessions, newSession];
+		sessionStateById = {
+			...sessionStateById,
+			[newSession.id]: {
+				session: newSession,
+				messages: [],
+				loading: false,
+				loaded: true,
+				error: "",
+			},
+		};
 
-    activeSessionId = newSession.id;
-    updateUrlSession(newSession.id);
-    notifySessionsUpdate();
-  } catch (error) {
-    createSessionError = error instanceof Error ? error.message : "Failed to create session";
-  } finally {
-    creatingSession = false;
-  }
+		activeSessionId = newSession.id;
+		updateUrlSession(newSession.id);
+		notifySessionsUpdate();
+	} catch (error) {
+		createSessionError =
+			error instanceof Error ? error.message : "Failed to create session";
+	} finally {
+		creatingSession = false;
+	}
 }
 
 function seedSessions(sessions: SessionRecord[]) {
-  if (sessions.length === 0 && runtimeSessions.length > 0) return;
+	if (sessions.length === 0 && runtimeSessions.length > 0) return;
 
-  runtimeSessions = sessions;
-  const nextState = { ...sessionStateById };
-  for (const session of sessions) {
-    if (!nextState[session.id]) {
-      nextState[session.id] = {
-        session,
-        messages: [],
-        loading: false,
-        loaded: false,
-        error: "",
-      };
-    } else {
-      nextState[session.id] = {
-        ...nextState[session.id],
-        session,
-      };
-    }
-  }
-  sessionStateById = nextState;
+	runtimeSessions = sessions;
+	const nextState = { ...sessionStateById };
+	for (const session of sessions) {
+		if (!nextState[session.id]) {
+			nextState[session.id] = {
+				session,
+				messages: [],
+				loading: false,
+				loaded: false,
+				error: "",
+			};
+		} else {
+			nextState[session.id] = {
+				...nextState[session.id],
+				session,
+			};
+		}
+	}
+	sessionStateById = nextState;
 
-  // Notify sidebar about session changes
-  notifySessionsUpdate();
+	// Notify sidebar about session changes
+	notifySessionsUpdate();
 
-  // Auto-select session from URL or fallback to latest
-  if (urlSessionId && !sessionStateById[urlSessionId]?.loaded) {
-    // Will be loaded by the effect below
-  } else if (!activeSessionId && sessions.length > 0) {
-    const nextId = sessions.at(-1)?.id ?? null;
-    activeSessionId = nextId;
-    updateUrlSession(nextId);
-  }
+	// Auto-select session from URL or fallback to latest
+	if (urlSessionId && !sessionStateById[urlSessionId]?.loaded) {
+		// Will be loaded by the effect below
+	} else if (!activeSessionId && sessions.length > 0) {
+		const nextId = sessions.at(-1)?.id ?? null;
+		activeSessionId = nextId;
+		updateUrlSession(nextId);
+	}
 }
 
-function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): DiscordChannelConfig {
-  return runtimeChannel.config ?? {
-    inbound: { requireMentionInGuild: true },
-    outbound: { showThinking: false, showToolCalls: false },
-  };
+function getDiscordRuntimeChannelConfig(
+	runtimeChannel: RuntimeChannelRecord,
+): DiscordChannelConfig {
+	return (
+		runtimeChannel.config ?? {
+			inbound: { requireMentionInGuild: true },
+			outbound: { showThinking: false, showToolCalls: false },
+		}
+	);
 }
 
-async function saveRuntimeChannelConfig(runtimeChannelId: string, config: ChannelConfig) {
-  savingChannelConfigById = { ...savingChannelConfigById, [runtimeChannelId]: true };
-  channelConfigErrorById = { ...channelConfigErrorById, [runtimeChannelId]: "" };
+async function saveRuntimeChannelConfig(
+	runtimeChannelId: string,
+	config: ChannelConfig,
+) {
+	savingChannelConfigById = {
+		...savingChannelConfigById,
+		[runtimeChannelId]: true,
+	};
+	channelConfigErrorById = {
+		...channelConfigErrorById,
+		[runtimeChannelId]: "",
+	};
 
-  try {
-    const updated = await updateRuntimeChannelConfig(runtimeChannelId, { config });
-    runtimeChannels = runtimeChannels.map((item) => (item.id === runtimeChannelId ? updated : item));
-  } catch (error) {
-    channelConfigErrorById = {
-      ...channelConfigErrorById,
-      [runtimeChannelId]: error instanceof Error ? error.message : "Failed to update channel config",
-    };
-  } finally {
-    savingChannelConfigById = { ...savingChannelConfigById, [runtimeChannelId]: false };
-  }
+	try {
+		const updated = await updateRuntimeChannelConfig(runtimeChannelId, {
+			config,
+		});
+		runtimeChannels = runtimeChannels.map((item) =>
+			item.id === runtimeChannelId ? updated : item,
+		);
+	} catch (error) {
+		channelConfigErrorById = {
+			...channelConfigErrorById,
+			[runtimeChannelId]:
+				error instanceof Error
+					? error.message
+					: "Failed to update channel config",
+		};
+	} finally {
+		savingChannelConfigById = {
+			...savingChannelConfigById,
+			[runtimeChannelId]: false,
+		};
+	}
 }
 
 function patchDiscordRuntimeChannelConfig(
-  runtimeChannel: RuntimeChannelRecord,
-  updater: (config: DiscordChannelConfig) => DiscordChannelConfig,
+	runtimeChannel: RuntimeChannelRecord,
+	updater: (config: DiscordChannelConfig) => DiscordChannelConfig,
 ) {
-  const nextConfig = updater(getDiscordRuntimeChannelConfig(runtimeChannel));
-  runtimeChannels = runtimeChannels.map((item) =>
-    item.id === runtimeChannel.id ? { ...item, config: nextConfig } : item,
-  );
-  void saveRuntimeChannelConfig(runtimeChannel.id, nextConfig);
+	const nextConfig = updater(getDiscordRuntimeChannelConfig(runtimeChannel));
+	runtimeChannels = runtimeChannels.map((item) =>
+		item.id === runtimeChannel.id ? { ...item, config: nextConfig } : item,
+	);
+	void saveRuntimeChannelConfig(runtimeChannel.id, nextConfig);
 }
 
 async function loadRuntime() {
-  if (!(await ensureAuth())) return;
-  runtimeLoadError = "";
+	if (!(await ensureAuth())) return;
+	runtimeLoadError = "";
 
-  const [runtimeResult, sessionsResult, channelsResult] = await Promise.allSettled([
-    getRuntime(runtimeId),
-    getRuntimeSessions(runtimeId),
-    getRuntimeChannels(runtimeId),
-  ]);
+	const [runtimeResult, sessionsResult, channelsResult] =
+		await Promise.allSettled([
+			getRuntime(runtimeId),
+			getRuntimeSessions(runtimeId),
+			getRuntimeChannels(runtimeId),
+		]);
 
-  if (runtimeResult.status === "fulfilled") {
-    runtime = runtimeResult.value;
-  } else {
-    runtimeLoadError = runtimeResult.reason instanceof Error
-      ? runtimeResult.reason.message
-      : "Failed to load runtime";
-  }
+	if (runtimeResult.status === "fulfilled") {
+		runtime = runtimeResult.value;
+	} else {
+		runtimeLoadError =
+			runtimeResult.reason instanceof Error
+				? runtimeResult.reason.message
+				: "Failed to load runtime";
+	}
 
-  if (sessionsResult.status === "fulfilled") {
-    seedSessions(sessionsResult.value.sessions ?? []);
-  } else if (!runtimeLoadError) {
-    runtimeLoadError = sessionsResult.reason instanceof Error
-      ? sessionsResult.reason.message
-      : "Failed to load runtime sessions";
-  }
+	if (sessionsResult.status === "fulfilled") {
+		seedSessions(sessionsResult.value.sessions ?? []);
+	} else if (!runtimeLoadError) {
+		runtimeLoadError =
+			sessionsResult.reason instanceof Error
+				? sessionsResult.reason.message
+				: "Failed to load runtime sessions";
+	}
 
-  if (channelsResult.status === "fulfilled") {
-    runtimeChannels = channelsResult.value;
-  } else if (!runtimeLoadError) {
-    runtimeLoadError = channelsResult.reason instanceof Error
-      ? channelsResult.reason.message
-      : "Failed to load runtime channels";
-  }
+	if (channelsResult.status === "fulfilled") {
+		runtimeChannels = channelsResult.value;
+	} else if (!runtimeLoadError) {
+		runtimeLoadError =
+			channelsResult.reason instanceof Error
+				? channelsResult.reason.message
+				: "Failed to load runtime channels";
+	}
 }
 
 async function loadSessionState(sessionId: string, force = false) {
-  const existing = sessionStateById[sessionId];
-  if (loadingSessionIds[sessionId] && !force) return;
-  if (existing?.loaded && !force) return;
+	const existing = sessionStateById[sessionId];
+	if (loadingSessionIds[sessionId] && !force) return;
+	if (existing?.loaded && !force) return;
 
-  const fallbackSession = runtimeSessions.find((item) => item.id === sessionId) ?? existing?.session;
-  if (!fallbackSession) return;
+	const fallbackSession =
+		runtimeSessions.find((item) => item.id === sessionId) ?? existing?.session;
+	if (!fallbackSession) return;
 
-  loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
-  sessionStateById = {
-    ...sessionStateById,
-    [sessionId]: {
-      session: existing?.session ?? fallbackSession,
-      messages: existing?.messages ?? [],
-      loading: true,
-      loaded: existing?.loaded ?? false,
-      error: existing?.error ?? "",
-    },
-  };
+	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
+	sessionStateById = {
+		...sessionStateById,
+		[sessionId]: {
+			session: existing?.session ?? fallbackSession,
+			messages: existing?.messages ?? [],
+			loading: true,
+			loaded: existing?.loaded ?? false,
+			error: existing?.error ?? "",
+		},
+	};
 
-  try {
-    const response = await getSessionMessages(sessionId);
-    sessionStateById = {
-      ...sessionStateById,
-      [sessionId]: {
-        session: response.session,
-        messages: response.messages,
-        loading: false,
-        loaded: true,
-        error: "",
-      },
-    };
+	try {
+		const response = await getSessionMessages(sessionId);
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: response.session,
+				messages: response.messages,
+				loading: false,
+				loaded: true,
+				error: "",
+			},
+		};
 
-    if (activeSessionId === sessionId) {
-      void forceScrollToBottom().then(() => {
-        shouldAutoFollow = true;
-        didInitialScrollBySession = { ...didInitialScrollBySession, [sessionId]: true };
-      });
-    }
-  } catch (error) {
-    sessionStateById = {
-      ...sessionStateById,
-      [sessionId]: {
-        session: existing?.session ?? fallbackSession,
-        messages: existing?.messages ?? [],
-        loading: false,
-        loaded: true,
-        error: error instanceof Error ? error.message : "Failed to load session",
-      },
-    };
-  } finally {
-    loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
-  }
+		if (activeSessionId === sessionId) {
+			void forceScrollToBottom().then(() => {
+				shouldAutoFollow = true;
+				didInitialScrollBySession = {
+					...didInitialScrollBySession,
+					[sessionId]: true,
+				};
+			});
+		}
+	} catch (error) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: existing?.session ?? fallbackSession,
+				messages: existing?.messages ?? [],
+				loading: false,
+				loaded: true,
+				error:
+					error instanceof Error ? error.message : "Failed to load session",
+			},
+		};
+	} finally {
+		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
+	}
 }
 
 async function loadProvisioning() {
-  try {
-    provisioning = await getRuntimeProvisioning(runtimeId);
-    provisioningError = "";
-  } catch (error) {
-    provisioningError = error instanceof Error ? error.message : "Failed to load provisioning";
-  }
+	try {
+		provisioning = await getRuntimeProvisioning(runtimeId);
+		provisioningError = "";
+	} catch (error) {
+		provisioningError =
+			error instanceof Error ? error.message : "Failed to load provisioning";
+	}
 }
 
 function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
-  if (!provision) return true;
-  return provision.status === "queued" || provision.status === "running";
+	if (!provision) return true;
+	return provision.status === "queued" || provision.status === "running";
 }
 
 function shouldPollRuntime(runtime: RuntimeRecord | null) {
-  if (!runtime) return true;
-  const status = runtime.status;
-  if (!status) return true;
-  return status === "starting";
+	if (!runtime) return true;
+	const status = runtime.status;
+	if (!status) return true;
+	return status === "starting";
 }
 
 // ─── SSE streaming (per-session) ───
 
 function clearStreamingState() {
-  streamingAssistantText = "";
-  streamingThinking = "";
-  streamingToolCalls = [];
-  streamingSessionId = null;
+	streamingAssistantText = "";
+	streamingThinking = "";
+	streamingToolCalls = [];
+	streamingSessionId = null;
 }
 
 // Process events sequentially to avoid race conditions
 async function processEventQueue() {
-  if (eventProcessing || eventQueue.length === 0) return;
-  eventProcessing = true;
+	if (eventProcessing || eventQueue.length === 0) return;
+	eventProcessing = true;
 
-  while (eventQueue.length > 0) {
-    const event = eventQueue.shift();
-    if (!event) continue;
-    const currentActiveSessionId = activeSessionId;
-    if (currentActiveSessionId == null || event.sessionId !== currentActiveSessionId) continue;
+	while (eventQueue.length > 0) {
+		const event = eventQueue.shift();
+		if (!event) continue;
+		const currentActiveSessionId = activeSessionId;
+		if (
+			currentActiveSessionId == null ||
+			event.sessionId !== currentActiveSessionId
+		)
+			continue;
 
-    if (event.type === "stream_update") {
-      const { thinking, answer, toolCalls } = extractSessionRenderState(event.content);
-      if (thinking) streamingThinking = thinking;
-      if (toolCalls.length > 0) streamingToolCalls = toolCalls;
-      if (answer) {
-        streamingAssistantText = answer;
-        if (streamingSessionId !== currentActiveSessionId) {
-          streamingSessionId = currentActiveSessionId;
-          notifyStreamingStatus(currentActiveSessionId, true);
-        }
-        await tick();
-        if (shouldAutoFollow) scrollToBottomNow();
-      }
+		if (event.type === "stream_update") {
+			const { thinking, answer, toolCalls } = extractSessionRenderState(
+				event.content,
+			);
+			if (thinking) streamingThinking = thinking;
+			if (toolCalls.length > 0) streamingToolCalls = toolCalls;
+			if (answer) {
+				streamingAssistantText = answer;
+				if (streamingSessionId !== currentActiveSessionId) {
+					streamingSessionId = currentActiveSessionId;
+					notifyStreamingStatus(currentActiveSessionId, true);
+				}
+				await tick();
+				if (shouldAutoFollow) scrollToBottomNow();
+			}
 
-      if (event.turnEnd) {
-        const endedSessionId = streamingSessionId;
-        clearStreamingState();
-        streamStatus = "done";
-        if (endedSessionId) {
-          notifyStreamingStatus(endedSessionId, false);
-        }
-        await loadSessionState(currentActiveSessionId, true);
-      }
-    }
-  }
+			if (event.turnEnd) {
+				const endedSessionId = streamingSessionId;
+				clearStreamingState();
+				streamStatus = "done";
+				if (endedSessionId) {
+					notifyStreamingStatus(endedSessionId, false);
+				}
+				await loadSessionState(currentActiveSessionId, true);
+			}
+		}
+	}
 
-  eventProcessing = false;
-  if (eventQueue.length > 0) {
-    void processEventQueue();
-  }
+	eventProcessing = false;
+	if (eventQueue.length > 0) {
+		void processEventQueue();
+	}
 }
 
 // Start SSE for a specific session
 function connectSessionSSE(sessionId: string) {
-  disconnectSessionSSE(sessionId);
-  const abort = new AbortController();
-  sessionSSEs.set(sessionId, abort);
-  const lastEventId = sessionLastEventIds.get(sessionId);
+	disconnectSessionSSE(sessionId);
+	const abort = new AbortController();
+	sessionSSEs.set(sessionId, abort);
+	const lastEventId = sessionLastEventIds.get(sessionId);
 
-  (async () => {
-    try {
-      for await (const event of streamSessionEvents(sessionId, lastEventId, abort.signal)) {
-        if (event.type === "stream_update") {
-          sessionLastEventIds.set(sessionId, String(event.timestamp));
-        }
-        eventQueue.push(event);
-        void processEventQueue();
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      console.error(`[SSE] Session ${sessionId} stream error:`, error);
-    } finally {
-      sessionSSEs.delete(sessionId);
-    }
-  })();
+	(async () => {
+		try {
+			for await (const event of streamSessionEvents(
+				sessionId,
+				lastEventId,
+				abort.signal,
+			)) {
+				if (event.type === "stream_update") {
+					sessionLastEventIds.set(sessionId, String(event.timestamp));
+				}
+				eventQueue.push(event);
+				void processEventQueue();
+			}
+		} catch (error) {
+			if (error instanceof DOMException && error.name === "AbortError") return;
+			console.error(`[SSE] Session ${sessionId} stream error:`, error);
+		} finally {
+			sessionSSEs.delete(sessionId);
+		}
+	})();
 }
 
 // Disconnect SSE for a specific session
 function disconnectSessionSSE(sessionId: string) {
-  const existing = sessionSSEs.get(sessionId);
-  if (existing) {
-    existing.abort();
-    sessionSSEs.delete(sessionId);
-  }
+	const existing = sessionSSEs.get(sessionId);
+	if (existing) {
+		existing.abort();
+		sessionSSEs.delete(sessionId);
+	}
 }
 
 // Disconnect all SSE connections
 function disconnectAllSSE() {
-  for (const [, ctrl] of sessionSSEs) {
-    ctrl.abort();
-  }
-  sessionSSEs.clear();
-  eventQueue = [];
-  eventProcessing = false;
+	for (const [, ctrl] of sessionSSEs) {
+		ctrl.abort();
+	}
+	sessionSSEs.clear();
+	eventQueue = [];
+	eventProcessing = false;
 }
 
 async function handleSend() {
-  if (!activeSessionState || !input.trim() || sending || !runtime) return;
-  sending = true;
-  streamError = "";
-  streamStatus = "streaming";
+	if (!activeSessionState || !input.trim() || sending || !runtime) return;
+	sending = true;
+	streamError = "";
+	streamStatus = "streaming";
 
-  const text = input.trim();
-  const sessionId = activeSessionState.session.id;
+	const text = input.trim();
+	const sessionId = activeSessionState.session.id;
 
-  try {
-    input = "";
-    clearStreamingState();
+	try {
+		input = "";
+		clearStreamingState();
 
-    const currentState = sessionStateById[sessionId];
-    if (currentState) {
-      sessionStateById = {
-        ...sessionStateById,
-        [sessionId]: {
-          ...currentState,
-          messages: [
-            ...currentState.messages,
-            {
-              id: `optimistic-user-${Date.now()}`,
-              sessionId,
-              role: "user",
-              content: [{ type: "text", text }],
-              text,
-              sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
-              provider: null,
-              model: null,
-              stopReason: null,
-              errorMessage: null,
-              usageInput: null,
-              usageOutput: null,
-              costTotal: null,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        },
-      };
-    }
+		const currentState = sessionStateById[sessionId];
+		if (currentState) {
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...currentState,
+					messages: [
+						...currentState.messages,
+						{
+							id: `optimistic-user-${Date.now()}`,
+							sessionId,
+							role: "user",
+							content: [{ type: "text", text }],
+							text,
+							sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
+							provider: null,
+							model: null,
+							stopReason: null,
+							errorMessage: null,
+							usageInput: null,
+							usageOutput: null,
+							costTotal: null,
+							createdAt: new Date().toISOString(),
+						},
+					],
+				},
+			};
+		}
 
-    await postSessionMessage(sessionId, [{ type: "text", text }]);
-  } catch (error) {
-    streamError = error instanceof Error ? error.message : "Failed to send message";
-    streamStatus = "error";
-    clearStreamingState();
-    await loadSessionState(sessionId, true).catch(() => undefined);
-  } finally {
-    sending = false;
-  }
+		await postSessionMessage(sessionId, [{ type: "text", text }]);
+	} catch (error) {
+		streamError =
+			error instanceof Error ? error.message : "Failed to send message";
+		streamStatus = "error";
+		clearStreamingState();
+		await loadSessionState(sessionId, true).catch(() => undefined);
+	} finally {
+		sending = false;
+	}
 }
 
 function scrollToBottomNow() {
-  if (!listEl) return;
-  listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
+	if (!listEl) return;
+	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
 }
 
 async function forceScrollToBottom() {
-  await tick();
-  // Use rAF to ensure the browser has computed layout after DOM update
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      scrollToBottomNow();
-      resolve();
-    });
-  });
+	await tick();
+	// Use rAF to ensure the browser has computed layout after DOM update
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame(() => {
+			scrollToBottomNow();
+			resolve();
+		});
+	});
 }
 
-
 function updateAutoFollow() {
-  if (!listEl) return;
-  const threshold = 80;
-  const distanceFromBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
-  shouldAutoFollow = distanceFromBottom <= threshold;
+	if (!listEl) return;
+	const threshold = 80;
+	const distanceFromBottom =
+		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+	shouldAutoFollow = distanceFromBottom <= threshold;
 }
 
 onMount(() => {
-  // Initialize broadcast channel for cross-component communication
-  try {
-    broadcastChannel = new BroadcastChannel(`cohub:runtime:${runtimeId}`);
-  } catch {
-    // BroadcastChannel not supported, fallback to window events
-  }
+	// Initialize broadcast channel for cross-component communication
+	try {
+		broadcastChannel = new BroadcastChannel(`cohub:runtime:${runtimeId}`);
+	} catch {
+		// BroadcastChannel not supported, fallback to window events
+	}
 
-  void Promise.all([loadRuntime(), loadProvisioning()]).finally(() => {
-    bootstrapping = false;
-  });
+	void Promise.all([loadRuntime(), loadProvisioning()]).finally(() => {
+		bootstrapping = false;
+	});
 
-  provisioningPollingTimer = setInterval(() => {
-    if (!shouldPollProvisioning(provisioning)) return;
-    void loadProvisioning();
-  }, 5000);
+	provisioningPollingTimer = setInterval(() => {
+		if (!shouldPollProvisioning(provisioning)) return;
+		void loadProvisioning();
+	}, 5000);
 
-  runtimePollingTimer = setInterval(() => {
-    if (!shouldPollRuntime(runtime)) return;
-    void loadRuntime();
-  }, 1000);
+	runtimePollingTimer = setInterval(() => {
+		if (!shouldPollRuntime(runtime)) return;
+		void loadRuntime();
+	}, 1000);
 
-  return () => {
-    if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
-    if (runtimePollingTimer) clearInterval(runtimePollingTimer);
-    disconnectAllSSE();
-    broadcastChannel?.close();
-    broadcastChannel = null;
-  };
+	return () => {
+		if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
+		if (runtimePollingTimer) clearInterval(runtimePollingTimer);
+		disconnectAllSSE();
+		broadcastChannel?.close();
+		broadcastChannel = null;
+	};
 });
 
 // Manage SSE connection lifecycle based on active session
 let prevActiveSessionId: string | null = null;
 $effect(() => {
-  const currentId = activeSessionId;
+	const currentId = activeSessionId;
 
-  // Disconnect SSE for sessions that are no longer active
-  for (const [id] of sessionSSEs) {
-    if (id !== currentId) {
-      disconnectSessionSSE(id);
-    }
-  }
+	// Disconnect SSE for sessions that are no longer active
+	for (const [id] of sessionSSEs) {
+		if (id !== currentId) {
+			disconnectSessionSSE(id);
+		}
+	}
 
-  // Connect SSE for the new active session
-  if (currentId && currentId !== prevActiveSessionId) {
-    connectSessionSSE(currentId);
-  }
+	// Connect SSE for the new active session
+	if (currentId && currentId !== prevActiveSessionId) {
+		connectSessionSSE(currentId);
+	}
 
-  // Clear streaming state when switching sessions
-  if (prevActiveSessionId && prevActiveSessionId !== currentId) {
-    clearStreamingState();
-  }
-  prevActiveSessionId = currentId;
+	// Clear streaming state when switching sessions
+	if (prevActiveSessionId && prevActiveSessionId !== currentId) {
+		clearStreamingState();
+	}
+	prevActiveSessionId = currentId;
+});
+
+// Close more menu on click outside
+$effect(() => {
+	function handleClick(e: MouseEvent) {
+		const target = e.target as HTMLElement;
+		if (!target.closest("[data-more-menu]")) {
+			showMoreMenu = false;
+		}
+	}
+	document.addEventListener("click", handleClick);
+	return () => document.removeEventListener("click", handleClick);
 });
 
 $effect(() => {
-  if (activeSessionId) {
-    void loadSessionState(activeSessionId).finally(() => {
-      bootstrapping = false;
-    });
-  }
+	if (activeSessionId) {
+		void loadSessionState(activeSessionId).finally(() => {
+			bootstrapping = false;
+		});
+	}
 });
 
 $effect(() => {
-  if (!listEl || !activeSessionId) return;
-  const sessionId = activeSessionId;
-  const state = sessionStateById[sessionId];
-  if (!state?.loaded || didInitialScrollBySession[sessionId]) return;
+	if (!listEl || !activeSessionId) return;
+	const sessionId = activeSessionId;
+	const state = sessionStateById[sessionId];
+	if (!state?.loaded || didInitialScrollBySession[sessionId]) return;
 
-  void forceScrollToBottom().then(() => {
-    shouldAutoFollow = true;
-    didInitialScrollBySession = { ...didInitialScrollBySession, [sessionId]: true };
-  });
+	void forceScrollToBottom().then(() => {
+		shouldAutoFollow = true;
+		didInitialScrollBySession = {
+			...didInitialScrollBySession,
+			[sessionId]: true,
+		};
+	});
 });
 
 // Auto-follow scroll: when new content arrives and user is at bottom
 $effect(() => {
-  if (!listEl || !shouldAutoFollow || !activeSessionId) return;
-  // Use rAF instead of queueMicrotask to ensure layout is computed
-  requestAnimationFrame(() => {
-    if (listEl && shouldAutoFollow) {
-      scrollToBottomNow();
-    }
-  });
+	if (!listEl || !shouldAutoFollow || !activeSessionId) return;
+	// Use rAF instead of queueMicrotask to ensure layout is computed
+	requestAnimationFrame(() => {
+		if (listEl && shouldAutoFollow) {
+			scrollToBottomNow();
+		}
+	});
 });
 </script>
 
@@ -741,61 +854,85 @@ $effect(() => {
       {/if}
       <span class="hidden sm:inline">New Session</span>
     </button>
-    <button
-      type="button"
-      class="flex items-center justify-center w-7 h-7 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-      onclick={() => showSettings = !showSettings}
-      title="Settings"
-    >
-      <Settings class="w-4 h-4" />
-    </button>
 
-    <!-- Runtime lifecycle actions (after Settings) -->
-    {#if getRuntimeStatusMeta(runtime?.status).canHibernate}
+    <!-- More menu -->
+    <div class="relative" data-more-menu>
       <button
         type="button"
-        class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-warning-soft/10 text-warning-soft hover:bg-warning-soft/30 hover:text-warning transition-colors duration-100 disabled:opacity-50"
-        onclick={() => handleHibernate()}
-        disabled={runtimeActionInProgress !== null}
-        title="Hibernate runtime"
+        class="flex items-center justify-center w-7 h-7 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        onclick={() => showMoreMenu = !showMoreMenu}
+        title="More"
       >
-        {#if runtimeActionInProgress === "hibernate"}
-          <Loader2 class="w-4 h-4 animate-spin" />
-        {:else}
-          <Moon class="w-4 h-4" />
-        {/if}
+        <MoreVertical class="w-4 h-4" />
       </button>
-    {/if}
-    {#if getRuntimeStatusMeta(runtime?.status).canWake}
-      <button
-        type="button"
-        class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-success-soft/10 text-success-soft hover:bg-success-soft/30 hover:text-success transition-colors duration-100 disabled:opacity-50"
-        onclick={() => handleWake()}
-        disabled={runtimeActionInProgress !== null}
-        title="Wake runtime"
-      >
-        {#if runtimeActionInProgress === "wake"}
-          <Loader2 class="w-4 h-4 animate-spin" />
-        {:else}
-          <Power class="w-4 h-4" />
-        {/if}
-      </button>
-    {/if}
-    {#if getRuntimeStatusMeta(runtime?.status).canDelete}
-      <button
-        type="button"
-        class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-error-soft/10 text-error-soft hover:bg-error-soft/30 hover:text-error transition-colors duration-100 disabled:opacity-50"
-        onclick={() => handleDelete()}
-        disabled={runtimeActionInProgress !== null}
-        title="Delete runtime"
-      >
-        {#if runtimeActionInProgress === "delete"}
-          <Loader2 class="w-4 h-4 animate-spin" />
-        {:else}
-          <Trash2 class="w-4 h-4" />
-        {/if}
-      </button>
-    {/if}
+
+      {#if showMoreMenu}
+        <div
+          class="absolute right-0 top-full mt-1 w-48 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
+        >
+          <button
+            type="button"
+            class="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            onclick={() => { showSettings = true; showMoreMenu = false; }}
+          >
+            <Settings class="w-3.5 h-3.5" />
+            <span>Settings</span>
+          </button>
+
+          {#if getRuntimeStatusMeta(runtime?.status).canHibernate || getRuntimeStatusMeta(runtime?.status).canWake || getRuntimeStatusMeta(runtime?.status).canDelete}
+            <div class="border-t border-border-subtle"></div>
+          {/if}
+
+          {#if getRuntimeStatusMeta(runtime?.status).canHibernate}
+            <button
+              type="button"
+              class="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-warning-soft hover:text-warning hover:bg-bg-hover transition-colors disabled:opacity-50"
+              disabled={runtimeActionInProgress !== null}
+              onclick={() => { void handleHibernate(); showMoreMenu = false; }}
+            >
+              {#if runtimeActionInProgress === "hibernate"}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+              {:else}
+                <Moon class="w-3.5 h-3.5" />
+              {/if}
+              <span>Hibernate</span>
+            </button>
+          {/if}
+
+          {#if getRuntimeStatusMeta(runtime?.status).canWake}
+            <button
+              type="button"
+              class="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-success-soft hover:text-success hover:bg-bg-hover transition-colors disabled:opacity-50"
+              disabled={runtimeActionInProgress !== null}
+              onclick={() => { void handleWake(); showMoreMenu = false; }}
+            >
+              {#if runtimeActionInProgress === "wake"}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+              {:else}
+                <Power class="w-3.5 h-3.5" />
+              {/if}
+              <span>Wake</span>
+            </button>
+          {/if}
+
+          {#if getRuntimeStatusMeta(runtime?.status).canDelete}
+            <button
+              type="button"
+              class="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-error-soft hover:text-error hover:bg-bg-hover transition-colors disabled:opacity-50"
+              disabled={runtimeActionInProgress !== null}
+              onclick={() => { void handleDelete(); showMoreMenu = false; }}
+            >
+              {#if runtimeActionInProgress === "delete"}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+              {:else}
+                <Trash2 class="w-3.5 h-3.5" />
+              {/if}
+              <span>Delete</span>
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 </header>
 

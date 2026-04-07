@@ -18,6 +18,7 @@
   "dependencies": {
     "@cohub/protocol": "workspace:*",
     "@logto/browser": "^3.0.12",
+    "geist": "^1.7.0",
     "isomorphic-dompurify": "2.15.0",
     "lucide-svelte": "^1.0.1",
     "marked": "15.0.2",

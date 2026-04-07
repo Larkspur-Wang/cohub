@@ -1,16 +1,18 @@
 <script lang="ts">
+import { ArrowUp } from "lucide-svelte";
+
 type Props = {
-  value: string;
-  disabled?: boolean;
-  streamError?: string;
-  onsubmit: () => void;
+	value: string;
+	disabled?: boolean;
+	streamError?: string;
+	onsubmit: () => void;
 };
 
 let {
-  value = $bindable(""),
-  disabled = false,
-  streamError = "",
-  onsubmit,
+	value = $bindable(""),
+	disabled = false,
+	streamError = "",
+	onsubmit,
 }: Props = $props();
 </script>
 
@@ -30,7 +32,7 @@ let {
       bind:value
       rows="3"
       placeholder="Message session..."
-      class="min-h-[76px] flex-1 resize-none rounded-md border border-border-primary bg-bg-elevated px-3 py-2.5 text-[13px] leading-6 text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-border-primary/20 focus:bg-bg-surface"
+      class="min-h-[76px] flex-1 resize-none rounded-md border border-border-primary bg-bg-elevated px-3 py-2.5 text-[13px] leading-6 text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-brand/40 focus:bg-bg-surface"
       onkeydown={(event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault();
@@ -43,9 +45,9 @@ let {
     <button
       type="submit"
       disabled={disabled || !value.trim()}
-      class="h-10 shrink-0 rounded-md border border-border-primary bg-hover px-4 text-[11px] font-medium uppercase tracking-[0.18em] text-text-secondary transition-colors hover:bg-hover-strong hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-35"
+      class="h-10 w-10 shrink-0 rounded-md flex items-center justify-center border border-border-primary bg-hover text-text-secondary transition-colors hover:bg-brand hover:border-brand hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-hover disabled:hover:border-border-primary disabled:hover:text-text-secondary"
     >
-      {disabled ? 'Sending' : 'Send'}
+      <ArrowUp class="w-4 h-4" />
     </button>
   </form>
 </div>
