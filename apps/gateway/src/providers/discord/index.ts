@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, DiscordRuntimeChannelConfig } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, DiscordChannelConfig } from "@cohub/protocol";
 import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getRuntimeChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
@@ -100,7 +100,7 @@ const buildDiscordRenderText = (content: ContentBlock[], includeThinking = false
   };
 };
 
-const getDiscordOutboundConfig = (config: DiscordRuntimeChannelConfig | null | undefined) => {
+const getDiscordOutboundConfig = (config: DiscordChannelConfig | null | undefined) => {
   const outbound = config?.outbound ?? {};
   return {
     showThinking: outbound.showThinking === true,
@@ -108,7 +108,7 @@ const getDiscordOutboundConfig = (config: DiscordRuntimeChannelConfig | null | u
   };
 };
 
-const getDiscordInboundConfig = (config: DiscordRuntimeChannelConfig | null | undefined) => {
+const getDiscordInboundConfig = (config: DiscordChannelConfig | null | undefined) => {
   const inbound = config?.inbound ?? {};
   return {
     requireMentionInGuild: inbound.requireMentionInGuild !== false,
@@ -175,7 +175,7 @@ const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Mes
   const isDM = message.channel?.isDMBased?.() ?? false;
   if (isDM) return true;
 
-  const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
+  const channelConfig = await getRuntimeChannelConfig<DiscordChannelConfig>(channelId);
   const inboundConfig = getDiscordInboundConfig(channelConfig);
   if (!inboundConfig.requireMentionInGuild) return true;
 
@@ -192,7 +192,7 @@ const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutbou
     return buildDiscordRenderText(cmd.content, !isFinalMessage, isFinalMessage);
   }
 
-  const channelConfig = await getRuntimeChannelConfig<DiscordRuntimeChannelConfig>(channelId);
+  const channelConfig = await getRuntimeChannelConfig<DiscordChannelConfig>(channelId);
   const outboundConfig = getDiscordOutboundConfig(channelConfig);
   // Only show thinking for intermediate status updates, not final messages
   const thinking = !isFinalMessage && outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";

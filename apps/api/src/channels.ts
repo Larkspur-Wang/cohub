@@ -5,9 +5,9 @@ import { redisCommandClient, GATEWAY_OUTBOUND_STREAM, xaddWithMaxlen } from "./r
 import type {
   GatewayInboundEvent,
   GatewayOutboundCommand,
-  UnifiedContentBlock,
+  ContentBlock,
   ChannelProvider,
-  RuntimeChannelConfig,
+  ChannelConfig,
 } from "@cohub/protocol";
 import { buildSessionSourceChannel } from "@cohub/protocol";
 import { randomUUID } from "node:crypto";
@@ -37,7 +37,7 @@ const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtim
 
 export async function syncRuntimeChannelConfigCache(input: {
   runtimeChannelId: string;
-  config: RuntimeChannelConfig | Record<string, unknown> | null;
+  config: ChannelConfig | Record<string, unknown> | null;
 }) {
   const key = getRuntimeChannelConfigKey(input.runtimeChannelId);
   const payload = JSON.stringify(input.config ?? {});
@@ -96,7 +96,7 @@ export async function bindRuntimeChannelsToGateway(runtimeId: string) {
 
     await syncRuntimeChannelConfigCache({
       runtimeChannelId: rc.id,
-      config: (rc.config as RuntimeChannelConfig | Record<string, unknown> | null) ?? null,
+      config: (rc.config as ChannelConfig | Record<string, unknown> | null) ?? null,
     });
 
     // 1. 塞进节点的专属任务 Hash
@@ -119,7 +119,7 @@ export async function dispatchOutboundMessage(input: {
   sessionMessageId?: string;
   provider?: string;
   externalChatId?: string | null;
-  content: UnifiedContentBlock[];
+  content: ContentBlock[];
   replyToExternalMessageId?: string;
   meta?: Record<string, unknown> | null;
 }) {
@@ -669,6 +669,7 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     runtimeId,
     sessionId,
     inputText: text,
+    content: event.content,
     source: `channel:${event.provider}`,
     interactionId: event.eventId,
     actorUserId: event.sender.id,

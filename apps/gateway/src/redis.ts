@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import type { RuntimeChannelConfig } from "@cohub/protocol";
+import type { ChannelConfig } from "@cohub/protocol";
 
 export type RedisStreamEntry = [string, string[]];
 
@@ -44,11 +44,11 @@ export const getRuntimeOutputStreamKey = (runtimeId: string) => `runtimes:${runt
 const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
 const getTurnMessageRefKey = (runtimeChannelId: string, turnAnchorMessageId: string) =>
   `gateway:turn_message_ref:${runtimeChannelId}:${turnAnchorMessageId}`;
-const runtimeChannelConfigCache = new Map<string, { expiresAt: number; value: RuntimeChannelConfig | null }>();
+const runtimeChannelConfigCache = new Map<string, { expiresAt: number; value: ChannelConfig | null }>();
 const RUNTIME_CHANNEL_CONFIG_TTL_MS = 3000;
 const TURN_MESSAGE_REF_TTL_SECONDS = 60 * 30;
 
-export const getRuntimeChannelConfig = async <TConfig extends RuntimeChannelConfig = RuntimeChannelConfig>(
+export const getRuntimeChannelConfig = async <TConfig extends ChannelConfig = ChannelConfig>(
   runtimeChannelId: string,
 ): Promise<TConfig | null> => {
   const now = Date.now();

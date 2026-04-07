@@ -11,10 +11,13 @@ import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
   closeRedisConnections,
+  extractContentImages,
+  extractContentText,
   listenForInput,
   sendOutput,
   setRuntimeStatus,
 } from "./redis.js";
+import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
 
 type PendingUserMessage = {
   messageKey: string;
@@ -28,20 +31,28 @@ type SessionHandle = {
   pendingUserMessages: PendingUserMessage[];
   currentUserMessageId: string | null;
   streamState: {
-    thinking: string;
-    assistantText: string;
-    toolCalls: Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>;
+    content: ContentBlock[];
+    lastRenderAt: number;
     preferredDisplayMode: "full" | "compact" | "minimal";
   };
 };
 
 /**
- * Build a base64 key from message text and images for matching.
+ * Build a base64 key from ContentBlock[] for matching SDK echo messages.
  */
-function buildMessageKey(text: string, images?: Array<{ data: string; mimeType: string }>): string {
-  const imageCount = images?.length ?? 0;
-  const payload = JSON.stringify({ text, imageCount });
-  return Buffer.from(payload).toString("base64");
+function buildContentKey(content: ContentBlock[]): string {
+  const text = extractContentText(content);
+  const imageCount = content.filter((b) => b.type === "image").length;
+  return Buffer.from(JSON.stringify({ text, imageCount })).toString("base64");
+}
+
+/**
+ * Build a base64 key from SDK message_start event content for matching.
+ */
+function buildMessageKeyFromEvent(message: Record<string, unknown>): string {
+  const text = extractUserMessageText(message);
+  const imageCount = extractUserImageCount(message);
+  return Buffer.from(JSON.stringify({ text, imageCount })).toString("base64");
 }
 
 /**
@@ -70,15 +81,6 @@ function extractUserImageCount(message: Record<string, unknown>): number {
   return content.filter(
     (item) => !!item && typeof item === "object" && "type" in item && item.type === "image"
   ).length;
-}
-
-/**
- * Build message key from a message_start event.
- */
-function buildMessageKeyFromEvent(message: Record<string, unknown>): string {
-  const text = extractUserMessageText(message);
-  const imageCount = extractUserImageCount(message);
-  return Buffer.from(JSON.stringify({ text, imageCount })).toString("base64");
 }
 
 let isShuttingDown = false;
@@ -157,57 +159,88 @@ function summarizeToolArgs(toolName: string, args: unknown): string {
   return first.slice(0, 120);
 }
 
-function extractAssistantText(message: Record<string, unknown>): string {
-  const content = Array.isArray(message.content) ? message.content : [];
-  return content
-    .filter((item): item is { type: string; text?: string } => !!item && typeof item === "object" && "type" in item)
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text ?? "")
-    .join("\n")
-    .trim();
-}
-
-function extractThinkingText(message: Record<string, unknown>): string {
-  const content = Array.isArray(message.content) ? message.content : [];
-  return content
-    .filter((item): item is { type: string; thinking?: string } => !!item && typeof item === "object" && "type" in item)
-    .filter((item) => item.type === "thinking" && typeof item.thinking === "string")
-    .map((item) => item.thinking ?? "")
-    .join("\n")
-    .trim();
-}
-
 function summarizeThinking(thinking: string): string {
   const trimmed = thinking.trim();
   if (!trimmed) return "";
   return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 2).join("\n").slice(0, 320);
 }
 
-async function emitProviderRenderUpdate(handle: SessionHandle) {
+// ─── SDK content → ContentBlock conversion ───
+
+function sdkContentToBlocks(content: unknown): ContentBlock[] {
+  if (!Array.isArray(content)) return [];
+  const blocks: ContentBlock[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+    const block = item as Record<string, unknown>;
+    const type = block.type as string | undefined;
+
+    if (type === "text" && typeof block.text === "string") {
+      blocks.push({ type: "text", text: block.text });
+    } else if (type === "thinking" && typeof block.thinking === "string") {
+      blocks.push({ type: "thinking", thinking: block.thinking });
+    } else if (type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
+      blocks.push({
+        type: "tool_use",
+        id: block.id as string,
+        name: block.name as string,
+        input: (block.arguments as Record<string, unknown> | null) ?? {},
+      });
+    } else if (type === "image" && typeof block.uri === "string") {
+      blocks.push({
+        type: "image",
+        source: { type: "url", url: block.uri },
+      });
+    } else if (type === "tool_result" && typeof block.tool_use_id === "string") {
+      blocks.push({
+        type: "tool_result",
+        tool_use_id: block.tool_use_id as string,
+        content: typeof block.content === "string" ? block.content : (block.content as string | ContentBlock[] | null) ?? "",
+        is_error: Boolean(block.is_error),
+      });
+    }
+  }
+  return blocks;
+}
+
+function upsertBlock(content: ContentBlock[], block: ContentBlock): ContentBlock[] {
+  const idx = content.findIndex((b) => {
+    if (b.type === "tool_use" && block.type === "tool_use") return b.id === block.id;
+    if (b.type === "tool_result" && block.type === "tool_result") return b.tool_use_id === block.tool_use_id;
+    return false;
+  });
+  if (idx !== -1) {
+    const updated = [...content];
+    updated[idx] = block;
+    return updated;
+  }
+  return [...content, block];
+}
+
+async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
+  const now = Date.now();
+  if (!force && now - handle.streamState.lastRenderAt < 900) return;
+  handle.streamState.lastRenderAt = now;
+
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
-  const anchorUserMessageId = sourceMessageId;
 
-  const thinking = handle.streamState.thinking.trim();
-
-  await sendOutput({
-    type: "provider_render_update",
+  const event: SessionStreamEvent = {
+    type: "stream_update",
     runtimeId: env.RUNTIME_ID,
     sessionId: handle.sessionId,
-    renderMode: "rich_status",
-    thinking,
-    toolCalls: handle.streamState.toolCalls,
-    answer: handle.streamState.assistantText,
+    content: handle.streamState.content,
     sourceMessageId,
-    timestamp: Date.now(),
-  });
+    timestamp: now,
+  };
+
+  await sendOutput(event);
 }
 
 function resetStreamState(handle: SessionHandle) {
   handle.streamState = {
-    thinking: "",
-    assistantText: "",
-    toolCalls: [],
+    content: [],
+    lastRenderAt: 0,
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
   };
 }
@@ -216,7 +249,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
   handle.session.subscribe((event) => {
     if (event.type === "message_start") {
       const message = event.message as unknown as Record<string, unknown>;
-      
+
       // Match user message from pending queue
       if (message.role === "user") {
         const eventKey = buildMessageKeyFromEvent(message);
@@ -237,7 +270,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
           );
         }
       }
-      
+
       if (message.role === "assistant") {
         resetStreamState(handle);
         void emitProviderRenderUpdate(handle);
@@ -246,35 +279,84 @@ function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "message_update") {
       const message = event.message as unknown as Record<string, unknown>;
-      handle.streamState.assistantText = extractAssistantText(message);
-      handle.streamState.thinking = extractThinkingText(message);
+      // Convert SDK content blocks to our ContentBlock[]
+      const newBlocks = sdkContentToBlocks(message.content);
+      handle.streamState.content = newBlocks;
       void emitProviderRenderUpdate(handle);
     }
 
     if (event.type === "tool_execution_start") {
-      handle.streamState.toolCalls = [
-        ...handle.streamState.toolCalls.filter((item) => item.toolCallId !== event.toolCallId),
-        {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          status: "running",
-          summary: summarizeToolArgs(event.toolName, event.args),
-        },
-      ];
+      // Add running status to the tool_use block
+      const existingIdx = handle.streamState.content.findIndex(
+        (b) => b.type === "tool_use" && b.id === event.toolCallId
+      );
+      if (existingIdx !== -1) {
+        const block = handle.streamState.content[existingIdx] as Extract<ContentBlock, { type: "tool_use" }>;
+        if (block.type === "tool_use") {
+          const updated: ContentBlock = {
+            type: "tool_use",
+            id: block.id,
+            name: block.name,
+            input: block.input,
+            _meta: { ...block._meta, toolStatus: "running", summary: summarizeToolArgs(event.toolName, event.args) },
+          };
+          handle.streamState.content = [
+            ...handle.streamState.content.slice(0, existingIdx),
+            updated,
+            ...handle.streamState.content.slice(existingIdx + 1),
+          ];
+        }
+      } else {
+        // Tool use block not yet in content — create one
+        handle.streamState.content = [
+          ...handle.streamState.content,
+          {
+            type: "tool_use",
+            id: event.toolCallId,
+            name: event.toolName,
+            input: (event.args as Record<string, unknown>) ?? {},
+            _meta: { toolStatus: "running", summary: summarizeToolArgs(event.toolName, event.args) },
+          },
+        ];
+      }
       void emitProviderRenderUpdate(handle);
     }
 
     if (event.type === "tool_execution_end") {
-      const existing = handle.streamState.toolCalls.find((item) => item.toolCallId === event.toolCallId);
-      handle.streamState.toolCalls = [
-        ...handle.streamState.toolCalls.filter((item) => item.toolCallId !== event.toolCallId),
-        {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          status: event.isError ? "failed" : "done",
-          summary: existing?.summary ?? "",
-        },
-      ];
+      const status = event.isError ? "failed" : "done";
+      const existingIdx = handle.streamState.content.findIndex(
+        (b) => b.type === "tool_use" && b.id === event.toolCallId
+      );
+
+      // Update tool_use status
+      if (existingIdx !== -1) {
+        const block = handle.streamState.content[existingIdx] as Extract<ContentBlock, { type: "tool_use" }>;
+        if (block.type === "tool_use") {
+          const updated: ContentBlock = {
+            type: "tool_use",
+            id: block.id,
+            name: block.name,
+            input: block.input,
+            _meta: { ...block._meta, toolStatus: status },
+          };
+          handle.streamState.content = [
+            ...handle.streamState.content.slice(0, existingIdx),
+            updated,
+            ...handle.streamState.content.slice(existingIdx + 1),
+          ];
+        }
+      }
+
+      // Add tool_result block
+      const resultContent = event.result ? extractTextFromToolResult(event.result) : "";
+      handle.streamState.content = upsertBlock(handle.streamState.content, {
+        type: "tool_result",
+        tool_use_id: event.toolCallId,
+        content: resultContent || JSON.stringify(event.result ?? null),
+        is_error: event.isError,
+        _meta: { toolStatus: status },
+      });
+
       void emitProviderRenderUpdate(handle);
     }
 
@@ -292,20 +374,18 @@ function subscribeSessionEvents(handle: SessionHandle) {
         );
       });
 
-      // Emit final render update with turnEnd flag
-      void sendOutput({
-        type: "provider_render_update",
+      // Immediately emit final render update with turnEnd flag (bypass throttle)
+      const finalEvent: SessionStreamEvent = {
+        type: "stream_update",
         runtimeId: env.RUNTIME_ID,
         sessionId: handle.sessionId,
-        renderMode: "rich_status",
-        thinking: handle.streamState.thinking.trim(),
-        toolCalls: handle.streamState.toolCalls,
-        answer: handle.streamState.assistantText,
+        content: handle.streamState.content,
         sourceMessageId: handle.currentUserMessageId,
         timestamp: Date.now(),
         turnEnd: true,
         anchorUserMessageId: handle.currentUserMessageId,
-      });
+      };
+      void sendOutput(finalEvent);
 
       // Remove matched user message from queue
       const matchedId = handle.currentUserMessageId;
@@ -324,6 +404,15 @@ function subscribeSessionEvents(handle: SessionHandle) {
       void emitProviderRenderUpdate(handle);
     }
   });
+}
+
+function extractTextFromToolResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return "";
+  const record = result as Record<string, unknown>;
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.content === "string") return record.content;
+  return "";
 }
 
 async function loadOrCreateSessionHandle(input: {
@@ -423,9 +512,8 @@ async function loadOrCreateSessionHandle(input: {
     pendingUserMessages: [],
     currentUserMessageId: null,
     streamState: {
-      thinking: "",
-      assistantText: "",
-      toolCalls: [],
+      content: [],
+      lastRenderAt: 0,
       preferredDisplayMode: "compact",
     },
   };
@@ -488,28 +576,29 @@ async function main() {
             tools,
           });
 
-          // Build message key and add to pending queue
-          const messageKey = buildMessageKey(
-            inputEntry.message.text,
-            inputEntry.message.images,
-          );
+          // Input now carries ContentBlock[] — extract text + images for SDK
+          const content = inputEntry.content as ContentBlock[];
+          const messageKey = buildContentKey(content);
           const userMessageId = inputEntry.userMessageId;
           if (userMessageId) {
             handle.pendingUserMessages.push({ messageKey, userMessageId });
           }
+
+          const text = extractContentText(content);
+          const images = extractContentImages(content);
 
           // Decide whether to use prompt or steer based on streaming state
           if (handle.session.isStreaming) {
             console.log(
               `[Supervisor] Session ${sessionId} is streaming, using steer for new message`
             );
-            await handle.session.steer(inputEntry.message.text, inputEntry.message.images);
+            await handle.session.steer(text, images);
           } else {
             console.log(
               `[Supervisor] Session ${sessionId} is idle, using prompt for new message`
             );
-            await handle.session.prompt(inputEntry.message.text, {
-              images: inputEntry.message.images,
+            await handle.session.prompt(text, {
+              images,
             });
           }
 
@@ -535,12 +624,13 @@ async function main() {
         }
       } catch (error) {
         console.error("[Supervisor] Error processing input:", error);
-        await sendOutput({
+        const errEvent: SessionStreamError = {
           type: "error",
           runtimeId: env.RUNTIME_ID,
           sessionId: inputEntry.sessionId ?? null,
           error: String(error),
-        });
+        };
+        await sendOutput(errEvent);
         await reject(error instanceof Error ? error.message : String(error));
       }
     })();

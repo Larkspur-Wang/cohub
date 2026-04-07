@@ -44,21 +44,18 @@ export type ContentBlock =
       _meta?: ContentBlockMeta;
     };
 
-// ─── Backward compatibility alias ───
-/** @deprecated Use ContentBlock instead */
-export type UnifiedContentBlock = ContentBlock;
+// ─── Protocol types ───
 
-// ─── Input types ───
+export type RuntimeProtocol = "pi" | "acp" | "internal";
 
-export type ProtocolSource = "pi" | "acp" | "internal";
+// ─── Session prompt input (API → Agent queue) ───
 
-export type RuntimePromptInput = {
+export type SessionPromptInput = {
   runtimeId: string;
   sessionId: string;
   userMessageId?: string | null;
   message: {
-    text: string;
-    images?: Array<{ url: string }>;
+    content: ContentBlock[];
   };
   meta?: {
     source?: string;
@@ -66,16 +63,20 @@ export type RuntimePromptInput = {
   } | null;
 };
 
-export type RegisterRuntimeSessionInput = {
+// ─── Session registration ───
+
+export type RegisterSessionInput = {
   runtimeId: string;
   sessionId: string;
   title?: string | null;
   source?: string | null;
-  protocol?: ProtocolSource | null;
+  protocol?: RuntimeProtocol | null;
   externalSessionId?: string | null;
   cwd?: string | null;
   meta?: Record<string, unknown> | null;
 };
+
+// ─── Message persistence (Agent → API) ───
 
 export type PersistMessageInput = {
   runtimeId: string;
@@ -102,10 +103,102 @@ export type PersistMessageInput = {
   };
 };
 
-export type PersistSessionInfoUpdateInput = {
+// ─── Session info update ───
+
+export type UpdateSessionInfoInput = {
   runtimeId: string;
   sessionId: string;
   title?: string | null;
   updatedAt?: string | null;
   meta?: Record<string, unknown> | null;
+};
+
+// ─── Session stream events (Agent → Redis Stream → API SSE → Web) ───
+
+export type SessionStreamEvent = {
+  type: "stream_update";
+  runtimeId: string;
+  sessionId: string;
+  /** 当前助手消息的完整 content blocks（增量快照） */
+  content: ContentBlock[];
+  sourceMessageId: string | null;
+  timestamp: number;
+  turnEnd?: boolean;
+  anchorUserMessageId?: string | null;
+};
+
+export type SessionStreamError = {
+  type: "error";
+  runtimeId: string;
+  sessionId: string | null;
+  error: string;
+};
+
+// ─── Record types (read-only DB projections) ───
+
+export type SessionBindingRecord = {
+  id: string;
+  runtimeId: string;
+  runtimeSessionId: string;
+  runtimeChannelId: string;
+  provider: string;
+  bindingKey: string;
+  externalChatId: string;
+  status: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string | null;
+};
+
+export type SessionRecord = {
+  id: string;
+  runtimeId: string;
+  title: string | null;
+  source: string | null;
+  status: string | null;
+  cwd: string | null;
+  protocol: string | null;
+  externalSessionId: string | null;
+  meta: Record<string, unknown> | null;
+  parentSessionId: string | null;
+  forkedFromMessageId: string | null;
+  lineageRootSessionId: string | null;
+  forkDepth: number;
+  latestMessageText: string | null;
+  lastMessageAt: string | null;
+  lastMessageId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MessageRecord = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: ContentBlock[];
+  text: string | null;
+  sequence: number;
+  provider: string | null;
+  model: string | null;
+  stopReason: string | null;
+  errorMessage: string | null;
+  usageInput: number | null;
+  usageOutput: number | null;
+  costTotal: string | null;
+  createdAt: string;
+};
+
+export type RuntimeRecord = {
+  id: string;
+  userUuid: string;
+  workspaceId: string | null;
+  workspaceCommitHash: string | null;
+  agentId: string | null;
+  agentCommitHash: string | null;
+  title: string | null;
+  status: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
 };

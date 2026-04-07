@@ -1,5 +1,4 @@
-import type { ContentBlock } from "@cohub/protocol";
-import type { SessionMessageRecord } from "$lib/api";
+import type { ContentBlock, MessageRecord } from "@cohub/protocol";
 
 export type ChatMessage = {
   id: string;
@@ -81,7 +80,7 @@ export const renderToolPreview = (
 };
 
 export const toChatMessages = (
-  messages: SessionMessageRecord[],
+  messages: MessageRecord[],
 ): ChatMessage[] => {
   return messages.map((message) => ({
     id: message.id,

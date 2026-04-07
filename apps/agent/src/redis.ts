@@ -1,5 +1,6 @@
 import { Redis } from "ioredis";
 import { z } from "zod";
+import type { ContentBlock } from "@cohub/protocol";
 import { env } from "./env.js";
 
 const redis = new Redis(env.REDIS_URL);
@@ -12,27 +13,12 @@ const DEAD_LETTER_KEY = `${runtimePrefix}:dead_letter_queue`;
 const STREAM_KEY_OUT = `${runtimePrefix}:output_stream`;
 const META_KEY = `${runtimePrefix}:meta`;
 
-type AgentImageContent = {
-  type: "image";
-  data: string;
-  mimeType: string;
-};
-
-const ImageContentSchema: z.ZodType<AgentImageContent> = z.object({
-  type: z.literal("image"),
-  data: z.string().min(1),
-  mimeType: z.string().min(1),
-});
-
 const PromptInputSchema = z.object({
   action: z.literal("prompt"),
   runtimeId: z.string().uuid(),
   sessionId: z.string().uuid(),
   userMessageId: z.string().uuid().nullable().optional(),
-  message: z.object({
-    text: z.string().min(1),
-    images: z.array(ImageContentSchema).optional(),
-  }),
+  content: z.array(z.unknown()).min(1),
   meta: z
     .object({
       source: z.string().optional(),
@@ -50,6 +36,31 @@ const AbortInputSchema = z.object({
 
 export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
+
+/**
+ * Extract plain text from a list of ContentBlocks.
+ */
+export function extractContentText(blocks: ContentBlock[]): string {
+  return blocks
+    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text" && "text" in b)
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
+
+/**
+ * Extract image blocks from ContentBlock[] in the format expected by the SDK.
+ */
+export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "image"; data: string; mimeType: string }> {
+  const results: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  for (const b of blocks) {
+    if (b.type !== "image") continue;
+    const img = b as { type: "image"; source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string } };
+    if (img.source.type !== "base64") continue;
+    results.push({ type: "image", data: img.source.data, mimeType: img.source.media_type });
+  }
+  return results;
+}
 
 export async function setRuntimeStatus(
   status: "starting" | "running" | "stopped" | "error",

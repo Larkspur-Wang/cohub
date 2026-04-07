@@ -25,8 +25,8 @@ import {
 import { ensureUserGitAccount } from "./git-accounts.js";
 import type {
   PersistMessageInput,
-  PersistSessionInfoUpdateInput,
-  RegisterRuntimeSessionInput,
+  UpdateSessionInfoInput,
+  RegisterSessionInput,
   ContentBlock,
 } from "@cohub/protocol";
 import {
@@ -1286,7 +1286,7 @@ app.post("/internal/runtimes/:id/sessions", async (c) => {
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime) return c.json({ message: "runtime not found" }, 404);
 
-  const body = await c.req.json<RegisterRuntimeSessionInput>().catch(() => null);
+  const body = await c.req.json<RegisterSessionInput>().catch(() => null);
   if (!body?.sessionId) return c.json({ message: "sessionId is required" }, 400);
 
   const existing = await getRuntimeSessionById(body.sessionId);
@@ -1324,7 +1324,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/info", async (c) => 
     return c.json({ message: "session not found" }, 404);
   }
 
-  const body = await c.req.json<PersistSessionInfoUpdateInput>().catch(() => null);
+  const body = await c.req.json<UpdateSessionInfoInput>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
 
   await updateRuntimeSessionInfo({
@@ -1440,7 +1440,7 @@ app.post("/api/sessions/:id/messages", async (c) => {
     runtimeId: runtime.id,
     sessionId: session.id,
     userMessageId: userMessage.id,
-    message: { text: body.content.filter((b) => b.type === "text").map((b) => b.type === "text" ? b.text : "").join("\n").trim() },
+    content: body.content,
     meta: { intent: "continue", source: "web" },
   });
 

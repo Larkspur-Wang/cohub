@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   PersistMessageInput,
-  RegisterRuntimeSessionInput,
+  RegisterSessionInput,
   ContentBlock,
 } from "@cohub/protocol";
 import { env } from "./env.js";
@@ -149,7 +149,7 @@ function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolRes
 
 // ─── API calls ───
 
-export async function registerRuntimeSession(input: RegisterRuntimeSessionInput) {
+export async function registerRuntimeSession(input: RegisterSessionInput) {
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions`;
   const response = await fetch(url, {
     method: "POST",

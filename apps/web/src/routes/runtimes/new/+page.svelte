@@ -10,7 +10,7 @@ import {
   type WorkspaceListItem,
   type Channel,
   type RuntimeChannelBindingInput,
-  type RuntimeChannelConfigInput,
+  type ChannelConfig,
   type RuntimeEnvInput,
 } from "$lib/api";
 import { ensureAuth } from "$lib/auth";
@@ -27,11 +27,11 @@ let title = $state("");
 let startNow = $state(true);
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<RuntimeEnvInput[]>([]);
-let channelConfigById = $state<Record<string, RuntimeChannelConfigInput>>({});
+let channelConfigById = $state<Record<string, ChannelConfig>>({});
 
 const selectedWorkspace = $derived(workspaces.find((w) => w.id === selectedWorkspaceId) ?? null);
 
-const getDefaultChannelConfig = (channel: Channel): RuntimeChannelConfigInput => {
+const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
   if (channel.provider === "discord") {
     return {
       inbound: { requireMentionInGuild: false },
@@ -98,7 +98,7 @@ function updateEnvValue(index: number, value: string) {
   );
 }
 
-function updateDiscordConfig(channelId: string, updater: (config: RuntimeChannelConfigInput) => RuntimeChannelConfigInput) {
+function updateDiscordConfig(channelId: string, updater: (config: ChannelConfig) => ChannelConfig) {
   channelConfigById = {
     ...channelConfigById,
     [channelId]: updater(channelConfigById[channelId] ?? {}),

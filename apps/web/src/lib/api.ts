@@ -6,6 +6,17 @@ import {
   logtoClient,
   setAuthToken as setStoredAuthToken,
 } from "$lib/auth";
+import type {
+  ContentBlock,
+  SessionStreamEvent,
+  SessionStreamError,
+  SessionBindingRecord as ProtocolSessionBindingRecord,
+  SessionRecord as ProtocolSessionRecord,
+  MessageRecord,
+  RuntimeRecord as ProtocolRuntimeRecord,
+  ChannelConfig,
+} from "@cohub/protocol";
+export type { SessionStreamEvent } from "@cohub/protocol";
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -16,91 +27,37 @@ type ApiError = {
 
 type Fetch = typeof globalThis.fetch;
 
-export type SessionBindingRecord = {
-  id: string;
-  runtimeId: string;
-  runtimeSessionId: string;
-  runtimeChannelId: string;
-  provider: string;
-  bindingKey: string;
-  externalChatId: string;
-  status: string | null;
-  meta?: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-  lastMessageAt?: string | null;
-};
+// ─── Re-export protocol types with web-specific extensions ───
 
-export type SessionRecord = {
-  id: string;
-  runtimeId: string;
-  title: string | null;
-  source: string | null;
-  status: string | null;
-  cwd: string | null;
-  protocol: string | null;
-  externalSessionId?: string | null;
-  meta?: Record<string, unknown> | null;
+export type { ContentBlock, MessageRecord };
+
+export type SessionBindingRecord = ProtocolSessionBindingRecord;
+
+/** Web-extended session record with computed fields from API responses */
+export type SessionRecord = ProtocolSessionRecord & {
   bindings?: SessionBindingRecord[];
-  parentSessionId?: string | null;
-  forkedFromMessageId?: string | null;
-  lineageRootSessionId?: string | null;
-  forkDepth?: number;
-  latestMessageText?: string | null;
-  lastMessageAt?: string | null;
-  lastMessageId?: string | null;
   totalMessages?: number;
   totalToolCalls?: number;
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCost?: string | number | null;
-  createdAt: string;
-  updatedAt: string;
 };
 
-export type SessionMessageBlock =
-  | { type: "text"; text: string }
-  | { type: "thinking"; thinking: string }
-  | { type: "image"; source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string } }
-  | {
-      type: "tool_use";
-      id: string;
-      name: string;
-      input: Record<string, unknown>;
-    }
-  | {
-      type: "tool_result";
-      tool_use_id: string;
-      content: string | SessionMessageBlock[];
-      is_error?: boolean;
-    }
-  | {
-      type: "system_note";
-      note_type: "session_created" | "forked" | "compacted" | "info";
-      text: string;
-    };
-
-export type SessionMessageRecord = {
-  id: string;
-  sessionId: string;
-  role: "user" | "assistant" | "system";
-  content: SessionMessageBlock[];
-  text: string | null;
-  sequence: number;
-  provider: string | null;
-  model: string | null;
-  stopReason: string | null;
-  errorMessage: string | null;
-  usageInput: number | null;
-  usageOutput: number | null;
-  costTotal: string | null;
-  createdAt: string;
+/** Web-extended runtime record with live status and channels */
+export type RuntimeRecord = ProtocolRuntimeRecord & {
+  liveStatus?: string | null;
+  channels?: {
+    id: string;
+    name: string | null;
+    provider: string;
+    status: string;
+  }[];
 };
 
 export type SessionMessagesResponse = {
   runtime: RuntimeRecord;
   session: SessionRecord;
-  messages: SessionMessageRecord[];
+  messages: MessageRecord[];
 };
 
 const withAuthorization = async (init?: RequestInit): Promise<RequestInit> => {
@@ -310,42 +267,16 @@ export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
   }) as Promise<SessionMessagesResponse>;
 };
 
-export type SessionResponseStreamEvent =
-  | {
-      type: "response.created";
-      response: { id: string; status: string; model: string };
-    }
-  | {
-      type: "response.output_text.content";
-      content: string;
-      timestamp: number;
-    }
-  | {
-      type: "response.completed";
-      response: {
-        id: string;
-        status: string;
-        model: string;
-        output?: Array<{
-          content?: Array<{
-            text?: string;
-          }>;
-        }>;
-      };
-    }
-  | {
-      type: "response.failed";
-      response: { error?: { message?: string; type?: string } };
-    };
+export type { SessionStreamError };
 
-export const postSessionMessage = async (sessionId: string, content: SessionMessageBlock[]) => {
+export const postSessionMessage = async (sessionId: string, content: ContentBlock[]) => {
   return apiFetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ content }),
-  }) as Promise<{ ok: true; userMessage: SessionMessageRecord }>;
+  }) as Promise<{ ok: true; userMessage: MessageRecord }>;
 };
 
 export const forkSession = async (
@@ -524,28 +455,6 @@ export type RuntimeProvisionResponse = {
   events: RuntimeProvisionEvent[];
 };
 
-export type RuntimeRecord = {
-  id: string;
-  userUuid: string;
-  workspaceId: string | null;
-  workspaceCommitHash: string | null;
-  agentId: string | null;
-  agentCommitHash: string | null;
-  title: string | null;
-  status: string | null;
-  liveStatus?: string | null;
-  meta?: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-  channels?: {
-    id: string;
-    name: string | null;
-    provider: string;
-    status: string;
-  }[];
-};
-
-export type RuntimeListItem = RuntimeRecord;
 
 export type RuntimeCreateResponse = {
   runtime: RuntimeRecord;
@@ -558,26 +467,16 @@ export type RuntimeEnvInput = {
   value: string;
 };
 
-export type RuntimeChannelConfigInput = {
-  inbound?: {
-    requireMentionInGuild?: boolean;
-  };
-  outbound?: {
-    showThinking?: boolean;
-    showToolCalls?: boolean;
-  };
-};
-
 export type RuntimeChannelBindingInput = {
   channelId: string;
-  config?: RuntimeChannelConfigInput | null;
+  config?: ChannelConfig | null;
 };
 
 export type RuntimeChannelRecord = {
   id: string;
   runtimeId: string;
   channelId: string;
-  config?: RuntimeChannelConfigInput | null;
+  config?: ChannelConfig | null;
   createdAt: string;
   channel?: Channel | null;
 };
@@ -611,7 +510,7 @@ export const getRuntimes = async (customFetch?: Fetch) => {
   return apiFetch("/api/runtimes", {
     method: "GET",
     fetch: customFetch,
-  }) as Promise<RuntimeListItem[]>;
+  }) as Promise<RuntimeRecord[]>;
 };
 
 export const getRuntime = async (id: string, customFetch?: Fetch) => {
@@ -661,7 +560,7 @@ export const getRuntimeChannels = async (id: string, customFetch?: Fetch) => {
 
 export const updateRuntimeChannelConfig = async (
   id: string,
-  input: { config: RuntimeChannelConfigInput | null },
+  input: { config: ChannelConfig | null },
 ) => {
   return apiFetch(`/api/runtime-channels/${id}/config`, {
     method: "PATCH",
@@ -800,26 +699,31 @@ export const deleteSshKey = async (id: string) => {
 
 // ─── SSE Streaming ──────────────────────────────
 
-export type ProviderRenderUpdateEvent = {
-  type: "provider_render_update";
-  runtimeId: string;
-  sessionId: string;
-  renderMode: string;
-  thinking: string | null;
-  toolCalls: Array<{
-    toolCallId: string;
-    toolName: string;
-    status: string;
-    summary?: string;
-  }> | null;
-  answer: string | null;
-  sourceMessageId: string | null;
-  timestamp: number;
-  turnEnd?: boolean;
-  anchorUserMessageId?: string | null;
-};
+/**
+ * Extract render state from ContentBlock[] for UI display.
+ */
+export function extractSessionRenderState(content: ContentBlock[]) {
+  const thinkingBlocks = content.filter(
+    (b): b is Extract<ContentBlock, { type: "thinking" }> => b.type === "thinking"
+  );
+  const textBlocks = content.filter(
+    (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text"
+  );
+  const toolUseBlocks = content.filter(
+    (b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use"
+  );
 
-export type RuntimeStreamEvent = ProviderRenderUpdateEvent;
+  const thinking = thinkingBlocks.map((b) => b.thinking).join("\n").trim();
+  const answer = textBlocks.map((b) => b.text).join("\n").trim();
+  const toolCalls = toolUseBlocks.map((b) => ({
+    toolCallId: b.id,
+    toolName: b.name,
+    status: (b._meta as { toolStatus?: string } | undefined)?.toolStatus ?? "queued",
+    summary: (b._meta as { summary?: string } | undefined)?.summary ?? "",
+  }));
+
+  return { thinking, answer, toolCalls };
+}
 
 export const streamRuntimeEvents = async function* (
   runtimeId: string,
@@ -850,7 +754,7 @@ export const streamRuntimeEvents = async function* (
 
   for await (const data of readSseEvents(response)) {
     try {
-      yield JSON.parse(data) as RuntimeStreamEvent;
+      yield JSON.parse(data) as SessionStreamEvent;
     } catch {
       // Skip non-JSON events (e.g. "ready" event)
     }
@@ -886,7 +790,7 @@ export const streamSessionEvents = async function* (
 
   for await (const data of readSseEvents(response)) {
     try {
-      yield JSON.parse(data) as RuntimeStreamEvent;
+      yield JSON.parse(data) as SessionStreamEvent;
     } catch {
       // Skip non-JSON events (e.g. "ready" event)
     }

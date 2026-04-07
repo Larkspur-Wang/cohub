@@ -12,14 +12,15 @@ import {
   updateRuntimeChannelConfig,
   createRuntimeSession,
   streamSessionEvents,
-  type RuntimeChannelConfigInput,
+  extractSessionRenderState,
+  type ChannelConfig,
   type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
   type RuntimeRecord,
   type SessionRecord,
-  type SessionMessageRecord,
-  type RuntimeStreamEvent,
+  type SessionStreamEvent,
 } from "$lib/api";
+import type { MessageRecord } from "@cohub/protocol";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
@@ -35,7 +36,7 @@ type Props = {
 
 type SessionViewState = {
   session: SessionRecord;
-  messages: SessionMessageRecord[];
+  messages: MessageRecord[];
   loading: boolean;
   loaded: boolean;
   error: string;
@@ -70,7 +71,7 @@ let sessionLastEventIds = new Map<string, string>();
 
 // Sequential event processing queue to prevent race conditions
 let eventProcessing = false;
-let eventQueue: RuntimeStreamEvent[] = [];
+let eventQueue: SessionStreamEvent[] = [];
 
 // Track which session is currently streaming (for sidebar status)
 let streamingSessionId: string | null = null;
@@ -246,14 +247,14 @@ function seedSessions(sessions: SessionRecord[]) {
   }
 }
 
-function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): RuntimeChannelConfigInput {
+function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): ChannelConfig {
   return runtimeChannel.config ?? {
     inbound: { requireMentionInGuild: true },
     outbound: { showThinking: false, showToolCalls: false },
   };
 }
 
-async function saveRuntimeChannelConfig(runtimeChannelId: string, config: RuntimeChannelConfigInput) {
+async function saveRuntimeChannelConfig(runtimeChannelId: string, config: ChannelConfig) {
   savingChannelConfigById = { ...savingChannelConfigById, [runtimeChannelId]: true };
   channelConfigErrorById = { ...channelConfigErrorById, [runtimeChannelId]: "" };
 
@@ -272,7 +273,7 @@ async function saveRuntimeChannelConfig(runtimeChannelId: string, config: Runtim
 
 function patchDiscordRuntimeChannelConfig(
   runtimeChannel: RuntimeChannelRecord,
-  updater: (config: RuntimeChannelConfigInput) => RuntimeChannelConfigInput,
+  updater: (config: ChannelConfig) => ChannelConfig,
 ) {
   const nextConfig = updater(getDiscordRuntimeChannelConfig(runtimeChannel));
   runtimeChannels = runtimeChannels.map((item) =>
@@ -412,11 +413,12 @@ async function processEventQueue() {
     const currentActiveSessionId = activeSessionId;
     if (currentActiveSessionId == null || event.sessionId !== currentActiveSessionId) continue;
 
-    if (event.type === "provider_render_update") {
-      if (event.thinking != null) streamingThinking = event.thinking;
-      if (event.toolCalls != null) streamingToolCalls = event.toolCalls;
-      if (event.answer != null) {
-        streamingAssistantText = event.answer;
+    if (event.type === "stream_update") {
+      const { thinking, answer, toolCalls } = extractSessionRenderState(event.content);
+      if (thinking) streamingThinking = thinking;
+      if (toolCalls.length > 0) streamingToolCalls = toolCalls;
+      if (answer) {
+        streamingAssistantText = answer;
         if (streamingSessionId !== currentActiveSessionId) {
           streamingSessionId = currentActiveSessionId;
           notifyStreamingStatus(currentActiveSessionId, true);
@@ -453,7 +455,7 @@ function connectSessionSSE(sessionId: string) {
   (async () => {
     try {
       for await (const event of streamSessionEvents(sessionId, lastEventId, abort.signal)) {
-        if (event.type === "provider_render_update") {
+        if (event.type === "stream_update") {
           sessionLastEventIds.set(sessionId, String(event.timestamp));
         }
         eventQueue.push(event);

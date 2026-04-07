@@ -45,7 +45,7 @@ function buildDiscordSourceChannel(event: GatewayInboundEvent, meta: Record<stri
   return `discord:${event.conversation?.id?.trim() || event.externalChatId}`;
 }
 
-export interface DiscordRuntimeChannelConfig {
+export interface DiscordChannelConfig {
   inbound?: {
     requireMentionInGuild?: boolean;
   };
@@ -55,7 +55,7 @@ export interface DiscordRuntimeChannelConfig {
   };
 }
 
-export type RuntimeChannelConfig = DiscordRuntimeChannelConfig | Record<string, unknown>;
+export type ChannelConfig = DiscordChannelConfig | Record<string, unknown>;
 
 export interface GatewayInboundEvent {
   eventId: string;

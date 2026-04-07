@@ -3,8 +3,8 @@ import { and, asc, eq, inArray, sql, lt, desc } from "drizzle-orm";
 import type { V1Pod } from "@kubernetes/client-node";
 import type {
   PersistMessageInput,
-  PersistSessionInfoUpdateInput,
-  RegisterRuntimeSessionInput,
+  UpdateSessionInfoInput,
+  RegisterSessionInput,
   ContentBlock,
   GatewayOutboundCommand,
 } from "@cohub/protocol";
@@ -33,7 +33,7 @@ import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding, getRuntimeChannelRecord } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 
-export type SessionMessageBlock = ContentBlock;
+
 
 type RuntimeProvisionStatus = "queued" | "running" | "succeeded" | "failed";
 type RuntimeProvisionLevel = "info" | "success" | "error";
@@ -91,7 +91,7 @@ const nowIso = () => new Date().toISOString();
 
 // ─── Content extraction helpers ───
 
-const extractPlainText = (blocks: SessionMessageBlock[]): string => {
+const extractPlainText = (blocks: ContentBlock[]): string => {
   return blocks
     .flatMap((block) => {
       switch (block.type) {
@@ -115,7 +115,7 @@ const extractPlainText = (blocks: SessionMessageBlock[]): string => {
     .trim();
 };
 
-const countToolCallsInContent = (blocks: SessionMessageBlock[]): number => {
+const countToolCallsInContent = (blocks: ContentBlock[]): number => {
   return blocks.filter((b) => b.type === "tool_use").length;
 };
 
@@ -523,7 +523,7 @@ export const getRuntimeSessionById = async (runtimeSessionId: string) => {
   return session ?? null;
 };
 
-export const createInitialRuntimeSession = async (input: RegisterRuntimeSessionInput) => {
+export const createInitialRuntimeSession = async (input: RegisterSessionInput) => {
   const [session] = await db
     .insert(runtimeSessions)
     .values({
@@ -548,7 +548,7 @@ export const createInitialRuntimeSession = async (input: RegisterRuntimeSessionI
   return session;
 };
 
-export const registerRuntimeSession = async (input: RegisterRuntimeSessionInput) => {
+export const registerRuntimeSession = async (input: RegisterSessionInput) => {
   const runtime = await getRuntimeById(input.runtimeId);
   if (!runtime) throw new Error("Runtime not found");
 
@@ -873,7 +873,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   return messageNode;
 };
 
-export const updateRuntimeSessionInfo = async (input: PersistSessionInfoUpdateInput) => {
+export const updateRuntimeSessionInfo = async (input: UpdateSessionInfoInput) => {
   const session = await getRuntimeSessionById(input.sessionId);
   if (!session || session.runtimeId !== input.runtimeId) {
     throw new Error("Runtime session not found");
@@ -1017,18 +1017,14 @@ export const enqueueRuntimePrompt = async (input: {
   runtimeId: string;
   sessionId: string;
   userMessageId?: string | null;
-  message: {
-    text: string;
-    images?: Array<{ url: string }>;
-  };
+  content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 }) => {
   console.log("[RuntimeSessions] enqueueRuntimePrompt", {
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
     userMessageId: input.userMessageId ?? null,
-    textLength: input.message.text.length,
-    imageCount: input.message.images?.length ?? 0,
+    contentLength: input.content.length,
     meta: input.meta ?? null,
   });
 
@@ -1040,7 +1036,7 @@ export const enqueueRuntimePrompt = async (input: {
       runtimeId: input.runtimeId,
       sessionId: input.sessionId,
       userMessageId: input.userMessageId ?? null,
-      message: input.message,
+      content: input.content,
       meta: input.meta ?? null,
       timestamp: new Date().toISOString(),
     }),

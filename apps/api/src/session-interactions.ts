@@ -20,6 +20,7 @@ export const executeSessionInteraction = async (input: {
   runtimeId: string;
   sessionId: string;
   inputText: string;
+  content: ContentBlock[];
   source: string;
   interactionId: string;
   actorUserId?: string | null;
@@ -34,10 +35,9 @@ export const executeSessionInteraction = async (input: {
     meta?: Record<string, unknown> | null;
   } | null;
 }) => {
-  const content: ContentBlock[] = [{ type: "text", text: input.inputText }];
   const userMessage = await createUserMessageNode({
     runtimeSessionId: input.sessionId,
-    content,
+    content: input.content,
     meta: {
       source: input.source,
       interactionId: input.interactionId,
@@ -72,7 +72,7 @@ export const executeSessionInteraction = async (input: {
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
     userMessageId: userMessage.id,
-    message: { text: input.inputText, images: [] },
+    content: input.content,
     meta: {
       intent: "continue",
       source: input.source,
