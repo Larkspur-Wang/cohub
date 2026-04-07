@@ -599,16 +599,17 @@ async function handleSend() {
 
 function scrollToBottomNow() {
   if (!listEl) return;
-  const target = contentEl?.scrollHeight ?? listEl.scrollHeight;
-  listEl.scrollTop = target;
+  listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
 }
 
 async function forceScrollToBottom() {
   await tick();
-  scrollToBottomNow();
-  requestAnimationFrame(() => {
-    scrollToBottomNow();
-    setTimeout(() => scrollToBottomNow(), 0);
+  // Use rAF to ensure the browser has computed layout after DOM update
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => {
+      scrollToBottomNow();
+      resolve();
+    });
   });
 }
 
@@ -703,9 +704,15 @@ $effect(() => {
   });
 });
 
+// Auto-follow scroll: when new content arrives and user is at bottom
 $effect(() => {
-  if (!listEl || !shouldAutoFollow) return;
-  queueMicrotask(() => scrollToBottomNow());
+  if (!listEl || !shouldAutoFollow || !activeSessionId) return;
+  // Use rAF instead of queueMicrotask to ensure layout is computed
+  requestAnimationFrame(() => {
+    if (listEl && shouldAutoFollow) {
+      scrollToBottomNow();
+    }
+  });
 });
 </script>
 
