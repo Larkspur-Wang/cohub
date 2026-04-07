@@ -511,7 +511,11 @@ onMount(() => {
         {#if userClaims?.picture}
           <img src={userClaims.picture} alt="avatar" class="w-full h-full object-cover" />
         {:else}
-          <img src="https://api.dicebear.com/7.x/notionists/svg?seed={userClaims?.sub ?? 'anonymous'}" alt="avatar" class="w-full h-full object-cover" />
+          <svg viewBox="0 0 32 32" class="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="32" height="32" rx="16" fill="#e5e7eb" />
+            <circle cx="16" cy="12" r="5" fill="#9ca3af" />
+            <ellipse cx="16" cy="26" rx="9" ry="7" fill="#9ca3af" />
+          </svg>
         {/if}
       </div>
       <div class="flex-1 min-w-0 text-left">
