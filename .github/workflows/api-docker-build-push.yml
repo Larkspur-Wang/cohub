@@ -113,7 +113,10 @@ jobs:
             exit 0
           fi
           
-          echo "Migration needed, running..."
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}
+          echo "Migration needed, running with image: $IMAGE"
+          
           kubectl apply -f - <<EOF
           apiVersion: batch/v1
           kind: Job
@@ -121,6 +124,7 @@ jobs:
             name: api-migrate-${{ github.run_id }}
             namespace: cohub-dev
           spec:
+            activeDeadlineSeconds: 120
             ttlSecondsAfterFinished: 300
             backoffLimit: 0
             template:
@@ -128,7 +132,8 @@ jobs:
                 restartPolicy: Never
                 containers:
                   - name: migrate
-                    image: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+                    image: ${IMAGE}
+                    imagePullPolicy: Always
                     command: ["node", "dist/db/migrate.js"]
                     env:
                       - name: DATABASE_URL
@@ -138,8 +143,19 @@ jobs:
                             key: DATABASE_URL
           EOF
           
-          kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
-            -n cohub-dev --timeout=300s
+          if kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
+            -n cohub-dev --timeout=300s; then
+            echo "Migration completed successfully"
+          else
+            echo "Migration job failed or timed out, showing diagnostics:"
+            echo "--- Pod Events ---"
+            kubectl describe job api-migrate-${{ github.run_id }} -n cohub-dev || true
+            echo "--- Pod Logs ---"
+            kubectl logs job/api-migrate-${{ github.run_id }} -n cohub-dev --tail=50 || true
+            echo "--- Pod Status ---"
+            kubectl get pods -n cohub-dev -l job-name=api-migrate-${{ github.run_id }} || true
+            exit 1
+          fi
 
       - name: Deploy to Dev
         run: |
@@ -188,7 +204,9 @@ jobs:
             exit 0
           fi
           
-          echo "Migration needed, running..."
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          echo "Migration needed, running with image: $IMAGE"
+          
           kubectl apply -f - <<EOF
           apiVersion: batch/v1
           kind: Job
@@ -196,6 +214,7 @@ jobs:
             name: api-migrate-${{ github.run_id }}
             namespace: cohub
           spec:
+            activeDeadlineSeconds: 120
             ttlSecondsAfterFinished: 300
             backoffLimit: 0
             template:
@@ -203,7 +222,8 @@ jobs:
                 restartPolicy: Never
                 containers:
                   - name: migrate
-                    image: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+                    image: ${IMAGE}
+                    imagePullPolicy: Always
                     command: ["node", "dist/db/migrate.js"]
                     env:
                       - name: DATABASE_URL
@@ -213,8 +233,19 @@ jobs:
                             key: DATABASE_URL
           EOF
           
-          kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
-            -n cohub --timeout=300s
+          if kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
+            -n cohub --timeout=300s; then
+            echo "Migration completed successfully"
+          else
+            echo "Migration job failed or timed out, showing diagnostics:"
+            echo "--- Pod Events ---"
+            kubectl describe job api-migrate-${{ github.run_id }} -n cohub || true
+            echo "--- Pod Logs ---"
+            kubectl logs job/api-migrate-${{ github.run_id }} -n cohub --tail=50 || true
+            echo "--- Pod Status ---"
+            kubectl get pods -n cohub -l job-name=api-migrate-${{ github.run_id }} || true
+            exit 1
+          fi
 
       - name: Deploy to Prod
         run: |
