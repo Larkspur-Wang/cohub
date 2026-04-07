@@ -31,7 +31,6 @@ type SessionHandle = {
     thinking: string;
     assistantText: string;
     toolCalls: Array<{ toolCallId: string; toolName: string; status: string; summary?: string }>;
-    lastRenderAt: number;
     preferredDisplayMode: "full" | "compact" | "minimal";
   };
 };
@@ -184,11 +183,7 @@ function summarizeThinking(thinking: string): string {
   return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 2).join("\n").slice(0, 320);
 }
 
-async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
-  const now = Date.now();
-  if (!force && now - handle.streamState.lastRenderAt < 900) return;
-  handle.streamState.lastRenderAt = now;
-
+async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
   const anchorUserMessageId = sourceMessageId;
@@ -204,7 +199,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
     toolCalls: handle.streamState.toolCalls,
     answer: handle.streamState.assistantText,
     sourceMessageId,
-    timestamp: now,
+    timestamp: Date.now(),
   });
 }
 
@@ -213,7 +208,6 @@ function resetStreamState(handle: SessionHandle) {
     thinking: "",
     assistantText: "",
     toolCalls: [],
-    lastRenderAt: 0,
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
   };
 }
@@ -298,7 +292,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
         );
       });
 
-      // Immediately emit final render update with turnEnd flag (bypass throttle)
+      // Emit final render update with turnEnd flag
       void sendOutput({
         type: "provider_render_update",
         runtimeId: env.RUNTIME_ID,
@@ -432,7 +426,6 @@ async function loadOrCreateSessionHandle(input: {
       thinking: "",
       assistantText: "",
       toolCalls: [],
-      lastRenderAt: 0,
       preferredDisplayMode: "compact",
     },
   };
