@@ -14,6 +14,7 @@ import {
   streamSessionEvents,
   extractSessionRenderState,
   type ChannelConfig,
+  type DiscordChannelConfig,
   type RuntimeChannelRecord,
   type RuntimeProvisionResponse,
   type RuntimeRecord,
@@ -27,6 +28,7 @@ import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
 import { Terminal, Hash, Plus, ArrowDown, Settings } from "lucide-svelte";
 import { ensureAuth } from "$lib/auth";
+import { unreadTracker } from "$lib/stores/session-state.svelte";
 
 type Props = {
   data: {
@@ -167,6 +169,11 @@ $effect(() => {
     activeSessionId = urlSessionId;
     shouldAutoFollow = true;
     didInitialScrollBySession = { ...didInitialScrollBySession, [urlSessionId]: false };
+    // Mark session as viewed when navigating to it
+    const state = sessionStateById[urlSessionId];
+    if (state?.session?.lastMessageId) {
+      unreadTracker.markViewed(urlSessionId, state.session.lastMessageId);
+    }
   }
 });
 
@@ -247,7 +254,7 @@ function seedSessions(sessions: SessionRecord[]) {
   }
 }
 
-function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): ChannelConfig {
+function getDiscordRuntimeChannelConfig(runtimeChannel: RuntimeChannelRecord): DiscordChannelConfig {
   return runtimeChannel.config ?? {
     inbound: { requireMentionInGuild: true },
     outbound: { showThinking: false, showToolCalls: false },
@@ -273,7 +280,7 @@ async function saveRuntimeChannelConfig(runtimeChannelId: string, config: Channe
 
 function patchDiscordRuntimeChannelConfig(
   runtimeChannel: RuntimeChannelRecord,
-  updater: (config: ChannelConfig) => ChannelConfig,
+  updater: (config: DiscordChannelConfig) => DiscordChannelConfig,
 ) {
   const nextConfig = updater(getDiscordRuntimeChannelConfig(runtimeChannel));
   runtimeChannels = runtimeChannels.map((item) =>

@@ -24,6 +24,7 @@ import {
 } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
 import type { IdTokenClaims } from "@logto/browser";
+import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 
 const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
 
@@ -164,7 +165,16 @@ async function handleNavigateToRuntime(runtimeId: string) {
 
 async function handleNavigateToSession(runtimeId: string, sessionId: string) {
   onClose?.();
+  // Mark session as viewed before navigating
+  const session = sessionsByRuntime[runtimeId]?.find((s) => s.id === sessionId);
+  if (session?.lastMessageId) {
+    unreadTracker.markViewed(sessionId, session.lastMessageId);
+  }
   await goto(`/runtimes/${runtimeId}?session=${sessionId}`);
+}
+
+function sessionIsStreaming(session: SessionRecord): boolean {
+  return isStreaming(session, streamingSessionIds);
 }
 
 function getSessionTitle(session: SessionRecord, index: number) {
@@ -283,12 +293,12 @@ onMount(() => {
       void loadRuntimes();
     }, 3000);
 
-    // Poll sessions for the current runtime to keep sidebar in sync
-    if (currentRuntimeId) {
-      sessionPollingTimer = setInterval(() => {
-        void loadSessions(currentRuntimeId, true);
-      }, 5000);
-    }
+    // Poll sessions for all expanded runtimes to keep sidebar in sync
+    sessionPollingTimer = setInterval(() => {
+      for (const runtimeId of expandedRuntimes) {
+        void loadSessions(runtimeId, true);
+      }
+    }, 5000);
   })();
 
   function handleClickOutside(e: MouseEvent) {
@@ -450,14 +460,17 @@ onMount(() => {
                   <div class="px-2 py-1 text-[11px] text-text-placeholder italic">No sessions</div>
                 {:else}
                   {#each sessions as session, index (session.id)}
-                    {@const isStreaming = streamingSessionIds.has(session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
                       class="flex items-center gap-2 px-2 py-[4px] rounded-[4px] text-[11px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
                     >
-                      <div class="w-[5px] h-[5px] rounded-full shrink-0 {isSessionActive(session.id) || isStreaming ? 'bg-status-running' : 'bg-text-placeholder'} {isStreaming ? 'animate-pulse' : ''}" title={isStreaming ? 'Streaming...' : ''}></div>
-                      <span class="truncate leading-tight">{getSessionTitle(session, index)}</span>
+                      <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+                      {#if sessionIsStreaming(session)}
+                        <div class="w-[5px] h-[5px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                      {:else if unreadTracker.isUnread(session)}
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                      {/if}
                     </a>
                   {/each}
                 {/if}

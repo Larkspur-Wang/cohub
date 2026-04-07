@@ -16,7 +16,7 @@ import type {
   RuntimeRecord as ProtocolRuntimeRecord,
   ChannelConfig,
 } from "@cohub/protocol";
-export type { SessionStreamEvent } from "@cohub/protocol";
+export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig } from "@cohub/protocol";
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -44,6 +44,8 @@ export type SessionRecord = ProtocolSessionRecord & {
 };
 
 /** Web-extended runtime record with live status and channels */
+export type RuntimeListItem = RuntimeRecord;
+
 export type RuntimeRecord = ProtocolRuntimeRecord & {
   liveStatus?: string | null;
   channels?: {

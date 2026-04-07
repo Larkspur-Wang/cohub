@@ -11,6 +11,7 @@ import {
   type Channel,
   type RuntimeChannelBindingInput,
   type ChannelConfig,
+  type DiscordChannelConfig,
   type RuntimeEnvInput,
 } from "$lib/api";
 import { ensureAuth } from "$lib/auth";
@@ -98,7 +99,7 @@ function updateEnvValue(index: number, value: string) {
   );
 }
 
-function updateDiscordConfig(channelId: string, updater: (config: ChannelConfig) => ChannelConfig) {
+function updateDiscordConfig(channelId: string, updater: (config: DiscordChannelConfig) => DiscordChannelConfig) {
   channelConfigById = {
     ...channelConfigById,
     [channelId]: updater(channelConfigById[channelId] ?? {}),
@@ -310,7 +311,7 @@ async function handleSubmit(event: SubmitEvent) {
                         <label class="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={channelConfigById[channel.id]?.inbound?.requireMentionInGuild !== false}
+                            checked={(channelConfigById[channel.id] as DiscordChannelConfig)?.inbound?.requireMentionInGuild !== false}
                             onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
                               ...config,
                               inbound: { ...(config.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
@@ -322,7 +323,7 @@ async function handleSubmit(event: SubmitEvent) {
                         <label class="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={channelConfigById[channel.id]?.outbound?.showThinking === true}
+                            checked={(channelConfigById[channel.id] as DiscordChannelConfig)?.outbound?.showThinking === true}
                             onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
                               ...config,
                               outbound: { ...(config.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
@@ -334,7 +335,7 @@ async function handleSubmit(event: SubmitEvent) {
                         <label class="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={channelConfigById[channel.id]?.outbound?.showToolCalls === true}
+                            checked={(channelConfigById[channel.id] as DiscordChannelConfig)?.outbound?.showToolCalls === true}
                             onchange={(event) => updateDiscordConfig(channel.id, (config) => ({
                               ...config,
                               outbound: { ...(config.outbound ?? {}), showToolCalls: (event.currentTarget as HTMLInputElement).checked },
