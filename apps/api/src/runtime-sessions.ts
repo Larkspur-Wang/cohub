@@ -279,7 +279,7 @@ const logProvision = (
 const mapProvisionStepToRuntimeStatus = (step: RuntimeProvisionStep) => {
   switch (step) {
     case "queued":
-      return "active";
+      return "starting";
     case "completed":
       return "running";
     default:
@@ -1096,7 +1096,7 @@ export const waitForRuntimeRunning = async (runtimeId: string, timeoutMs = 30000
     const runtime = await getRuntimeById(runtimeId);
     if (!runtime) return false;
     if (runtime.status === "running") return true;
-    if (runtime.status === "error" || runtime.status === "stopped") return false;
+    if (runtime.status === "error") return false;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
@@ -1441,7 +1441,7 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
     throw new Error("Unauthorized");
   }
 
-  const deletableStatuses = ["hibernated", "boot_failed", "error"];
+  const deletableStatuses = ["hibernated", "error"];
   if (!deletableStatuses.includes(runtime.status ?? "")) {
     throw new Error(`Can only delete hibernated, boot_failed or error runtime, current status: ${runtime.status}`);
   }

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Cpu, Plus, Play, Moon, Power, Trash2, Loader2, MessageSquare, Webhook, MonitorPlay, X } from "lucide-svelte";
 import { getRuntimes, hibernateRuntime, wakeRuntime, deleteRuntime, type RuntimeListItem } from "$lib/api";
+import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { ensureAuth, logtoClient } from "$lib/auth";
@@ -15,43 +16,18 @@ function displayStatus(runtime: RuntimeListItem) {
   return runtime.status ?? "unknown";
 }
 
-function statusLabel(status: string) {
-  if (status === "running") return "Running";
-  if (status === "starting" || status === "active") return "Starting";
-  if (status === "error" || status === "boot_failed") return "Error";
-  if (status === "hibernated") return "Hibernated";
-  if (status === "hibernating") return "Hibernating";
-  return status;
-}
-
-function statusClass(status: string) {
-  if (status === "running") return "text-status-running";
-  if (status === "starting" || status === "active") return "text-status-starting";
-  if (status === "error" || status === "boot_failed") return "text-status-error";
-  if (status === "hibernated") return "text-status-hibernated";
-  if (status === "hibernating") return "text-status-hibernating";
-  return "text-text-placeholder";
-}
-
-function dotClass(status: string) {
-  if (status === "running") return "bg-status-running";
-  if (status === "starting" || status === "active") return "bg-status-starting";
-  if (status === "error" || status === "boot_failed") return "bg-status-error";
-  if (status === "hibernated") return "bg-status-hibernated";
-  if (status === "hibernating") return "bg-status-hibernating";
-  return "bg-text-placeholder";
-}
-
 // Group runtimes by status category
 const activeRuntimes = $derived(runtimes.filter((r) => {
-  const s = displayStatus(r);
-  return s === "running" || s === "starting" || s === "active" || s === "hibernating";
+  const meta = getRuntimeStatusMeta(displayStatus(r));
+  return meta.canHibernate;
 }).toSorted((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
 
 const inactiveRuntimes = $derived(runtimes.filter((r) => {
-  const s = displayStatus(r);
-  return s === "hibernated" || s === "error" || s === "boot_failed";
+  const meta = getRuntimeStatusMeta(displayStatus(r));
+  return meta.canDelete;
 }).toSorted((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+
+
 
 async function loadRuntimes() {
   if (!(await ensureAuth())) return;
@@ -175,7 +151,7 @@ onMount(() => {
                 <!-- Desktop: table row -->
                 <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2.5">
                   <div class="pt-0.5">
-                    <div class="w-[7px] h-[7px] rounded-full {dotClass(status)}"></div>
+                    <div class="w-[7px] h-[7px] rounded-full {getRuntimeStatusMeta(status).bgClass}"></div>
                   </div>
                   <div class="min-w-0">
                     <a href="/runtimes/{runtime.id}" class="text-[13px] font-medium text-text-primary hover:text-brand transition-colors truncate block">
@@ -184,12 +160,12 @@ onMount(() => {
                     <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{runtime.id}</div>
                   </div>
                   <div class="flex items-center gap-1.5 pt-0.5 shrink-0">
-                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {statusClass(status)}">
-                      {statusLabel(status)}
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {getRuntimeStatusMeta(status).textColorClass}">
+                      {getRuntimeStatusMeta(status).label}
                     </span>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
-                    {#if status === "running"}
+                    {#if getRuntimeStatusMeta(status).canHibernate}
                       <button
                         class="p-1 rounded-sm text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleHibernate(runtime.id)}
@@ -202,7 +178,7 @@ onMount(() => {
                           <Moon class="w-3.5 h-3.5" />
                         {/if}
                       </button>
-                    {:else if status === "hibernated"}
+                    {:else if getRuntimeStatusMeta(status).canWake}
                       <button
                         class="p-1 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleWake(runtime.id)}
@@ -216,7 +192,7 @@ onMount(() => {
                         {/if}
                       </button>
                     {/if}
-                    {#if status === "hibernated" || status === "error" || status === "boot_failed"}
+                    {#if getRuntimeStatusMeta(status).canDelete}
                       <button
                         class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleDelete(runtime.id)}
@@ -236,17 +212,17 @@ onMount(() => {
                 <!-- Mobile: card layout -->
                 <div class="lg:hidden px-3 py-3">
                   <div class="flex items-center gap-2 mb-2">
-                    <div class="w-[7px] h-[7px] rounded-full shrink-0 {dotClass(status)}"></div>
+                    <div class="w-[7px] h-[7px] rounded-full shrink-0 {getRuntimeStatusMeta(status).bgClass}"></div>
                     <a href="/runtimes/{runtime.id}" class="flex-1 text-[13px] font-medium text-text-primary hover:text-brand transition-colors truncate">
                       {runtime.title || "Untitled Runtime"}
                     </a>
-                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium shrink-0 {statusClass(status)}">
-                      {statusLabel(status)}
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium shrink-0 {getRuntimeStatusMeta(status).textColorClass}">
+                      {getRuntimeStatusMeta(status).label}
                     </span>
                   </div>
                   <div class="text-[11px] font-mono text-text-placeholder truncate mb-2">{runtime.id}</div>
                   <div class="flex items-center gap-2">
-                    {#if status === "running"}
+                    {#if getRuntimeStatusMeta(status).canHibernate}
                       <button
                         class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleHibernate(runtime.id)}
@@ -259,7 +235,7 @@ onMount(() => {
                         {/if}
                         <span>Hibernate</span>
                       </button>
-                    {:else if status === "hibernated"}
+                    {:else if getRuntimeStatusMeta(status).canWake}
                       <button
                         class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleWake(runtime.id)}
@@ -273,7 +249,7 @@ onMount(() => {
                         <span>Wake</span>
                       </button>
                     {/if}
-                    {#if status === "hibernated" || status === "error" || status === "boot_failed"}
+                    {#if getRuntimeStatusMeta(status).canDelete}
                       <button
                         class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleDelete(runtime.id)}
@@ -315,7 +291,7 @@ onMount(() => {
                 <!-- Desktop: table row -->
                 <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2.5">
                   <div class="pt-0.5">
-                    <div class="w-[7px] h-[7px] rounded-full {dotClass(status)}"></div>
+                    <div class="w-[7px] h-[7px] rounded-full {getRuntimeStatusMeta(status).bgClass}"></div>
                   </div>
                   <div class="min-w-0">
                     <a href="/runtimes/{runtime.id}" class="text-[13px] text-text-secondary hover:text-text-primary transition-colors truncate block">
@@ -324,12 +300,12 @@ onMount(() => {
                     <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{runtime.id}</div>
                   </div>
                   <div class="flex items-center gap-1.5 pt-0.5 shrink-0">
-                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {statusClass(status)}">
-                      {statusLabel(status)}
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {getRuntimeStatusMeta(status).textColorClass}">
+                      {getRuntimeStatusMeta(status).label}
                     </span>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
-                    {#if status === "hibernated"}
+                    {#if getRuntimeStatusMeta(status).canWake}
                       <button
                         class="p-1 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleWake(runtime.id)}
@@ -361,17 +337,17 @@ onMount(() => {
                 <!-- Mobile: card layout -->
                 <div class="lg:hidden px-3 py-3">
                   <div class="flex items-center gap-2 mb-2">
-                    <div class="w-[7px] h-[7px] rounded-full shrink-0 {dotClass(status)}"></div>
+                    <div class="w-[7px] h-[7px] rounded-full shrink-0 {getRuntimeStatusMeta(status).bgClass}"></div>
                     <a href="/runtimes/{runtime.id}" class="flex-1 text-[13px] text-text-secondary hover:text-text-primary transition-colors truncate">
                       {runtime.title || "Untitled Runtime"}
                     </a>
-                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium shrink-0 {statusClass(status)}">
-                      {statusLabel(status)}
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium shrink-0 {getRuntimeStatusMeta(status).textColorClass}">
+                      {getRuntimeStatusMeta(status).label}
                     </span>
                   </div>
                   <div class="text-[11px] font-mono text-text-placeholder truncate mb-2">{runtime.id}</div>
                   <div class="flex items-center gap-2">
-                    {#if status === "hibernated"}
+                    {#if getRuntimeStatusMeta(status).canWake}
                       <button
                         class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
                         onclick={() => handleWake(runtime.id)}

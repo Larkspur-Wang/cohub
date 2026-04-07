@@ -1,6 +1,6 @@
 import { Redis } from "ioredis";
 import { z } from "zod";
-import type { ContentBlock } from "@cohub/protocol";
+import type { ContentBlock, RuntimeStatus } from "@cohub/protocol";
 import { env } from "./env.js";
 
 const redis = new Redis(env.REDIS_URL);
@@ -63,7 +63,7 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
 }
 
 export async function setRuntimeStatus(
-  status: "starting" | "running" | "stopped" | "error",
+  status: RuntimeStatus,
 ) {
   const internalApiBaseUrl = env.ENV === "prod"
     ? "http://cohub-api.cohub.svc.cluster.local:8787"

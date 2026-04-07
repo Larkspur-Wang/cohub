@@ -23,6 +23,7 @@ import {
   type SessionRecord,
 } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import type { IdTokenClaims } from "@logto/browser";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 
@@ -74,13 +75,8 @@ function displayStatus(runtime: RuntimeListItem) {
   return runtime.status ?? "unknown";
 }
 
-function statusColor(status: string) {
-  if (status === "running") return "bg-status-running";
-  if (status === "starting" || status === "active") return "bg-status-starting";
-  if (status === "error" || status === "boot_failed") return "bg-status-error";
-  if (status === "hibernated") return "bg-status-hibernated";
-  if (status === "hibernating") return "bg-status-hibernating";
-  return "bg-status-unknown";
+function statusColorClass(status: string) {
+  return getRuntimeStatusMeta(status).bgClass;
 }
 
 function toggleRuntime(runtimeId: string) {
@@ -240,10 +236,7 @@ let pollingTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollingTimer: ReturnType<typeof setInterval> | null = null;
 
 function shouldPoll() {
-  return runtimes.some((r) => {
-    const status = displayStatus(r);
-    return status === "starting" || status === "hibernating" || status === "active";
-  });
+  return runtimes.some((r) => r.status === "starting");
 }
 
 function handleSessionUpdateEvent(e: Event) {
@@ -424,14 +417,14 @@ onMount(() => {
                   <ChevronRight class="w-3 h-3" />
                 {/if}
               </span>
-              <div class="w-[5px] h-[5px] rounded-full shrink-0 {statusColor(status)}"></div>
+              <div class="w-[5px] h-[5px] rounded-full shrink-0 {statusColorClass(status)}"></div>
               <span class="truncate flex-1 text-[12.5px] leading-none">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
               {/if}
               <!-- Runtime actions (hover) -->
               <div class="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                {#if status === "running"}
+                {#if getRuntimeStatusMeta(status).canHibernate}
                   <button
                     type="button"
                     class="p-0.5 rounded-sm text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
@@ -440,7 +433,7 @@ onMount(() => {
                   >
                     <ChevronDown class="w-3 h-3 rotate-180" />
                   </button>
-                {:else if status === "hibernated"}
+                {:else if getRuntimeStatusMeta(status).canWake}
                   <button
                     type="button"
                     class="p-0.5 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"

@@ -125,7 +125,7 @@ export const runtimes = pgTable(
     agentId: uuid("agent_id"),
     agentCommitHash: varchar("agent_commit_hash", { length: 40 }),
     title: varchar("title", { length: 255 }),
-    status: varchar("status", { length: 50 }).default("active"),
+    status: varchar("status", { length: 50 }).default("hibernated"),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

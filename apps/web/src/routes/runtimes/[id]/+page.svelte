@@ -32,6 +32,7 @@ import { toChatMessages, type TimelineItem } from "$lib/session-tree";
 import { Terminal, Hash, Plus, ArrowDown, Settings, Moon, Power, Trash2, Loader2, X } from "lucide-svelte";
 import { ensureAuth } from "$lib/auth";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
+import { getRuntimeStatusMeta } from "$lib/runtime-status";
 
 type Props = {
   data: {
@@ -445,7 +446,7 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
   if (!runtime) return true;
   const status = runtime.status;
   if (!status) return true;
-  return status === "starting" || status === "hibernating";
+  return status === "starting";
 }
 
 // ─── SSE streaming (per-session) ───
@@ -613,14 +614,6 @@ async function forceScrollToBottom() {
   });
 }
 
-function runtimeStatusColor(status: string) {
-  if (status === "running") return "text-status-running";
-  if (status === "starting" || status === "active") return "text-status-starting";
-  if (status === "error" || status === "boot_failed") return "text-status-error";
-  if (status === "hibernated") return "text-status-hibernated";
-  if (status === "hibernating") return "text-status-hibernating";
-  return "text-text-tertiary";
-}
 
 function updateAutoFollow() {
   if (!listEl) return;
@@ -722,7 +715,7 @@ $effect(() => {
     <Terminal class="w-4 h-4 text-text-tertiary shrink-0" />
     <span class="text-[13px] text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
     <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-[4px] bg-bg-hover border border-border-subtle shrink-0">
-      <div class="w-[5px] h-[5px] rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-status-starting' : runtimeStatusColor(runtime?.status ?? 'unknown')}"></div>
+      <div class="w-[5px] h-[5px] rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-status-starting' : getRuntimeStatusMeta(runtime?.status ?? 'unknown').textColorClass}"></div>
       <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
         {#if provisioning && shouldPollProvisioning(provisioning)}
           {provisioning.currentStep}
@@ -758,7 +751,7 @@ $effect(() => {
     </button>
 
     <!-- Runtime lifecycle actions (after Settings) -->
-    {#if runtime?.status === "running"}
+    {#if getRuntimeStatusMeta(runtime?.status).canHibernate}
       <button
         type="button"
         class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-warning-soft/10 text-warning-soft hover:bg-warning-soft/30 hover:text-warning transition-colors duration-100 disabled:opacity-50"
@@ -773,7 +766,7 @@ $effect(() => {
         {/if}
       </button>
     {/if}
-    {#if runtime?.status === "hibernated"}
+    {#if getRuntimeStatusMeta(runtime?.status).canWake}
       <button
         type="button"
         class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-success-soft/10 text-success-soft hover:bg-success-soft/30 hover:text-success transition-colors duration-100 disabled:opacity-50"
@@ -788,7 +781,7 @@ $effect(() => {
         {/if}
       </button>
     {/if}
-    {#if runtime?.status === "hibernated" || runtime?.status === "error" || runtime?.status === "boot_failed"}
+    {#if getRuntimeStatusMeta(runtime?.status).canDelete}
       <button
         type="button"
         class="flex items-center justify-center w-7 h-7 rounded-[5px] bg-error-soft/10 text-error-soft hover:bg-error-soft/30 hover:text-error transition-colors duration-100 disabled:opacity-50"

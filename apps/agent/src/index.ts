@@ -86,7 +86,7 @@ function extractUserImageCount(message: Record<string, unknown>): number {
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 
-async function shutdown(status: "stopped" | "error", exitCode: number) {
+async function shutdown(status: "hibernated" | "error", exitCode: number) {
   if (isShuttingDown) {
     process.exit(exitCode);
   }
@@ -639,12 +639,12 @@ async function main() {
 
 process.on("SIGTERM", () => {
   console.log("[Supervisor] SIGTERM received. Shutting down.");
-  void shutdown("stopped", 0);
+  void shutdown("hibernated", 0);
 });
 
 process.on("SIGINT", () => {
   console.log("[Supervisor] SIGINT received. Shutting down.");
-  void shutdown("stopped", 0);
+  void shutdown("hibernated", 0);
 });
 
 main().catch(async (err) => {

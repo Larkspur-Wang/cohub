@@ -1,6 +1,7 @@
 <script lang="ts">
 import { FolderKanban, Cpu, ArrowRight, Terminal, MessageSquare, Clock } from "lucide-svelte";
 import { getWorkspaces, getRuntimes, getChannels } from "$lib/api";
+import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { onMount } from "svelte";
 import { ensureAuth } from "$lib/auth";
 
@@ -11,23 +12,6 @@ let recentRuntimes = $state<Array<{ id: string; title: string; status: string; w
 let isLoading = $state(true);
 let loadError = $state("");
 
-function statusLabel(status: string) {
-  if (status === "running") return "Running";
-  if (status === "starting" || status === "active") return "Starting";
-  if (status === "error" || status === "boot_failed") return "Error";
-  if (status === "hibernated") return "Hibernated";
-  if (status === "hibernating") return "Hibernating";
-  return status;
-}
-
-function statusClass(status: string) {
-  if (status === "running") return "text-status-running";
-  if (status === "starting" || status === "active") return "text-status-starting";
-  if (status === "error" || status === "boot_failed") return "text-status-error";
-  if (status === "hibernated") return "text-status-hibernated";
-  if (status === "hibernating") return "text-status-hibernating";
-  return "text-text-placeholder";
-}
 
 onMount(async () => {
   if (!(await ensureAuth())) return;
@@ -126,9 +110,9 @@ onMount(async () => {
                 href="/runtimes/{runtime.id}"
                 class="flex items-center gap-3 px-3 py-[10px] border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors {i === 0 ? 'bg-bg-content' : ''}"
               >
-                <div class="w-[6px] h-[6px] rounded-full shrink-0 {statusClass(runtime.status)}"></div>
+                <div class="w-[6px] h-[6px] rounded-full shrink-0 {getRuntimeStatusMeta(runtime.status).textColorClass}"></div>
                 <span class="flex-1 text-[13px] text-text-primary truncate">{runtime.title}</span>
-                <span class="text-[11px] {statusClass(runtime.status)}">{statusLabel(runtime.status)}</span>
+                <span class="text-[11px] {getRuntimeStatusMeta(runtime.status).textColorClass}">{getRuntimeStatusMeta(runtime.status).label}</span>
                 <ArrowRight class="w-3 h-3 text-text-placeholder opacity-0 group-hover:opacity-100" />
               </a>
             {/each}
