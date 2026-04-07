@@ -37,6 +37,12 @@ const thinkingContent = $derived(
 		.trim() || "",
 );
 
+// Preview lines (first 3 lines)
+const thinkingPreview = $derived(
+	thinkingContent.split("\n").slice(0, 3).join("\n"),
+);
+const thinkingIsTruncated = $derived(thinkingContent.split("\n").length > 3);
+
 $effect(() => {
 	let cancelled = false;
 
@@ -107,59 +113,65 @@ function getToolStatus(toolUseId: string): "done" | "error" | "running" {
 }
 
 const statusColorMap = {
-	done: "text-success-soft",
-	running: "text-warning-soft",
-	error: "text-error-soft",
+	done: "border-l-success-soft",
+	running: "border-l-warning-soft",
+	error: "border-l-error-soft",
+} as const;
+
+const statusDotMap = {
+	done: "bg-success-soft",
+	running: "bg-warning-soft",
+	error: "bg-error-soft",
 } as const;
 </script>
 
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
   {#if thinkingContent}
-    <div class="rounded-md border border-amber-500/20 bg-amber-500/[0.06] overflow-hidden">
-      <button
-        type="button"
-        class="w-full px-3 py-2.5 flex items-center justify-between gap-3 text-left cursor-pointer hover:bg-amber-500/[0.08] transition-colors"
-        onclick={() => { thinkingExpanded = !thinkingExpanded; thinkingUserToggled = true; }}
-      >
-        <div>
-          <div class="text-[10px] uppercase tracking-[0.18em] font-medium text-amber-200/60">Thinking</div>
-          <div class="mt-1 text-xs text-amber-100/80 flex items-center gap-2">
-            <span>{thinkingExpanded ? 'Hide reasoning' : 'Show reasoning'}</span>
-            {#if isStreaming}
-              <span class="inline-flex items-center gap-1 text-[10px] text-amber-200/55">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                streaming
-              </span>
-            {/if}
+    <div class="overflow-hidden">
+      <div class="pl-3 border-l-2 border-l-amber-500/30">
+        <pre class="text-[12px] leading-[1.6] text-amber-200/50 whitespace-pre-wrap break-words font-sans">{thinkingExpanded ? thinkingContent : thinkingPreview}{#if thinkingExpanded}
+          {#if thinkingIsTruncated}
+            <button
+              type="button"
+              class="inline ml-1 text-[11px] text-amber-200/30 hover:text-amber-200/50 cursor-pointer"
+              onclick={() => thinkingExpanded = false}
+            >Show less</button>{/if}
+        {:else}
+          {#if thinkingIsTruncated}<button
+              type="button"
+              class="inline ml-1 text-[11px] text-amber-200/30 hover:text-amber-200/50 cursor-pointer"
+              onclick={() => thinkingExpanded = true}
+            >… more</button>{/if}
+        {/if}</pre>
+        {#if isStreaming && !thinkingExpanded}
+          <div class="mt-1 flex items-center gap-1.5 text-[10px] text-amber-200/30">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400/50 animate-pulse"></span>
+            thinking
           </div>
-        </div>
-        <div class="text-amber-200/60 text-xs">{thinkingExpanded ? '▾' : '▸'}</div>
-      </button>
-      {#if thinkingExpanded}
-        <pre class="px-3 pb-3 whitespace-pre-wrap break-words text-[12px] leading-6 text-amber-50/78 border-t border-amber-500/10">{thinkingContent}</pre>
-      {/if}
+        {/if}
+      </div>
     </div>
   {/if}
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-[90%] sm:max-w-[52rem]' : 'max-w-[90%] sm:max-w-[52rem]'}`}>
-    <div class={`rounded-xl px-4 py-3 text-[13px] leading-6 ${message.role === 'user' ? 'bg-brand/[0.06] text-text-primary rounded-br-md' : message.role === 'assistant' ? 'bg-bg-content/30 text-text-secondary rounded-bl-md' : message.role === 'system' ? 'bg-blue-500/5 text-blue-300/80' : 'bg-rose-500/5 text-rose-300/80'}`}>
+    <div class={`rounded-xl px-3.5 py-2.5 text-[13px] leading-6 ${message.role === 'user' ? 'bg-brand/[0.06] text-text-primary rounded-br-md' : message.role === 'assistant' ? 'bg-bg-content/30 text-text-secondary rounded-bl-md' : message.role === 'system' ? 'bg-blue-500/5 text-blue-300/80' : 'bg-rose-500/5 text-rose-300/80'}`}>
 
       {#if thinkingContent}
-        <div class="mb-3 rounded-md border border-border-subtle bg-hover/50 overflow-hidden">
-          <button
-            type="button"
-            class="w-full px-3 py-2 flex items-center justify-between gap-3 text-left cursor-pointer hover:bg-hover transition-colors"
-            onclick={() => { thinkingExpanded = !thinkingExpanded; thinkingUserToggled = true; }}
-          >
-            <div class="flex items-center gap-2">
-              <div class="text-[11px] font-medium text-text-tertiary">Thinking</div>
-              <div class="text-xs text-text-placeholder">{thinkingExpanded ? 'Hide' : 'Show'}</div>
-            </div>
-            <div class="text-text-tertiary text-xs">{thinkingExpanded ? '▾' : '▸'}</div>
-          </button>
-          {#if thinkingExpanded}
-            <pre class="px-3 pb-3 whitespace-pre-wrap break-words text-[12px] leading-6 text-text-tertiary border-t border-border-subtle">{thinkingContent}</pre>
-          {/if}
+        <div class="mb-2 pl-3 border-l-2 border-l-amber-500/20 overflow-hidden">
+          <pre class="text-[12px] leading-[1.6] text-text-placeholder/70 whitespace-pre-wrap break-words font-sans">{thinkingExpanded ? thinkingContent : thinkingPreview}{#if thinkingExpanded}
+            {#if thinkingIsTruncated}
+              <button
+                type="button"
+                class="inline ml-1 text-[11px] text-text-placeholder/50 hover:text-text-tertiary cursor-pointer"
+                onclick={() => { thinkingExpanded = false; thinkingUserToggled = true; }}
+              >Show less</button>{/if}
+          {:else}
+            {#if thinkingIsTruncated}<button
+                type="button"
+                class="inline ml-1 text-[11px] text-text-placeholder/50 hover:text-text-tertiary cursor-pointer"
+                onclick={() => { thinkingExpanded = true; thinkingUserToggled = true; }}
+              >… more</button>{/if}
+          {/if}</pre>
         </div>
       {/if}
 
@@ -168,7 +180,7 @@ const statusColorMap = {
       </div>
 
       {#if message.content?.some((block) => block.type === 'tool_use')}
-        <div class="mt-2.5 space-y-1">
+        <div class="mt-1.5 space-y-0.5">
           {#each message.content.filter((block) => block.type === 'tool_use') as block (block.id)}
             {@const status = getToolStatus(block.id)}
             {@const result = findToolResult(block.id)}
@@ -176,10 +188,10 @@ const statusColorMap = {
               <!-- Collapsed row -->
               <button
                 type="button"
-                class="w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-hover/50 cursor-pointer"
+                class="w-full flex items-center gap-2 pl-2 pr-2.5 py-1 text-left transition-colors hover:bg-hover/50 cursor-pointer border-l-2 {statusColorMap[status]}"
                 onclick={() => toggleToolCall(block.id)}
               >
-                <span class="text-[11px] font-medium {statusColorMap[status]}">{status}</span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
                 <span class="text-[12px] font-mono text-text-tertiary">{block.name}</span>
                 <span class="text-[12px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
                 <span class="ml-auto text-text-tertiary shrink-0">
@@ -193,9 +205,9 @@ const statusColorMap = {
 
               <!-- Expanded content -->
               {#if expandedToolCalls.has(block.id)}
-                <div class="border-t border-border-subtle/50">
+                <div class="pl-5">
                   {#if block.input && Object.keys(block.input).length > 0}
-                    <div class="px-3 py-2 bg-hover/30">
+                    <div class="py-1.5">
                       {#if block.name === 'bash' && typeof block.input.command === 'string'}
                         <pre class="whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-text-secondary">$ {block.input.command}</pre>
                       {:else if ['read', 'write', 'edit'].includes(block.name) && typeof block.input.path === 'string'}
@@ -207,11 +219,11 @@ const statusColorMap = {
                   {/if}
                   {#if result && result.type === 'tool_result'}
                     {#if typeof result.content === 'string'}
-                      <pre class="p-3 font-mono text-[12px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code">{result.content}</pre>
+                      <pre class="p-2 font-mono text-[12px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{result.content}</pre>
                     {:else if Array.isArray(result.content)}
                       {#each result.content as contentBlock}
                         {#if contentBlock.type === 'text'}
-                          <pre class="p-3 font-mono text-[12px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code">{contentBlock.text}</pre>
+                          <pre class="p-2 font-mono text-[12px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{contentBlock.text}</pre>
                         {/if}
                       {/each}
                     {/if}
@@ -224,7 +236,7 @@ const statusColorMap = {
       {/if}
 
       {#if message.meta && message.role === 'assistant'}
-        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-border-subtle/50 pt-2 text-[11px] font-medium text-text-placeholder">
+        <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-text-placeholder/60">
           {#if message.meta.usageInput != null || message.meta.usageOutput != null}
             <span>in {message.meta.usageInput ?? 0} · out {message.meta.usageOutput ?? 0}</span>
           {/if}
