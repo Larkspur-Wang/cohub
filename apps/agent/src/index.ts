@@ -6,7 +6,7 @@ import {
   createCodingTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage, registerRuntimeSession, updateProviderRender } from "./api.js";
+import { persistAssistantMessage, registerRuntimeSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -205,19 +205,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
     answer: handle.streamState.assistantText,
     sourceMessageId,
     timestamp: now,
-  });
-
-  await updateProviderRender({
-    runtimeId: env.RUNTIME_ID,
-    runtimeSessionId: handle.sessionId,
-    renderMode: "rich_status",
-    thinking,
-    toolCalls: handle.streamState.toolCalls,
-    answer: handle.streamState.assistantText,
-    sourceMessageId,
-    anchorUserMessageId,
-  }).catch((error) => {
-    console.error(`[Supervisor] Failed to update provider render for ${handle.sessionId}:`, error);
   });
 }
 

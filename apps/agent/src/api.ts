@@ -171,29 +171,6 @@ export async function registerRuntimeSession(input: RegisterRuntimeSessionInput)
   } | null>;
 }
 
-export async function updateProviderRender(input: {
-  runtimeId: string;
-  runtimeSessionId: string;
-  renderMode?: string | null;
-  thinking?: string | null;
-  toolCalls?: Array<Record<string, unknown>> | null;
-  answer?: string | null;
-  sourceMessageId?: string | null;
-  anchorUserMessageId?: string | null;
-}) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/provider-render`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Update provider render failed ${response.status}: ${text}`);
-  }
-}
-
 export async function persistAssistantMessage(input: {
   runtimeId: string;
   runtimeSessionId: string;
