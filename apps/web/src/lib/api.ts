@@ -591,15 +591,6 @@ export const updateRuntimeChannelConfig = async (
   }) as Promise<RuntimeChannelRecord>;
 };
 
-export const getRuntimeSessionGraph = async (
-  id: string,
-  customFetch?: Fetch,
-) => {
-  return apiFetch(`/api/runtimes/${id}/session-graph`, {
-    fetch: customFetch,
-  }) as Promise<RuntimeSessionsResponse>;
-};
-
 export type PublicWorkspacesResponse = {
   items: PublicWorkspace[];
   pagination: {

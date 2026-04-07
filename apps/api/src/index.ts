@@ -39,7 +39,6 @@ import {
   getRuntimeProvision,
   getRuntimeSessionBootstrap,
   getRuntimeSessionById,
-  getRuntimeSessionGraph,
   hibernateRuntime,
   listRuntimeSessions,
   listSessionMessages,
@@ -1261,19 +1260,6 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
       bindings: bindingsBySessionId.get(session.id) ?? [],
     })),
   });
-});
-
-app.get("/api/runtimes/:id/session-graph", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const runtimeId = c.req.param("id");
-  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
-  const sessions = await getRuntimeSessionGraph(runtime.id);
-  return c.json({ runtime, sessions });
 });
 
 app.post("/internal/runtimes/:id/sessions", async (c) => {

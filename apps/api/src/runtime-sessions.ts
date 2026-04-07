@@ -605,14 +605,6 @@ export const listRuntimeSessions = async (runtimeId: string) => {
     .orderBy(asc(runtimeSessions.createdAt));
 };
 
-export const getRuntimeSessionGraph = async (runtimeId: string) => {
-  return db
-    .select()
-    .from(runtimeSessions)
-    .where(eq(runtimeSessions.runtimeId, runtimeId))
-    .orderBy(asc(runtimeSessions.createdAt));
-};
-
 export const getRuntimeSessionBootstrap = async (runtimeSessionId: string) => {
   const session = await getRuntimeSessionById(runtimeSessionId);
   if (!session) return null;
