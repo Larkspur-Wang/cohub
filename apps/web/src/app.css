@@ -280,3 +280,21 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Safe area padding for notched devices */
+@supports (padding: max(0px)) {
+  .safe-top {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+  .safe-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Lock body scroll when drawer is open */
+body.drawer-open {
+  overflow: hidden;
+}

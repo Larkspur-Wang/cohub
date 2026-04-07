@@ -148,7 +148,7 @@ async function handleSubmit(e: Event) {
         onclick={() => isAdding = true}
       >
         <Plus class="w-3.5 h-3.5" />
-        New Workspace
+        <span class="hidden sm:inline">New Workspace</span>
       </button>
     {/if}
   </div>
@@ -237,57 +237,98 @@ async function handleSubmit(e: Event) {
       {:else}
         <!-- List layout for density -->
         <div class="rounded-md border border-border-subtle overflow-hidden">
-          <div class="grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+          <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
             <span></span>
             <span>Name</span>
             <span>Status</span>
             <span class="text-right">Forks</span>
           </div>
+          <div class="divide-y divide-border-subtle">
           {#each workspaces as workspace}
-            <a
-              href="/workspaces/{workspace.id}"
-              class="group grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100"
-            >
-              <div class="w-7 h-7 rounded-[5px] bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                <FolderKanban class="w-3.5 h-3.5 text-blue-400/70" />
-              </div>
-              <div class="min-w-0">
-                <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
-                {#if workspace.description}
-                  <div class="text-[11px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
-                {:else}
-                  <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
-                {/if}
-              </div>
-              <div class="shrink-0 flex items-center gap-1.5 pt-0.5">
-                {#if workspace.visibility === "private"}
-                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-warning-bg text-warning-soft border border-warning-soft/30">
-                    <Lock class="w-2.5 h-2.5" />
-                    Private
-                  </span>
-                {:else}
-                  <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30">
-                    <Globe class="w-2.5 h-2.5" />
-                    Public
-                  </span>
-                {/if}
-              </div>
-              <div class="text-[11px] text-text-placeholder text-right font-mono pt-0.5 shrink-0">
-                {#if workspace.forkCount && workspace.forkCount > 0}
-                  <span class="flex items-center gap-1 justify-end"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
-                {:else}
-                  —
-                {/if}
-              </div>
-            </a>
+            <div class="hover:bg-bg-hover transition-colors duration-100">
+              <!-- Desktop: table row -->
+              <a
+                href="/workspaces/{workspace.id}"
+                class="group hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2.5 border-b border-border-subtle last:border-b-0"
+              >
+                <div class="w-7 h-7 rounded-[5px] bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <FolderKanban class="w-3.5 h-3.5 text-blue-400/70" />
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
+                  {#if workspace.description}
+                    <div class="text-[11px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
+                  {:else}
+                    <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
+                  {/if}
+                </div>
+                <div class="shrink-0 flex items-center gap-1.5 pt-0.5">
+                  {#if workspace.visibility === "private"}
+                    <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-warning-bg text-warning-soft border border-warning-soft/30">
+                      <Lock class="w-2.5 h-2.5" />
+                      Private
+                    </span>
+                  {:else}
+                    <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30">
+                      <Globe class="w-2.5 h-2.5" />
+                      Public
+                    </span>
+                  {/if}
+                </div>
+                <div class="text-[11px] text-text-placeholder text-right font-mono pt-0.5 shrink-0">
+                  {#if workspace.forkCount && workspace.forkCount > 0}
+                    <span class="flex items-center gap-1 justify-end"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
+                  {:else}
+                    —
+                  {/if}
+                </div>
+              </a>
+
+              <!-- Mobile: card layout -->
+              <a
+                href="/workspaces/{workspace.id}"
+                class="lg:hidden block px-3 py-3"
+              >
+                <div class="flex items-start gap-3">
+                  <div class="w-9 h-9 rounded-[5px] bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                    <FolderKanban class="w-4 h-4 text-blue-400/70" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
+                      {#if workspace.visibility === "private"}
+                        <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-warning-bg text-warning-soft border border-warning-soft/30 shrink-0">
+                          <Lock class="w-2.5 h-2.5" />
+                          Private
+                        </span>
+                      {:else}
+                        <span class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30 shrink-0">
+                          <Globe class="w-2.5 h-2.5" />
+                          Public
+                        </span>
+                      {/if}
+                    </div>
+                    {#if workspace.description}
+                      <div class="text-[12px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
+                    {:else}
+                      <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
+                    {/if}
+                    {#if workspace.forkCount && workspace.forkCount > 0}
+                      <div class="flex items-center gap-1 mt-1 text-[11px] text-text-placeholder font-mono"><GitFork class="w-3 h-3" /> {workspace.forkCount}</div>
+                    {/if}
+                  </div>
+                </div>
+              </a>
+            </div>
           {/each}
+          </div>
         </div>
       {/if}
     {/if}
 
     <!-- Explore -->
     {#if viewMode === "explore"}
-      <form onsubmit={handleExploreSearch} class="mb-4 flex gap-2">
+      <form onsubmit={handleExploreSearch} class="mb-4 flex flex-col sm:flex-row gap-2">
         <div class="relative flex-1">
           <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-placeholder" />
           <input
@@ -319,34 +360,65 @@ async function handleSubmit(e: Event) {
         </div>
       {:else}
         <div class="rounded-md border border-border-subtle overflow-hidden">
+          <div class="divide-y divide-border-subtle">
           {#each publicWorkspaces as workspace}
-            <a
-              href="/workspaces/{workspace.id}"
-              class="group grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100"
-            >
-              <div class="w-7 h-7 rounded-[5px] bg-success-bg border border-success-soft/30 flex items-center justify-center shrink-0 mt-0.5">
-                <Globe class="w-3.5 h-3.5 text-success-soft" />
-              </div>
-              <div class="min-w-0">
-                <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
-                {#if workspace.description}
-                  <div class="text-[11px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
-                {:else}
-                  <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
-                {/if}
-              </div>
-              <div class="shrink-0 flex items-center pt-0.5">
-                <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30">Public</span>
-              </div>
-              <div class="text-[11px] text-text-placeholder text-right font-mono pt-0.5 shrink-0">
-                {#if workspace.forkCount > 0}
-                  <span class="flex items-center gap-1 justify-end"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
-                {:else}
-                  —
-                {/if}
-              </div>
-            </a>
+            <div class="hover:bg-bg-hover transition-colors duration-100">
+              <!-- Desktop: table row -->
+              <a
+                href="/workspaces/{workspace.id}"
+                class="group hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2.5 border-b border-border-subtle last:border-b-0"
+              >
+                <div class="w-7 h-7 rounded-[5px] bg-success-bg border border-success-soft/30 flex items-center justify-center shrink-0 mt-0.5">
+                  <Globe class="w-3.5 h-3.5 text-success-soft" />
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
+                  {#if workspace.description}
+                    <div class="text-[11px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
+                  {:else}
+                    <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
+                  {/if}
+                </div>
+                <div class="shrink-0 flex items-center pt-0.5">
+                  <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30">Public</span>
+                </div>
+                <div class="text-[11px] text-text-placeholder text-right font-mono pt-0.5 shrink-0">
+                  {#if workspace.forkCount > 0}
+                    <span class="flex items-center gap-1 justify-end"><GitFork class="w-3 h-3" /> {workspace.forkCount}</span>
+                  {:else}
+                    —
+                  {/if}
+                </div>
+              </a>
+
+              <!-- Mobile: card layout -->
+              <a
+                href="/workspaces/{workspace.id}"
+                class="lg:hidden block px-3 py-3"
+              >
+                <div class="flex items-start gap-3">
+                  <div class="w-9 h-9 rounded-[5px] bg-success-bg border border-success-soft/30 flex items-center justify-center shrink-0">
+                    <Globe class="w-4 h-4 text-success-soft" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-[13px] font-medium text-text-primary truncate">{workspace.name}</div>
+                      <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-success-bg text-success-soft border border-success-soft/30 shrink-0">Public</span>
+                    </div>
+                    {#if workspace.description}
+                      <div class="text-[12px] text-text-tertiary truncate mt-0.5">{workspace.description}</div>
+                    {:else}
+                      <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{workspace.giteaRepoName}</div>
+                    {/if}
+                    {#if workspace.forkCount > 0}
+                      <div class="flex items-center gap-1 mt-1 text-[11px] text-text-placeholder font-mono"><GitFork class="w-3 h-3" /> {workspace.forkCount}</div>
+                    {/if}
+                  </div>
+                </div>
+              </a>
+            </div>
           {/each}
+          </div>
         </div>
 
         {#if exploreTotalPages > 1}

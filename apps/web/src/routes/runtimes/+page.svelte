@@ -161,69 +161,137 @@ onMount(() => {
         <div class="mb-6">
           <h2 class="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-placeholder mb-2">Active</h2>
           <div class="rounded-md border border-border-subtle overflow-hidden">
+            <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+              <span></span>
+              <span>Name</span>
+              <span>Status</span>
+              <span class="text-right">Actions</span>
+            </div>
+            <div class="divide-y divide-border-subtle">
             {#each activeRuntimes as runtime}
               {@const status = displayStatus(runtime)}
               {@const isBusy = actionInProgress[runtime.id]}
-              <div class="group grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100">
-                <div class="pt-0.5">
-                  <div class="w-[7px] h-[7px] rounded-full {dotClass(status)}"></div>
+              <div class="hover:bg-bg-hover transition-colors duration-100">
+                <!-- Desktop: table row -->
+                <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2.5">
+                  <div class="pt-0.5">
+                    <div class="w-[7px] h-[7px] rounded-full {dotClass(status)}"></div>
+                  </div>
+                  <div class="min-w-0">
+                    <a href="/runtimes/{runtime.id}" class="text-[13px] font-medium text-text-primary hover:text-brand transition-colors truncate block">
+                      {runtime.title || "Untitled Runtime"}
+                    </a>
+                    <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{runtime.id}</div>
+                  </div>
+                  <div class="flex items-center gap-1.5 pt-0.5 shrink-0">
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {statusClass(status)}">
+                      {statusLabel(status)}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    {#if status === "running"}
+                      <button
+                        class="p-1 rounded-sm text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleHibernate(runtime.id)}
+                        disabled={!!isBusy}
+                        title="Hibernate"
+                      >
+                        {#if isBusy === "hibernate"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Moon class="w-3.5 h-3.5" />
+                        {/if}
+                      </button>
+                    {:else if status === "hibernated"}
+                      <button
+                        class="p-1 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleWake(runtime.id)}
+                        disabled={!!isBusy}
+                        title="Wake"
+                      >
+                        {#if isBusy === "wake"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Power class="w-3.5 h-3.5" />
+                        {/if}
+                      </button>
+                    {/if}
+                    {#if status === "hibernated" || status === "error" || status === "boot_failed"}
+                      <button
+                        class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleDelete(runtime.id)}
+                        disabled={!!isBusy}
+                        title="Delete"
+                      >
+                        {#if isBusy === "delete"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Trash2 class="w-3.5 h-3.5" />
+                        {/if}
+                      </button>
+                    {/if}
+                  </div>
                 </div>
-                <div class="min-w-0">
-                  <a href="/runtimes/{runtime.id}" class="text-[13px] font-medium text-text-primary hover:text-brand transition-colors truncate block">
-                    {runtime.title || "Untitled Runtime"}
-                  </a>
-                  <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{runtime.id}</div>
-                </div>
-                <div class="flex items-center gap-1.5 pt-0.5 shrink-0">
-                  <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {statusClass(status)}">
-                    {statusLabel(status)}
-                  </span>
-                </div>
-                <div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {#if status === "running"}
-                    <button
-                      class="p-1 rounded-sm text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
-                      onclick={() => handleHibernate(runtime.id)}
-                      disabled={!!isBusy}
-                      title="Hibernate"
-                    >
-                      {#if isBusy === "hibernate"}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      {:else}
-                        <Moon class="w-3.5 h-3.5" />
-                      {/if}
-                    </button>
-                  {:else if status === "hibernated"}
-                    <button
-                      class="p-1 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
-                      onclick={() => handleWake(runtime.id)}
-                      disabled={!!isBusy}
-                      title="Wake"
-                    >
-                      {#if isBusy === "wake"}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      {:else}
-                        <Power class="w-3.5 h-3.5" />
-                      {/if}
-                    </button>
-                  {/if}
-                  {#if status === "hibernated" || status === "error" || status === "boot_failed"}
-                    <button
-                      class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
-                      onclick={() => handleDelete(runtime.id)}
-                      disabled={!!isBusy}
-                      title="Delete"
-                    >
-                      {#if isBusy === "delete"}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      {:else}
-                        <Trash2 class="w-3.5 h-3.5" />
-                      {/if}
-                    </button>
-                  {/if}
+
+                <!-- Mobile: card layout -->
+                <div class="lg:hidden px-3 py-3">
+                  <div class="flex items-center gap-2 mb-2">
+                    <div class="w-[7px] h-[7px] rounded-full shrink-0 {dotClass(status)}"></div>
+                    <a href="/runtimes/{runtime.id}" class="flex-1 text-[13px] font-medium text-text-primary hover:text-brand transition-colors truncate">
+                      {runtime.title || "Untitled Runtime"}
+                    </a>
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium shrink-0 {statusClass(status)}">
+                      {statusLabel(status)}
+                    </span>
+                  </div>
+                  <div class="text-[11px] font-mono text-text-placeholder truncate mb-2">{runtime.id}</div>
+                  <div class="flex items-center gap-2">
+                    {#if status === "running"}
+                      <button
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleHibernate(runtime.id)}
+                        disabled={!!isBusy}
+                      >
+                        {#if isBusy === "hibernate"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Moon class="w-3.5 h-3.5" />
+                        {/if}
+                        <span>Hibernate</span>
+                      </button>
+                    {:else if status === "hibernated"}
+                      <button
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleWake(runtime.id)}
+                        disabled={!!isBusy}
+                      >
+                        {#if isBusy === "wake"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Power class="w-3.5 h-3.5" />
+                        {/if}
+                        <span>Wake</span>
+                      </button>
+                    {/if}
+                    {#if status === "hibernated" || status === "error" || status === "boot_failed"}
+                      <button
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleDelete(runtime.id)}
+                        disabled={!!isBusy}
+                      >
+                        {#if isBusy === "delete"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Trash2 class="w-3.5 h-3.5" />
+                        {/if}
+                        <span>Delete</span>
+                      </button>
+                    {/if}
+                  </div>
                 </div>
               </div>
             {/each}
+            </div>
           </div>
         </div>
       {/if}
@@ -233,54 +301,107 @@ onMount(() => {
         <div>
           <h2 class="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-placeholder mb-2">Inactive</h2>
           <div class="rounded-md border border-border-subtle overflow-hidden">
+            <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+              <span></span>
+              <span>Name</span>
+              <span>Status</span>
+              <span class="text-right">Actions</span>
+            </div>
+            <div class="divide-y divide-border-subtle">
             {#each inactiveRuntimes as runtime}
               {@const status = displayStatus(runtime)}
               {@const isBusy = actionInProgress[runtime.id]}
-              <div class="group grid grid-cols-[auto_1fr_auto_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100">
-                <div class="pt-0.5">
-                  <div class="w-[7px] h-[7px] rounded-full {dotClass(status)}"></div>
+              <div class="hover:bg-bg-hover transition-colors duration-100">
+                <!-- Desktop: table row -->
+                <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_auto] lg:gap-3 lg:px-3 lg:py-2.5">
+                  <div class="pt-0.5">
+                    <div class="w-[7px] h-[7px] rounded-full {dotClass(status)}"></div>
+                  </div>
+                  <div class="min-w-0">
+                    <a href="/runtimes/{runtime.id}" class="text-[13px] text-text-secondary hover:text-text-primary transition-colors truncate block">
+                      {runtime.title || "Untitled Runtime"}
+                    </a>
+                    <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{runtime.id}</div>
+                  </div>
+                  <div class="flex items-center gap-1.5 pt-0.5 shrink-0">
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {statusClass(status)}">
+                      {statusLabel(status)}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    {#if status === "hibernated"}
+                      <button
+                        class="p-1 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleWake(runtime.id)}
+                        disabled={!!isBusy}
+                        title="Wake"
+                      >
+                        {#if isBusy === "wake"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Power class="w-3.5 h-3.5" />
+                        {/if}
+                      </button>
+                      <button
+                        class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleDelete(runtime.id)}
+                        disabled={!!isBusy}
+                        title="Delete"
+                      >
+                        {#if isBusy === "delete"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Trash2 class="w-3.5 h-3.5" />
+                        {/if}
+                      </button>
+                    {/if}
+                  </div>
                 </div>
-                <div class="min-w-0">
-                  <a href="/runtimes/{runtime.id}" class="text-[13px] text-text-secondary hover:text-text-primary transition-colors truncate block">
-                    {runtime.title || "Untitled Runtime"}
-                  </a>
-                  <div class="text-[11px] font-mono text-text-placeholder truncate mt-0.5">{runtime.id}</div>
-                </div>
-                <div class="flex items-center gap-1.5 pt-0.5 shrink-0">
-                  <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium {statusClass(status)}">
-                    {statusLabel(status)}
-                  </span>
-                </div>
-                <div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {#if status === "hibernated"}
-                    <button
-                      class="p-1 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
-                      onclick={() => handleWake(runtime.id)}
-                      disabled={!!isBusy}
-                      title="Wake"
-                    >
-                      {#if isBusy === "wake"}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      {:else}
-                        <Power class="w-3.5 h-3.5" />
-                      {/if}
-                    </button>
-                    <button
-                      class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
-                      onclick={() => handleDelete(runtime.id)}
-                      disabled={!!isBusy}
-                      title="Delete"
-                    >
-                      {#if isBusy === "delete"}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      {:else}
-                        <Trash2 class="w-3.5 h-3.5" />
-                      {/if}
-                    </button>
-                  {/if}
+
+                <!-- Mobile: card layout -->
+                <div class="lg:hidden px-3 py-3">
+                  <div class="flex items-center gap-2 mb-2">
+                    <div class="w-[7px] h-[7px] rounded-full shrink-0 {dotClass(status)}"></div>
+                    <a href="/runtimes/{runtime.id}" class="flex-1 text-[13px] text-text-secondary hover:text-text-primary transition-colors truncate">
+                      {runtime.title || "Untitled Runtime"}
+                    </a>
+                    <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium shrink-0 {statusClass(status)}">
+                      {statusLabel(status)}
+                    </span>
+                  </div>
+                  <div class="text-[11px] font-mono text-text-placeholder truncate mb-2">{runtime.id}</div>
+                  <div class="flex items-center gap-2">
+                    {#if status === "hibernated"}
+                      <button
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleWake(runtime.id)}
+                        disabled={!!isBusy}
+                      >
+                        {#if isBusy === "wake"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Power class="w-3.5 h-3.5" />
+                        {/if}
+                        <span>Wake</span>
+                      </button>
+                      <button
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-bg-code border border-border-subtle text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover-strong transition-colors"
+                        onclick={() => handleDelete(runtime.id)}
+                        disabled={!!isBusy}
+                      >
+                        {#if isBusy === "delete"}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                        {:else}
+                          <Trash2 class="w-3.5 h-3.5" />
+                        {/if}
+                        <span>Delete</span>
+                      </button>
+                    {/if}
+                  </div>
                 </div>
               </div>
             {/each}
+            </div>
           </div>
         </div>
       {/if}

@@ -43,7 +43,7 @@ $effect(() => {
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
   <ThinkingBlock title='Thinking' content={thinkingContent} isStreaming={message.id === 'assistant-thinking'} />
 {:else}
-  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-[52rem]' : 'max-w-[52rem]'}`}>
+  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-[90%] sm:max-w-[52rem]' : 'max-w-[90%] sm:max-w-[52rem]'}`}>
     <div class={`rounded-lg border px-4 py-3 text-[13px] leading-6 transition-colors duration-150 ${message.role === 'user' ? 'border-border-primary bg-hover-strong text-text-primary' : message.role === 'assistant' ? 'border-transparent bg-transparent text-text-secondary' : message.role === 'system' ? 'border-blue-500/20 bg-blue-500/5 text-blue-300/80' : 'border-rose-500/20 bg-rose-500/5 text-rose-300/80'}`}>
 
       {#if thinkingContent}

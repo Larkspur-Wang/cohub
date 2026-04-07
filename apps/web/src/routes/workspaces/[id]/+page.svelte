@@ -240,12 +240,14 @@ async function handleMakePrivate() {
 
       <!-- Git clone info -->
       {#if gitRemoteUrl}
-        <div class="mb-4 flex items-center gap-2 p-2.5 rounded-[5px] border border-border-subtle bg-bg-surface">
-          <Terminal class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-          <code class="flex-1 text-[11px] font-mono text-text-tertiary truncate">{gitRemoteUrl}</code>
+        <div class="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2.5 rounded-[5px] border border-border-subtle bg-bg-surface">
+          <div class="flex items-center gap-2 min-w-0">
+            <Terminal class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+            <code class="flex-1 text-[11px] font-mono text-text-tertiary truncate">{gitRemoteUrl}</code>
+          </div>
           <button
             onclick={copyCloneUrl}
-            class="flex items-center gap-1 px-2 py-1 rounded-[4px] text-[11px] bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors duration-100 shrink-0"
+            class="flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] text-[11px] bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors duration-100 shrink-0 sm:w-auto"
           >
             {#if copied}
               <Check class="w-3 h-3" /> Copied
@@ -265,7 +267,7 @@ async function handleMakePrivate() {
           </div>
 
           {#if gitRemoteUrl}
-            <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="p-4 grid grid-cols-1 gap-3">
               <div class="p-3 rounded-[5px] bg-bg-code border border-border-subtle">
                 <div class="flex items-center gap-2 mb-2">
                   <Terminal class="w-3 h-3 text-text-tertiary" />

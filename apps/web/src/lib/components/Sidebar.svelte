@@ -25,6 +25,8 @@ import {
 import { ensureAuth, logtoClient } from "$lib/auth";
 import type { IdTokenClaims } from "@logto/browser";
 
+const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
+
 let userClaims = $state<IdTokenClaims | null>(null);
 let runtimes = $state<RuntimeListItem[]>([]);
 let sessionsByRuntime = $state<Record<string, SessionRecord[]>>({});
@@ -151,14 +153,17 @@ function handleStreamingStatusEvent(e: Event) {
 }
 
 async function handleNavigate(href: string) {
+  onClose?.();
   await goto(href);
 }
 
 async function handleNavigateToRuntime(runtimeId: string) {
+  onClose?.();
   await goto(`/runtimes/${runtimeId}`);
 }
 
 async function handleNavigateToSession(runtimeId: string, sessionId: string) {
+  onClose?.();
   await goto(`/runtimes/${runtimeId}?session=${sessionId}`);
 }
 
@@ -215,6 +220,7 @@ async function handleDelete(runtimeId: string, e: Event) {
 }
 
 async function handleLogout() {
+  onClose?.();
   await logtoClient.signOut(`${window.location.origin}/`);
 }
 
@@ -306,7 +312,7 @@ onMount(() => {
 });
 </script>
 
-<aside class="w-[240px] flex flex-col bg-bg-primary border-r border-border-subtle shrink-0 h-screen">
+<aside class="{isMobile ? '' : 'w-[240px] border-r border-border-subtle shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Logo -->
   <div class="h-[48px] flex items-center px-3 border-b border-border-subtle shrink-0">
     <a href="/" class="flex items-center gap-2 group" aria-label="Cohub">

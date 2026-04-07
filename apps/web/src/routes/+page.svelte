@@ -69,7 +69,7 @@ onMount(async () => {
     </div>
 
     <!-- Quick Actions -->
-    <div class="mt-6 flex gap-2">
+    <div class="mt-6 flex flex-col sm:flex-row gap-2">
       <a href="/runtimes/new" class="flex items-center gap-2 px-3 py-2 rounded-md bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors">
         <Terminal class="w-[14px] h-[14px]" />
         New Runtime
@@ -94,7 +94,7 @@ onMount(async () => {
       <div class="mt-8 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
     {:else}
       <!-- Summary Stats -->
-      <div class="mt-8 flex gap-8">
+      <div class="mt-8 grid grid-cols-3 gap-4">
         <div>
           <p class="text-2xl font-semibold text-text-primary tabular-nums">{workspaceCount}</p>
           <p class="text-[11px] text-text-tertiary mt-0.5">Workspaces</p>

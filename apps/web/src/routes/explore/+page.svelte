@@ -56,7 +56,7 @@ function goToPage(newPage: number) {
     <span class="text-xs font-medium text-text-secondary">Explore</span>
   </div>
 
-  <div class="flex-1 p-4 overflow-y-auto">
+  <div class="flex-1 p-3 sm:p-4 overflow-y-auto">
     <!-- Search -->
     <form onsubmit={handleSearch} class="mb-4 flex gap-2">
       <div class="relative flex-1">

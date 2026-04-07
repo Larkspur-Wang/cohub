@@ -109,7 +109,7 @@ async function handleDelete(id: string) {
         </div>
 
         <form onsubmit={handleSubmit} class="space-y-3">
-          <div class="grid grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-provider">Platform</label>
               <select
@@ -177,50 +177,88 @@ async function handleDelete(id: string) {
       </div>
     {:else}
       <div class="rounded-md border border-border-subtle overflow-hidden">
-        <div class="grid grid-cols-[auto_1fr_auto_1fr_auto] gap-3 px-3 py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+        <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_1fr_auto] lg:gap-3 lg:px-3 lg:py-2 bg-bg-header-alt text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
           <span></span>
           <span>Channel</span>
           <span>Status</span>
           <span>Bound Runtime</span>
           <span></span>
         </div>
+        <div class="divide-y divide-border-subtle">
         {#each channels as channel (channel.id)}
           {@const Icon = providerIcons[channel.provider] || Webhook}
           {@const dotColor = providerDotColor[channel.provider] || providerDotColor.web}
-          <div class="group grid grid-cols-[auto_1fr_auto_1fr_auto] gap-3 px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-bg-hover transition-colors duration-100">
-            <div class="w-7 h-7 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0 mt-0.5">
-              <div class="w-2 h-2 rounded-full {dotColor} mr-0.5"></div>
-              <Icon class="w-3.5 h-3.5 text-text-tertiary" />
+          <div class="hover:bg-bg-hover transition-colors duration-100">
+            <!-- Desktop: table row -->
+            <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_1fr_auto] lg:gap-3 lg:px-3 lg:py-2.5">
+              <div class="w-7 h-7 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0 mt-0.5">
+                <div class="w-2 h-2 rounded-full {dotColor} mr-0.5"></div>
+                <Icon class="w-3.5 h-3.5 text-text-tertiary" />
+              </div>
+              <div class="min-w-0">
+                <div class="text-[13px] font-medium text-text-primary truncate">{channel.name}</div>
+                <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</div>
+              </div>
+              <div class="flex items-center pt-0.5 shrink-0">
+                <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-bg-hover text-text-tertiary border border-border-subtle">{channel.status}</span>
+              </div>
+              <div class="flex items-center gap-1.5 pt-0.5 min-w-0">
+                {#if channel.boundRuntime}
+                  <Box class="w-3 h-3 shrink-0 text-text-placeholder" />
+                  <a href="/runtimes/{channel.boundRuntime.id}" class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
+                    {channel.boundRuntime.title || channel.boundRuntime.id.slice(0, 8)}
+                  </a>
+                {:else}
+                  <Box class="w-3 h-3 shrink-0 text-text-placeholder" />
+                  <span class="text-[12px] text-text-placeholder">Not bound</span>
+                {/if}
+              </div>
+              <div class="flex items-center justify-end pt-0.5 shrink-0">
+                <button
+                  onclick={() => handleDelete(channel.id)}
+                  class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors"
+                  title="Delete channel"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
             </div>
-            <div class="min-w-0">
-              <div class="text-[13px] font-medium text-text-primary truncate">{channel.name}</div>
-              <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</div>
-            </div>
-            <div class="flex items-center pt-0.5 shrink-0">
-              <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-bg-hover text-text-tertiary border border-border-subtle">{channel.status}</span>
-            </div>
-            <div class="flex items-center gap-1.5 pt-0.5 min-w-0">
-              {#if channel.boundRuntime}
-                <Box class="w-3 h-3 shrink-0 text-text-placeholder" />
-                <a href="/runtimes/{channel.boundRuntime.id}" class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
-                  {channel.boundRuntime.title || channel.boundRuntime.id.slice(0, 8)}
-                </a>
-              {:else}
-                <Box class="w-3 h-3 shrink-0 text-text-placeholder" />
-                <span class="text-[12px] text-text-placeholder">Not bound</span>
-              {/if}
-            </div>
-            <div class="flex items-center justify-end pt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button
-                onclick={() => handleDelete(channel.id)}
-                class="p-1.5 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors"
-                title="Delete channel"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-              </button>
+
+            <!-- Mobile: card layout -->
+            <div class="lg:hidden px-3 py-3">
+              <div class="flex items-start gap-3">
+                <div class="w-9 h-9 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0">
+                  <div class="w-2 h-2 rounded-full {dotColor}"></div>
+                  <Icon class="w-4 h-4 text-text-tertiary ml-0.5" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-[13px] font-medium text-text-primary truncate">{channel.name}</div>
+                    <button
+                      onclick={() => handleDelete(channel.id)}
+                      class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors shrink-0"
+                      title="Delete channel"
+                    >
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div class="text-[11px] uppercase tracking-wider text-text-tertiary mt-0.5">{channel.provider}</div>
+                  <div class="flex items-center gap-3 mt-2">
+                    <span class="px-1.5 py-0.5 rounded-sm text-[11px] bg-bg-hover text-text-tertiary border border-border-subtle">{channel.status}</span>
+                    {#if channel.boundRuntime}
+                      <a href="/runtimes/{channel.boundRuntime.id}" class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
+                        {channel.boundRuntime.title || channel.boundRuntime.id.slice(0, 8)}
+                      </a>
+                    {:else}
+                      <span class="text-[12px] text-text-placeholder">Not bound</span>
+                    {/if}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         {/each}
+        </div>
       </div>
     {/if}
   </div>

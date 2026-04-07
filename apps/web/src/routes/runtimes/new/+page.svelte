@@ -242,7 +242,7 @@ async function handleSubmit(event: SubmitEvent) {
             {:else}
               <div class="space-y-2">
                 {#each extraEnv as envItem, index}
-                  <div class="flex gap-2">
+                  <div class="flex flex-col sm:flex-row gap-2">
                     <input
                       type="text"
                       value={envItem.name}
@@ -260,7 +260,7 @@ async function handleSubmit(event: SubmitEvent) {
                     <button
                       type="button"
                       onclick={() => removeEnvRow(index)}
-                      class="px-2 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                      class="flex items-center justify-center px-3 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer sm:w-auto"
                     >
                       ✕
                     </button>

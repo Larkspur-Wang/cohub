@@ -201,10 +201,10 @@ async function handleDelete(id: string) {
               </div>
               <button
                 onclick={() => handleDelete(key.id)}
-                class="p-1.5 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg opacity-0 group-hover:opacity-100 transition-all shrink-0 cursor-pointer"
+                class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-all shrink-0 cursor-pointer"
                 title="Delete SSH key"
               >
-                <Trash2 class="w-3.5 h-3.5" />
+                <Trash2 class="w-4 h-4" />
               </button>
             </div>
           {/each}

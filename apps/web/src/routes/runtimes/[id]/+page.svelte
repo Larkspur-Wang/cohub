@@ -22,8 +22,9 @@ import {
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
+import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import { toChatMessages, type TimelineItem } from "$lib/session-tree";
-import { Terminal, Hash, X, Plus, ArrowDown, Settings } from "lucide-svelte";
+import { Terminal, Hash, Plus, ArrowDown, Settings } from "lucide-svelte";
 import { ensureAuth } from "$lib/auth";
 
 type Props = {
@@ -406,7 +407,8 @@ async function processEventQueue() {
   eventProcessing = true;
 
   while (eventQueue.length > 0) {
-    const event = eventQueue.shift()!;
+    const event = eventQueue.shift();
+    if (event == null) continue;
     // Capture the current activeSessionId snapshot to avoid races during await
     const currentActiveSessionId = activeSessionId;
     if (currentActiveSessionId == null || event.sessionId !== currentActiveSessionId) continue;
@@ -736,78 +738,65 @@ $effect(() => {
     {/if}
   </div>
 
-  <!-- Settings Panel -->
-  {#if showSettings}
-    <div class="flex w-80 flex-col border-l border-border-subtle bg-bg-primary shrink-0 overflow-y-auto">
-      <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none sticky top-0 bg-bg-primary z-10">
-        <span>Settings</span>
-        <button
-          type="button"
-          class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={() => showSettings = false}
-          title="Close settings"
-        >
-          <X class="w-3.5 h-3.5" />
-        </button>
-      </div>
+  <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->
+  <SettingsOverlay open={showSettings} onClose={() => showSettings = false}>
+    <div class="p-4 space-y-6">
+      <section class="space-y-3">
+        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
+          <span>Channels</span>
+          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{runtimeChannels.length}</span>
+        </div>
 
-      <div class="p-4 space-y-6">
-        <section class="space-y-3">
-          <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
-            <span>Channels</span>
-            <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{runtimeChannels.length}</span>
-          </div>
+        {#if runtimeChannels.length === 0}
+          <div class="rounded-md border border-border-subtle bg-bg-hover p-3 text-[13px] text-text-tertiary">No channels bound.</div>
+        {:else}
+          <div class="space-y-3">
+            {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
+              <div class="border border-border-subtle rounded-[5px] bg-bg-surface overflow-hidden">
+                <div class="px-3 py-2 border-b border-border-subtle bg-bg-header-alt flex items-center gap-2">
+                  <Hash class="w-3 h-3 text-text-tertiary" />
+                  <span class="text-[12px] font-medium text-text-primary truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
+                </div>
 
-          {#if runtimeChannels.length === 0}
-            <div class="rounded-md border border-border-subtle bg-bg-hover p-3 text-[13px] text-text-tertiary">No channels bound.</div>
-          {:else}
-            <div class="space-y-3">
-              {#each runtimeChannels as runtimeChannel (runtimeChannel.id)}
-                <div class="border border-border-subtle rounded-[5px] bg-bg-surface overflow-hidden">
-                  <div class="px-3 py-2 border-b border-border-subtle bg-bg-header-alt flex items-center gap-2">
-                    <Hash class="w-3 h-3 text-text-tertiary" />
-                    <span class="text-[12px] font-medium text-text-primary truncate">{runtimeChannel.channel?.name || runtimeChannel.channel?.provider}</span>
-                  </div>
+                <div class="p-3">
+                  {#if runtimeChannel.channel?.provider === "discord"}
+                    {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
+                    <div class="space-y-4">
+                      <label class="flex items-start gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={config.inbound?.requireMentionInGuild !== false}
+                          onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                            ...current,
+                            inbound: { ...(current.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
+                          }))}
+                          class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
+                        />
+                        <div class="flex flex-col min-w-0">
+                          <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Require mention in Guild</span>
+                          <span class="text-[11px] text-text-placeholder">Respond only when mentioned</span>
+                        </div>
+                      </label>
 
-                  <div class="p-3">
-                    {#if runtimeChannel.channel?.provider === "discord"}
-                      {@const config = getDiscordRuntimeChannelConfig(runtimeChannel)}
-                      <div class="space-y-4">
-                        <label class="flex items-start gap-2 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={config.inbound?.requireMentionInGuild !== false}
-                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                              ...current,
-                              inbound: { ...(current.inbound ?? {}), requireMentionInGuild: (event.currentTarget as HTMLInputElement).checked },
-                            }))}
-                            class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
-                          />
-                          <div class="flex flex-col min-w-0">
-                            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Require mention in Guild</span>
-                            <span class="text-[11px] text-text-placeholder">Respond only when mentioned</span>
-                          </div>
-                        </label>
+                      <div class="w-full h-px bg-border-subtle"></div>
 
-                        <div class="w-full h-px bg-border-subtle"></div>
+                      <label class="flex items-start gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={config.outbound?.showThinking === true}
+                          onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
+                            ...current,
+                            outbound: { ...(current.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
+                          }))}
+                          class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
+                        />
+                        <div class="flex flex-col">
+                          <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Show thinking</span>
+                        </div>
+                      </label>
 
-                        <label class="flex items-start gap-2 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={config.outbound?.showThinking === true}
-                            onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
-                              ...current,
-                              outbound: { ...(current.outbound ?? {}), showThinking: (event.currentTarget as HTMLInputElement).checked },
-                            }))}
-                            class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
-                          />
-                          <div class="flex flex-col">
-                            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Show thinking</span>
-                          </div>
-                        </label>
-
-                        <label class="flex items-start gap-2 cursor-pointer group">
-                          <input
+                      <label class="flex items-start gap-2 cursor-pointer group">
+                        <input
                           type="checkbox"
                           checked={config.outbound?.showToolCalls === true}
                           onchange={(event) => patchDiscordRuntimeChannelConfig(runtimeChannel, (current) => ({
@@ -816,28 +805,27 @@ $effect(() => {
                           }))}
                           class="mt-0.5 rounded-sm bg-bg-input border-border-subtle checked:bg-brand"
                         />
-                          <div class="flex flex-col">
-                            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Show tool calls</span>
-                          </div>
-                        </label>
-                      </div>
-                    {:else}
-                      <div class="text-[13px] text-text-tertiary">No configuration available.</div>
-                    {/if}
+                        <div class="flex flex-col">
+                          <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">Show tool calls</span>
+                        </div>
+                      </label>
+                    </div>
+                  {:else}
+                    <div class="text-[13px] text-text-tertiary">No configuration available.</div>
+                  {/if}
 
-                    {#if savingChannelConfigById[runtimeChannel.id]}
-                      <div class="mt-3 text-[10px] text-success-soft">Saving changes...</div>
-                    {/if}
-                    {#if channelConfigErrorById[runtimeChannel.id]}
-                      <div class="mt-3 text-[10px] text-error-soft break-all">{channelConfigErrorById[runtimeChannel.id]}</div>
-                    {/if}
-                  </div>
+                  {#if savingChannelConfigById[runtimeChannel.id]}
+                    <div class="mt-3 text-[10px] text-success-soft">Saving changes...</div>
+                  {/if}
+                  {#if channelConfigErrorById[runtimeChannel.id]}
+                    <div class="mt-3 text-[10px] text-error-soft break-all">{channelConfigErrorById[runtimeChannel.id]}</div>
+                  {/if}
                 </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
     </div>
-  {/if}
+  </SettingsOverlay>
 </div>
