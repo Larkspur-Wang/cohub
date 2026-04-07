@@ -34,6 +34,12 @@ let loadError = $state("");
 let showUserMenu = $state(false);
 const actionInProgress = $state<Record<string, string>>({});
 
+// Track which sessions are currently streaming (for running indicator)
+let streamingSessionIds = $state<Set<string>>(new Set());
+
+// Broadcast channel listeners for cross-component session updates
+let broadcastChannels: BroadcastChannel[] = [];
+
 const currentPath = $derived(page.url.pathname);
 const currentRuntimeId = $derived.by(() => {
   const match = currentPath.match(/^\/runtimes\/([^/]+)/);
@@ -103,8 +109,8 @@ async function loadRuntimes() {
   }
 }
 
-async function loadSessions(runtimeId: string) {
-  if (runtimeId in sessionsByRuntime) return;
+async function loadSessions(runtimeId: string, force = false) {
+  if (!force && runtimeId in sessionsByRuntime) return;
   try {
     const result = await getRuntimeSessions(runtimeId);
     sessionsByRuntime = {
@@ -113,6 +119,34 @@ async function loadSessions(runtimeId: string) {
     };
   } catch {
     // Silently fail — sessions will load when user navigates
+  }
+}
+
+function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
+  sessionsByRuntime = {
+    ...sessionsByRuntime,
+    [runtimeId]: sessions,
+  };
+  // Auto-expand the runtime if we received new sessions
+  if (sessions.length > 0 && !expandedRuntimes.has(runtimeId)) {
+    expandedRuntimes = new Set(expandedRuntimes).add(runtimeId);
+  }
+}
+
+function markSessionStreaming(sessionId: string, isStreaming: boolean) {
+  const next = new Set(streamingSessionIds);
+  if (isStreaming) {
+    next.add(sessionId);
+  } else {
+    next.delete(sessionId);
+  }
+  streamingSessionIds = next;
+}
+
+function handleStreamingStatusEvent(e: Event) {
+  const custom = e as CustomEvent;
+  if (custom.detail?.sessionId != null && typeof custom.detail?.isStreaming === "boolean") {
+    markSessionStreaming(custom.detail.sessionId, custom.detail.isStreaming);
   }
 }
 
@@ -186,6 +220,8 @@ async function handleLogout() {
 
 // Polling for runtime status updates
 let pollingTimer: ReturnType<typeof setInterval> | null = null;
+// Poll sessions for the current runtime to keep sidebar in sync
+let sessionPollingTimer: ReturnType<typeof setInterval> | null = null;
 
 function shouldPoll() {
   return runtimes.some((r) => {
@@ -193,6 +229,14 @@ function shouldPoll() {
     return status === "starting" || status === "hibernating" || status === "active";
   });
 }
+
+function handleSessionUpdateEvent(e: Event) {
+  const custom = e as CustomEvent;
+  if (custom.detail?.runtimeId && custom.detail?.sessions) {
+    updateSessionsFromEvent(custom.detail.runtimeId, custom.detail.sessions);
+  }
+}
+
 onMount(() => {
   void (async () => {
     const authenticated = await ensureAuth();
@@ -211,10 +255,34 @@ onMount(() => {
       void loadSessions(currentRuntimeId);
     }
 
+    // Set up broadcast channel listeners for session updates
+    try {
+      const channel = new BroadcastChannel("cohub:sessions-updated");
+      channel.onmessage = (e) => {
+        if (e.data?.type === "sessions-updated" && e.data?.runtimeId && e.data?.sessions) {
+          updateSessionsFromEvent(e.data.runtimeId, e.data.sessions);
+        }
+      };
+      broadcastChannels.push(channel);
+    } catch {
+      // BroadcastChannel not supported, fallback to window events
+    }
+
+    // Listen for window-level session update events
+    window.addEventListener("cohub:sessions-updated", handleSessionUpdateEvent as EventListener);
+    window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
+
     pollingTimer = setInterval(() => {
       if (!shouldPoll()) return;
       void loadRuntimes();
     }, 3000);
+
+    // Poll sessions for the current runtime to keep sidebar in sync
+    if (currentRuntimeId) {
+      sessionPollingTimer = setInterval(() => {
+        void loadSessions(currentRuntimeId, true);
+      }, 5000);
+    }
   })();
 
   function handleClickOutside(e: MouseEvent) {
@@ -228,7 +296,12 @@ onMount(() => {
 
   return () => {
     if (pollingTimer) clearInterval(pollingTimer);
+    if (sessionPollingTimer) clearInterval(sessionPollingTimer);
     document.removeEventListener('click', handleClickOutside);
+    window.removeEventListener("cohub:sessions-updated", handleSessionUpdateEvent as EventListener);
+    window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
+    for (const ch of broadcastChannels) ch.close();
+    broadcastChannels = [];
   };
 });
 </script>
@@ -371,12 +444,13 @@ onMount(() => {
                   <div class="px-2 py-1 text-[11px] text-text-placeholder italic">No sessions</div>
                 {:else}
                   {#each sessions as session, index (session.id)}
+                    {@const isStreaming = streamingSessionIds.has(session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
                       class="flex items-center gap-2 px-2 py-[4px] rounded-[4px] text-[11px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
                     >
-                      <div class="w-[5px] h-[5px] rounded-full shrink-0 {isSessionActive(session.id) ? 'bg-status-running' : 'bg-text-placeholder'}"></div>
+                      <div class="w-[5px] h-[5px] rounded-full shrink-0 {isSessionActive(session.id) || isStreaming ? 'bg-status-running' : 'bg-text-placeholder'} {isStreaming ? 'animate-pulse' : ''}" title={isStreaming ? 'Streaming...' : ''}></div>
                       <span class="truncate leading-tight">{getSessionTitle(session, index)}</span>
                     </a>
                   {/each}

@@ -65,6 +65,32 @@ let streamingToolCalls = $state<Array<{ toolCallId: string; toolName: string; st
 
 // SSE
 let sseAbortController: AbortController | null = null;
+let lastEventId = $state<string | undefined>(undefined);
+
+// Sequential event processing queue to prevent race conditions
+let eventProcessing = false;
+let eventQueue: RuntimeStreamEvent[] = [];
+
+// Track which session is currently streaming (for sidebar status)
+let streamingSessionId: string | null = null;
+
+// Broadcast channel for cross-tab / cross-component session updates
+let broadcastChannel: BroadcastChannel | null = null;
+
+function notifySessionsUpdate() {
+  // Notify sidebar about session changes
+  window.dispatchEvent(new CustomEvent("cohub:sessions-updated", {
+    detail: { runtimeId, sessions: runtimeSessions },
+  }));
+  broadcastChannel?.postMessage({ type: "sessions-updated", runtimeId, sessions: runtimeSessions });
+}
+
+function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
+  window.dispatchEvent(new CustomEvent("cohub:streaming-status", {
+    detail: { runtimeId, sessionId, isStreaming },
+  }));
+  broadcastChannel?.postMessage({ type: "streaming-status", runtimeId, sessionId, isStreaming });
+}
 
 let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
@@ -175,6 +201,7 @@ async function handleCreateNewSession() {
 
     activeSessionId = newSession.id;
     updateUrlSession(newSession.id);
+    notifySessionsUpdate();
   } catch (error) {
     createSessionError = error instanceof Error ? error.message : "Failed to create session";
   } finally {
@@ -204,6 +231,9 @@ function seedSessions(sessions: SessionRecord[]) {
     }
   }
   sessionStateById = nextState;
+
+  // Notify sidebar about session changes
+  notifySessionsUpdate();
 
   // Auto-select session from URL or fallback to latest
   if (urlSessionId && !sessionStateById[urlSessionId]?.loaded) {
@@ -367,41 +397,73 @@ function clearStreamingState() {
   streamingAssistantText = "";
   streamingThinking = "";
   streamingToolCalls = [];
+  streamingSessionId = null;
 }
 
-async function handleSSEEvent(event: RuntimeStreamEvent) {
-  if (activeSessionId == null || event.sessionId !== activeSessionId) return;
+// Process events sequentially to avoid race conditions when activeSessionId changes
+async function processEventQueue() {
+  if (eventProcessing || eventQueue.length === 0) return;
+  eventProcessing = true;
 
-  if (event.type === "provider_render_update") {
-    if (event.thinking != null) streamingThinking = event.thinking;
-    if (event.toolCalls != null) streamingToolCalls = event.toolCalls;
-    if (event.answer != null) {
-      streamingAssistantText = event.answer;
-      await tick();
-      if (shouldAutoFollow) scrollToBottomNow();
-    }
+  while (eventQueue.length > 0) {
+    const event = eventQueue.shift()!;
+    // Capture the current activeSessionId snapshot to avoid races during await
+    const currentActiveSessionId = activeSessionId;
+    if (currentActiveSessionId == null || event.sessionId !== currentActiveSessionId) continue;
 
-    if (event.turnEnd) {
-      clearStreamingState();
-      streamStatus = "done";
-      await loadSessionState(activeSessionId, true);
+    if (event.type === "provider_render_update") {
+      if (event.thinking != null) streamingThinking = event.thinking;
+      if (event.toolCalls != null) streamingToolCalls = event.toolCalls;
+      if (event.answer != null) {
+        streamingAssistantText = event.answer;
+        if (streamingSessionId !== currentActiveSessionId) {
+          streamingSessionId = currentActiveSessionId;
+          notifyStreamingStatus(currentActiveSessionId, true);
+        }
+        await tick();
+        if (shouldAutoFollow) scrollToBottomNow();
+      }
+
+      if (event.turnEnd) {
+        const endedSessionId = streamingSessionId;
+        clearStreamingState();
+        streamStatus = "done";
+        if (endedSessionId) {
+          notifyStreamingStatus(endedSessionId, false);
+        }
+        await loadSessionState(currentActiveSessionId, true);
+      }
     }
+  }
+
+  eventProcessing = false;
+  // Process any events that arrived while we were working
+  if (eventQueue.length > 0) {
+    void processEventQueue();
   }
 }
 
 function startSSE() {
   if (sseAbortController) return;
   sseAbortController = new AbortController();
+  eventQueue = [];
+  eventProcessing = false;
 
   (async () => {
     while (!sseAbortController.signal.aborted) {
       try {
         for await (const event of streamRuntimeEvents(
           runtimeId,
-          undefined,
+          lastEventId,
           sseAbortController.signal,
         )) {
-          void handleSSEEvent(event);
+          // Track lastEventId for reconnection
+          if (event.type === "provider_render_update") {
+            lastEventId = String(event.timestamp);
+          }
+          // Push to queue for sequential processing
+          eventQueue.push(event);
+          void processEventQueue();
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") break;
@@ -498,6 +560,13 @@ function updateAutoFollow() {
 }
 
 onMount(() => {
+  // Initialize broadcast channel for cross-component communication
+  try {
+    broadcastChannel = new BroadcastChannel(`cohub:runtime:${runtimeId}`);
+  } catch {
+    // BroadcastChannel not supported, fallback to window events
+  }
+
   void Promise.all([loadRuntime(), loadProvisioning()]).finally(() => {
     bootstrapping = false;
   });
@@ -521,13 +590,20 @@ onMount(() => {
       sseAbortController.abort();
       sseAbortController = null;
     }
+    broadcastChannel?.close();
+    broadcastChannel = null;
   };
 });
 
 // Clear streaming state when switching sessions
+let prevActiveSessionId: string | null = null;
 $effect(() => {
-  void activeSessionId;
-  clearStreamingState();
+  const currentId = activeSessionId;
+  if (prevActiveSessionId && prevActiveSessionId !== currentId) {
+    // Clear streaming state for the previous session
+    clearStreamingState();
+  }
+  prevActiveSessionId = currentId;
 });
 
 $effect(() => {
