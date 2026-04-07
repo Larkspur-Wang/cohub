@@ -1,5 +1,6 @@
 @import "tailwindcss";
-@import "geist/css/fonts.css";
+@import "@fontsource/geist";
+@import "@fontsource/geist-mono";
 
 /* ============================================================
    Cohub Theme System
