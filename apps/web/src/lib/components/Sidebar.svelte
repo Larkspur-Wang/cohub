@@ -356,8 +356,8 @@ onMount(() => {
 
   <!-- Runtimes Section -->
   <div class="flex flex-col min-h-0 flex-1">
-    <div class="h-7 flex items-center justify-between px-2 shrink-0">
-      <span class="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
+    <div class="h-8 flex items-center justify-between px-2 shrink-0">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
         Runtimes
       </span>
       <button
@@ -393,7 +393,7 @@ onMount(() => {
             <div
               role="button"
               tabindex="0"
-              class="group flex items-center gap-1.5 px-2 py-[5px] rounded-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'bg-bg-active text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
+              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'bg-bg-active text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
               onclick={() => {
                 toggleRuntime(runtime.id);
                 if (!isExpanded) void loadSessions(runtime.id);
@@ -417,8 +417,8 @@ onMount(() => {
                   <ChevronRight class="w-3 h-3" />
                 {/if}
               </span>
-              <div class="w-[5px] h-[5px] rounded-full shrink-0 {statusColorClass(status)}"></div>
-              <span class="truncate flex-1 text-[12.5px] leading-none">{runtime.title || runtime.id.slice(0, 12)}</span>
+              <div class="w-[6px] h-[6px] rounded-full shrink-0 {statusColorClass(status)}"></div>
+              <span class="truncate flex-1 text-[13.5px] leading-tight">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
               {/if}
@@ -448,21 +448,21 @@ onMount(() => {
 
             <!-- Sessions (when expanded) -->
             {#if isExpanded}
-              <div class="ml-[11px] pl-2.5 border-l border-border-subtle space-y-[2px] py-0.5">
+              <div class="ml-[14px] pl-2.5 border-l border-border-subtle space-y-0.5 py-0.5">
                 {#if sessions.length === 0}
-                  <div class="px-2 py-1 text-[11px] text-text-placeholder italic">No sessions</div>
+                  <div class="px-2 py-1 text-[12px] text-text-placeholder italic">No sessions</div>
                 {:else}
                   {#each sessions as session, index (session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
-                      class="flex items-center gap-2 px-2 py-[4px] rounded-[4px] text-[11px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
                       {#if sessionIsStreaming(session)}
-                        <div class="w-[5px] h-[5px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
                       {:else if unreadTracker.isUnread(session)}
-                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
                       {/if}
                     </a>
                   {/each}

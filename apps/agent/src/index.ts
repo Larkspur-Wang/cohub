@@ -32,7 +32,6 @@ type SessionHandle = {
   currentUserMessageId: string | null;
   streamState: {
     content: ContentBlock[];
-    lastRenderAt: number;
     preferredDisplayMode: "full" | "compact" | "minimal";
   };
 };
@@ -217,11 +216,7 @@ function upsertBlock(content: ContentBlock[], block: ContentBlock): ContentBlock
   return [...content, block];
 }
 
-async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
-  const now = Date.now();
-  if (!force && now - handle.streamState.lastRenderAt < 900) return;
-  handle.streamState.lastRenderAt = now;
-
+async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
 
@@ -231,7 +226,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
     sessionId: handle.sessionId,
     content: handle.streamState.content,
     sourceMessageId,
-    timestamp: now,
+    timestamp: Date.now(),
   };
 
   await sendOutput(event);
@@ -240,7 +235,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle, force = false) {
 function resetStreamState(handle: SessionHandle) {
   handle.streamState = {
     content: [],
-    lastRenderAt: 0,
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
   };
 }
@@ -374,7 +368,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
         );
       });
 
-      // Immediately emit final render update with turnEnd flag (bypass throttle)
+      // Emit final render update with turnEnd flag
       const finalEvent: SessionStreamEvent = {
         type: "stream_update",
         runtimeId: env.RUNTIME_ID,
@@ -513,7 +507,6 @@ async function loadOrCreateSessionHandle(input: {
     currentUserMessageId: null,
     streamState: {
       content: [],
-      lastRenderAt: 0,
       preferredDisplayMode: "compact",
     },
   };
