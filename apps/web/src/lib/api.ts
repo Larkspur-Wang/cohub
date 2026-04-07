@@ -271,7 +271,25 @@ export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
 
 export type { SessionStreamError };
 
+// ─── Simple client-side dedup: reject same text within 2s ───
+let lastSentText = "";
+let lastSentAt = 0;
+const DEDUP_WINDOW_MS = 2000;
+
 export const postSessionMessage = async (sessionId: string, content: ContentBlock[]) => {
+  const textOnly = content
+    .filter((b) => b.type === "text")
+    .map((b) => (b as { text: string }).text)
+    .join("\n")
+    .trim();
+
+  const now = Date.now();
+  if (textOnly === lastSentText && now - lastSentAt < DEDUP_WINDOW_MS) {
+    throw new Error("Duplicate message ignored");
+  }
+  lastSentText = textOnly;
+  lastSentAt = now;
+
   return apiFetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: {

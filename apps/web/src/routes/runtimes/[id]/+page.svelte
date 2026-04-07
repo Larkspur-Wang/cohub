@@ -86,7 +86,7 @@ function notifySessionsUpdate() {
   window.dispatchEvent(new CustomEvent("cohub:sessions-updated", {
     detail: { runtimeId, sessions: runtimeSessions },
   }));
-  broadcastChannel?.postMessage({ type: "sessions-updated", runtimeId, sessions: runtimeSessions });
+  broadcastChannel?.postMessage({ type: "sessions-updated", runtimeId, sessions: structuredClone(runtimeSessions) });
 }
 
 function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
