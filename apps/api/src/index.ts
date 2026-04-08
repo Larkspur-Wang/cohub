@@ -1197,7 +1197,7 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
   const session = await createInitialRuntimeSession({
     runtimeId: runtime.id,
     sessionId: crypto.randomUUID(),
-    title: body.title ?? runtime.title ?? null,
+    title: body.title ?? null,
     source: body.source ?? null,
     protocol: body.protocol ?? ((runtime.meta as Record<string, unknown>)?.protocol as "pi" | "acp" | "internal" | undefined) ?? "pi",
     cwd: body.cwd ?? ((runtime.meta as Record<string, unknown>)?.cwd as string | undefined) ?? null,

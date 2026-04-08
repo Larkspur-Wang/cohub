@@ -16,8 +16,6 @@ import {
 import {
   getRuntimes,
   getRuntimeSessions,
-  hibernateRuntime,
-  wakeRuntime,
   deleteRuntime,
   type RuntimeListItem,
   type SessionRecord,
@@ -91,6 +89,18 @@ function displayStatus(runtime: RuntimeListItem) {
 
 function statusColorClass(status: string) {
   return getRuntimeStatusMeta(status).bgClass;
+}
+
+// ─── Source helpers ───
+
+function sourceBadge(source: string | null): string {
+  if (!source || source === "web") return "";
+  const idx = source.indexOf(":");
+  return idx > 0 ? source.slice(0, idx) : source;
+}
+
+function sourceTooltip(source: string | null): string {
+  return source ?? "";
 }
 
 function toggleRuntime(runtimeId: string) {
@@ -207,45 +217,13 @@ function sessionIsStreaming(session: SessionRecord): boolean {
   return isStreaming(session, streamingSessionIds);
 }
 
-function getSessionTitle(session: SessionRecord, index: number) {
+function getSessionTitle(session: SessionRecord, _index: number) {
   const candidates = [session.title, session.latestMessageText];
   for (const candidate of candidates) {
     const normalized = candidate?.replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim();
     if (normalized) return normalized.slice(0, 36);
   }
-  return `Session ${index + 1}`;
-}
-
-async function handleHibernate(runtimeId: string, e: Event) {
-  e.stopPropagation();
-  actionInProgress[runtimeId] = "hibernate";
-  try {
-    await hibernateRuntime(runtimeId);
-    await loadRuntimes();
-    void loadSessions(runtimeId);
-    window.dispatchEvent(new CustomEvent("cohub:runtime-status-changed", { detail: { runtimeId } }));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to hibernate";
-    alert(message);
-  } finally {
-    delete actionInProgress[runtimeId];
-  }
-}
-
-async function handleWake(runtimeId: string, e: Event) {
-  e.stopPropagation();
-  actionInProgress[runtimeId] = "wake";
-  try {
-    await wakeRuntime(runtimeId);
-    await loadRuntimes();
-    void loadSessions(runtimeId);
-    window.dispatchEvent(new CustomEvent("cohub:runtime-status-changed", { detail: { runtimeId } }));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to wake";
-    alert(message);
-  } finally {
-    delete actionInProgress[runtimeId];
-  }
+  return "New session";
 }
 
 async function handleDelete(runtimeId: string, e: Event) {
@@ -503,7 +481,7 @@ onMount(() => {
             <div
               role="button"
               tabindex="0"
-              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-r-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'text-text-primary font-medium border-l-2 border-brand' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
+              class="group relative flex items-center gap-1.5 pl-[6px] pr-2 py-1.5 rounded-r-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
               onclick={() => {
                 if (isExpanded) {
                   toggleRuntime(runtime.id);
@@ -526,6 +504,8 @@ onMount(() => {
                 }
               }}
             >
+              <!-- Status color bar (brand color when active, status color otherwise) -->
+              <span class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full {isActive ? 'bg-brand' : statusColorClass(status)}" />
               <span
                 class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary group-hover:text-text-secondary transition-colors"
               >
@@ -539,28 +519,6 @@ onMount(() => {
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
               {/if}
-              <!-- Runtime actions (hover) -->
-              <div class="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                {#if getRuntimeStatusMeta(status).canHibernate}
-                  <button
-                    type="button"
-                    class="p-0.5 rounded-sm text-text-tertiary hover:text-warning-soft hover:bg-bg-hover-strong transition-colors"
-                    onclick={(e) => handleHibernate(runtime.id, e)}
-                    title="Hibernate"
-                  >
-                    <ChevronDown class="w-3 h-3 rotate-180" />
-                  </button>
-                {:else if getRuntimeStatusMeta(status).canWake}
-                  <button
-                    type="button"
-                    class="p-0.5 rounded-sm text-text-tertiary hover:text-success-soft hover:bg-bg-hover-strong transition-colors"
-                    onclick={(e) => handleWake(runtime.id, e)}
-                    title="Wake"
-                  >
-                    <ChevronDown class="w-3 h-3" />
-                  </button>
-                {/if}
-              </div>
             </div>
 
             <!-- Sessions (when expanded) -->
@@ -572,14 +530,20 @@ onMount(() => {
                   {#each sessions as session, index (session.id)}
                     <a
                       href="/runtimes/{runtime.id}?session={session.id}"
-                      class="flex items-center gap-2 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(runtime.id, session.id); }}
+                      title={sourceTooltip(session.source) || undefined}
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
                       {#if sessionIsStreaming(session)}
                         <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
                       {:else if unreadTracker.isUnread(session)}
                         <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                      {/if}
+                      {#if sourceBadge(session.source)}
+                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                          {sourceBadge(session.source)}
+                        </span>
                       {/if}
                     </a>
                   {/each}
