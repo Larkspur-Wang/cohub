@@ -381,6 +381,10 @@ function subscribeSessionEvents(handle: SessionHandle) {
       };
       void sendOutput(finalEvent);
 
+      // Reset stream state after emitting final event to prevent
+      // content from leaking into the next turn.
+      resetStreamState(handle);
+
       // Remove matched user message from queue
       const matchedId = handle.currentUserMessageId;
       handle.pendingUserMessages = handle.pendingUserMessages.filter(
