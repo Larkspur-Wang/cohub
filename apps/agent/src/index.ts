@@ -166,7 +166,7 @@ function summarizeThinking(thinking: string): string {
 
 // ─── SDK content → ContentBlock conversion ───
 
-function sdkContentToBlocks(content: unknown): ContentBlock[] {
+function sdkContentToBlocks(content: unknown, existing: ContentBlock[]): ContentBlock[] {
   if (!Array.isArray(content)) return [];
   const blocks: ContentBlock[] = [];
   for (const item of content) {
@@ -179,11 +179,16 @@ function sdkContentToBlocks(content: unknown): ContentBlock[] {
     } else if (type === "thinking" && typeof block.thinking === "string") {
       blocks.push({ type: "thinking", thinking: block.thinking });
     } else if (type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
+      // Preserve _meta (toolStatus, summary) set by tool_execution_start/end
+      const existingBlock = existing.find(
+        (b) => b.type === "tool_use" && b.id === block.id,
+      ) as Extract<ContentBlock, { type: "tool_use" }> | undefined;
       blocks.push({
         type: "tool_use",
         id: block.id as string,
         name: block.name as string,
         input: (block.arguments as Record<string, unknown> | null) ?? {},
+        _meta: existingBlock?._meta,
       });
     } else if (type === "image" && typeof block.uri === "string") {
       blocks.push({
@@ -191,11 +196,15 @@ function sdkContentToBlocks(content: unknown): ContentBlock[] {
         source: { type: "url", url: block.uri },
       });
     } else if (type === "tool_result" && typeof block.tool_use_id === "string") {
+      const existingBlock = existing.find(
+        (b) => b.type === "tool_result" && b.tool_use_id === block.tool_use_id,
+      ) as Extract<ContentBlock, { type: "tool_result" }> | undefined;
       blocks.push({
         type: "tool_result",
         tool_use_id: block.tool_use_id as string,
         content: typeof block.content === "string" ? block.content : (block.content as string | ContentBlock[] | null) ?? "",
         is_error: Boolean(block.is_error),
+        _meta: existingBlock?._meta,
       });
     }
   }
@@ -273,8 +282,8 @@ function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "message_update") {
       const message = event.message as unknown as Record<string, unknown>;
-      // Convert SDK content blocks to our ContentBlock[]
-      const newBlocks = sdkContentToBlocks(message.content);
+      // Convert SDK content blocks, preserving _meta set by tool_execution_start/end
+      const newBlocks = sdkContentToBlocks(message.content, handle.streamState.content);
       handle.streamState.content = newBlocks;
       void emitProviderRenderUpdate(handle);
     }
@@ -331,7 +340,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
             id: block.id,
             name: block.name,
             input: block.input,
-            _meta: { ...block._meta, toolStatus: status },
+            _meta: { ...block._meta, toolStatus: status === "failed" ? "error" : status },
           };
           handle.streamState.content = [
             ...handle.streamState.content.slice(0, existingIdx),
@@ -348,7 +357,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
         tool_use_id: event.toolCallId,
         content: resultContent || JSON.stringify(event.result ?? null),
         is_error: event.isError,
-        _meta: { toolStatus: status },
+        _meta: { toolStatus: status === "failed" ? "error" : status },
       });
 
       void emitProviderRenderUpdate(handle);

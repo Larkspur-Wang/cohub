@@ -101,6 +101,10 @@ let streamingToolCalls = $state<
 	}>
 >([]);
 
+// Raw content blocks from the latest SSE event, used to preserve
+// the correct interleaving order of text/thinking/tool_use blocks.
+let streamingContentBlocks = $state<ContentBlock[]>([]);
+
 // SSE - per-session connections
 let sessionSSEs = new Map<string, AbortController>();
 let sessionLastEventIds = new Map<string, string>();
@@ -224,28 +228,73 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		}),
 	);
 
-	if (streamingToolCalls.length > 0) {
-		for (const tc of streamingToolCalls) {
+	// Build streaming items in the correct interleaved order.
+	// Walk through raw content blocks so text → tool_use → text preserves order.
+	if (streamingContentBlocks.length > 0) {
+		let accText = "";
+		let accThinking = "";
+		let toolIndex = 0;
+		const baseSequence = state.messages.at(-1)?.sequence ?? 0;
+
+		function flushMessage() {
+			const trimmedText = accText.trim();
+			const trimmedThinking = accThinking.trim();
+			if (!trimmedText && !trimmedThinking) return;
+
+			const blocks: ContentBlock[] = [];
+			if (trimmedThinking) blocks.push({ type: "thinking", thinking: trimmedThinking });
+			if (trimmedText) blocks.push({ type: "text", text: trimmedText });
+
 			items.push({
-				id: `stream-tool-${tc.toolCallId}`,
-				kind: "tool",
-				tool: {
-					id: tc.toolCallId,
-					name: tc.toolName,
-					input: {},
-					status:
-						tc.status === "running"
-							? "running"
-							: tc.status === "done"
-								? "done"
-								: "error",
-					output: tc.summary ?? "",
+				id: `assistant-streaming-seg-${items.length}`,
+				kind: "message",
+				message: {
+					id: "assistant-streaming",
+					role: "assistant",
+					content: blocks as never,
+					text: trimmedText,
+					sequence: baseSequence + 1,
 				},
 			});
+			accText = "";
+			accThinking = "";
 		}
-	}
 
-	if (streamingAssistantText.trim() || streamingThinking.trim()) {
+		for (const block of streamingContentBlocks) {
+			if (block.type === "thinking") {
+				accThinking += (accThinking ? "\n" : "") + block.thinking;
+			} else if (block.type === "text") {
+				accText += (accText ? "\n\n" : "") + block.text;
+			} else if (block.type === "tool_use") {
+				// Flush accumulated text/thinking before inserting tool card
+				flushMessage();
+				const tc = streamingToolCalls[toolIndex];
+				if (tc) {
+					items.push({
+						id: `stream-tool-${tc.toolCallId}`,
+						kind: "tool",
+						tool: {
+							id: tc.toolCallId,
+							name: tc.toolName,
+							input: block.input ?? {},
+							status:
+								tc.status === "running"
+									? "running"
+									: tc.status === "done"
+										? "done"
+										: "error",
+							output: tc.summary ?? "",
+						},
+					});
+					toolIndex++;
+				}
+			}
+		}
+
+		// Flush remaining text/thinking after the last tool
+		flushMessage();
+	} else if (streamingAssistantText.trim() || streamingThinking.trim()) {
+		// Fallback: when raw blocks aren't available yet, use the flat state
 		const contentBlocks: Array<
 			{ type: "thinking"; thinking: string } | { type: "text"; text: string }
 		> = [];
@@ -534,6 +583,7 @@ function clearStreamingState() {
 	streamingAssistantText = "";
 	streamingThinking = "";
 	streamingToolCalls = [];
+	streamingContentBlocks = [];
 	streamingSessionId = null;
 }
 
@@ -559,6 +609,7 @@ async function processEventQueue() {
 			streamingThinking = thinking;
 			streamingToolCalls = toolCalls;
 			streamingAssistantText = answer;
+			streamingContentBlocks = event.content;
 			if (answer) {
 				if (streamingSessionId !== currentActiveSessionId) {
 					streamingSessionId = currentActiveSessionId;
@@ -578,6 +629,7 @@ async function processEventQueue() {
 				streamingAssistantText = "";
 				streamingThinking = "";
 				streamingToolCalls = [];
+				streamingContentBlocks = [];
 				streamStatus = "done";
 				if (streamingSessionId) {
 					notifyStreamingStatus(streamingSessionId, false);

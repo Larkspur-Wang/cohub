@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ToolState } from "$lib/session-tree";
+import { ChevronDown, ChevronRight } from "lucide-svelte";
 
 type Props = {
   tool: ToolState;
@@ -7,46 +8,71 @@ type Props = {
 
 const { tool }: Props = $props();
 
-const prettyArgs = (input?: Record<string, unknown>) => {
-  if (!input) {
-    return "";
-  }
+let expanded = $state(false);
 
+const statusDotMap = {
+  done: "bg-emerald-400",
+  running: "bg-amber-400 animate-pulse",
+  error: "bg-rose-400",
+} as const;
+
+function summarizeToolInput(
+  name: string,
+  input?: Record<string, unknown>,
+): string {
+  if (!input) return "";
+  if (name === "bash" && typeof input.command === "string") {
+    return `$ ${input.command}`;
+  }
+  if (
+    ["read", "write", "edit"].includes(name) &&
+    typeof input.path === "string"
+  ) {
+    return input.path;
+  }
   try {
-    return JSON.stringify(input, null, 2);
+    return JSON.stringify(input);
   } catch {
     return String(input);
   }
-};
-
-const isCodeTool = $derived(
-  ["bash", "read", "write", "edit", "grep", "find"].includes(tool.name),
-);
-
-const toolInput = $derived(tool.input);
+}
 </script>
 
-<div class="max-w-[52rem]">
-  <div class="overflow-hidden rounded-md border border-border-primary bg-bg-elevated">
-    <div class="flex items-center justify-between gap-3 border-b border-border-primary px-3 py-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-tertiary bg-bg-header-alt">
-      <span>{tool.name}</span>
-      <span class={`${tool.status === 'error' ? 'text-rose-400' : tool.status === 'running' ? 'text-amber-400' : 'text-text-tertiary'}`}>
-        {tool.status}
-      </span>
+<div class="group rounded-md overflow-hidden">
+  <!-- Collapsed row — matches ChatMessageBubble inline tool style -->
+  <button
+    type="button"
+    class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-hover/50 cursor-pointer"
+    onclick={() => (expanded = !expanded)}
+  >
+    <span class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotMap[tool.status] ?? 'bg-text-placeholder'}"></span>
+    <span class="text-[13px] font-mono text-text-tertiary">{tool.name}</span>
+    <span class="text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
+    <span class="ml-auto text-text-tertiary shrink-0">
+      {#if expanded}
+        <ChevronDown class="w-3.5 h-3.5" />
+      {:else}
+        <ChevronRight class="w-3.5 h-3.5" />
+      {/if}
+    </span>
+  </button>
+
+  {#if expanded}
+    <div class="pl-7 pr-4">
+      {#if tool.input && Object.keys(tool.input).length > 0}
+        <div class="py-1.5">
+          {#if tool.name === 'bash' && typeof tool.input.command === 'string'}
+            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">$ {tool.input.command}</pre>
+          {:else if ['read', 'write', 'edit'].includes(tool.name) && typeof tool.input.path === 'string'}
+            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">{tool.input.path}</pre>
+          {:else}
+            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">{JSON.stringify(tool.input, null, 2)}</pre>
+          {/if}
+        </div>
+      {/if}
+      {#if tool.output}
+        <pre class="p-2 font-mono text-[13px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{tool.output}</pre>
+      {/if}
     </div>
-
-    {#if toolInput && Object.keys(toolInput).length > 0}
-      <div class="border-b border-border-primary bg-hover px-3 py-2">
-        {#if tool.name === 'bash' && typeof toolInput.command === 'string'}
-          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-text-secondary">$ {toolInput.command}</pre>
-        {:else if ['read', 'write', 'edit'].includes(tool.name) && typeof toolInput.path === 'string'}
-          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-text-secondary">{toolInput.path}</pre>
-        {:else}
-          <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-text-secondary">{prettyArgs(toolInput)}</pre>
-        {/if}
-      </div>
-    {/if}
-
-    <pre class={`overflow-x-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-5 ${isCodeTool ? 'bg-bg-elevated text-text-primary' : 'bg-bg-content text-text-secondary'}`}>{tool.output}</pre>
-  </div>
+  {/if}
 </div>
