@@ -6,15 +6,15 @@ const IS_DEV =
 export const logtoClient = new LogtoClient(
   IS_DEV
     ? {
-        endpoint: "https://dev-auth.neta.art/",
-        appId: "vpikk7sl9zwvefiptowtn",
-        scopes: ["profile", "email", "offline_access"],
+        endpoint: "https://auth.talesofai.com/",
+        appId: "u2l5j2mb1lsyyvcssa55e",
+        scopes: ["openid", "offline_access", "profile", "email"],
         resources: ["https://api.talesofai"],
       }
     : {
         endpoint: "https://auth.neta.art/",
         appId: "16ai0wao2mud3xqkbzqo0",
-        scopes: ["profile", "email", "offline_access"],
+        scopes: ["openid", "offline_access", "profile", "email"],
         resources: ["https://api.talesofai"],
       },
 );
@@ -23,9 +23,7 @@ export const AUTH_TOKEN_STORAGE_KEY = "cohub_token";
 
 export const getAuthToken = async () => {
   if (!(await logtoClient.isAuthenticated())) return null;
-  return await logtoClient.getAccessToken(
-    IS_DEV ? "https://dev.api.talesofai.com" : "https://api.talesofai.com",
-  );
+  return await logtoClient.getAccessToken("https://api.talesofai");
 };
 
 export const setAuthToken = (token: string) => {
