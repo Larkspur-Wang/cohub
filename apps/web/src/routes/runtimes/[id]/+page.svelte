@@ -148,6 +148,8 @@ let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
 let didInitialScrollBySession = $state<Record<string, boolean>>({});
 let shouldAutoFollow = $state(true);
+let userScrolledUp = $state(false);
+let autoScrollGuard = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
 let showSettings = $state(false);
@@ -604,7 +606,7 @@ async function processEventQueue() {
 					notifyStreamingStatus(currentActiveSessionId, true);
 				}
 				await tick();
-				if (shouldAutoFollow) scrollToBottomNow();
+				if (!userScrolledUp) scrollToBottomNow();
 			}
 
 			if (event.turnEnd) {
@@ -771,7 +773,11 @@ async function handleSend() {
 
 function scrollToBottomNow() {
 	if (!listEl) return;
+	autoScrollGuard = true;
 	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
+	requestAnimationFrame(() => {
+		autoScrollGuard = false;
+	});
 }
 
 async function forceScrollToBottom() {
@@ -790,8 +796,18 @@ function updateAutoFollow() {
 	const threshold = 80;
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+
+	// Only mark userScrolledUp when the scroll was NOT triggered by auto-scroll
+	if (!autoScrollGuard && distanceFromBottom > threshold) {
+		userScrolledUp = true;
+	}
+
 	shouldAutoFollow = distanceFromBottom <= threshold;
-	showScrollToBottom = !shouldAutoFollow && listEl.scrollHeight > listEl.clientHeight + 24;
+	if (shouldAutoFollow) {
+		userScrolledUp = false;
+	}
+
+	showScrollToBottom = userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
 
 async function fileToDataUrl(file: Blob): Promise<string> {
@@ -993,12 +1009,12 @@ $effect(() => {
 	requestAnimationFrame(() => updateAutoFollow());
 });
 
-// Auto-follow scroll: when new content arrives and user is at bottom
+// Auto-follow scroll: when new content arrives and user hasn't scrolled up
 $effect(() => {
-	if (!listEl || !shouldAutoFollow || !activeSessionId) return;
-	// Use rAF instead of queueMicrotask to ensure layout is computed
+	if (!listEl || !activeSessionId) return;
+	if (userScrolledUp) return;
 	requestAnimationFrame(() => {
-		if (listEl && shouldAutoFollow) {
+		if (listEl && !userScrolledUp) {
 			scrollToBottomNow();
 			updateAutoFollow();
 		}

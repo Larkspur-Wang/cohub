@@ -257,13 +257,7 @@ const statusDotMap = {
         </div>
       {/if}
 
-      {#if message.meta && message.role === 'assistant'}
-        <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-text-placeholder/60">
-          {#if message.meta.usageInput != null || message.meta.usageOutput != null}
-            <span>in {message.meta.usageInput ?? 0} · out {message.meta.usageOutput ?? 0}</span>
-          {/if}
-        </div>
-      {/if}
+
     </div>
   </div>
 {/if}
