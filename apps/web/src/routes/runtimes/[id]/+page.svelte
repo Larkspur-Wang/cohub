@@ -5,7 +5,6 @@ import {
 	type ChannelConfig,
 	type DiscordChannelConfig,
 	type RuntimeChannelRecord,
-	type RuntimeProvisionResponse,
 	type RuntimeRecord,
 	type SessionRecord,
 	type SessionStreamEvent,
@@ -14,7 +13,6 @@ import {
 	extractSessionRenderState,
 	getRuntime,
 	getRuntimeChannels,
-	getRuntimeProvisioning,
 	getRuntimeSessions,
 	getSessionMessages,
 	hibernateRuntime,
@@ -77,8 +75,6 @@ let sending = $state(false);
 let runtimeLoadError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
-let provisioning = $state<RuntimeProvisionResponse | null>(null);
-let provisioningError = $state("");
 let streamingAssistantText = $state("");
 let streamingThinking = $state("");
 let streamingToolCalls = $state<
@@ -132,7 +128,6 @@ function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
 	});
 }
 
-let provisioningPollingTimer: ReturnType<typeof setInterval> | null = null;
 let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
 const listEl = $state<HTMLDivElement | null>(null);
 const contentEl = $state<HTMLDivElement | null>(null);
@@ -514,21 +509,6 @@ async function loadSessionState(sessionId: string, force = false) {
 	}
 }
 
-async function loadProvisioning() {
-	try {
-		provisioning = await getRuntimeProvisioning(runtimeId);
-		provisioningError = "";
-	} catch (error) {
-		provisioningError =
-			error instanceof Error ? error.message : "Failed to load provisioning";
-	}
-}
-
-function shouldPollProvisioning(provision: RuntimeProvisionResponse | null) {
-	if (!provision) return true;
-	return provision.status === "queued" || provision.status === "running";
-}
-
 function shouldPollRuntime(runtime: RuntimeRecord | null) {
 	if (!runtime) return true;
 	const status = runtime.status;
@@ -728,14 +708,9 @@ onMount(() => {
 		// BroadcastChannel not supported, fallback to window events
 	}
 
-	void Promise.all([loadRuntime(), loadProvisioning()]).finally(() => {
+	void loadRuntime().finally(() => {
 		bootstrapping = false;
 	});
-
-	provisioningPollingTimer = setInterval(() => {
-		if (!shouldPollProvisioning(provisioning)) return;
-		void loadProvisioning();
-	}, 5000);
 
 	runtimePollingTimer = setInterval(() => {
 		if (!shouldPollRuntime(runtime)) return;
@@ -743,7 +718,6 @@ onMount(() => {
 	}, 1000);
 
 	return () => {
-		if (provisioningPollingTimer) clearInterval(provisioningPollingTimer);
 		if (runtimePollingTimer) clearInterval(runtimePollingTimer);
 		disconnectAllSSE();
 		broadcastChannel?.close();
@@ -828,13 +802,9 @@ $effect(() => {
     <Terminal class="w-4 h-4 text-text-tertiary shrink-0" />
     <span class="text-[13px] text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
     <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-[4px] bg-bg-hover border border-border-subtle shrink-0">
-      <div class="w-[5px] h-[5px] rounded-full bg-current {provisioning && shouldPollProvisioning(provisioning) ? 'text-status-starting' : getRuntimeStatusMeta(runtime?.status ?? 'unknown').textColorClass}"></div>
+      <div class="w-[5px] h-[5px] rounded-full bg-current {getRuntimeStatusMeta(runtime?.status ?? 'unknown').textColorClass}"></div>
       <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
-        {#if provisioning && shouldPollProvisioning(provisioning)}
-          {provisioning.currentStep}
-        {:else}
-          {runtime?.status ?? "unknown"}
-        {/if}
+        {runtime?.status ?? "unknown"}
       </span>
     </div>
   </div>

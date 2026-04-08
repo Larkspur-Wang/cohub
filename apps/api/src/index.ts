@@ -35,7 +35,6 @@ import {
   deleteRuntime,
   forkRuntimeSession,
   getRuntimeById,
-  getRuntimeProvision,
   getRuntimeSessionBootstrap,
   getRuntimeSessionById,
   hibernateRuntime,
@@ -49,7 +48,6 @@ import {
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
   wakeRuntime,
-  writeInitialRuntimeProvision,
   createUserMessageNode,
   enqueueRuntimePrompt,
   updateRuntimeStatus,
@@ -985,10 +983,7 @@ app.post("/api/runtimes", async (c) => {
   const userUuid = user.uuid;
 
   if (body.start !== false) {
-    void (async () => {
-      await writeInitialRuntimeProvision(runtime.id);
-      await provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid });
-    })().catch((error) => {
+    void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid }).catch((error) => {
       console.error("[RuntimeProvision] background task failed:", {
         runtimeId: runtime.id,
         error: error instanceof Error ? error.message : String(error),
@@ -997,23 +992,6 @@ app.post("/api/runtimes", async (c) => {
   }
 
   return c.json({ runtime, session, ready: false });
-});
-
-app.get("/api/runtimes/:id/provisioning", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const runtimeId = c.req.param("id");
-  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) {
-    return c.json({ message: "runtime not found" }, 404);
-  }
-
-  const provisioning = await getRuntimeProvision(runtime.id);
-  return c.json(provisioning);
 });
 
 app.get("/api/runtimes", async (c) => {

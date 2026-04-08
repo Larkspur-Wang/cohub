@@ -437,43 +437,6 @@ export const createWorkspace = async (data: {
   }) as Promise<WorkspaceDetail>;
 };
 
-export type RuntimeProvisionStatus =
-  | "queued"
-  | "running"
-  | "succeeded"
-  | "failed";
-export type RuntimeProvisionLevel = "info" | "success" | "error";
-export type RuntimeProvisionStep =
-  | "queued"
-  | "init_git_account"
-  | "prepare_workspace"
-  | "create_pod"
-  | "bind_channels"
-  | "wait_runtime_running"
-  | "completed";
-
-export type RuntimeProvisionEvent = {
-  id: string;
-  at: string;
-  level: RuntimeProvisionLevel;
-  status: RuntimeProvisionStatus;
-  step: RuntimeProvisionStep;
-  message: string;
-  meta?: Record<string, unknown> | null;
-};
-
-export type RuntimeProvisionResponse = {
-  runtimeId: string;
-  status: RuntimeProvisionStatus;
-  currentStep: RuntimeProvisionStep;
-  currentMessage: string | null;
-  error: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  updatedAt: string | null;
-  events: RuntimeProvisionEvent[];
-};
-
 
 export type RuntimeCreateResponse = {
   runtime: RuntimeRecord;
@@ -536,15 +499,6 @@ export const getRuntime = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/runtimes/${id}`, {
     fetch: customFetch,
   }) as Promise<RuntimeRecord>;
-};
-
-export const getRuntimeProvisioning = async (
-  id: string,
-  customFetch?: Fetch,
-) => {
-  return apiFetch(`/api/runtimes/${id}/provisioning`, {
-    fetch: customFetch,
-  }) as Promise<RuntimeProvisionResponse>;
 };
 
 export const createRuntimeSession = async (

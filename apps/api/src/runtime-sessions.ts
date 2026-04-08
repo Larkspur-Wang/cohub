@@ -22,8 +22,6 @@ import { k8sCoreApi } from "./k8s.js";
 import {
   getRuntimeInputQueueKey,
   getRuntimeOutputStreamKey,
-  getRuntimeProvisionMetaKey,
-  getRuntimeProvisionStreamKey,
   redisCommandClient,
   createStreamingRedisClient,
 } from "./redis.js";
@@ -33,46 +31,12 @@ import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboun
 import { ensureUserGitAccount } from "./git-accounts.js";
 
 
-
-type RuntimeProvisionStatus = "queued" | "running" | "succeeded" | "failed";
-type RuntimeProvisionLevel = "info" | "success" | "error";
-type RuntimeProvisionStep =
-  | "queued"
-  | "init_git_account"
-  | "prepare_workspace"
-  | "create_pod"
-  | "bind_channels"
-  | "wait_runtime_running"
-  | "completed";
-
-type RuntimeProvisionEvent = {
-  id: string;
-  at: string;
-  level: RuntimeProvisionLevel;
-  status: RuntimeProvisionStatus;
-  step: RuntimeProvisionStep;
-  message: string;
-  meta?: Record<string, unknown> | null;
-};
-
-export type RuntimeProvisionSnapshot = {
-  runtimeId: string;
-  status: RuntimeProvisionStatus;
-  currentStep: RuntimeProvisionStep;
-  currentMessage: string | null;
-  error: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  updatedAt: string | null;
-  events: RuntimeProvisionEvent[];
-};
-
 type RuntimeEnvVar = {
   name: string;
   value: string;
 };
 
-const PROVISION_EVENT_LIMIT = 100;
+
 const RESERVED_RUNTIME_ENV_NAMES = new Set([
   "RUNTIME_ID",
   "REDIS_URL",
@@ -263,29 +227,7 @@ const buildRuntimeContainerEnv = (input: {
   ];
 };
 
-// ─── Provision helpers ───
 
-const logProvision = (
-  runtimeId: string,
-  step: RuntimeProvisionStep,
-  phase: "start" | "success" | "error",
-  details?: Record<string, unknown>,
-) => {
-  const suffix = details ? ` ${JSON.stringify(details)}` : "";
-  const logger = phase === "error" ? console.error : console.log;
-  logger(`[RuntimeProvision] runtimeId=${runtimeId} step=${step} phase=${phase}${suffix}`);
-};
-
-const mapProvisionStepToRuntimeStatus = (step: RuntimeProvisionStep) => {
-  switch (step) {
-    case "queued":
-      return "starting";
-    case "completed":
-      return "running";
-    default:
-      return "starting";
-  }
-};
 
 export const updateRuntimeStatus = async (runtimeId: string, status: string) => {
   await db
@@ -294,140 +236,7 @@ export const updateRuntimeStatus = async (runtimeId: string, status: string) => 
     .where(eq(runtimes.id, runtimeId));
 };
 
-export const writeInitialRuntimeProvision = async (runtimeId: string) => {
-  const key = getRuntimeProvisionMetaKey(runtimeId);
-  const timestamp = nowIso();
 
-  await redisCommandClient.hset(key, {
-    runtime_id: runtimeId,
-    status: "queued",
-    current_step: "queued",
-    current_message: "Runtime created. Waiting to start background provisioning.",
-    error: "",
-    started_at: timestamp,
-    finished_at: "",
-    updated_at: timestamp,
-  });
-};
-
-const appendProvisionEvent = async (
-  runtimeId: string,
-  event: RuntimeProvisionEvent,
-) => {
-  const streamKey = getRuntimeProvisionStreamKey(runtimeId);
-  await redisCommandClient.xadd(
-    streamKey,
-    "MAXLEN",
-    "~",
-    PROVISION_EVENT_LIMIT,
-    "*",
-    "payload",
-    JSON.stringify(event),
-  );
-};
-
-const writeProvisionMeta = async (
-  runtimeId: string,
-  input: {
-    status: RuntimeProvisionStatus;
-    currentStep: RuntimeProvisionStep;
-    currentMessage: string;
-    error?: string | null;
-    startedAt?: string | null;
-    finishedAt?: string | null;
-  },
-) => {
-  const key = getRuntimeProvisionMetaKey(runtimeId);
-  const updatedAt = nowIso();
-
-  await redisCommandClient.hset(key, {
-    runtime_id: runtimeId,
-    status: input.status,
-    current_step: input.currentStep,
-    current_message: input.currentMessage,
-    error: input.error ?? "",
-    started_at: input.startedAt ?? updatedAt,
-    finished_at: input.finishedAt ?? "",
-    updated_at: updatedAt,
-  });
-};
-
-const pushProvisionEvent = async (
-  runtimeId: string,
-  input: {
-    status: RuntimeProvisionStatus;
-    step: RuntimeProvisionStep;
-    level: RuntimeProvisionLevel;
-    message: string;
-    meta?: Record<string, unknown> | null;
-    error?: string | null;
-    markFinished?: boolean;
-    syncRuntimeStatus?: boolean;
-  },
-) => {
-  const timestamp = nowIso();
-  await writeProvisionMeta(runtimeId, {
-    status: input.status,
-    currentStep: input.step,
-    currentMessage: input.message,
-    error: input.error ?? null,
-    startedAt: undefined,
-    finishedAt: input.markFinished ? timestamp : undefined,
-  });
-
-  await appendProvisionEvent(runtimeId, {
-    id: randomUUID(),
-    at: timestamp,
-    level: input.level,
-    status: input.status,
-    step: input.step,
-    message: input.message,
-    meta: input.meta ?? null,
-  });
-
-  if (input.syncRuntimeStatus) {
-    await updateRuntimeStatus(runtimeId, mapProvisionStepToRuntimeStatus(input.step));
-  }
-};
-
-export const initializeRuntimeProvision = async (runtimeId: string) => {
-  await writeInitialRuntimeProvision(runtimeId);
-};
-
-export const getRuntimeProvision = async (
-  runtimeId: string,
-): Promise<RuntimeProvisionSnapshot> => {
-  const meta = await redisCommandClient.hgetall(getRuntimeProvisionMetaKey(runtimeId));
-
-  const streamKey = getRuntimeProvisionStreamKey(runtimeId);
-  const entries = await redisCommandClient.xrevrange(streamKey, "+", "-", "COUNT", PROVISION_EVENT_LIMIT);
-
-  const events = (entries as RedisStreamEntry[])
-    .map(([, fields]) => {
-      const payloadIndex = fields.findIndex((field) => field === "payload");
-      const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
-      if (!payload) return null;
-      try {
-        return JSON.parse(payload) as RuntimeProvisionEvent;
-      } catch {
-        return null;
-      }
-    })
-    .filter((event): event is RuntimeProvisionEvent => Boolean(event))
-    .reverse();
-
-  return {
-    runtimeId,
-    status: (meta.status as RuntimeProvisionStatus) || "queued",
-    currentStep: (meta.current_step as RuntimeProvisionStep) || "queued",
-    currentMessage: meta.current_message || null,
-    error: meta.error || null,
-    startedAt: meta.started_at || null,
-    finishedAt: meta.finished_at || null,
-    updatedAt: meta.updated_at || null,
-    events,
-  };
-};
 
 // ─── Runtime CRUD ───
 
@@ -1174,15 +983,6 @@ export const provisionRuntimeInBackground = async (input: {
   const runtimeId = input.runtimeId;
 
   try {
-    logProvision(runtimeId, "queued", "start");
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "init_git_account",
-      level: "info",
-      message: "Initializing git account.",
-      syncRuntimeStatus: true,
-    });
-
     const runtime = await getRuntimeById(runtimeId);
     if (!runtime) throw new Error("Runtime not found");
 
@@ -1192,25 +992,12 @@ export const provisionRuntimeInBackground = async (input: {
     let workspaceRepoUrl: string | undefined;
     let workspaceGitUsername: string | undefined;
     let workspaceGitEmail: string | undefined;
-    let workspaceRepoName: string | null = null;
 
     if (runtime.workspaceId) {
-      logProvision(runtimeId, "init_git_account", "start", { workspaceId: runtime.workspaceId });
       const gitAccount = await ensureUserGitAccount(input.userUuid);
       workspaceGitUsername = gitAccount.giteaUsername;
       workspaceGitEmail = `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`;
-      logProvision(runtimeId, "init_git_account", "success", {
-        giteaUsername: gitAccount.giteaUsername,
-      });
-      await pushProvisionEvent(runtimeId, {
-        status: "running",
-        step: "init_git_account",
-        level: "success",
-        message: "Git account initialized successfully.",
-        meta: { giteaUsername: gitAccount.giteaUsername },
-      });
 
-      logProvision(runtimeId, "prepare_workspace", "start", { workspaceId: runtime.workspaceId });
       const [workspace] = await db
         .select()
         .from(workspaces)
@@ -1218,31 +1005,9 @@ export const provisionRuntimeInBackground = async (input: {
         .limit(1);
 
       if (workspace) {
-        workspaceRepoName = workspace.giteaRepoName;
         const url = new URL(config.giteaBaseUrl);
         workspaceRepoUrl = `${url.protocol}//${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@${url.host}/${gitAccount.giteaUsername}/${workspace.giteaRepoName}.git`;
       }
-
-      logProvision(runtimeId, "prepare_workspace", "success", {
-        hasWorkspace: Boolean(workspace),
-        repo: workspaceRepoName,
-      });
-      await pushProvisionEvent(runtimeId, {
-        status: "running",
-        step: "prepare_workspace",
-        level: "success",
-        message: workspaceRepoName
-          ? `Workspace prepared: ${workspaceRepoName}.`
-          : "No workspace repository found. Continuing without repository bootstrap.",
-        meta: workspaceRepoName ? { repo: workspaceRepoName } : null,
-      });
-    } else {
-      await pushProvisionEvent(runtimeId, {
-        status: "running",
-        step: "prepare_workspace",
-        level: "info",
-        message: "No workspace attached. Skipping workspace preparation.",
-      });
     }
 
     const pod = renderSandboxPodTemplate({
@@ -1269,112 +1034,22 @@ export const provisionRuntimeInBackground = async (input: {
       });
     }
 
-    const podName = pod.metadata?.name ?? `runtime-${runtimeId}`;
-
-    logProvision(runtimeId, "create_pod", "start", {
-      namespace: sessionsNamespace,
-      podName,
-    });
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "create_pod",
-      level: "info",
-      message: "Creating runtime pod.",
-      meta: { namespace: sessionsNamespace, podName },
-    });
-
     await k8sCoreApi.createNamespacedPod({
       namespace: sessionsNamespace,
       body: pod,
     });
 
-    logProvision(runtimeId, "create_pod", "success", {
-      namespace: sessionsNamespace,
-      podName,
-    });
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "create_pod",
-      level: "success",
-      message: "Runtime pod created successfully.",
-      meta: { namespace: sessionsNamespace, podName },
-    });
-
-    logProvision(runtimeId, "bind_channels", "start");
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "bind_channels",
-      level: "info",
-      message: "Binding runtime channels.",
-    });
     await bindRuntimeChannelsToGateway(runtimeId);
-    logProvision(runtimeId, "bind_channels", "success");
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "bind_channels",
-      level: "success",
-      message: "Runtime channels bound successfully.",
-    });
-
-    logProvision(runtimeId, "wait_runtime_running", "start");
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "wait_runtime_running",
-      level: "info",
-      message: "Waiting for runtime to report running status.",
-    });
 
     const ready = await waitForRuntimeRunning(runtimeId, 60000);
     if (!ready) {
-      const runtime = await getRuntimeById(runtimeId);
-      const dbStatus = runtime?.status ?? "unknown";
-      logProvision(runtimeId, "wait_runtime_running", "error", {
-        dbStatus,
-      });
-      await pushProvisionEvent(runtimeId, {
-        status: "failed",
-        step: "wait_runtime_running",
-        level: "error",
-        message: "Runtime did not reach running state within timeout.",
-        error: `timeout waiting for runtime status (current: ${dbStatus})`,
-        meta: { dbStatus },
-        markFinished: true,
-        syncRuntimeStatus: true,
-      });
+      await updateRuntimeStatus(runtimeId, "error");
       return;
     }
 
-    logProvision(runtimeId, "wait_runtime_running", "success");
-    await pushProvisionEvent(runtimeId, {
-      status: "running",
-      step: "wait_runtime_running",
-      level: "success",
-      message: "Runtime reported running status.",
-    });
-
-    logProvision(runtimeId, "completed", "success");
-    await pushProvisionEvent(runtimeId, {
-      status: "succeeded",
-      step: "completed",
-      level: "success",
-      message: "Runtime startup completed successfully.",
-      markFinished: true,
-      syncRuntimeStatus: true,
-    });
     await updateRuntimeStatus(runtimeId, "running");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logProvision(runtimeId, "completed", "error", { error: message });
-    await pushProvisionEvent(runtimeId, {
-      status: "failed",
-      step: "completed",
-      level: "error",
-      message: "Runtime startup failed.",
-      error: message,
-      meta: { error: message },
-      markFinished: true,
-      syncRuntimeStatus: true,
-    }).catch(() => undefined);
+    console.error(`[RuntimeProvision] runtimeId=${runtimeId} error:`, error instanceof Error ? error.message : String(error));
     await updateRuntimeStatus(runtimeId, "error").catch(() => undefined);
   }
 };
@@ -1472,9 +1147,7 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
   const keysToDelete = [
     getRuntimeInputQueueKey(input.runtimeId),
     getRuntimeOutputStreamKey(input.runtimeId),
-    getRuntimeProvisionMetaKey(input.runtimeId),
-    getRuntimeProvisionStreamKey(input.runtimeId),
-  ].filter((k): k is string => k !== null && k !== undefined);
+  ];
   if (keysToDelete.length > 0) {
     await redisCommandClient.del(...keysToDelete).catch(console.error);
   }
