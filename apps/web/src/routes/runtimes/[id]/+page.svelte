@@ -556,10 +556,10 @@ async function processEventQueue() {
 			const { thinking, answer, toolCalls } = extractSessionRenderState(
 				event.content,
 			);
-			if (thinking) streamingThinking = thinking;
-			if (toolCalls.length > 0) streamingToolCalls = toolCalls;
+			streamingThinking = thinking;
+			streamingToolCalls = toolCalls;
+			streamingAssistantText = answer;
 			if (answer) {
-				streamingAssistantText = answer;
 				if (streamingSessionId !== currentActiveSessionId) {
 					streamingSessionId = currentActiveSessionId;
 					notifyStreamingStatus(currentActiveSessionId, true);
@@ -569,13 +569,31 @@ async function processEventQueue() {
 			}
 
 			if (event.turnEnd) {
-				const endedSessionId = streamingSessionId;
-				clearStreamingState();
+				// Fetch real messages BEFORE clearing streaming state,
+				// so the timeline never shows an empty gap.
+				const response = await getSessionMessages(currentActiveSessionId);
+
+				// Atomically replace streaming content with persisted messages.
+				// Single-tick state batch ensures $derived timeline recalculates once.
+				streamingAssistantText = "";
+				streamingThinking = "";
+				streamingToolCalls = [];
 				streamStatus = "done";
-				if (endedSessionId) {
-					notifyStreamingStatus(endedSessionId, false);
+				if (streamingSessionId) {
+					notifyStreamingStatus(streamingSessionId, false);
 				}
-				await loadSessionState(currentActiveSessionId, true);
+				streamingSessionId = null;
+
+				sessionStateById = {
+					...sessionStateById,
+					[currentActiveSessionId]: {
+						session: response.session,
+						messages: response.messages,
+						loading: false,
+						loaded: true,
+						error: "",
+					},
+				};
 			}
 		}
 	}
