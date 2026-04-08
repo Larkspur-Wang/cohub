@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
@@ -50,11 +50,14 @@ const currentRuntimeId = $derived.by(() => {
   return match?.[1] ?? null;
 });
 
-// Auto-expand the current runtime
+// Auto-expand the current runtime (only when currentRuntimeId changes, not when expandedRuntimes changes)
 $effect(() => {
-  if (currentRuntimeId && !expandedRuntimes.has(currentRuntimeId)) {
-    expandedRuntimes = new Set(expandedRuntimes).add(currentRuntimeId);
-  }
+  const id = currentRuntimeId;
+  untrack(() => {
+    if (id && !expandedRuntimes.has(id)) {
+      expandedRuntimes = new Set(expandedRuntimes).add(id);
+    }
+  });
 });
 
 function isNavItemActive(href: string) {
@@ -393,18 +396,26 @@ onMount(() => {
             <div
               role="button"
               tabindex="0"
-              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'bg-bg-active text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
+              class="group flex items-center gap-1.5 px-2 py-1.5 rounded-r-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'text-text-primary font-medium border-l-2 border-brand' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
               onclick={() => {
-                toggleRuntime(runtime.id);
-                if (!isExpanded) void loadSessions(runtime.id);
-                handleNavigateToRuntime(runtime.id);
+                if (isExpanded) {
+                  toggleRuntime(runtime.id);
+                } else {
+                  toggleRuntime(runtime.id);
+                  void loadSessions(runtime.id);
+                  handleNavigateToRuntime(runtime.id);
+                }
               }}
               onkeydown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  toggleRuntime(runtime.id);
-                  if (!isExpanded) void loadSessions(runtime.id);
-                  handleNavigateToRuntime(runtime.id);
+                  if (isExpanded) {
+                    toggleRuntime(runtime.id);
+                  } else {
+                    toggleRuntime(runtime.id);
+                    void loadSessions(runtime.id);
+                    handleNavigateToRuntime(runtime.id);
+                  }
                 }
               }}
             >
@@ -417,7 +428,6 @@ onMount(() => {
                   <ChevronRight class="w-3 h-3" />
                 {/if}
               </span>
-              <div class="w-[6px] h-[6px] rounded-full shrink-0 {statusColorClass(status)}"></div>
               <span class="truncate flex-1 text-[13.5px] leading-tight">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />
