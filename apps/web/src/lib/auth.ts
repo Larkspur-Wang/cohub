@@ -6,13 +6,13 @@ const IS_DEV =
 export const logtoClient = new LogtoClient(
   IS_DEV
     ? {
-        endpoint: "https://dev-auth.talesofai.com/",
+        endpoint: "https://dev-auth.neta.art/",
         appId: "vpikk7sl9zwvefiptowtn",
         scopes: ["profile", "email", "offline_access"],
         resources: ["https://dev.api.talesofai.com"],
       }
     : {
-        endpoint: "https://auth.talesofai.com/",
+        endpoint: "https://auth.neta.art/",
         appId: "16ai0wao2mud3xqkbzqo0",
         scopes: ["profile", "email", "offline_access"],
         resources: ["https://api.talesofai.com"],

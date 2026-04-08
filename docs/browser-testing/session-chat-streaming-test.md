@@ -13,7 +13,7 @@
 | 项目 | 值 |
 |------|-----|
 | Dev 环境 | `https://dev.cohub.run` |
-| Auth 服务 | `https://dev-auth.talesofai.com` |
+| Auth 服务 | `https://dev-auth.neta.art` |
 | API 基础路径 | `/api` |
 
 ### 2. Auth Token（备选方案 A）
