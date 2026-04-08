@@ -454,15 +454,11 @@ async function loadSessionState(sessionId: string, force = false) {
 	if (loadingSessionIds[sessionId] && !force) return;
 	if (existing?.loaded && !force) return;
 
-	const fallbackSession =
-		runtimeSessions.find((item) => item.id === sessionId) ?? existing?.session;
-	if (!fallbackSession) return;
-
 	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
 	sessionStateById = {
 		...sessionStateById,
 		[sessionId]: {
-			session: existing?.session ?? fallbackSession,
+			session: existing?.session,
 			messages: existing?.messages ?? [],
 			loading: true,
 			loaded: existing?.loaded ?? false,
@@ -496,7 +492,7 @@ async function loadSessionState(sessionId: string, force = false) {
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
-				session: existing?.session ?? fallbackSession,
+				session: existing?.session,
 				messages: existing?.messages ?? [],
 				loading: false,
 				loaded: true,
