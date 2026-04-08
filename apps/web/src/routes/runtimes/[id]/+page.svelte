@@ -1144,7 +1144,7 @@ $effect(() => {
 
       <SessionComposer
         bind:value={input}
-        disabled={sending || !activeSessionState}
+        disabled={sending || !activeSessionState || !getRuntimeStatusMeta(runtime?.status).canSend}
         streamError={streamError}
         attachments={imageAttachments}
         onpickimage={handlePickImages}
