@@ -340,7 +340,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
             id: block.id,
             name: block.name,
             input: block.input,
-            _meta: { ...block._meta, toolStatus: status === "failed" ? "error" : status },
+            _meta: { ...block._meta, toolStatus: status },
           };
           handle.streamState.content = [
             ...handle.streamState.content.slice(0, existingIdx),
@@ -357,7 +357,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
         tool_use_id: event.toolCallId,
         content: resultContent || JSON.stringify(event.result ?? null),
         is_error: event.isError,
-        _meta: { toolStatus: status === "failed" ? "error" : status },
+        _meta: { toolStatus: status },
       });
 
       void emitProviderRenderUpdate(handle);

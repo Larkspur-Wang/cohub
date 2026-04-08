@@ -13,7 +13,7 @@ let expanded = $state(false);
 const statusDotMap = {
   done: "bg-emerald-400",
   running: "bg-amber-400 animate-pulse",
-  error: "bg-rose-400",
+  failed: "bg-rose-400",
 } as const;
 
 function summarizeToolInput(

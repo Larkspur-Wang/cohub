@@ -92,14 +92,6 @@ let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
 let streamingAssistantText = $state("");
 let streamingThinking = $state("");
-let streamingToolCalls = $state<
-	Array<{
-		toolCallId: string;
-		toolName: string;
-		status: string;
-		summary?: string;
-	}>
->([]);
 
 // Raw content blocks from the latest SSE event, used to preserve
 // the correct interleaving order of text/thinking/tool_use blocks.
@@ -233,7 +225,6 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 	if (streamingContentBlocks.length > 0) {
 		let accText = "";
 		let accThinking = "";
-		let toolIndex = 0;
 		const baseSequence = state.messages.at(-1)?.sequence ?? 0;
 
 		function flushMessage() {
@@ -268,26 +259,25 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 			} else if (block.type === "tool_use") {
 				// Flush accumulated text/thinking before inserting tool card
 				flushMessage();
-				const tc = streamingToolCalls[toolIndex];
-				if (tc) {
-					items.push({
-						id: `stream-tool-${tc.toolCallId}`,
-						kind: "tool",
-						tool: {
-							id: tc.toolCallId,
-							name: tc.toolName,
-							input: block.input ?? {},
-							status:
-								tc.status === "running"
-									? "running"
-									: tc.status === "done"
-										? "done"
-										: "error",
-							output: tc.summary ?? "",
-						},
-					});
-					toolIndex++;
-				}
+				const meta = block._meta as
+					| { toolStatus?: string; summary?: string }
+					| undefined;
+				items.push({
+					id: `stream-tool-${block.id}`,
+					kind: "tool",
+					tool: {
+						id: block.id,
+						name: block.name,
+						input: block.input ?? {},
+						status:
+							meta?.toolStatus === "running"
+								? "running"
+								: meta?.toolStatus === "done"
+									? "done"
+									: "failed",
+						output: meta?.summary ?? "",
+					},
+				});
 			}
 		}
 
@@ -582,7 +572,6 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
 function clearStreamingState() {
 	streamingAssistantText = "";
 	streamingThinking = "";
-	streamingToolCalls = [];
 	streamingContentBlocks = [];
 	streamingSessionId = null;
 }
@@ -603,11 +592,10 @@ async function processEventQueue() {
 			continue;
 
 		if (event.type === "stream_update") {
-			const { thinking, answer, toolCalls } = extractSessionRenderState(
+			const { thinking, answer } = extractSessionRenderState(
 				event.content,
 			);
 			streamingThinking = thinking;
-			streamingToolCalls = toolCalls;
 			streamingAssistantText = answer;
 			streamingContentBlocks = event.content;
 			if (answer) {
@@ -628,7 +616,6 @@ async function processEventQueue() {
 				// Single-tick state batch ensures $derived timeline recalculates once.
 				streamingAssistantText = "";
 				streamingThinking = "";
-				streamingToolCalls = [];
 				streamingContentBlocks = [];
 				streamStatus = "done";
 				if (streamingSessionId) {

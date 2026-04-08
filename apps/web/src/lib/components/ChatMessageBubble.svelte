@@ -129,17 +129,17 @@ function findToolResult(toolUseId: string): ContentBlock | undefined {
 }
 
 // Infer tool status from tool_result presence
-function getToolStatus(toolUseId: string): "done" | "error" | "running" {
+function getToolStatus(toolUseId: string): "done" | "failed" | "running" {
 	const result = findToolResult(toolUseId);
 	if (!result) return "running";
-	if (result.type === "tool_result" && result.is_error) return "error";
+	if (result.type === "tool_result" && result.is_error) return "failed";
 	return "done";
 }
 
 const statusDotMap = {
 	done: "bg-emerald-400",
 	running: "bg-amber-400",
-	error: "bg-rose-400",
+	failed: "bg-rose-400",
 } as const;
 </script>
 

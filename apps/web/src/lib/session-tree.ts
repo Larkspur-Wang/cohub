@@ -20,7 +20,7 @@ export type ToolState = {
   id: string;
   name: string;
   input?: Record<string, unknown>;
-  status: "running" | "done" | "error";
+  status: "running" | "done" | "failed";
   output: string;
 };
 
