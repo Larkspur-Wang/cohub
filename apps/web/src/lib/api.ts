@@ -61,6 +61,14 @@ export type SessionMessagesResponse = {
   messages: MessageRecord[];
 };
 
+export type SessionMessagesPaginatedResponse = {
+  runtime: RuntimeRecord;
+  session: SessionRecord;
+  messages: MessageRecord[];
+  hasMore: boolean;
+  nextCursor: number | undefined;
+};
+
 const withAuthorization = async (init?: RequestInit): Promise<RequestInit> => {
   const headers = new Headers(init?.headers);
   const token = await getAuthToken();
@@ -266,6 +274,25 @@ export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/sessions/${id}/messages`, {
     fetch: customFetch,
   }) as Promise<SessionMessagesResponse>;
+};
+
+export const getSessionMessagesPaginated = async (
+  id: string,
+  options?: {
+    cursor?: number;
+    limit?: number;
+    direction?: "older" | "newer";
+  },
+  customFetch?: Fetch,
+) => {
+  const params = new URLSearchParams();
+  if (options?.cursor !== undefined) params.set("cursor", String(options.cursor));
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.direction) params.set("direction", options.direction);
+  const query = params.toString();
+  return apiFetch(`/api/sessions/${id}/messages${query ? `?${query}` : ""}`, {
+    fetch: customFetch,
+  }) as Promise<SessionMessagesPaginatedResponse>;
 };
 
 export type { SessionStreamError };

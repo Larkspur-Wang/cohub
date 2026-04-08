@@ -1373,8 +1373,29 @@ app.get("/api/sessions/:id/messages", async (c) => {
   if (!session) return c.json({ message: "session not found" }, 404);
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  const messages = await listSessionMessages(session.id);
-  return c.json({ runtime, session, messages });
+
+  const cursorParam = c.req.query("cursor");
+  const cursor = cursorParam ? Number(cursorParam) : undefined;
+  const limit = Math.min(Number(c.req.query("limit") ?? 30), 100) || 30;
+  const direction = (c.req.query("direction") as "older" | "newer" | undefined) ?? "older";
+
+  const messages = await listSessionMessages(session.id, {
+    cursor: cursor ? Number(cursor) : undefined,
+    limit,
+    direction,
+  });
+
+  return c.json({
+    runtime,
+    session,
+    messages,
+    hasMore: messages.length === limit,
+    nextCursor: messages.length > 0
+      ? direction === "older"
+        ? (messages[0]?.sequence ?? 0) - 1
+        : (messages[messages.length - 1]?.sequence ?? 0)
+      : undefined,
+  });
 });
 
 app.post("/api/sessions/:id/messages", async (c) => {

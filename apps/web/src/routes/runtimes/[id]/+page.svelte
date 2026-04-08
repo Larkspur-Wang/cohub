@@ -15,6 +15,7 @@ import {
 	getRuntimeChannels,
 	getRuntimeSessions,
 	getSessionMessages,
+	getSessionMessagesPaginated,
 	hibernateRuntime,
 	postSessionMessage,
 	streamSessionEvents,
@@ -28,6 +29,7 @@ import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
+import { messageCache } from "$lib/stores/message-cache";
 import type { MessageRecord } from "@cohub/protocol";
 import {
 	ArrowDown,
@@ -70,6 +72,10 @@ type SessionViewState = {
 	loading: boolean;
 	loaded: boolean;
 	error: string;
+	// Pagination state
+	hasMore: boolean;
+	loadingOlder: boolean;
+	oldestCursor: number | undefined;
 };
 
 const props = $props();
@@ -155,6 +161,17 @@ let createSessionError = $state("");
 let showSettings = $state(false);
 let showMoreMenu = $state(false);
 let showScrollToBottom = $state(false);
+
+// Chat timeline ref for prepend scroll restoration
+type ChatTimelineHandle = {
+	preparePrepend: () => void;
+	finalizePrepend: () => void;
+};
+let chatTimelineRef: ChatTimelineHandle | null = null;
+
+// Preload tracking: debounce to avoid multiple concurrent loads
+let preloadingSessionIds = new Set<string>();
+const PRELOAD_THRESHOLD = 10;
 
 // Runtime actions
 let runtimeActionError = $state("");
@@ -359,6 +376,9 @@ async function handleCreateNewSession() {
 				loading: false,
 				loaded: true,
 				error: "",
+				hasMore: true,
+				loadingOlder: false,
+				oldestCursor: undefined,
 			},
 		};
 
@@ -386,6 +406,9 @@ function seedSessions(sessions: SessionRecord[]) {
 				loading: false,
 				loaded: false,
 				error: "",
+				hasMore: true,
+				loadingOlder: false,
+				oldestCursor: undefined,
 			};
 		} else {
 			nextState[session.id] = {
@@ -511,6 +534,39 @@ async function loadSessionState(sessionId: string, force = false) {
 	if (loadingSessionIds[sessionId] && !force) return;
 	if (existing?.loaded && !force) return;
 
+	// Try cache first: stale-while-revalidate
+	const cached = await messageCache.get(sessionId);
+	if (cached && cached.messages.length > 0 && !force) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: existing?.session,
+				messages: cached.messages,
+				loading: false,
+				loaded: true,
+				error: "",
+				hasMore: cached.hasMore,
+				loadingOlder: false,
+				oldestCursor: cached.oldestSeq != null ? cached.oldestSeq + 1 : undefined,
+			},
+		};
+
+		// Background sync: fetch newer messages since cache
+		void syncSessionNewer(sessionId, cached);
+
+		if (activeSessionId === sessionId) {
+			void forceScrollToBottom().then(() => {
+				shouldAutoFollow = true;
+				didInitialScrollBySession = {
+					...didInitialScrollBySession,
+					[sessionId]: true,
+				};
+			});
+		}
+		return;
+	}
+
+	// No cache or force: load latest page from server
 	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
 	sessionStateById = {
 		...sessionStateById,
@@ -520,11 +576,27 @@ async function loadSessionState(sessionId: string, force = false) {
 			loading: true,
 			loaded: existing?.loaded ?? false,
 			error: existing?.error ?? "",
+			hasMore: existing?.hasMore ?? true,
+			loadingOlder: false,
+			oldestCursor: existing?.oldestCursor,
 		},
 	};
 
 	try {
-		const response = await getSessionMessages(sessionId);
+		const response = await getSessionMessagesPaginated(sessionId, {
+			limit: 30,
+		});
+
+		await messageCache.set({
+			sessionId,
+			messages: response.messages,
+			hasMore: response.hasMore,
+			oldestSeq: response.messages[0]?.sequence ?? null,
+			newestSeq: response.messages.at(-1)?.sequence ?? null,
+			cachedAt: Date.now(),
+		});
+		void messageCache.evict();
+
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
@@ -533,6 +605,11 @@ async function loadSessionState(sessionId: string, force = false) {
 				loading: false,
 				loaded: true,
 				error: "",
+				hasMore: response.hasMore,
+				loadingOlder: false,
+				oldestCursor: response.hasMore && response.messages.length > 0
+					? response.messages[0].sequence
+					: undefined,
 			},
 		};
 
@@ -555,10 +632,139 @@ async function loadSessionState(sessionId: string, force = false) {
 				loaded: true,
 				error:
 					error instanceof Error ? error.message : "Failed to load session",
+				hasMore: existing?.hasMore ?? true,
+				loadingOlder: false,
+				oldestCursor: existing?.oldestCursor,
 			},
 		};
 	} finally {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
+	}
+}
+
+/** Sync newer messages since last cache (for background refresh) */
+async function syncSessionNewer(
+	sessionId: string,
+	cached: Awaited<ReturnType<typeof messageCache.get>>,
+) {
+	if (!cached || cached.messages.length === 0) return;
+	const lastSeq = cached.newestSeq;
+	if (lastSeq == null) return;
+
+	try {
+		const response = await getSessionMessagesPaginated(sessionId, {
+			cursor: lastSeq,
+			direction: "newer",
+			limit: 100,
+		});
+		if (response.messages.length > 0) {
+			await messageCache.append(sessionId, response.messages);
+			const state = sessionStateById[sessionId];
+			if (state) {
+				const existingIds = new Set(state.messages.map((m) => m.id));
+				const deduped = response.messages.filter((m) => !existingIds.has(m.id));
+				if (deduped.length > 0) {
+					const merged = [...state.messages, ...deduped];
+					merged.sort((a, b) => a.sequence - b.sequence);
+					sessionStateById = {
+						...sessionStateById,
+						[sessionId]: {
+							...state,
+							messages: merged,
+						},
+					};
+				}
+			}
+		}
+	} catch {
+		// Ignore sync errors
+	}
+}
+
+/** Load older messages (scroll up pagination) */
+async function loadOlderMessages(sessionId: string) {
+	const state = sessionStateById[sessionId];
+	if (!state || !state.hasMore || state.loadingOlder) return;
+
+	// Prepare scroll position restoration
+	chatTimelineRef?.preparePrepend();
+
+	sessionStateById = {
+		...sessionStateById,
+		[sessionId]: {
+			...state,
+			loadingOlder: true,
+		},
+	};
+
+	try {
+		const response = await getSessionMessagesPaginated(sessionId, {
+			cursor: state.oldestCursor,
+			direction: "older",
+			limit: 30,
+		});
+
+		if (response.messages.length > 0) {
+			await messageCache.prepend(sessionId, response.messages, response.hasMore);
+
+			// Deduplicate and sort to handle overlapping cursor ranges
+			const existingIds = new Set(state.messages.map((m) => m.id));
+			const deduped = response.messages.filter((m) => !existingIds.has(m.id));
+			const merged = [...deduped, ...state.messages];
+			merged.sort((a, b) => a.sequence - b.sequence);
+
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...state,
+					messages: merged,
+					hasMore: response.hasMore,
+					loadingOlder: false,
+					oldestCursor: response.hasMore && merged.length > 0
+						? merged[0].sequence
+						: undefined,
+				},
+			};
+
+			// Restore scroll position after prepend
+			await tick();
+			chatTimelineRef?.finalizePrepend();
+		} else {
+			// No more messages
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...state,
+					hasMore: false,
+					loadingOlder: false,
+				},
+			};
+		}
+	} catch (error) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...state,
+				loadingOlder: false,
+				error: error instanceof Error ? error.message : "Failed to load older messages",
+			},
+		};
+	}
+}
+
+/** Triggered by ChatTimeline when first visible index changes */
+function handleFirstVisible(index: number) {
+	if (!activeSessionId) return;
+	const state = sessionStateById[activeSessionId];
+	if (!state || !state.hasMore || state.loadingOlder) return;
+
+	const unseen = state.messages.length - index;
+	if (unseen <= PRELOAD_THRESHOLD && !preloadingSessionIds.has(activeSessionId)) {
+		const sid = activeSessionId;
+		preloadingSessionIds.add(sid);
+		loadOlderMessages(sid).finally(() => {
+			preloadingSessionIds.delete(sid);
+		});
 	}
 }
 
@@ -610,9 +816,35 @@ async function processEventQueue() {
 			}
 
 			if (event.turnEnd) {
-				// Fetch real messages BEFORE clearing streaming state,
-				// so the timeline never shows an empty gap.
-				const response = await getSessionMessages(currentActiveSessionId);
+				// Incremental sync: only fetch new messages since last known
+				const state = sessionStateById[currentActiveSessionId];
+				let newMessages: MessageRecord[] = [];
+				let updatedSession = state?.session;
+
+				try {
+					const lastSeq = state?.messages.at(-1)?.sequence;
+					if (lastSeq != null) {
+						const response = await getSessionMessagesPaginated(currentActiveSessionId, {
+							cursor: lastSeq,
+							direction: "newer",
+							limit: 100,
+						});
+						newMessages = response.messages;
+						updatedSession = response.session;
+
+						// Update cache
+						if (newMessages.length > 0) {
+							await messageCache.append(currentActiveSessionId, newMessages);
+						}
+					} else {
+						// Fallback: full reload if no state
+						const response = await getSessionMessages(currentActiveSessionId);
+						newMessages = response.messages;
+						updatedSession = response.session;
+					}
+				} catch {
+					// Ignore sync errors, keep existing messages
+				}
 
 				// Atomically replace streaming content with persisted messages.
 				// Single-tick state batch ensures $derived timeline recalculates once.
@@ -625,16 +857,27 @@ async function processEventQueue() {
 				}
 				streamingSessionId = null;
 
+				// Merge new messages with existing ones (dedup by id)
+				const existingMessages = state?.messages ?? [];
+				const existingIds = new Set(existingMessages.map((m) => m.id));
+				const deduped = newMessages.filter((m) => !existingIds.has(m.id));
+				const merged = [...existingMessages, ...deduped];
+
 				sessionStateById = {
 					...sessionStateById,
 					[currentActiveSessionId]: {
-						session: response.session,
-						messages: response.messages,
+						session: updatedSession ?? state?.session,
+						messages: merged,
 						loading: false,
 						loaded: true,
 						error: "",
+						hasMore: state?.hasMore ?? true,
+						loadingOlder: false,
+						oldestCursor: state?.oldestCursor,
 					},
 				};
+
+				if (!userScrolledUp) scrollToBottomNow();
 			}
 		}
 	}
@@ -1180,7 +1423,16 @@ $effect(() => {
       {/if}
 
       <div class="relative flex-1 min-h-0 flex flex-col">
-        <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} bottomInsetClass="pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48" />
+        <ChatTimeline
+          bind:this={chatTimelineRef}
+          bindListEl={listEl}
+          bindContentEl={contentEl}
+          timeline={timeline}
+          onScrollChange={updateAutoFollow}
+          bottomInsetClass="pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48"
+          preloadThreshold={10}
+          onFirstVisible={handleFirstVisible}
+        />
 
         {#if showScrollToBottom && timeline.length > 0}
           <button

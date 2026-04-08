@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, sql, lt, desc } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, lt, gt, desc } from "drizzle-orm";
 import type { V1Pod } from "@kubernetes/client-node";
 import type {
   PersistMessageInput,
@@ -702,12 +702,58 @@ export const updateRuntimeSessionInfo = async (input: UpdateSessionInfoInput) =>
   return true;
 };
 
-export const listSessionMessages = async (runtimeSessionId: string) => {
+export const listSessionMessages = async (
+  runtimeSessionId: string,
+  options?: {
+    cursor?: number;
+    limit?: number;
+    direction?: "older" | "newer";
+  },
+) => {
+  const limit = Math.min(options?.limit ?? 30, 100);
+  const direction = options?.direction ?? "older";
+
+  if (options?.cursor === undefined || options?.cursor === null) {
+    // No cursor: return the latest N messages
+    const rows = await db
+      .select()
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, runtimeSessionId))
+      .orderBy(desc(sessionMessages.sequence))
+      .limit(limit);
+    return rows.reverse(); // ascending order for client
+  }
+
+  if (direction === "older") {
+    // Messages with sequence < cursor (going backwards in time)
+    const rows = await db
+      .select()
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.sessionId, runtimeSessionId),
+          lt(sessionMessages.sequence, options.cursor),
+        ),
+      )
+      .orderBy(desc(sessionMessages.sequence))
+      .limit(limit);
+    return rows.reverse(); // ascending order for client
+  }
+
+  // direction === "newer"
+  // Messages with sequence > cursor (going forward, for streaming sync)
+  const cursor = options.cursor ?? 0;
   return db
     .select()
     .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, runtimeSessionId))
-    .orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
+    .where(
+      and(
+        eq(sessionMessages.sessionId, runtimeSessionId),
+        gt(sessionMessages.sequence, cursor),
+      ),
+    )
+    .orderBy(asc(sessionMessages.sequence))
+    .limit(limit);
 };
 
 export const forkRuntimeSession = async (input: {
