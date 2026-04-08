@@ -209,7 +209,6 @@ function getSessionTitle(session: SessionRecord, index: number) {
 }
 
 async function handleHibernate(runtimeId: string, e: Event) {
-  sidebarCache.invalidateRuntime(runtimeId);
   e.stopPropagation();
   actionInProgress[runtimeId] = "hibernate";
   try {
@@ -224,7 +223,6 @@ async function handleHibernate(runtimeId: string, e: Event) {
 }
 
 async function handleWake(runtimeId: string, e: Event) {
-  sidebarCache.invalidateRuntime(runtimeId);
   e.stopPropagation();
   actionInProgress[runtimeId] = "wake";
   try {
@@ -241,7 +239,6 @@ async function handleWake(runtimeId: string, e: Event) {
 async function handleDelete(runtimeId: string, e: Event) {
   e.stopPropagation();
   if (!confirm("Are you sure you want to delete this runtime?")) return;
-  sidebarCache.invalidateRuntime(runtimeId);
   actionInProgress[runtimeId] = "delete";
   try {
     await deleteRuntime(runtimeId);
