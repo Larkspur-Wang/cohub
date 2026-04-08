@@ -57,7 +57,7 @@ import {
 import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
-import { eq, and, inArray, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, desc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, getBindingsByRuntimeId, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
@@ -1025,7 +1025,7 @@ app.get("/api/runtimes", async (c) => {
   const runtimeList = await db
     .select()
     .from(runtimes)
-    .where(eq(runtimes.userUuid, user.uuid))
+    .where(and(eq(runtimes.userUuid, user.uuid), ne(runtimes.status, "deleted")))
     .orderBy(runtimes.updatedAt, runtimes.createdAt);
 
   const runtimeIds = runtimeList.map((r) => r.id);

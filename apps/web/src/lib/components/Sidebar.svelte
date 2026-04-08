@@ -26,6 +26,7 @@ import { ensureAuth, logtoClient } from "$lib/auth";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import type { IdTokenClaims } from "@logto/browser";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
+import { sidebarCache } from "$lib/stores/sidebar-cache";
 
 const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
 
@@ -92,13 +93,25 @@ function toggleRuntime(runtimeId: string) {
   expandedRuntimes = next;
 }
 
-async function loadRuntimes() {
+async function loadRuntimes(refresh = false) {
   if (!(await ensureAuth())) return;
-  isLoading = true;
+
+  // Always try to restore from cache — even stale data is better than a blank screen.
+  // The API call below will correct it shortly after.
+  const cached = sidebarCache.getRuntimes();
+  if (cached && !refresh) {
+    runtimes = cached;
+    isLoading = false;
+  }
+
+  if (!runtimes.length) {
+    isLoading = true;
+  }
   loadError = "";
   try {
     const data = await getRuntimes();
     runtimes = data;
+    sidebarCache.setRuntimes(data);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load runtimes";
     if (message.includes("unauthorized") || message.includes("401")) {
@@ -113,12 +126,21 @@ async function loadRuntimes() {
 
 async function loadSessions(runtimeId: string, force = false) {
   if (!force && runtimeId in sessionsByRuntime) return;
+
+  // Try cache first
+  const cached = sidebarCache.getSessions(runtimeId);
+  if (cached && !force) {
+    sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: cached };
+    return;
+  }
+
   try {
     const result = await getRuntimeSessions(runtimeId);
     sessionsByRuntime = {
       ...sessionsByRuntime,
       [runtimeId]: result.sessions ?? [],
     };
+    sidebarCache.setSessions(runtimeId, result.sessions ?? []);
   } catch {
     // Silently fail — sessions will load when user navigates
   }
@@ -129,6 +151,7 @@ function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
     ...sessionsByRuntime,
     [runtimeId]: sessions,
   };
+  sidebarCache.setSessions(runtimeId, sessions);
   // Auto-expand the runtime if we received new sessions
   if (sessions.length > 0 && !expandedRuntimes.has(runtimeId)) {
     expandedRuntimes = new Set(expandedRuntimes).add(runtimeId);
@@ -186,6 +209,7 @@ function getSessionTitle(session: SessionRecord, index: number) {
 }
 
 async function handleHibernate(runtimeId: string, e: Event) {
+  sidebarCache.invalidateRuntime(runtimeId);
   e.stopPropagation();
   actionInProgress[runtimeId] = "hibernate";
   try {
@@ -200,6 +224,7 @@ async function handleHibernate(runtimeId: string, e: Event) {
 }
 
 async function handleWake(runtimeId: string, e: Event) {
+  sidebarCache.invalidateRuntime(runtimeId);
   e.stopPropagation();
   actionInProgress[runtimeId] = "wake";
   try {
@@ -216,6 +241,7 @@ async function handleWake(runtimeId: string, e: Event) {
 async function handleDelete(runtimeId: string, e: Event) {
   e.stopPropagation();
   if (!confirm("Are you sure you want to delete this runtime?")) return;
+  sidebarCache.invalidateRuntime(runtimeId);
   actionInProgress[runtimeId] = "delete";
   try {
     await deleteRuntime(runtimeId);
@@ -229,6 +255,7 @@ async function handleDelete(runtimeId: string, e: Event) {
 }
 
 async function handleLogout() {
+  sidebarCache.invalidateAll();
   onClose?.();
   await logtoClient.signOut(`${window.location.origin}/`);
 }
@@ -255,11 +282,22 @@ onMount(() => {
     if (authenticated) {
       try {
         userClaims = await logtoClient.getIdTokenClaims();
+        if (userClaims?.sub) {
+          sidebarCache.setUserUuid(userClaims.sub);
+        }
       } catch {
         // ignore
       }
     }
+    // Load runtimes: cache-first, background refresh
     await loadRuntimes();
+    // Preload cached sessions for visible runtimes
+    for (const rt of runtimes) {
+      const cached = sidebarCache.getSessions(rt.id);
+      if (cached) {
+        sessionsByRuntime = { ...sessionsByRuntime, [rt.id]: cached };
+      }
+    }
 
     // Pre-load sessions for the current runtime
     if (currentRuntimeId) {
