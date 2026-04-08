@@ -9,13 +9,13 @@ export const logtoClient = new LogtoClient(
         endpoint: "https://dev-auth.neta.art/",
         appId: "vpikk7sl9zwvefiptowtn",
         scopes: ["profile", "email", "offline_access"],
-        resources: ["https://dev.api.talesofai.com"],
+        resources: ["https://api.talesofai"],
       }
     : {
         endpoint: "https://auth.neta.art/",
         appId: "16ai0wao2mud3xqkbzqo0",
         scopes: ["profile", "email", "offline_access"],
-        resources: ["https://api.talesofai.com"],
+        resources: ["https://api.talesofai"],
       },
 );
 
