@@ -152,10 +152,18 @@ let savingChannelConfigById = $state<Record<string, boolean>>({});
 let channelConfigErrorById = $state<Record<string, string>>({});
 let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
-let didInitialScrollBySession = $state<Record<string, boolean>>({});
 let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
 let autoScrollGuard = $state(false);
+
+// Track visited sessions and restore scroll position
+// Intentionally non-reactive — the scroll effect is driven by scrollTargetSessionId
+let visitedSessions = $state.raw(new Set<string>());
+let scrollPosBySession = $state.raw(new Map<string, number>());
+
+// Explicit signal to trigger scroll after session data is ready
+let scrollTargetSessionId = $state<string | null>(null);
+
 let creatingSession = $state(false);
 let createSessionError = $state("");
 let showSettings = $state(false);
@@ -334,10 +342,6 @@ $effect(() => {
 	if (urlSessionId && urlSessionId !== activeSessionId) {
 		activeSessionId = urlSessionId;
 		shouldAutoFollow = true;
-		didInitialScrollBySession = {
-			...didInitialScrollBySession,
-			[urlSessionId]: false,
-		};
 		// Mark session as viewed when navigating to it
 		const state = sessionStateById[urlSessionId];
 		if (state?.session?.lastMessageId) {
@@ -554,15 +558,11 @@ async function loadSessionState(sessionId: string, force = false) {
 		// Background sync: fetch newer messages since cache
 		void syncSessionNewer(sessionId, cached);
 
-		if (activeSessionId === sessionId) {
-			void forceScrollToBottom().then(() => {
-				shouldAutoFollow = true;
-				didInitialScrollBySession = {
-					...didInitialScrollBySession,
-					[sessionId]: true,
-				};
-			});
-		}
+		// Signal scroll effect that data is ready
+		scrollTargetSessionId = sessionId;
+		// Reset after scheduling so same-session force reload can trigger again
+		scheduleResetScrollTarget();
+
 		return;
 	}
 
@@ -612,16 +612,10 @@ async function loadSessionState(sessionId: string, force = false) {
 					: undefined,
 			},
 		};
-
-		if (activeSessionId === sessionId) {
-			void forceScrollToBottom().then(() => {
-				shouldAutoFollow = true;
-				didInitialScrollBySession = {
-					...didInitialScrollBySession,
-					[sessionId]: true,
-				};
-			});
-		}
+		// Signal scroll effect that data is ready
+		scrollTargetSessionId = sessionId;
+		// Reset after scheduling so same-session force reload can trigger again
+		scheduleResetScrollTarget();
 	} catch (error) {
 		sessionStateById = {
 			...sessionStateById,
@@ -1232,19 +1226,72 @@ $effect(() => {
 	}
 });
 
+// Scroll position tracking — use event listener so we capture position
+// *before* the DOM switches to the new session (effects run too late)
 $effect(() => {
-	if (!listEl || !activeSessionId) return;
-	const sessionId = activeSessionId;
-	const state = sessionStateById[sessionId];
-	if (!state?.loaded || didInitialScrollBySession[sessionId]) return;
+	const el = listEl;
+	if (!el) return;
 
-	void forceScrollToBottom().then(() => {
-		shouldAutoFollow = true;
-		didInitialScrollBySession = {
-			...didInitialScrollBySession,
-			[sessionId]: true,
-		};
-	});
+	// Capture in a const that TS knows is non-null within this effect scope
+	const container = el as HTMLDivElement;
+
+	function handleScrollTrack() {
+		if (activeSessionId) {
+			scrollPosBySession.set(activeSessionId, container.scrollTop);
+		}
+	}
+
+	container.addEventListener("scroll", handleScrollTrack, { passive: true });
+	return () => container.removeEventListener("scroll", handleScrollTrack);
+});
+
+// Handle scroll when session data is ready
+let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleResetScrollTarget() {
+	if (resetScrollTargetTimer) clearTimeout(resetScrollTargetTimer);
+	resetScrollTargetTimer = setTimeout(() => {
+		scrollTargetSessionId = null;
+	}, 0);
+}
+
+$effect(() => {
+	if (!listEl) return;
+	const targetId = scrollTargetSessionId;
+	if (!targetId) return;
+
+	const state = sessionStateById[targetId];
+	if (!state?.loaded) return;
+
+	const isFirstVisit = !visitedSessions.has(targetId);
+	if (isFirstVisit) {
+		visitedSessions.add(targetId);
+	}
+
+	// Scroll after DOM is ready, with retry for async content
+	const doScroll = (retries = 3) => {
+		requestAnimationFrame(() => {
+			if (!listEl) return;
+			if (isFirstVisit) {
+				scrollToBottomNow();
+				shouldAutoFollow = true;
+			} else {
+				const savedPos = scrollPosBySession.get(targetId);
+				if (savedPos != null) {
+					listEl.scrollTop = savedPos;
+				} else {
+					scrollToBottomNow();
+				}
+			}
+
+			// Retry if scrollHeight is still 0 (content not fully rendered)
+			if (listEl.scrollHeight === 0 && retries > 0) {
+				doScroll(retries - 1);
+			}
+		});
+	};
+
+	void tick().then(() => doScroll());
 });
 
 $effect(() => {
