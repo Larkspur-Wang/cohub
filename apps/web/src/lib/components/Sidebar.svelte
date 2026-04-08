@@ -48,7 +48,10 @@ let broadcastChannels: BroadcastChannel[] = [];
 const currentPath = $derived(page.url.pathname);
 const currentRuntimeId = $derived.by(() => {
   const match = currentPath.match(/^\/runtimes\/([^/]+)/);
-  return match?.[1] ?? null;
+  const id = match?.[1] ?? null;
+  // Exclude special routes like /runtimes/new
+  if (id === "new") return null;
+  return id;
 });
 
 // Auto-expand the current runtime (only when currentRuntimeId changes, not when expandedRuntimes changes)
@@ -59,6 +62,13 @@ $effect(() => {
       expandedRuntimes = new Set(expandedRuntimes).add(id);
     }
   });
+});
+
+// Re-schedule polling whenever expandedRuntimes changes (e.g. user expands/collapses)
+$effect(() => {
+  // Read expandedRuntimes to establish dependency
+  void expandedRuntimes.size;
+  rescheduleAllPolling();
 });
 
 function isNavItemActive(href: string) {
@@ -93,13 +103,12 @@ function toggleRuntime(runtimeId: string) {
   expandedRuntimes = next;
 }
 
-async function loadRuntimes(refresh = false) {
+async function loadRuntimes() {
   if (!(await ensureAuth())) return;
 
-  // Always try to restore from cache — even stale data is better than a blank screen.
-  // The API call below will correct it shortly after.
+  // Cache-first: show stale data immediately, then refresh from API
   const cached = sidebarCache.getRuntimes();
-  if (cached && !refresh) {
+  if (cached) {
     runtimes = cached;
     isLoading = false;
   }
@@ -124,16 +133,15 @@ async function loadRuntimes(refresh = false) {
   }
 }
 
-async function loadSessions(runtimeId: string, force = false) {
-  if (!force && runtimeId in sessionsByRuntime) return;
-
-  // Try cache first
+async function loadSessions(runtimeId: string) {
+  // 1. Ensure UI has something to show (in-memory > cache)
+  const inMemory = sessionsByRuntime[runtimeId];
   const cached = sidebarCache.getSessions(runtimeId);
-  if (cached && !force) {
+  if (!inMemory && cached) {
     sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: cached };
-    return;
   }
 
+  // 2. Always fetch fresh data from API
   try {
     const result = await getRuntimeSessions(runtimeId);
     sessionsByRuntime = {
@@ -214,6 +222,8 @@ async function handleHibernate(runtimeId: string, e: Event) {
   try {
     await hibernateRuntime(runtimeId);
     await loadRuntimes();
+    void loadSessions(runtimeId);
+    window.dispatchEvent(new CustomEvent("cohub:runtime-status-changed", { detail: { runtimeId } }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to hibernate";
     alert(message);
@@ -228,6 +238,8 @@ async function handleWake(runtimeId: string, e: Event) {
   try {
     await wakeRuntime(runtimeId);
     await loadRuntimes();
+    void loadSessions(runtimeId);
+    window.dispatchEvent(new CustomEvent("cohub:runtime-status-changed", { detail: { runtimeId } }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to wake";
     alert(message);
@@ -242,7 +254,10 @@ async function handleDelete(runtimeId: string, e: Event) {
   actionInProgress[runtimeId] = "delete";
   try {
     await deleteRuntime(runtimeId);
+    // Clean up sessions cache for deleted runtime
+    delete sessionsByRuntime[runtimeId];
     await loadRuntimes();
+    window.dispatchEvent(new CustomEvent("cohub:runtime-status-changed", { detail: { runtimeId } }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to delete";
     alert(message);
@@ -257,13 +272,64 @@ async function handleLogout() {
   await logtoClient.signOut(`${window.location.origin}/`);
 }
 
-// Polling for runtime status updates
-let pollingTimer: ReturnType<typeof setInterval> | null = null;
-// Poll sessions for the current runtime to keep sidebar in sync
-let sessionPollingTimer: ReturnType<typeof setInterval> | null = null;
+// Polling timers (setTimeout-based for dynamic interval adjustment)
+let runtimePollingTimer: ReturnType<typeof setTimeout> | null = null;
+let sessionPollingTimer: ReturnType<typeof setTimeout> | null = null;
 
-function shouldPoll() {
-  return runtimes.some((r) => r.status === "starting");
+function isRuntimePollable(status: string): boolean {
+  return status === "starting" || status === "running";
+}
+
+function getRuntimePollInterval(): number | null {
+  const hasStarting = runtimes.some((r) => r.status === "starting");
+  const hasRunning = runtimes.some((r) => r.status === "running");
+  if (hasStarting) return 3_000;
+  if (hasRunning) return 30_000;
+  return null;
+}
+
+function getSessionPollInterval(): number | null {
+  const statusMap = new Map(runtimes.map((r) => [r.id, r.status ?? "unknown"]));
+  const pollableExpanded = [...expandedRuntimes].filter(
+    (id) => isRuntimePollable(statusMap.get(id) ?? ""),
+  );
+  if (pollableExpanded.length === 0) return null;
+  const hasStarting = pollableExpanded.some(
+    (id) => statusMap.get(id) === "starting",
+  );
+  return hasStarting ? 5_000 : 15_000;
+}
+
+function scheduleRuntimePoll() {
+  if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
+  const interval = getRuntimePollInterval();
+  if (!interval) return;
+  runtimePollingTimer = setTimeout(async () => {
+    await loadRuntimes();
+    scheduleRuntimePoll();
+  }, interval);
+}
+
+function scheduleSessionPoll() {
+  if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+  const interval = getSessionPollInterval();
+  if (!interval) return;
+  const runtimeIds = new Set(runtimes.map((r) => r.id));
+  const statusMap = new Map(runtimes.map((r) => [r.id, r.status ?? "unknown"]));
+  const targets = [...expandedRuntimes].filter(
+    (id) => runtimeIds.has(id) && isRuntimePollable(statusMap.get(id) ?? ""),
+  );
+  sessionPollingTimer = setTimeout(async () => {
+    for (const runtimeId of targets) {
+      await loadSessions(runtimeId);
+    }
+    scheduleSessionPoll();
+  }, interval);
+}
+
+function rescheduleAllPolling() {
+  scheduleRuntimePoll();
+  scheduleSessionPoll();
 }
 
 function handleSessionUpdateEvent(e: Event) {
@@ -296,7 +362,7 @@ onMount(() => {
       }
     }
 
-    // Pre-load sessions for the current runtime
+    // Pre-load sessions for the current runtime (cache-first + background refresh)
     if (currentRuntimeId) {
       expandedRuntimes = new Set(expandedRuntimes).add(currentRuntimeId);
       void loadSessions(currentRuntimeId);
@@ -318,19 +384,24 @@ onMount(() => {
     // Listen for window-level session update events
     window.addEventListener("cohub:sessions-updated", handleSessionUpdateEvent as EventListener);
     window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
+    window.addEventListener("cohub:runtime-created", handleRuntimeCreated as EventListener);
 
-    pollingTimer = setInterval(() => {
-      if (!shouldPoll()) return;
-      void loadRuntimes();
-    }, 3000);
+    // Start polling with dynamic intervals based on runtime statuses
+    rescheduleAllPolling();
 
-    // Poll sessions for all expanded runtimes to keep sidebar in sync
-    sessionPollingTimer = setInterval(() => {
-      for (const runtimeId of expandedRuntimes) {
-        void loadSessions(runtimeId, true);
-      }
-    }, 5000);
+    // Auto-expand first runtime if no current runtime and list is non-empty
+    if (!currentRuntimeId && runtimes.length > 0) {
+      const firstActive = runtimes.find((r) => r.status === "running") ?? runtimes[0];
+      expandedRuntimes = new Set(expandedRuntimes).add(firstActive.id);
+      void loadSessions(firstActive.id);
+    }
   })();
+
+  function handleRuntimeCreated() {
+    void loadRuntimes().then(() => {
+      rescheduleAllPolling();
+    });
+  }
 
   function handleClickOutside(e: MouseEvent) {
     const target = e.target as HTMLElement;
@@ -342,11 +413,12 @@ onMount(() => {
   document.addEventListener('click', handleClickOutside);
 
   return () => {
-    if (pollingTimer) clearInterval(pollingTimer);
-    if (sessionPollingTimer) clearInterval(sessionPollingTimer);
+    if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
+    if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
     document.removeEventListener('click', handleClickOutside);
     window.removeEventListener("cohub:sessions-updated", handleSessionUpdateEvent as EventListener);
     window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
+    window.removeEventListener("cohub:runtime-created", handleRuntimeCreated as EventListener);
     for (const ch of broadcastChannels) ch.close();
     broadcastChannels = [];
   };

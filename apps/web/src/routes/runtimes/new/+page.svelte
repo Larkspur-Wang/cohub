@@ -131,6 +131,9 @@ async function handleSubmit(event: SubmitEvent) {
       channelBindings,
     });
 
+    // Notify sidebar to immediately refresh runtime list
+    window.dispatchEvent(new CustomEvent("cohub:runtime-created"));
+
     await goto(`/runtimes/${result.runtime.id}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create runtime";
