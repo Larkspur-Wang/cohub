@@ -16,7 +16,7 @@ let {
 	bindListEl = $bindable(null),
 	bindContentEl = $bindable(null),
 	onScrollChange,
-	bottomInsetClass = "pb-28 sm:pb-32",
+	bottomInsetClass = "pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48",
 }: Props = $props();
 </script>
 

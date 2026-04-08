@@ -86,7 +86,6 @@ let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
 let input = $state("");
 let imageAttachments = $state<ComposerImageAttachment[]>([]);
-let selectedModel = $state("Auto");
 let sending = $state(false);
 let runtimeLoadError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
@@ -1108,7 +1107,7 @@ $effect(() => {
       {/if}
 
       <div class="relative flex-1 min-h-0 flex flex-col">
-        <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} bottomInsetClass="pb-36 sm:pb-40" />
+        <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} bottomInsetClass="pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48" />
 
         {#if showScrollToBottom && timeline.length > 0}
           <button
@@ -1129,8 +1128,6 @@ $effect(() => {
         bind:value={input}
         disabled={sending || !activeSessionState}
         streamError={streamError}
-        selectedModel={selectedModel}
-        modelOptions={["Auto", "Claude 3.7 Sonnet", "GPT-4.1", "Gemini 2.0"]}
         attachments={imageAttachments}
         onpickimage={handlePickImages}
         onremoveattachment={handleRemoveAttachment}

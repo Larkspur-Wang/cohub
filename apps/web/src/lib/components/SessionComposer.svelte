@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ArrowUp, ImagePlus, Paperclip, Sparkles, Upload, X } from "lucide-svelte";
+import { ArrowUp, Plus, Upload, X } from "lucide-svelte";
 
 type ComposerImageAttachment = {
 	id: string;
@@ -14,8 +14,6 @@ type Props = {
 	value: string;
 	disabled?: boolean;
 	streamError?: string;
-	selectedModel?: string;
-	modelOptions?: string[];
 	attachments?: ComposerImageAttachment[];
 	onsubmit: () => void;
 	onpickimage?: (files: FileList | File[] | null) => void;
@@ -26,8 +24,6 @@ let {
 	value = $bindable(""),
 	disabled = false,
 	streamError = "",
-	selectedModel = "Auto",
-	modelOptions = ["Auto"],
 	attachments = [],
 	onsubmit,
 	onpickimage,
@@ -42,8 +38,8 @@ let dragCounter = 0;
 function resizeTextarea() {
 	if (!textareaEl) return;
 	textareaEl.style.height = "0px";
-	const nextHeight = Math.min(textareaEl.scrollHeight, 200);
-	textareaEl.style.height = `${Math.max(nextHeight, 56)}px`;
+	const nextHeight = Math.min(textareaEl.scrollHeight, 168);
+	textareaEl.style.height = `${Math.max(nextHeight, 44)}px`;
 }
 
 function hasImageFiles(dataTransfer: DataTransfer | null) {
@@ -99,8 +95,9 @@ $effect(() => {
 });
 </script>
 
-<div class="sticky bottom-0 z-20 border-t border-border-subtle bg-linear-to-t from-bg-primary via-bg-primary/96 to-bg-primary/84 px-3 pb-3 pt-3 backdrop-blur supports-[backdrop-filter]:bg-bg-primary/78 sm:px-4 sm:pb-4">
-	<div class="mx-auto max-w-4xl">
+<div class="relative pointer-events-none sticky bottom-0 z-20 -mt-10 px-3 pb-[calc(0.75rem+4.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-4 sm:pb-4">
+	<div class="pointer-events-none absolute inset-x-0 bottom-0 top-0 bg-linear-to-t from-bg-content via-bg-content/72 to-transparent"></div>
+	<div class="pointer-events-auto relative mx-auto max-w-4xl">
 		{#if streamError}
 			<div class="mb-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
 				{streamError}
@@ -108,7 +105,7 @@ $effect(() => {
 		{/if}
 
 		<form
-			class={`relative rounded-[28px] border p-2 shadow-[0_10px_30px_rgba(0,0,0,0.16)] transition-colors ${isDragOver ? 'border-brand/50 bg-brand/5' : 'border-border-subtle bg-bg-surface/78 focus-within:border-brand/30 focus-within:bg-bg-surface/92'}`}
+			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${isDragOver ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
 			onsubmit={(event) => {
 				event.preventDefault();
 				onsubmit();
@@ -146,57 +143,25 @@ $effect(() => {
 			{/if}
 
 			<div class="flex items-end gap-2">
-				<div class="min-w-0 flex-1 rounded-[22px] bg-bg-content/62 px-3 py-2.5 ring-1 ring-transparent transition-colors focus-within:bg-bg-content/82 focus-within:ring-brand/10">
-					<div class="mb-2 flex flex-wrap items-center gap-2">
-						<div class="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-primary/70 px-2.5 py-1 text-[11px] text-text-secondary">
-							<Sparkles class="h-3.5 w-3.5" />
-							<span>Model</span>
-							<select
-								class="bg-transparent text-text-primary outline-none"
-								bind:value={selectedModel}
-								disabled
-								title="模型选择占位，暂未接入逻辑"
-							>
-								{#each modelOptions as option}
-									<option value={option}>{option}</option>
-								{/each}
-							</select>
-						</div>
-
-						<button
-							type="button"
-							class="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-primary/70 px-2.5 py-1 text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-							onclick={() => fileInputEl?.click()}
-							disabled={disabled}
-						>
-							<ImagePlus class="h-3.5 w-3.5" />
-							<span>Add image</span>
-						</button>
-
-						<div class="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border-subtle bg-bg-primary/45 px-2.5 py-1 text-[11px] text-text-placeholder">
-							<Paperclip class="h-3.5 w-3.5" />
-							<span>Tools soon</span>
-						</div>
-
-						<input
-							bind:this={fileInputEl}
-							type="file"
-							accept="image/*"
-							multiple
-							class="hidden"
-							onchange={(event) => {
-								onpickimage?.((event.currentTarget as HTMLInputElement).files);
-								(event.currentTarget as HTMLInputElement).value = "";
-							}}
-						/>
-					</div>
+				<div class="min-w-0 flex-1 rounded-[22px] bg-transparent px-3 py-1.5 ring-1 ring-transparent transition-colors focus-within:bg-transparent focus-within:ring-transparent">
+					<input
+						bind:this={fileInputEl}
+						type="file"
+						accept="image/*"
+						multiple
+						class="hidden"
+						onchange={(event) => {
+							onpickimage?.((event.currentTarget as HTMLInputElement).files);
+							(event.currentTarget as HTMLInputElement).value = "";
+						}}
+					/>
 
 					<textarea
 						bind:this={textareaEl}
 						bind:value
 						rows="1"
 						placeholder="Send a message..."
-						class="block min-h-[56px] max-h-[200px] w-full resize-none bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
+						class="block min-h-[44px] max-h-[168px] w-full resize-none bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
 						oninput={() => resizeTextarea()}
 						onpaste={handlePaste}
 						onkeydown={(event) => {
@@ -209,29 +174,27 @@ $effect(() => {
 						}}
 					></textarea>
 
-					<div class="mt-2 flex items-center justify-between gap-3 px-0.5">
-						<div class="text-[11px] text-text-tertiary">
-							<span class="text-text-secondary">Enter</span>
-							<span class="mx-1 text-text-placeholder">发送</span>
-							<span class="text-text-secondary">Shift + Enter</span>
-							<span class="mx-1 text-text-placeholder">换行</span>
-							<span class="mx-1 text-text-placeholder">·</span>
-							<span class="text-text-secondary">Paste / Drop image</span>
-						</div>
-						<div class="truncate text-[11px] text-text-placeholder">
-							{disabled ? "Session unavailable" : attachments.length > 0 ? `${attachments.length} image${attachments.length > 1 ? 's' : ''} attached` : "AI may make mistakes"}
-						</div>
+					<div class="mt-1.5 flex items-center justify-between gap-2">
+						<button
+							type="button"
+							class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+							onclick={() => fileInputEl?.click()}
+							disabled={disabled}
+							title="Add image"
+						>
+							<Plus class="h-[17px] w-[17px]" />
+						</button>
+
+						<button
+							type="submit"
+							disabled={disabled || (!value.trim() && attachments.length === 0)}
+							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-all hover:scale-[1.02] hover:bg-brand-hover disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled"
+							title="Send"
+						>
+							<ArrowUp class="h-4 w-4" />
+						</button>
 					</div>
 				</div>
-
-				<button
-					type="submit"
-					disabled={disabled || (!value.trim() && attachments.length === 0)}
-					class="mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-all hover:scale-[1.02] hover:bg-brand-hover disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled"
-					title="Send"
-				>
-					<ArrowUp class="h-[18px] w-[18px]" />
-				</button>
 			</div>
 		</form>
 	</div>
