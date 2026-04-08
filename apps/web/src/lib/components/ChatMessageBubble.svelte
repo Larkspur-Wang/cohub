@@ -8,6 +8,8 @@ type Props = {
 	message: ChatMessage;
 };
 
+type ImageBlock = Extract<ContentBlock, { type: "image" }>;
+
 const { message }: Props = $props();
 let renderedHtml = $state("");
 
@@ -36,6 +38,19 @@ const thinkingContent = $derived(
 		.join("\n\n")
 		.trim() || "",
 );
+
+const imageBlocks = $derived(
+	(message.content?.filter((block) => block.type === "image") as ImageBlock[]) ?? [],
+);
+
+function getImagePreviewSrc(block: ImageBlock): string {
+	if (block.source.type === "url") return block.source.url;
+	return `data:${block.source.media_type};base64,${block.source.data}`;
+}
+
+function getImageAlt(block: ImageBlock, index: number): string {
+	return String(block._meta?.filename ?? `attachment-${index + 1}`);
+}
 
 // Thinking truncation: JS-based since line-clamp conflicts with whitespace-pre-wrap
 const THINKING_COLLAPSE_CHARS = 260;
@@ -169,6 +184,16 @@ const statusDotMap = {
               {thinkingExpanded ? 'Show less' : '… more'}
             </button>
           {/if}
+        </div>
+      {/if}
+
+      {#if imageBlocks.length > 0}
+        <div class="mb-3 grid grid-cols-2 gap-2 sm:max-w-md">
+          {#each imageBlocks as block, index}
+            <a href={getImagePreviewSrc(block)} target="_blank" rel="noreferrer" class="group overflow-hidden rounded-2xl border border-border-subtle bg-bg-content">
+              <img src={getImagePreviewSrc(block)} alt={getImageAlt(block, index)} class="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+            </a>
+          {/each}
         </div>
       {/if}
 

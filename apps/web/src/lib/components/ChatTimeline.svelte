@@ -8,6 +8,7 @@ type Props = {
 	bindListEl?: HTMLDivElement | null;
 	bindContentEl?: HTMLDivElement | null;
 	onScrollChange?: () => void;
+	bottomInsetClass?: string;
 };
 
 let {
@@ -15,15 +16,16 @@ let {
 	bindListEl = $bindable(null),
 	bindContentEl = $bindable(null),
 	onScrollChange,
+	bottomInsetClass = "pb-28 sm:pb-32",
 }: Props = $props();
 </script>
 
 <div
 	bind:this={bindListEl}
-	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-3 sm:px-5 py-4"
+	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-3 py-4 sm:px-5"
 	onscroll={() => onScrollChange?.()}
 >
-	<div bind:this={bindContentEl} class="mx-auto flex w-full max-w-4xl flex-col gap-3">
+	<div bind:this={bindContentEl} class={`mx-auto flex w-full max-w-4xl flex-col gap-3 ${bottomInsetClass}`}>
 		{#each timeline as item (item.id)}
 			{#if item.kind === 'message'}
 				<ChatMessageBubble message={item.message} />

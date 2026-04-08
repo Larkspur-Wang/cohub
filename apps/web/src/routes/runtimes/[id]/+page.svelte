@@ -42,6 +42,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-svelte";
+import type { ContentBlock } from "@cohub/protocol";
 import { onMount, tick } from "svelte";
 
 type Props = {
@@ -49,6 +50,19 @@ type Props = {
 		runtimeId: string;
 	};
 };
+
+type ComposerImageAttachment = {
+	id: string;
+	name: string;
+	mediaType: string;
+	data: string;
+	previewUrl: string;
+	size: number;
+};
+
+const MAX_IMAGE_EDGE = 2160;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const WEBP_QUALITIES = [0.88, 0.82, 0.76, 0.7, 0.62, 0.54];
 
 type SessionViewState = {
 	session: SessionRecord;
@@ -71,6 +85,8 @@ let runtimeChannels = $state<RuntimeChannelRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
 let input = $state("");
+let imageAttachments = $state<ComposerImageAttachment[]>([]);
+let selectedModel = $state("Auto");
 let sending = $state(false);
 let runtimeLoadError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
@@ -141,6 +157,7 @@ let creatingSession = $state(false);
 let createSessionError = $state("");
 let showSettings = $state(false);
 let showMoreMenu = $state(false);
+let showScrollToBottom = $state(false);
 
 // Runtime actions
 let runtimeActionError = $state("");
@@ -619,16 +636,40 @@ function disconnectAllSSE() {
 }
 
 async function handleSend() {
-	if (!activeSessionState || !input.trim() || sending || !runtime) return;
+	if (
+		!activeSessionState ||
+		(!input.trim() && imageAttachments.length === 0) ||
+		sending ||
+		!runtime
+	)
+		return;
 	sending = true;
 	streamError = "";
 	streamStatus = "streaming";
 
 	const text = input.trim();
+	const attachmentBlocks: ContentBlock[] = imageAttachments.map((attachment) => ({
+		type: "image",
+		source: {
+			type: "base64",
+			media_type: attachment.mediaType,
+			data: attachment.data,
+		},
+		_meta: {
+			filename: attachment.name,
+			size: attachment.size,
+		},
+	}));
+	const content: ContentBlock[] = [
+		...attachmentBlocks,
+		...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
+	];
 	const sessionId = activeSessionState.session.id;
 
 	try {
 		input = "";
+		const optimisticAttachments = imageAttachments;
+		imageAttachments = [];
 		clearStreamingState();
 
 		const currentState = sessionStateById[sessionId];
@@ -643,7 +684,7 @@ async function handleSend() {
 							id: `optimistic-user-${Date.now()}`,
 							sessionId,
 							role: "user",
-							content: [{ type: "text", text }],
+							content,
 							text,
 							sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
 							provider: null,
@@ -660,7 +701,7 @@ async function handleSend() {
 			};
 		}
 
-		await postSessionMessage(sessionId, [{ type: "text", text }]);
+		await postSessionMessage(sessionId, content);
 	} catch (error) {
 		streamError =
 			error instanceof Error ? error.message : "Failed to send message";
@@ -694,6 +735,117 @@ function updateAutoFollow() {
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
 	shouldAutoFollow = distanceFromBottom <= threshold;
+	showScrollToBottom = !shouldAutoFollow && listEl.scrollHeight > listEl.clientHeight + 24;
+}
+
+async function fileToDataUrl(file: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result ?? ""));
+		reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+		reader.readAsDataURL(file);
+	});
+}
+
+async function loadImageElement(file: File): Promise<HTMLImageElement> {
+	return new Promise((resolve, reject) => {
+		const objectUrl = URL.createObjectURL(file);
+		const image = new Image();
+		image.onload = () => {
+			URL.revokeObjectURL(objectUrl);
+			resolve(image);
+		};
+		image.onerror = () => {
+			URL.revokeObjectURL(objectUrl);
+			reject(new Error("Failed to decode image"));
+		};
+		image.src = objectUrl;
+	});
+}
+
+async function canvasToWebpBlob(
+	canvas: HTMLCanvasElement,
+	quality: number,
+): Promise<Blob> {
+	return new Promise((resolve, reject) => {
+		canvas.toBlob(
+			(blob) => {
+				if (blob) resolve(blob);
+				else reject(new Error("Failed to encode image"));
+			},
+			"image/webp",
+			quality,
+		);
+	});
+}
+
+async function compressImageFile(file: File): Promise<{
+	blob: Blob;
+	dataUrl: string;
+	mediaType: string;
+	size: number;
+}> {
+	const image = await loadImageElement(file);
+	const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
+	const scale = longestEdge > MAX_IMAGE_EDGE ? MAX_IMAGE_EDGE / longestEdge : 1;
+	const width = Math.max(1, Math.round(image.naturalWidth * scale));
+	const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+	const canvas = document.createElement("canvas");
+		canvas.width = width;
+		canvas.height = height;
+	const context = canvas.getContext("2d");
+	if (!context) throw new Error("Canvas is not supported");
+	context.drawImage(image, 0, 0, width, height);
+
+	let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
+	for (const quality of WEBP_QUALITIES.slice(1)) {
+		if (blob.size <= MAX_IMAGE_BYTES) break;
+		blob = await canvasToWebpBlob(canvas, quality);
+	}
+
+	if (blob.size > MAX_IMAGE_BYTES) {
+		throw new Error("Image is too large after compression");
+	}
+
+	const dataUrl = await fileToDataUrl(blob);
+	return {
+		blob,
+		dataUrl,
+		mediaType: "image/webp",
+		size: blob.size,
+	};
+}
+
+async function handlePickImages(files: FileList | File[] | null) {
+	if (!files) return;
+	const validFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
+	if (validFiles.length === 0) return;
+
+	try {
+		const nextAttachments = await Promise.all(
+			validFiles.map(async (file) => {
+				const compressed = await compressImageFile(file);
+				const [, base64 = ""] = compressed.dataUrl.split(",");
+				const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
+				return {
+					id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+					name: `${webpName}.webp`,
+					mediaType: compressed.mediaType,
+					data: base64,
+					previewUrl: compressed.dataUrl,
+					size: compressed.size,
+				} satisfies ComposerImageAttachment;
+			}),
+		);
+		imageAttachments = [...imageAttachments, ...nextAttachments];
+	} catch (error) {
+		streamError = error instanceof Error ? error.message : "Failed to read image";
+	}
+}
+
+function handleRemoveAttachment(id: string) {
+	imageAttachments = imageAttachments.filter((attachment) => attachment.id !== id);
 }
 
 onMount(() => {
@@ -780,6 +932,11 @@ $effect(() => {
 	});
 });
 
+$effect(() => {
+	if (!listEl || !activeSessionId) return;
+	requestAnimationFrame(() => updateAutoFollow());
+});
+
 // Auto-follow scroll: when new content arrives and user is at bottom
 $effect(() => {
 	if (!listEl || !shouldAutoFollow || !activeSessionId) return;
@@ -787,6 +944,7 @@ $effect(() => {
 	requestAnimationFrame(() => {
 		if (listEl && shouldAutoFollow) {
 			scrollToBottomNow();
+			updateAutoFollow();
 		}
 	});
 });
@@ -950,24 +1108,34 @@ $effect(() => {
       {/if}
 
       <div class="relative flex-1 min-h-0 flex flex-col">
-        <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} />
+        <ChatTimeline bindListEl={listEl} bindContentEl={contentEl} timeline={timeline} onScrollChange={updateAutoFollow} bottomInsetClass="pb-36 sm:pb-40" />
 
-        {#if !shouldAutoFollow && timeline.length > 0}
+        {#if showScrollToBottom && timeline.length > 0}
           <button
             type="button"
-            class="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-hover-strong hover:bg-bg-active border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-all shadow-lg backdrop-blur-sm"
+            class="absolute bottom-5 right-4 z-10 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-2 text-[12px] text-text-secondary shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary sm:right-6"
             onclick={() => {
               shouldAutoFollow = true;
               forceScrollToBottom();
             }}
           >
             <ArrowDown class="w-3.5 h-3.5" />
-            <span>Scroll to bottom</span>
+            <span>回到底部</span>
           </button>
         {/if}
       </div>
 
-      <SessionComposer bind:value={input} disabled={sending || !activeSessionState} streamError={streamError} onsubmit={handleSend} />
+      <SessionComposer
+        bind:value={input}
+        disabled={sending || !activeSessionState}
+        streamError={streamError}
+        selectedModel={selectedModel}
+        modelOptions={["Auto", "Claude 3.7 Sonnet", "GPT-4.1", "Gemini 2.0"]}
+        attachments={imageAttachments}
+        onpickimage={handlePickImages}
+        onremoveattachment={handleRemoveAttachment}
+        onsubmit={handleSend}
+      />
     {/if}
   </div>
 
