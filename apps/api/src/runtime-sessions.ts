@@ -451,7 +451,9 @@ const updateSessionAfterAppend = async (sessionId: string, message: typeof sessi
     .where(eq(runtimeSessions.id, sessionId));
 };
 
-export const createUserMessageNode = async (input: {
+/** Persist a user message with a pre-assigned ID (called by agent on message_end). */
+export const persistUserMessageNode = async (input: {
+  id: string;
   runtimeSessionId: string;
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
@@ -467,6 +469,7 @@ export const createUserMessageNode = async (input: {
   const [message] = await db
     .insert(sessionMessages)
     .values({
+      id: input.id,
       sessionId: input.runtimeSessionId,
       role: "user",
       content,

@@ -22,8 +22,10 @@ const PromptInputSchema = z.object({
   meta: z
     .object({
       source: z.string().optional(),
-      intent: z.enum(["auto", "continue", "new_session", "fork"]).optional(),
+      interactionId: z.string().optional(),
+      actorUserId: z.string().nullable().optional(),
     })
+    .passthrough()
     .nullable()
     .optional(),
 });

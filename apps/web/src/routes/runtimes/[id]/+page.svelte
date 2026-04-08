@@ -962,8 +962,11 @@ async function handleSend() {
 	const sessionId = activeSessionState.session.id;
 
 	try {
+		// Get server-assigned userMessageId BEFORE showing optimistic message
+		const result = await postSessionMessage(sessionId, content);
+		const userMessageId = result?.userMessageId;
+
 		input = "";
-		const optimisticAttachments = imageAttachments;
 		imageAttachments = [];
 		clearStreamingState();
 
@@ -976,7 +979,7 @@ async function handleSend() {
 					messages: [
 						...currentState.messages,
 						{
-							id: `optimistic-user-${Date.now()}`,
+							id: userMessageId || `optimistic-user-${Date.now()}`,
 							sessionId,
 							role: "user",
 							content,
@@ -995,8 +998,6 @@ async function handleSend() {
 				},
 			};
 		}
-
-		await postSessionMessage(sessionId, content);
 	} catch (error) {
 		streamError =
 			error instanceof Error ? error.message : "Failed to send message";

@@ -673,13 +673,6 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     source: `channel:${event.provider}`,
     interactionId: event.eventId,
     actorUserId: event.sender.id,
-    metadata: {
-      provider: event.provider,
-      externalConversationId: conversationId,
-      sender: event.sender,
-      eventMessage: event.message ?? null,
-      providerMeta: event.meta ?? null,
-    },
     inboundRef: {
       provider: event.provider,
       runtimeChannelId,

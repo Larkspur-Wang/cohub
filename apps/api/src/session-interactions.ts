@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ContentBlock, GatewayInboundEvent } from "@cohub/protocol";
-import { createUserMessageNode, enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
+import { enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
 import {
   createRuntimeSessionBinding,
   getBindingByRuntimeChannelAndKey,
@@ -24,7 +24,6 @@ export const executeSessionInteraction = async (input: {
   source: string;
   interactionId: string;
   actorUserId?: string | null;
-  metadata?: Record<string, unknown> | null;
   inboundRef?: {
     provider: string;
     runtimeChannelId: string;
@@ -35,25 +34,18 @@ export const executeSessionInteraction = async (input: {
     meta?: Record<string, unknown> | null;
   } | null;
 }) => {
-  const userMessage = await createUserMessageNode({
-    runtimeSessionId: input.sessionId,
-    content: input.content,
-    meta: {
-      source: input.source,
-      interactionId: input.interactionId,
-      actorUserId: input.actorUserId ?? null,
-      ...(input.metadata ?? {}),
-    },
-  });
+  // Generate UUID for user message — actual persistence happens on agent's message_end event
+  // to guarantee correct sequence ordering
+  const userMessageId = randomUUID();
 
-  // Record inbound reference in providerMessageRefs
+  // Record inbound reference for provider routing (Discord reply/edit)
   if (input.inboundRef) {
     await createProviderMessageRef({
       provider: input.inboundRef.provider,
       runtimeId: input.runtimeId,
       runtimeSessionId: input.sessionId,
       runtimeChannelId: input.inboundRef.runtimeChannelId,
-      sessionMessageId: userMessage.id,
+      sessionMessageId: userMessageId,
       direction: "inbound",
       externalConversationId: input.inboundRef.externalConversationId,
       externalMessageId: input.inboundRef.externalMessageId,
@@ -63,7 +55,7 @@ export const executeSessionInteraction = async (input: {
         ...(input.inboundRef.meta ?? {}),
         interactionId: input.interactionId,
         messageKind: "user",
-        anchorUserMessageId: userMessage.id,
+        anchorUserMessageId: userMessageId,
       },
     });
   }
@@ -71,16 +63,16 @@ export const executeSessionInteraction = async (input: {
   await enqueueRuntimePrompt({
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
-    userMessageId: userMessage.id,
+    userMessageId,
     content: input.content,
     meta: {
-      intent: "continue",
       source: input.source,
       interactionId: input.interactionId,
+      actorUserId: input.actorUserId ?? null,
     },
   });
 
-  return { userMessageId: userMessage.id };
+  return { userMessageId };
 };
 
 export const resolveSessionInteractionForInboundEvent = async (event: GatewayInboundEvent) => {

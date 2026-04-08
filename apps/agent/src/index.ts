@@ -6,7 +6,7 @@ import {
   createCodingTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage, registerRuntimeSession } from "./api.js";
+import { persistAssistantMessage, persistUserMessage, registerRuntimeSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -20,8 +20,9 @@ import {
 import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
 
 type PendingUserMessage = {
-  messageKey: string;
   userMessageId: string;
+  content: ContentBlock[];
+  meta?: Record<string, unknown> | null;
 };
 
 type SessionHandle = {
@@ -30,57 +31,14 @@ type SessionHandle = {
   sessionManager: SessionManager;
   pendingUserMessages: PendingUserMessage[];
   currentUserMessageId: string | null;
+  currentUserMessageContent: ContentBlock[] | null;
+  currentUserMessageMeta: Record<string, unknown> | null;
   streamState: {
     content: ContentBlock[];
     preferredDisplayMode: "full" | "compact" | "minimal";
   };
 };
 
-/**
- * Build a base64 key from ContentBlock[] for matching SDK echo messages.
- */
-function buildContentKey(content: ContentBlock[]): string {
-  const text = extractContentText(content);
-  const imageCount = content.filter((b) => b.type === "image").length;
-  return Buffer.from(JSON.stringify({ text, imageCount })).toString("base64");
-}
-
-/**
- * Build a base64 key from SDK message_start event content for matching.
- */
-function buildMessageKeyFromEvent(message: Record<string, unknown>): string {
-  const text = extractUserMessageText(message);
-  const imageCount = extractUserImageCount(message);
-  return Buffer.from(JSON.stringify({ text, imageCount })).toString("base64");
-}
-
-/**
- * Extract user message text from a message_start event for matching.
- */
-function extractUserMessageText(message: Record<string, unknown>): string {
-  const content = message.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((item): item is { type: string; text?: string } =>
-      !!item && typeof item === "object" && "type" in item
-    )
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text ?? "")
-    .join("\n")
-    .trim();
-}
-
-/**
- * Extract image count from a message_start event for matching.
- */
-function extractUserImageCount(message: Record<string, unknown>): number {
-  const content = message.content;
-  if (!Array.isArray(content)) return 0;
-  return content.filter(
-    (item) => !!item && typeof item === "object" && "type" in item && item.type === "image"
-  ).length;
-}
 
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
@@ -253,23 +211,19 @@ function subscribeSessionEvents(handle: SessionHandle) {
     if (event.type === "message_start") {
       const message = event.message as unknown as Record<string, unknown>;
 
-      // Match user message from pending queue
+      // Dequeue user message from FIFO — SDK guarantees order matches our enqueue order
       if (message.role === "user") {
-        const eventKey = buildMessageKeyFromEvent(message);
-        const matchIndex = handle.pendingUserMessages.findIndex(
-          (item) => item.messageKey === eventKey
-        );
-        if (matchIndex !== -1) {
-          const matched = handle.pendingUserMessages[matchIndex];
-          if (matched) {
-            handle.currentUserMessageId = matched.userMessageId;
-            console.log(
-              `[Supervisor] Matched user message ${handle.currentUserMessageId} for session ${handle.sessionId}`
-            );
-          }
+        const pending = handle.pendingUserMessages.shift();
+        if (pending) {
+          handle.currentUserMessageId = pending.userMessageId;
+          handle.currentUserMessageContent = pending.content;
+          handle.currentUserMessageMeta = pending.meta ?? null;
+          console.log(
+            `[Supervisor] Dequeued user message ${handle.currentUserMessageId} for session ${handle.sessionId}`
+          );
         } else {
           console.warn(
-            `[Supervisor] No matching user message found for key ${eventKey} in session ${handle.sessionId}`
+            `[Supervisor] No pending user message in FIFO for session ${handle.sessionId}`
           );
         }
       }
@@ -286,6 +240,32 @@ function subscribeSessionEvents(handle: SessionHandle) {
       const newBlocks = sdkContentToBlocks(message.content, handle.streamState.content);
       handle.streamState.content = newBlocks;
       void emitProviderRenderUpdate(handle);
+    }
+
+    // Persist user message to DB on message_end — this guarantees correct sequence
+    // ordering since it's the only source of truth for actual processing order
+    if (event.type === "message_end") {
+      const message = event.message as unknown as Record<string, unknown>;
+      if (message.role === "user" && handle.currentUserMessageId && handle.currentUserMessageContent) {
+        const userMessageId = handle.currentUserMessageId;
+        const content = handle.currentUserMessageContent;
+        const meta = handle.currentUserMessageMeta;
+        handle.currentUserMessageContent = null;
+        handle.currentUserMessageMeta = null;
+
+        void persistUserMessage({
+          runtimeId: env.RUNTIME_ID,
+          sessionId: handle.sessionId,
+          userMessageId,
+          content,
+          meta,
+        }).catch((error) => {
+          console.error(
+            `[Supervisor] Failed to persist user message ${userMessageId} for ${handle.sessionId}:`,
+            error,
+          );
+        });
+      }
     }
 
     if (event.type === "tool_execution_start") {
@@ -518,6 +498,8 @@ async function loadOrCreateSessionHandle(input: {
     sessionManager,
     pendingUserMessages: [],
     currentUserMessageId: null,
+    currentUserMessageContent: null,
+    currentUserMessageMeta: null,
     streamState: {
       content: [],
       preferredDisplayMode: "compact",
@@ -584,10 +566,13 @@ async function main() {
 
           // Input now carries ContentBlock[] — extract text + images for SDK
           const content = inputEntry.content as ContentBlock[];
-          const messageKey = buildContentKey(content);
           const userMessageId = inputEntry.userMessageId;
           if (userMessageId) {
-            handle.pendingUserMessages.push({ messageKey, userMessageId });
+            handle.pendingUserMessages.push({
+              userMessageId,
+              content,
+              meta: (inputEntry as { meta?: Record<string, unknown> | null }).meta ?? null,
+            });
           }
 
           const text = extractContentText(content);

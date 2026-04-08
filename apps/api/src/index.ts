@@ -42,17 +42,17 @@ import {
   listSessionMessages,
   normalizeRuntimeEnv,
   persistMessageNode,
+  persistUserMessageNode,
   provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
   wakeRuntime,
-  createUserMessageNode,
   enqueueRuntimePrompt,
   updateRuntimeStatus,
 } from "./runtime-sessions.js";
-import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
+import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, sql, ne } from "drizzle-orm";
@@ -1348,6 +1348,41 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   return c.json({ ok: true, message: messageNode });
 });
 
+// ─── Agent-persisted user message (called on message_end for user role) ───
+
+app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages/user", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const runtimeId = c.req.param("runtimeId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req
+    .json<{
+      messageId: string;
+      content: ContentBlock[];
+      meta?: Record<string, unknown> | null;
+    }>()
+    .catch(() => null);
+
+  if (!body?.messageId?.trim()) return c.json({ message: "messageId is required" }, 400);
+  if (!body.content || body.content.length === 0) {
+    return c.json({ message: "content is required" }, 400);
+  }
+
+  const messageNode = await persistUserMessageNode({
+    id: body.messageId,
+    runtimeSessionId: sessionId,
+    content: body.content,
+    meta: body.meta ?? null,
+  });
+
+  return c.json({ ok: true, message: messageNode });
+});
+
 app.get("/api/sessions/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1418,20 +1453,19 @@ app.post("/api/sessions/:id/messages", async (c) => {
     return c.json({ message: "content is required" }, 400);
   }
 
-  const userMessage = await createUserMessageNode({
-    runtimeSessionId: session.id,
-    content: body.content,
-  });
+  // Generate UUID — actual persistence happens on agent's message_end event
+  // to guarantee correct sequence ordering
+  const userMessageId = crypto.randomUUID();
 
   await enqueueRuntimePrompt({
     runtimeId: runtime.id,
     sessionId: session.id,
-    userMessageId: userMessage.id,
+    userMessageId,
     content: body.content,
     meta: { intent: "continue", source: "web" },
   });
 
-  return c.json({ ok: true, userMessage });
+  return c.json({ ok: true, userMessageId });
 });
 
 app.post("/api/sessions/:id/fork", async (c) => {

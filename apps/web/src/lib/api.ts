@@ -322,7 +322,7 @@ export const postSessionMessage = async (sessionId: string, content: ContentBloc
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ content }),
-  }) as Promise<{ ok: true; userMessage: MessageRecord }>;
+  }) as Promise<{ ok: true; userMessageId: string }>;
 };
 
 export const forkSession = async (

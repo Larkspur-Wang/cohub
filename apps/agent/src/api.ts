@@ -171,6 +171,32 @@ export async function registerRuntimeSession(input: RegisterSessionInput) {
   } | null>;
 }
 
+export async function persistUserMessage(input: {
+  runtimeId: string;
+  sessionId: string;
+  userMessageId: string;
+  content: ContentBlock[];
+  meta?: Record<string, unknown> | null;
+}) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.sessionId}/messages/user`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      messageId: input.userMessageId,
+      content: input.content,
+      meta: input.meta ?? null,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Persist user message failed ${response.status}: ${text}`);
+  }
+
+  return response.json().catch(() => null);
+}
+
 export async function persistAssistantMessage(input: {
   runtimeId: string;
   runtimeSessionId: string;
