@@ -1,18 +1,18 @@
 <script lang="ts">
-import { onMount } from "svelte";
-import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth";
+import { onMount } from "svelte";
 
 let error = $state("");
 
 onMount(async () => {
-  try {
-    // Exchange the authorization code from the URL for tokens.
-    await logtoClient.handleSignInCallback(window.location.href);
-    goto("/");
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Authentication failed";
-  }
+	try {
+		// Exchange the authorization code from the URL for tokens.
+		await logtoClient.handleSignInCallback(window.location.href);
+		// Full page redirect to ensure all components, styles, and state are freshly initialized
+		window.location.replace("/");
+	} catch (err) {
+		error = err instanceof Error ? err.message : "Authentication failed";
+	}
 });
 </script>
 
