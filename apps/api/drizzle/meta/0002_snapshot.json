@@ -1,5 +1,5 @@
 {
-  "id": "a9eb9fd2-c062-4c5a-ae73-391713fa7549",
+  "id": "01f1e151-f1e5-413d-b722-2455b22285c7",
   "prevId": "19edbea1-a801-4af8-9393-5286ac4842d2",
   "version": "7",
   "dialect": "postgresql",
@@ -498,8 +498,8 @@
         }
       },
       "indexes": {
-        "idx_resource_permissions_resource": {
-          "name": "idx_resource_permissions_resource",
+        "uq_resource_permissions_resource": {
+          "name": "uq_resource_permissions_resource",
           "columns": [
             {
               "expression": "resource_type",
@@ -514,7 +514,7 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

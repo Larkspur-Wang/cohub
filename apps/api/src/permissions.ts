@@ -36,7 +36,11 @@ export const canRead = async (
 
   // session 级优先
   if (sessionId) {
-    if (perms.some(p => p.resourceType === "session" && p.resourceId === sessionId)) return true;
+    const sessionPerm = perms.find(p => p.resourceType === "session" && p.resourceId === sessionId);
+    if (sessionPerm) {
+      // level="private" 表示明确拒绝，不 fallback
+      return sessionPerm.level !== "private";
+    }
   }
 
   // fallback runtime 级

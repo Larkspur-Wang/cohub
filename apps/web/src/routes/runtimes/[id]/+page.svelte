@@ -11,6 +11,7 @@ import {
 	createRuntimeSession,
 	deleteRuntime,
 	extractSessionRenderState,
+	getMe,
 	getRuntime,
 	getRuntimeChannels,
 	getRuntimeSessions,
@@ -21,6 +22,12 @@ import {
 	streamSessionEvents,
 	updateRuntimeChannelConfig,
 	wakeRuntime,
+	createRuntimePermission,
+	createSessionPermission,
+	deleteRuntimePermission,
+	deleteSessionPermission,
+	listRuntimePermissions,
+	type ResourcePermission,
 } from "$lib/api";
 import { ensureAuth } from "$lib/auth";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
@@ -33,13 +40,18 @@ import { messageCache } from "$lib/stores/message-cache";
 import type { MessageRecord } from "@cohub/protocol";
 import {
 	ArrowDown,
+	Check,
+	Copy,
+	Globe,
 	Hash,
 	Loader2,
+	Lock,
 	Moon,
 	MoreVertical,
 	Plus,
 	Power,
 	Settings,
+	Share2,
 	Terminal,
 	Trash2,
 	X,
@@ -169,6 +181,20 @@ let createSessionError = $state("");
 let showSettings = $state(false);
 let showMoreMenu = $state(false);
 let showScrollToBottom = $state(false);
+
+// Share / Permissions
+let runtimePermissions = $state<ResourcePermission[]>([]);
+let runtimePublicRead = $state(false);
+let savingRuntimePerm = $state(false);
+let shareCopied = $state(false);
+let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let showShareModal = $state(false);
+let shareModalSessionId = $state<string | null>(null);
+let shareModalLevel = $state<"read" | "private">("read");
+let shareModalError = $state("");
+let shareModalSaving = $state(false);
+let sessionPermError = $state("");
+let isOwner = $state(false);
 
 // Chat timeline ref for prepend scroll restoration
 type ChatTimelineHandle = {
@@ -507,6 +533,8 @@ async function loadRuntime() {
 
 	if (runtimeResult.status === "fulfilled") {
 		runtime = runtimeResult.value;
+		const me = await getMe();
+		isOwner = runtime.userUuid === me?.uuid;
 	} else {
 		runtimeLoadError =
 			runtimeResult.reason instanceof Error
@@ -531,6 +559,8 @@ async function loadRuntime() {
 				? channelsResult.reason.message
 				: "Failed to load runtime channels";
 	}
+
+	void loadPermissions();
 }
 
 async function loadSessionState(sessionId: string, force = false) {
@@ -767,6 +797,79 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
 	const status = runtime.status;
 	if (!status) return true;
 	return status === "starting";
+}
+
+// ─── Share / Permissions ───
+
+async function loadPermissions() {
+	try {
+		const perms = await listRuntimePermissions(runtimeId);
+		runtimePermissions = perms;
+		runtimePublicRead = perms.some((p) => p.resourceType === "runtime");
+	} catch {
+		// Ignore — permissions may not exist yet
+	}
+}
+
+async function toggleRuntimePublicRead(enabled: boolean) {
+	savingRuntimePerm = true;
+	try {
+		if (enabled) {
+			await createRuntimePermission(runtimeId, "read");
+		} else {
+			await deleteRuntimePermission(runtimeId);
+		}
+		runtimePublicRead = enabled;
+		await loadPermissions();
+	} catch {
+		// Revert
+		runtimePublicRead = !enabled;
+	} finally {
+		savingRuntimePerm = false;
+	}
+}
+
+function openShareModal(sessionId: string) {
+	shareModalSessionId = sessionId;
+	shareModalLevel = hasSessionPermission(sessionId) ? "read" : "private";
+	shareCopied = false;
+	showShareModal = true;
+}
+
+async function applySharePermission() {
+	if (!shareModalSessionId) return;
+	shareModalError = "";
+	shareModalSaving = true;
+	try {
+		await createSessionPermission(shareModalSessionId, shareModalLevel);
+		await loadPermissions();
+		const url = `${window.location.origin}/runtimes/${runtimeId}?session=${shareModalSessionId}`;
+		await navigator.clipboard.writeText(url);
+		shareCopied = true;
+		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+		shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+	} catch (error) {
+		shareModalError = error instanceof Error ? error.message : "Failed to update permission";
+	} finally {
+		shareModalSaving = false;
+	}
+}
+
+async function removeSessionPermission(sessionId: string) {
+	try {
+		sessionPermError = "";
+		await deleteSessionPermission(sessionId);
+		await loadPermissions();
+	} catch (error) {
+		sessionPermError = error instanceof Error ? error.message : "Failed to remove permission";
+		setTimeout(() => { sessionPermError = ""; }, 4000);
+	}
+}
+
+function hasSessionPermission(sessionId: string): boolean {
+	return runtimePermissions.some(
+		(p) => p.resourceType === "session" && p.resourceId === sessionId && p.level !== "private",
+	);
 }
 
 // ─── SSE streaming (per-session) ───
@@ -1342,6 +1445,19 @@ $effect(() => {
       <span class="hidden sm:inline">New Session</span>
     </button>
 
+    <!-- Session Share -->
+    {#if activeSessionId && isOwner}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] transition-colors duration-100 {hasSessionPermission(activeSessionId!) ? 'text-brand hover:text-brand-hover bg-bg-hover' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+        onclick={() => { openShareModal(activeSessionId!); }}
+        title="Share session"
+      >
+        <Share2 class="w-3.5 h-3.5" />
+        <span class="hidden sm:inline">{hasSessionPermission(activeSessionId!) ? 'Shared' : 'Share'}</span>
+      </button>
+    {/if}
+
     <!-- More menu -->
     <div class="relative" data-more-menu>
       <button
@@ -1357,6 +1473,7 @@ $effect(() => {
         <div
           class="absolute right-0 top-full mt-1 w-48 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
         >
+          {#if isOwner}
           <button
             type="button"
             class="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
@@ -1365,6 +1482,7 @@ $effect(() => {
             <Settings class="w-3.5 h-3.5" />
             <span>Settings</span>
           </button>
+          {/if}
 
           {#if getRuntimeStatusMeta(runtime?.status).canHibernate || getRuntimeStatusMeta(runtime?.status).canWake || getRuntimeStatusMeta(runtime?.status).canDelete}
             <div class="border-t border-border-subtle"></div>
@@ -1512,6 +1630,81 @@ $effect(() => {
   <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->
   <SettingsOverlay open={showSettings} onClose={() => showSettings = false}>
     <div class="p-4 space-y-6">
+      <!-- Sharing section -->
+      <section class="space-y-3">
+        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
+          <span>Sharing</span>
+        </div>
+
+        <!-- Runtime-level toggle -->
+        <label class="flex items-start gap-3 cursor-pointer group p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
+          <div class="relative shrink-0 mt-0.5">
+            <input
+              type="checkbox"
+              checked={runtimePublicRead}
+              onchange={(event) => { void toggleRuntimePublicRead((event.currentTarget as HTMLInputElement).checked); }}
+              disabled={savingRuntimePerm}
+              class="sr-only peer"
+            />
+            <div class="w-8 h-[18px] rounded-full bg-bg-hover-strong peer-checked:bg-brand transition-colors duration-150"></div>
+            <div class="absolute left-0.5 top-0.5 w-[13px] h-[13px] rounded-full bg-text-tertiary peer-checked:bg-white peer-checked:left-[15px] transition-all duration-150"></div>
+          </div>
+          <div class="flex flex-col min-w-0">
+            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors font-medium">Public read</span>
+            <span class="text-[11px] text-text-placeholder">Anyone with the link can view all sessions</span>
+          </div>
+        </label>
+
+        <div class="w-full h-px bg-border-subtle"></div>
+
+        <!-- Session-level permissions -->
+        <div class="space-y-1">
+          <div class="text-[11px] text-text-placeholder px-2">Session access</div>
+          {#each runtimePermissions.filter(p => p.resourceType === "session") as perm (perm.id)}
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group">
+              <div class="w-[5px] h-[5px] rounded-full shrink-0 bg-brand"></div>
+              <span class="text-[12.5px] text-text-secondary truncate flex-1">
+                {runtimeSessions.find(s => s.id === perm.resourceId)?.title || runtimeSessions.find(s => s.id === perm.resourceId)?.latestMessageText || 'Session ' + perm.resourceId.slice(0, 8)}
+              </span>
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  class="p-1 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                  onclick={() => {
+                    const url = `${window.location.origin}/runtimes/${runtimeId}?session=${perm.resourceId}`;
+                    void navigator.clipboard.writeText(url);
+                    shareCopied = true;
+                    if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+                    shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+                  }}
+                  title="Copy link"
+                >
+                  <Copy class="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                  onclick={() => { void removeSessionPermission(perm.resourceId); }}
+                  title="Remove access"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          {:else}
+            <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No shared sessions</div>
+          {/each}
+        </div>
+
+        {#if sessionPermError}
+          <div class="px-2 py-1 text-[12px] text-error-soft break-all">{sessionPermError}</div>
+        {/if}
+
+        <div class="w-full h-px bg-border-subtle"></div>
+
+      </section>
+
+      <!-- Channels section -->
       <section class="space-y-3">
         <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
           <span>Channels</span>
@@ -1599,4 +1792,64 @@ $effect(() => {
       </section>
     </div>
   </SettingsOverlay>
+
+  <!-- Share Modal -->
+  {#if showShareModal && shareModalSessionId}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-black/40" onclick={() => { showShareModal = false; }}></div>
+      <div class="relative w-full max-w-[360px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl overflow-hidden">
+        <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none">
+          <span>Share Session</span>
+          <button type="button" class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors" onclick={() => { showShareModal = false; }}>
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div class="p-4 space-y-4">
+          <!-- Permission level selector -->
+          <div class="space-y-1">
+            <div class="text-[11px] text-text-placeholder">Visibility</div>
+            <label class="flex items-center gap-3 cursor-pointer p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
+              <input type="radio" name="shareLevel" checked={shareModalLevel === "read"} onchange={() => { shareModalLevel = "read"; }} class="accent-brand" />
+              <Globe class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+              <div>
+                <div class="text-[13px] text-text-secondary">Public read</div>
+                <div class="text-[11px] text-text-placeholder">Anyone with the link can view</div>
+              </div>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
+              <input type="radio" name="shareLevel" checked={shareModalLevel === "private"} onchange={() => { shareModalLevel = "private"; }} class="accent-brand" />
+              <Lock class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+              <div>
+                <div class="text-[13px] text-text-secondary">Private</div>
+                <div class="text-[11px] text-text-placeholder">Only you can access</div>
+              </div>
+            </label>
+          </div>
+
+          <!-- Apply button -->
+          <button
+            type="button"
+            class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] bg-bg-hover-strong hover:bg-bg-hover-strong text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
+            onclick={() => { void applySharePermission(); }}
+            disabled={shareModalSaving}
+          >
+            {#if shareModalSaving}
+              <Loader2 class="w-3.5 h-3.5 animate-spin" />
+              Saving...
+            {:else if shareCopied}
+              <Check class="w-3.5 h-3.5 text-status-success" />
+              Copied link
+            {:else}
+              <Copy class="w-3.5 h-3.5" />
+              {hasSessionPermission(shareModalSessionId!) ? 'Re-copy link' : 'Share & copy link'}
+            {/if}
+          </button>
+
+          {#if shareModalError}
+            <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

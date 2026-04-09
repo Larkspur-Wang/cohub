@@ -1593,9 +1593,9 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
-  const body = await c.req.json<{ level: "read" | "write" }>().catch(() => null);
-  if (!body || (body.level !== "read" && body.level !== "write")) {
-    return c.json({ message: "level is required (read | write)" }, 400);
+  const body = await c.req.json<{ level: "read" | "write" | "private" }>().catch(() => null);
+  if (!body || (body.level !== "read" && body.level !== "write" && body.level !== "private")) {
+    return c.json({ message: "level is required (read | write | private)" }, 400);
   }
 
   const [perm] = await db
@@ -1605,6 +1605,10 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
       resourceId: runtimeId,
       level: body.level,
       createdBy: user.uuid,
+    })
+    .onConflictDoUpdate({
+      target: [resourcePermissions.resourceType, resourcePermissions.resourceId],
+      set: { level: body.level },
     })
     .returning();
 
@@ -1624,9 +1628,9 @@ app.post("/api/sessions/:id/permissions", async (c) => {
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
-  const body = await c.req.json<{ level: "read" | "write" }>().catch(() => null);
-  if (!body || (body.level !== "read" && body.level !== "write")) {
-    return c.json({ message: "level is required (read | write)" }, 400);
+  const body = await c.req.json<{ level: "read" | "write" | "private" }>().catch(() => null);
+  if (!body || (body.level !== "read" && body.level !== "write" && body.level !== "private")) {
+    return c.json({ message: "level is required (read | write | private)" }, 400);
   }
 
   const [perm] = await db
@@ -1636,6 +1640,10 @@ app.post("/api/sessions/:id/permissions", async (c) => {
       resourceId: sessionId,
       level: body.level,
       createdBy: user.uuid,
+    })
+    .onConflictDoUpdate({
+      target: [resourcePermissions.resourceType, resourcePermissions.resourceId],
+      set: { level: body.level },
     })
     .returning();
 
@@ -1653,46 +1661,48 @@ app.get("/api/runtimes/:id/permissions", async (c) => {
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
+  // 同时查 runtime 级和该 runtime 下所有 session 级权限
+  const sessions = await listRuntimeSessions(runtimeId);
+  const resourceIds = [runtimeId, ...sessions.map(s => s.id)];
+
   const perms = await db
     .select()
     .from(resourcePermissions)
-    .where(eq(resourcePermissions.resourceId, runtimeId))
+    .where(inArray(resourcePermissions.resourceId, resourceIds))
     .orderBy(resourcePermissions.createdAt);
 
   return c.json(perms);
 });
 
-app.delete("/api/runtimes/:id/permissions/:permId", async (c) => {
+app.delete("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtimeId = c.req.param("id");
-  const permId = c.req.param("permId");
-  if (!requireValidId(runtimeId) || !requireValidId(permId)) return c.json({ message: "not found" }, 404);
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
   await db
     .delete(resourcePermissions)
     .where(and(
-      eq(resourcePermissions.id, permId),
+      eq(resourcePermissions.resourceType, "runtime"),
       eq(resourcePermissions.resourceId, runtimeId),
     ));
 
   return c.json({ ok: true });
 });
 
-app.delete("/api/sessions/:id/permissions/:permId", async (c) => {
+app.delete("/api/sessions/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const user = await fetchAuthUser(token);
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const sessionId = c.req.param("id");
-  const permId = c.req.param("permId");
-  if (!requireValidId(sessionId) || !requireValidId(permId)) return c.json({ message: "not found" }, 404);
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   const runtime = await getRuntimeById(session.runtimeId);
@@ -1701,7 +1711,7 @@ app.delete("/api/sessions/:id/permissions/:permId", async (c) => {
   await db
     .delete(resourcePermissions)
     .where(and(
-      eq(resourcePermissions.id, permId),
+      eq(resourcePermissions.resourceType, "session"),
       eq(resourcePermissions.resourceId, sessionId),
     ));
 

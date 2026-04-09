@@ -688,6 +688,46 @@ export const deleteSshKey = async (id: string) => {
   }) as Promise<{ ok: true }>;
 };
 
+// ─── Permission Management ──────────────────────────────
+
+export type ResourcePermission = {
+  id: string;
+  resourceType: "runtime" | "session";
+  resourceId: string;
+  level: "read" | "write" | "private";
+  createdBy: string;
+  createdAt: string;
+};
+
+export const createRuntimePermission = async (
+  runtimeId: string,
+  level: "read" | "write",
+) =>
+  apiFetch(`/api/runtimes/${runtimeId}/permissions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level }),
+  }) as Promise<ResourcePermission>;
+
+export const deleteRuntimePermission = async (runtimeId: string) =>
+  apiFetch(`/api/runtimes/${runtimeId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+
+export const listRuntimePermissions = async (runtimeId: string) =>
+  apiFetch(`/api/runtimes/${runtimeId}/permissions`) as Promise<ResourcePermission[]>;
+
+export const createSessionPermission = async (
+  sessionId: string,
+  level: "read" | "write" | "private",
+) =>
+  apiFetch(`/api/sessions/${sessionId}/permissions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level }),
+  }) as Promise<ResourcePermission>;
+
+export const deleteSessionPermission = async (sessionId: string) =>
+  apiFetch(`/api/sessions/${sessionId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+
 // ─── SSE Streaming ──────────────────────────────
 
 /**

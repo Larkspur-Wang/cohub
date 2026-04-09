@@ -4,6 +4,8 @@ import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
   FolderKanban,
+  Globe,
+  Lock,
   Network,
   Plus,
   ChevronRight,
@@ -17,8 +19,10 @@ import {
   getRuntimes,
   getRuntimeSessions,
   deleteRuntime,
+  listRuntimePermissions,
   type RuntimeListItem,
   type SessionRecord,
+  type ResourcePermission,
 } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
@@ -39,6 +43,9 @@ const actionInProgress = $state<Record<string, string>>({});
 
 // Track which sessions are currently streaming (for running indicator)
 let streamingSessionIds = $state<Set<string>>(new Set());
+
+// Permission map: runtimeId → Map<sessionId, permissionLevel>
+let permsByRuntime = $state<Record<string, Map<string, string>>>({});
 
 // Broadcast channel listeners for cross-component session updates
 let broadcastChannels: BroadcastChannel[] = [];
@@ -109,6 +116,10 @@ function toggleRuntime(runtimeId: string) {
     next.delete(runtimeId);
   } else {
     next.add(runtimeId);
+    // Owner 才加载权限
+    if (userClaims?.sub) {
+      void loadRuntimePermissions(runtimeId);
+    }
   }
   expandedRuntimes = next;
 }
@@ -159,9 +170,34 @@ async function loadSessions(runtimeId: string) {
       [runtimeId]: result.sessions ?? [],
     };
     sidebarCache.setSessions(runtimeId, result.sessions ?? []);
+    // Owner 才加载权限
+    if (userClaims?.sub) {
+      void loadRuntimePermissions(runtimeId);
+    }
   } catch {
     // Silently fail — sessions will load when user navigates
   }
+}
+
+async function loadRuntimePermissions(runtimeId: string) {
+  if (!userClaims?.sub) return;
+  try {
+    const perms = await listRuntimePermissions(runtimeId);
+    const map = new Map<string, string>();
+    for (const p of perms) {
+      if (p.resourceType === "session") {
+        map.set(p.resourceId, p.level);
+      }
+    }
+    permsByRuntime = { ...permsByRuntime, [runtimeId]: map };
+  } catch {
+    // Non-critical, ignore
+  }
+}
+
+function getSessionPerm(runtimeId: string, sessionId: string): string | null {
+  const map = permsByRuntime[runtimeId];
+  return map?.get(sessionId) ?? null;
 }
 
 function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
@@ -535,15 +571,23 @@ onMount(() => {
                       title={sourceTooltip(session.source) || undefined}
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-                      {#if sessionIsStreaming(session)}
-                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                      {:else if unreadTracker.isUnread(session)}
-                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                      {#if runtime.userUuid === userClaims?.sub}
+                        {@const perm = getSessionPerm(runtime.id, session.id)}
+                        {#if perm === "read" || perm === "write"}
+                          <Globe class="w-3 h-3 shrink-0 text-text-placeholder" />
+                        {:else if perm === "private"}
+                          <Lock class="w-3 h-3 shrink-0 text-text-placeholder" />
+                        {/if}
                       {/if}
                       {#if sourceBadge(session.source)}
                         <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
                           {sourceBadge(session.source)}
                         </span>
+                      {/if}
+                      {#if sessionIsStreaming(session)}
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                      {:else if unreadTracker.isUnread(session)}
+                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
                       {/if}
                     </a>
                   {/each}

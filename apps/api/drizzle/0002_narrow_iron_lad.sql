@@ -7,4 +7,4 @@ CREATE TABLE "resource_permissions" (
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE INDEX "idx_resource_permissions_resource" ON "resource_permissions" USING btree ("resource_type","resource_id");
+CREATE UNIQUE INDEX "uq_resource_permissions_resource" ON "resource_permissions" USING btree ("resource_type","resource_id");

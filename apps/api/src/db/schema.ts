@@ -313,11 +313,11 @@ export const resourcePermissions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     resourceType: varchar("resource_type", { length: 20 }).notNull(),
     resourceId: uuid("resource_id").notNull(),
-    level: varchar("level", { length: 20 }).notNull().default("read"),
+    level: varchar("level", { length: 20 }).notNull().default("read"),  // "read" | "write" | "private"
     createdBy: varchar("created_by", { length: 255 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    resourceIdx: index("idx_resource_permissions_resource").on(table.resourceType, table.resourceId),
+    resourceUniqueIdx: uniqueIndex("uq_resource_permissions_resource").on(table.resourceType, table.resourceId),
   }),
 );
