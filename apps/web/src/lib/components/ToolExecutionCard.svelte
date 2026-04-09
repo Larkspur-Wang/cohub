@@ -42,7 +42,7 @@ function summarizeToolInput(
   <!-- Collapsed row — matches ChatMessageBubble inline tool style -->
   <button
     type="button"
-    class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-hover/50 cursor-pointer"
+    class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
     onclick={() => (expanded = !expanded)}
   >
     <span class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotMap[tool.status] ?? 'bg-text-placeholder'}"></span>
@@ -58,20 +58,20 @@ function summarizeToolInput(
   </button>
 
   {#if expanded}
-    <div class="pl-7 pr-4">
+    <div class="pl-[26px] pr-4">
       {#if tool.input && Object.keys(tool.input).length > 0}
         <div class="py-1.5">
           {#if tool.name === 'bash' && typeof tool.input.command === 'string'}
-            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">$ {tool.input.command}</pre>
+            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">$ {tool.input.command}</pre>
           {:else if ['read', 'write', 'edit'].includes(tool.name) && typeof tool.input.path === 'string'}
-            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">{tool.input.path}</pre>
+            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">{tool.input.path}</pre>
           {:else}
-            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">{JSON.stringify(tool.input, null, 2)}</pre>
+            <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">{JSON.stringify(tool.input, null, 2)}</pre>
           {/if}
         </div>
       {/if}
       {#if tool.output}
-        <pre class="p-2 font-mono text-[13px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{tool.output}</pre>
+        <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{tool.output}</pre>
       {/if}
     </div>
   {/if}

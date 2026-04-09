@@ -95,7 +95,7 @@ $effect(() => {
 });
 </script>
 
-<div class="relative pointer-events-none sticky bottom-0 z-20 -mt-10 px-3 pb-[calc(0.75rem+4.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-4 sm:pb-4">
+<div class="relative pointer-events-none sticky bottom-0 z-20 -mt-8 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pb-5">
 	<div class="pointer-events-none absolute inset-x-0 bottom-0 top-0 bg-linear-to-t from-bg-content via-bg-content/72 to-transparent"></div>
 	<div class="pointer-events-auto relative mx-auto max-w-4xl">
 		{#if streamError}

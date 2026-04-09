@@ -22,7 +22,7 @@ let {
 	bindListEl = $bindable(null),
 	bindContentEl = $bindable(null),
 	onScrollChange,
-	bottomInsetClass = "pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48",
+	bottomInsetClass = "pb-[calc(8rem+env(safe-area-inset-bottom))] sm:pb-40",
 	preloadThreshold = 10,
 	onFirstVisible,
 	loadingOlder = false,
@@ -106,10 +106,10 @@ $effect(() => {
 
 <div
 	bind:this={bindListEl}
-	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-3 py-4 sm:px-5"
+	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 py-4 sm:px-6"
 	onscroll={() => onScrollChange?.()}
 >
-	<div bind:this={bindContentEl} class={`mx-auto flex w-full max-w-4xl flex-col gap-3 ${bottomInsetClass}`}>
+	<div bind:this={bindContentEl} class={`mx-auto flex w-full max-w-4xl flex-col gap-2 ${bottomInsetClass}`}>
 		{#if loadingOlder}
 			<div class="flex items-center justify-center gap-1.5 py-3">
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" />

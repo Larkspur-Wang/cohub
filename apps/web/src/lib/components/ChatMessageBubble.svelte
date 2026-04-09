@@ -37,6 +37,7 @@ const thinkingContent = $derived(
 		?.filter((block) => block.type === "thinking")
 		.map((block) => (block.type === "thinking" ? block.thinking : ""))
 		.join("\n\n")
+		.replace(/\n{3,}/g, "\n\n")
 		.trim() || "",
 );
 
@@ -178,11 +179,11 @@ $effect(() => {
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
   {#if thinkingContent}
     <div>
-      <div class="text-[13px] leading-[1.7] text-amber-200/50 break-words font-sans whitespace-pre-wrap">
+      <div class="text-[13px] leading-snug text-text-placeholder/60 break-words font-sans whitespace-pre-wrap">
         {getThinkingDisplay(thinkingExpanded)}
         {#if isStreaming}
-          <div class="mt-1 inline-flex items-center gap-1.5 text-[11px] text-amber-200/30">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-400/50 animate-pulse"></span>
+          <div class="mt-1 inline-flex items-center gap-1.5 text-[11px] text-text-placeholder/40">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400/40 animate-pulse"></span>
             thinking
           </div>
         {/if}
@@ -190,7 +191,7 @@ $effect(() => {
       {#if !isStreaming && thinkingNeedsTruncation}
         <button
           type="button"
-          class="mt-1 text-[11px] text-amber-200/30 hover:text-amber-200/50 cursor-pointer"
+          class="mt-1 text-[11px] text-text-placeholder/40 hover:text-text-placeholder/60 cursor-pointer"
           onclick={() => thinkingExpanded = !thinkingExpanded}
         >
           {thinkingExpanded ? 'Show less' : '… more'}
@@ -200,11 +201,11 @@ $effect(() => {
   {/if}
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : 'max-w-full sm:max-w-[52rem]'}`}>
-    <div class={`px-4 py-3 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/[0.06] text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? 'text-text-primary' : message.role === 'system' ? 'bg-blue-500/5 text-blue-300/80' : 'bg-rose-500/5 text-rose-300/80'}`}>
+    <div class={`px-4 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? 'text-text-primary' : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
 
       {#if thinkingContent}
         <div class="mb-3">
-          <div class="text-[13px] leading-[1.7] text-text-placeholder/70 break-words font-sans whitespace-pre-wrap">
+          <div class="text-[13px] leading-snug text-text-placeholder/60 break-words font-sans whitespace-pre-wrap">
             {getThinkingDisplay(thinkingExpanded)}
           </div>
           {#if thinkingNeedsTruncation}
@@ -220,7 +221,7 @@ $effect(() => {
       {/if}
 
       {#if imageBlocks.length > 0}
-        <div class="mb-3 grid grid-cols-2 gap-2 sm:max-w-md">
+        <div class="mb-3 grid grid-cols-2 gap-2 max-w-md">
           {#each imageBlocks as block, index}
             <button
               type="button"
@@ -248,7 +249,7 @@ $effect(() => {
       </div>
 
       {#if message.content?.some((block) => block.type === 'tool_use')}
-        <div class="mt-2 space-y-1">
+        <div class="mt-3 space-y-1">
           {#each message.content.filter((block) => block.type === 'tool_use') as block (block.id)}
             {@const status = getToolStatus(block.id)}
             {@const result = findToolResult(block.id)}
@@ -256,7 +257,7 @@ $effect(() => {
               <!-- Collapsed row -->
               <button
                 type="button"
-                class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-hover/50 cursor-pointer"
+                class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
                 onclick={() => toggleToolCall(block.id)}
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
@@ -273,25 +274,25 @@ $effect(() => {
 
               <!-- Expanded content -->
               {#if expandedToolCalls.has(block.id)}
-                <div class="pl-7 pr-4">
+                <div class="pl-[26px] pr-4">
                   {#if block.input && Object.keys(block.input).length > 0}
                     <div class="py-1.5">
                       {#if block.name === 'bash' && typeof block.input.command === 'string'}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">$ {block.input.command}</pre>
+                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">$ {block.input.command}</pre>
                       {:else if ['read', 'write', 'edit'].includes(block.name) && typeof block.input.path === 'string'}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">{block.input.path}</pre>
+                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">{block.input.path}</pre>
                       {:else}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-text-secondary">{JSON.stringify(block.input, null, 2)}</pre>
+                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">{JSON.stringify(block.input, null, 2)}</pre>
                       {/if}
                     </div>
                   {/if}
                   {#if result && result.type === 'tool_result'}
                     {#if typeof result.content === 'string'}
-                      <pre class="p-2 font-mono text-[13px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{result.content}</pre>
+                      <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{result.content}</pre>
                     {:else if Array.isArray(result.content)}
                       {#each result.content as contentBlock}
                         {#if contentBlock.type === 'text'}
-                          <pre class="p-2 font-mono text-[13px] leading-5 text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{contentBlock.text}</pre>
+                          <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{contentBlock.text}</pre>
                         {/if}
                       {/each}
                     {/if}
