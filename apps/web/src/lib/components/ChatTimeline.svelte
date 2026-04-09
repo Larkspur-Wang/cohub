@@ -1,6 +1,7 @@
 <script lang="ts">
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
+import { Loader2 } from "lucide-svelte";
 import type { TimelineItem } from "$lib/session-tree";
 
 type Props = {
@@ -12,6 +13,8 @@ type Props = {
 	/** Number of unseen items at the top before triggering preload */
 	preloadThreshold?: number;
 	onFirstVisible?: (index: number) => void;
+	/** Whether older messages are currently being loaded (scroll-up pagination) */
+	loadingOlder?: boolean;
 };
 
 let {
@@ -22,6 +25,7 @@ let {
 	bottomInsetClass = "pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48",
 	preloadThreshold = 10,
 	onFirstVisible,
+	loadingOlder = false,
 }: Props = $props();
 
 // Track all observed elements for re-observation
@@ -106,6 +110,12 @@ $effect(() => {
 	onscroll={() => onScrollChange?.()}
 >
 	<div bind:this={bindContentEl} class={`mx-auto flex w-full max-w-4xl flex-col gap-3 ${bottomInsetClass}`}>
+		{#if loadingOlder}
+			<div class="flex items-center justify-center gap-1.5 py-3">
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" />
+				<span class="text-[12px] text-text-tertiary">Loading messages…</span>
+			</div>
+		{/if}
 		{#each timeline as item, idx (item.id)}
 			<div
 				data-idx={idx}

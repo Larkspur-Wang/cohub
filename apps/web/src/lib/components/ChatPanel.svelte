@@ -45,7 +45,7 @@ const submit = () => {
           submit();
         }
       }}
-      placeholder="输入消息（占位，不会发送）"
+      placeholder="Type a message"
       type="text"
     />
     <button onclick={submit} type="button">Send</button>

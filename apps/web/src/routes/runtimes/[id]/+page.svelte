@@ -1598,6 +1598,7 @@ $effect(() => {
           bottomInsetClass="pb-[calc(11rem+4.5rem+env(safe-area-inset-bottom))] sm:pb-48"
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
+          loadingOlder={activeSessionState?.loadingOlder ?? false}
         />
 
         {#if showScrollToBottom && timeline.length > 0}
@@ -1610,7 +1611,7 @@ $effect(() => {
             }}
           >
             <ArrowDown class="w-3.5 h-3.5" />
-            <span>回到底部</span>
+            <span>Scroll to bottom</span>
           </button>
         {/if}
       </div>
