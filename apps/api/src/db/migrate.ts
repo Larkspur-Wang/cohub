@@ -13,7 +13,6 @@ const client = postgres(connectionString, {
   prepare: false,
   connect_timeout: 10,
   idle_timeout: 30,
-  statement_timeout: 60,
 });
 const db = drizzle(client);
 
