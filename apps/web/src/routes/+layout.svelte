@@ -8,6 +8,7 @@ import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import { getResolvedTheme } from "$lib/theme";
 import { onMount } from "svelte";
 import { uiState } from "$lib/stores/ui.svelte";
+import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 
 const { children } = $props();
 
@@ -63,5 +64,8 @@ $effect(() => {
       <!-- Mobile bottom tab bar — only visible below lg -->
       <MobileTabBar />
     </main>
+
+    <!-- Global media lightbox -->
+    <MediaLightbox />
   </div>
 {/if}

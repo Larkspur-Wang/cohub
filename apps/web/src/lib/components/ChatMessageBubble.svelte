@@ -3,6 +3,7 @@ import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
 import type { ContentBlock } from "@cohub/protocol";
 import { ChevronDown, ChevronRight } from "lucide-svelte";
+import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 
 type Props = {
 	message: ChatMessage;
@@ -141,6 +142,37 @@ const statusDotMap = {
 	running: "bg-amber-400",
 	failed: "bg-rose-400",
 } as const;
+
+// ─── Markdown container ref for media event delegation ───
+let markdownEl = $state<HTMLElement | null>(null);
+
+$effect(() => {
+	const el = markdownEl;
+	if (!el) return;
+
+	function onClick(e: Event) {
+		const target = e.target as HTMLElement;
+		if (target.tagName === "IMG") {
+			const img = target as HTMLImageElement;
+			mediaLightbox.show({ src: img.src, type: "image" as const, alt: img.alt });
+		} else if (
+			target.tagName === "VIDEO" ||
+			(target.tagName === "SOURCE" && target.parentElement?.tagName === "VIDEO")
+		) {
+			const video =
+				target.tagName === "VIDEO"
+					? (target as HTMLVideoElement)
+					: (target.parentElement as HTMLVideoElement);
+			mediaLightbox.show({
+				src: video.src || (video.querySelector("source")?.src ?? ""),
+				type: "video" as const,
+			});
+		}
+	}
+
+	el.addEventListener("click", onClick);
+	return () => el.removeEventListener("click", onClick);
+});
 </script>
 
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
@@ -190,14 +222,28 @@ const statusDotMap = {
       {#if imageBlocks.length > 0}
         <div class="mb-3 grid grid-cols-2 gap-2 sm:max-w-md">
           {#each imageBlocks as block, index}
-            <a href={getImagePreviewSrc(block)} target="_blank" rel="noreferrer" class="group overflow-hidden rounded-2xl border border-border-subtle bg-bg-content">
+            <button
+              type="button"
+              class="group overflow-hidden rounded-2xl border border-border-subtle bg-bg-content p-0 cursor-zoom-in"
+              onclick={() => {
+                const gallery = imageBlocks.map((b, i) => ({
+                  src: getImagePreviewSrc(b),
+                  type: "image" as const,
+                  alt: getImageAlt(b, i),
+                }));
+                mediaLightbox.show(gallery, index);
+              }}
+            >
               <img src={getImagePreviewSrc(block)} alt={getImageAlt(block, index)} class="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
-            </a>
+            </button>
           {/each}
         </div>
       {/if}
 
-      <div class="prose prose-sm max-w-none prose-pre:whitespace-pre-wrap prose-pre:break-words prose-code:before:content-none prose-code:after:content-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-headings:my-2 prose-strong:text-text-primary prose-code:text-emerald-400 prose-invert text-inherit">
+      <div
+        bind:this={markdownEl}
+        class="prose prose-sm max-w-none prose-pre:whitespace-pre-wrap prose-pre:break-words prose-code:before:content-none prose-code:after:content-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-headings:my-2 prose-strong:text-text-primary prose-code:text-emerald-400 prose-invert text-inherit"
+      >
         {@html renderedHtml}
       </div>
 
