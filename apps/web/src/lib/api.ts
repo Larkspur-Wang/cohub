@@ -15,8 +15,9 @@ import type {
   MessageRecord,
   RuntimeRecord as ProtocolRuntimeRecord,
   ChannelConfig,
+  ResourcePermissionLevel,
 } from "@cohub/protocol";
-export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig } from "@cohub/protocol";
+export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig, ResourcePermissionLevel } from "@cohub/protocol";
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -694,14 +695,14 @@ export type ResourcePermission = {
   id: string;
   resourceType: "runtime" | "session";
   resourceId: string;
-  level: "read" | "write" | "private";
+  level: ResourcePermissionLevel;
   createdBy: string;
   createdAt: string;
 };
 
 export const createRuntimePermission = async (
   runtimeId: string,
-  level: "read" | "write",
+  level: ResourcePermissionLevel,
 ) =>
   apiFetch(`/api/runtimes/${runtimeId}/permissions`, {
     method: "POST",
@@ -717,7 +718,7 @@ export const listRuntimePermissions = async (runtimeId: string) =>
 
 export const createSessionPermission = async (
   sessionId: string,
-  level: "read" | "write" | "private",
+  level: ResourcePermissionLevel,
 ) =>
   apiFetch(`/api/sessions/${sessionId}/permissions`, {
     method: "POST",

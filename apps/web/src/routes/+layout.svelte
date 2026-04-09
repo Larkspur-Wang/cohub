@@ -48,9 +48,6 @@ $effect(() => {
       <Sidebar />
     </div>
 
-    <!-- Mobile components -->
-    <MobileSidebarDrawer />
-
     <!-- Main content area -->
     <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
       <!-- Mobile header — only visible below lg -->
@@ -64,8 +61,11 @@ $effect(() => {
       <!-- Mobile bottom tab bar — only visible below lg -->
       <MobileTabBar />
     </main>
-
-    <!-- Global media lightbox -->
-    <MediaLightbox />
   </div>
+
+  <!-- Mobile drawer — outside flex container to avoid stacking context issues -->
+  <MobileSidebarDrawer />
+
+  <!-- Global media lightbox -->
+  <MediaLightbox />
 {/if}

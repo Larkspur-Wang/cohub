@@ -46,6 +46,8 @@ let streamingSessionIds = $state<Set<string>>(new Set());
 
 // Permission map: runtimeId → Map<sessionId, permissionLevel>
 let permsByRuntime = $state<Record<string, Map<string, string>>>({});
+// Track which runtimes have already had permissions loaded (avoid redundant API calls)
+const loadedPermsRuntimes = new Set<string>();
 
 // Broadcast channel listeners for cross-component session updates
 let broadcastChannels: BroadcastChannel[] = [];
@@ -116,10 +118,6 @@ function toggleRuntime(runtimeId: string) {
     next.delete(runtimeId);
   } else {
     next.add(runtimeId);
-    // Owner 才加载权限
-    if (userClaims?.sub) {
-      void loadRuntimePermissions(runtimeId);
-    }
   }
   expandedRuntimes = next;
 }
@@ -163,17 +161,17 @@ async function loadSessions(runtimeId: string) {
   }
 
   // 2. Always fetch fresh data from API
+  // Load sessions and permissions in parallel so icons appear promptly
   try {
-    const result = await getRuntimeSessions(runtimeId);
+    const [result] = await Promise.all([
+      getRuntimeSessions(runtimeId),
+      userClaims?.sub ? loadRuntimePermissions(runtimeId) : Promise.resolve(),
+    ]);
     sessionsByRuntime = {
       ...sessionsByRuntime,
       [runtimeId]: result.sessions ?? [],
     };
     sidebarCache.setSessions(runtimeId, result.sessions ?? []);
-    // Owner 才加载权限
-    if (userClaims?.sub) {
-      void loadRuntimePermissions(runtimeId);
-    }
   } catch {
     // Silently fail — sessions will load when user navigates
   }
@@ -181,6 +179,8 @@ async function loadSessions(runtimeId: string) {
 
 async function loadRuntimePermissions(runtimeId: string) {
   if (!userClaims?.sub) return;
+  if (loadedPermsRuntimes.has(runtimeId)) return;
+  loadedPermsRuntimes.add(runtimeId);
   try {
     const perms = await listRuntimePermissions(runtimeId);
     const map = new Map<string, string>();
@@ -368,6 +368,12 @@ onMount(() => {
     }
     // Load runtimes: cache-first, background refresh
     await loadRuntimes();
+
+    // Load permissions for all runtimes up front so sidebar icons are ready on first render
+    if (userClaims?.sub) {
+      void Promise.all(runtimes.map((rt) => loadRuntimePermissions(rt.id)));
+    }
+
     // Preload cached sessions for visible runtimes
     for (const rt of runtimes) {
       const cached = sidebarCache.getSessions(rt.id);
@@ -376,7 +382,7 @@ onMount(() => {
       }
     }
 
-    // Pre-load sessions for the current runtime (cache-first + background refresh)
+    // Pre-load sessions + permissions for the current runtime (cache-first + background refresh)
     if (currentRuntimeId) {
       expandedRuntimes = new Set(expandedRuntimes).add(currentRuntimeId);
       void loadSessions(currentRuntimeId);
@@ -399,11 +405,13 @@ onMount(() => {
     window.addEventListener("cohub:sessions-updated", handleSessionUpdateEvent as EventListener);
     window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
     window.addEventListener("cohub:runtime-created", handleRuntimeCreated as EventListener);
+    window.addEventListener("cohub:permissions-updated", handlePermissionsUpdateEvent as EventListener);
 
     // Start polling with dynamic intervals based on runtime statuses
     rescheduleAllPolling();
 
     // Auto-expand first runtime if no current runtime and list is non-empty
+    // (permissions already loaded above for all runtimes)
     if (!currentRuntimeId && runtimes.length > 0) {
       const firstActive = runtimes.find((r) => r.status === "running") ?? runtimes[0];
       expandedRuntimes = new Set(expandedRuntimes).add(firstActive.id);
@@ -415,6 +423,13 @@ onMount(() => {
     void loadRuntimes().then(() => {
       rescheduleAllPolling();
     });
+  }
+
+  function handlePermissionsUpdateEvent(e: Event) {
+    const detail = (e as CustomEvent).detail as { runtimeId: string };
+    if (detail?.runtimeId) {
+      void loadRuntimePermissions(detail.runtimeId);
+    }
   }
 
   function handleClickOutside(e: MouseEvent) {
@@ -433,6 +448,7 @@ onMount(() => {
     window.removeEventListener("cohub:sessions-updated", handleSessionUpdateEvent as EventListener);
     window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
     window.removeEventListener("cohub:runtime-created", handleRuntimeCreated as EventListener);
+    window.removeEventListener("cohub:permissions-updated", handlePermissionsUpdateEvent as EventListener);
     for (const ch of broadcastChannels) ch.close();
     broadcastChannels = [];
   };

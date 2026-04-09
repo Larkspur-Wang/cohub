@@ -59,7 +59,7 @@ import { eq, and, inArray, isNull, desc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
-import type { GatewayInboundEvent } from "@cohub/protocol";
+import type { GatewayInboundEvent, ResourcePermissionLevel } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { canRead, canReadForSession } from "./permissions.js";
 
@@ -1593,9 +1593,9 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
   const runtime = await getRuntimeById(runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
-  const body = await c.req.json<{ level: "read" | "write" | "private" }>().catch(() => null);
+  const body = await c.req.json<{ level: ResourcePermissionLevel }>().catch(() => null);
   if (!body || (body.level !== "read" && body.level !== "write" && body.level !== "private")) {
-    return c.json({ message: "level is required (read | write | private)" }, 400);
+    return c.json({ message: "level must be 'read', 'write', or 'private'" }, 400);
   }
 
   const [perm] = await db
@@ -1628,9 +1628,9 @@ app.post("/api/sessions/:id/permissions", async (c) => {
   const runtime = await getRuntimeById(session.runtimeId);
   if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
 
-  const body = await c.req.json<{ level: "read" | "write" | "private" }>().catch(() => null);
+  const body = await c.req.json<{ level: ResourcePermissionLevel }>().catch(() => null);
   if (!body || (body.level !== "read" && body.level !== "write" && body.level !== "private")) {
-    return c.json({ message: "level is required (read | write | private)" }, 400);
+    return c.json({ message: "level must be 'read', 'write', or 'private'" }, 400);
   }
 
   const [perm] = await db

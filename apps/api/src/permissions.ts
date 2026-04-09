@@ -2,12 +2,16 @@ import { and, inArray } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { resourcePermissions, runtimes } from "./db/schema.js";
 import type { AuthUserProfile } from "./auth.js";
+import type { ResourcePermissionLevel } from "@cohub/protocol";
+
+const READABLE_LEVELS: ResourcePermissionLevel[] = ["read", "write"];
 
 /**
  * 判断用户（或匿名）是否对指定资源有读权限。
  * - Owner 始终返回 true
  * - Session 级记录优先于 Runtime 级
  * - 不在表中 = 无权限
+ * - level="private" 表示明确拒绝，不 fallback
  */
 export const canRead = async (
   user: AuthUserProfile | null,
@@ -38,13 +42,17 @@ export const canRead = async (
   if (sessionId) {
     const sessionPerm = perms.find(p => p.resourceType === "session" && p.resourceId === sessionId);
     if (sessionPerm) {
-      // level="private" 表示明确拒绝，不 fallback
-      return sessionPerm.level !== "private";
+      return READABLE_LEVELS.includes(sessionPerm.level as ResourcePermissionLevel);
     }
   }
 
   // fallback runtime 级
-  return perms.some(p => p.resourceType === "runtime" && p.resourceId === runtimeId);
+  const runtimePerm = perms.find(p => p.resourceType === "runtime" && p.resourceId === runtimeId);
+  if (runtimePerm) {
+    return READABLE_LEVELS.includes(runtimePerm.level as ResourcePermissionLevel);
+  }
+
+  return false;
 };
 
 /**

@@ -40,7 +40,7 @@ $effect(() => {
   <div class="flex items-center gap-2 min-w-0">
     <button
       type="button"
-      class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors shrink-0"
+      class="flex items-center justify-center w-9 h-9 -m-0.5 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors shrink-0"
       onclick={toggleDrawer}
       aria-label="Toggle navigation"
     >

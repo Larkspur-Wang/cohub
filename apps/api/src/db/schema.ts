@@ -313,7 +313,7 @@ export const resourcePermissions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     resourceType: varchar("resource_type", { length: 20 }).notNull(),
     resourceId: uuid("resource_id").notNull(),
-    level: varchar("level", { length: 20 }).notNull().default("read"),  // "read" | "write" | "private"
+    level: varchar("level", { length: 20 }).notNull().default("read"),  // ResourcePermissionLevel from @cohub/protocol
     createdBy: varchar("created_by", { length: 255 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

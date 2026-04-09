@@ -143,6 +143,14 @@ function notifySessionsUpdate() {
 	});
 }
 
+function notifyPermissionsUpdate() {
+	window.dispatchEvent(
+		new CustomEvent("cohub:permissions-updated", {
+			detail: { runtimeId },
+		}),
+	);
+}
+
 function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
 	window.dispatchEvent(
 		new CustomEvent("cohub:streaming-status", {
@@ -190,7 +198,7 @@ let shareCopied = $state(false);
 let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
-let shareModalLevel = $state<"read" | "private">("read");
+
 let shareModalError = $state("");
 let shareModalSaving = $state(false);
 let sessionPermError = $state("");
@@ -821,6 +829,7 @@ async function toggleRuntimePublicRead(enabled: boolean) {
 		}
 		runtimePublicRead = enabled;
 		await loadPermissions();
+		notifyPermissionsUpdate();
 	} catch {
 		// Revert
 		runtimePublicRead = !enabled;
@@ -831,38 +840,58 @@ async function toggleRuntimePublicRead(enabled: boolean) {
 
 function openShareModal(sessionId: string) {
 	shareModalSessionId = sessionId;
-	shareModalLevel = hasSessionPermission(sessionId) ? "read" : "private";
 	shareCopied = false;
 	showShareModal = true;
 }
 
-async function applySharePermission() {
+async function shareAndCopyLink() {
 	if (!shareModalSessionId) return;
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
-		await createSessionPermission(shareModalSessionId, shareModalLevel);
+		await createSessionPermission(shareModalSessionId, "read");
 		await loadPermissions();
+		notifyPermissionsUpdate();
 		const url = `${window.location.origin}/runtimes/${runtimeId}?session=${shareModalSessionId}`;
 		await navigator.clipboard.writeText(url);
 		shareCopied = true;
 		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
 		shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+		showShareModal = false;
 	} catch (error) {
-		shareModalError = error instanceof Error ? error.message : "Failed to update permission";
+		shareModalError = error instanceof Error ? error.message : "Failed to share session";
 	} finally {
 		shareModalSaving = false;
 	}
 }
 
-async function removeSessionPermission(sessionId: string) {
+async function makeSessionPrivate() {
+	if (!shareModalSessionId) return;
+	shareModalError = "";
+	shareModalSaving = true;
+	try {
+		await createSessionPermission(shareModalSessionId, "private");
+		await loadPermissions();
+		notifyPermissionsUpdate();
+		showShareModal = false;
+	} catch (error) {
+		shareModalError = error instanceof Error ? error.message : "Failed to make session private";
+	} finally {
+		shareModalSaving = false;
+	}
+}
+
+async function removeSessionPermission(sessionId: string): Promise<boolean> {
 	try {
 		sessionPermError = "";
 		await deleteSessionPermission(sessionId);
 		await loadPermissions();
+		notifyPermissionsUpdate();
+		return true;
 	} catch (error) {
 		sessionPermError = error instanceof Error ? error.message : "Failed to remove permission";
 		setTimeout(() => { sessionPermError = ""; }, 4000);
+		return false;
 	}
 }
 
@@ -1449,12 +1478,12 @@ $effect(() => {
     {#if activeSessionId && isOwner}
       <button
         type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] transition-colors duration-100 {hasSessionPermission(activeSessionId!) ? 'text-brand hover:text-brand-hover bg-bg-hover' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] transition-colors duration-100 text-text-secondary hover:text-text-primary hover:bg-bg-hover"
         onclick={() => { openShareModal(activeSessionId!); }}
-        title="Share session"
+        title={hasSessionPermission(activeSessionId!) ? 'Session is public' : 'Share session'}
       >
         <Share2 class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">{hasSessionPermission(activeSessionId!) ? 'Shared' : 'Share'}</span>
+        <span class="hidden sm:inline">{hasSessionPermission(activeSessionId!) ? 'Public' : 'Share'}</span>
       </button>
     {/if}
 
@@ -1798,53 +1827,82 @@ $effect(() => {
   {#if showShareModal && shareModalSessionId}
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="absolute inset-0 bg-black/40" onclick={() => { showShareModal = false; }}></div>
-      <div class="relative w-full max-w-[360px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl overflow-hidden">
+      <div class="relative w-full max-w-[380px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl overflow-hidden">
         <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none">
-          <span>Share Session</span>
+          <span>{hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'}</span>
           <button type="button" class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors" onclick={() => { showShareModal = false; }}>
             <X class="w-3.5 h-3.5" />
           </button>
         </div>
         <div class="p-4 space-y-4">
-          <!-- Permission level selector -->
-          <div class="space-y-1">
-            <div class="text-[11px] text-text-placeholder">Visibility</div>
-            <label class="flex items-center gap-3 cursor-pointer p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
-              <input type="radio" name="shareLevel" checked={shareModalLevel === "read"} onchange={() => { shareModalLevel = "read"; }} class="accent-brand" />
-              <Globe class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-              <div>
-                <div class="text-[13px] text-text-secondary">Public read</div>
-                <div class="text-[11px] text-text-placeholder">Anyone with the link can view</div>
-              </div>
-            </label>
-            <label class="flex items-center gap-3 cursor-pointer p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
-              <input type="radio" name="shareLevel" checked={shareModalLevel === "private"} onchange={() => { shareModalLevel = "private"; }} class="accent-brand" />
-              <Lock class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-              <div>
-                <div class="text-[13px] text-text-secondary">Private</div>
-                <div class="text-[11px] text-text-placeholder">Only you can access</div>
-              </div>
-            </label>
-          </div>
-
-          <!-- Apply button -->
-          <button
-            type="button"
-            class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] bg-bg-hover-strong hover:bg-bg-hover-strong text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
-            onclick={() => { void applySharePermission(); }}
-            disabled={shareModalSaving}
-          >
-            {#if shareModalSaving}
-              <Loader2 class="w-3.5 h-3.5 animate-spin" />
-              Saving...
-            {:else if shareCopied}
-              <Check class="w-3.5 h-3.5 text-status-success" />
-              Copied link
-            {:else}
-              <Copy class="w-3.5 h-3.5" />
-              {hasSessionPermission(shareModalSessionId!) ? 'Re-copy link' : 'Share & copy link'}
-            {/if}
-          </button>
+          <!-- Already public: show manage options -->
+          {#if hasSessionPermission(shareModalSessionId!)}
+            <p class="text-[13px] text-text-secondary leading-relaxed">Anyone with the link can view this session. Choose how to manage access:</p>
+            <div class="space-y-2">
+              <button
+                type="button"
+                class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
+                onclick={() => { void removeSessionPermission(shareModalSessionId!).then((ok) => { if (ok) showShareModal = false; }); }}
+                disabled={shareModalSaving}
+              >
+                <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
+                <div class="min-w-0">
+                  <div class="text-[13px] text-text-primary font-medium">Remove permission</div>
+                  <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Delete this session's access rule. It will inherit the runtime-level setting instead.</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
+                onclick={() => { void makeSessionPrivate(); }}
+                disabled={shareModalSaving}
+              >
+                <Lock class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
+                <div class="min-w-0">
+                  <div class="text-[13px] text-text-primary font-medium">Make private</div>
+                  <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Block all external access regardless of the runtime's visibility setting.</div>
+                </div>
+              </button>
+            </div>
+            <!-- Copy link shortcut -->
+            <button
+              type="button"
+              class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] text-[13px] text-text-secondary hover:text-text-primary border border-border-subtle hover:bg-bg-hover transition-colors disabled:opacity-50"
+              onclick={() => {
+                const url = `${window.location.origin}/runtimes/${runtimeId}?session=${shareModalSessionId}`;
+                void navigator.clipboard.writeText(url);
+                shareCopied = true;
+                if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+                shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+              }}
+              disabled={shareModalSaving}
+            >
+              {#if shareCopied}
+                <Check class="w-3.5 h-3.5 text-status-success" />
+                Copied
+              {:else}
+                <Copy class="w-3.5 h-3.5" />
+                Copy link
+              {/if}
+            </button>
+          {:else}
+            <!-- Currently private: confirm before sharing -->
+            <p class="text-[13px] text-text-secondary leading-relaxed">This session will become publicly accessible. Anyone with the link can view the conversation.</p>
+            <button
+              type="button"
+              class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] bg-bg-primary hover:bg-bg-hover-strong border border-border-subtle text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
+              onclick={() => { void shareAndCopyLink(); }}
+              disabled={shareModalSaving}
+            >
+              {#if shareModalSaving}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                Sharing…
+              {:else}
+                <Share2 class="w-3.5 h-3.5" />
+                Share &amp; copy link
+              {/if}
+            </button>
+          {/if}
 
           {#if shareModalError}
             <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
