@@ -51,9 +51,15 @@ echo ""
 echo -e "${YELLOW}等待 Migration Job 完成...${NC}"
 
 # 等待 Job 完成
-kubectl wait --for=condition=complete job/${APP_NAME}-migrate -n "$NAMESPACE" --timeout=120s && \
-  echo -e "${GREEN}✅ Migration 完成${NC}" || \
-  echo -e "${RED}❌ Migration 失败，查看日志: kubectl logs job/${APP_NAME}-migrate -n ${NAMESPACE}${NC}"
+if kubectl wait --for=condition=complete job/${APP_NAME}-migrate -n "$NAMESPACE" --timeout=180s; then
+  echo -e "${GREEN}✅ Migration 完成${NC}"
+else
+  echo -e "${RED}❌ Migration 失败或超时${NC}"
+  echo ""
+  echo "日志："
+  kubectl logs job/${APP_NAME}-migrate -n "${NAMESPACE}" 2>&1 || echo "(无可用日志)"
+  exit 1
+fi
 
 # 显示 Job 状态
 kubectl get job ${APP_NAME}-migrate -n "$NAMESPACE"

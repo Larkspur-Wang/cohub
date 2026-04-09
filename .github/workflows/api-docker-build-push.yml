@@ -124,7 +124,7 @@ jobs:
             name: api-migrate-${{ github.run_id }}
             namespace: cohub-dev
           spec:
-            activeDeadlineSeconds: 120
+            activeDeadlineSeconds: 180
             ttlSecondsAfterFinished: 300
             backoffLimit: 0
             template:
@@ -214,7 +214,7 @@ jobs:
             name: api-migrate-${{ github.run_id }}
             namespace: cohub
           spec:
-            activeDeadlineSeconds: 120
+            activeDeadlineSeconds: 180
             ttlSecondsAfterFinished: 300
             backoffLimit: 0
             template:
