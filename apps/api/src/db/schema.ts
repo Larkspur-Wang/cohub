@@ -306,3 +306,18 @@ export const gatewayLogs = pgTable(
     createdIdx: index("idx_gateway_logs_created").on(table.createdAt),
   }),
 );
+
+export const resourcePermissions = pgTable(
+  "resource_permissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    resourceType: varchar("resource_type", { length: 20 }).notNull(),
+    resourceId: uuid("resource_id").notNull(),
+    level: varchar("level", { length: 20 }).notNull().default("read"),
+    createdBy: varchar("created_by", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    resourceIdx: index("idx_resource_permissions_resource").on(table.resourceType, table.resourceId),
+  }),
+);

@@ -54,13 +54,14 @@ import {
 } from "./runtime-sessions.js";
 import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
-import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes } from "./db/schema.js";
+import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
 import type { GatewayInboundEvent } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
+import { canRead, canReadForSession } from "./permissions.js";
 
 const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
   ...workspace,
@@ -1046,14 +1047,16 @@ app.get("/api/runtimes", async (c) => {
 
 app.get("/api/runtimes/:id", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  if (!await canRead(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
 
   const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
   return c.json(runtime);
 });
 
@@ -1210,18 +1213,27 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
 
 app.get("/api/runtimes/:id/sessions", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  if (!await canRead(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
   const sessions = await listRuntimeSessions(runtime.id);
+
+  // Non-owners only see sessions that have their own public permission
+  const isOwner = user?.uuid === runtime.userUuid;
+  const visibleSessions = isOwner
+    ? sessions
+    : sessions.filter((s) => canReadForSession(user, runtimeId, s.id));
 
   return c.json({
     runtime,
-    sessions,
+    sessions: visibleSessions,
   });
 });
 
@@ -1385,29 +1397,33 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages/user", asyn
 
 app.get("/api/sessions/:id", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
+
+  if (!await canRead(user, session.runtimeId, sessionId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
-  return c.json({ runtime, session, user });
+  return c.json({ runtime, session });
 });
 
 app.get("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
+
+  if (!await canRead(user, session.runtimeId, sessionId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
 
   const cursorParam = c.req.query("cursor");
   const cursor = cursorParam ? Number(cursorParam) : undefined;
@@ -1435,15 +1451,18 @@ app.get("/api/sessions/:id/messages", async (c) => {
 
 app.post("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
+
+  if (!await canRead(user, session.runtimeId, sessionId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
 
   const body = await c.req.json<{
     content: ContentBlock[];
@@ -1470,15 +1489,18 @@ app.post("/api/sessions/:id/messages", async (c) => {
 
 app.post("/api/sessions/:id/fork", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
+
+  if (!await canRead(user, session.runtimeId, sessionId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "session not found" }, 404);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
 
   const body = await c.req.json<{ fromMessageId?: string; title?: string | null }>().catch(() => null);
   if (!body?.fromMessageId || !requireValidId(body.fromMessageId)) {
@@ -1497,17 +1519,18 @@ app.post("/api/sessions/:id/fork", async (c) => {
 
 app.get("/api/sessions/:sessionId/stream", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const sessionId = c.req.param("sessionId");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
 
+  if (!await canRead(user, session.runtimeId, sessionId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(session.runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "unauthorized" }, 401);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
 
   const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
 
@@ -1534,13 +1557,16 @@ app.get("/api/sessions/:sessionId/stream", async (c) => {
 
 app.get("/api/runtimes/:id/stream", async (c) => {
   const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  if (!await canRead(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
   const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
 
   return streamSSE(c, async (stream) => {
@@ -1551,6 +1577,135 @@ app.get("/api/runtimes/:id/stream", async (c) => {
       await stream.writeSSE({ id: entry.id, event: "message", data: entry.payload ?? "" });
     }
   });
+});
+
+
+// ─── Permission management ───
+
+app.post("/api/runtimes/:id/permissions", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<{ level: "read" | "write" }>().catch(() => null);
+  if (!body || (body.level !== "read" && body.level !== "write")) {
+    return c.json({ message: "level is required (read | write)" }, 400);
+  }
+
+  const [perm] = await db
+    .insert(resourcePermissions)
+    .values({
+      resourceType: "runtime",
+      resourceId: runtimeId,
+      level: body.level,
+      createdBy: user.uuid,
+    })
+    .returning();
+
+  return c.json(perm);
+});
+
+app.post("/api/sessions/:id/permissions", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const sessionId = c.req.param("id");
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<{ level: "read" | "write" }>().catch(() => null);
+  if (!body || (body.level !== "read" && body.level !== "write")) {
+    return c.json({ message: "level is required (read | write)" }, 400);
+  }
+
+  const [perm] = await db
+    .insert(resourcePermissions)
+    .values({
+      resourceType: "session",
+      resourceId: sessionId,
+      level: body.level,
+      createdBy: user.uuid,
+    })
+    .returning();
+
+  return c.json(perm);
+});
+
+app.get("/api/runtimes/:id/permissions", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const perms = await db
+    .select()
+    .from(resourcePermissions)
+    .where(eq(resourcePermissions.resourceId, runtimeId))
+    .orderBy(resourcePermissions.createdAt);
+
+  return c.json(perms);
+});
+
+app.delete("/api/runtimes/:id/permissions/:permId", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  const permId = c.req.param("permId");
+  if (!requireValidId(runtimeId) || !requireValidId(permId)) return c.json({ message: "not found" }, 404);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  await db
+    .delete(resourcePermissions)
+    .where(and(
+      eq(resourcePermissions.id, permId),
+      eq(resourcePermissions.resourceId, runtimeId),
+    ));
+
+  return c.json({ ok: true });
+});
+
+app.delete("/api/sessions/:id/permissions/:permId", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const sessionId = c.req.param("id");
+  const permId = c.req.param("permId");
+  if (!requireValidId(sessionId) || !requireValidId(permId)) return c.json({ message: "not found" }, 404);
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  const runtime = await getRuntimeById(session.runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  await db
+    .delete(resourcePermissions)
+    .where(and(
+      eq(resourcePermissions.id, permId),
+      eq(resourcePermissions.resourceId, sessionId),
+    ));
+
+  return c.json({ ok: true });
 });
 
 
