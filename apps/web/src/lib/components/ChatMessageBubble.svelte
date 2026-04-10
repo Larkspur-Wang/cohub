@@ -270,7 +270,7 @@ $effect(() => {
                 onclick={() => toggleToolCall(block.id)}
               >
                 <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
-                <span class="text-[13px] font-mono text-text-tertiary shrink-0">{block.name}</span>
+                <span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em]">{block.name}</span>
                 <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
                 <span class="ml-auto text-text-tertiary shrink-0">
                   {#if expandedToolCalls.has(block.id)}

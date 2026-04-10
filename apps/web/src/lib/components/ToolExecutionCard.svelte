@@ -46,7 +46,7 @@ function summarizeToolInput(
     onclick={() => (expanded = !expanded)}
   >
     <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[tool.status] ?? 'bg-text-placeholder'}"></span>
-    <span class="text-[13px] font-mono text-text-tertiary shrink-0">{tool.name}</span>
+    <span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em]">{tool.name}</span>
     <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
     <span class="ml-auto text-text-tertiary shrink-0">
       {#if expanded}
