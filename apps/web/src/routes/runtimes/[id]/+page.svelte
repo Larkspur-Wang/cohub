@@ -1612,27 +1612,35 @@ $effect(() => {
   {#snippet right()}
     <button
       type="button"
-      class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+      class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
       onclick={() => handleCreateNewSession()}
       disabled={creatingSession || !runtime}
       title="New session"
     >
       {#if creatingSession}
-        <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+        <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin shrink-0"></div>
       {:else}
-        <Plus class="w-4 h-4" />
+        <Plus class="w-4 h-4 shrink-0" />
       {/if}
+      <span class="hidden lg:inline text-[13px] font-medium">New session</span>
     </button>
 
     <!-- Session Share -->
     {#if activeSessionId && isOwner}
+      {@const isPublic = hasSessionPermission(activeSessionId)}
       <button
         type="button"
-        class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] transition-colors duration-100 {isPublic ? 'text-success-soft hover:text-success hover:bg-success-bg' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
         onclick={() => { openShareModal(activeSessionId!); }}
-        title={hasSessionPermission(activeSessionId!) ? 'Session is public' : 'Share session'}
+        title={isPublic ? 'Session is public' : 'Share session'}
       >
-        <Share2 class="w-4 h-4" />
+        {#if isPublic}
+          <Globe class="w-4 h-4 shrink-0" />
+          <span class="hidden lg:inline text-[13px] font-medium">Shared</span>
+        {:else}
+          <Share2 class="w-4 h-4 shrink-0" />
+          <span class="hidden lg:inline text-[13px] font-medium">Share</span>
+        {/if}
       </button>
     {/if}
 
@@ -1773,7 +1781,7 @@ $effect(() => {
           bindContentEl={contentEl}
           timeline={timeline}
           onScrollChange={updateAutoFollow}
-          bottomInsetClass="pb-[calc(8rem+env(safe-area-inset-bottom))] sm:pb-40"
+          bottomInsetClass="pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-[5rem]"
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
           loadingOlder={activeSessionState?.loadingOlder ?? false}

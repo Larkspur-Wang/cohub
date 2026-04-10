@@ -22,7 +22,7 @@ let {
 	bindListEl = $bindable(null),
 	bindContentEl = $bindable(null),
 	onScrollChange,
-	bottomInsetClass = "pb-[calc(8rem+env(safe-area-inset-bottom))] sm:pb-40",
+	bottomInsetClass = "pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-[5rem]",
 	preloadThreshold = 10,
 	onFirstVisible,
 	loadingOlder = false,
