@@ -254,7 +254,7 @@ $effect(() => {
       </div>
 
       {#if message.content?.some((block) => block.type === 'tool_use')}
-        <div class="mt-3 space-y-1">
+        <div class="mt-4 space-y-2">
           {#each message.content.filter((block) => block.type === 'tool_use') as block (block.id)}
             {@const status = getToolStatus(block.id)}
             {@const result = findToolResult(block.id)}
@@ -265,9 +265,9 @@ $effect(() => {
                 class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
                 onclick={() => toggleToolCall(block.id)}
               >
-                <span class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
-                <span class="text-[13px] font-mono text-text-tertiary">{block.name}</span>
-                <span class="text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
+                <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
+                <span class="text-[13px] font-mono text-text-tertiary shrink-0">{block.name}</span>
+                <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
                 <span class="ml-auto text-text-tertiary shrink-0">
                   {#if expandedToolCalls.has(block.id)}
                     <ChevronDown class="w-3.5 h-3.5" />

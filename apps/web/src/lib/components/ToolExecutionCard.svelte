@@ -45,9 +45,9 @@ function summarizeToolInput(
     class="w-full flex items-center gap-2 pl-0 pr-4 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
     onclick={() => (expanded = !expanded)}
   >
-    <span class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotMap[tool.status] ?? 'bg-text-placeholder'}"></span>
-    <span class="text-[13px] font-mono text-text-tertiary">{tool.name}</span>
-    <span class="text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
+    <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[tool.status] ?? 'bg-text-placeholder'}"></span>
+    <span class="text-[13px] font-mono text-text-tertiary shrink-0">{tool.name}</span>
+    <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
     <span class="ml-auto text-text-tertiary shrink-0">
       {#if expanded}
         <ChevronDown class="w-3.5 h-3.5" />
