@@ -29,7 +29,7 @@ import {
 	listRuntimePermissions,
 	type ResourcePermission,
 } from "$lib/api";
-import { ensureAuth } from "$lib/auth";
+import { logtoClient } from "$lib/auth";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
@@ -564,7 +564,6 @@ function patchDiscordRuntimeChannelConfig(
 }
 
 async function loadRuntime() {
-	if (!(await ensureAuth())) return;
 	runtimeLoadError = "";
 
 	const [runtimeResult, sessionsResult, channelsResult] =
@@ -576,8 +575,13 @@ async function loadRuntime() {
 
 	if (runtimeResult.status === "fulfilled") {
 		runtime = runtimeResult.value;
-		const me = await getMe();
-		isOwner = runtime.userUuid === me?.uuid;
+		try {
+			const me = await getMe();
+			isOwner = runtime.userUuid === me?.uuid;
+		} catch {
+			// Anonymous access — not owner
+			isOwner = false;
+		}
 	} else {
 		runtimeLoadError =
 			runtimeResult.reason instanceof Error
@@ -603,7 +607,10 @@ async function loadRuntime() {
 				: "Failed to load runtime channels";
 	}
 
-	void loadPermissions();
+	// Permissions API requires login — skip for anonymous users
+	if (runtime && (await logtoClient.isAuthenticated())) {
+		void loadPermissions();
+	}
 }
 
 async function loadSessionState(sessionId: string, force = false) {
