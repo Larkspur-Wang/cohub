@@ -248,7 +248,7 @@ $effect(() => {
 
       <div
         bind:this={markdownEl}
-        class="prose prose-sm max-w-none prose-pre:whitespace-pre-wrap prose-pre:break-words prose-code:before:content-none prose-code:after:content-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-headings:my-2 prose-strong:text-text-primary prose-code:text-emerald-400 prose-invert text-inherit"
+        class="prose prose-sm prose-invert max-w-none text-inherit"
       >
         {@html renderedHtml}
       </div>

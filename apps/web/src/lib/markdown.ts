@@ -69,5 +69,11 @@ export const renderMarkdown = async (source: string) => {
     "$1",
   );
 
-  return DOMPurify.sanitize(resolvedHtml);
+  // Open all links in new tab
+  const linkedHtml = resolvedHtml.replace(
+    /<a /g,
+    '<a target="_blank" rel="noopener noreferrer" ',
+  );
+
+  return DOMPurify.sanitize(linkedHtml, { ADD_ATTR: ["target"] });
 };

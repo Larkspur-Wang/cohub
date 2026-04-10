@@ -299,7 +299,7 @@ git push -u origin main</pre>
             <h2 class="text-[13px] font-medium text-text-secondary">README</h2>
             <span class="text-[10px] text-text-placeholder">Documentation</span>
           </div>
-          <div class="p-4 prose prose-invert prose-sm max-w-none prose-headings:text-text-primary prose-p:text-text-secondary prose-a:text-blue-400 prose-code:text-text-secondary prose-code:bg-bg-hover prose-code:px-1 prose-code:rounded prose-pre:bg-bg-code prose-pre:border prose-pre:border-border-subtle">
+          <div class="p-4 prose prose-invert prose-sm max-w-none">
             {@html readmeHtml}
           </div>
         </div>
