@@ -69,15 +69,20 @@ function getThinkingDisplay(expanded: boolean): string {
 		: `${truncated}…`;
 }
 
+const textContent = $derived(
+	message.content
+		?.filter((block) => block.type === "text")
+		.map((block) => (block.type === "text" ? block.text : ""))
+		.join("\n\n")
+		.trim() || "",
+);
+
 $effect(() => {
 	let cancelled = false;
 
-	void renderMarkdown(
-		message.content
-			?.filter((block) => block.type === "text")
-			.map((block) => (block.type === "text" ? block.text : ""))
-			.join("\n\n") || message.text,
-	).then((html) => {
+	const markdownSource = textContent || (message.content?.length ? "" : message.text);
+
+	void renderMarkdown(markdownSource).then((html) => {
 		if (!cancelled) {
 			renderedHtml = html;
 		}

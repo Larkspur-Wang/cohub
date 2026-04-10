@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql, lt, gt, desc } from "drizzle-orm";
-import type { V1Pod } from "@kubernetes/client-node";
+import { ApiException, type V1Pod } from "@kubernetes/client-node";
 import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
@@ -54,6 +54,32 @@ const RESERVED_RUNTIME_ENV_NAMES = new Set([
 const nowIso = () => new Date().toISOString();
 
 // ─── Content extraction helpers ───
+
+const deriveMessagePreviewText = (input: {
+  role?: string | null;
+  content: ContentBlock[];
+}): string => {
+  const blocks = input.content;
+
+  return blocks
+    .flatMap((block) => {
+      switch (block.type) {
+        case "text":
+          return [block.text];
+        case "image":
+          return block.source.type === "url" ? [block.source.url] : [];
+        case "system_note":
+          return [block.text];
+        case "thinking":
+        case "tool_use":
+        case "tool_result":
+        default:
+          return [];
+      }
+    })
+    .join("\n")
+    .trim();
+};
 
 const extractPlainText = (blocks: ContentBlock[]): string => {
   return blocks
@@ -487,7 +513,10 @@ export const persistMessageNode = async (input: PersistMessageInput & {
 
   const sequence = await getNextSessionSequence(input.sessionId);
   const content = input.message.content;
-  const text = input.message.text === undefined ? extractPlainText(content) : (input.message.text ?? null);
+  const text = deriveMessagePreviewText({
+    role: input.message.role ?? null,
+    content,
+  }) || null;
   const messageRole = input.message.role ?? "assistant";
   const shouldDispatchToProvider = messageRole === "assistant";
 
@@ -1083,11 +1112,19 @@ export const hibernateRuntime = async (input: { runtimeId: string; userUuid: str
 
   try {
     await k8sCoreApi.deleteNamespacedPod({
-      name: `runtime-${runtime.id}`,
+      name: `sandbox-${runtime.id}`,
       namespace: sessionsNamespace,
     });
-  } catch {
-    // Pod may already be gone
+    console.log(`[Hibernate] Deleted pod sandbox-${runtime.id} for runtime ${runtime.id}`);
+  } catch (error) {
+    if (error instanceof ApiException && error.code === 404) {
+      console.log(`[Hibernate] Pod sandbox-${runtime.id} already gone, runtime ${runtime.id}`);
+    } else {
+      console.error(
+        `[Hibernate] Failed to delete pod sandbox-${runtime.id} for runtime ${runtime.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   await db
@@ -1137,11 +1174,19 @@ export const deleteRuntime = async (input: { runtimeId: string; userUuid: string
 
   try {
     await k8sCoreApi.deleteNamespacedPod({
-      name: `runtime-${runtime.id}`,
+      name: `sandbox-${runtime.id}`,
       namespace: sessionsNamespace,
     });
-  } catch {
-    // Pod may already be gone
+    console.log(`[DeleteRuntime] Deleted pod sandbox-${runtime.id} for runtime ${runtime.id}`);
+  } catch (error) {
+    if (error instanceof ApiException && error.code === 404) {
+      console.log(`[DeleteRuntime] Pod sandbox-${runtime.id} already gone, runtime ${runtime.id}`);
+    } else {
+      console.error(
+        `[DeleteRuntime] Failed to delete pod sandbox-${runtime.id} for runtime ${runtime.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   // Clean up channel routing cache

@@ -78,6 +78,11 @@ async function postJsonWithRetry(input: {
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
+        // Retry on 5xx server errors (transient — e.g. DB race on previousMessageId)
+        if (response.status >= 500 && attempt < maxAttempts) {
+          await sleep(500 * attempt);
+          continue;
+        }
         throw new Error(`${input.errorPrefix} ${response.status}: ${text}`);
       }
 
@@ -242,7 +247,6 @@ export async function persistUserMessage(input: {
     message: {
       role: "user",
       content: input.content,
-      text: extractTextFromContent(input.content),
       meta: {
         ...(input.meta ?? {}),
         messageId: input.userMessageId,
@@ -289,10 +293,9 @@ export async function persistAssistantMessage(input: {
 
   const assistant = assistantMessage as Record<string, unknown>;
   const content = eventToContentBlocks(assistant, toolResultsRaw);
-  const text = extractTextFromContent(assistant.content);
   const thinking = extractThinkingFromContent(assistant.content);
 
-  if (content.length === 0 && !text.trim()) {
+  if (content.length === 0) {
     console.warn("[Persist] skipping empty assistant message", {
       runtimeId: input.runtimeId,
       runtimeSessionId: input.runtimeSessionId,
@@ -328,7 +331,6 @@ export async function persistAssistantMessage(input: {
       externalMessageId: typeof assistant.id === "string" ? assistant.id : null,
       protocolMessageId: typeof assistant.id === "string" ? assistant.id : null,
       content,
-      text,
       provider: typeof assistant.provider === "string" ? assistant.provider : null,
       model: typeof assistant.model === "string" ? assistant.model : null,
       stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
