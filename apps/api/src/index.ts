@@ -1511,22 +1511,42 @@ app.get("/api/sessions/:sessionId/stream", async (c) => {
   const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
 
   return streamSSE(c, async (stream) => {
-    await stream.writeSSE({ event: "ready", data: JSON.stringify({ sessionId: session.id, runtimeId: runtime.id }) });
-    const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
-    for await (const entry of output) {
-      if (c.req.raw.signal.aborted) break;
-      // Server-side filter: only forward events for this session
-      const payload = entry.payload;
-      if (payload) {
-        try {
-          const parsed = JSON.parse(payload) as { sessionId?: string };
-          if (parsed.sessionId !== sessionId) continue;
-        } catch {
-          // Skip non-JSON payloads
-          continue;
-        }
+    const heartbeatMs = 25000;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+      if (c.req.raw.signal.aborted || stream.aborted || stream.closed) return;
+      void stream.write(`: ping ${Date.now()}\n\n`).catch(() => undefined);
+    }, heartbeatMs);
+
+    stream.onAbort(() => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
       }
-      await stream.writeSSE({ id: entry.id, event: "message", data: payload ?? "" });
+    });
+
+    try {
+      await stream.writeSSE({ event: "ready", data: JSON.stringify({ sessionId: session.id, runtimeId: runtime.id }) });
+      const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
+      for await (const entry of output) {
+        if (c.req.raw.signal.aborted || stream.aborted || stream.closed) break;
+        // Server-side filter: only forward events for this session
+        const payload = entry.payload;
+        if (payload) {
+          try {
+            const parsed = JSON.parse(payload) as { sessionId?: string };
+            if (parsed.sessionId !== sessionId) continue;
+          } catch {
+            // Skip non-JSON payloads
+            continue;
+          }
+        }
+        await stream.writeSSE({ id: entry.id, event: "message", data: payload ?? "" });
+      }
+    } finally {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
     }
   });
 });
@@ -1546,11 +1566,31 @@ app.get("/api/runtimes/:id/stream", async (c) => {
   const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
 
   return streamSSE(c, async (stream) => {
-    await stream.writeSSE({ event: "ready", data: JSON.stringify({ runtimeId: runtime.id }) });
-    const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
-    for await (const entry of output) {
-      if (c.req.raw.signal.aborted) break;
-      await stream.writeSSE({ id: entry.id, event: "message", data: entry.payload ?? "" });
+    const heartbeatMs = 25000;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+      if (c.req.raw.signal.aborted || stream.aborted || stream.closed) return;
+      void stream.write(`: ping ${Date.now()}\n\n`).catch(() => undefined);
+    }, heartbeatMs);
+
+    stream.onAbort(() => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    });
+
+    try {
+      await stream.writeSSE({ event: "ready", data: JSON.stringify({ runtimeId: runtime.id }) });
+      const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
+      for await (const entry of output) {
+        if (c.req.raw.signal.aborted || stream.aborted || stream.closed) break;
+        await stream.writeSSE({ id: entry.id, event: "message", data: entry.payload ?? "" });
+      }
+    } finally {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
     }
   });
 });
@@ -1708,5 +1748,13 @@ app.onError((error, c) => {
 
 const port = Number(process.env.PORT ?? 8787);
 assertRequiredConfig();
-serve({ fetch: app.fetch, port });
+const server = serve({
+  fetch: app.fetch,
+  port,
+  serverOptions: {
+    requestTimeout: 0,
+    keepAliveTimeout: 75_000,
+  },
+});
+server.setTimeout(0);
 console.log(`@cohub/api listening on :${port}`);

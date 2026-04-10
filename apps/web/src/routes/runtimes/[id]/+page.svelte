@@ -119,6 +119,11 @@ let streamingContentBlocks = $state<ContentBlock[]>([]);
 // SSE - per-session connections
 let sessionSSEs = new Map<string, AbortController>();
 let sessionLastEventIds = new Map<string, string>();
+let sessionReconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let sessionReconnectAttempts = new Map<string, number>();
+let pageMounted = false;
+let pageVisible = true;
+let pageOnline = true;
 
 // Sequential event processing queue to prevent race conditions
 let eventProcessing = false;
@@ -938,11 +943,59 @@ function hasSessionPermission(sessionId: string): boolean {
 
 // ─── SSE streaming (per-session) ───
 
+const BASE_RECONNECT_DELAY_MS = 1000;
+const MAX_RECONNECT_DELAY_MS = 15000;
+const HIDDEN_TAB_MIN_RECONNECT_DELAY_MS = 5000;
+
 function clearStreamingState() {
 	streamingAssistantText = "";
 	streamingThinking = "";
 	streamingContentBlocks = [];
 	streamingSessionId = null;
+}
+
+function clearReconnectTimer(sessionId: string) {
+	const timer = sessionReconnectTimers.get(sessionId);
+	if (timer) {
+		clearTimeout(timer);
+		sessionReconnectTimers.delete(sessionId);
+	}
+}
+
+function shouldKeepSessionSSE(sessionId: string) {
+	return pageMounted && pageOnline && activeSessionId === sessionId;
+}
+
+function scheduleSessionReconnect(sessionId: string) {
+	if (!shouldKeepSessionSSE(sessionId)) return;
+	if (sessionSSEs.has(sessionId) || sessionReconnectTimers.has(sessionId)) return;
+
+	const attempt = (sessionReconnectAttempts.get(sessionId) ?? 0) + 1;
+	sessionReconnectAttempts.set(sessionId, attempt);
+
+	const expDelay = Math.min(
+		BASE_RECONNECT_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+		MAX_RECONNECT_DELAY_MS,
+	);
+	const delay = pageVisible
+		? expDelay
+		: Math.max(expDelay, HIDDEN_TAB_MIN_RECONNECT_DELAY_MS);
+
+	const timer = setTimeout(() => {
+		sessionReconnectTimers.delete(sessionId);
+		if (shouldKeepSessionSSE(sessionId)) {
+			connectSessionSSE(sessionId);
+		}
+	}, delay);
+
+	sessionReconnectTimers.set(sessionId, timer);
+}
+
+function ensureSessionSSE(sessionId: string) {
+	clearReconnectTimer(sessionId);
+	if (!shouldKeepSessionSSE(sessionId)) return;
+	if (sessionSSEs.has(sessionId)) return;
+	connectSessionSSE(sessionId);
 }
 
 // Process events sequentially to avoid race conditions
@@ -1053,11 +1106,15 @@ async function processEventQueue() {
 // Start SSE for a specific session
 function connectSessionSSE(sessionId: string) {
 	disconnectSessionSSE(sessionId);
+	clearReconnectTimer(sessionId);
+	if (!shouldKeepSessionSSE(sessionId)) return;
+
 	const abort = new AbortController();
 	sessionSSEs.set(sessionId, abort);
 	const lastEventId = sessionLastEventIds.get(sessionId);
 
 	(async () => {
+		let shouldReconnect = true;
 		try {
 			for await (const packet of streamSessionEvents(
 				sessionId,
@@ -1067,20 +1124,28 @@ function connectSessionSSE(sessionId: string) {
 				if (packet.id) {
 					sessionLastEventIds.set(sessionId, packet.id);
 				}
+				sessionReconnectAttempts.set(sessionId, 0);
 				eventQueue.push(packet.event);
 				void processEventQueue();
 			}
 		} catch (error) {
-			if (error instanceof DOMException && error.name === "AbortError") return;
+			if (error instanceof DOMException && error.name === "AbortError") {
+				shouldReconnect = false;
+				return;
+			}
 			console.error(`[SSE] Session ${sessionId} stream error:`, error);
 		} finally {
 			sessionSSEs.delete(sessionId);
+			if (shouldReconnect && shouldKeepSessionSSE(sessionId)) {
+				scheduleSessionReconnect(sessionId);
+			}
 		}
 	})();
 }
 
 // Disconnect SSE for a specific session
 function disconnectSessionSSE(sessionId: string) {
+	clearReconnectTimer(sessionId);
 	const existing = sessionSSEs.get(sessionId);
 	if (existing) {
 		existing.abort();
@@ -1090,6 +1155,10 @@ function disconnectSessionSSE(sessionId: string) {
 
 // Disconnect all SSE connections
 function disconnectAllSSE() {
+	for (const timer of sessionReconnectTimers.values()) {
+		clearTimeout(timer);
+	}
+	sessionReconnectTimers.clear();
 	for (const [, ctrl] of sessionSSEs) {
 		ctrl.abort();
 	}
@@ -1327,6 +1396,35 @@ function handleRemoveAttachment(id: string) {
 }
 
 onMount(() => {
+	pageMounted = true;
+	pageVisible = document.visibilityState === "visible";
+	pageOnline = typeof navigator === "undefined" ? true : navigator.onLine;
+
+	function handleVisibilityChange() {
+		pageVisible = document.visibilityState === "visible";
+		if (activeSessionId && pageVisible) {
+			ensureSessionSSE(activeSessionId);
+		}
+	}
+
+	function handleOnline() {
+		pageOnline = true;
+		if (activeSessionId) {
+			ensureSessionSSE(activeSessionId);
+		}
+	}
+
+	function handleOffline() {
+		pageOnline = false;
+		if (activeSessionId) {
+			disconnectSessionSSE(activeSessionId);
+		}
+	}
+
+	window.addEventListener("online", handleOnline);
+	window.addEventListener("offline", handleOffline);
+	document.addEventListener("visibilitychange", handleVisibilityChange);
+
 	// Initialize broadcast channel for cross-component communication
 	try {
 		broadcastChannel = new BroadcastChannel(`cohub:runtime:${runtimeId}`);
@@ -1344,7 +1442,11 @@ onMount(() => {
 	}, 1000);
 
 	return () => {
+		pageMounted = false;
 		if (runtimePollingTimer) clearInterval(runtimePollingTimer);
+		window.removeEventListener("online", handleOnline);
+		window.removeEventListener("offline", handleOffline);
+		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		disconnectAllSSE();
 		broadcastChannel?.close();
 		broadcastChannel = null;
@@ -1362,10 +1464,15 @@ $effect(() => {
 			disconnectSessionSSE(id);
 		}
 	}
+	for (const [id] of sessionReconnectTimers) {
+		if (id !== currentId) {
+			clearReconnectTimer(id);
+		}
+	}
 
-	// Connect SSE for the new active session
-	if (currentId && currentId !== prevActiveSessionId) {
-		connectSessionSSE(currentId);
+	// Ensure the active session always has exactly one live stream or pending reconnect
+	if (currentId) {
+		ensureSessionSSE(currentId);
 	}
 
 	// Clear streaming state when switching sessions
