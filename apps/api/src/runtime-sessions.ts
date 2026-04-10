@@ -70,9 +70,6 @@ const deriveMessagePreviewText = (input: {
           return block.source.type === "url" ? [block.source.url] : [];
         case "system_note":
           return [block.text];
-        case "thinking":
-        case "tool_use":
-        case "tool_result":
         default:
           return [];
       }
