@@ -159,12 +159,16 @@ $effect(() => {
 	function onClick(e: Event) {
 		const target = e.target as HTMLElement;
 		if (target.tagName === "IMG") {
+			e.preventDefault();
+			e.stopPropagation();
 			const img = target as HTMLImageElement;
 			mediaLightbox.show({ src: img.src, type: "image" as const, alt: img.alt });
 		} else if (
 			target.tagName === "VIDEO" ||
 			(target.tagName === "SOURCE" && target.parentElement?.tagName === "VIDEO")
 		) {
+			e.preventDefault();
+			e.stopPropagation();
 			const video =
 				target.tagName === "VIDEO"
 					? (target as HTMLVideoElement)

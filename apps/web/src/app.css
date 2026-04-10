@@ -334,6 +334,25 @@ body.drawer-open {
 	font-weight: 400;
 }
 
+/* Images & videos — constrained size, zoomable */
+.prose img,
+.prose video {
+	max-width: 90%;
+	max-height: 16rem;
+	width: auto;
+	height: auto;
+	border-radius: 0.5rem;
+	margin: 1em 0;
+	cursor: zoom-in;
+}
+
+@media (min-width: 640px) {
+	.prose img,
+	.prose video {
+		max-width: 31.2rem;
+	}
+}
+
 /* Code block container — border + rounded corners */
 .prose pre {
 	border-radius: 0.75rem;
