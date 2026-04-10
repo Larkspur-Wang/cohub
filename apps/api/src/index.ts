@@ -54,7 +54,7 @@ import {
 import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions } from "./db/schema.js";
-import { eq, and, inArray, isNull, desc, sql, ne } from "drizzle-orm";
+import { eq, and, inArray, isNull, desc, asc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
@@ -1004,7 +1004,15 @@ app.get("/api/runtimes", async (c) => {
     .select()
     .from(runtimes)
     .where(and(eq(runtimes.userUuid, user.uuid), ne(runtimes.status, "deleted")))
-    .orderBy(runtimes.updatedAt, runtimes.createdAt);
+    .orderBy(
+      sql`CASE ${runtimes.status}
+        WHEN 'starting' THEN 0
+        WHEN 'running' THEN 1
+        ELSE 2
+      END`,
+      asc(runtimes.status),
+      desc(runtimes.createdAt),
+    );
 
   const runtimeIds = runtimeList.map((r) => r.id);
   const channelBindings = runtimeIds.length > 0
