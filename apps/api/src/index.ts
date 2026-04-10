@@ -1584,7 +1584,7 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
     })
     .onConflictDoUpdate({
       target: [resourcePermissions.resourceType, resourcePermissions.resourceId],
-      set: { level: body.level },
+      set: { level: sql`EXCLUDED.level` },
     })
     .returning();
 
@@ -1619,7 +1619,7 @@ app.post("/api/sessions/:id/permissions", async (c) => {
     })
     .onConflictDoUpdate({
       target: [resourcePermissions.resourceType, resourcePermissions.resourceId],
-      set: { level: body.level },
+      set: { level: sql`EXCLUDED.level` },
     })
     .returning();
 
