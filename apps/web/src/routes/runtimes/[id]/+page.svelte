@@ -397,6 +397,35 @@ function updateUrlSession(sessionId: string | null) {
 	});
 }
 
+function mergeMessagesById(
+	existing: MessageRecord[],
+	incoming: MessageRecord[],
+	options?: { preferIncoming?: boolean },
+): MessageRecord[] {
+	const preferIncoming = options?.preferIncoming ?? true;
+	const byId = new Map(existing.map((message) => [message.id, message]));
+	for (const message of incoming) {
+		const current = byId.get(message.id);
+		if (!current) {
+			byId.set(message.id, message);
+			continue;
+		}
+		byId.set(
+			message.id,
+			preferIncoming
+				? {
+					...current,
+					...message,
+				}
+				: {
+					...message,
+					...current,
+				},
+		);
+	}
+	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+}
+
 async function handleCreateNewSession() {
 	if (creatingSession || !runtime) return;
 	creatingSession = true;
@@ -590,7 +619,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				error: "",
 				hasMore: cached.hasMore,
 				loadingOlder: false,
-				oldestCursor: cached.oldestSeq != null ? cached.oldestSeq + 1 : undefined,
+				oldestCursor: cached.oldestSeq != null ? cached.oldestSeq : undefined,
 			},
 		};
 
@@ -694,11 +723,18 @@ async function syncSessionNewer(
 			await messageCache.append(sessionId, response.messages);
 			const state = sessionStateById[sessionId];
 			if (state) {
-				const existingIds = new Set(state.messages.map((m) => m.id));
-				const deduped = response.messages.filter((m) => !existingIds.has(m.id));
-				if (deduped.length > 0) {
-					const merged = [...state.messages, ...deduped];
-					merged.sort((a, b) => a.sequence - b.sequence);
+				const merged = mergeMessagesById(state.messages, response.messages, {
+					preferIncoming: true,
+				});
+				if (merged.length !== state.messages.length) {
+					sessionStateById = {
+						...sessionStateById,
+						[sessionId]: {
+							...state,
+							messages: merged,
+						},
+					};
+				} else if (response.messages.some((m) => state.messages.some((s) => s.id === m.id))) {
 					sessionStateById = {
 						...sessionStateById,
 						[sessionId]: {
@@ -740,11 +776,9 @@ async function loadOlderMessages(sessionId: string) {
 		if (response.messages.length > 0) {
 			await messageCache.prepend(sessionId, response.messages, response.hasMore);
 
-			// Deduplicate and sort to handle overlapping cursor ranges
-			const existingIds = new Set(state.messages.map((m) => m.id));
-			const deduped = response.messages.filter((m) => !existingIds.has(m.id));
-			const merged = [...deduped, ...state.messages];
-			merged.sort((a, b) => a.sequence - b.sequence);
+			const merged = mergeMessagesById(state.messages, response.messages, {
+				preferIncoming: false,
+			});
 
 			sessionStateById = {
 				...sessionStateById,
@@ -933,7 +967,8 @@ async function processEventQueue() {
 			streamingThinking = thinking;
 			streamingAssistantText = answer;
 			streamingContentBlocks = event.content;
-			if (answer) {
+			const hasStreamingContent = event.content.length > 0;
+			if (hasStreamingContent) {
 				if (streamingSessionId !== currentActiveSessionId) {
 					streamingSessionId = currentActiveSessionId;
 					notifyStreamingStatus(currentActiveSessionId, true);
@@ -984,11 +1019,11 @@ async function processEventQueue() {
 				}
 				streamingSessionId = null;
 
-				// Merge new messages with existing ones (dedup by id)
+				// Merge new messages with existing ones, replacing optimistic copies with persisted versions.
 				const existingMessages = state?.messages ?? [];
-				const existingIds = new Set(existingMessages.map((m) => m.id));
-				const deduped = newMessages.filter((m) => !existingIds.has(m.id));
-				const merged = [...existingMessages, ...deduped];
+				const merged = mergeMessagesById(existingMessages, newMessages, {
+					preferIncoming: true,
+				});
 
 				sessionStateById = {
 					...sessionStateById,
@@ -1024,15 +1059,15 @@ function connectSessionSSE(sessionId: string) {
 
 	(async () => {
 		try {
-			for await (const event of streamSessionEvents(
+			for await (const packet of streamSessionEvents(
 				sessionId,
 				lastEventId,
 				abort.signal,
 			)) {
-				if (event.type === "stream_update") {
-					sessionLastEventIds.set(sessionId, String(event.timestamp));
+				if (packet.id) {
+					sessionLastEventIds.set(sessionId, packet.id);
 				}
-				eventQueue.push(event);
+				eventQueue.push(packet.event);
 				void processEventQueue();
 			}
 		} catch (error) {

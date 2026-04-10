@@ -33,6 +33,7 @@ type SessionHandle = {
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
   currentUserMessageMeta: Record<string, unknown> | null;
+  persistenceChain: Promise<void>;
   streamState: {
     content: ContentBlock[];
     preferredDisplayMode: "full" | "compact" | "minimal";
@@ -53,6 +54,12 @@ async function shutdown(status: "hibernated" | "error", exitCode: number) {
   try {
     for (const handle of sessionHandles.values()) {
       try {
+        await handle.persistenceChain.catch((error) => {
+          console.error(
+            `[Supervisor] Failed while draining persistence chain for ${handle.sessionId}:`,
+            error,
+          );
+        });
         handle.session.dispose();
       } catch (error) {
         console.error(
@@ -206,6 +213,27 @@ function resetStreamState(handle: SessionHandle) {
   };
 }
 
+function enqueuePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
+  const next = handle.persistenceChain
+    .catch((error) => {
+      console.error(
+        `[Supervisor] Previous persistence task failed for session ${handle.sessionId}:`,
+        error,
+      );
+    })
+    .then(task)
+    .catch((error) => {
+      console.error(
+        `[Supervisor] Persistence task failed (${label}) for session ${handle.sessionId}:`,
+        error,
+      );
+      throw error;
+    });
+
+  handle.persistenceChain = next.catch(() => undefined);
+  return next;
+}
+
 function subscribeSessionEvents(handle: SessionHandle) {
   handle.session.subscribe((event) => {
     if (event.type === "message_start") {
@@ -242,8 +270,8 @@ function subscribeSessionEvents(handle: SessionHandle) {
       void emitProviderRenderUpdate(handle);
     }
 
-    // Persist user message to DB on message_end — this guarantees correct sequence
-    // ordering since it's the only source of truth for actual processing order
+    // Persist user message to DB on message_end — queued per session so
+    // user/assistant persistence always stays in processing order.
     if (event.type === "message_end") {
       const message = event.message as unknown as Record<string, unknown>;
       if (message.role === "user" && handle.currentUserMessageId && handle.currentUserMessageContent) {
@@ -253,17 +281,14 @@ function subscribeSessionEvents(handle: SessionHandle) {
         handle.currentUserMessageContent = null;
         handle.currentUserMessageMeta = null;
 
-        void persistUserMessage({
-          runtimeId: env.RUNTIME_ID,
-          sessionId: handle.sessionId,
-          userMessageId,
-          content,
-          meta,
-        }).catch((error) => {
-          console.error(
-            `[Supervisor] Failed to persist user message ${userMessageId} for ${handle.sessionId}:`,
-            error,
-          );
+        void enqueuePersistence(handle, `user:${userMessageId}`, async () => {
+          await persistUserMessage({
+            runtimeId: env.RUNTIME_ID,
+            sessionId: handle.sessionId,
+            userMessageId,
+            content,
+            meta,
+          });
         });
       }
     }
@@ -344,17 +369,17 @@ function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
-      // Persist to DB (uses local event object, not Redis)
-      void persistAssistantMessage({
-        runtimeId: env.RUNTIME_ID,
-        runtimeSessionId: handle.sessionId,
-        userMessageId: handle.currentUserMessageId,
-        event: event as Record<string, unknown>,
-      }).catch((error) => {
-        console.error(
-          `[Supervisor] Failed to persist assistant message for ${handle.sessionId}:`,
-          error,
-        );
+      const currentUserMessageId = handle.currentUserMessageId;
+
+      // Persist to DB (uses local event object, not Redis) through the same
+      // per-session queue used by user messages.
+      void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
+        await persistAssistantMessage({
+          runtimeId: env.RUNTIME_ID,
+          runtimeSessionId: handle.sessionId,
+          userMessageId: currentUserMessageId,
+          event: event as Record<string, unknown>,
+        });
       });
 
       // Emit final render update with turnEnd flag
@@ -363,10 +388,10 @@ function subscribeSessionEvents(handle: SessionHandle) {
         runtimeId: env.RUNTIME_ID,
         sessionId: handle.sessionId,
         content: handle.streamState.content,
-        sourceMessageId: handle.currentUserMessageId,
+        sourceMessageId: currentUserMessageId,
         timestamp: Date.now(),
         turnEnd: true,
-        anchorUserMessageId: handle.currentUserMessageId,
+        anchorUserMessageId: currentUserMessageId,
       };
       void sendOutput(finalEvent);
 
@@ -375,7 +400,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
       resetStreamState(handle);
 
       // Remove matched user message from queue
-      const matchedId = handle.currentUserMessageId;
+      const matchedId = currentUserMessageId;
       handle.pendingUserMessages = handle.pendingUserMessages.filter(
         (item) => item.userMessageId !== matchedId,
       );
@@ -500,6 +525,7 @@ async function loadOrCreateSessionHandle(input: {
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
+    persistenceChain: Promise.resolve(),
     streamState: {
       content: [],
       preferredDisplayMode: "compact",

@@ -42,6 +42,57 @@ const buildAssistantIdempotencyKey = (input: {
     .digest("hex");
 };
 
+const buildUserIdempotencyKey = (input: {
+  messageId: string;
+  content: ContentBlock[];
+  meta?: Record<string, unknown> | null;
+}): string => {
+  return createHash("sha256")
+    .update(
+      stableSerialize({
+        role: "user",
+        messageId: input.messageId,
+        content: input.content,
+        meta: input.meta ?? null,
+      }),
+    )
+    .digest("hex");
+};
+
+async function postJsonWithRetry(input: {
+  url: string;
+  body: unknown;
+  errorPrefix: string;
+  maxAttempts?: number;
+}) {
+  const maxAttempts = input.maxAttempts ?? 3;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(input.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input.body),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`${input.errorPrefix} ${response.status}: ${text}`);
+      }
+
+      return response.json().catch(() => null);
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        await sleep(500 * attempt);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 // ─── Content extraction ───
 
 const extractTextFromContent = (content: unknown): string => {
@@ -178,23 +229,46 @@ export async function persistUserMessage(input: {
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 }) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.sessionId}/messages/user`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+  const payload: PersistMessageInput = {
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    previousMessageId: null,
+    anchorUserMessageId: input.userMessageId,
+    idempotencyKey: buildUserIdempotencyKey({
       messageId: input.userMessageId,
       content: input.content,
       meta: input.meta ?? null,
     }),
+    message: {
+      role: "user",
+      content: input.content,
+      text: extractTextFromContent(input.content),
+      meta: {
+        ...(input.meta ?? {}),
+        messageId: input.userMessageId,
+      },
+      provider: null,
+      model: null,
+      stopReason: null,
+      errorMessage: null,
+      usage: null,
+    },
+  };
+
+  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.sessionId}/messages`;
+  return postJsonWithRetry({
+    url,
+    body: {
+      previousMessageId: payload.previousMessageId,
+      anchorUserMessageId: payload.anchorUserMessageId,
+      idempotencyKey: payload.idempotencyKey,
+      message: {
+        ...payload.message,
+        id: input.userMessageId,
+      },
+    },
+    errorPrefix: "Persist user message failed",
   });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Persist user message failed ${response.status}: ${text}`);
-  }
-
-  return response.json().catch(() => null);
 }
 
 export async function persistAssistantMessage(input: {
@@ -295,30 +369,9 @@ export async function persistAssistantMessage(input: {
   });
 
   const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/messages`;
-  const maxAttempts = 3;
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(`Persist API responded ${response.status}: ${text}`);
-      }
-
-      return;
-    } catch (error) {
-      lastError = error;
-      if (attempt < maxAttempts) {
-        await sleep(500 * attempt);
-      }
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  await postJsonWithRetry({
+    url,
+    body: payload,
+    errorPrefix: "Persist API responded",
+  });
 }

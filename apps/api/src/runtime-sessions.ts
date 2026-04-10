@@ -451,60 +451,9 @@ const updateSessionAfterAppend = async (sessionId: string, message: typeof sessi
     .where(eq(runtimeSessions.id, sessionId));
 };
 
-/** Persist a user message with a pre-assigned ID (called by agent on message_end). */
-export const persistUserMessageNode = async (input: {
-  id: string;
-  runtimeSessionId: string;
-  content: ContentBlock[];
-  meta?: Record<string, unknown> | null;
+export const persistMessageNode = async (input: PersistMessageInput & {
+  message: PersistMessageInput["message"] & { id?: string };
 }) => {
-  const session = await getRuntimeSessionById(input.runtimeSessionId);
-  if (!session) throw new Error("Runtime session not found");
-
-  const content = input.content;
-  if (content.length === 0) throw new Error("User message content cannot be empty");
-
-  const sequence = await getNextSessionSequence(input.runtimeSessionId);
-
-  const [message] = await db
-    .insert(sessionMessages)
-    .values({
-      id: input.id,
-      sessionId: input.runtimeSessionId,
-      role: "user",
-      content,
-      text: extractPlainText(content),
-      meta: {
-        ...(input.meta ?? {}),
-        messageKind: "user",
-      },
-      sequence,
-    })
-    .returning();
-
-  if (!message) throw new Error("Failed to create user message node");
-
-  // Auto-fill session title from first user message
-  if (!session.title?.trim()) {
-    const titleText = extractPlainText(content)
-      .replace(/\s+/g, " ")
-      .replace(/^[:\-\s]+/, "")
-      .trim()
-      .slice(0, 60);
-
-    if (titleText) {
-      await db
-        .update(runtimeSessions)
-        .set({ title: titleText, updatedAt: new Date() })
-        .where(eq(runtimeSessions.id, input.runtimeSessionId));
-    }
-  }
-
-  await updateSessionAfterAppend(input.runtimeSessionId, message);
-  return message;
-};
-
-export const persistMessageNode = async (input: PersistMessageInput) => {
   const [existing] = await db
     .select()
     .from(sessionMessages)
@@ -570,6 +519,7 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
     [messageNode] = await db
       .insert(sessionMessages)
       .values({
+        id: input.message.id?.trim() || undefined,
         sessionId: input.sessionId,
         role: messageRole,
         content,
@@ -608,6 +558,21 @@ export const persistMessageNode = async (input: PersistMessageInput) => {
   }
 
   if (!messageNode) throw new Error("Failed to persist message");
+
+  if (messageRole === "user" && !session.title?.trim()) {
+    const titleText = (text ?? extractPlainText(content))
+      .replace(/\s+/g, " ")
+      .replace(/^[:\-\s]+/, "")
+      .trim()
+      .slice(0, 60);
+
+    if (titleText) {
+      await db
+        .update(runtimeSessions)
+        .set({ title: titleText, updatedAt: new Date() })
+        .where(eq(runtimeSessions.id, input.sessionId));
+    }
+  }
 
   await updateSessionAfterAppend(input.sessionId, messageNode);
 

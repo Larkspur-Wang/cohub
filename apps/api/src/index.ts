@@ -42,7 +42,6 @@ import {
   listSessionMessages,
   normalizeRuntimeEnv,
   persistMessageNode,
-  persistUserMessageNode,
   provisionRuntimeInBackground,
   readRuntimeOutputStream,
   registerRuntimeSession,
@@ -61,7 +60,7 @@ import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
 import type { GatewayInboundEvent, ResourcePermissionLevel } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
-import { canRead, canReadForSession } from "./permissions.js";
+import { canRead, canReadForSession, canWrite } from "./permissions.js";
 
 const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
   ...workspace,
@@ -1336,7 +1335,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
       previousMessageId?: string | null;
       anchorUserMessageId?: string | null;
       idempotencyKey?: string;
-      message?: PersistMessageInput["message"];
+      message?: PersistMessageInput["message"] & { id?: string | null };
     }>()
     .catch(() => null);
 
@@ -1353,43 +1352,9 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
     idempotencyKey: body.idempotencyKey,
     message: {
       ...(body.message as PersistMessageInput["message"]),
+      id: body.message.id ?? undefined,
       content: body.message.content as never,
-    },
-  });
-
-  return c.json({ ok: true, message: messageNode });
-});
-
-// ─── Agent-persisted user message (called on message_end for user role) ───
-
-app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages/user", async (c) => {
-  const forbidden = ensureInternalRequest(c);
-  if (forbidden) return forbidden;
-
-  const runtimeId = c.req.param("runtimeId");
-  const sessionId = c.req.param("sessionId");
-  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
-    return c.json({ message: "session not found" }, 404);
-  }
-
-  const body = await c.req
-    .json<{
-      messageId: string;
-      content: ContentBlock[];
-      meta?: Record<string, unknown> | null;
-    }>()
-    .catch(() => null);
-
-  if (!body?.messageId?.trim()) return c.json({ message: "messageId is required" }, 400);
-  if (!body.content || body.content.length === 0) {
-    return c.json({ message: "content is required" }, 400);
-  }
-
-  const messageNode = await persistUserMessageNode({
-    id: body.messageId,
-    runtimeSessionId: sessionId,
-    content: body.content,
-    meta: body.meta ?? null,
+    } as PersistMessageInput["message"] & { id?: string },
   });
 
   return c.json({ ok: true, message: messageNode });
@@ -1427,20 +1392,23 @@ app.get("/api/sessions/:id/messages", async (c) => {
 
   const cursorParam = c.req.query("cursor");
   const cursor = cursorParam ? Number(cursorParam) : undefined;
-  const limit = Math.min(Number(c.req.query("limit") ?? 30), 100) || 30;
+  const pageLimit = Math.min(Number(c.req.query("limit") ?? 30), 100) || 30;
   const direction = (c.req.query("direction") as "older" | "newer" | undefined) ?? "older";
+  const fetchLimit = Math.min(pageLimit + 1, 101);
 
-  const messages = await listSessionMessages(session.id, {
+  const rows = await listSessionMessages(session.id, {
     cursor: cursor ? Number(cursor) : undefined,
-    limit,
+    limit: fetchLimit,
     direction,
   });
+  const hasMore = rows.length > pageLimit;
+  const messages = hasMore ? rows.slice(0, pageLimit) : rows;
 
   return c.json({
     runtime,
     session,
     messages,
-    hasMore: messages.length === limit,
+    hasMore,
     nextCursor: messages.length > 0
       ? direction === "older"
         ? (messages[0]?.sequence ?? 0) - 1
@@ -1457,7 +1425,7 @@ app.post("/api/sessions/:id/messages", async (c) => {
   const session = await getRuntimeSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
 
-  if (!await canRead(user, session.runtimeId, sessionId)) {
+  if (!await canWrite(user, session.runtimeId, sessionId)) {
     return c.json({ message: "not found" }, 404);
   }
 

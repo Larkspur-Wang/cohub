@@ -132,7 +132,7 @@ const gatewayFetch = async (
   return response;
 };
 
-const readSseEvents = async function* (response: Response) {
+const readSseEvents = async function* (response: Response): AsyncGenerator<{ id?: string; data: string }> {
   const reader = response.body?.getReader();
   if (!reader) return;
 
@@ -163,12 +163,16 @@ const readSseEvents = async function* (response: Response) {
 
   const parseChunk = (chunk: string) => {
     const normalizedChunk = chunk.replace(/\r\n/g, "\n");
-    const dataLines = normalizedChunk
-      .split("\n")
+    const lines = normalizedChunk.split("\n");
+    const dataLines = lines
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).replace(/^ /, ""));
+    const idLine = lines.find((line) => line.startsWith("id:"));
 
-    return dataLines.join("\n");
+    return {
+      id: idLine ? idLine.slice(3).replace(/^ /, "") : undefined,
+      data: dataLines.join("\n"),
+    };
   };
 
   while (true) {
@@ -178,18 +182,18 @@ const readSseEvents = async function* (response: Response) {
 
     let chunk = extractNextChunk();
     while (chunk !== null) {
-      const data = parseChunk(chunk);
-      if (data) {
-        yield data;
+      const parsed = parseChunk(chunk);
+      if (parsed.data) {
+        yield parsed;
       }
       chunk = extractNextChunk();
     }
   }
 
   buffer += decoder.decode();
-  const trailingData = parseChunk(buffer);
-  if (trailingData) {
-    yield trailingData;
+  const trailing = parseChunk(buffer);
+  if (trailing.data) {
+    yield trailing;
   }
 };
 
@@ -297,24 +301,30 @@ export const getSessionMessagesPaginated = async (
 };
 
 export type { SessionStreamError };
+export type SessionStreamEnvelope = {
+  id?: string;
+  event: SessionStreamEvent;
+};
 
-// ─── Simple client-side dedup: reject same text within 2s ───
-let lastSentText = "";
+// ─── Simple client-side dedup: reject identical payload in same session within 2s ───
+let lastSentSignature = "";
+let lastSentSessionId = "";
 let lastSentAt = 0;
 const DEDUP_WINDOW_MS = 2000;
 
 export const postSessionMessage = async (sessionId: string, content: ContentBlock[]) => {
-  const textOnly = content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("\n")
-    .trim();
+  const signature = JSON.stringify({ sessionId, content });
 
   const now = Date.now();
-  if (textOnly === lastSentText && now - lastSentAt < DEDUP_WINDOW_MS) {
+  if (
+    sessionId === lastSentSessionId &&
+    signature === lastSentSignature &&
+    now - lastSentAt < DEDUP_WINDOW_MS
+  ) {
     throw new Error("Duplicate message ignored");
   }
-  lastSentText = textOnly;
+  lastSentSessionId = sessionId;
+  lastSentSignature = signature;
   lastSentAt = now;
 
   return apiFetch(`/api/sessions/${sessionId}/messages`, {
@@ -761,7 +771,7 @@ export const streamRuntimeEvents = async function* (
   runtimeId: string,
   lastEventId?: string,
   signal?: AbortSignal,
-) {
+): AsyncGenerator<SessionStreamEnvelope> {
   const url = API_BASE_URL
     ? `${API_BASE_URL}/api/runtimes/${runtimeId}/stream`
     : `/api/runtimes/${runtimeId}/stream`;
@@ -784,9 +794,9 @@ export const streamRuntimeEvents = async function* (
     throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
   }
 
-  for await (const data of readSseEvents(response)) {
+  for await (const sse of readSseEvents(response)) {
     try {
-      yield JSON.parse(data) as SessionStreamEvent;
+      yield { id: sse.id, event: JSON.parse(sse.data) as SessionStreamEvent };
     } catch {
       // Skip non-JSON events (e.g. "ready" event)
     }
@@ -797,7 +807,7 @@ export const streamSessionEvents = async function* (
   sessionId: string,
   lastEventId?: string,
   signal?: AbortSignal,
-) {
+): AsyncGenerator<SessionStreamEnvelope> {
   const url = API_BASE_URL
     ? `${API_BASE_URL}/api/sessions/${sessionId}/stream`
     : `/api/sessions/${sessionId}/stream`;
@@ -820,9 +830,9 @@ export const streamSessionEvents = async function* (
     throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
   }
 
-  for await (const data of readSseEvents(response)) {
+  for await (const sse of readSseEvents(response)) {
     try {
-      yield JSON.parse(data) as SessionStreamEvent;
+      yield { id: sse.id, event: JSON.parse(sse.data) as SessionStreamEvent };
     } catch {
       // Skip non-JSON events (e.g. "ready" event)
     }

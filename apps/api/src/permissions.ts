@@ -5,6 +5,7 @@ import type { AuthUserProfile } from "./auth.js";
 import type { ResourcePermissionLevel } from "@cohub/protocol";
 
 const READABLE_LEVELS: ResourcePermissionLevel[] = ["read", "write"];
+const WRITABLE_LEVELS: ResourcePermissionLevel[] = ["write"];
 
 /**
  * 判断用户（或匿名）是否对指定资源有读权限。
@@ -65,4 +66,42 @@ export const canReadForSession = async (
   sessionId: string,
 ): Promise<boolean> => {
   return canRead(user, runtimeId, sessionId);
+};
+
+export const canWrite = async (
+  user: AuthUserProfile | null,
+  runtimeId: string,
+  sessionId?: string,
+): Promise<boolean> => {
+  if (!user?.uuid) return false;
+
+  const [runtime] = await db
+    .select({ userUuid: runtimes.userUuid })
+    .from(runtimes)
+    .where(inArray(runtimes.id, [runtimeId]))
+    .limit(1);
+  if (runtime?.userUuid === user.uuid) return true;
+
+  const resourceIds = [runtimeId, ...(sessionId ? [sessionId] : [])];
+  const perms = await db
+    .select()
+    .from(resourcePermissions)
+    .where(and(
+      inArray(resourcePermissions.resourceType, ["session", "runtime"]),
+      inArray(resourcePermissions.resourceId, resourceIds),
+    ));
+
+  if (sessionId) {
+    const sessionPerm = perms.find((p) => p.resourceType === "session" && p.resourceId === sessionId);
+    if (sessionPerm) {
+      return WRITABLE_LEVELS.includes(sessionPerm.level as ResourcePermissionLevel);
+    }
+  }
+
+  const runtimePerm = perms.find((p) => p.resourceType === "runtime" && p.resourceId === runtimeId);
+  if (runtimePerm) {
+    return WRITABLE_LEVELS.includes(runtimePerm.level as ResourcePermissionLevel);
+  }
+
+  return false;
 };
