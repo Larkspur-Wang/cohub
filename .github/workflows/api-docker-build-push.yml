@@ -10,6 +10,14 @@ on:
       - 'apps/api/**'
       - 'packages/**'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment for migration'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
 
 permissions:
   contents: read
@@ -172,8 +180,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -191,21 +197,12 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/}
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Run migration if needed
+      - name: Run migration
         env:
           TAG: ${{ steps.get-tag.outputs.tag }}
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
-            'apps/api/src/db/schema.ts' \
-            'apps/api/drizzle/*.sql' 2>/dev/null || true)
-          
-          if [ -z "$CHANGED" ]; then
-            echo "No migration needed"
-            exit 0
-          fi
-          
           IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
-          echo "Migration needed, running with image: $IMAGE"
+          echo "Running migration with image: $IMAGE"
           
           kubectl apply -f - <<EOF
           apiVersion: batch/v1
@@ -256,3 +253,131 @@ jobs:
       - name: Verify deployment
         run: |
           kubectl rollout status deployment/cohub-api -n cohub --timeout=300s
+
+  # Manual migration trigger for dev/prod
+  migrate-dev:
+    needs: build-and-push
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > ~/.kube/config
+
+      - name: Run migration
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}
+          echo "Running migration with image: $IMAGE"
+
+          kubectl apply -f - <<EOF
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: api-migrate-${{ github.run_id }}
+            namespace: cohub-dev
+          spec:
+            activeDeadlineSeconds: 180
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: ${IMAGE}
+                    imagePullPolicy: Always
+                    command: ["node", "dist/db/migrate.js"]
+                    env:
+                      - name: DATABASE_URL
+                        valueFrom:
+                          secretKeyRef:
+                            name: cohub-api-dev-secrets
+                            key: DATABASE_URL
+          EOF
+
+          if kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
+            -n cohub-dev --timeout=300s; then
+            echo "Migration completed successfully"
+          else
+            echo "Migration job failed or timed out, showing diagnostics:"
+            echo "--- Pod Events ---"
+            kubectl describe job api-migrate-${{ github.run_id }} -n cohub-dev || true
+            echo "--- Pod Logs ---"
+            kubectl logs job/api-migrate-${{ github.run_id }} -n cohub-dev --tail=50 || true
+            echo "--- Pod Status ---"
+            kubectl get pods -n cohub-dev -l job-name=api-migrate-${{ github.run_id }} || true
+            exit 1
+          fi
+
+  migrate-prod:
+    needs: build-and-push
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
+
+      - name: Run migration
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+          echo "Running migration with image: $IMAGE"
+
+          kubectl apply -f - <<EOF
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: api-migrate-${{ github.run_id }}
+            namespace: cohub
+          spec:
+            activeDeadlineSeconds: 180
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: ${IMAGE}
+                    imagePullPolicy: Always
+                    command: ["node", "dist/db/migrate.js"]
+                    env:
+                      - name: DATABASE_URL
+                        valueFrom:
+                          secretKeyRef:
+                            name: cohub-api-secrets
+                            key: DATABASE_URL
+          EOF
+
+          if kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
+            -n cohub --timeout=300s; then
+            echo "Migration completed successfully"
+          else
+            echo "Migration job failed or timed out, showing diagnostics:"
+            echo "--- Pod Events ---"
+            kubectl describe job api-migrate-${{ github.run_id }} -n cohub || true
+            echo "--- Pod Logs ---"
+            kubectl logs job/api-migrate-${{ github.run_id }} -n cohub --tail=50 || true
+            echo "--- Pod Status ---"
+            kubectl get pods -n cohub -l job-name=api-migrate-${{ github.run_id }} || true
+            exit 1
+          fi
