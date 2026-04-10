@@ -5,6 +5,7 @@ import { createWorkspace, getMe, getWorkspaces, type Workspace, getPublicWorkspa
 import { fade, fly } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 let workspaces = $state<Workspace[]>([]);
 let publicWorkspaces = $state<PublicWorkspace[]>([]);
@@ -123,35 +124,38 @@ async function handleSubmit(e: Event) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-[40px] flex items-center justify-between px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
-    <div class="flex items-center gap-1">
-      <button
-        type="button"
-        class={`px-2.5 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${viewMode === "my" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
-        onclick={() => viewMode = "my"}
-      >
-        My Workspaces
-      </button>
-      <button
-        type="button"
-        class={`px-2.5 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${viewMode === "explore" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
-        onclick={() => viewMode = "explore"}
-      >
-        Explore
-      </button>
-    </div>
-
-    {#if viewMode === "my"}
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
-        onclick={() => isAdding = true}
-      >
-        <Plus class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">New Workspace</span>
-      </button>
-    {/if}
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <div class="flex items-center gap-0.5">
+        <button
+          type="button"
+          class={`px-2 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${viewMode === "my" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
+          onclick={() => viewMode = "my"}
+        >
+          My Workspaces
+        </button>
+        <button
+          type="button"
+          class={`px-2 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${viewMode === "explore" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
+          onclick={() => viewMode = "explore"}
+        >
+          Explore
+        </button>
+      </div>
+    {/snippet}
+    {#snippet right()}
+      {#if viewMode === "my"}
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
+          onclick={() => isAdding = true}
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">New Workspace</span>
+        </button>
+      {/if}
+    {/snippet}
+  </PageHeader>
 
   <div class="flex-1 p-4 overflow-y-auto">
     <!-- Create Form -->

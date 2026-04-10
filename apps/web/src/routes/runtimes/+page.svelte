@@ -5,6 +5,7 @@ import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 let runtimes = $state<RuntimeListItem[]>([]);
 let isLoading = $state(true);
@@ -94,16 +95,20 @@ onMount(() => {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-[40px] flex items-center justify-between px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
-    <span class="text-[11px] font-medium text-text-secondary">Runtimes</span>
-    <a
-      href="/runtimes/new"
-      class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
-    >
-      <Plus class="w-3.5 h-3.5" />
-      New Runtime
-    </a>
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Runtimes</span>
+    {/snippet}
+    {#snippet right()}
+      <a
+        href="/runtimes/new"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+      >
+        <Plus class="w-3.5 h-3.5" />
+        New Runtime
+      </a>
+    {/snippet}
+  </PageHeader>
 
   <div class="flex-1 p-4 overflow-y-auto">
     {#if isLoading}

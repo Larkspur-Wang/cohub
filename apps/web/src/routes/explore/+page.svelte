@@ -3,6 +3,7 @@ import { FolderKanban, GitFork, Search, Globe } from "lucide-svelte";
 import { getPublicWorkspaces, type PublicWorkspace } from "$lib/api";
 import { onMount } from "svelte";
 import { logtoClient } from "$lib/auth";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 let workspaces = $state<PublicWorkspace[]>([]);
 let isLoading = $state(true);
@@ -52,9 +53,11 @@ function goToPage(newPage: number) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-10 flex items-center px-4 border-b border-border-primary shrink-0 bg-bg-primary">
-    <span class="text-xs font-medium text-text-secondary">Explore</span>
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Explore</span>
+    {/snippet}
+  </PageHeader>
 
   <div class="flex-1 p-3 sm:p-4 overflow-y-auto">
     <!-- Search -->

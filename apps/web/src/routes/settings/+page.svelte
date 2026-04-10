@@ -5,6 +5,7 @@ import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
 import { getTheme, setTheme, type ThemeMode } from "$lib/theme";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 let theme = $state<ThemeMode>(getTheme());
 
@@ -85,9 +86,11 @@ async function handleDelete(id: string) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
-    <span class="text-[11px] font-medium text-text-secondary">Settings</span>
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Settings</span>
+    {/snippet}
+  </PageHeader>
 
   <div class="flex-1 p-6 overflow-y-auto max-w-2xl">
     <!-- Appearance Section -->

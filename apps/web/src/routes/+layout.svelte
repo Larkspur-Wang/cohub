@@ -2,8 +2,6 @@
 import "../app.css";
 import { page } from "$app/state";
 import Sidebar from "$lib/components/Sidebar.svelte";
-import MobileHeader from "$lib/components/MobileHeader.svelte";
-import MobileTabBar from "$lib/components/MobileTabBar.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import { getResolvedTheme } from "$lib/theme";
 import { onMount } from "svelte";
@@ -50,16 +48,11 @@ $effect(() => {
 
     <!-- Main content area -->
     <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <!-- Mobile header — only visible below lg -->
-      <MobileHeader />
 
       <!-- Page content -->
       <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
         {@render children?.()}
       </div>
-
-      <!-- Mobile bottom tab bar — only visible below lg -->
-      <MobileTabBar />
     </main>
   </div>
 

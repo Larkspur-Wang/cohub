@@ -4,6 +4,7 @@ import { createChannel, deleteChannel, getChannels, type Channel } from "$lib/ap
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
@@ -85,17 +86,21 @@ async function handleDelete(id: string) {
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-[40px] flex items-center justify-between px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
-    <span class="text-[11px] font-medium text-text-secondary">Channels</span>
-    <button
-      type="button"
-      class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
-      onclick={() => isAdding = true}
-    >
-      <Plus class="w-3.5 h-3.5" />
-      Add Channel
-    </button>
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Channels</span>
+    {/snippet}
+    {#snippet right()}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+        onclick={() => isAdding = true}
+      >
+        <Plus class="w-3.5 h-3.5" />
+        Add Channel
+      </button>
+    {/snippet}
+  </PageHeader>
 
   <div class="flex-1 p-4 overflow-y-auto">
     <!-- Create Form -->

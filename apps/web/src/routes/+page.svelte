@@ -4,6 +4,7 @@ import { getWorkspaces, getRuntimes, getChannels } from "$lib/api";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { onMount } from "svelte";
 import { ensureAuth } from "$lib/auth";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 let workspaceCount = $state(0);
 let runtimeCount = $state(0);
@@ -42,9 +43,11 @@ onMount(async () => {
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
-  <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
-    <span class="text-[11px] font-medium text-text-secondary">Overview</span>
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Overview</span>
+    {/snippet}
+  </PageHeader>
 
   <div class="flex-1 p-6 overflow-y-auto">
     <div class="max-w-[48rem]">
@@ -78,7 +81,7 @@ onMount(async () => {
       <div class="mt-8 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
     {:else}
       <!-- Summary Stats -->
-      <div class="mt-8 grid grid-cols-3 gap-4">
+      <div class="mt-8 grid grid-cols-3 gap-2 sm:gap-4">
         <div>
           <p class="text-2xl font-semibold text-text-primary tabular-nums">{workspaceCount}</p>
           <p class="text-[11px] text-text-tertiary mt-0.5">Workspaces</p>

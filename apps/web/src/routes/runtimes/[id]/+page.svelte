@@ -30,6 +30,7 @@ import {
 	type ResourcePermission,
 } from "$lib/api";
 import { ensureAuth } from "$lib/auth";
+import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
@@ -1446,44 +1447,43 @@ $effect(() => {
 </script>
 
 <!-- Runtime Header -->
-<header class="h-[40px] flex items-center justify-between px-3 border-b border-border-subtle shrink-0 bg-bg-primary">
-  <div class="flex items-center gap-3 min-w-0">
-    <Terminal class="w-4 h-4 text-text-tertiary shrink-0" />
-    <span class="text-[13px] text-text-primary truncate max-w-[320px]">{runtime?.title || runtime?.id || runtimeId}</span>
-    <div class="hidden md:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-[4px] bg-bg-hover border border-border-subtle shrink-0">
-      <div class="w-[5px] h-[5px] rounded-full bg-current {getRuntimeStatusMeta(runtime?.status ?? 'unknown').textColorClass}"></div>
-      <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
-        {runtime?.status ?? "unknown"}
-      </span>
+<PageHeader>
+  {#snippet left()}
+    <div class="flex items-center gap-2 min-w-0">
+      <Terminal class="w-3.5 h-3.5 text-text-tertiary shrink-0 hidden sm:block" />
+      <span class="text-[13px] text-text-primary truncate">{runtime?.title || runtime?.id || runtimeId}</span>
+      <div class="hidden md:flex items-center gap-1.5 ml-1 px-1.5 py-0.5 rounded-sm bg-bg-hover border border-border-subtle shrink-0">
+        <div class="w-[5px] h-[5px] rounded-full bg-current {getRuntimeStatusMeta(runtime?.status ?? 'unknown').textColorClass}"></div>
+        <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
+          {runtime?.status ?? "unknown"}
+        </span>
+      </div>
     </div>
-  </div>
-
-  <div class="flex items-center gap-1.5">
+  {/snippet}
+  {#snippet right()}
     <button
       type="button"
-      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+      class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
       onclick={() => handleCreateNewSession()}
       disabled={creatingSession || !runtime}
       title="New session"
     >
       {#if creatingSession}
-        <div class="w-3 h-3 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+        <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
       {:else}
-        <Plus class="w-3.5 h-3.5" />
+        <Plus class="w-4 h-4" />
       {/if}
-      <span class="hidden sm:inline">New Session</span>
     </button>
 
     <!-- Session Share -->
     {#if activeSessionId && isOwner}
       <button
         type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] transition-colors duration-100 text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+        class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
         onclick={() => { openShareModal(activeSessionId!); }}
         title={hasSessionPermission(activeSessionId!) ? 'Session is public' : 'Share session'}
       >
-        <Share2 class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">{hasSessionPermission(activeSessionId!) ? 'Public' : 'Share'}</span>
+        <Share2 class="w-4 h-4" />
       </button>
     {/if}
 
@@ -1491,7 +1491,7 @@ $effect(() => {
     <div class="relative" data-more-menu>
       <button
         type="button"
-        class="flex items-center justify-center w-7 h-7 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
         onclick={() => showMoreMenu = !showMoreMenu}
         title="More"
       >
@@ -1567,8 +1567,8 @@ $effect(() => {
         </div>
       {/if}
     </div>
-  </div>
-</header>
+  {/snippet}
+</PageHeader>
 
 <!-- Runtime action error banner -->
 {#if runtimeActionError}
