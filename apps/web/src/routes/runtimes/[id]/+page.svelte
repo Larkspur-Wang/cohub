@@ -12,9 +12,6 @@ import {
 	deleteRuntime,
 	extractSessionRenderState,
 	getModels,
-	getRuntime,
-	getRuntimeChannels,
-	getRuntimeSessions,
 	getSessionMessages,
 	getSessionMessagesPaginated,
 	hibernateRuntime,
@@ -26,7 +23,6 @@ import {
 	createSessionPermission,
 	deleteRuntimePermission,
 	deleteSessionPermission,
-	listRuntimePermissions,
 	type ResourcePermission,
 } from "$lib/api";
 import PageHeader from "$lib/components/PageHeader.svelte";
@@ -700,57 +696,45 @@ async function loadRuntime(options?: { force?: boolean; includeChannels?: boolea
 	if (!cachedSessions) {
 		hydrateSessionCacheToRuntimeStore(runtimeId);
 	}
-	const hydratedSessions = runtimeStore.getSessions(runtimeId);
-	const fallbackSessions = cachedSessions ?? hydratedSessions;
+	const fallbackSessions = cachedSessions ?? runtimeStore.getSessions(runtimeId);
 	if (fallbackSessions && runtimeSessions.length === 0) {
 		seedSessions(fallbackSessions);
 	}
 
-	const shouldFetchRuntime = force || !runtimeStore.getRuntime(runtimeId) || shouldPollRuntime(runtimeStore.getRuntime(runtimeId) as RuntimeRecord | null);
-	const shouldFetchSessions = force || !runtimeStore.hasLoadedSessions(runtimeId) || runtimeStore.shouldRefreshSessions(runtimeId);
-	const shouldFetchChannels = includeChannels && (force || !runtimeStore.hasLoadedChannels(runtimeId));
-
 	const tasks: Array<Promise<void>> = [];
 
-	if (shouldFetchRuntime) {
-		tasks.push((async () => {
-			try {
-				const runtimeResult = await getRuntime(runtimeId);
-				runtime = runtimeResult;
-				runtimeStore.upsertRuntime(runtimeResult);
-				isOwner = runtimeResult.userUuid === authStore.userUuid;
-			} catch (error) {
+	tasks.push((async () => {
+		try {
+			const runtimeResult = await runtimeStore.ensureRuntimeDetail(runtimeId, { force: force || shouldPollRuntime(runtimeStore.getRuntime(runtimeId) as RuntimeRecord | null) });
+			runtime = runtimeResult;
+			isOwner = runtimeResult.userUuid === authStore.userUuid;
+		} catch (error) {
+			runtimeLoadError =
+				error instanceof Error
+					? error.message
+					: "Failed to load runtime";
+		}
+	})());
+
+	tasks.push((async () => {
+		try {
+			const sessions = await runtimeStore.ensureRuntimeSessions(runtimeId, { force });
+			seedSessions(sessions);
+		} catch (error) {
+			if (!runtimeLoadError) {
 				runtimeLoadError =
 					error instanceof Error
 						? error.message
-						: "Failed to load runtime";
+						: "Failed to load runtime sessions";
 			}
-		})());
-	}
+		}
+	})());
 
-	if (shouldFetchSessions) {
+	if (includeChannels) {
 		tasks.push((async () => {
 			try {
-				const sessionsResult = await getRuntimeSessions(runtimeId);
-				runtimeStore.setSessions(runtimeId, sessionsResult.sessions ?? []);
-				seedSessions(sessionsResult.sessions ?? []);
-			} catch (error) {
-				if (!runtimeLoadError) {
-					runtimeLoadError =
-						error instanceof Error
-							? error.message
-							: "Failed to load runtime sessions";
-				}
-			}
-		})());
-	}
-
-	if (shouldFetchChannels) {
-		tasks.push((async () => {
-			try {
-				const channelsResult = await getRuntimeChannels(runtimeId);
-				runtimeChannels = channelsResult;
-				runtimeStore.setRuntimeChannels(runtimeId, channelsResult);
+				const channels = await runtimeStore.ensureRuntimeChannels(runtimeId, { force });
+				runtimeChannels = channels;
 			} catch (error) {
 				if (!runtimeLoadError) {
 					runtimeLoadError =
@@ -1020,15 +1004,9 @@ function getRuntimePollInterval(runtime: RuntimeRecord | null) {
 async function loadPermissions(force = false) {
 	if (!force && runtimePermissionsLoaded) return;
 	try {
-		const perms = await listRuntimePermissions(runtimeId);
+		const perms = await runtimeStore.ensureRuntimePermissionRecords(runtimeId, { force });
 		runtimePermissions = perms;
 		runtimePublicRead = perms.some((p) => p.resourceType === "runtime");
-		const sessionLevels = new Map(
-			perms
-				.filter((p) => p.resourceType === "session")
-				.map((p) => [p.resourceId, p.level]),
-		);
-		runtimeStore.setPermissions(runtimeId, sessionLevels);
 		runtimeSessions = runtimeStore.getSessions(runtimeId) ?? runtimeSessions;
 		runtimePermissionsLoaded = true;
 	} catch {
@@ -1862,6 +1840,19 @@ $effect(() => {
       </button>
     {/if}
 
+    <!-- Settings shortcut -->
+    {#if isOwner}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        onclick={() => { showSettings = true; }}
+        title="Runtime settings"
+      >
+        <Settings class="w-4 h-4 shrink-0" />
+        <span class="hidden lg:inline text-[13px] font-medium">Settings</span>
+      </button>
+    {/if}
+
     <!-- More menu -->
     <div class="relative" data-more-menu>
       <button
@@ -1888,7 +1879,7 @@ $effect(() => {
           </button>
           {/if}
 
-          {#if getRuntimeStatusMeta(runtime?.status).canHibernate || getRuntimeStatusMeta(runtime?.status).canWake || getRuntimeStatusMeta(runtime?.status).canDelete}
+          {#if isOwner && (getRuntimeStatusMeta(runtime?.status).canHibernate || getRuntimeStatusMeta(runtime?.status).canWake || getRuntimeStatusMeta(runtime?.status).canDelete)}
             <div class="border-t border-border-subtle"></div>
           {/if}
 

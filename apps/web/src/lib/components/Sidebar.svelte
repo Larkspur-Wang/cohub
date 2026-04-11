@@ -16,13 +16,9 @@ import {
   LogOut,
 } from "lucide-svelte";
 import {
-  getRuntimes,
-  getRuntimeSessions,
   deleteRuntime,
-  listRuntimePermissions,
-  type RuntimeListItem,
+  type RuntimeRecord,
   type SessionRecord,
-  type ResourcePermissionLevel,
 } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
@@ -30,12 +26,9 @@ import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { sidebarCache } from "$lib/stores/sidebar-cache";
 import { authStore } from "$lib/stores/auth.svelte";
 import { runtimeStore } from "$lib/stores/runtime-store.svelte";
-import { hydrateSessionCacheToRuntimeStore } from "$lib/stores/cache-hydration";
 
 const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
 
-let runtimes = $state<RuntimeListItem[]>([]);
-let sessionsByRuntime = $state<Record<string, SessionRecord[]>>({});
 let expandedRuntimes = $state<Set<string>>(new Set());
 let isLoading = $state(true);
 let loadError = $state("");
@@ -45,13 +38,10 @@ const actionInProgress = $state<Record<string, string>>({});
 // Track which sessions are currently streaming (for running indicator)
 let streamingSessionIds = $state<Set<string>>(new Set());
 
-// Permission map: runtimeId → Map<sessionId, permissionLevel>
-let permsByRuntime = $state<Record<string, Map<string, ResourcePermissionLevel>>>({});
-// Track which runtimes have already had permissions loaded (avoid redundant API calls)
-const loadedPermsRuntimes = new Set<string>();
-
 // Broadcast channel listeners for cross-component session updates
 let broadcastChannels: BroadcastChannel[] = [];
+
+const runtimes = $derived(runtimeStore.runtimeList);
 
 const currentPath = $derived(page.url.pathname);
 const currentRuntimeId = $derived.by(() => {
@@ -93,7 +83,7 @@ function isSessionActive(sessionId: string) {
   return sessionIdParam === sessionId;
 }
 
-function displayStatus(runtime: RuntimeListItem) {
+function displayStatus(runtime: RuntimeRecord) {
   return runtime.status ?? "unknown";
 }
 
@@ -130,37 +120,10 @@ async function loadRuntimes(force = false) {
   }
 
   loadError = "";
+  isLoading = runtimeStore.runtimeList.length === 0;
 
-  // Cache-first: show stale data immediately, then refresh from API
-  const cached = sidebarCache.getRuntimes();
-  if (!runtimes.length && cached) {
-    runtimes = cached;
-    runtimeStore.setRuntimeList(cached);
-    isLoading = false;
-  }
-
-  if (!runtimes.length) {
-    const storeRuntimes = runtimeStore.runtimeList;
-    if (storeRuntimes.length > 0) {
-      runtimes = storeRuntimes;
-      isLoading = false;
-    }
-  }
-
-  if (!force && !runtimeStore.shouldRefreshRuntimeList() && runtimeStore.runtimeList.length > 0) {
-    runtimes = runtimeStore.runtimeList;
-    isLoading = false;
-    return;
-  }
-
-  if (!runtimes.length) {
-    isLoading = true;
-  }
   try {
-    const data = await getRuntimes();
-    runtimes = data;
-    runtimeStore.replaceRuntimeList(data);
-    sidebarCache.setRuntimes(data);
+    await runtimeStore.ensureRuntimeList({ force });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load runtimes";
     if (message.includes("unauthorized") || message.includes("401")) {
@@ -174,83 +137,22 @@ async function loadRuntimes(force = false) {
 }
 
 async function loadSessions(runtimeId: string, force = false) {
-  // 1. Ensure UI has something to show (store > persistent cache)
-  if (!sessionsByRuntime[runtimeId]) {
-    hydrateSessionCacheToRuntimeStore(runtimeId);
-    const existing = runtimeStore.getSessions(runtimeId);
-    if (existing) {
-      sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: existing };
-    }
-  }
-
-  if (!force && runtimeStore.hasLoadedSessions(runtimeId) && !runtimeStore.shouldRefreshSessions(runtimeId)) {
-    const existing = runtimeStore.getSessions(runtimeId);
-    if (existing) {
-      sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: existing };
-    }
-    return;
-  }
-
-  if (runtimeStore.isLoadingSessions(runtimeId)) return;
-  runtimeStore.setLoadingSessions(runtimeId, true);
-
   try {
-    const [result] = await Promise.all([
-      getRuntimeSessions(runtimeId),
-      authStore.userUuid ? loadRuntimePermissions(runtimeId, force) : Promise.resolve(),
+    await Promise.all([
+      runtimeStore.ensureRuntimeSessions(runtimeId, { force }),
+      authStore.userUuid ? runtimeStore.ensureRuntimePermissions(runtimeId, { force }) : Promise.resolve(),
     ]);
-    const sessions = result.sessions ?? [];
-    sessionsByRuntime = {
-      ...sessionsByRuntime,
-      [runtimeId]: sessions,
-    };
-    runtimeStore.setSessions(runtimeId, sessions);
-    sidebarCache.setSessions(runtimeId, sessions);
   } catch (error) {
     console.warn("[sidebar] Failed to load sessions", { runtimeId, error });
     // Silently fail in UI — sessions can recover on next refresh/navigation
-  } finally {
-    runtimeStore.setLoadingSessions(runtimeId, false);
   }
 }
 
-async function loadRuntimePermissions(runtimeId: string, force = false) {
-  if (!authStore.userUuid) return;
-  if (!force && runtimeStore.hasLoadedPermissions(runtimeId)) {
-    const cached = runtimeStore.getPermissions(runtimeId);
-    if (cached) {
-      permsByRuntime = { ...permsByRuntime, [runtimeId]: cached };
-    }
-    return;
-  }
-  if (!force && loadedPermsRuntimes.has(runtimeId)) return;
-  loadedPermsRuntimes.add(runtimeId);
-  try {
-    const perms = await listRuntimePermissions(runtimeId);
-    const map = new Map<string, ResourcePermissionLevel>();
-    for (const p of perms) {
-      if (p.resourceType === "session") {
-        map.set(p.resourceId, p.level);
-      }
-    }
-    permsByRuntime = { ...permsByRuntime, [runtimeId]: map };
-    runtimeStore.setPermissions(runtimeId, map);
-  } catch {
-    // Non-critical, ignore
-  }
-}
-
-function getSessionPerm(runtimeId: string, session: SessionRecord): string | null {
-  if (session.shareLevel) return session.shareLevel;
-  const map = permsByRuntime[runtimeId];
-  return map?.get(session.id) ?? null;
+function getSessionPerm(session: SessionRecord): string | null {
+  return session.shareLevel ?? null;
 }
 
 function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
-  sessionsByRuntime = {
-    ...sessionsByRuntime,
-    [runtimeId]: sessions,
-  };
   runtimeStore.setSessions(runtimeId, sessions);
   sidebarCache.setSessions(runtimeId, sessions);
   // Auto-expand the runtime if we received new sessions
@@ -281,6 +183,20 @@ async function handleNavigate(href: string) {
   await goto(href);
 }
 
+async function handleToggleRuntime(runtimeId: string, isExpanded: boolean) {
+  if (isExpanded) {
+    toggleRuntime(runtimeId);
+    return;
+  }
+
+  toggleRuntime(runtimeId);
+  void loadSessions(runtimeId);
+
+  if (!isMobile) {
+    await handleNavigateToRuntime(runtimeId);
+  }
+}
+
 async function handleNavigateToRuntime(runtimeId: string) {
   onClose?.();
   await goto(`/runtimes/${runtimeId}`);
@@ -289,7 +205,7 @@ async function handleNavigateToRuntime(runtimeId: string) {
 async function handleNavigateToSession(runtimeId: string, sessionId: string) {
   onClose?.();
   // Mark session as viewed before navigating
-  const session = sessionsByRuntime[runtimeId]?.find((s) => s.id === sessionId);
+  const session = runtimeStore.getSessions(runtimeId)?.find((s) => s.id === sessionId);
   if (session?.lastMessageId) {
     unreadTracker.markViewed(sessionId, session.lastMessageId);
   }
@@ -412,13 +328,7 @@ onMount(() => {
 
     // Permission summaries are hydrated lazily when a runtime's sessions are loaded.
 
-    // Preload cached sessions for visible runtimes
-    for (const rt of runtimes) {
-      const cached = sidebarCache.getSessions(rt.id);
-      if (cached) {
-        sessionsByRuntime = { ...sessionsByRuntime, [rt.id]: cached };
-      }
-    }
+    // Sessions are hydrated lazily from runtimeStore/cache when expanded.
 
     // Pre-load sessions + permissions for the current runtime (cache-first + background refresh)
     if (currentRuntimeId) {
@@ -466,8 +376,7 @@ onMount(() => {
   function handlePermissionsUpdateEvent(e: Event) {
     const detail = (e as CustomEvent).detail as { runtimeId: string };
     if (detail?.runtimeId) {
-      loadedPermsRuntimes.delete(detail.runtimeId);
-      void loadRuntimePermissions(detail.runtimeId, true);
+      void runtimeStore.ensureRuntimePermissions(detail.runtimeId, { force: true });
     }
   }
 
@@ -565,7 +474,7 @@ onMount(() => {
           {@const isActive = isRuntimeActive(runtime.id)}
           {@const status = displayStatus(runtime)}
           {@const isBusy = actionInProgress[runtime.id]}
-          {@const sessions = sessionsByRuntime[runtime.id] ?? []}
+          {@const sessions = runtimeStore.getSessions(runtime.id) ?? []}
 
           <div>
             <!-- Runtime Row -->
@@ -573,25 +482,11 @@ onMount(() => {
               role="button"
               tabindex="0"
               class="group relative flex items-center gap-1.5 pl-[6px] pr-2 py-1.5 rounded-r-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
-              onclick={() => {
-                if (isExpanded) {
-                  toggleRuntime(runtime.id);
-                } else {
-                  toggleRuntime(runtime.id);
-                  void loadSessions(runtime.id);
-                  handleNavigateToRuntime(runtime.id);
-                }
-              }}
+              onclick={() => { void handleToggleRuntime(runtime.id, isExpanded); }}
               onkeydown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  if (isExpanded) {
-                    toggleRuntime(runtime.id);
-                  } else {
-                    toggleRuntime(runtime.id);
-                    void loadSessions(runtime.id);
-                    handleNavigateToRuntime(runtime.id);
-                  }
+                  void handleToggleRuntime(runtime.id, isExpanded);
                 }
               }}
             >
@@ -627,7 +522,7 @@ onMount(() => {
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
                       {#if runtime.userUuid === authStore.userUuid}
-                        {@const perm = getSessionPerm(runtime.id, session)}
+                        {@const perm = getSessionPerm(session)}
                         {#if perm === "read" || perm === "write"}
                           <Globe class="w-3 h-3 shrink-0 text-text-placeholder" />
                         {:else if perm === "private"}

@@ -12,8 +12,8 @@ function closeDrawer() {
 {#if uiState.mobileDrawerOpen}
   <div
     class="lg:hidden fixed inset-0 z-50"
-    in:fade={{ duration: 150 }}
-    out:fade={{ duration: 150 }}
+    in:fade={{ duration: 100 }}
+    out:fade={{ duration: 90 }}
   >
     <!-- Backdrop -->
     <div
@@ -25,8 +25,8 @@ function closeDrawer() {
     <!-- Drawer panel -->
     <div
       class="absolute inset-y-0 left-0 w-[280px] max-w-[85vw]"
-      in:slide={{ axis: "x", duration: 200, easing: (t) => t }}
-      out:slide={{ axis: "x", duration: 150, easing: (t) => t * t }}
+      in:slide={{ axis: "x", duration: 140, easing: (t) => t }}
+      out:slide={{ axis: "x", duration: 120, easing: (t) => t * t }}
     >
       <div class="h-full border-r border-border-subtle bg-bg-primary">
         <Sidebar isMobile onClose={closeDrawer} />

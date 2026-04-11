@@ -1,10 +1,18 @@
-import type {
-  RuntimeListItem,
-  RuntimeRecord,
-  RuntimeChannelRecord,
-  SessionRecord,
-  ResourcePermissionLevel,
+import {
+  getRuntimes,
+  getRuntime,
+  getRuntimeChannels,
+  getRuntimeSessions,
+  listRuntimePermissions,
+  type RuntimeListItem,
+  type RuntimeRecord,
+  type RuntimeChannelRecord,
+  type SessionRecord,
+  type ResourcePermission,
+  type ResourcePermissionLevel,
 } from "$lib/api";
+import { sidebarCache } from "$lib/stores/sidebar-cache";
+import { authStore } from "$lib/stores/auth.svelte";
 
 const RUNTIME_LIST_REFRESH_MS = 60_000;
 const SESSION_LIST_REFRESH_MS = 30_000;
@@ -32,12 +40,21 @@ class RuntimeStore {
   runtimeChannelsById = $state<Record<string, RuntimeChannelRecord[]>>({});
   sessionsByRuntime = $state<Record<string, SessionRecord[]>>({});
   permissionsByRuntime = $state<PermissionMap>({});
+  permissionRecordsByRuntime = $state<Record<string, ResourcePermission[]>>({});
   loadedSessionRuntimeIds = $state(new Set<string>());
   loadedChannelRuntimeIds = $state(new Set<string>());
   loadedPermissionRuntimeIds = $state(new Set<string>());
   lastRuntimeListFetchedAt = $state(0);
   lastSessionListFetchedAt = $state<Record<string, number>>({});
+  loadingRuntimeList = $state(false);
   loadingSessionsByRuntime = $state<Record<string, boolean>>({});
+
+  private runtimeListPromise: Promise<RuntimeListItem[]> | null = null;
+  private sessionPromises = new Map<string, Promise<SessionRecord[]>>();
+  private permissionPromises = new Map<string, Promise<Map<string, ResourcePermissionLevel>>>();
+  private runtimeDetailPromises = new Map<string, Promise<RuntimeRecord>>();
+  private runtimeChannelPromises = new Map<string, Promise<RuntimeChannelRecord[]>>();
+  private permissionRecordPromises = new Map<string, Promise<ResourcePermission[]>>();
 
   private addLoadedSessionRuntime(runtimeId: string) {
     const next = new Set(this.loadedSessionRuntimeIds);
@@ -79,9 +96,210 @@ class RuntimeStore {
     return Date.now() - this.lastRuntimeListFetchedAt > RUNTIME_LIST_REFRESH_MS;
   }
 
+  async ensureRuntimeList(options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+
+    if (this.runtimeList.length === 0) {
+      const cached = sidebarCache.getRuntimes();
+      if (cached?.length) {
+        this.setRuntimeList(cached);
+      }
+    }
+
+    if (!force && !this.shouldRefreshRuntimeList() && this.runtimeList.length > 0) {
+      return this.runtimeList;
+    }
+
+    if (this.runtimeListPromise && !force) {
+      return this.runtimeListPromise;
+    }
+
+    this.loadingRuntimeList = true;
+    const request = (async () => {
+      const data = await getRuntimes();
+      this.replaceRuntimeList(data);
+      sidebarCache.setRuntimes(data);
+      return data;
+    })();
+
+    this.runtimeListPromise = request;
+    try {
+      return await request;
+    } finally {
+      if (this.runtimeListPromise === request) {
+        this.runtimeListPromise = null;
+      }
+      this.loadingRuntimeList = false;
+    }
+  }
+
   shouldRefreshSessions(runtimeId: string) {
     const last = this.lastSessionListFetchedAt[runtimeId] ?? 0;
     return Date.now() - last > SESSION_LIST_REFRESH_MS;
+  }
+
+  async ensureRuntimeSessions(runtimeId: string, options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+
+    if (!this.sessionsByRuntime[runtimeId]) {
+      const cached = sidebarCache.getSessions(runtimeId);
+      if (cached?.length) {
+        this.setSessions(runtimeId, cached);
+      }
+    }
+
+    if (!force && this.hasLoadedSessions(runtimeId) && !this.shouldRefreshSessions(runtimeId)) {
+      return this.getSessions(runtimeId) ?? [];
+    }
+
+    const existing = this.sessionPromises.get(runtimeId);
+    if (existing && !force) {
+      return existing;
+    }
+
+    this.setLoadingSessions(runtimeId, true);
+    const request = (async () => {
+      const result = await getRuntimeSessions(runtimeId);
+      const sessions = result.sessions ?? [];
+      this.setSessions(runtimeId, sessions);
+      sidebarCache.setSessions(runtimeId, sessions);
+      return sessions;
+    })();
+
+    this.sessionPromises.set(runtimeId, request);
+    try {
+      return await request;
+    } finally {
+      if (this.sessionPromises.get(runtimeId) === request) {
+        this.sessionPromises.delete(runtimeId);
+      }
+      this.setLoadingSessions(runtimeId, false);
+    }
+  }
+
+  async ensureRuntimePermissions(runtimeId: string, options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+    if (!authStore.userUuid) return null;
+
+    if (!force && this.hasLoadedPermissions(runtimeId)) {
+      return this.getPermissions(runtimeId) ?? new Map<string, ResourcePermissionLevel>();
+    }
+
+    const existing = this.permissionPromises.get(runtimeId);
+    if (existing && !force) {
+      return existing;
+    }
+
+    const request = (async () => {
+      const perms = await listRuntimePermissions(runtimeId);
+      this.permissionRecordsByRuntime = {
+        ...this.permissionRecordsByRuntime,
+        [runtimeId]: perms,
+      };
+      const levels = new Map<string, ResourcePermissionLevel>();
+      for (const perm of perms) {
+        if (perm.resourceType === "session") {
+          levels.set(perm.resourceId, perm.level);
+        }
+      }
+      this.setPermissions(runtimeId, levels);
+      return levels;
+    })();
+
+    this.permissionPromises.set(runtimeId, request);
+    try {
+      return await request;
+    } finally {
+      if (this.permissionPromises.get(runtimeId) === request) {
+        this.permissionPromises.delete(runtimeId);
+      }
+    }
+  }
+
+  async ensureRuntimeDetail(runtimeId: string, options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+    if (!force) {
+      const existingRuntime = this.getRuntime(runtimeId);
+      if (existingRuntime && !this.shouldRefreshRuntimeList()) {
+        return existingRuntime as RuntimeRecord;
+      }
+    }
+
+    const existing = this.runtimeDetailPromises.get(runtimeId);
+    if (existing && !force) return existing;
+
+    const request = (async () => {
+      const runtime = await getRuntime(runtimeId);
+      this.upsertRuntime(runtime);
+      return runtime;
+    })();
+    this.runtimeDetailPromises.set(runtimeId, request);
+    try {
+      return await request;
+    } finally {
+      if (this.runtimeDetailPromises.get(runtimeId) === request) {
+        this.runtimeDetailPromises.delete(runtimeId);
+      }
+    }
+  }
+
+  async ensureRuntimeChannels(runtimeId: string, options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+    if (!force && this.hasLoadedChannels(runtimeId)) {
+      return this.getRuntimeChannels(runtimeId) ?? [];
+    }
+
+    const existing = this.runtimeChannelPromises.get(runtimeId);
+    if (existing && !force) return existing;
+
+    const request = (async () => {
+      const channels = await getRuntimeChannels(runtimeId);
+      this.setRuntimeChannels(runtimeId, channels);
+      return channels;
+    })();
+    this.runtimeChannelPromises.set(runtimeId, request);
+    try {
+      return await request;
+    } finally {
+      if (this.runtimeChannelPromises.get(runtimeId) === request) {
+        this.runtimeChannelPromises.delete(runtimeId);
+      }
+    }
+  }
+
+  async ensureRuntimePermissionRecords(runtimeId: string, options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+    if (!authStore.userUuid) return [];
+    if (!force && this.permissionRecordsByRuntime[runtimeId]) {
+      return this.permissionRecordsByRuntime[runtimeId];
+    }
+
+    const existing = this.permissionRecordPromises.get(runtimeId);
+    if (existing && !force) return existing;
+
+    const request = (async () => {
+      const perms = await listRuntimePermissions(runtimeId);
+      this.permissionRecordsByRuntime = {
+        ...this.permissionRecordsByRuntime,
+        [runtimeId]: perms,
+      };
+      const levels = new Map<string, ResourcePermissionLevel>();
+      for (const perm of perms) {
+        if (perm.resourceType === "session") {
+          levels.set(perm.resourceId, perm.level);
+        }
+      }
+      this.setPermissions(runtimeId, levels);
+      return perms;
+    })();
+    this.permissionRecordPromises.set(runtimeId, request);
+    try {
+      return await request;
+    } finally {
+      if (this.permissionRecordPromises.get(runtimeId) === request) {
+        this.permissionRecordPromises.delete(runtimeId);
+      }
+    }
   }
 
   setRuntimeList(items: RuntimeListItem[]) {
@@ -118,10 +336,12 @@ class RuntimeStore {
     delete this.runtimeChannelsById[runtimeId];
     delete this.sessionsByRuntime[runtimeId];
     delete this.permissionsByRuntime[runtimeId];
+    delete this.permissionRecordsByRuntime[runtimeId];
     delete this.lastSessionListFetchedAt[runtimeId];
     delete this.loadingSessionsByRuntime[runtimeId];
     this.lastSessionListFetchedAt = { ...this.lastSessionListFetchedAt };
     this.loadingSessionsByRuntime = { ...this.loadingSessionsByRuntime };
+    this.permissionRecordsByRuntime = { ...this.permissionRecordsByRuntime };
     this.deleteLoadedSessionRuntime(runtimeId);
     this.deleteLoadedChannelRuntime(runtimeId);
     this.deleteLoadedPermissionRuntime(runtimeId);
