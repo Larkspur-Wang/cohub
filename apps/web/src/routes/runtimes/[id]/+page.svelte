@@ -553,7 +553,7 @@ async function handleCreateNewSession() {
 				loading: false,
 				loaded: true,
 				error: "",
-				hasMore: true,
+				hasMore: false,
 				loadingOlder: false,
 				oldestCursor: undefined,
 			},
