@@ -7,6 +7,7 @@ import { Hono, type Context } from "hono";
 import {
   fetchAuthUser,
   getTokenFromRequest,
+  type AuthUserProfile,
 } from "./auth.js";
 import { assertRequiredConfig, config } from "./config.js";
 import {
@@ -282,7 +283,7 @@ const shutdown = async (signal: string) => {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-type Variables = { token: string | null };
+type Variables = { token: string | null; authUser: AuthUserProfile | null };
 const app = new Hono<{ Variables: Variables }>();
 
 const isUuid = (value: string) =>
@@ -308,7 +309,13 @@ const ensureInternalRequest = (c: Context<{ Variables: Variables }>) => {
 };
 
 app.use("*", async (c, next) => {
-  c.set("token", getTokenFromRequest(c));
+  const token = getTokenFromRequest(c);
+  c.set("token", token);
+  if (token) {
+    c.set("authUser", await fetchAuthUser(token).catch(() => null));
+  } else {
+    c.set("authUser", null);
+  }
   await next();
 });
 
@@ -359,7 +366,7 @@ app.get("/internal/metrics", async (c) => {
 app.get("/api/me", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user) {
     return c.json({ message: "unauthorized" }, 401);
   }
@@ -369,7 +376,7 @@ app.get("/api/me", async (c) => {
 app.get("/v1/user/", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user) return c.json({ message: "unauthorized" }, 401);
   return c.json(user);
 });
@@ -403,7 +410,7 @@ app.post("/api/v1/user/keys", async (c) => {
 app.get("/api/user/ssh-keys", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const [account] = await db
@@ -418,7 +425,7 @@ app.get("/api/user/ssh-keys", async (c) => {
 app.post("/api/user/ssh-keys", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const body = await c.req.json<{ key: string; title: string }>().catch(() => null);
@@ -462,7 +469,7 @@ app.post("/api/user/ssh-keys", async (c) => {
 app.delete("/api/user/ssh-keys/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const sshKeyId = c.req.param("id");
@@ -517,7 +524,7 @@ app.post("/api/v1/share/init", async (c) => {
 app.get("/api/channels", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const channels = await db.select().from(userChannels).where(eq(userChannels.userUuid, user.uuid));
 
@@ -557,7 +564,7 @@ app.get("/api/channels", async (c) => {
 app.post("/api/channels", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const body = await c.req.json<{ provider: string; name: string; credentials: Record<string, unknown> }>();
   const [channel] = await db.insert(userChannels).values({
@@ -572,7 +579,7 @@ app.post("/api/channels", async (c) => {
 app.delete("/api/channels/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const id = c.req.param("id");
   await db.delete(userChannels).where(and(eq(userChannels.id, id), eq(userChannels.userUuid, user.uuid)));
@@ -582,7 +589,7 @@ app.delete("/api/channels/:id", async (c) => {
 app.get("/api/workspaces", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const items = await db
@@ -597,7 +604,7 @@ app.get("/api/workspaces", async (c) => {
 app.post("/api/workspaces", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const body = await c.req
@@ -695,7 +702,7 @@ app.get("/api/workspaces/:id", async (c) => {
   if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
 
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   if (!workspace) return c.json({ message: "workspace not found" }, 404);
@@ -711,7 +718,7 @@ app.get("/api/workspaces/:id", async (c) => {
 app.patch("/api/workspaces/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const workspaceId = c.req.param("id");
@@ -761,7 +768,7 @@ app.patch("/api/workspaces/:id", async (c) => {
 app.delete("/api/workspaces/:id", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const workspaceId = c.req.param("id");
@@ -785,7 +792,7 @@ app.delete("/api/workspaces/:id", async (c) => {
 app.post("/api/workspaces/:id/fork", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const workspaceId = c.req.param("id");
@@ -862,7 +869,7 @@ app.get("/api/workspaces/:id/tree", async (c) => {
   if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
 
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   if (!workspace) return c.json({ message: "workspace not found" }, 404);
@@ -895,7 +902,7 @@ app.get("/api/workspaces/:id/file", async (c) => {
   if (!requireValidId(workspaceId)) return c.json({ message: "workspace not found" }, 404);
 
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   if (!workspace) return c.json({ message: "workspace not found" }, 404);
@@ -921,7 +928,7 @@ app.get("/api/workspaces/:id/file", async (c) => {
 app.post("/api/runtimes", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const body = (await c.req
@@ -1080,7 +1087,7 @@ app.get("/api/models", async (c) => {
 app.get("/api/runtimes", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtimeList = await db
@@ -1137,7 +1144,7 @@ app.get("/api/runtimes", async (c) => {
 
 app.get("/api/runtimes/:id", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
 
@@ -1155,7 +1162,7 @@ app.get("/api/runtimes/:id/channels", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtime = await getRuntimeById(runtimeId);
@@ -1185,7 +1192,7 @@ app.post("/api/runtimes/:id/hibernate", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   try {
@@ -1205,7 +1212,7 @@ app.post("/api/runtimes/:id/wake", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   try {
@@ -1225,7 +1232,7 @@ app.delete("/api/runtimes/:id", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   try {
@@ -1248,7 +1255,7 @@ app.patch("/api/runtime-channels/:id/config", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeChannelId = c.req.param("id");
   if (!requireValidId(runtimeChannelId)) return c.json({ message: "runtime channel not found" }, 404);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtimeChannel = await getRuntimeChannelById(runtimeChannelId);
@@ -1279,7 +1286,7 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
   if (!token) return c.json({ message: "unauthorized" }, 401);
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtime = await getRuntimeById(runtimeId);
@@ -1303,7 +1310,7 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
 
 app.get("/api/runtimes/:id/sessions", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
 
@@ -1315,6 +1322,16 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
   if (!runtime) return c.json({ message: "runtime not found" }, 404);
   const sessions = await listRuntimeSessions(runtime.id);
 
+  const permissions = await db
+    .select()
+    .from(resourcePermissions)
+    .where(inArray(resourcePermissions.resourceId, [runtimeId, ...sessions.map((s) => s.id)]));
+  const sessionShareLevels = new Map(
+    permissions
+      .filter((p) => p.resourceType === "session")
+      .map((p) => [p.resourceId, p.level as ResourcePermissionLevel]),
+  );
+
   // Non-owners only see sessions that have their own public permission
   const isOwner = user?.uuid === runtime.userUuid;
   const visibleSessions = isOwner
@@ -1323,7 +1340,10 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
 
   return c.json({
     runtime,
-    sessions: visibleSessions,
+    sessions: visibleSessions.map((session) => ({
+      ...session,
+      shareLevel: sessionShareLevels.get(session.id) ?? null,
+    })),
   });
 });
 
@@ -1453,7 +1473,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
 
 app.get("/api/sessions/:id", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const session = await getRuntimeSessionById(sessionId);
@@ -1469,7 +1489,7 @@ app.get("/api/sessions/:id", async (c) => {
 
 app.get("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const session = await getRuntimeSessionById(sessionId);
@@ -1510,7 +1530,7 @@ app.get("/api/sessions/:id/messages", async (c) => {
 
 app.post("/api/sessions/:id/messages", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const session = await getRuntimeSessionById(sessionId);
@@ -1555,7 +1575,7 @@ app.post("/api/sessions/:id/messages", async (c) => {
 
 app.post("/api/sessions/:id/fork", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const sessionId = c.req.param("id");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const session = await getRuntimeSessionById(sessionId);
@@ -1585,7 +1605,7 @@ app.post("/api/sessions/:id/fork", async (c) => {
 
 app.get("/api/sessions/:sessionId/stream", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const sessionId = c.req.param("sessionId");
   if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
   const session = await getRuntimeSessionById(sessionId);
@@ -1643,7 +1663,7 @@ app.get("/api/sessions/:sessionId/stream", async (c) => {
 
 app.get("/api/runtimes/:id/stream", async (c) => {
   const token = c.get("token");
-  const user = token ? await fetchAuthUser(token).catch(() => null) : null;
+  const user = c.get("authUser");
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
 
@@ -1691,7 +1711,7 @@ app.get("/api/runtimes/:id/stream", async (c) => {
 app.post("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtimeId = c.req.param("id");
@@ -1724,7 +1744,7 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
 app.post("/api/sessions/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const sessionId = c.req.param("id");
@@ -1759,7 +1779,7 @@ app.post("/api/sessions/:id/permissions", async (c) => {
 app.get("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtimeId = c.req.param("id");
@@ -1783,7 +1803,7 @@ app.get("/api/runtimes/:id/permissions", async (c) => {
 app.delete("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const runtimeId = c.req.param("id");
@@ -1804,7 +1824,7 @@ app.delete("/api/runtimes/:id/permissions", async (c) => {
 app.delete("/api/sessions/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = await fetchAuthUser(token);
+  const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const sessionId = c.req.param("id");

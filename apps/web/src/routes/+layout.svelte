@@ -7,6 +7,8 @@ import { getResolvedTheme } from "$lib/theme";
 import { onMount } from "svelte";
 import { uiState } from "$lib/stores/ui.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
+import { authStore } from "$lib/stores/auth.svelte";
+import { hydrateRuntimeStoreFromSidebarCache } from "$lib/stores/cache-hydration";
 
 const { children } = $props();
 
@@ -32,6 +34,11 @@ $effect(() => {
   } else {
     document.body.classList.remove("drawer-open");
   }
+});
+
+onMount(() => {
+  hydrateRuntimeStoreFromSidebarCache();
+  void authStore.ensureLoaded();
 });
 </script>
 

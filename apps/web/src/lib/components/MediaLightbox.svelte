@@ -1,6 +1,6 @@
 <script lang="ts">
 import { X, ChevronLeft, ChevronRight, Download } from "lucide-svelte";
-import { mediaLightbox, type MediaItem } from "$lib/components/media-lightbox.svelte";
+import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 
 // ─── Keyboard ───
 $effect(() => {
@@ -33,9 +33,16 @@ function onTouchEnd(e: TouchEvent) {
 	}
 }
 
-// ─── Backdrop click ───
+// ─── Backdrop ───
 function onBackdropClick(e: MouseEvent) {
 	if (e.target === e.currentTarget) mediaLightbox.close();
+}
+
+function onBackdropKeyDown(e: KeyboardEvent) {
+	if (e.key === "Escape") {
+		e.preventDefault();
+		mediaLightbox.close();
+	}
 }
 
 // ─── Lock body scroll ───
@@ -108,9 +115,13 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 	<div
 		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-sm"
 		onclick={onBackdropClick}
+		onkeydown={onBackdropKeyDown}
 		ontouchstart={onTouchStart}
 		ontouchend={onTouchEnd}
 		tabindex="-1"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Media preview"
 	>
 		<!-- Top toolbar -->
 		<div class="absolute top-3 right-3 z-10 flex items-center gap-2 sm:top-4 sm:right-4">
@@ -161,22 +172,27 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 
 		<!-- Media -->
 		{#if mediaLightbox.current.type === "image"}
-			<img
-				src={mediaLightbox.current.src}
-				alt={mediaLightbox.current.alt ?? ""}
-				class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none"
-				onclick={(e) => e.stopPropagation()}
-			/>
+			<div class="max-w-[90vw] max-h-[85vh] rounded-lg" role="presentation" onclick={(e) => e.stopPropagation()}>
+				<img
+					src={mediaLightbox.current.src}
+					alt={mediaLightbox.current.alt ?? ""}
+					class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none"
+				/>
+			</div>
 		{:else}
-			<video
-				src={mediaLightbox.current.src}
-				poster={mediaLightbox.current.poster}
-				controls
-				autoplay
-				playsinline
-				class="w-full max-w-[95vw] max-h-[85vh] rounded-lg"
-				onclick={(e) => e.stopPropagation()}
-			></video>
+			<div class="w-full max-w-[95vw] max-h-[85vh] rounded-lg" role="presentation" onclick={(e) => e.stopPropagation()}>
+				<!-- svelte-ignore a11y_media_has_caption: User-generated preview videos do not provide caption tracks. -->
+				<video
+					src={mediaLightbox.current.src}
+					poster={mediaLightbox.current.poster}
+					controls
+					autoplay
+					playsinline
+					aria-label={mediaLightbox.current.alt ?? "Video preview"}
+					class="w-full max-w-[95vw] max-h-[85vh] rounded-lg"
+				>
+				</video>
+			</div>
 		{/if}
 
 		<!-- Download error hint -->

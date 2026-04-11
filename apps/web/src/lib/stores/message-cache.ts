@@ -16,6 +16,8 @@ type CacheEntry = {
   cachedAt: number;
 };
 
+export type MessageCacheEntry = CacheEntry;
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);

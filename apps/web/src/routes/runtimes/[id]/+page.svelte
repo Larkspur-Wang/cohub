@@ -11,7 +11,6 @@ import {
 	createRuntimeSession,
 	deleteRuntime,
 	extractSessionRenderState,
-	getMe,
 	getModels,
 	getRuntime,
 	getRuntimeChannels,
@@ -30,7 +29,6 @@ import {
 	listRuntimePermissions,
 	type ResourcePermission,
 } from "$lib/api";
-import { logtoClient } from "$lib/auth";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
@@ -40,6 +38,9 @@ import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { messageCache } from "$lib/stores/message-cache";
+import { authStore } from "$lib/stores/auth.svelte";
+import { runtimeStore } from "$lib/stores/runtime-store.svelte";
+import { hydrateSessionCacheToRuntimeStore } from "$lib/stores/cache-hydration";
 import type { MessageRecord } from "@cohub/protocol";
 import {
 	ArrowDown,
@@ -264,7 +265,7 @@ function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
 	});
 }
 
-let runtimePollingTimer: ReturnType<typeof setInterval> | null = null;
+let runtimePollingTimer: ReturnType<typeof setTimeout> | null = null;
 const listEl = $state<HTMLDivElement | null>(null);
 const contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
@@ -291,6 +292,7 @@ let showScrollToBottom = $state(false);
 
 // Share / Permissions
 let runtimePermissions = $state<ResourcePermission[]>([]);
+let runtimePermissionsLoaded = $state(false);
 let runtimePublicRead = $state(false);
 let savingRuntimePerm = $state(false);
 let shareCopied = $state(false);
@@ -308,7 +310,7 @@ type ChatTimelineHandle = {
 	preparePrepend: () => void;
 	finalizePrepend: () => void;
 };
-let chatTimelineRef: ChatTimelineHandle | null = null;
+let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
 
 // Preload tracking: debounce to avoid multiple concurrent loads
 let preloadingSessionIds = new Set<string>();
@@ -325,7 +327,7 @@ async function handleHibernate() {
 	runtimeActionError = "";
 	try {
 		await hibernateRuntime(runtimeId);
-		await loadRuntime();
+		await loadRuntime({ force: true });
 	} catch (error) {
 		runtimeActionError =
 			error instanceof Error ? error.message : "Failed to hibernate";
@@ -341,7 +343,7 @@ async function handleWake() {
 	runtimeActionError = "";
 	try {
 		await wakeRuntime(runtimeId);
-		await loadRuntime();
+		await loadRuntime({ force: true });
 	} catch (error) {
 		runtimeActionError =
 			error instanceof Error ? error.message : "Failed to wake";
@@ -357,6 +359,7 @@ async function handleDelete() {
 	runtimeActionError = "";
 	try {
 		await deleteRuntime(runtimeId);
+		runtimeStore.removeRuntime(runtimeId);
 		goto("/runtimes");
 	} catch (error) {
 		runtimeActionError =
@@ -470,6 +473,14 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 	return items;
 });
 
+$effect(() => {
+	const currentRuntime = runtime;
+	const userUuid = authStore.userUuid;
+	if (currentRuntime) {
+		isOwner = currentRuntime.userUuid === userUuid;
+	}
+});
+
 // Sync active session with URL
 $effect(() => {
 	if (urlSessionId && urlSessionId !== activeSessionId) {
@@ -545,6 +556,7 @@ async function handleCreateNewSession() {
 		const newSession = result.session;
 
 		runtimeSessions = [...runtimeSessions, newSession];
+		runtimeStore.patchSession(runtime.id, newSession);
 		sessionStateById = {
 			...sessionStateById,
 			[newSession.id]: {
@@ -598,6 +610,7 @@ function seedSessions(sessions: SessionRecord[]) {
 	sessionStateById = nextState;
 
 	// Notify sidebar about session changes
+	runtimeStore.setSessions(runtimeId, sessions);
 	notifySessionsUpdate();
 
 	// Auto-select session from URL or fallback to latest
@@ -672,54 +685,89 @@ function patchDiscordRuntimeChannelConfig(
 	void saveRuntimeChannelConfig(runtimeChannel.id, nextConfig);
 }
 
-async function loadRuntime() {
+async function loadRuntime(options?: { force?: boolean; includeChannels?: boolean }) {
 	runtimeLoadError = "";
+	const force = options?.force ?? false;
+	const includeChannels = options?.includeChannels ?? false;
 
-	const [runtimeResult, sessionsResult, channelsResult] =
-		await Promise.allSettled([
-			getRuntime(runtimeId),
-			getRuntimeSessions(runtimeId),
-			getRuntimeChannels(runtimeId),
-		]);
+	const cachedRuntime = runtimeStore.getRuntime(runtimeId);
+	if (cachedRuntime && !runtime) {
+		runtime = cachedRuntime as RuntimeRecord;
+		isOwner = cachedRuntime.userUuid === authStore.userUuid;
+	}
 
-	if (runtimeResult.status === "fulfilled") {
-		runtime = runtimeResult.value;
-		try {
-			const me = await getMe();
-			isOwner = runtime.userUuid === me?.uuid;
-		} catch {
-			// Anonymous access — not owner
-			isOwner = false;
-		}
+	const cachedSessions = runtimeStore.getSessions(runtimeId);
+	if (!cachedSessions) {
+		hydrateSessionCacheToRuntimeStore(runtimeId);
+	}
+	const hydratedSessions = runtimeStore.getSessions(runtimeId);
+	const fallbackSessions = cachedSessions ?? hydratedSessions;
+	if (fallbackSessions && runtimeSessions.length === 0) {
+		seedSessions(fallbackSessions);
+	}
+
+	const shouldFetchRuntime = force || !runtimeStore.getRuntime(runtimeId) || shouldPollRuntime(runtimeStore.getRuntime(runtimeId) as RuntimeRecord | null);
+	const shouldFetchSessions = force || !runtimeStore.hasLoadedSessions(runtimeId) || runtimeStore.shouldRefreshSessions(runtimeId);
+	const shouldFetchChannels = includeChannels && (force || !runtimeStore.hasLoadedChannels(runtimeId));
+
+	const tasks: Array<Promise<void>> = [];
+
+	if (shouldFetchRuntime) {
+		tasks.push((async () => {
+			try {
+				const runtimeResult = await getRuntime(runtimeId);
+				runtime = runtimeResult;
+				runtimeStore.upsertRuntime(runtimeResult);
+				isOwner = runtimeResult.userUuid === authStore.userUuid;
+			} catch (error) {
+				runtimeLoadError =
+					error instanceof Error
+						? error.message
+						: "Failed to load runtime";
+			}
+		})());
+	}
+
+	if (shouldFetchSessions) {
+		tasks.push((async () => {
+			try {
+				const sessionsResult = await getRuntimeSessions(runtimeId);
+				runtimeStore.setSessions(runtimeId, sessionsResult.sessions ?? []);
+				seedSessions(sessionsResult.sessions ?? []);
+			} catch (error) {
+				if (!runtimeLoadError) {
+					runtimeLoadError =
+						error instanceof Error
+							? error.message
+							: "Failed to load runtime sessions";
+				}
+			}
+		})());
+	}
+
+	if (shouldFetchChannels) {
+		tasks.push((async () => {
+			try {
+				const channelsResult = await getRuntimeChannels(runtimeId);
+				runtimeChannels = channelsResult;
+				runtimeStore.setRuntimeChannels(runtimeId, channelsResult);
+			} catch (error) {
+				if (!runtimeLoadError) {
+					runtimeLoadError =
+						error instanceof Error
+							? error.message
+							: "Failed to load runtime channels";
+				}
+			}
+		})());
 	} else {
-		runtimeLoadError =
-			runtimeResult.reason instanceof Error
-				? runtimeResult.reason.message
-				: "Failed to load runtime";
+		const cachedChannels = runtimeStore.getRuntimeChannels(runtimeId);
+		if (cachedChannels && runtimeChannels.length === 0) {
+			runtimeChannels = cachedChannels;
+		}
 	}
 
-	if (sessionsResult.status === "fulfilled") {
-		seedSessions(sessionsResult.value.sessions ?? []);
-	} else if (!runtimeLoadError) {
-		runtimeLoadError =
-			sessionsResult.reason instanceof Error
-				? sessionsResult.reason.message
-				: "Failed to load runtime sessions";
-	}
-
-	if (channelsResult.status === "fulfilled") {
-		runtimeChannels = channelsResult.value;
-	} else if (!runtimeLoadError) {
-		runtimeLoadError =
-			channelsResult.reason instanceof Error
-				? channelsResult.reason.message
-				: "Failed to load runtime channels";
-	}
-
-	// Permissions API requires login — skip for anonymous users
-	if (runtime && (await logtoClient.isAuthenticated())) {
-		void loadPermissions();
-	}
+	await Promise.all(tasks);
 }
 
 async function loadSessionState(sessionId: string, force = false) {
@@ -963,13 +1011,26 @@ function shouldPollRuntime(runtime: RuntimeRecord | null) {
 	return status === "starting";
 }
 
+function getRuntimePollInterval(runtime: RuntimeRecord | null) {
+	return runtime?.status === "starting" ? 1_000 : 3_000;
+}
+
 // ─── Share / Permissions ───
 
-async function loadPermissions() {
+async function loadPermissions(force = false) {
+	if (!force && runtimePermissionsLoaded) return;
 	try {
 		const perms = await listRuntimePermissions(runtimeId);
 		runtimePermissions = perms;
 		runtimePublicRead = perms.some((p) => p.resourceType === "runtime");
+		const sessionLevels = new Map(
+			perms
+				.filter((p) => p.resourceType === "session")
+				.map((p) => [p.resourceId, p.level]),
+		);
+		runtimeStore.setPermissions(runtimeId, sessionLevels);
+		runtimeSessions = runtimeStore.getSessions(runtimeId) ?? runtimeSessions;
+		runtimePermissionsLoaded = true;
 	} catch {
 		// Ignore — permissions may not exist yet
 	}
@@ -984,7 +1045,7 @@ async function toggleRuntimePublicRead(enabled: boolean) {
 			await deleteRuntimePermission(runtimeId);
 		}
 		runtimePublicRead = enabled;
-		await loadPermissions();
+		await loadPermissions(true);
 		notifyPermissionsUpdate();
 	} catch {
 		// Revert
@@ -1006,7 +1067,7 @@ async function shareAndCopyLink() {
 	shareModalSaving = true;
 	try {
 		await createSessionPermission(shareModalSessionId, "read");
-		await loadPermissions();
+		await loadPermissions(true);
 		notifyPermissionsUpdate();
 		const url = `${window.location.origin}/runtimes/${runtimeId}?session=${shareModalSessionId}`;
 		await navigator.clipboard.writeText(url);
@@ -1027,7 +1088,7 @@ async function makeSessionPrivate() {
 	shareModalSaving = true;
 	try {
 		await createSessionPermission(shareModalSessionId, "private");
-		await loadPermissions();
+		await loadPermissions(true);
 		notifyPermissionsUpdate();
 		showShareModal = false;
 	} catch (error) {
@@ -1041,7 +1102,7 @@ async function removeSessionPermission(sessionId: string): Promise<boolean> {
 	try {
 		sessionPermError = "";
 		await deleteSessionPermission(sessionId);
-		await loadPermissions();
+		await loadPermissions(true);
 		notifyPermissionsUpdate();
 		return true;
 	} catch (error) {
@@ -1519,6 +1580,11 @@ onMount(() => {
 	pageMounted = true;
 	pageVisible = document.visibilityState === "visible";
 	pageOnline = typeof navigator === "undefined" ? true : navigator.onLine;
+	void authStore.ensureLoaded().then(() => {
+		if (runtime) {
+			isOwner = runtime.userUuid === authStore.userUuid;
+		}
+	});
 
 	function handleVisibilityChange() {
 		pageVisible = document.visibilityState === "visible";
@@ -1552,18 +1618,30 @@ onMount(() => {
 		// BroadcastChannel not supported, fallback to window events
 	}
 
-	void loadRuntime().finally(() => {
-		bootstrapping = false;
+	void loadRuntime({ force: true }).finally(() => {
+		if (authStore.isAuthenticated) {
+			void loadPermissions(true).finally(() => {
+				bootstrapping = false;
+			});
+		} else {
+			bootstrapping = false;
+		}
 	});
 
-	runtimePollingTimer = setInterval(() => {
+	function scheduleRuntimeStatusPoll() {
+		if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
 		if (!shouldPollRuntime(runtime)) return;
-		void loadRuntime();
-	}, 1000);
+		runtimePollingTimer = setTimeout(async () => {
+			await loadRuntime({ force: true });
+			scheduleRuntimeStatusPoll();
+		}, getRuntimePollInterval(runtime));
+	}
+
+	scheduleRuntimeStatusPoll();
 
 	return () => {
 		pageMounted = false;
-		if (runtimePollingTimer) clearInterval(runtimePollingTimer);
+		if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -1705,6 +1783,33 @@ $effect(() => {
 			updateAutoFollow();
 		}
 	});
+});
+
+$effect(() => {
+	if (showSettings && !runtimeStore.hasLoadedChannels(runtimeId)) {
+		void loadRuntime({ force: true, includeChannels: true });
+	}
+	if (showSettings && authStore.isAuthenticated && !runtimePermissionsLoaded) {
+		void loadPermissions(true);
+	}
+});
+
+$effect(() => {
+	if (runtimePollingTimer) {
+		clearTimeout(runtimePollingTimer);
+		runtimePollingTimer = null;
+	}
+	if (!shouldPollRuntime(runtime)) return;
+	const timer = setTimeout(async () => {
+		await loadRuntime({ force: true });
+	}, getRuntimePollInterval(runtime));
+	runtimePollingTimer = timer;
+	return () => {
+		clearTimeout(timer);
+		if (runtimePollingTimer === timer) {
+			runtimePollingTimer = null;
+		}
+	};
 });
 </script>
 
@@ -2101,7 +2206,12 @@ $effect(() => {
   <!-- Share Modal -->
   {#if showShareModal && shareModalSessionId}
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-black/40" onclick={() => { showShareModal = false; }}></div>
+      <button
+        type="button"
+        class="absolute inset-0 bg-black/40"
+        aria-label="Close share dialog"
+        onclick={() => { showShareModal = false; }}
+      ></button>
       <div class="relative w-full max-w-[380px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl overflow-hidden">
         <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none">
           <span>{hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'}</span>

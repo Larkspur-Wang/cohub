@@ -22,17 +22,18 @@ import {
   listRuntimePermissions,
   type RuntimeListItem,
   type SessionRecord,
-  type ResourcePermission,
+  type ResourcePermissionLevel,
 } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
-import type { IdTokenClaims } from "@logto/browser";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { sidebarCache } from "$lib/stores/sidebar-cache";
+import { authStore } from "$lib/stores/auth.svelte";
+import { runtimeStore } from "$lib/stores/runtime-store.svelte";
+import { hydrateSessionCacheToRuntimeStore } from "$lib/stores/cache-hydration";
 
 const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
 
-let userClaims = $state<IdTokenClaims | null>(null);
 let runtimes = $state<RuntimeListItem[]>([]);
 let sessionsByRuntime = $state<Record<string, SessionRecord[]>>({});
 let expandedRuntimes = $state<Set<string>>(new Set());
@@ -45,7 +46,7 @@ const actionInProgress = $state<Record<string, string>>({});
 let streamingSessionIds = $state<Set<string>>(new Set());
 
 // Permission map: runtimeId → Map<sessionId, permissionLevel>
-let permsByRuntime = $state<Record<string, Map<string, string>>>({});
+let permsByRuntime = $state<Record<string, Map<string, ResourcePermissionLevel>>>({});
 // Track which runtimes have already had permissions loaded (avoid redundant API calls)
 const loadedPermsRuntimes = new Set<string>();
 
@@ -122,23 +123,43 @@ function toggleRuntime(runtimeId: string) {
   expandedRuntimes = next;
 }
 
-async function loadRuntimes() {
-  if (!(await ensureAuth())) return;
+async function loadRuntimes(force = false) {
+  if (!(await ensureAuth())) {
+    isLoading = false;
+    return;
+  }
+
+  loadError = "";
 
   // Cache-first: show stale data immediately, then refresh from API
   const cached = sidebarCache.getRuntimes();
-  if (cached) {
+  if (!runtimes.length && cached) {
     runtimes = cached;
+    runtimeStore.setRuntimeList(cached);
     isLoading = false;
+  }
+
+  if (!runtimes.length) {
+    const storeRuntimes = runtimeStore.runtimeList;
+    if (storeRuntimes.length > 0) {
+      runtimes = storeRuntimes;
+      isLoading = false;
+    }
+  }
+
+  if (!force && !runtimeStore.shouldRefreshRuntimeList() && runtimeStore.runtimeList.length > 0) {
+    runtimes = runtimeStore.runtimeList;
+    isLoading = false;
+    return;
   }
 
   if (!runtimes.length) {
     isLoading = true;
   }
-  loadError = "";
   try {
     const data = await getRuntimes();
     runtimes = data;
+    runtimeStore.replaceRuntimeList(data);
     sidebarCache.setRuntimes(data);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load runtimes";
@@ -152,52 +173,77 @@ async function loadRuntimes() {
   }
 }
 
-async function loadSessions(runtimeId: string) {
-  // 1. Ensure UI has something to show (in-memory > cache)
-  const inMemory = sessionsByRuntime[runtimeId];
-  const cached = sidebarCache.getSessions(runtimeId);
-  if (!inMemory && cached) {
-    sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: cached };
+async function loadSessions(runtimeId: string, force = false) {
+  // 1. Ensure UI has something to show (store > persistent cache)
+  if (!sessionsByRuntime[runtimeId]) {
+    hydrateSessionCacheToRuntimeStore(runtimeId);
+    const existing = runtimeStore.getSessions(runtimeId);
+    if (existing) {
+      sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: existing };
+    }
   }
 
-  // 2. Always fetch fresh data from API
-  // Load sessions and permissions in parallel so icons appear promptly
+  if (!force && runtimeStore.hasLoadedSessions(runtimeId) && !runtimeStore.shouldRefreshSessions(runtimeId)) {
+    const existing = runtimeStore.getSessions(runtimeId);
+    if (existing) {
+      sessionsByRuntime = { ...sessionsByRuntime, [runtimeId]: existing };
+    }
+    return;
+  }
+
+  if (runtimeStore.isLoadingSessions(runtimeId)) return;
+  runtimeStore.setLoadingSessions(runtimeId, true);
+
   try {
     const [result] = await Promise.all([
       getRuntimeSessions(runtimeId),
-      userClaims?.sub ? loadRuntimePermissions(runtimeId) : Promise.resolve(),
+      authStore.userUuid ? loadRuntimePermissions(runtimeId, force) : Promise.resolve(),
     ]);
+    const sessions = result.sessions ?? [];
     sessionsByRuntime = {
       ...sessionsByRuntime,
-      [runtimeId]: result.sessions ?? [],
+      [runtimeId]: sessions,
     };
-    sidebarCache.setSessions(runtimeId, result.sessions ?? []);
-  } catch {
-    // Silently fail — sessions will load when user navigates
+    runtimeStore.setSessions(runtimeId, sessions);
+    sidebarCache.setSessions(runtimeId, sessions);
+  } catch (error) {
+    console.warn("[sidebar] Failed to load sessions", { runtimeId, error });
+    // Silently fail in UI — sessions can recover on next refresh/navigation
+  } finally {
+    runtimeStore.setLoadingSessions(runtimeId, false);
   }
 }
 
-async function loadRuntimePermissions(runtimeId: string) {
-  if (!userClaims?.sub) return;
-  if (loadedPermsRuntimes.has(runtimeId)) return;
+async function loadRuntimePermissions(runtimeId: string, force = false) {
+  if (!authStore.userUuid) return;
+  if (!force && runtimeStore.hasLoadedPermissions(runtimeId)) {
+    const cached = runtimeStore.getPermissions(runtimeId);
+    if (cached) {
+      permsByRuntime = { ...permsByRuntime, [runtimeId]: cached };
+    }
+    return;
+  }
+  if (!force && loadedPermsRuntimes.has(runtimeId)) return;
   loadedPermsRuntimes.add(runtimeId);
   try {
     const perms = await listRuntimePermissions(runtimeId);
-    const map = new Map<string, string>();
+    const map = new Map<string, ResourcePermissionLevel>();
     for (const p of perms) {
       if (p.resourceType === "session") {
         map.set(p.resourceId, p.level);
       }
     }
     permsByRuntime = { ...permsByRuntime, [runtimeId]: map };
+    runtimeStore.setPermissions(runtimeId, map);
   } catch {
     // Non-critical, ignore
   }
 }
 
-function getSessionPerm(runtimeId: string, sessionId: string): string | null {
+function getSessionPerm(runtimeId: string, session: SessionRecord): string | null {
+  if (session.shareLevel) return session.shareLevel;
   const map = permsByRuntime[runtimeId];
-  return map?.get(sessionId) ?? null;
+  return map?.get(session.id) ?? null;
 }
 
 function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
@@ -205,6 +251,7 @@ function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
     ...sessionsByRuntime,
     [runtimeId]: sessions,
   };
+  runtimeStore.setSessions(runtimeId, sessions);
   sidebarCache.setSessions(runtimeId, sessions);
   // Auto-expand the runtime if we received new sessions
   if (sessions.length > 0 && !expandedRuntimes.has(runtimeId)) {
@@ -268,10 +315,8 @@ async function handleDelete(runtimeId: string, e: Event) {
   actionInProgress[runtimeId] = "delete";
   try {
     await deleteRuntime(runtimeId);
-    // Clean up sessions cache for deleted runtime
-    delete sessionsByRuntime[runtimeId];
+    runtimeStore.removeRuntime(runtimeId);
     await loadRuntimes();
-    window.dispatchEvent(new CustomEvent("cohub:runtime-status-changed", { detail: { runtimeId } }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to delete";
     alert(message);
@@ -357,22 +402,15 @@ onMount(() => {
   void (async () => {
     const authenticated = await ensureAuth();
     if (authenticated) {
-      try {
-        userClaims = await logtoClient.getIdTokenClaims();
-        if (userClaims?.sub) {
-          sidebarCache.setUserUuid(userClaims.sub);
-        }
-      } catch {
-        // ignore
+      await authStore.ensureLoaded();
+      if (authStore.userUuid) {
+        sidebarCache.setUserUuid(authStore.userUuid);
       }
     }
     // Load runtimes: cache-first, background refresh
     await loadRuntimes();
 
-    // Load permissions for all runtimes up front so sidebar icons are ready on first render
-    if (userClaims?.sub) {
-      void Promise.all(runtimes.map((rt) => loadRuntimePermissions(rt.id)));
-    }
+    // Permission summaries are hydrated lazily when a runtime's sessions are loaded.
 
     // Preload cached sessions for visible runtimes
     for (const rt of runtimes) {
@@ -428,7 +466,8 @@ onMount(() => {
   function handlePermissionsUpdateEvent(e: Event) {
     const detail = (e as CustomEvent).detail as { runtimeId: string };
     if (detail?.runtimeId) {
-      void loadRuntimePermissions(detail.runtimeId);
+      loadedPermsRuntimes.delete(detail.runtimeId);
+      void loadRuntimePermissions(detail.runtimeId, true);
     }
   }
 
@@ -557,7 +596,7 @@ onMount(() => {
               }}
             >
               <!-- Status color bar (brand color when active, status color otherwise) -->
-              <span class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full {isActive ? 'bg-brand' : statusColorClass(status)}" />
+              <span class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full {isActive ? 'bg-brand' : statusColorClass(status)}"></span>
               <span
                 class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary group-hover:text-text-secondary transition-colors"
               >
@@ -587,8 +626,8 @@ onMount(() => {
                       title={sourceTooltip(session.source) || undefined}
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-                      {#if runtime.userUuid === userClaims?.sub}
-                        {@const perm = getSessionPerm(runtime.id, session.id)}
+                      {#if runtime.userUuid === authStore.userUuid}
+                        {@const perm = getSessionPerm(runtime.id, session)}
                         {#if perm === "read" || perm === "write"}
                           <Globe class="w-3 h-3 shrink-0 text-text-placeholder" />
                         {:else if perm === "private"}
@@ -649,8 +688,8 @@ onMount(() => {
       onclick={() => { showUserMenu = !showUserMenu; }}
     >
       <div class="w-[22px] h-[22px] rounded-full bg-bg-hover-strong overflow-hidden shrink-0">
-        {#if userClaims?.picture}
-          <img src={userClaims.picture} alt="avatar" class="w-full h-full object-cover" />
+        {#if authStore.claims?.picture}
+          <img src={authStore.claims.picture} alt="avatar" class="w-full h-full object-cover" />
         {:else}
           <svg viewBox="0 0 32 32" class="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect width="32" height="32" rx="16" fill="#e5e7eb" />
@@ -660,7 +699,7 @@ onMount(() => {
         {/if}
       </div>
       <div class="flex-1 min-w-0 text-left">
-        <p class="text-[12px] text-text-secondary truncate">{userClaims?.name ?? 'Guest'}</p>
+        <p class="text-[12px] text-text-secondary truncate">{authStore.claims?.name ?? 'Guest'}</p>
       </div>
       <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {showUserMenu ? 'rotate-180' : ''}" />
     </button>

@@ -156,11 +156,12 @@ function subsequenceScore(query: string, text: string): number {
 		aria-label="Select model"
 	>
 		<!-- Backdrop -->
-		<div
+		<button
+			type="button"
 			class="absolute inset-0 bg-black/40"
 			onclick={onClose}
-			aria-hidden="true"
-		></div>
+			aria-label="Close model selector"
+		></button>
 
 		<!-- Modal -->
 		<div
@@ -202,8 +203,9 @@ function subsequenceScore(query: string, text: string): number {
 					</div>
 				{:else}
 					{#each filteredModels as item, index (item.provider + "/" + item.id)}
-						<div
-							class={`px-4 py-2 cursor-pointer border-b border-border-subtle/50 transition-colors ${
+						<button
+							type="button"
+							class={`w-full text-left px-4 py-2 cursor-pointer border-b border-border-subtle/50 transition-colors ${
 								navigationMode === "mouse" ? "hover:bg-bg-hover" : ""
 							} ${index === selectedIndex ? "bg-accent" : ""}`}
 							data-model-item
@@ -213,6 +215,7 @@ function subsequenceScore(query: string, text: string): number {
 									selectedIndex = index;
 								}
 							}}
+							aria-pressed={isCurrentModel(item)}
 						>
 							<div class="flex items-center justify-between gap-2">
 								<div class="flex items-center gap-1.5 min-w-0">
@@ -230,7 +233,7 @@ function subsequenceScore(query: string, text: string): number {
 									{item.provider}
 								</span>
 							</div>
-						</div>
+						</button>
 					{/each}
 				{/if}
 			</div>

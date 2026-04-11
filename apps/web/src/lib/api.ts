@@ -42,6 +42,7 @@ export type SessionRecord = ProtocolSessionRecord & {
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCost?: string | number | null;
+  shareLevel?: ResourcePermissionLevel | null;
 };
 
 /** Web-extended runtime record with live status and channels */
