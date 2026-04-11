@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ArrowUp, Plus, Upload, X } from "lucide-svelte";
+import { ArrowUp, ChevronDown, Plus, Upload, X } from "lucide-svelte";
 
 type ComposerImageAttachment = {
 	id: string;
@@ -10,14 +10,22 @@ type ComposerImageAttachment = {
 	size: number;
 };
 
+type SelectedModel = {
+	provider: string;
+	id: string;
+	name?: string;
+};
+
 type Props = {
 	value: string;
 	disabled?: boolean;
 	streamError?: string;
 	attachments?: ComposerImageAttachment[];
+	currentModel?: SelectedModel | null;
 	onsubmit: () => void;
 	onpickimage?: (files: FileList | File[] | null) => void;
 	onremoveattachment?: (id: string) => void;
+	onModelSelect?: () => void;
 };
 
 let {
@@ -25,9 +33,11 @@ let {
 	disabled = false,
 	streamError = "",
 	attachments = [],
+	currentModel = null,
 	onsubmit,
 	onpickimage,
 	onremoveattachment,
+	onModelSelect,
 }: Props = $props();
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -175,15 +185,32 @@ $effect(() => {
 					></textarea>
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">
-						<button
-							type="button"
-							class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-							onclick={() => fileInputEl?.click()}
-							disabled={disabled}
-							title="Add image"
-						>
-							<Plus class="h-[17px] w-[17px]" />
-						</button>
+						<div class="flex items-center gap-1">
+							<button
+								type="button"
+								class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+								onclick={() => fileInputEl?.click()}
+								disabled={disabled}
+								title="Add image"
+							>
+								<Plus class="h-[17px] w-[17px]" />
+							</button>
+
+							{#if onModelSelect}
+								<button
+									type="button"
+									class="flex items-center gap-1 h-7 px-2 rounded-full text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary border border-border-subtle disabled:cursor-not-allowed disabled:opacity-50"
+									onclick={() => onModelSelect?.()}
+									disabled={disabled}
+									title="Select model"
+								>
+									<span class="max-w-[120px] truncate">
+										{currentModel?.name ?? currentModel?.id ?? 'Model'}
+									</span>
+									<ChevronDown class="h-3 w-3 opacity-50" />
+								</button>
+							{/if}
+						</div>
 
 						<button
 							type="submit"

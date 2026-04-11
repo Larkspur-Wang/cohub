@@ -69,6 +69,8 @@ export const executeSessionInteraction = async (input: {
       source: input.source,
       interactionId: input.interactionId,
       actorUserId: input.actorUserId ?? null,
+      model: (input as { model?: string; provider?: string }).model ?? null,
+      provider: (input as { model?: string; provider?: string }).provider ?? null,
     },
   });
 

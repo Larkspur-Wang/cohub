@@ -313,6 +313,12 @@ $effect(() => {
         </div>
       {/if}
 
+      {#if message.meta?.model}
+        <div class="mt-2 text-[10px] text-text-placeholder/30">
+          {message.meta.provider}/{message.meta.model}
+        </div>
+      {/if}
+
 
     </div>
   </div>

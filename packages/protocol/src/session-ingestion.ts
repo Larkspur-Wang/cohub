@@ -60,6 +60,8 @@ export type SessionPromptInput = {
   meta?: {
     source?: string;
     intent?: "auto" | "continue" | "new_session" | "fork";
+    model?: string;
+    provider?: string;
   } | null;
 };
 

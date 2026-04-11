@@ -115,6 +115,65 @@ const buildWorkspaceDetail = async (
   };
 };
 
+// ─── Models catalog cache ───
+
+const MODELS_CATALOG_URL = "https://gitea.cohub.run/global/configs/raw/branch/main/.pi/agent/models.json";
+const MODELS_REDIS_KEY = "configs:models";
+const MODELS_CACHE_TTL_SEC = 30 * 60; // 30 minutes
+
+export type ModelCatalogEntry = {
+  provider: string;
+  id: string;
+  model: Record<string, unknown>;
+};
+
+let modelsCachePromise: Promise<ModelCatalogEntry[]> | null = null;
+
+async function fetchModelsCatalog(): Promise<ModelCatalogEntry[]> {
+  if (modelsCachePromise) return modelsCachePromise;
+
+  modelsCachePromise = (async () => {
+    // Try Redis cache first
+    const cached = await redisCommandClient.get(MODELS_REDIS_KEY);
+    if (cached) {
+      try {
+        return JSON.parse(cached) as ModelCatalogEntry[];
+      } catch {
+        // Corrupted cache, fall through to fetch
+      }
+    }
+
+    // Fetch from Gitea
+    const response = await fetch(MODELS_CATALOG_URL);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models catalog: ${response.status} ${response.statusText}`);
+    }
+    const raw = await response.json() as {
+      providers: Record<string, { models?: Array<Record<string, unknown>> }>;
+    };
+
+    // Flatten: provider + models array only
+    const entries: ModelCatalogEntry[] = [];
+    for (const [provider, config] of Object.entries(raw.providers ?? {})) {
+      for (const m of config.models ?? []) {
+        entries.push({ provider, id: String(m.id), model: m });
+      }
+    }
+
+    // Store flattened result in Redis
+    await redisCommandClient.set(MODELS_REDIS_KEY, JSON.stringify(entries), "EX", MODELS_CACHE_TTL_SEC);
+
+    return entries;
+  })();
+
+  try {
+    return await modelsCachePromise;
+  } finally {
+    // Reset so next call can retry on failure
+    modelsCachePromise = null;
+  }
+}
+
 const CONSUMER_NAME = `api-${process.env.POD_NAME || process.env.HOSTNAME || Math.random().toString(36).slice(2, 8)}`;
 const INBOUND_BATCH_SIZE = 10;
 const INBOUND_BLOCK_MS = 5000;
@@ -994,6 +1053,30 @@ app.post("/api/runtimes", async (c) => {
   return c.json({ runtime, session, ready: false });
 });
 
+// ─── Public models catalog (no auth required) ───
+
+app.get("/api/models", async (c) => {
+  try {
+    const catalog = await fetchModelsCatalog();
+    // Group by provider for frontend convenience
+    const grouped: Record<string, ModelCatalogEntry[]> = {};
+    for (const entry of catalog) {
+      let list = grouped[entry.provider];
+      if (!list) {
+        list = [];
+        grouped[entry.provider] = list;
+      }
+      list.push(entry);
+    }
+    return c.json(grouped);
+  } catch (error) {
+    return c.json(
+      { message: error instanceof Error ? error.message : "Failed to fetch models catalog" },
+      502,
+    );
+  }
+});
+
 app.get("/api/runtimes", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1442,6 +1525,8 @@ app.post("/api/sessions/:id/messages", async (c) => {
 
   const body = await c.req.json<{
     content: ContentBlock[];
+    model?: string;
+    provider?: string;
   }>();
 
   if (!body.content || body.content.length === 0) {
@@ -1457,7 +1542,12 @@ app.post("/api/sessions/:id/messages", async (c) => {
     sessionId: session.id,
     userMessageId,
     content: body.content,
-    meta: { intent: "continue", source: "web" },
+    meta: {
+      intent: "continue",
+      source: "web",
+      model: body.model ?? null,
+      provider: body.provider ?? null,
+    },
   });
 
   return c.json({ ok: true, userMessageId });

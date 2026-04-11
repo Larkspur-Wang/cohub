@@ -12,6 +12,7 @@ import {
 	deleteRuntime,
 	extractSessionRenderState,
 	getMe,
+	getModels,
 	getRuntime,
 	getRuntimeChannels,
 	getRuntimeSessions,
@@ -32,6 +33,7 @@ import {
 import { logtoClient } from "$lib/auth";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
+import ModelSelector from "$lib/components/ModelSelector.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
@@ -41,6 +43,7 @@ import { messageCache } from "$lib/stores/message-cache";
 import type { MessageRecord } from "@cohub/protocol";
 import {
 	ArrowDown,
+	Brain,
 	Check,
 	Copy,
 	Globe,
@@ -115,6 +118,96 @@ let streamingThinking = $state("");
 // Raw content blocks from the latest SSE event, used to preserve
 // the correct interleaving order of text/thinking/tool_use blocks.
 let streamingContentBlocks = $state<ContentBlock[]>([]);
+
+// ─── Model selection ───
+
+type SelectedModel = {
+	provider: string;
+	id: string;
+	name?: string;
+};
+
+let modelsCatalog = $state<Array<{ provider: string; id: string; model: Record<string, unknown> }> | null>(null);
+let showModelSelector = $state(false);
+
+// Per-session model selection stored in localStorage
+function getSessionModelKey(sessionId: string): string {
+	return `cohub:model:${sessionId}`;
+}
+
+function loadSessionModel(sessionId: string): SelectedModel | null {
+	try {
+		const raw = localStorage.getItem(getSessionModelKey(sessionId));
+		return raw ? (JSON.parse(raw) as SelectedModel) : null;
+	} catch {
+		return null;
+	}
+}
+
+function saveSessionModel(sessionId: string, model: SelectedModel | null) {
+	if (!model) {
+		localStorage.removeItem(getSessionModelKey(sessionId));
+	} else {
+		localStorage.setItem(getSessionModelKey(sessionId), JSON.stringify(model));
+	}
+}
+
+// Current model for the active session
+let sessionModelById = $state<Record<string, SelectedModel | null>>({});
+
+// The first model from the catalog (used as fallback when no explicit selection)
+const firstCatalogModel = $derived(
+	modelsCatalog && modelsCatalog.length > 0
+		? {
+			provider: modelsCatalog[0].provider,
+			id: modelsCatalog[0].id,
+			name: modelsCatalog[0].model.name as string | undefined,
+		}
+		: null,
+);
+
+const activeSessionModel = $derived.by(() => {
+	if (!activeSessionId) return null;
+	const explicit = sessionModelById[activeSessionId];
+	// Explicit selection wins; otherwise fall back to the first catalog model
+	return explicit ?? firstCatalogModel;
+});
+
+async function loadModelsCatalog() {
+	if (modelsCatalog) return;
+	try {
+		const catalog = await getModels();
+		// API returns { provider: ModelCatalogEntry[] } — flatten to array
+		const items: Array<{ provider: string; id: string; model: Record<string, unknown> }> = [];
+		for (const [, entries] of Object.entries(catalog)) {
+			for (const entry of entries) {
+				items.push(entry);
+			}
+		}
+		modelsCatalog = items;
+	} catch (err) {
+		console.error("Failed to load models catalog:", err);
+	}
+}
+
+function handleModelSelect(model: { provider: string; id: string }) {
+	if (!activeSessionId) return;
+	// Look up the display name from the catalog
+	const catalogItem = modelsCatalog?.find(
+		(m) => m.provider === model.provider && m.id === model.id,
+	);
+	const selected: SelectedModel = {
+		provider: model.provider,
+		id: model.id,
+		name: catalogItem?.model.name as string | undefined,
+	};
+	sessionModelById = {
+		...sessionModelById,
+		[activeSessionId]: selected,
+	};
+	saveSessionModel(activeSessionId, selected);
+	showModelSelector = false;
+}
 
 // SSE - per-session connections
 let sessionSSEs = new Map<string, AbortController>();
@@ -381,6 +474,7 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 $effect(() => {
 	if (urlSessionId && urlSessionId !== activeSessionId) {
 		activeSessionId = urlSessionId;
+		ensureSessionModelLoaded(urlSessionId);
 		shouldAutoFollow = true;
 		// Mark session as viewed when navigating to it
 		const state = sessionStateById[urlSessionId];
@@ -389,6 +483,16 @@ $effect(() => {
 		}
 	}
 });
+
+// Load saved model for a session (called explicitly, not via $effect)
+function ensureSessionModelLoaded(sessionId: string) {
+	if (sessionModelById[sessionId]) return;
+	const saved = loadSessionModel(sessionId);
+	sessionModelById = {
+		...sessionModelById,
+		[sessionId]: saved,
+	};
+}
 
 function updateUrlSession(sessionId: string | null) {
 	const params = new URLSearchParams(page.url.searchParams);
@@ -456,6 +560,7 @@ async function handleCreateNewSession() {
 		};
 
 		activeSessionId = newSession.id;
+		ensureSessionModelLoaded(newSession.id);
 		updateUrlSession(newSession.id);
 		notifySessionsUpdate();
 	} catch (error) {
@@ -497,11 +602,15 @@ function seedSessions(sessions: SessionRecord[]) {
 
 	// Auto-select session from URL or fallback to latest
 	if (urlSessionId && !sessionStateById[urlSessionId]?.loaded) {
+		ensureSessionModelLoaded(urlSessionId);
 		// Will be loaded by the effect below
 	} else if (!activeSessionId && sessions.length > 0) {
 		const nextId = sessions.at(-1)?.id ?? null;
-		activeSessionId = nextId;
-		updateUrlSession(nextId);
+		if (nextId) {
+			activeSessionId = nextId;
+			ensureSessionModelLoaded(nextId);
+			updateUrlSession(nextId);
+		}
 	}
 }
 
@@ -1207,7 +1316,11 @@ async function handleSend() {
 
 	try {
 		// Get server-assigned userMessageId BEFORE showing optimistic message
-		const result = await postSessionMessage(sessionId, content);
+		const model = activeSessionModel;
+		const result = await postSessionMessage(sessionId, content, {
+			model: model?.id,
+			provider: model?.provider,
+		});
 		const userMessageId = result?.userMessageId;
 
 		input = "";
@@ -1807,9 +1920,14 @@ $effect(() => {
         disabled={sending || !activeSessionState || !getRuntimeStatusMeta(runtime?.status).canSend}
         streamError={streamError}
         attachments={imageAttachments}
+        currentModel={activeSessionModel}
         onpickimage={handlePickImages}
         onremoveattachment={handleRemoveAttachment}
         onsubmit={handleSend}
+        onModelSelect={() => {
+          void loadModelsCatalog();
+          showModelSelector = true;
+        }}
       />
     {/if}
   </div>
@@ -2068,4 +2186,13 @@ $effect(() => {
       </div>
     </div>
   {/if}
+
+  <!-- Model Selector Dialog -->
+  <ModelSelector
+    open={showModelSelector}
+    onClose={() => { showModelSelector = false; }}
+    onSelect={handleModelSelect}
+    models={modelsCatalog ?? []}
+    currentModel={activeSessionModel}
+  />
 </div>

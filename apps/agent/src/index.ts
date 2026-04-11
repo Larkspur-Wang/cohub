@@ -371,6 +371,18 @@ function subscribeSessionEvents(handle: SessionHandle) {
     if (event.type === "turn_end" && handle.currentUserMessageId) {
       const currentUserMessageId = handle.currentUserMessageId;
 
+      // Inject current model/provider into the assistant message for DB persistence
+      const currentModel = handle.session.agent.state.model;
+      const enrichedMessage = {
+        ...(event.message as unknown as Record<string, unknown>),
+        provider: currentModel.provider,
+        model: currentModel.id,
+      };
+      const enrichedEvent = {
+        ...event,
+        message: enrichedMessage,
+      };
+
       // Persist to DB (uses local event object, not Redis) through the same
       // per-session queue used by user messages.
       void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
@@ -378,7 +390,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
           runtimeId: env.RUNTIME_ID,
           runtimeSessionId: handle.sessionId,
           userMessageId: currentUserMessageId,
-          event: event as Record<string, unknown>,
+          event: enrichedEvent as Record<string, unknown>,
         });
       });
 
@@ -432,6 +444,7 @@ async function loadOrCreateSessionHandle(input: {
   authStorage: AuthStorage;
   modelRegistry: ModelRegistry;
   tools: ReturnType<typeof createCodingTools>;
+  model?: { provider: string; id: string };
 }) {
   const existing = sessionHandles.get(input.sessionId);
   if (existing) return existing;
@@ -509,12 +522,18 @@ async function loadOrCreateSessionHandle(input: {
     }
   }
 
+  // Resolve model: use explicitly requested model, or fall back to registry default
+  let resolvedModel = input.model
+    ? input.modelRegistry.find(input.model.provider, input.model.id)
+    : undefined;
+
   const { session } = await createAgentSession({
     cwd: env.WORKSPACE_DIR,
     authStorage: input.authStorage,
     modelRegistry: input.modelRegistry,
     tools: input.tools,
     sessionManager,
+    ...(resolvedModel ? { model: resolvedModel } : {}),
   });
 
   const handle: SessionHandle = {
@@ -583,12 +602,38 @@ async function main() {
             throw new Error("sessionId is required for prompt inputs");
           }
 
+          const meta = (inputEntry as { meta?: Record<string, unknown> | null }).meta;
+          const requestedProvider = meta?.provider as string | undefined;
+          const requestedModel = meta?.model as string | undefined;
+          const requestedModelInput = (requestedProvider && requestedModel)
+            ? { provider: requestedProvider, id: requestedModel }
+            : undefined;
+
           const handle = await loadOrCreateSessionHandle({
             sessionId,
             authStorage,
             modelRegistry,
             tools,
+            model: requestedModelInput,
           });
+
+          // If this is an existing session (handle was reused), switch model before enqueueing
+          const currentModel = handle.session.agent.state.model;
+          if (requestedProvider && requestedModel && currentModel) {
+            if (!(currentModel.provider === requestedProvider && currentModel.id === requestedModel)) {
+              const targetModel = handle.session.modelRegistry.find(requestedProvider, requestedModel);
+              if (targetModel) {
+                console.log(
+                  `[Supervisor] Switching model from ${currentModel.provider}/${currentModel.id} to ${requestedProvider}/${requestedModel}`,
+                );
+                await handle.session.setModel(targetModel);
+              } else {
+                console.warn(
+                  `[Supervisor] Requested model ${requestedProvider}/${requestedModel} not found, keeping current model`,
+                );
+              }
+            }
+          }
 
           // Input now carries ContentBlock[] — extract text + images for SDK
           const content = inputEntry.content as ContentBlock[];
@@ -597,7 +642,7 @@ async function main() {
             handle.pendingUserMessages.push({
               userMessageId,
               content,
-              meta: (inputEntry as { meta?: Record<string, unknown> | null }).meta ?? null,
+              meta: meta ?? null,
             });
           }
 

@@ -229,6 +229,23 @@ export const getMe = async (customFetch?: Fetch) => {
   return apiFetch("/api/me", { fetch: customFetch });
 };
 
+export type ModelCatalogEntry = {
+  provider: string;
+  id: string;
+  model: Record<string, unknown>;
+};
+
+export const getModels = async (customFetch?: Fetch) => {
+  // Public endpoint — no auth required
+  const fetcher = customFetch ?? fetch;
+  const url = API_BASE_URL ? `${API_BASE_URL}/api/models` : "/api/models";
+  const response = await fetcher(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
+  }
+  return response.json() as Promise<Record<string, ModelCatalogEntry[]>>;
+};
+
 export const getWorkspaceById = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/workspaces/${id}`, {
     fetch: customFetch,
@@ -312,8 +329,12 @@ let lastSentSessionId = "";
 let lastSentAt = 0;
 const DEDUP_WINDOW_MS = 2000;
 
-export const postSessionMessage = async (sessionId: string, content: ContentBlock[]) => {
-  const signature = JSON.stringify({ sessionId, content });
+export const postSessionMessage = async (
+  sessionId: string,
+  content: ContentBlock[],
+  options?: { model?: string; provider?: string },
+) => {
+  const signature = JSON.stringify({ sessionId, content, options });
 
   const now = Date.now();
   if (
@@ -332,7 +353,11 @@ export const postSessionMessage = async (sessionId: string, content: ContentBloc
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      content,
+      model: options?.model,
+      provider: options?.provider,
+    }),
   }) as Promise<{ ok: true; userMessageId: string }>;
 };
 
