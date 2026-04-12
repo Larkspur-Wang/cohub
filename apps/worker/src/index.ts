@@ -1,0 +1,61 @@
+import "dotenv/config";
+import { Worker, type Processor } from "bullmq";
+import { Redis } from "ioredis";
+import { config, assertRequiredConfig } from "./config.js";
+import { getTaskHandler, getRegisteredTasks } from "./tasks/registry.js";
+
+// Auto-register all tasks
+import "./tasks/index.js";
+
+assertRequiredConfig();
+
+// BullMQ requires: maxRetriesPerRequest: null, enableReadyCheck: false
+const connection = new Redis(config.redisUrl, {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
+});
+
+const processor: Processor = async (job) => {
+  const handler = getTaskHandler(job.name);
+  if (!handler) {
+    throw new Error(`No handler registered for task type: ${job.name}`);
+  }
+  return handler(job);
+};
+
+const taskWorker = new Worker("cohub-tasks", processor, {
+  connection,
+  concurrency: 5,
+});
+
+taskWorker.on("completed", (job, result) => {
+  console.log(`[Worker] ✅ Job ${job.id} (${job.name}) completed:`, JSON.stringify(result));
+});
+
+taskWorker.on("failed", (job, err) => {
+  console.error(`[Worker] ❌ Job ${job?.id} (${job?.name}) failed:`, err.message);
+});
+
+taskWorker.on("error", (err) => {
+  console.error("[Worker] Worker error:", err);
+});
+
+console.log("[Worker] Starting task worker...");
+console.log("[Worker] Redis:", config.redisUrl);
+console.log("[Worker] API:", config.internalApiBaseUrl);
+console.log("[Worker] Registered tasks:", getRegisteredTasks());
+
+// Graceful shutdown
+const shutdown = async (signal: string) => {
+  console.log(`[Worker] Received ${signal}, shutting down...`);
+  // Wait up to 30s for in-flight jobs to finish, then force close
+  const closePromise = taskWorker.close();
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 30_000));
+  await Promise.race([closePromise, timeout]);
+  // Force close if graceful close didn't complete
+  await taskWorker.close(true);
+  process.exit(0);
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

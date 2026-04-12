@@ -1,0 +1,27 @@
+#!/bin/bash
+# Dev 环境 Worker 卸载脚本
+
+set -e
+
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+if [ ! -f "values.yaml" ]; then
+  echo "✗ 缺少 values.yaml"
+  exit 1
+fi
+
+get_value() {
+  local key="$1"
+  grep -E "^${key}:" values.yaml | head -1 | sed 's/^[^:]*:[[:space:]]*//' | sed 's/^"//' | sed 's/"$//'
+}
+
+NAMESPACE=$(get_value "NAMESPACE")
+APP_NAME=$(get_value "APP_NAME")
+
+kubectl delete deployment "$APP_NAME" -n "$NAMESPACE" --ignore-not-found
+kubectl delete configmap "${APP_NAME}-config" -n "$NAMESPACE" --ignore-not-found
+kubectl delete secret "${APP_NAME}-secrets" -n "$NAMESPACE" --ignore-not-found
+kubectl delete -f rbac.yaml --ignore-not-found
+
+echo -e "${GREEN}✅ Worker Dev 卸载完成${NC}"

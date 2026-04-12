@@ -1,0 +1,17 @@
+# 请填写后再部署
+NAMESPACE: "cohub"
+APP_NAME: "cohub-worker"
+
+IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-worker"
+IMAGE_TAG: "latest"
+IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_SECRET: "gitea-registry"
+
+REPLICAS: "1"
+REQUEST_CPU: "100m"
+REQUEST_MEMORY: "128Mi"
+LIMIT_CPU: "200m"
+LIMIT_MEMORY: "256Mi"
+
+INTERNAL_API_BASE_URL: "http://cohub-api:8787"
+ENV: "prod"

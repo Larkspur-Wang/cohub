@@ -9,6 +9,7 @@ export type AppConfig = {
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
   sandboxRuntimeImage: string;
+  workerSecret: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -26,6 +27,7 @@ const getDefaultSandboxRuntimeImage = (env: "dev" | "prod") => {
 const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
 
 export const config: AppConfig = {
+  workerSecret: process.env.WORKER_SECRET ?? "",
   authBaseUrl: normalizeBaseUrl(process.env.AUTH_BASE_URL ?? ""),
   giteaBaseUrl: normalizeBaseUrl(process.env.GITEA_BASE_URL ?? ""),
   giteaToken: process.env.GITEA_TOKEN,
@@ -53,5 +55,8 @@ export const assertRequiredConfig = () => {
   }
   if (!config.appEncryptionKey) {
     throw new Error("Missing required env: APP_ENCRYPTION_KEY");
+  }
+  if (!config.workerSecret) {
+    throw new Error("Missing required env: WORKER_SECRET");
   }
 };

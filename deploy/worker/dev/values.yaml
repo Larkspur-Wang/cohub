@@ -1,0 +1,22 @@
+# Dev 环境 Worker 配置
+
+# ========== 基础 ==========
+NAMESPACE: "cohub-dev"
+APP_NAME: "cohub-worker-dev"
+
+# ========== 镜像 ==========
+IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-worker"
+IMAGE_TAG: "latest"
+IMAGE_PULL_POLICY: "Always"
+IMAGE_PULL_SECRET: "gitea-registry"
+
+# ========== 副本与资源 ==========
+REPLICAS: "1"
+REQUEST_CPU: "100m"
+REQUEST_MEMORY: "128Mi"
+LIMIT_CPU: "500m"
+LIMIT_MEMORY: "512Mi"
+
+# ========== Worker 配置 ==========
+INTERNAL_API_BASE_URL: "http://cohub-api-dev:8787"
+ENV: "dev"

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
@@ -54,14 +55,20 @@ import {
 } from "./runtime-sessions.js";
 import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
-import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions } from "./db/schema.js";
+import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions, cronJobs, taskRuns } from "./db/schema.js";
 import { eq, and, inArray, isNull, desc, asc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
-import type { GatewayInboundEvent, ResourcePermissionLevel } from "@cohub/protocol";
+import type { GatewayInboundEvent, ResourcePermissionLevel, TaskScheduleConfig } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
+import {
+  createCronJob,
+  removeCronJob,
+  enableCronJob,
+  taskQueue,
+} from "./tasks.js";
 
 const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
   ...workspace,
@@ -290,6 +297,18 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const requireValidId = (id: string) => isUuid(id);
 const ensureInternalRequest = (c: Context<{ Variables: Variables }>) => {
+  // Priority: Worker Secret header (timing-safe comparison)
+  const workerSecret = c.req.header("x-worker-secret");
+  if (
+    workerSecret &&
+    config.workerSecret &&
+    workerSecret.length === config.workerSecret.length &&
+    timingSafeEqual(Buffer.from(workerSecret), Buffer.from(config.workerSecret))
+  ) {
+    return null;
+  }
+
+  // Fallback: IP allowlist (existing internal callers)
   const remoteAddr =
     c.req.header("x-forwarded-for") ??
     c.req.header("x-real-ip") ??
@@ -1842,6 +1861,175 @@ app.delete("/api/sessions/:id/permissions", async (c) => {
     ));
 
   return c.json({ ok: true });
+});
+
+
+// ─── Cron Job Management ───
+
+app.post("/api/cron-jobs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = await c.req.json<{
+    title: string;
+    taskType: string;
+    payload: Record<string, unknown>;
+    cronExpression: string;
+    timezone?: string;
+    workspaceId?: string;
+    runtimeId?: string;
+    sessionId?: string;
+  }>().catch(() => null);
+
+  if (!body?.title?.trim()) return c.json({ message: "title is required" }, 400);
+  if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
+  if (!body?.cronExpression) return c.json({ message: "cronExpression is required" }, 400);
+
+  const schedule: TaskScheduleConfig = {
+    pattern: body.cronExpression,
+    timezone: body.timezone,
+  };
+
+  const cronJob = await createCronJob({
+    userId: user.uuid,
+    title: body.title.trim(),
+    taskType: body.taskType,
+    payload: body.payload ?? {},
+    schedule,
+    workspaceId: body.workspaceId ?? null,
+    runtimeId: body.runtimeId ?? null,
+    sessionId: body.sessionId ?? null,
+  });
+
+  return c.json(cronJob);
+});
+
+app.get("/api/cron-jobs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const jobs = await db
+    .select()
+    .from(cronJobs)
+    .where(eq(cronJobs.userUuid, user.uuid))
+    .orderBy(desc(cronJobs.createdAt));
+
+  return c.json({ jobs });
+});
+
+app.get("/api/cron-jobs/:id/runs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.param("id");
+  if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
+
+  // Verify ownership
+  const [job] = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid)))
+    .limit(1);
+  if (!job) return c.json({ message: "not found" }, 404);
+
+  const runs = await db
+    .select()
+    .from(taskRuns)
+    .where(eq(taskRuns.cronJobId, cronJobId))
+    .orderBy(desc(taskRuns.createdAt))
+    .limit(50);
+
+  return c.json({ runs });
+});
+
+app.delete("/api/cron-jobs/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.param("id");
+  if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
+
+  const [job] = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid)))
+    .limit(1);
+  if (!job) return c.json({ message: "not found" }, 404);
+
+  await removeCronJob(cronJobId, job.bullJobKey);
+  return c.json({ ok: true });
+});
+
+app.patch("/api/cron-jobs/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.param("id");
+  if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
+
+  const [job] = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid)))
+    .limit(1);
+  if (!job) return c.json({ message: "not found" }, 404);
+
+  const body = await c.req.json<{ enabled?: boolean }>().catch(() => null);
+  if (body?.enabled === undefined) return c.json({ message: "enabled is required" }, 400);
+
+  if (body.enabled && !job.enabled) {
+    await enableCronJob(cronJobId, job.bullJobKey, {
+      taskType: job.taskType,
+      payload: job.payload,
+      cronExpression: job.cronExpression,
+      timezone: job.timezone,
+      userUuid: job.userUuid,
+      workspaceId: job.workspaceId,
+      runtimeId: job.runtimeId,
+      sessionId: job.sessionId,
+    });
+  } else if (!body.enabled && job.enabled) {
+    await removeCronJob(cronJobId, job.bullJobKey);
+  }
+
+  return c.json({ ok: true });
+});
+
+// ─── Task Run History ───
+
+app.get("/api/tasks/runs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.query("cronJobId");
+  const runtimeId = c.req.query("runtimeId");
+  const workspaceId = c.req.query("workspaceId");
+
+  const conditions = [eq(taskRuns.userUuid, user.uuid)];
+  if (cronJobId && requireValidId(cronJobId)) conditions.push(eq(taskRuns.cronJobId, cronJobId));
+  if (runtimeId && requireValidId(runtimeId)) conditions.push(eq(taskRuns.runtimeId, runtimeId));
+  if (workspaceId && requireValidId(workspaceId)) conditions.push(eq(taskRuns.workspaceId, workspaceId));
+
+  const runs = await db
+    .select()
+    .from(taskRuns)
+    .where(and(...conditions))
+    .orderBy(desc(taskRuns.createdAt))
+    .limit(50);
+
+  return c.json({ runs });
 });
 
 

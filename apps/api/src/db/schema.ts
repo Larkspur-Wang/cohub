@@ -11,7 +11,7 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { ContentBlock } from "@cohub/protocol";
+import type { ContentBlock, TaskPayload } from "@cohub/protocol";
 
 export const userGitAccounts = pgTable(
   "user_git_accounts",
@@ -319,5 +319,68 @@ export const resourcePermissions = pgTable(
   },
   (table) => ({
     resourceUniqueIdx: uniqueIndex("uq_resource_permissions_resource").on(table.resourceType, table.resourceId),
+  }),
+);
+
+// ─── Task System ───
+
+export const cronJobs = pgTable(
+  "cron_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    taskType: varchar("task_type", { length: 100 }).notNull(),
+    payload: jsonb("payload").notNull().$type<Record<string, unknown>>(),
+    cronExpression: varchar("cron_expression", { length: 100 }).notNull(),
+    timezone: varchar("timezone", { length: 50 }).notNull().default("Asia/Shanghai"),
+    bullJobKey: varchar("bull_job_key", { length: 500 }).notNull(),
+    workspaceId: uuid("workspace_id"),
+    runtimeId: uuid("runtime_id"),
+    sessionId: uuid("session_id"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("idx_cron_jobs_user_uuid").on(table.userUuid),
+    runtimeIdx: index("idx_cron_jobs_runtime_id").on(table.runtimeId),
+    enabledIdx: index("idx_cron_jobs_enabled").on(table.enabled),
+    createdAtIdx: index("idx_cron_jobs_created_at").on(table.createdAt),
+  }),
+);
+
+export const taskRuns = pgTable(
+  "task_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: varchar("job_id", { length: 255 }).notNull(),
+    cronJobId: uuid("cron_job_id"),
+    taskType: varchar("task_type", { length: 100 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    payload: jsonb("payload").notNull().$type<TaskPayload>(),
+    result: jsonb("result"),
+    errorMessage: text("error_message"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    workspaceId: uuid("workspace_id"),
+    runtimeId: uuid("runtime_id"),
+    sessionId: uuid("session_id"),
+    userUuid: varchar("user_uuid", { length: 255 }),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    jobIdUniqueIdx: uniqueIndex("uq_task_runs_job_id").on(table.jobId),
+    cronJobIdx: index("idx_task_runs_cron_job_id").on(table.cronJobId),
+    workspaceIdx: index("idx_task_runs_workspace_id").on(table.workspaceId),
+    runtimeIdx: index("idx_task_runs_runtime_id").on(table.runtimeId),
+    sessionIdx: index("idx_task_runs_session_id").on(table.sessionId),
+    userIdx: index("idx_task_runs_user_uuid").on(table.userUuid),
+    statusIdx: index("idx_task_runs_status").on(table.status),
+    createdAtIdx: index("idx_task_runs_created_at").on(table.createdAt),
+    scheduledAtIdx: index("idx_task_runs_scheduled_at").on(table.scheduledAt),
   }),
 );

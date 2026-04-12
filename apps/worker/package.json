@@ -1,5 +1,5 @@
 {
-  "name": "@cohub/api",
+  "name": "@cohub/worker",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,26 +9,21 @@
     "lint:fix": "biome lint --write .",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "test:trigger-echo": "tsx src/test-helpers.ts trigger-echo",
+    "test:trigger": "tsx src/test-helpers.ts trigger",
+    "test:list-scheduled": "tsx src/test-helpers.ts list-scheduled"
   },
   "dependencies": {
     "@cohub/protocol": "workspace:*",
-    "@hono/node-server": "1.19.11",
-    "@kubernetes/client-node": "^1.0.0",
     "bullmq": "^5.73.4",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
-    "hono": "4.12.8",
     "ioredis": "^5.7.0",
     "postgres": "^3.4.8"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@types/node": "22.10.2",
-    "drizzle-kit": "^0.31.9",
     "tsx": "4.19.2",
     "typescript": "5.7.3"
   }
