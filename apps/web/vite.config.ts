@@ -8,8 +8,8 @@ export default defineConfig({
     tailwindcss(),
     sveltekit(),
     VitePWA({
-      registerType: "autoUpdate",
-      injectRegister: "auto",
+      registerType: undefined,
+      injectRegister: null,
       includeAssets: ["robots.txt", "pwa/*.png"],
       manifest: {
         name: "Cohub",

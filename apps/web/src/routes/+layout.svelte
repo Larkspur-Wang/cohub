@@ -39,6 +39,13 @@ $effect(() => {
 onMount(() => {
   hydrateRuntimeStoreFromSidebarCache();
   void authStore.ensureLoaded();
+
+  // Register PWA Service Worker (conservative update: closes all tabs to activate)
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      void navigator.serviceWorker.register("/sw.js");
+    });
+  }
 });
 </script>
 
