@@ -59,7 +59,6 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
-COPY --from=builder /app/apps/worker/drizzle ./apps/worker/drizzle 2>/dev/null || true
 COPY apps/worker/package.json ./apps/worker/package.json
 
 # Bundle @cohub/protocol
