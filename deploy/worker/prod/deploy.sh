@@ -60,7 +60,7 @@ PY
   sed -i.bak \
     -e "s|__NAMESPACE__|${NAMESPACE}|g" \
     -e "s|__APP_NAME__|${APP_NAME}|g" \
-    -e "s|__SECRET_NAME__|cohub-api-prod-secrets|g" \
+    -e "s|__SECRET_NAME__|cohub-api-secrets|g" \
     -e "s|__IMAGE_REPOSITORY__|${IMAGE_REPOSITORY}|g" \
     -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
     -e "s|__IMAGE_PULL_POLICY__|${IMAGE_PULL_POLICY}|g" \
