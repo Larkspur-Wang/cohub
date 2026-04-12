@@ -25,7 +25,7 @@ __IMAGE_PULL_SECRETS_BLOCK__
             - configMapRef:
                 name: __APP_NAME__-config
             - secretRef:
-                name: __APP_NAME__-secrets
+                name: __SECRET_NAME__
           resources:
             requests:
               cpu: "__REQUEST_CPU__"

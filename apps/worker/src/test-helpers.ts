@@ -2,7 +2,7 @@ import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 import type { TaskPayload } from "@cohub/protocol";
 
-const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+const redisUrl = process.env.BULLMQ_REDIS_URL ?? "redis://localhost:6379/3";
 
 const createQueue = () => {
   const connection = new Redis(redisUrl, {

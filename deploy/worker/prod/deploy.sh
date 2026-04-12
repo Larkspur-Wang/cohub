@@ -33,12 +33,7 @@ ENV=$(get_value "ENV")
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Cohub Worker Prod 部署           ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
-
-if [ ! -f "secrets.yaml" ]; then
-  echo -e "${RED}✗ 缺少 secrets.yaml（从 secrets.template.yaml 复制后填写）${NC}"
-  exit 1
-fi
-kubectl apply -f secrets.yaml
+echo -e "${BLUE}ℹ 复用 API 的 secret: cohub-api-prod-secrets${NC}"
 
 mkdir -p rendered
 
@@ -65,6 +60,7 @@ PY
   sed -i.bak \
     -e "s|__NAMESPACE__|${NAMESPACE}|g" \
     -e "s|__APP_NAME__|${APP_NAME}|g" \
+    -e "s|__SECRET_NAME__|cohub-api-prod-secrets|g" \
     -e "s|__IMAGE_REPOSITORY__|${IMAGE_REPOSITORY}|g" \
     -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
     -e "s|__IMAGE_PULL_POLICY__|${IMAGE_PULL_POLICY}|g" \

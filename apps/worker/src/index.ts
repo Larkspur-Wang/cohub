@@ -10,7 +10,7 @@ import "./tasks/index.js";
 assertRequiredConfig();
 
 // BullMQ requires: maxRetriesPerRequest: null, enableReadyCheck: false
-const connection = new Redis(config.redisUrl, {
+const connection = new Redis(config.bullmqRedisUrl, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
 });
@@ -41,7 +41,17 @@ taskWorker.on("error", (err) => {
 });
 
 console.log("[Worker] Starting task worker...");
-console.log("[Worker] Redis:", config.redisUrl);
+
+// 仅打印 host，不泄露任何凭证信息
+const logHost = (() => {
+  try {
+    const url = new URL(config.bullmqRedisUrl);
+    return url.host;
+  } catch {
+    return "(invalid URL)";
+  }
+})();
+console.log("[Worker] BullMQ Redis:", logHost);
 console.log("[Worker] API:", config.internalApiBaseUrl);
 console.log("[Worker] Registered tasks:", getRegisteredTasks());
 

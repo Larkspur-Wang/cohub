@@ -8,7 +8,7 @@ import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol";
 const QUEUE_NAME = "cohub-tasks";
 
 // Use connection string to avoid ioredis type version mismatch across pnpm resolutions
-const connection = { url: config.redisUrl };
+const connection = { url: config.bullmqRedisUrl };
 
 export const taskQueue = new Queue(QUEUE_NAME, { connection });
 

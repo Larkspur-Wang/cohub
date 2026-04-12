@@ -9,6 +9,7 @@ export type AppConfig = {
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
   sandboxRuntimeImage: string;
+  bullmqRedisUrl: string;
   workerSecret: string;
 };
 
@@ -39,6 +40,8 @@ export const config: AppConfig = {
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   sandboxRuntimeImage:
     process.env.SANDBOX_RUNTIME_IMAGE ?? getDefaultSandboxRuntimeImage(env),
+  bullmqRedisUrl:
+    process.env.BULLMQ_REDIS_URL ?? "",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
@@ -58,5 +61,8 @@ export const assertRequiredConfig = () => {
   }
   if (!config.workerSecret) {
     throw new Error("Missing required env: WORKER_SECRET");
+  }
+  if (!config.bullmqRedisUrl) {
+    throw new Error("Missing required env: BULLMQ_REDIS_URL");
   }
 };

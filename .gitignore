@@ -14,8 +14,14 @@ deploy/api/dev/secrets.yaml
 deploy/gateway/prod/secrets.yaml
 deploy/gateway/dev/secrets.yaml
 
+# K8s secrets (do not commit)
+deploy/worker/prod/secrets.yaml
+deploy/worker/dev/secrets.yaml
+
 # K8s rendered files (generated)
 deploy/api/prod/rendered/
 deploy/api/dev/rendered/
 deploy/gateway/prod/rendered/
 deploy/gateway/dev/rendered/
+deploy/worker/prod/rendered/
+deploy/worker/dev/rendered/

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Dev 环境 Worker 部署脚本
+# Worker 复用 API 的 secret（cohub-api-dev-secrets），不需要单独管理
 
 set -e
 
@@ -33,12 +34,7 @@ ENV=$(get_value "ENV")
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Cohub Worker Dev 环境部署          ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
-
-if [ ! -f "secrets.yaml" ]; then
-  echo -e "${RED}✗ 缺少 secrets.yaml（从 secrets.template.yaml 复制后填写）${NC}"
-  exit 1
-fi
-kubectl apply -f secrets.yaml
+echo -e "${BLUE}ℹ 复用 API 的 secret: cohub-api-dev-secrets${NC}"
 
 mkdir -p rendered
 
@@ -65,6 +61,7 @@ PY
   sed -i.bak \
     -e "s|__NAMESPACE__|${NAMESPACE}|g" \
     -e "s|__APP_NAME__|${APP_NAME}|g" \
+    -e "s|__SECRET_NAME__|cohub-api-dev-secrets|g" \
     -e "s|__IMAGE_REPOSITORY__|${IMAGE_REPOSITORY}|g" \
     -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
     -e "s|__IMAGE_PULL_POLICY__|${IMAGE_PULL_POLICY}|g" \
