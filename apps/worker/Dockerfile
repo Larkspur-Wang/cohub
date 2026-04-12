@@ -4,11 +4,11 @@
 # ============================================
 # Base: common build tooling
 # ============================================
-FROM node:22-slim AS base
+FROM node:24-slim AS base
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9.12.1 --activate
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 
@@ -51,7 +51,7 @@ RUN pnpm --filter @cohub/worker build
 # ============================================
 # Stage 3: production
 # ============================================
-FROM node:22-slim AS production
+FROM node:24-slim AS production
 
 ENV NODE_ENV=production
 
