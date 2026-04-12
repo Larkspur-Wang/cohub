@@ -93,11 +93,16 @@ Host mature workspaces like code on GitHub or models on Hugging Face, so other d
 ```text
 cohub/
 ├── apps/
-│   ├── api/          # orchestration and runtime services
-│   └── web/          # web console
-├── deploy/           # deployment configs
+│   ├── api/          # Hono API — orchestration, provisioning, session persistence
+│   ├── agent/        # Runtime Pod Supervisor — wraps Pi coding agent
+│   ├── gateway/      # External channel provider gateway (independent deploy)
+│   ├── web/          # SvelteKit web console
+│   └── worker/       # Task scheduler — cron jobs & async task processing
+├── deploy/           # deployment configs (K8s manifests per env)
 ├── docs/             # architecture and design docs
-├── packages/         # shared packages
+├── packages/
+│   └── protocol/     # shared types & protocols across apps
+├── scripts/          # utility scripts
 └── README.md
 ```
 

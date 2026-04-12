@@ -35,3 +35,40 @@ Runtime 可以处于运行中、休眠中、可恢复或已停止等状态。它
 **Channel** 是 Runtime 对外通信的接入端点。
 
 例如 Web、Discord、Telegram。用户通过 Channel 与 Runtime 交互，Runtime 也可以通过 Channel 回传结果。
+
+## 仓库结构
+
+```text
+cohub/
+├── apps/
+│   ├── api/          # Hono API — 编排、Provisioning、Session 持久化
+│   ├── agent/        # Runtime Pod 内的 Supervisor，封装 Pi coding agent
+│   ├── gateway/      # 外部 Channel provider 网关（独立部署）
+│   ├── web/          # SvelteKit 控制台
+│   └── worker/       # 任务调度器 — 定时任务与异步处理
+├── packages/
+│   └── protocol/     # 跨 app 共享的类型与协议
+├── deploy/           # K8s 部署配置（按环境）
+├── docs/             # 架构与设计文档
+├── scripts/          # 工具脚本
+└── README.zh-CN.md
+```
+
+## 开发
+
+```bash
+pnpm install
+pnpm dev
+```
+
+### 质量检查
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+## 文档
+
+详见 `docs/` 目录，推荐阅读顺序请查看 [`docs/README.md`](./docs/README.md)。
