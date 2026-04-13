@@ -2492,22 +2492,22 @@ $effect(() => {
             <span>Scroll to bottom</span>
           </button>
         {/if}
-      </div>
 
-      <SessionComposer
-        bind:value={input}
-        disabled={sending || !activeSessionState || !getRuntimeStatusMeta(runtime?.status).canSend}
-        streamError={streamError}
-        attachments={imageAttachments}
-        currentModel={activeSessionModel}
-        onpickimage={handlePickImages}
-        onremoveattachment={handleRemoveAttachment}
-        onsubmit={handleSend}
-        onModelSelect={() => {
-          void loadModelsCatalog();
-          showModelSelector = true;
-        }}
-      />
+        <SessionComposer
+          bind:value={input}
+          disabled={sending || !activeSessionState || !getRuntimeStatusMeta(runtime?.status).canSend}
+          streamError={streamError}
+          attachments={imageAttachments}
+          currentModel={activeSessionModel}
+          onpickimage={handlePickImages}
+          onremoveattachment={handleRemoveAttachment}
+          onsubmit={handleSend}
+          onModelSelect={() => {
+            void loadModelsCatalog();
+            showModelSelector = true;
+          }}
+        />
+      </div>
     {/if}
     </RuntimeFilePane>
   </div>
@@ -2905,11 +2905,6 @@ $effect(() => {
     bottom: 0;
     left: 4px;
     width: 1px;
-    background: var(--brand);
-    transition: background-color 120ms ease;
-  }
-
-  .right-sidebar-resize-handle:hover::after {
     background: var(--border-subtle);
   }
 
