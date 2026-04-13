@@ -273,8 +273,13 @@ export async function writeRuntimeFile(runtimeId: string, input: RuntimeFsWriteF
   }
 
   const tmp = join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
-  await writeFile(tmp, content, { mode: 0o644 });
-  await rename(tmp, target);
+  try {
+    await writeFile(tmp, content, { mode: 0o644 });
+    await rename(tmp, target);
+  } catch (error) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
   const nextStats = await stat(target);
   return { ok: true as const, path: relativePath, size: nextStats.size, mtimeMs: nextStats.mtimeMs };
 }
