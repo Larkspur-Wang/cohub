@@ -42,7 +42,6 @@ import ModelSelector from "$lib/components/ModelSelector.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import RuntimeFileSidebar from "$lib/components/RuntimeFileSidebar.svelte";
-import RuntimeFilePane from "$lib/components/RuntimeFilePane.svelte";
 import type { RuntimeFsNode } from "$lib/runtime-fs";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { type ChatMessage, type TimelineItem, toChatMessages } from "$lib/session-tree";
@@ -831,14 +830,6 @@ async function handleDeleteNode(node: RuntimeFsNode) {
 
 const fileDirty = $derived(Boolean(openFile && openFile.kind === "text" && openFileDraft !== openFile.content));
 
-async function handleFilePaneSave() {
-	await saveOpenFile();
-}
-
-function closeFilePane() {
-	resetFileSelection();
-}
-
 async function handleFileSelect(node: RuntimeFsNode) {
 	if (node.type !== "file") {
 		await expandDirectory(node);
@@ -864,10 +855,6 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 		event.preventDefault();
 		await saveOpenFile();
 	}
-}
-
-async function handleNavigateActiveSessionChat() {
-	fileMode = "chat";
 }
 
 async function handleCreateNewSession() {
@@ -2419,97 +2406,128 @@ $effect(() => {
 <!-- Main Content -->
 <div class="flex-1 flex min-h-0">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    <RuntimeFilePane
-      file={fileMode === 'file' ? openFile : null}
-      draftContent={openFileDraft}
-      dirty={fileDirty}
-      loading={openFileLoading}
-      saving={openFileSaving}
-      error={openFileError}
-      onInput={handleFileInput}
-      onSave={handleFilePaneSave}
-      onClose={closeFilePane}
-    >
-    {#if bootstrapping && !activeSessionState && fileMode !== 'file'}
-      <div class="flex-1 flex items-center justify-center bg-bg-content">
-        <div class="flex flex-col items-center gap-3 text-text-tertiary">
-          <div class="w-7 h-7 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
-          <div class="text-[12px]">Loading runtime…</div>
+    {#if fileMode === 'file'}
+      <!-- File Viewer -->
+      {#if openFileLoading}
+        <div class="flex-1 flex items-center justify-center text-[12px] text-text-tertiary">Loading file...</div>
+      {:else if openFileError}
+        <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
+          {openFileError}
         </div>
-      </div>
-    {:else if !activeSessionState && fileMode !== 'file'}
-      <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
-        <div class="text-[14px]">No session selected</div>
-        {#if isOwner}
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
-          onclick={() => handleCreateNewSession()}
-          disabled={creatingSession || !runtime}
-        >
-          <Plus class="w-3.5 h-3.5" />
-          Create a session
-        </button>
-        {/if}
-      </div>
-    {:else if activeSessionState && activeSessionState.loading && !activeSessionState.loaded && fileMode !== 'file'}
-      <div class="flex-1 flex items-center justify-center bg-bg-content">
-        <div class="flex flex-col items-center gap-3 text-text-tertiary">
-          <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
-          <div class="text-[12px]">Loading messages…</div>
-        </div>
-      </div>
-    {:else if activeSessionState && fileMode !== 'file'}
-      {#if activeSessionState.error}
-        <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
-          {activeSessionState.error}
+      {:else if openFile}
+        {@const dataUrl = openFile.kind === 'binary' ? `data:${openFile.mimeType ?? 'application/octet-stream'};base64,${openFile.content}` : null}
+        {@const isImage = openFile.mimeType?.startsWith('image/')}
+        {@const isVideo = openFile.mimeType?.startsWith('video/')}
+        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {#if openFile.kind === 'text'}
+            <textarea
+              class="flex-1 min-h-0 w-full resize-none bg-transparent p-4 text-[12px] leading-relaxed outline-none font-mono"
+              value={openFileDraft}
+              spellcheck="false"
+              oninput={(e) => openFileDraft = (e.currentTarget as HTMLTextAreaElement).value}
+            ></textarea>
+          {:else if isImage && dataUrl}
+            <div class="flex flex-1 items-center justify-center p-4">
+              <img src={dataUrl} alt={openFile.name} class="max-h-full max-w-full rounded-md object-contain" />
+            </div>
+          {:else if isVideo && dataUrl}
+            <div class="flex flex-1 items-center justify-center p-4">
+              <video src={dataUrl} controls class="max-h-full max-w-full rounded-md">
+                <track kind="captions" />
+              </video>
+            </div>
+          {:else}
+            <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-[12px] text-text-secondary">
+              <div><strong>Name:</strong> {openFile.name}</div>
+              <div><strong>Type:</strong> {openFile.mimeType ?? 'application/octet-stream'}</div>
+              <div><strong>Size:</strong> {openFile.size} bytes</div>
+              <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
+            </div>
+          {/if}
         </div>
       {/if}
-
-      <div class="relative flex-1 min-h-0 flex flex-col">
-        <ChatTimeline
-          bind:this={chatTimelineRef}
-          bindListEl={listEl}
-          bindContentEl={contentEl}
-          timeline={timeline}
-          onScrollChange={updateAutoFollow}
-          bottomInsetClass="pb-[calc(4rem+env(safe-area-inset-bottom))] sm:pb-[4rem]"
-          preloadThreshold={10}
-          onFirstVisible={handleFirstVisible}
-          loadingOlder={activeSessionState?.loadingOlder ?? false}
-        />
-
-        {#if showScrollToBottom && timeline.length > 0}
+    {:else}
+      <!-- Chat -->
+      {#if bootstrapping && !activeSessionState}
+        <div class="flex-1 flex items-center justify-center">
+          <div class="flex flex-col items-center gap-3 text-text-tertiary">
+            <div class="w-7 h-7 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+            <div class="text-[12px]">Loading runtime…</div>
+          </div>
+        </div>
+      {:else if !activeSessionState}
+        <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
+          <div class="text-[14px]">No session selected</div>
+          {#if isOwner}
           <button
             type="button"
-            class="absolute bottom-14 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-1.5 text-[12px] text-text-secondary shadow-lg backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary animate-in fade-in slide-in-from-bottom-2 duration-200"
-            onclick={() => {
-              shouldAutoFollow = true;
-              forceScrollToBottom();
-            }}
+            class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
+            onclick={() => handleCreateNewSession()}
+            disabled={creatingSession || !runtime}
           >
-            <ArrowDown class="w-3.5 h-3.5" />
-            <span>Scroll to bottom</span>
+            <Plus class="w-3.5 h-3.5" />
+            Create a session
           </button>
+          {/if}
+        </div>
+      {:else if activeSessionState.loading && !activeSessionState.loaded}
+        <div class="flex-1 flex items-center justify-center">
+          <div class="flex flex-col items-center gap-3 text-text-tertiary">
+            <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+            <div class="text-[12px]">Loading messages…</div>
+          </div>
+        </div>
+      {:else}
+        {#if activeSessionState.error}
+          <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
+            {activeSessionState.error}
+          </div>
         {/if}
 
-        <SessionComposer
-          bind:value={input}
-          disabled={sending || !activeSessionState || !getRuntimeStatusMeta(runtime?.status).canSend}
-          streamError={streamError}
-          attachments={imageAttachments}
-          currentModel={activeSessionModel}
-          onpickimage={handlePickImages}
-          onremoveattachment={handleRemoveAttachment}
-          onsubmit={handleSend}
-          onModelSelect={() => {
-            void loadModelsCatalog();
-            showModelSelector = true;
-          }}
-        />
-      </div>
+        <div class="relative flex-1 min-h-0 flex flex-col">
+          <ChatTimeline
+            bind:this={chatTimelineRef}
+            bindListEl={listEl}
+            bindContentEl={contentEl}
+            timeline={timeline}
+            onScrollChange={updateAutoFollow}
+            bottomInsetClass="pb-[calc(4rem+env(safe-area-inset-bottom))] sm:pb-[4rem]"
+            preloadThreshold={10}
+            onFirstVisible={handleFirstVisible}
+            loadingOlder={activeSessionState?.loadingOlder ?? false}
+          />
+
+          {#if showScrollToBottom && timeline.length > 0}
+            <button
+              type="button"
+              class="absolute bottom-14 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-1.5 text-[12px] text-text-secondary shadow-lg backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary animate-in fade-in slide-in-from-bottom-2 duration-200"
+              onclick={() => {
+                shouldAutoFollow = true;
+                forceScrollToBottom();
+              }}
+            >
+              <ArrowDown class="w-3.5 h-3.5" />
+              <span>Scroll to bottom</span>
+            </button>
+          {/if}
+
+          <SessionComposer
+            bind:value={input}
+            disabled={sending || !activeSessionState || !getRuntimeStatusMeta(runtime?.status).canSend}
+            streamError={streamError}
+            attachments={imageAttachments}
+            currentModel={activeSessionModel}
+            onpickimage={handlePickImages}
+            onremoveattachment={handleRemoveAttachment}
+            onsubmit={handleSend}
+            onModelSelect={() => {
+              void loadModelsCatalog();
+              showModelSelector = true;
+            }}
+          />
+        </div>
+      {/if}
     {/if}
-    </RuntimeFilePane>
   </div>
 
   {#if !uiState.rightSidebarCollapsed}
