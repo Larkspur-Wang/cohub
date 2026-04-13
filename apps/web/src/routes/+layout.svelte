@@ -351,7 +351,7 @@ onMount(() => {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 3px;
+    left: 0;
     width: 1px;
     background: var(--border-subtle);
   }

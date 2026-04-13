@@ -114,6 +114,7 @@ const runtimeId = $derived(data.runtimeId);
 
 // Session from URL query param
 const urlSessionId = $derived(page.url.searchParams.get("session"));
+const urlFilePath = $derived(page.url.searchParams.get("file"));
 
 let runtime = $state<RuntimeRecord | null>(null);
 let runtimeSessions = $state<SessionRecord[]>([]);
@@ -364,8 +365,7 @@ let runtimeActionInProgress: string | null = $state(null);
 let fileTree = $state<RuntimeFsNode[]>([]);
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
-let fileMode = $state<"chat" | "file">("chat");
-let selectedFilePath = $state("");
+const fileMode = $derived<("chat" | "file")>(urlFilePath ? "file" : "chat");
 let openFile = $state<RuntimeFsFileResponse | null>(null);
 let openFileDraft = $state("");
 let openFileLoading = $state(false);
@@ -695,14 +695,6 @@ function updateNodeState(nodes: RuntimeFsNode[], nodePath: string, updater: (nod
 	});
 }
 
-function resetFileSelection() {
-	fileMode = "chat";
-	selectedFilePath = "";
-	openFile = null;
-	openFileDraft = "";
-	openFileError = null;
-}
-
 async function loadFileTree(force = false) {
 	if (fileTreeLoading && !force) return;
 	fileTreeLoading = true;
@@ -738,21 +730,9 @@ async function expandDirectory(node: RuntimeFsNode) {
 }
 
 async function openRuntimeFile(path: string) {
-	fileMode = "file";
-	selectedFilePath = path;
-	openFileLoading = true;
-	openFileError = null;
-	try {
-		const file = await getRuntimeFsFile(runtimeId, path);
-		openFile = file;
-		openFileDraft = file.kind === "text" ? file.content : "";
-	} catch (error) {
-		openFile = null;
-		openFileDraft = "";
-		openFileError = error instanceof Error ? error.message : "Failed to open file";
-	} finally {
-		openFileLoading = false;
-	}
+	const params = new URLSearchParams(page.url.searchParams);
+	params.set("file", path);
+	void goto(`/runtimes/${runtimeId}?${params.toString()}`, { replaceState: true });
 }
 
 async function saveOpenFile() {
@@ -807,7 +787,7 @@ async function handleRenameNode(node: RuntimeFsNode) {
 	try {
 		await moveRuntimeFsNode(runtimeId, { fromPath: node.path, toPath });
 		await loadFileTree(true);
-		if (selectedFilePath === node.path) {
+		if (urlFilePath === node.path) {
 			await openRuntimeFile(toPath);
 		}
 	} catch (error) {
@@ -819,8 +799,10 @@ async function handleDeleteNode(node: RuntimeFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await deleteRuntimeFsNode(runtimeId, node.path, node.type === "dir");
-		if (selectedFilePath === node.path) {
-			resetFileSelection();
+		if (urlFilePath === node.path) {
+			const params = new URLSearchParams(page.url.searchParams);
+			params.delete("file");
+			void goto(`/runtimes/${runtimeId}?${params.toString()}`, { replaceState: true });
 		}
 		await loadFileTree(true);
 	} catch (error) {
@@ -845,6 +827,35 @@ async function handleFileToggle(node: RuntimeFsNode) {
 async function refreshFileTree() {
 	await loadFileTree(true);
 }
+
+// URL-driven file viewer: load file when ?file= is set, close when cleared
+$effect(() => {
+	const path = urlFilePath;
+	if (path) {
+		void (async () => {
+			openFileLoading = true;
+			openFileError = null;
+			try {
+				const file = await getRuntimeFsFile(runtimeId, path);
+				if (urlFilePath !== path) return;
+				openFile = file;
+				openFileDraft = file.kind === "text" ? file.content : "";
+			} catch (error) {
+				if (urlFilePath !== path) return;
+				openFile = null;
+				openFileDraft = "";
+				openFileError = error instanceof Error ? error.message : "Failed to open file";
+			} finally {
+				if (urlFilePath !== path) return;
+				openFileLoading = false;
+			}
+		})();
+	} else {
+		openFile = null;
+		openFileDraft = "";
+		openFileError = null;
+	}
+});
 
 function handleFileInput(value: string) {
 	openFileDraft = value;
@@ -2256,22 +2267,6 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
-    <button
-      type="button"
-      class="hidden xl:flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-      onclick={() => uiState.toggleRightSidebarCollapsed()}
-      title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
-      aria-label={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
-    >
-      {#if uiState.rightSidebarCollapsed}
-        <PanelRightOpen class="w-4 h-4 shrink-0" />
-        <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
-      {:else}
-        <PanelRightClose class="w-4 h-4 shrink-0" />
-        <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
-      {/if}
-    </button>
-
     {#if isOwner}
     <button
       type="button"
@@ -2390,6 +2385,23 @@ $effect(() => {
       {/if}
     </div>
     {/if}
+
+    <!-- Toggle right sidebar -->
+    <button
+      type="button"
+      class="hidden xl:flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+      onclick={() => uiState.toggleRightSidebarCollapsed()}
+      title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+      aria-label={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+    >
+      {#if uiState.rightSidebarCollapsed}
+        <PanelRightOpen class="w-4 h-4 shrink-0" />
+        <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
+      {:else}
+        <PanelRightClose class="w-4 h-4 shrink-0" />
+        <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
+      {/if}
+    </button>
   {/snippet}
 </PageHeader>
 
@@ -2542,7 +2554,7 @@ $effect(() => {
     <div class="hidden shrink-0 xl:block" style={`width: ${uiState.rightSidebarWidth}px`}>
       <RuntimeFileSidebar
         nodes={fileTree}
-        selectedPath={selectedFilePath}
+        selectedPath={urlFilePath ?? ""}
         loading={fileTreeLoading}
         error={fileTreeError}
         onToggle={handleFileToggle}
