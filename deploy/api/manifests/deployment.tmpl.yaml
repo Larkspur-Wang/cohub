@@ -29,6 +29,10 @@ __IMAGE_PULL_SECRETS_BLOCK__
                 name: __APP_NAME__-config
             - secretRef:
                 name: __APP_NAME__-secrets
+          volumeMounts:
+            - name: runtime-storage
+              mountPath: __RUNTIME_STORAGE_ROOT__
+              subPath: cohub-__ENV__
           resources:
             requests:
               cpu: "__REQUEST_CPU__"
@@ -52,3 +56,7 @@ __IMAGE_PULL_SECRETS_BLOCK__
             periodSeconds: __READINESS_PERIOD__
             timeoutSeconds: __READINESS_TIMEOUT__
             failureThreshold: __READINESS_FAILURE_THRESHOLD__
+      volumes:
+        - name: runtime-storage
+          persistentVolumeClaim:
+            claimName: __RUNTIME_STORAGE_PVC__

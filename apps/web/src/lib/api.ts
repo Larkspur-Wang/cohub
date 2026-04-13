@@ -16,8 +16,12 @@ import type {
   RuntimeRecord as ProtocolRuntimeRecord,
   ChannelConfig,
   ResourcePermissionLevel,
+  RuntimeFsTreeResponse,
+  RuntimeFsFileResponse,
+  RuntimeFsWriteFileInput,
+  RuntimeFsMoveInput,
 } from "@cohub/protocol";
-export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig, ResourcePermissionLevel } from "@cohub/protocol";
+export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig, ResourcePermissionLevel, RuntimeFsTreeResponse, RuntimeFsFileResponse } from "@cohub/protocol";
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -593,6 +597,72 @@ export const getRuntimeChannels = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/runtimes/${id}/channels`, {
     fetch: customFetch,
   }) as Promise<RuntimeChannelRecord[]>;
+};
+
+export const getRuntimeFsTree = async (
+  runtimeId: string,
+  path = "",
+  customFetch?: Fetch,
+) => {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  const query = params.toString();
+  return apiFetch(`/api/runtimes/${runtimeId}/fs/tree${query ? `?${query}` : ""}`, {
+    fetch: customFetch,
+  }) as Promise<RuntimeFsTreeResponse>;
+};
+
+export const getRuntimeFsFile = async (
+  runtimeId: string,
+  path: string,
+  customFetch?: Fetch,
+) => {
+  const params = new URLSearchParams({ path });
+  return apiFetch(`/api/runtimes/${runtimeId}/fs/file?${params.toString()}`, {
+    fetch: customFetch,
+  }) as Promise<RuntimeFsFileResponse>;
+};
+
+export const putRuntimeFsFile = async (
+  runtimeId: string,
+  input: RuntimeFsWriteFileInput,
+) => {
+  return apiFetch(`/api/runtimes/${runtimeId}/fs/file`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }) as Promise<{ ok: true; path: string; size: number; mtimeMs: number }>;
+};
+
+export const createRuntimeFsDir = async (runtimeId: string, path: string) => {
+  return apiFetch(`/api/runtimes/${runtimeId}/fs/dir`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  }) as Promise<{ ok: true; path: string; size: number; mtimeMs: number }>;
+};
+
+export const deleteRuntimeFsNode = async (
+  runtimeId: string,
+  path: string,
+  recursive = false,
+) => {
+  const params = new URLSearchParams({ path });
+  if (recursive) params.set("recursive", "true");
+  return apiFetch(`/api/runtimes/${runtimeId}/fs/node?${params.toString()}`, {
+    method: "DELETE",
+  }) as Promise<{ ok: true; path: string }>;
+};
+
+export const moveRuntimeFsNode = async (
+  runtimeId: string,
+  input: RuntimeFsMoveInput,
+) => {
+  return apiFetch(`/api/runtimes/${runtimeId}/fs/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }) as Promise<{ ok: true; fromPath: string; toPath: string }>;
 };
 
 export const updateRuntimeChannelConfig = async (

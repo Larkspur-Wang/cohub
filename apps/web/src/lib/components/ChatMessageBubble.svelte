@@ -266,7 +266,7 @@ $effect(() => {
               <!-- Collapsed row -->
               <button
                 type="button"
-                class="w-full flex items-center gap-2 pl-0 pr-4 py-1 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
+                class="w-full flex items-center gap-2 pl-0 pr-4 py-0.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
                 onclick={() => toggleToolCall(block.id)}
               >
                 <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>

@@ -10,6 +10,15 @@ import {
   getTokenFromRequest,
   type AuthUserProfile,
 } from "./auth.js";
+import {
+  createRuntimeDirectory,
+  deleteRuntimeNode,
+  listRuntimeDirectory,
+  moveRuntimeNode,
+  readRuntimeFile,
+  runtimeFsJsonError,
+  writeRuntimeFile,
+} from "./runtime-fs.js";
 import { assertRequiredConfig, config } from "./config.js";
 import {
   getDirectoryEntries,
@@ -1159,6 +1168,137 @@ app.get("/api/runtimes", async (c) => {
   });
 
   return c.json(runtimesWithChannels);
+});
+
+app.get("/api/runtimes/:id/fs/tree", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canRead(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const path = c.req.query("path") ?? "";
+    const result = await listRuntimeDirectory(runtimeId, path);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
+});
+
+app.get("/api/runtimes/:id/fs/file", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canRead(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const path = c.req.query("path") ?? "";
+    const result = await readRuntimeFile(runtimeId, path);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
+});
+
+app.put("/api/runtimes/:id/fs/file", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canWrite(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const body = await c.req.json<{ path?: string; content?: string; encoding?: "utf-8" | "base64" }>().catch(() => null);
+    if (!body?.path || typeof body.content !== "string" || !body.encoding) {
+      return c.json({ code: "invalid_body", message: "path, content and encoding are required." }, 400);
+    }
+    const result = await writeRuntimeFile(runtimeId, {
+      path: body.path,
+      content: body.content,
+      encoding: body.encoding,
+    });
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
+});
+
+app.post("/api/runtimes/:id/fs/dir", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canWrite(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const body = await c.req.json<{ path?: string }>().catch(() => null);
+    if (!body?.path) {
+      return c.json({ code: "invalid_body", message: "path is required." }, 400);
+    }
+    const result = await createRuntimeDirectory(runtimeId, body.path);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
+});
+
+app.delete("/api/runtimes/:id/fs/node", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canWrite(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const path = c.req.query("path") ?? "";
+    const recursive = c.req.query("recursive") === "true";
+    const result = await deleteRuntimeNode(runtimeId, path, recursive);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
+});
+
+app.post("/api/runtimes/:id/fs/move", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canWrite(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const body = await c.req.json<{ fromPath?: string; toPath?: string }>().catch(() => null);
+    if (!body?.fromPath || !body?.toPath) {
+      return c.json({ code: "invalid_body", message: "fromPath and toPath are required." }, 400);
+    }
+    const result = await moveRuntimeNode(runtimeId, {
+      fromPath: body.fromPath,
+      toPath: body.toPath,
+    });
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
 });
 
 app.get("/api/runtimes/:id", async (c) => {

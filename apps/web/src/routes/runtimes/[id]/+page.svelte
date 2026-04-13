@@ -24,12 +24,22 @@ import {
 	deleteRuntimePermission,
 	deleteSessionPermission,
 	type ResourcePermission,
+	getRuntimeFsTree,
+	getRuntimeFsFile,
+	putRuntimeFsFile,
+	createRuntimeFsDir,
+	deleteRuntimeFsNode,
+	moveRuntimeFsNode,
+	type RuntimeFsFileResponse,
 } from "$lib/api";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
+import RuntimeFileSidebar from "$lib/components/RuntimeFileSidebar.svelte";
+import RuntimeFilePane from "$lib/components/RuntimeFilePane.svelte";
+import type { RuntimeFsNode } from "$lib/runtime-fs";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
@@ -331,6 +341,17 @@ const PRELOAD_THRESHOLD = 10;
 let runtimeActionError = $state("");
 let runtimeActionInProgress: string | null = $state(null);
 
+let fileTree = $state<RuntimeFsNode[]>([]);
+let fileTreeLoading = $state(false);
+let fileTreeError = $state<string | null>(null);
+let fileMode = $state<"chat" | "file">("chat");
+let selectedFilePath = $state("");
+let openFile = $state<RuntimeFsFileResponse | null>(null);
+let openFileDraft = $state("");
+let openFileLoading = $state(false);
+let openFileSaving = $state(false);
+let openFileError = $state<string | null>(null);
+
 async function handleHibernate() {
 	if (!confirm("Hibernate this runtime? The sandbox pod will be stopped."))
 		return;
@@ -568,6 +589,219 @@ function mergeMessagesById(
 		);
 	}
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+}
+
+function makeFsNode(entry: {
+	name: string;
+	path: string;
+	type: "file" | "dir" | "symlink";
+	size: number;
+	mimeType: string | null;
+	mtimeMs: number;
+}): RuntimeFsNode {
+	return {
+		...entry,
+		children: [],
+		isOpen: false,
+		isLoaded: false,
+		isLoading: false,
+	};
+}
+
+function replaceNodeChildren(nodes: RuntimeFsNode[], nodePath: string, children: RuntimeFsNode[]): RuntimeFsNode[] {
+	return nodes.map((node) => {
+		if (node.path === nodePath) {
+			return { ...node, children, isLoaded: true, isLoading: false, isOpen: true };
+		}
+		if (node.children.length > 0) {
+			return { ...node, children: replaceNodeChildren(node.children, nodePath, children) };
+		}
+		return node;
+	});
+}
+
+function updateNodeState(nodes: RuntimeFsNode[], nodePath: string, updater: (node: RuntimeFsNode) => RuntimeFsNode): RuntimeFsNode[] {
+	return nodes.map((node) => {
+		if (node.path === nodePath) return updater(node);
+		if (node.children.length > 0) {
+			return { ...node, children: updateNodeState(node.children, nodePath, updater) };
+		}
+		return node;
+	});
+}
+
+function resetFileSelection() {
+	fileMode = "chat";
+	selectedFilePath = "";
+	openFile = null;
+	openFileDraft = "";
+	openFileError = null;
+}
+
+async function loadFileTree(force = false) {
+	if (fileTreeLoading && !force) return;
+	fileTreeLoading = true;
+	fileTreeError = null;
+	try {
+		const tree = await getRuntimeFsTree(runtimeId, "");
+		fileTree = tree.entries.map(makeFsNode);
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to load files";
+	} finally {
+		fileTreeLoading = false;
+	}
+}
+
+async function expandDirectory(node: RuntimeFsNode) {
+	if (node.type !== "dir") return;
+	if (node.isOpen) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isOpen: false }));
+		return;
+	}
+	if (node.isLoaded) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isOpen: true }));
+		return;
+	}
+	fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isLoading: true, isOpen: true }));
+	try {
+		const tree = await getRuntimeFsTree(runtimeId, node.path);
+		fileTree = replaceNodeChildren(fileTree, node.path, tree.entries.map(makeFsNode));
+	} catch (error) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isLoading: false }));
+		fileTreeError = error instanceof Error ? error.message : "Failed to load directory";
+	}
+}
+
+async function openRuntimeFile(path: string) {
+	fileMode = "file";
+	selectedFilePath = path;
+	openFileLoading = true;
+	openFileError = null;
+	try {
+		const file = await getRuntimeFsFile(runtimeId, path);
+		openFile = file;
+		openFileDraft = file.kind === "text" ? file.content : "";
+	} catch (error) {
+		openFile = null;
+		openFileDraft = "";
+		openFileError = error instanceof Error ? error.message : "Failed to open file";
+	} finally {
+		openFileLoading = false;
+	}
+}
+
+async function saveOpenFile() {
+	if (!openFile || openFile.kind !== "text") return;
+	openFileSaving = true;
+	openFileError = null;
+	try {
+		await putRuntimeFsFile(runtimeId, {
+			path: openFile.path,
+			content: openFileDraft,
+			encoding: "utf-8",
+		});
+		openFile = { ...openFile, content: openFileDraft, size: new Blob([openFileDraft]).size };
+		await loadFileTree(true);
+	} catch (error) {
+		openFileError = error instanceof Error ? error.message : "Failed to save file";
+	} finally {
+		openFileSaving = false;
+	}
+}
+
+async function handleCreateFile(parentPath: string) {
+	const name = prompt("New file name");
+	if (!name?.trim()) return;
+	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+	try {
+		await putRuntimeFsFile(runtimeId, { path, content: "", encoding: "utf-8" });
+		await loadFileTree(true);
+		await openRuntimeFile(path);
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to create file";
+	}
+}
+
+async function handleCreateDir(parentPath: string) {
+	const name = prompt("New folder name");
+	if (!name?.trim()) return;
+	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+	try {
+		await createRuntimeFsDir(runtimeId, path);
+		await loadFileTree(true);
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to create folder";
+	}
+}
+
+async function handleRenameNode(node: RuntimeFsNode) {
+	const nextName = prompt("Rename", node.name);
+	if (!nextName?.trim() || nextName.trim() === node.name) return;
+	const parent = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : "";
+	const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
+	try {
+		await moveRuntimeFsNode(runtimeId, { fromPath: node.path, toPath });
+		await loadFileTree(true);
+		if (selectedFilePath === node.path) {
+			await openRuntimeFile(toPath);
+		}
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
+	}
+}
+
+async function handleDeleteNode(node: RuntimeFsNode) {
+	if (!confirm(`Delete ${node.name}?`)) return;
+	try {
+		await deleteRuntimeFsNode(runtimeId, node.path, node.type === "dir");
+		if (selectedFilePath === node.path) {
+			resetFileSelection();
+		}
+		await loadFileTree(true);
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
+	}
+}
+
+const fileDirty = $derived(Boolean(openFile && openFile.kind === "text" && openFileDraft !== openFile.content));
+
+async function handleFilePaneSave() {
+	await saveOpenFile();
+}
+
+function closeFilePane() {
+	resetFileSelection();
+}
+
+async function handleFileSelect(node: RuntimeFsNode) {
+	if (node.type !== "file") {
+		await expandDirectory(node);
+		return;
+	}
+	await openRuntimeFile(node.path);
+}
+
+async function handleFileToggle(node: RuntimeFsNode) {
+	await expandDirectory(node);
+}
+
+async function refreshFileTree() {
+	await loadFileTree(true);
+}
+
+function handleFileInput(value: string) {
+	openFileDraft = value;
+}
+
+async function handleFileKeyboardSave(event: KeyboardEvent) {
+	if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && fileMode === "file") {
+		event.preventDefault();
+		await saveOpenFile();
+	}
+}
+
+async function handleNavigateActiveSessionChat() {
+	fileMode = "chat";
 }
 
 async function handleCreateNewSession() {
@@ -1636,6 +1870,7 @@ onMount(() => {
 
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
+	window.addEventListener("keydown", handleFileKeyboardSave);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 
 	// Initialize broadcast channel for cross-component communication
@@ -1646,6 +1881,7 @@ onMount(() => {
 	}
 
 	void loadRuntime({ force: true }).finally(() => {
+		void loadFileTree(true);
 		if (authStore.isAuthenticated) {
 			void loadPermissions(true).finally(() => {
 				bootstrapping = false;
@@ -1664,6 +1900,7 @@ onMount(() => {
 		if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
+		window.removeEventListener("keydown", handleFileKeyboardSave);
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		disconnectAllSSE();
 		broadcastChannel?.close();
@@ -2001,14 +2238,25 @@ $effect(() => {
 <!-- Main Content -->
 <div class="flex-1 flex min-h-0">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    {#if bootstrapping && !activeSessionState}
+    <RuntimeFilePane
+      file={fileMode === 'file' ? openFile : null}
+      draftContent={openFileDraft}
+      dirty={fileDirty}
+      loading={openFileLoading}
+      saving={openFileSaving}
+      error={openFileError}
+      onInput={handleFileInput}
+      onSave={handleFilePaneSave}
+      onClose={closeFilePane}
+    >
+    {#if bootstrapping && !activeSessionState && fileMode !== 'file'}
       <div class="flex-1 flex items-center justify-center bg-bg-content">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
           <div class="w-7 h-7 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
           <div class="text-[12px]">Loading runtime…</div>
         </div>
       </div>
-    {:else if !activeSessionState}
+    {:else if !activeSessionState && fileMode !== 'file'}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
         <div class="text-[14px]">No session selected</div>
         {#if isOwner}
@@ -2023,14 +2271,14 @@ $effect(() => {
         </button>
         {/if}
       </div>
-    {:else if activeSessionState.loading && !activeSessionState.loaded}
+    {:else if activeSessionState && activeSessionState.loading && !activeSessionState.loaded && fileMode !== 'file'}
       <div class="flex-1 flex items-center justify-center bg-bg-content">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
           <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
           <div class="text-[12px]">Loading messages…</div>
         </div>
       </div>
-    {:else}
+    {:else if activeSessionState && fileMode !== 'file'}
       {#if activeSessionState.error}
         <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
           {activeSessionState.error}
@@ -2080,6 +2328,23 @@ $effect(() => {
         }}
       />
     {/if}
+    </RuntimeFilePane>
+  </div>
+
+  <div class="hidden w-[320px] shrink-0 xl:block">
+    <RuntimeFileSidebar
+      nodes={fileTree}
+      selectedPath={selectedFilePath}
+      loading={fileTreeLoading}
+      error={fileTreeError}
+      onToggle={handleFileToggle}
+      onSelect={handleFileSelect}
+      onRefresh={refreshFileTree}
+      onCreateFile={handleCreateFile}
+      onCreateDir={handleCreateDir}
+      onRename={handleRenameNode}
+      onDelete={handleDeleteNode}
+    />
   </div>
 
   <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->

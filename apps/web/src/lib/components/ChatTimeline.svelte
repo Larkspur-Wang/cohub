@@ -137,4 +137,8 @@ $effect(() => {
 	:global([data-kind="tool"]:has(+ [data-kind="message"])) {
 		margin-bottom: 0 !important;
 	}
+	/* Remove bottom margin of tool when followed by another tool */
+	:global([data-kind="tool"]:has(+ [data-kind="tool"])) {
+		margin-bottom: 0 !important;
+	}
 </style>

@@ -11,6 +11,7 @@ export type AppConfig = {
   sandboxRuntimeImage: string;
   bullmqRedisUrl: string;
   workerSecret: string;
+  runtimeStorageRoot: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -42,6 +43,7 @@ export const config: AppConfig = {
     process.env.SANDBOX_RUNTIME_IMAGE ?? getDefaultSandboxRuntimeImage(env),
   bullmqRedisUrl:
     process.env.BULLMQ_REDIS_URL ?? "",
+  runtimeStorageRoot: process.env.RUNTIME_STORAGE_ROOT ?? "",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
