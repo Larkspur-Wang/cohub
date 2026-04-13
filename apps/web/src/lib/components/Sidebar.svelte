@@ -504,7 +504,7 @@ onMount(() => {
               </span>
               <span class="truncate flex-1 text-[13.5px] leading-tight">{runtime.title || runtime.id.slice(0, 12)}</span>
               {#if runtime.userUuid !== authStore.userUuid}
-                <Users class="w-3 h-3 shrink-0 text-text-tertiary" title="Shared runtime" />
+                <Users class="w-3 h-3 shrink-0 text-text-tertiary" />
               {/if}
               {#if isBusy}
                 <Loader2 class="w-3 h-3 animate-spin text-text-tertiary shrink-0" />

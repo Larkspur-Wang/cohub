@@ -480,12 +480,13 @@ $effect(() => {
 
 // Inject shared runtime into sidebar when non-owner views it
 $effect(() => {
-	if (runtime && !isOwner) {
+	const currentRuntime = runtime;
+	if (currentRuntime && !isOwner) {
 		// Check if already in the runtime list
-		const alreadyInList = runtimeStore.runtimeList.some((r) => r.id === runtime.id);
+		const alreadyInList = runtimeStore.runtimeList.some((r) => r.id === currentRuntime.id);
 		if (!alreadyInList) {
 			// Inject at the front of the list so it appears first in sidebar
-			runtimeStore.injectSharedRuntime(runtime);
+			runtimeStore.injectSharedRuntime(currentRuntime);
 		}
 	}
 });
