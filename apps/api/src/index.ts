@@ -1379,8 +1379,8 @@ app.post("/api/runtimes/:id/wake", async (c) => {
     return c.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Can only wake")) {
-      return c.json({ message }, 400);
+    if (message.includes("Can only wake") || message.includes("still terminating")) {
+      return c.json({ message }, 409);
     }
     return c.json({ message: "failed to wake runtime" }, 500);
   }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql, lt, gt, desc } from "drizzle-orm";
 import { ApiException, type V1Pod } from "@kubernetes/client-node";
+import { sessionsNamespace } from "./config.js";
 import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
@@ -17,7 +18,7 @@ import {
   workspaces,
   providerMessageRefs,
 } from "./db/schema.js";
-import { config, sessionsNamespace } from "./config.js";
+import { config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import {
   getRuntimeInputQueueKey,
@@ -251,6 +252,84 @@ const buildRuntimeContainerEnv = (input: {
 };
 
 
+
+// ─── Pod lifecycle helpers ───
+
+const isPodTerminating = (pod: V1Pod): boolean => {
+  return pod.metadata?.deletionTimestamp !== undefined;
+};
+
+const waitForPodGone = async (
+  api: typeof k8sCoreApi,
+  podName: string,
+  timeoutMs: number,
+): Promise<void> => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const pod = await api.readNamespacedPod({
+        name: podName,
+        namespace: sessionsNamespace,
+      });
+      if (!isPodTerminating(pod)) {
+        // Pod exists but not terminating — nothing to wait for
+        return;
+      }
+    } catch (e) {
+      if (e instanceof ApiException && e.code === 404) return; // gone
+      throw e;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`pod ${podName} still terminating after ${timeoutMs}ms`);
+};
+
+/**
+ * Try to create a pod. On 409 (conflict with terminating pod), waits briefly
+ * then retries once. If still failing, throws a user-friendly message.
+ */
+const tryCreatePod = async (
+  api: typeof k8sCoreApi,
+  runtimeId: string,
+  pod: V1Pod,
+): Promise<void> => {
+  const podName = `sandbox-${runtimeId}`;
+
+  try {
+    await api.createNamespacedPod({
+      namespace: sessionsNamespace,
+      body: pod,
+    });
+    return;
+  } catch (e) {
+    if (e instanceof ApiException && e.code === 409) {
+      // Previous pod is still terminating — wait briefly then retry
+      console.log(
+        `[tryCreatePod] Pod ${podName} conflicts (terminating), waiting...`,
+      );
+      try {
+        await waitForPodGone(api, podName, 4000);
+      } catch {
+        throw new Error(
+          "previous sandbox is still terminating, please try again in a moment",
+        );
+      }
+      // Retry once — wrap in try/catch to ensure friendly message on failure
+      try {
+        await api.createNamespacedPod({
+          namespace: sessionsNamespace,
+          body: pod,
+        });
+      } catch (retryErr) {
+        throw new Error(
+          "previous sandbox is still terminating, please try again in a moment",
+        );
+      }
+      return;
+    }
+    throw e;
+  }
+};
 
 export const updateRuntimeStatus = async (runtimeId: string, status: string) => {
   await db
@@ -1007,10 +1086,7 @@ export const launchRuntimeSandbox = async (input: {
     });
   }
 
-  await k8sCoreApi.createNamespacedPod({
-    namespace: sessionsNamespace,
-    body: pod,
-  });
+  await tryCreatePod(k8sCoreApi, input.runtimeId, pod);
 
   await bindRuntimeChannelsToGateway(input.runtimeId).catch(console.error);
   return pod;
@@ -1074,10 +1150,7 @@ export const provisionRuntimeInBackground = async (input: {
       });
     }
 
-    await k8sCoreApi.createNamespacedPod({
-      namespace: sessionsNamespace,
-      body: pod,
-    });
+    await tryCreatePod(k8sCoreApi, runtimeId, pod);
 
     await bindRuntimeChannelsToGateway(runtimeId);
 
@@ -1145,12 +1218,94 @@ export const wakeRuntime = async (input: { runtimeId: string; userUuid: string }
     throw new Error(`Can only wake hibernated runtime, current status: ${runtime.status}`);
   }
 
+  // Build pod template inline so we can create it synchronously
+  const extraEnv = getSessionExtraEnv(runtime.meta);
+  validateRuntimeEnv(extraEnv);
+
+  let workspaceRepoUrl: string | undefined;
+  let workspaceGitUsername: string | undefined;
+  let workspaceGitEmail: string | undefined;
+
+  if (runtime.workspaceId) {
+    const gitAccount = await ensureUserGitAccount(input.userUuid);
+    workspaceGitUsername = gitAccount.giteaUsername;
+    workspaceGitEmail = `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`;
+
+    const [workspace] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, runtime.workspaceId))
+      .limit(1);
+
+    if (workspace) {
+      const url = new URL(config.giteaBaseUrl);
+      workspaceRepoUrl = `${url.protocol}//${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@${url.host}/${gitAccount.giteaUsername}/${workspace.giteaRepoName}.git`;
+    }
+  }
+
+  const pod = renderSandboxPodTemplate({
+    RUNTIME_ID: runtime.id,
+    USER_ID: input.userUuid,
+    REDIS_URL: config.redisUrl,
+    LITELLM_API_KEY: config.litellmApiKey,
+    ENV: config.env,
+    WORKSPACE_REPO_URL: workspaceRepoUrl,
+    WORKSPACE_GIT_USERNAME: workspaceGitUsername,
+    WORKSPACE_GIT_EMAIL: workspaceGitEmail,
+  }) as V1Pod;
+
+  if (pod.spec?.containers?.[0]) {
+    pod.spec.containers[0].env = buildRuntimeContainerEnv({
+      runtimeId: runtime.id,
+      redisUrl: config.redisUrl,
+      litellmApiKey: config.litellmApiKey,
+      env: config.env,
+      workspaceRepoUrl,
+      workspaceGitUsername,
+      workspaceGitEmail,
+      extraEnv,
+    });
+  }
+
   await db
     .update(runtimes)
     .set({ status: "starting", updatedAt: new Date() })
     .where(eq(runtimes.id, runtime.id));
 
-  void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid: input.userUuid }).catch(console.error);
+  // Create pod synchronously — if it fails, rollback and propagate the error
+  try {
+    await tryCreatePod(k8sCoreApi, runtime.id, pod);
+  } catch (error) {
+    await db
+      .update(runtimes)
+      .set({ status: "hibernated", updatedAt: new Date() })
+      .where(eq(runtimes.id, runtime.id))
+      .catch((rollbackErr) => {
+        console.error(
+          `[wakeRuntime] Failed to rollback runtime ${runtime.id} to hibernated:`,
+          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        );
+      });
+    throw error;
+  }
+
+  // Fire-and-forget: bind channels + wait for runtime to become ready
+  void (
+    bindRuntimeChannelsToGateway(runtime.id)
+      .then(() => waitForRuntimeRunning(runtime.id, 60000))
+      .then((ready) => {
+        if (!ready) {
+          console.warn(`[wakeRuntime] runtimeId=${runtime.id} failed to become ready`);
+        }
+        return updateRuntimeStatus(runtime.id, ready ? "running" : "error");
+      })
+      .catch(async (err) => {
+        console.error(`[wakeRuntime] runtimeId=${runtime.id} background error:`, err instanceof Error ? err.message : String(err));
+        await updateRuntimeStatus(runtime.id, "error").catch((e) =>
+          console.error(`[wakeRuntime] Failed to set error status for ${runtime.id}:`, e instanceof Error ? e.message : String(e)),
+        );
+      })
+  );
 
   return { runtime: { ...runtime, status: "starting" } };
 };
