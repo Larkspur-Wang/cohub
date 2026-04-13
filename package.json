@@ -16,10 +16,12 @@
     "lint:fix": "pnpm -r lint:fix",
     "typecheck": "pnpm -r typecheck",
     "format": "biome format --write .",
-    "lint:biome": "biome lint ."
+    "lint:biome": "biome lint .",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "husky": "^9.1.7",
     "tsx": "4.19.2",
     "typescript": "5.7.3"
   }

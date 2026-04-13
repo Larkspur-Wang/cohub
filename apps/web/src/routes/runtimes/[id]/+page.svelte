@@ -478,7 +478,8 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 	// so tool cards and streaming text render inline as they arrive.
 	const lastUserIndex = (() => {
 		for (let i = items.length - 1; i >= 0; i--) {
-			if (items[i].kind === "message" && items[i].message.role === "user") {
+			const item = items[i];
+			if (item.kind === "message" && item.message.role === "user") {
 				return i;
 			}
 		}
