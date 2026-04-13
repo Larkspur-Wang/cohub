@@ -1186,31 +1186,39 @@ async function processEventQueue() {
 			}
 
 			if (event.turnEnd) {
-				// Incremental sync: only fetch new messages since last known
+				// Sync with persisted server messages. Use a retry loop because
+				// the agent enqueues persistence asynchronously — turnEnd may
+				// fire before DB writes complete.
 				const state = sessionStateById[currentActiveSessionId];
 				let newMessages: MessageRecord[] = [];
 				let updatedSession = state?.session;
 
 				try {
-					const lastSeq = state?.messages.at(-1)?.sequence;
-					if (lastSeq != null) {
+					const prevSeq = state?.messages.length >= 2
+						? state.messages.at(-2)?.sequence ?? 0
+						: 0;
+
+					// Retry up to 3 times with 300ms backoff to give the agent's
+					// persistence queue time to flush to the API database.
+					for (let attempt = 1; attempt <= 3; attempt++) {
 						const response = await getSessionMessagesPaginated(currentActiveSessionId, {
-							cursor: lastSeq,
+							cursor: prevSeq,
 							direction: "newer",
 							limit: 100,
 						});
-						newMessages = response.messages;
-						updatedSession = response.session;
-
-						// Update cache
-						if (newMessages.length > 0) {
-							await messageCache.append(currentActiveSessionId, newMessages);
+						if (response.messages.length > 0) {
+							newMessages = response.messages;
+							updatedSession = response.session;
+							break;
 						}
-					} else {
-						// Fallback: full reload if no state
-						const response = await getSessionMessages(currentActiveSessionId);
-						newMessages = response.messages;
-						updatedSession = response.session;
+						if (attempt < 3) {
+							await new Promise((r) => setTimeout(r, 300));
+						}
+					}
+
+					// Update cache with server-persisted messages (user + assistant).
+					if (newMessages.length > 0) {
+						await messageCache.append(currentActiveSessionId, newMessages);
 					}
 				} catch {
 					// Ignore sync errors, keep existing messages
@@ -1368,31 +1376,36 @@ async function handleSend() {
 
 		const currentState = sessionStateById[sessionId];
 		if (currentState) {
+			const optimisticMessage = {
+				id: userMessageId || `optimistic-user-${Date.now()}`,
+				sessionId,
+				role: "user" as const,
+				content,
+				text,
+				sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				usageInput: null,
+				usageOutput: null,
+				costTotal: null,
+				createdAt: new Date().toISOString(),
+			} satisfies MessageRecord;
+
 			sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...currentState,
-					messages: [
-						...currentState.messages,
-						{
-							id: userMessageId || `optimistic-user-${Date.now()}`,
-							sessionId,
-							role: "user",
-							content,
-							text,
-							sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
-							provider: null,
-							model: null,
-							stopReason: null,
-							errorMessage: null,
-							usageInput: null,
-							usageOutput: null,
-							costTotal: null,
-							createdAt: new Date().toISOString(),
-						},
-					],
+					messages: [...currentState.messages, optimisticMessage],
 				},
 			};
+
+			// Persist optimistic user message to IndexedDB immediately so it
+			// survives page reload. Without this, turnEnd's server-side fetch
+			// (sequence > cursor) skips it, and the cache ends up missing the
+			// user message permanently.
+			await messageCache.append(sessionId, [optimisticMessage]);
 		}
 	} catch (error) {
 		streamError =
