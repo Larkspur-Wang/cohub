@@ -473,100 +473,124 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		}),
 	);
 
-	// During streaming: keep items flat so tool cards and streaming text
-	// render inline as they arrive. No grouping.
-	if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
-		// Build streaming items in the correct interleaved order.
-		// Walk through raw content blocks so text → tool_use → text preserves order.
-		if (streamingContentBlocks.length > 0) {
-			let accText = "";
-			let accThinking = "";
-			const baseSequence = state.messages.at(-1)?.sequence ?? 0;
+	// Group historical messages (before the current turn) into process cards.
+	// Only the messages after the last user turn are kept flat during streaming
+	// so tool cards and streaming text render inline as they arrive.
+	const lastUserIndex = (() => {
+		for (let i = items.length - 1; i >= 0; i--) {
+			if (items[i].kind === "message" && items[i].message.role === "user") {
+				return i;
+			}
+		}
+		return -1;
+	})();
 
-			function flushMessage() {
-				const trimmedText = accText.trim();
-				const trimmedThinking = accThinking.trim();
-				if (!trimmedText && !trimmedThinking) return;
+	// Group the historical portion
+	if (lastUserIndex >= 0) {
+		const historyItems = items.slice(0, lastUserIndex + 1);
+		const groupedHistory = groupIntermediateMessages(historyItems);
+		const streamingItems = items.slice(lastUserIndex + 1);
 
-				const blocks: ContentBlock[] = [];
-				if (trimmedThinking) blocks.push({ type: "thinking", thinking: trimmedThinking });
-				if (trimmedText) blocks.push({ type: "text", text: trimmedText });
+		if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
+			// Append flat streaming items after the grouped history.
+			if (streamingContentBlocks.length > 0) {
+				let accText = "";
+				let accThinking = "";
+				const baseSequence = state.messages.at(-1)?.sequence ?? 0;
 
-				items.push({
-					id: `assistant-streaming-seg-${items.length}`,
+				function flushMessage() {
+					const trimmedText = accText.trim();
+					const trimmedThinking = accThinking.trim();
+					if (!trimmedText && !trimmedThinking) return;
+
+					const blocks: ContentBlock[] = [];
+					if (trimmedThinking) blocks.push({ type: "thinking", thinking: trimmedThinking });
+					if (trimmedText) blocks.push({ type: "text", text: trimmedText });
+
+					groupedHistory.push({
+						id: `assistant-streaming-seg-${groupedHistory.length}`,
+						kind: "message",
+						message: {
+							id: "assistant-streaming",
+							role: "assistant",
+							content: blocks as never,
+							text: trimmedText,
+							sequence: baseSequence + 1,
+						},
+					});
+					accText = "";
+					accThinking = "";
+				}
+
+				for (const block of streamingContentBlocks) {
+					if (block.type === "thinking") {
+						accThinking += (accThinking ? "\n" : "") + block.thinking;
+					} else if (block.type === "text") {
+						accText += (accText ? "\n\n" : "") + block.text;
+					} else if (block.type === "tool_use") {
+						// Flush accumulated text/thinking before inserting tool card
+						flushMessage();
+						const meta = block._meta as
+							| { toolStatus?: string; summary?: string }
+							| undefined;
+						groupedHistory.push({
+							id: `stream-tool-${block.id}`,
+							kind: "tool",
+							tool: {
+								id: block.id,
+								name: block.name,
+								input: block.input ?? {},
+								status:
+									meta?.toolStatus === "running"
+										? "running"
+										: meta?.toolStatus === "done"
+											? "done"
+											: "failed",
+								output: meta?.summary ?? "",
+							},
+						});
+					}
+				}
+
+				// Flush remaining text/thinking after the last tool
+				flushMessage();
+			} else if (streamingAssistantText.trim() || streamingThinking.trim()) {
+				// Fallback: when raw blocks aren't available yet, use the flat state
+				const contentBlocks: Array<
+					{ type: "thinking"; thinking: string } | { type: "text"; text: string }
+				> = [];
+				if (streamingThinking.trim()) {
+					contentBlocks.push({ type: "thinking", thinking: streamingThinking });
+				}
+				if (streamingAssistantText.trim()) {
+					contentBlocks.push({ type: "text", text: streamingAssistantText });
+				}
+				groupedHistory.push({
+					id: "assistant-streaming",
 					kind: "message",
 					message: {
 						id: "assistant-streaming",
 						role: "assistant",
-						content: blocks as never,
-						text: trimmedText,
-						sequence: baseSequence + 1,
+						content: contentBlocks as never,
+						text: streamingAssistantText,
+						sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
 					},
 				});
-				accText = "";
-				accThinking = "";
 			}
 
-			for (const block of streamingContentBlocks) {
-				if (block.type === "thinking") {
-					accThinking += (accThinking ? "\n" : "") + block.thinking;
-				} else if (block.type === "text") {
-					accText += (accText ? "\n\n" : "") + block.text;
-				} else if (block.type === "tool_use") {
-					// Flush accumulated text/thinking before inserting tool card
-					flushMessage();
-					const meta = block._meta as
-						| { toolStatus?: string; summary?: string }
-						| undefined;
-					items.push({
-						id: `stream-tool-${block.id}`,
-						kind: "tool",
-						tool: {
-							id: block.id,
-							name: block.name,
-							input: block.input ?? {},
-							status:
-								meta?.toolStatus === "running"
-									? "running"
-									: meta?.toolStatus === "done"
-										? "done"
-										: "failed",
-							output: meta?.summary ?? "",
-						},
-					});
-				}
+			// Append any remaining non-streaming items (e.g. optimistic user message)
+			for (const item of streamingItems) {
+				groupedHistory.push(item);
 			}
 
-			// Flush remaining text/thinking after the last tool
-			flushMessage();
-		} else if (streamingAssistantText.trim() || streamingThinking.trim()) {
-			// Fallback: when raw blocks aren't available yet, use the flat state
-			const contentBlocks: Array<
-				{ type: "thinking"; thinking: string } | { type: "text"; text: string }
-			> = [];
-			if (streamingThinking.trim()) {
-				contentBlocks.push({ type: "thinking", thinking: streamingThinking });
-			}
-			if (streamingAssistantText.trim()) {
-				contentBlocks.push({ type: "text", text: streamingAssistantText });
-			}
-			items.push({
-				id: "assistant-streaming",
-				kind: "message",
-				message: {
-					id: "assistant-streaming",
-					role: "assistant",
-					content: contentBlocks as never,
-					text: streamingAssistantText,
-					sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
-				},
-			});
+			return groupedHistory;
 		}
 
-		return items;
+		// Not streaming: group the streaming portion too
+		return groupIntermediateMessages([...groupedHistory, ...streamingItems]);
 	}
 
-	// After streaming: group intermediate assistant messages into process cards
+	// No user messages at all: group everything
 	return groupIntermediateMessages(items);
 });
 
@@ -2544,15 +2568,7 @@ $effect(() => {
   </div>
 
   {#if !uiState.rightSidebarCollapsed}
-    <button
-      type="button"
-      class="hidden xl:block right-sidebar-resize-handle"
-      aria-label="Resize files sidebar"
-      title="Resize files sidebar"
-      onpointerdown={beginRightSidebarResize}
-    ></button>
-
-    <div class="hidden shrink-0 xl:block" style={`width: ${uiState.rightSidebarWidth}px`}>
+    <div class="hidden shrink-0 xl:block relative border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
       <RuntimeFileSidebar
         nodes={fileTree}
         selectedPath={urlFilePath ?? ""}
@@ -2566,6 +2582,13 @@ $effect(() => {
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
       />
+      <button
+        type="button"
+        class="right-sidebar-resize-handle"
+        aria-label="Resize files sidebar"
+        title="Resize files sidebar"
+        onpointerdown={beginRightSidebarResize}
+      ></button>
     </div>
   {/if}
 
@@ -2919,24 +2942,17 @@ $effect(() => {
 
 <style>
   .right-sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    left: -4px;
+    bottom: 0;
     width: 8px;
-    flex-shrink: 0;
     border: none;
     padding: 0;
     cursor: col-resize;
     background: transparent;
-    position: relative;
     touch-action: none;
-  }
-
-  .right-sidebar-resize-handle::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    width: 1px;
-    background: var(--border-subtle);
+    z-index: 10;
   }
 
   :global(body.sidebar-resizing) {
