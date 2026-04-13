@@ -44,7 +44,7 @@ function action(handler: () => void) {
 }
 </script>
 
-<div class="flex h-full flex-col border-l border-border-subtle bg-bg-primary min-w-0">
+<div class="flex h-full flex-col bg-bg-primary min-w-0">
   <div class="flex items-center gap-1 border-b border-border-subtle px-3 py-2 shrink-0">
     <div class="min-w-0 flex-1">
       <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Files</div>

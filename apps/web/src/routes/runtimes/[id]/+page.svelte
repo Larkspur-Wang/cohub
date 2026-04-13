@@ -846,8 +846,9 @@ $effect(() => {
 				openFileDraft = "";
 				openFileError = error instanceof Error ? error.message : "Failed to open file";
 			} finally {
-				if (urlFilePath !== path) return;
-				openFileLoading = false;
+				if (urlFilePath === path) {
+					openFileLoading = false;
+				}
 			}
 		})();
 	} else {
@@ -2933,7 +2934,7 @@ $effect(() => {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 4px;
+    right: 0;
     width: 1px;
     background: var(--border-subtle);
   }
