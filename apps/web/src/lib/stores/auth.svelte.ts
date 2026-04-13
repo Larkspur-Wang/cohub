@@ -12,15 +12,19 @@ class AuthStore {
   // against runtime.userUuid, workspace.userUuid, etc.
   _userUuid = $state<string | null>(null);
 
+  // Shared promise for in-flight ensureLoaded calls so concurrent callers all wait
+  private _loadPromise: Promise<void> | null = null;
+
   get userUuid(): string | null {
     return this._userUuid;
   }
 
   async ensureLoaded(force = false) {
     if (this.loaded && !force) return;
-    if (this.loading) return;
+    if (this.loading && this._loadPromise) return this._loadPromise;
 
     this.loading = true;
+    this._loadPromise = (async () => {
     try {
       this.isAuthenticated = await logtoClient.isAuthenticated();
       this.claims = this.isAuthenticated
@@ -43,7 +47,11 @@ class AuthStore {
       this.loaded = true;
     } finally {
       this.loading = false;
+      this._loadPromise = null;
     }
+    })();
+
+    return this._loadPromise;
   }
 
   reset() {
@@ -51,6 +59,7 @@ class AuthStore {
     this.isAuthenticated = false;
     this.loaded = false;
     this.loading = false;
+    this._loadPromise = null;
   }
 }
 
