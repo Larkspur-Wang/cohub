@@ -71,7 +71,7 @@ function summarizeToolInput(
         </div>
       {/if}
       {#if tool.output}
-        <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{tool.output}</pre>
+        <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-bg-code rounded-md">{tool.output}</pre>
       {/if}
     </div>
   {/if}

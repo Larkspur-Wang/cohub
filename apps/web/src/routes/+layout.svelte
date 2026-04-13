@@ -7,7 +7,6 @@ import {
   MOBILE_DRAWER_WIDTH_PX,
   getDrawerOffsetFromDrag,
   resolveDrawerGestureDirection,
-  shouldKeepDrawerOpen,
   shouldOpenDrawer,
   shouldStartDrawerGesture,
   type DrawerGestureDirection,
@@ -69,11 +68,11 @@ function beginSettling(open: boolean) {
 
 function handlePointerDown(e: PointerEvent) {
   if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
-  if (window.innerWidth >= 1024 || activePointerId !== null) return;
+  if (window.innerWidth >= 1024 || activePointerId !== null || uiState.mobileDrawerOpen) return;
   if (
     !shouldStartDrawerGesture({
       isOpen: uiState.mobileDrawerOpen,
-      startX: e.clientX,
+      target: e.target,
       viewportWidth: window.innerWidth,
     })
   ) {
@@ -87,13 +86,13 @@ function handlePointerDown(e: PointerEvent) {
   pointerStartY = e.clientY;
   lastPointerX = e.clientX;
   lastPointerTime = e.timeStamp;
-  dragOffsetPx = uiState.mobileDrawerOpen ? MOBILE_DRAWER_WIDTH_PX : 0;
+  dragOffsetPx = 0;
   velocityX = 0;
   isDragging = false;
 }
 
 function handlePointerMove(e: PointerEvent) {
-  if (e.pointerId !== activePointerId) return;
+  if (e.pointerId !== activePointerId || uiState.mobileDrawerOpen) return;
 
   const dx = e.clientX - pointerStartX;
   const dy = e.clientY - pointerStartY;
@@ -105,11 +104,16 @@ function handlePointerMove(e: PointerEvent) {
     if (resolvedDirection === null) {
       return;
     }
-    if (resolvedDirection === "vertical") {
+    if (resolvedDirection === "vertical" || dx <= 0) {
       resetGestureState();
       return;
     }
     gestureDirection = resolvedDirection;
+  }
+
+  if (dx <= 0) {
+    resetGestureState();
+    return;
   }
 
   const deltaTime = Math.max(e.timeStamp - lastPointerTime, 1);
@@ -117,21 +121,14 @@ function handlePointerMove(e: PointerEvent) {
   lastPointerX = e.clientX;
   lastPointerTime = e.timeStamp;
 
-  const nextOffsetPx = getDrawerOffsetFromDrag({
-    isOpen: uiState.mobileDrawerOpen,
-    deltaX: dx,
-  });
-
-  if (!uiState.mobileDrawerOpen && nextOffsetPx <= 0) {
-    return;
-  }
-  if (uiState.mobileDrawerOpen && nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX && dx >= 0) {
+  const nextOffsetPx = getDrawerOffsetFromDrag({ deltaX: dx });
+  if (nextOffsetPx <= 0) {
     return;
   }
 
   isDragging = true;
   dragOffsetPx = nextOffsetPx;
-  gesturePhase = uiState.mobileDrawerOpen ? "dragging-close" : "dragging-open";
+  gesturePhase = "dragging-open";
 
   if (e.cancelable) {
     e.preventDefault();
@@ -139,15 +136,12 @@ function handlePointerMove(e: PointerEvent) {
 }
 
 function finalizeGesture() {
-  if (!isDragging) {
+  if (!isDragging || uiState.mobileDrawerOpen) {
     resetGestureState();
     return;
   }
 
-  const shouldOpen = uiState.mobileDrawerOpen
-    ? shouldKeepDrawerOpen({ offsetPx: dragOffsetPx, velocityX })
-    : shouldOpenDrawer({ offsetPx: dragOffsetPx, velocityX });
-
+  const shouldOpen = shouldOpenDrawer({ offsetPx: dragOffsetPx, velocityX });
   beginSettling(shouldOpen);
 }
 

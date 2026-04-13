@@ -316,6 +316,19 @@ body.drawer-open {
 	}
 }
 
+/* Help long markdown content wrap cleanly instead of forcing horizontal panning. */
+.prose table {
+	table-layout: fixed;
+	width: 100%;
+}
+
+.prose th,
+.prose td,
+.prose a {
+	word-break: break-word;
+	overflow-wrap: anywhere;
+}
+
 /* ============================================================
    Markdown Prose — theme-aware overrides for @tailwindcss/typography
    ============================================================ */
@@ -379,12 +392,11 @@ body.drawer-open {
 	border-radius: 0;
 }
 
-/* Table horizontal scroll on mobile */
+/* Table wrap instead of horizontal scroll on mobile */
 @media (max-width: 640px) {
 	.prose table {
-		display: block;
-		overflow-x: auto;
-		-webkit-overflow-scrolling: touch;
-		white-space: nowrap;
+		display: table;
+		overflow-x: visible;
+		white-space: normal;
 	}
 }

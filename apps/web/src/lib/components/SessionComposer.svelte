@@ -135,7 +135,7 @@ $effect(() => {
 			{/if}
 
 			{#if attachments.length > 0}
-				<div class="mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
+				<div class="mb-2 flex flex-wrap gap-2 px-1 pb-1" data-drawer-swipe-ignore>
 					{#each attachments as attachment (attachment.id)}
 						<div class="group relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content">
 							<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-cover" />

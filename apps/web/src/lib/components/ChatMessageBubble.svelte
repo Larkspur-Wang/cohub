@@ -297,11 +297,11 @@ $effect(() => {
                   {/if}
                   {#if result && result.type === 'tool_result'}
                     {#if typeof result.content === 'string'}
-                      <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{result.content}</pre>
+                      <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-bg-code rounded-md">{result.content}</pre>
                     {:else if Array.isArray(result.content)}
                       {#each result.content as contentBlock}
                         {#if contentBlock.type === 'text'}
-                          <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary overflow-x-auto whitespace-pre-wrap break-words bg-bg-code rounded-md">{contentBlock.text}</pre>
+                          <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-bg-code rounded-md">{contentBlock.text}</pre>
                         {/if}
                       {/each}
                     {/if}
