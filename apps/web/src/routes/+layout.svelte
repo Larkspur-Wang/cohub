@@ -300,8 +300,8 @@ onMount(() => {
 {:else}
   <div class="h-screen flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
-    <div class="hidden lg:flex shrink-0 min-h-0" style={`width: ${uiState.leftSidebarWidth}px`}>
-      <div class="min-w-0 flex-1">
+    <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarWidth}px`}>
+      <div class="min-w-0 flex-1 border-r border-border-subtle">
         <Sidebar />
       </div>
       <button
@@ -336,24 +336,17 @@ onMount(() => {
 
 <style>
   .sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    bottom: 0;
     width: 8px;
-    flex-shrink: 0;
     border: none;
     padding: 0;
     cursor: col-resize;
     background: transparent;
-    position: relative;
     touch-action: none;
-  }
-
-  .sidebar-resize-handle::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 1px;
-    background: var(--border-subtle);
+    z-index: 10;
   }
 
   :global(body.sidebar-resizing) {
