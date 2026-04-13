@@ -262,6 +262,7 @@ function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
 }
 
 let runtimePollingTimer: ReturnType<typeof setTimeout> | null = null;
+let loadingPermissions = $state(false);
 const listEl = $state<HTMLDivElement | null>(null);
 const contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
@@ -474,6 +475,21 @@ $effect(() => {
 	const userUuid = authStore.userUuid;
 	if (currentRuntime) {
 		isOwner = currentRuntime.userUuid === userUuid;
+	}
+});
+
+// Inject shared runtime into sidebar when non-owner views it
+let sharedRuntimeInjected = $state(false);
+$effect(() => {
+	if (runtime && !isOwner && !sharedRuntimeInjected) {
+		// Check if already in the runtime list
+		const alreadyInList = runtimeStore.runtimeList.some((r) => r.id === runtime.id);
+		if (!alreadyInList) {
+			// Inject at the front of the list so it appears first in sidebar
+			runtimeStore.runtimeList = [runtime as never, ...runtimeStore.runtimeList];
+			runtimeStore.runtimeDetailsById[runtime.id] = runtime;
+			sharedRuntimeInjected = true;
+		}
 	}
 });
 
@@ -1003,13 +1019,17 @@ function getRuntimePollInterval(runtime: RuntimeRecord | null) {
 
 async function loadPermissions(force = false) {
 	if (!force && runtimePermissionsLoaded) return;
+	// Mark as loading immediately so the $effect doesn't re-trigger
+	// while the async call is in-flight.
+	runtimePermissionsLoaded = true;
 	try {
 		const perms = await runtimeStore.ensureRuntimePermissionRecords(runtimeId, { force });
 		runtimePermissions = perms;
 		runtimePublicRead = perms.some((p) => p.resourceType === "runtime");
 		runtimeSessions = runtimeStore.getSessions(runtimeId) ?? runtimeSessions;
-		runtimePermissionsLoaded = true;
 	} catch {
+		// Reset on failure so it can retry
+		runtimePermissionsLoaded = false;
 		// Ignore — permissions may not exist yet
 	}
 }
@@ -1619,16 +1639,9 @@ onMount(() => {
 		}
 	});
 
-	function scheduleRuntimeStatusPoll() {
-		if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
-		if (!shouldPollRuntime(runtime)) return;
-		runtimePollingTimer = setTimeout(async () => {
-			await loadRuntime({ force: true });
-			scheduleRuntimeStatusPoll();
-		}, getRuntimePollInterval(runtime));
-	}
-
-	scheduleRuntimeStatusPoll();
+	// Polling is handled by the $effect below to avoid competing timer
+	// mechanisms. The $effect re-schedules whenever runtime state changes,
+	// so no recursive self-scheduling is needed here.
 
 	return () => {
 		pageMounted = false;
@@ -1778,10 +1791,17 @@ $effect(() => {
 
 $effect(() => {
 	if (showSettings && !runtimeStore.hasLoadedChannels(runtimeId)) {
-		void loadRuntime({ force: true, includeChannels: true });
+		// Don't use force:true — rely on store's built-in dedup via
+		// runtimeChannelPromises. force:true bypasses the promise cache
+		// and can trigger duplicate requests when this effect re-runs
+		// due to other reactive state changes.
+		void loadRuntime({ includeChannels: true });
 	}
-	if (showSettings && authStore.isAuthenticated && !runtimePermissionsLoaded) {
-		void loadPermissions(true);
+	if (showSettings && authStore.isAuthenticated && !runtimePermissionsLoaded && !loadingPermissions) {
+		loadingPermissions = true;
+		void loadPermissions(true).finally(() => {
+			loadingPermissions = false;
+		});
 	}
 });
 
@@ -1792,7 +1812,10 @@ $effect(() => {
 	}
 	if (!shouldPollRuntime(runtime)) return;
 	const timer = setTimeout(async () => {
-		await loadRuntime({ force: true });
+		// Don't use force:true for polling — the store's shouldRefresh
+		// checks are sufficient and prevent request storms when multiple
+		// consumers (sidebar, page) poll simultaneously.
+		await loadRuntime();
 	}, getRuntimePollInterval(runtime));
 	runtimePollingTimer = timer;
 	return () => {
@@ -1819,6 +1842,7 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
+    {#if isOwner}
     <button
       type="button"
       class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
@@ -1833,6 +1857,7 @@ $effect(() => {
       {/if}
       <span class="hidden lg:inline text-[13px] font-medium">New session</span>
     </button>
+    {/if}
 
     <!-- Session Share -->
     {#if activeSessionId && isOwner}
@@ -1853,7 +1878,8 @@ $effect(() => {
       </button>
     {/if}
 
-    <!-- More menu -->
+    <!-- More menu (owner only) -->
+    {#if isOwner}
     <div class="relative" data-more-menu>
       <button
         type="button"
@@ -1933,6 +1959,7 @@ $effect(() => {
         </div>
       {/if}
     </div>
+    {/if}
   {/snippet}
 </PageHeader>
 
@@ -1959,6 +1986,7 @@ $effect(() => {
     {:else if !activeSessionState}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
         <div class="text-[14px]">No session selected</div>
+        {#if isOwner}
         <button
           type="button"
           class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
@@ -1968,6 +1996,7 @@ $effect(() => {
           <Plus class="w-3.5 h-3.5" />
           Create a session
         </button>
+        {/if}
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
       <div class="flex-1 flex items-center justify-center bg-bg-content">

@@ -21,11 +21,18 @@ function getHighlighter() {
   return highlighterPromise;
 }
 
-/** Walk tokens recursively and highlight code blocks with shiki. */
+/**
+ * Walk tokens recursively and replace code tokens with html tokens
+ * containing shiki-highlighted output.
+ *
+ * We use `html` tokens (not `code` tokens) because marked.parser
+ * escapes code token content, which would break shiki's HTML output.
+ */
 async function highlightCodeTokens(tokens: Token[]) {
   const highlighter = await getHighlighter();
 
-  for (const token of tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
     if (token.type === "code" && "lang" in token && token.lang) {
       const rawLang = token.lang.split(" ")[0]; // handle e.g. "ts {1-3}"
       const lang = rawLang.toLowerCase();
@@ -41,11 +48,14 @@ async function highlightCodeTokens(tokens: Token[]) {
           theme: "github-dark",
         });
 
-        // Replace token content; parser will wrap in <pre><code>, so we use
-        // a sentinel that gets swapped out after rendering.
+        // Replace code token with html token so marked renders it unescaped
         const codeToken = token as Tokens.Code;
-        codeToken.text = `__SHIKI_HIGHLIGHT__${highlighted}__END_SHIKI_HIGHLIGHT__`;
-        codeToken.raw = codeToken.text;
+        tokens[i] = {
+          type: "html",
+          raw: codeToken.raw,
+          text: highlighted,
+          pre: true,
+        } as Tokens.HTML;
       } catch {
         // Fallback: leave code as-is
       }
@@ -63,14 +73,8 @@ export const renderMarkdown = async (source: string) => {
   await highlightCodeTokens(tokens);
   const html = marked.parser(tokens);
 
-  // Swap shiki sentinel-wrapped HTML back (bypass <pre><code> wrapper from parser)
-  const resolvedHtml = html.replace(
-    /<pre><code(?:\s+class="language-[^"]*")?>__SHIKI_HIGHLIGHT__(.*?)__END_SHIKI_HIGHLIGHT__\n?<\/code><\/pre>/gs,
-    "$1",
-  );
-
   // Open all links in new tab
-  const linkedHtml = resolvedHtml.replace(
+  const linkedHtml = html.replace(
     /<a /g,
     '<a target="_blank" rel="noopener noreferrer" ',
   );
