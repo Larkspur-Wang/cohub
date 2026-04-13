@@ -1,54 +1,66 @@
 <script lang="ts">
-import { uiState } from "$lib/stores/ui.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
+import {
+  MOBILE_DRAWER_MAX_WIDTH_VW,
+  MOBILE_DRAWER_WIDTH_PX,
+  getDrawerOpenRatio,
+} from "$lib/gestures/drawer-swipe";
+import { uiState } from "$lib/stores/ui.svelte";
 
 const {
-  dragProgress = 0,
+  dragOffsetPx = 0,
   isDragging = false,
-}: { dragProgress?: number; isDragging?: boolean } = $props();
+  isDrawerVisible = false,
+}: {
+  dragOffsetPx?: number;
+  isDragging?: boolean;
+  isDrawerVisible?: boolean;
+} = $props();
 
-const DRAWER_WIDTH_PX = 280;
-const TRANSITION_CSS = "transform 200ms cubic-bezier(0.16, 1, 0.3, 1)";
-const TRANSITION_DURATION_MS = 200;
+const TRANSITION_CSS = "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)";
+const BACKDROP_TRANSITION_CSS = "opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)";
+const TRANSITION_DURATION_MS = 220;
+
+const openRatio = $derived(getDrawerOpenRatio(dragOffsetPx));
 
 const panelStyle = $derived.by(() => {
   if (isDragging) {
-    const offset = DRAWER_WIDTH_PX * (1 - dragProgress);
+    const offset = MOBILE_DRAWER_WIDTH_PX - dragOffsetPx;
     return `transform: translateX(-${offset}px); transition: none;`;
   }
   if (uiState.mobileDrawerOpen) {
     return `transform: translateX(0); transition: ${TRANSITION_CSS};`;
   }
-  return `transform: translateX(-${DRAWER_WIDTH_PX}px); transition: none; pointer-events: none;`;
+  return `transform: translateX(-${MOBILE_DRAWER_WIDTH_PX}px); transition: ${TRANSITION_CSS}; pointer-events: none;`;
 });
 
 const backdropStyle = $derived.by(() => {
   if (isDragging) {
-    return `opacity: ${dragProgress * 0.5}; transition: none;`;
+    return `opacity: ${openRatio * 0.5}; transition: none;`;
   }
   if (uiState.mobileDrawerOpen) {
-    return "opacity: 0.5; transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1);";
+    return `opacity: 0.5; transition: ${BACKDROP_TRANSITION_CSS};`;
   }
-  return "opacity: 0; transition: none; pointer-events: none;";
+  return `opacity: 0; transition: ${BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
 });
+
 
 function closeDrawer() {
   uiState.mobileDrawerOpen = false;
 }
 
-// Track whether Sidebar content should be rendered.
-// Opens immediately; closes after transition finishes so the slide-out isn't empty.
 let renderContent = $state(false);
 
 $effect(() => {
-  if (uiState.mobileDrawerOpen) {
+  if (isDrawerVisible) {
     renderContent = true;
-  } else {
-    const timer = setTimeout(() => {
-      renderContent = false;
-    }, TRANSITION_DURATION_MS);
-    return () => clearTimeout(timer);
+    return;
   }
+
+  const timer = window.setTimeout(() => {
+    renderContent = false;
+  }, TRANSITION_DURATION_MS);
+  return () => window.clearTimeout(timer);
 });
 </script>
 
@@ -56,7 +68,7 @@ $effect(() => {
 <div
   class="lg:hidden fixed inset-0 z-50"
   style="pointer-events: none;"
-  aria-hidden={!uiState.mobileDrawerOpen}
+  aria-hidden={!isDrawerVisible}
 >
   <!-- Backdrop -->
   <div
@@ -69,7 +81,7 @@ $effect(() => {
   <!-- Drawer panel -->
   <div
     class="absolute inset-y-0 left-0"
-    style="pointer-events: auto; width: {DRAWER_WIDTH_PX}px; max-width: 85vw; {panelStyle}"
+    style="pointer-events: auto; width: {MOBILE_DRAWER_WIDTH_PX}px; max-width: {MOBILE_DRAWER_MAX_WIDTH_VW}vw; {panelStyle}"
   >
     {#if renderContent}
       <div class="h-full border-r border-border-subtle bg-bg-primary">
