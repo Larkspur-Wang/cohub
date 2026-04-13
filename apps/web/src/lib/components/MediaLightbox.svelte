@@ -197,7 +197,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 
 		<!-- Download error hint -->
 		{#if downloadError}
-			<div class="absolute bottom-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-rose-500/90 text-white text-[13px] whitespace-nowrap">
+			<div class="absolute bottom-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-error-500/90 text-white text-[13px] whitespace-nowrap">
 				{downloadError}
 			</div>
 		{/if}

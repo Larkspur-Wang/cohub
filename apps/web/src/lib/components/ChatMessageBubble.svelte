@@ -144,9 +144,9 @@ function getToolStatus(toolUseId: string): "done" | "failed" | "running" {
 }
 
 const statusDotMap = {
-	done: "bg-emerald-400",
-	running: "bg-amber-400",
-	failed: "bg-rose-400",
+	done: "bg-status-running",
+	running: "bg-status-starting",
+	failed: "bg-status-error",
 } as const;
 
 // ─── Markdown container ref for media event delegation ───
@@ -188,11 +188,11 @@ $effect(() => {
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
   {#if thinkingContent}
     <div>
-      <div class="text-[13px] leading-snug text-text-placeholder/60 break-words font-sans whitespace-pre-wrap">
+      <div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
         {getThinkingDisplay(thinkingExpanded)}
         {#if isStreaming}
-          <div class="mt-1 inline-flex items-center gap-1.5 text-[11px] text-text-placeholder/40">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-400/40 animate-pulse"></span>
+          <div class="mt-1 inline-flex items-center gap-1.5 text-[11px] text-text-placeholder">
+            <span class="w-1.5 h-1.5 rounded-full bg-status-starting animate-pulse"></span>
             thinking
           </div>
         {/if}
@@ -200,7 +200,7 @@ $effect(() => {
       {#if !isStreaming && thinkingNeedsTruncation}
         <button
           type="button"
-          class="mt-1 text-[11px] text-text-placeholder/40 hover:text-text-placeholder/60 cursor-pointer"
+          class="mt-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
           onclick={() => thinkingExpanded = !thinkingExpanded}
         >
           {thinkingExpanded ? 'Show less' : '… more'}
@@ -214,13 +214,13 @@ $effect(() => {
 
       {#if thinkingContent}
         <div class="mb-3">
-          <div class="text-[13px] leading-snug text-text-placeholder/60 break-words font-sans whitespace-pre-wrap">
+          <div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
             {getThinkingDisplay(thinkingExpanded)}
           </div>
           {#if thinkingNeedsTruncation}
             <button
               type="button"
-              class="mt-1 text-[11px] text-text-placeholder/50 hover:text-text-tertiary cursor-pointer"
+              class="mt-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
               onclick={() => { thinkingExpanded = !thinkingExpanded; thinkingUserToggled = true; }}
             >
               {thinkingExpanded ? 'Show less' : '… more'}

@@ -226,7 +226,7 @@ function subsequenceScore(query: string, text: string): number {
 										<Image class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
 									{/if}
 									{#if isCurrentModel(item)}
-										<span class="text-emerald-500 shrink-0 text-[12px]">✓</span>
+										<span class="text-status-running shrink-0 text-[12px]">✓</span>
 									{/if}
 								</div>
 								<span class="text-[11px] text-text-tertiary opacity-60 shrink-0">

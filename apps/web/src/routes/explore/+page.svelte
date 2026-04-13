@@ -78,11 +78,11 @@ function goToPage(newPage: number) {
 
     {#if isLoading}
       <div class="flex items-center justify-center py-12 text-xs text-text-tertiary">
-        <div class="w-4 h-4 rounded-full border-2 border-border-primary border-t-emerald-400 animate-spin mr-2"></div>
+        <div class="w-4 h-4 rounded-full border-2 border-border-primary border-t-text-tertiary animate-spin mr-2"></div>
         Loading...
       </div>
     {:else if loadError}
-      <div class="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-400 break-all">{loadError}</div>
+      <div class="rounded-md border border-error-soft/20 bg-error-bg p-3 text-xs font-mono text-error-soft break-all">{loadError}</div>
     {:else if workspaces.length === 0}
       <div class="flex flex-col items-center justify-center py-12 text-center">
         <div class="w-10 h-10 rounded-full bg-hover border border-border-primary flex items-center justify-center mb-3">

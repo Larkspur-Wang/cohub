@@ -19,12 +19,12 @@ onMount(async () => {
 <div class="flex-1 flex items-center justify-center">
   {#if error}
     <div class="text-center">
-      <p class="text-sm text-rose-400">{error}</p>
+      <p class="text-sm text-error-soft">{error}</p>
       <a href="/" class="mt-4 inline-block text-xs text-text-tertiary hover:text-text-secondary underline">Back to home</a>
     </div>
   {:else}
     <div class="flex flex-col items-center gap-3 text-text-tertiary">
-      <div class="w-8 h-8 rounded-full border-2 border-white/15 border-t-emerald-400 animate-spin"></div>
+      <div class="w-8 h-8 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
       <p class="text-xs font-mono">Authenticating...</p>
     </div>
   {/if}

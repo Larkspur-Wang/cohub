@@ -109,7 +109,7 @@ $effect(() => {
 	<div class="pointer-events-none absolute inset-x-0 bottom-0 top-0 bg-linear-to-t from-bg-content via-bg-content/72 to-transparent"></div>
 	<div class="pointer-events-auto relative mx-auto max-w-4xl">
 		{#if streamError}
-			<div class="mb-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
+			<div class="mb-3 rounded-2xl border border-error-soft/25 bg-error-bg px-3 py-2 text-[11px] text-error-soft">
 				{streamError}
 			</div>
 		{/if}

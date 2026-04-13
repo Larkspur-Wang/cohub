@@ -11,9 +11,9 @@ const { tool }: Props = $props();
 let expanded = $state(false);
 
 const statusDotMap = {
-  done: "bg-emerald-400",
-  running: "bg-amber-400 animate-pulse",
-  failed: "bg-rose-400",
+  done: "bg-status-running",
+  running: "bg-status-starting animate-pulse",
+  failed: "bg-status-error",
 } as const;
 
 function summarizeToolInput(
