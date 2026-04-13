@@ -1175,7 +1175,7 @@ app.get("/api/runtimes/:id/fs/tree", async (c) => {
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
 
-  if (!await canRead(user, runtimeId)) {
+  if (!await canWrite(user, runtimeId)) {
     return c.json({ message: "not found" }, 404);
   }
 
@@ -1194,7 +1194,7 @@ app.get("/api/runtimes/:id/fs/file", async (c) => {
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
 
-  if (!await canRead(user, runtimeId)) {
+  if (!await canWrite(user, runtimeId)) {
     return c.json({ message: "not found" }, 404);
   }
 
@@ -1448,8 +1448,12 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
   const user = c.get("authUser");
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
+  if (!await canWrite(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  if (!runtime) return c.json({ message: "runtime not found" }, 404);
 
   const body = await c.req.json<{ title?: string; source?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, source: undefined, cwd: undefined, protocol: undefined }));
 
@@ -1491,9 +1495,13 @@ app.get("/api/runtimes/:id/sessions", async (c) => {
       .map((p) => [p.resourceId, p.level as ResourcePermissionLevel]),
   );
 
-  // Non-owners only see sessions that have their own public permission
   const isOwner = user?.uuid === runtime.userUuid;
-  const visibleSessions = isOwner
+  const isCollaborator = !isOwner && permissions.some(
+    (p) => p.resourceType === "runtime" && p.resourceId === runtimeId && p.granteeUuid === user?.uuid,
+  );
+
+  // Owner and collaborator(write) see all sessions; others only see publicly shared ones
+  const visibleSessions = isOwner || isCollaborator
     ? sessions
     : sessions.filter((s) => canReadForSession(user, runtimeId, s.id));
 
@@ -1867,6 +1875,11 @@ app.get("/api/runtimes/:id/stream", async (c) => {
 
 // ─── Permission management ───
 
+/**
+ * POST /api/runtimes/:id/permissions
+ * 设置 runtime 公共资源级别（granteeUuid = NULL）。
+ * 用于前端 "public read" 开关。
+ */
 app.post("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1888,11 +1901,12 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
     .values({
       resourceType: "runtime",
       resourceId: runtimeId,
+      granteeUuid: null,
       level: body.level,
       createdBy: user.uuid,
     })
     .onConflictDoUpdate({
-      target: [resourcePermissions.resourceType, resourcePermissions.resourceId],
+      target: [resourcePermissions.resourceType, resourcePermissions.resourceId, resourcePermissions.granteeUuid],
       set: { level: sql`EXCLUDED.level` },
     })
     .returning();
@@ -1900,6 +1914,10 @@ app.post("/api/runtimes/:id/permissions", async (c) => {
   return c.json(perm);
 });
 
+/**
+ * POST /api/sessions/:id/permissions
+ * 设置 session 公共资源级别（granteeUuid = NULL）。
+ */
 app.post("/api/sessions/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1923,11 +1941,12 @@ app.post("/api/sessions/:id/permissions", async (c) => {
     .values({
       resourceType: "session",
       resourceId: sessionId,
+      granteeUuid: null,
       level: body.level,
       createdBy: user.uuid,
     })
     .onConflictDoUpdate({
-      target: [resourcePermissions.resourceType, resourcePermissions.resourceId],
+      target: [resourcePermissions.resourceType, resourcePermissions.resourceId, resourcePermissions.granteeUuid],
       set: { level: sql`EXCLUDED.level` },
     })
     .returning();
@@ -1935,6 +1954,11 @@ app.post("/api/sessions/:id/permissions", async (c) => {
   return c.json(perm);
 });
 
+/**
+ * GET /api/runtimes/:id/permissions
+ * 返回公共权限记录 + session 级权限记录。
+ * （协作者列表请使用 GET /api/runtimes/:id/collaborators）
+ */
 app.get("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1959,6 +1983,10 @@ app.get("/api/runtimes/:id/permissions", async (c) => {
   return c.json(perms);
 });
 
+/**
+ * DELETE /api/runtimes/:id/permissions
+ * 仅删除公共权限记录（granteeUuid = NULL）。
+ */
 app.delete("/api/runtimes/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1975,11 +2003,16 @@ app.delete("/api/runtimes/:id/permissions", async (c) => {
     .where(and(
       eq(resourcePermissions.resourceType, "runtime"),
       eq(resourcePermissions.resourceId, runtimeId),
+      isNull(resourcePermissions.granteeUuid),
     ));
 
   return c.json({ ok: true });
 });
 
+/**
+ * DELETE /api/sessions/:id/permissions
+ * 仅删除 session 公共权限记录。
+ */
 app.delete("/api/sessions/:id/permissions", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
@@ -1998,8 +2031,160 @@ app.delete("/api/sessions/:id/permissions", async (c) => {
     .where(and(
       eq(resourcePermissions.resourceType, "session"),
       eq(resourcePermissions.resourceId, sessionId),
+      isNull(resourcePermissions.granteeUuid),
     ));
 
+  return c.json({ ok: true });
+});
+
+
+// ─── Collaborator management ───
+
+/**
+ * POST /api/runtimes/:id/collaborators
+ * 添加协作者。仅 owner 可操作。
+ */
+app.post("/api/runtimes/:id/collaborators", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<{ granteeUuid: string; level: ResourcePermissionLevel }>().catch(() => null);
+  if (!body?.granteeUuid || !body?.level) {
+    return c.json({ message: "granteeUuid and level are required" }, 400);
+  }
+  if (!isUuid(body.granteeUuid)) {
+    return c.json({ message: "granteeUuid must be a valid UUID" }, 400);
+  }
+  if (body.level !== "read" && body.level !== "write") {
+    return c.json({ message: "level must be 'read' or 'write'" }, 400);
+  }
+  if (body.granteeUuid === user.uuid) {
+    return c.json({ message: "cannot add yourself as collaborator" }, 400);
+  }
+
+  try {
+    const [perm] = await db
+      .insert(resourcePermissions)
+      .values({
+        resourceType: "runtime",
+        resourceId: runtimeId,
+        granteeUuid: body.granteeUuid,
+        level: body.level,
+        createdBy: user.uuid,
+      })
+      .onConflictDoUpdate({
+        target: [resourcePermissions.resourceType, resourcePermissions.resourceId, resourcePermissions.granteeUuid],
+        set: { level: sql`EXCLUDED.level` },
+      })
+      .returning();
+    return c.json(perm);
+  } catch {
+    return c.json({ message: "failed to add collaborator" }, 500);
+  }
+});
+
+/**
+ * GET /api/runtimes/:id/collaborators
+ * 查看协作者列表。仅 owner 可操作。
+ */
+app.get("/api/runtimes/:id/collaborators", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const collaborators = await db
+    .select()
+    .from(resourcePermissions)
+    .where(and(
+      eq(resourcePermissions.resourceType, "runtime"),
+      eq(resourcePermissions.resourceId, runtimeId),
+    ))
+    .orderBy(resourcePermissions.createdAt);
+
+  // 只返回 granteeUuid != NULL 的记录
+  return c.json(collaborators.filter((p) => p.granteeUuid !== null));
+});
+
+/**
+ * PATCH /api/runtimes/:id/collaborators/:granteeUuid
+ * 修改协作者权限级别。仅 owner 可操作。
+ */
+app.patch("/api/runtimes/:id/collaborators/:granteeUuid", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  const granteeUuid = c.req.param("granteeUuid");
+  if (!requireValidId(runtimeId) || !granteeUuid) return c.json({ message: "runtime not found" }, 404);
+  if (!isUuid(granteeUuid)) {
+    return c.json({ message: "granteeUuid must be a valid UUID" }, 400);
+  }
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const body = await c.req.json<{ level: ResourcePermissionLevel }>().catch(() => null);
+  if (!body?.level || (body.level !== "read" && body.level !== "write")) {
+    return c.json({ message: "level must be 'read' or 'write'" }, 400);
+  }
+
+  const [updated] = await db
+    .update(resourcePermissions)
+    .set({ level: body.level })
+    .where(and(
+      eq(resourcePermissions.resourceType, "runtime"),
+      eq(resourcePermissions.resourceId, runtimeId),
+      eq(resourcePermissions.granteeUuid, granteeUuid),
+    ))
+    .returning();
+
+  if (!updated) return c.json({ message: "collaborator not found" }, 404);
+  return c.json(updated);
+});
+
+/**
+ * DELETE /api/runtimes/:id/collaborators/:granteeUuid
+ * 移除协作者。仅 owner 可操作。
+ */
+app.delete("/api/runtimes/:id/collaborators/:granteeUuid", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtimeId = c.req.param("id");
+  const granteeUuid = c.req.param("granteeUuid");
+  if (!requireValidId(runtimeId) || !granteeUuid) return c.json({ message: "runtime not found" }, 404);
+  if (!isUuid(granteeUuid)) {
+    return c.json({ message: "granteeUuid must be a valid UUID" }, 400);
+  }
+  const runtime = await getRuntimeById(runtimeId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+
+  const [deleted] = await db
+    .delete(resourcePermissions)
+    .where(and(
+      eq(resourcePermissions.resourceType, "runtime"),
+      eq(resourcePermissions.resourceId, runtimeId),
+      eq(resourcePermissions.granteeUuid, granteeUuid),
+    ))
+    .returning();
+
+  if (!deleted) return c.json({ message: "collaborator not found" }, 404);
   return c.json({ ok: true });
 });
 

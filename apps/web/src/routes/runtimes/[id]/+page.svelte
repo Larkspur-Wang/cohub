@@ -31,6 +31,10 @@ import {
 	deleteRuntimeFsNode,
 	moveRuntimeFsNode,
 	type RuntimeFsFileResponse,
+	addRuntimeCollaborator,
+	listRuntimeCollaborators,
+	updateRuntimeCollaborator,
+	removeRuntimeCollaborator,
 } from "$lib/api";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
@@ -65,6 +69,7 @@ import {
 	Share2,
 	Terminal,
 	Trash2,
+	User,
 	X,
 } from "lucide-svelte";
 import type { ContentBlock } from "@cohub/protocol";
@@ -325,6 +330,16 @@ let shareModalError = $state("");
 let shareModalSaving = $state(false);
 let sessionPermError = $state("");
 let isOwner = $state(false);
+
+// Collaborators
+let runtimeCollaborators = $state<ResourcePermission[]>([]);
+let collaboratorsLoaded = $state(false);
+let loadingCollaborators = $state(false);
+let addingCollaboratorUuid = $state("");
+let addingCollaboratorLevel = $state<"read" | "write">("write");
+let addingCollaboratorError = $state("");
+let savingCollaborator = $state(false);
+
 
 // Chat timeline ref for prepend scroll restoration
 type ChatTimelineHandle = {
@@ -1364,6 +1379,58 @@ function hasSessionPermission(sessionId: string): boolean {
 	);
 }
 
+// ─── Collaborators ───
+
+async function loadCollaborators(force = false) {
+	if (!isOwner || loadingCollaborators) return;
+	if (!force && collaboratorsLoaded) return;
+	loadingCollaborators = true;
+	try {
+		runtimeCollaborators = await listRuntimeCollaborators(runtimeId);
+		collaboratorsLoaded = true;
+	} catch {
+		// ignore
+	} finally {
+		loadingCollaborators = false;
+	}
+}
+
+async function handleAddCollaborator() {
+	if (!addingCollaboratorUuid.trim() || savingCollaborator) return;
+	savingCollaborator = true;
+	addingCollaboratorError = "";
+	try {
+		await addRuntimeCollaborator(runtimeId, addingCollaboratorUuid.trim(), addingCollaboratorLevel);
+		addingCollaboratorUuid = "";
+		await loadCollaborators(true);
+		notifyPermissionsUpdate();
+	} catch (error) {
+		addingCollaboratorError = error instanceof Error ? error.message : "Failed to add collaborator";
+	} finally {
+		savingCollaborator = false;
+	}
+}
+
+async function handleUpdateCollaboratorLevel(granteeUuid: string, level: "read" | "write") {
+	try {
+		await updateRuntimeCollaborator(runtimeId, granteeUuid, level);
+		await loadCollaborators(true);
+		notifyPermissionsUpdate();
+	} catch (error) {
+		addingCollaboratorError = error instanceof Error ? error.message : "Failed to update collaborator";
+	}
+}
+
+async function handleRemoveCollaborator(granteeUuid: string) {
+	try {
+		await removeRuntimeCollaborator(runtimeId, granteeUuid);
+		await loadCollaborators(true);
+		notifyPermissionsUpdate();
+	} catch (error) {
+		addingCollaboratorError = error instanceof Error ? error.message : "Failed to remove collaborator";
+	}
+}
+
 // ─── SSE streaming (per-session) ───
 
 const BASE_RECONNECT_DELAY_MS = 1000;
@@ -2065,6 +2132,12 @@ $effect(() => {
 			loadingPermissions = false;
 		});
 	}
+	if (showSettings && isOwner && !collaboratorsLoaded && !loadingCollaborators) {
+		loadingCollaborators = true;
+		void loadCollaborators().finally(() => {
+			loadingCollaborators = false;
+		});
+	}
 });
 
 $effect(() => {
@@ -2423,6 +2496,84 @@ $effect(() => {
         <div class="w-full h-px bg-border-subtle"></div>
 
       </section>
+
+      <!-- Collaborators section (owner only) -->
+      {#if isOwner}
+      <section class="space-y-3">
+        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
+          <span>Collaborators</span>
+          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{runtimeCollaborators.length}</span>
+        </div>
+
+        <!-- Add collaborator form -->
+        <div class="space-y-2">
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={addingCollaboratorUuid}
+              placeholder="Paste user UUID"
+              class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddCollaborator(); } }}
+            />
+            <select
+              bind:value={addingCollaboratorLevel}
+              class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
+            >
+              <option value="write">Write</option>
+              <option value="read">Read</option>
+            </select>
+            <button
+              type="button"
+              onclick={() => { void handleAddCollaborator(); }}
+              disabled={savingCollaborator || !addingCollaboratorUuid.trim()}
+              class="px-2.5 py-[5px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {savingCollaborator ? '...' : 'Add'}
+            </button>
+          </div>
+          {#if addingCollaboratorError}
+            <div class="text-[11px] text-error-soft break-all">{addingCollaboratorError}</div>
+          {/if}
+        </div>
+
+        <!-- Collaborators list -->
+        {#if loadingCollaborators}
+          <div class="flex items-center justify-center py-4 text-[12px] text-text-tertiary">
+            <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
+            Loading...
+          </div>
+        {:else if runtimeCollaborators.length === 0}
+          <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No collaborators</div>
+        {:else}
+          <div class="space-y-1">
+            {#each runtimeCollaborators as collab (collab.granteeUuid)}
+              <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group hover:bg-bg-hover transition-colors">
+                <div class="w-[5px] h-[5px] rounded-full shrink-0 {collab.level === 'write' ? 'bg-brand' : 'bg-text-placeholder'}"></div>
+                <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{collab.granteeUuid}</code>
+                <select
+                  value={collab.level}
+                  onchange={(event) => { void handleUpdateCollaboratorLevel(collab.granteeUuid!, (event.currentTarget as HTMLSelectElement).value as "read" | "write"); }}
+                  class="px-1.5 py-0.5 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none"
+                >
+                  <option value="write">Write</option>
+                  <option value="read">Read</option>
+                </select>
+                <button
+                  type="button"
+                  class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                  onclick={() => { void handleRemoveCollaborator(collab.granteeUuid!); }}
+                  title="Remove collaborator"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="w-full h-px bg-border-subtle"></div>
+      </section>
+      {/if}
 
       <!-- Channels section -->
       <section class="space-y-3">

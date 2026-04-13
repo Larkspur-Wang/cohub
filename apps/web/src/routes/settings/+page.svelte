@@ -1,6 +1,6 @@
 <script lang="ts">
-import { Plus, Trash2, KeyRound, X, Sun, Moon, Monitor } from "lucide-svelte";
-import { getSshKeys, createSshKey, deleteSshKey, type UserSshKey } from "$lib/api";
+import { Plus, Trash2, KeyRound, X, Sun, Moon, Monitor, Copy, Check, User } from "lucide-svelte";
+import { getSshKeys, createSshKey, deleteSshKey, type UserSshKey, getMe } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
@@ -19,6 +19,36 @@ function handleThemeChange(mode: ThemeMode) {
   theme = mode;
   setTheme(mode);
 }
+
+// ─── Profile ───
+
+let userUuid = $state("");
+let userNickname = $state("");
+let userAvatar = $state("");
+let uuidCopied = $state(false);
+let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function loadProfile() {
+  if (!(await ensureAuth())) return;
+  try {
+    const me = await getMe();
+    userUuid = me.uuid ?? "";
+    userNickname = me.nick_name ?? "";
+    userAvatar = me.avatar_url ?? "";
+  } catch {
+    // ignore
+  }
+}
+
+async function copyUuid() {
+  if (!userUuid) return;
+  await navigator.clipboard.writeText(userUuid);
+  uuidCopied = true;
+  if (uuidCopiedTimer) clearTimeout(uuidCopiedTimer);
+  uuidCopiedTimer = setTimeout(() => { uuidCopied = false; }, 2000);
+}
+
+// ─── SSH Keys ───
 
 let keys = $state<UserSshKey[]>([]);
 let isLoading = $state(true);
@@ -47,10 +77,6 @@ async function loadKeys() {
     isLoading = false;
   }
 }
-
-onMount(() => {
-  loadKeys();
-});
 
 async function handleSubmit(e: Event) {
   e.preventDefault();
@@ -82,6 +108,11 @@ async function handleDelete(id: string) {
     alert(error instanceof Error ? error.message : "Failed to delete SSH key");
   }
 }
+
+onMount(() => {
+  loadProfile();
+  loadKeys();
+});
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
@@ -93,6 +124,47 @@ async function handleDelete(id: string) {
   </PageHeader>
 
   <div class="flex-1 p-6 overflow-y-auto max-w-2xl">
+    <!-- Profile Section -->
+    <section class="mb-10">
+      <h2 class="text-[14px] font-semibold text-text-primary mb-1">Profile</h2>
+      <p class="text-[13px] text-text-tertiary mb-4">Your user ID. Share this to be added as a collaborator.</p>
+
+      <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
+        {#if userAvatar}
+          <div class="flex items-center gap-3">
+            <img src={userAvatar} alt="avatar" class="w-9 h-9 rounded-full border border-border-subtle" />
+            <span class="text-[14px] font-medium text-text-primary">{userNickname || 'User'}</span>
+          </div>
+        {:else}
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full bg-bg-hover-strong border border-border-subtle flex items-center justify-center">
+              <User class="w-4 h-4 text-text-tertiary" />
+            </div>
+            <span class="text-[14px] font-medium text-text-primary">{userNickname || 'User'}</span>
+          </div>
+        {/if}
+
+        <div>
+          <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">User UUID</label>
+          <div class="flex items-center gap-2">
+            <code class="flex-1 px-3 py-[6px] rounded-[5px] bg-bg-code border border-border-subtle text-[12px] font-mono text-text-primary truncate select-all">{userUuid}</code>
+            <button
+              type="button"
+              onclick={copyUuid}
+              class="shrink-0 p-2 rounded-[5px] border border-border-subtle bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+              title="Copy UUID"
+            >
+              {#if uuidCopied}
+                <Check class="w-4 h-4 text-success-soft" />
+              {:else}
+                <Copy class="w-4 h-4" />
+              {/if}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Appearance Section -->
     <section class="mb-10">
       <h2 class="text-[14px] font-semibold text-text-primary mb-1">Appearance</h2>

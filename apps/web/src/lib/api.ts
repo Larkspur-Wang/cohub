@@ -801,6 +801,7 @@ export type ResourcePermission = {
   id: string;
   resourceType: "runtime" | "session";
   resourceId: string;
+  granteeUuid: string | null;
   level: ResourcePermissionLevel;
   createdBy: string;
   createdAt: string;
@@ -834,6 +835,38 @@ export const createSessionPermission = async (
 
 export const deleteSessionPermission = async (sessionId: string) =>
   apiFetch(`/api/sessions/${sessionId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+
+// ─── Collaborator Management ──────────────────────────────
+
+export const addRuntimeCollaborator = async (
+  runtimeId: string,
+  granteeUuid: string,
+  level: ResourcePermissionLevel,
+) =>
+  apiFetch(`/api/runtimes/${runtimeId}/collaborators`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ granteeUuid, level }),
+  }) as Promise<ResourcePermission>;
+
+export const listRuntimeCollaborators = async (runtimeId: string) =>
+  apiFetch(`/api/runtimes/${runtimeId}/collaborators`) as Promise<ResourcePermission[]>;
+
+export const updateRuntimeCollaborator = async (
+  runtimeId: string,
+  granteeUuid: string,
+  level: ResourcePermissionLevel,
+) =>
+  apiFetch(`/api/runtimes/${runtimeId}/collaborators/${granteeUuid}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level }),
+  }) as Promise<ResourcePermission>;
+
+export const removeRuntimeCollaborator = async (runtimeId: string, granteeUuid: string) =>
+  apiFetch(`/api/runtimes/${runtimeId}/collaborators/${granteeUuid}`, {
+    method: "DELETE",
+  }) as Promise<{ ok: true }>;
 
 // ─── SSE Streaming ──────────────────────────────
 

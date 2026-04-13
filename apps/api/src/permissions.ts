@@ -1,4 +1,4 @@
-import { and, inArray } from "drizzle-orm";
+import { and, isNull, inArray } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { resourcePermissions, runtimes } from "./db/schema.js";
 import type { AuthUserProfile } from "./auth.js";
@@ -6,6 +6,37 @@ import type { ResourcePermissionLevel } from "@cohub/protocol";
 
 const READABLE_LEVELS: ResourcePermissionLevel[] = ["read", "write"];
 const WRITABLE_LEVELS: ResourcePermissionLevel[] = ["write"];
+
+/**
+ * 从权限记录列表中查找对指定资源有效的权限。
+ * 优先级：用户级 (granteeUuid = userUuid) > 公共级 (granteeUuid = NULL)
+ */
+const findEffectivePermission = (
+  perms: typeof resourcePermissions.$inferSelect[],
+  resourceType: "runtime" | "session",
+  resourceId: string,
+  userUuid: string | null,
+): typeof resourcePermissions.$inferSelect | null => {
+  // 优先匹配用户级权限
+  if (userUuid) {
+    const userPerm = perms.find(
+      (p) =>
+        p.resourceType === resourceType &&
+        p.resourceId === resourceId &&
+        p.granteeUuid === userUuid,
+    );
+    if (userPerm) return userPerm;
+  }
+
+  // 再 fallback 公共权限
+  const publicPerm = perms.find(
+    (p) =>
+      p.resourceType === resourceType &&
+      p.resourceId === resourceId &&
+      p.granteeUuid === null,
+  );
+  return publicPerm ?? null;
+};
 
 /**
  * 判断用户（或匿名）是否对指定资源有读权限。
@@ -41,14 +72,14 @@ export const canRead = async (
 
   // session 级优先
   if (sessionId) {
-    const sessionPerm = perms.find(p => p.resourceType === "session" && p.resourceId === sessionId);
+    const sessionPerm = findEffectivePermission(perms, "session", sessionId, user?.uuid ?? null);
     if (sessionPerm) {
       return READABLE_LEVELS.includes(sessionPerm.level as ResourcePermissionLevel);
     }
   }
 
   // fallback runtime 级
-  const runtimePerm = perms.find(p => p.resourceType === "runtime" && p.resourceId === runtimeId);
+  const runtimePerm = findEffectivePermission(perms, "runtime", runtimeId, user?.uuid ?? null);
   if (runtimePerm) {
     return READABLE_LEVELS.includes(runtimePerm.level as ResourcePermissionLevel);
   }
@@ -92,13 +123,13 @@ export const canWrite = async (
     ));
 
   if (sessionId) {
-    const sessionPerm = perms.find((p) => p.resourceType === "session" && p.resourceId === sessionId);
+    const sessionPerm = findEffectivePermission(perms, "session", sessionId, user.uuid);
     if (sessionPerm) {
       return WRITABLE_LEVELS.includes(sessionPerm.level as ResourcePermissionLevel);
     }
   }
 
-  const runtimePerm = perms.find((p) => p.resourceType === "runtime" && p.resourceId === runtimeId);
+  const runtimePerm = findEffectivePermission(perms, "runtime", runtimeId, user.uuid);
   if (runtimePerm) {
     return WRITABLE_LEVELS.includes(runtimePerm.level as ResourcePermissionLevel);
   }

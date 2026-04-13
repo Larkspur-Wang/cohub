@@ -313,12 +313,17 @@ export const resourcePermissions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     resourceType: varchar("resource_type", { length: 20 }).notNull(),
     resourceId: uuid("resource_id").notNull(),
+    granteeUuid: varchar("grantee_uuid", { length: 255 }),  // NULL = public permission level
     level: varchar("level", { length: 20 }).notNull().default("read"),  // ResourcePermissionLevel from @cohub/protocol
     createdBy: varchar("created_by", { length: 255 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    resourceUniqueIdx: uniqueIndex("uq_resource_permissions_resource").on(table.resourceType, table.resourceId),
+    resourceGrantUniqueIdx: uniqueIndex("uq_resource_permissions_resource_grantee").on(
+      table.resourceType,
+      table.resourceId,
+      table.granteeUuid,
+    ),
   }),
 );
 
