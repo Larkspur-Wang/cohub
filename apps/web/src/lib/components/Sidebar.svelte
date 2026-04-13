@@ -154,6 +154,21 @@ function getSessionPerm(session: SessionRecord): string | null {
 }
 
 function updateSessionsFromEvent(runtimeId: string, sessions: SessionRecord[]) {
+  const existing = runtimeStore.getSessions(runtimeId) ?? [];
+  if (
+    existing.length === sessions.length &&
+    existing.every((session, index) => {
+      const incoming = sessions[index];
+      return incoming &&
+        session.id === incoming.id &&
+        session.updatedAt === incoming.updatedAt &&
+        session.lastMessageId === incoming.lastMessageId &&
+        session.shareLevel === incoming.shareLevel;
+    })
+  ) {
+    return;
+  }
+
   runtimeStore.setSessions(runtimeId, sessions);
   sidebarCache.setSessions(runtimeId, sessions);
   // Auto-expand the runtime if we received new sessions

@@ -263,6 +263,7 @@ function notifyStreamingStatus(sessionId: string | null, isStreaming: boolean) {
 
 let runtimePollingTimer: ReturnType<typeof setTimeout> | null = null;
 let loadingPermissions = $state(false);
+let loadingChannels = $state(false);
 const listEl = $state<HTMLDivElement | null>(null);
 const contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
@@ -290,6 +291,17 @@ let showScrollToBottom = $state(false);
 // Share / Permissions
 let runtimePermissions = $state<ResourcePermission[]>([]);
 let runtimePermissionsLoaded = $state(false);
+const sessionTitleById = $derived.by(() => {
+	const map = new Map<string, string>();
+	for (const session of runtimeSessions) {
+		const label = session.title || session.latestMessageText || `Session ${session.id.slice(0, 8)}`;
+		map.set(session.id, label);
+	}
+	return map;
+});
+const sharedSessionPermissions = $derived(
+	runtimePermissions.filter((permission) => permission.resourceType === "session"),
+);
 let runtimePublicRead = $state(false);
 let savingRuntimePerm = $state(false);
 let shareCopied = $state(false);
@@ -1788,16 +1800,17 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (showSettings && !runtimeStore.hasLoadedChannels(runtimeId)) {
-		// Don't use force:true — rely on store's built-in dedup via
-		// runtimeChannelPromises. force:true bypasses the promise cache
-		// and can trigger duplicate requests when this effect re-runs
-		// due to other reactive state changes.
-		void loadRuntime({ includeChannels: true });
+	if (showSettings && !runtimeStore.hasLoadedChannels(runtimeId) && !loadingChannels) {
+		loadingChannels = true;
+		void runtimeStore.ensureRuntimeChannels(runtimeId).then((channels) => {
+			runtimeChannels = channels;
+		}).finally(() => {
+			loadingChannels = false;
+		});
 	}
 	if (showSettings && authStore.isAuthenticated && !runtimePermissionsLoaded && !loadingPermissions) {
 		loadingPermissions = true;
-		void loadPermissions(true).finally(() => {
+		void loadPermissions().finally(() => {
 			loadingPermissions = false;
 		});
 	}
@@ -2088,11 +2101,11 @@ $effect(() => {
         <!-- Session-level permissions -->
         <div class="space-y-1">
           <div class="text-[11px] text-text-placeholder px-2">Session access</div>
-          {#each runtimePermissions.filter(p => p.resourceType === "session") as perm (perm.id)}
+          {#each sharedSessionPermissions as perm (perm.id)}
             <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group">
               <div class="w-[5px] h-[5px] rounded-full shrink-0 bg-brand"></div>
               <span class="text-[12.5px] text-text-secondary truncate flex-1">
-                {runtimeSessions.find(s => s.id === perm.resourceId)?.title || runtimeSessions.find(s => s.id === perm.resourceId)?.latestMessageText || 'Session ' + perm.resourceId.slice(0, 8)}
+                {sessionTitleById.get(perm.resourceId) || 'Session ' + perm.resourceId.slice(0, 8)}
               </span>
               <div class="flex items-center gap-1 shrink-0">
                 <button
