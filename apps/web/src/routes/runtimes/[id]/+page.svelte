@@ -244,16 +244,18 @@ let streamingSessionId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
 
 function notifySessionsUpdate() {
+	// Use sorted sessions from store, not the local unsorted runtimeSessions
+	const sessions = runtimeStore.getSessions(runtimeId) ?? runtimeSessions;
 	// Notify sidebar about session changes
 	window.dispatchEvent(
 		new CustomEvent("cohub:sessions-updated", {
-			detail: { runtimeId, sessions: runtimeSessions },
+			detail: { runtimeId, sessions },
 		}),
 	);
 	broadcastChannel?.postMessage({
 		type: "sessions-updated",
 		runtimeId,
-		sessions: JSON.parse(JSON.stringify(runtimeSessions)),
+		sessions: JSON.parse(JSON.stringify(sessions)),
 	});
 }
 
@@ -2903,12 +2905,12 @@ $effect(() => {
     bottom: 0;
     left: 4px;
     width: 1px;
-    background: var(--border-subtle);
+    background: var(--brand);
     transition: background-color 120ms ease;
   }
 
   .right-sidebar-resize-handle:hover::after {
-    background: var(--brand);
+    background: var(--border-subtle);
   }
 
   :global(body.sidebar-resizing) {

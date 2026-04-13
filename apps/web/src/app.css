@@ -354,6 +354,21 @@ body.drawer-open {
 	--tw-prose-captions: var(--text-tertiary);
 }
 
+/* Spacing — tighter than default typography */
+.prose p + p {
+	margin-top: 0.5em;
+}
+.prose hr {
+	margin-top: 1.5em;
+	margin-bottom: 1.5em;
+}
+.prose > :first-child {
+	margin-top: 0;
+}
+.prose > :last-child {
+	margin-bottom: 0;
+}
+
 /* Inline code — rounded background pill */
 .prose code {
 	padding: 0.15em 0.4em;

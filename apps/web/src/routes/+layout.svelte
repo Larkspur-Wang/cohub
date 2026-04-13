@@ -353,12 +353,12 @@ onMount(() => {
     bottom: 0;
     left: 3px;
     width: 1px;
-    background: var(--border-subtle);
+    background: var(--brand);
     transition: background-color 120ms ease;
   }
 
   .sidebar-resize-handle:hover::after {
-    background: var(--brand);
+    background: var(--border-subtle);
   }
 
   :global(body.sidebar-resizing) {
