@@ -21,7 +21,7 @@ import {
   type RuntimeRecord,
   type SessionRecord,
 } from "$lib/api";
-import { ensureAuth, logtoClient } from "$lib/auth";
+import { logtoClient } from "$lib/auth";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { sidebarCache } from "$lib/stores/sidebar-cache";
@@ -115,7 +115,8 @@ function toggleRuntime(runtimeId: string) {
 }
 
 async function loadRuntimes(force = false) {
-  if (!(await ensureAuth())) {
+  // Silently skip if not authenticated — sidebar runtime list is owner-only feature.
+  if (!(await logtoClient.isAuthenticated())) {
     isLoading = false;
     return;
   }
@@ -332,7 +333,10 @@ function handleSessionUpdateEvent(e: Event) {
 
 onMount(() => {
   void (async () => {
-    const authenticated = await ensureAuth();
+    // Silently check auth status — do NOT redirect.
+    // Individual pages (e.g. /runtimes, /settings) handle their own auth redirects.
+    // This allows anonymous users to view public runtimes/sessions.
+    const authenticated = await logtoClient.isAuthenticated();
     if (authenticated) {
       await authStore.ensureLoaded();
       if (authStore.userUuid) {
