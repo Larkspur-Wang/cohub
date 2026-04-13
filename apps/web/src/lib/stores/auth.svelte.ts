@@ -1,5 +1,6 @@
 import type { IdTokenClaims } from "@logto/browser";
 import { logtoClient } from "$lib/auth";
+import { getMe } from "$lib/api";
 
 class AuthStore {
   claims = $state<IdTokenClaims | null>(null);
@@ -7,8 +8,12 @@ class AuthStore {
   loaded = $state(false);
   loading = $state(false);
 
+  // userUuid from backend API (/api/me), used for ownership checks
+  // against runtime.userUuid, workspace.userUuid, etc.
+  _userUuid = $state<string | null>(null);
+
   get userUuid(): string | null {
-    return this.claims?.sub ?? null;
+    return this._userUuid;
   }
 
   async ensureLoaded(force = false) {
@@ -21,6 +26,20 @@ class AuthStore {
       this.claims = this.isAuthenticated
         ? await logtoClient.getIdTokenClaims().catch(() => null)
         : null;
+
+      // Fetch user profile from backend to get the correct uuid
+      // that matches runtime.userUuid / workspace.userUuid stored in DB
+      if (this.isAuthenticated) {
+        try {
+          const me = await getMe();
+          this._userUuid = (me as { uuid?: string } | null)?.uuid ?? null;
+        } catch {
+          this._userUuid = null;
+        }
+      } else {
+        this._userUuid = null;
+      }
+
       this.loaded = true;
     } finally {
       this.loading = false;

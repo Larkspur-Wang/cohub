@@ -1840,19 +1840,6 @@ $effect(() => {
       </button>
     {/if}
 
-    <!-- Settings shortcut -->
-    {#if isOwner}
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-        onclick={() => { showSettings = true; }}
-        title="Runtime settings"
-      >
-        <Settings class="w-4 h-4 shrink-0" />
-        <span class="hidden lg:inline text-[13px] font-medium">Settings</span>
-      </button>
-    {/if}
-
     <!-- More menu -->
     <div class="relative" data-more-menu>
       <button
