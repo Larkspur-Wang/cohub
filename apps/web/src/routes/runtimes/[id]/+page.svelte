@@ -38,6 +38,7 @@ import {
 } from "$lib/api";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
+import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
@@ -51,6 +52,17 @@ import { authStore } from "$lib/stores/auth.svelte";
 import { runtimeStore } from "$lib/stores/runtime-store.svelte";
 import { uiState, RIGHT_SIDEBAR_MAX, RIGHT_SIDEBAR_MIN } from "$lib/stores/ui.svelte";
 import { hydrateSessionCacheToRuntimeStore } from "$lib/stores/cache-hydration";
+import {
+	MOBILE_DRAWER_WIDTH_PX,
+	getDrawerOpenRatio,
+	resolveDrawerGestureDirection,
+	getRightDrawerOffsetFromDrag,
+	shouldOpenRightDrawer,
+	shouldKeepRightDrawerOpen,
+	shouldStartRightDrawerGesture,
+	type DrawerGesturePhase,
+	type DrawerGestureDirection,
+} from "$lib/gestures/drawer-swipe";
 import type { MessageRecord } from "@cohub/protocol";
 import {
 	ArrowDown,
@@ -2015,6 +2027,148 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointercancel", stop);
 }
 
+// ─── Mobile right drawer gestures (mirrors left-drawer logic in +layout.svelte) ───
+
+let rightDrawerGesturePhase = $state<DrawerGesturePhase>("idle");
+let rightDrawerGestureDirection = $state<DrawerGestureDirection>(null);
+let rightDrawerActiveTouchId = $state<number | null>(null);
+let rightDrawerPointerStartX = $state(0);
+let rightDrawerPointerStartY = $state(0);
+let rightDrawerLastPointerX = $state(0);
+let rightDrawerLastPointerTime = $state(0);
+let rightDrawerDragOffsetPx = $state(0);
+let rightDrawerVelocityX = $state(0);
+let rightDrawerIsDragging = $state(false);
+let rightDrawerIsVisible = $state(false);
+
+function rightDrawerResetGesture() {
+	rightDrawerGesturePhase = "idle";
+	rightDrawerGestureDirection = null;
+	rightDrawerActiveTouchId = null;
+	rightDrawerPointerStartX = 0;
+	rightDrawerPointerStartY = 0;
+	rightDrawerLastPointerX = 0;
+	rightDrawerLastPointerTime = 0;
+	rightDrawerDragOffsetPx = 0;
+	rightDrawerVelocityX = 0;
+	rightDrawerIsDragging = false;
+}
+
+function rightDrawerFindTrackedTouch(touches: TouchList) {
+	if (rightDrawerActiveTouchId === null) return null;
+	for (const touch of Array.from(touches)) {
+		if (touch.identifier === rightDrawerActiveTouchId) return touch;
+	}
+	return null;
+}
+
+function rightDrawerBeginSettling(open: boolean) {
+	rightDrawerGesturePhase = "settling";
+	uiState.mobileRightDrawerOpen = open;
+	rightDrawerIsDragging = false;
+	rightDrawerActiveTouchId = null;
+	rightDrawerGestureDirection = null;
+	rightDrawerVelocityX = 0;
+	rightDrawerLastPointerTime = 0;
+	rightDrawerLastPointerX = 0;
+	rightDrawerPointerStartX = 0;
+	rightDrawerPointerStartY = 0;
+}
+
+function rightDrawerHandleTouchStart(e: TouchEvent) {
+	if (window.innerWidth >= 1024 || rightDrawerActiveTouchId !== null) return;
+	const touch = e.changedTouches[0];
+	if (!touch) return;
+
+	if (
+		!shouldStartRightDrawerGesture({
+			isOpen: uiState.mobileRightDrawerOpen,
+			target: e.target,
+			viewportWidth: window.innerWidth,
+			touchStartX: touch.clientX,
+		})
+	) {
+		return;
+	}
+
+	rightDrawerActiveTouchId = touch.identifier;
+	rightDrawerGesturePhase = "tracking";
+	rightDrawerGestureDirection = null;
+	rightDrawerPointerStartX = touch.clientX;
+	rightDrawerPointerStartY = touch.clientY;
+	rightDrawerLastPointerX = touch.clientX;
+	rightDrawerLastPointerTime = e.timeStamp;
+	rightDrawerDragOffsetPx = uiState.mobileRightDrawerOpen ? MOBILE_DRAWER_WIDTH_PX : 0;
+	rightDrawerVelocityX = 0;
+	rightDrawerIsDragging = false;
+}
+
+function rightDrawerHandleTouchMove(e: TouchEvent) {
+	const touch = rightDrawerFindTrackedTouch(e.touches);
+	if (!touch) return;
+
+	const dx = touch.clientX - rightDrawerPointerStartX;
+	const dy = touch.clientY - rightDrawerPointerStartY;
+	const absDx = Math.abs(dx);
+	const absDy = Math.abs(dy);
+
+	if (rightDrawerGestureDirection === null) {
+		const resolvedDirection = resolveDrawerGestureDirection({ absDx, absDy });
+		if (resolvedDirection === null) return;
+		if (resolvedDirection === "vertical") {
+			rightDrawerResetGesture();
+			return;
+		}
+		rightDrawerGestureDirection = resolvedDirection;
+	}
+
+	const deltaTime = Math.max(e.timeStamp - rightDrawerLastPointerTime, 1);
+	rightDrawerVelocityX = (touch.clientX - rightDrawerLastPointerX) / deltaTime;
+	rightDrawerLastPointerX = touch.clientX;
+	rightDrawerLastPointerTime = e.timeStamp;
+
+	const nextOffsetPx = getRightDrawerOffsetFromDrag({
+		isOpen: uiState.mobileRightDrawerOpen,
+		deltaX: dx,
+	});
+
+	if (!uiState.mobileRightDrawerOpen && nextOffsetPx <= 0) return;
+	if (uiState.mobileRightDrawerOpen && nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX && dx >= 0) return;
+
+	rightDrawerIsDragging = true;
+	rightDrawerDragOffsetPx = nextOffsetPx;
+	rightDrawerGesturePhase = uiState.mobileRightDrawerOpen ? "dragging-close" : "dragging-open";
+
+	if (e.cancelable) {
+		e.preventDefault();
+	}
+}
+
+function rightDrawerFinalizeGesture() {
+	if (!rightDrawerIsDragging) {
+		rightDrawerResetGesture();
+		return;
+	}
+
+	const shouldOpen = uiState.mobileRightDrawerOpen
+		? shouldKeepRightDrawerOpen({ offsetPx: rightDrawerDragOffsetPx, velocityX: rightDrawerVelocityX })
+		: shouldOpenRightDrawer({ offsetPx: rightDrawerDragOffsetPx, velocityX: rightDrawerVelocityX });
+
+	rightDrawerBeginSettling(shouldOpen);
+}
+
+function rightDrawerHandleTouchEnd(e: TouchEvent) {
+	const touch = rightDrawerFindTrackedTouch(e.changedTouches);
+	if (!touch) return;
+	rightDrawerFinalizeGesture();
+}
+
+function rightDrawerHandleTouchCancel(e: TouchEvent) {
+	const touch = rightDrawerFindTrackedTouch(e.changedTouches);
+	if (!touch) return;
+	rightDrawerFinalizeGesture();
+}
+
 onMount(() => {
 	uiState.loadLayoutPrefs();
 	pageMounted = true;
@@ -2054,6 +2208,25 @@ onMount(() => {
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 
+	// Mobile right drawer touch gestures
+	function onRightDrawerTouchStart(e: TouchEvent) {
+		rightDrawerHandleTouchStart(e);
+	}
+	function onRightDrawerTouchMove(e: TouchEvent) {
+		rightDrawerHandleTouchMove(e);
+	}
+	function onRightDrawerTouchEnd(e: TouchEvent) {
+		rightDrawerHandleTouchEnd(e);
+	}
+	function onRightDrawerTouchCancel(e: TouchEvent) {
+		rightDrawerHandleTouchCancel(e);
+	}
+
+	document.addEventListener("touchstart", onRightDrawerTouchStart, { passive: true });
+	document.addEventListener("touchmove", onRightDrawerTouchMove, { passive: false });
+	document.addEventListener("touchend", onRightDrawerTouchEnd, { passive: true });
+	document.addEventListener("touchcancel", onRightDrawerTouchCancel, { passive: true });
+
 	// Initialize broadcast channel for cross-component communication
 	try {
 		broadcastChannel = new BroadcastChannel(`cohub:runtime:${runtimeId}`);
@@ -2085,6 +2258,11 @@ onMount(() => {
 		window.removeEventListener("offline", handleOffline);
 		window.removeEventListener("keydown", handleFileKeyboardSave);
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
+		// Mobile right drawer gesture cleanup
+		document.removeEventListener("touchstart", onRightDrawerTouchStart);
+		document.removeEventListener("touchmove", onRightDrawerTouchMove);
+		document.removeEventListener("touchend", onRightDrawerTouchEnd);
+		document.removeEventListener("touchcancel", onRightDrawerTouchCancel);
 		disconnectAllSSE();
 		broadcastChannel?.close();
 		broadcastChannel = null;
@@ -2118,6 +2296,55 @@ $effect(() => {
 		clearStreamingState();
 	}
 	prevActiveSessionId = currentId;
+});
+
+// Sync mobile right drawer visibility + settling animation
+$effect(() => {
+	if (rightDrawerGesturePhase === "settling") {
+		// Keep visible during settle animation
+		rightDrawerIsVisible = true;
+		return;
+	}
+	if (uiState.mobileRightDrawerOpen || rightDrawerIsDragging) {
+		rightDrawerIsVisible = true;
+		return;
+	}
+	rightDrawerIsVisible = false;
+});
+
+$effect(() => {
+	if (rightDrawerGesturePhase !== "settling") return;
+
+	const timer = window.setTimeout(() => {
+		if (rightDrawerGesturePhase === "settling") {
+			rightDrawerGesturePhase = "idle";
+			if (!uiState.mobileRightDrawerOpen) {
+				rightDrawerDragOffsetPx = 0;
+			}
+		}
+	}, 220);
+
+	return () => window.clearTimeout(timer);
+});
+
+// Lock body scroll when right drawer is open
+$effect(() => {
+	if (uiState.mobileRightDrawerOpen || rightDrawerIsDragging) {
+		document.body.classList.add("drawer-open");
+	} else {
+		document.body.classList.remove("drawer-open");
+	}
+});
+
+// Close mobile right drawer on Escape
+$effect(() => {
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === "Escape" && uiState.mobileRightDrawerOpen) {
+			uiState.mobileRightDrawerOpen = false;
+		}
+	}
+	window.addEventListener("keydown", handleKeydown);
+	return () => window.removeEventListener("keydown", handleKeydown);
 });
 
 // Close more menu on click outside
@@ -2415,8 +2642,14 @@ $effect(() => {
     <!-- Toggle right sidebar -->
     <button
       type="button"
-      class="hidden xl:flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-      onclick={() => uiState.toggleRightSidebarCollapsed()}
+      class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+      onclick={() => {
+        if (window.innerWidth < 1024) {
+          uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
+        } else {
+          uiState.toggleRightSidebarCollapsed();
+        }
+      }}
       title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
       aria-label={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
     >
@@ -2939,6 +3172,27 @@ $effect(() => {
     models={modelsCatalog ?? []}
     currentModel={activeSessionModel}
   />
+
+  <!-- Mobile right drawer for file sidebar -->
+  <MobileRightDrawer
+    dragOffsetPx={rightDrawerDragOffsetPx}
+    isDragging={rightDrawerIsDragging}
+    isDrawerVisible={rightDrawerIsVisible}
+  >
+    <RuntimeFileSidebar
+      nodes={fileTree}
+      selectedPath={urlFilePath ?? ""}
+      loading={fileTreeLoading}
+      error={fileTreeError}
+      onToggle={handleFileToggle}
+      onSelect={handleFileSelect}
+      onRefresh={refreshFileTree}
+      onCreateFile={handleCreateFile}
+      onCreateDir={handleCreateDir}
+      onRename={handleRenameNode}
+      onDelete={handleDeleteNode}
+    />
+  </MobileRightDrawer>
 </div>
 
 <style>

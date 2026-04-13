@@ -40,6 +40,7 @@ function writeStorage(key: string, value: string) {
 
 class UIState {
   mobileDrawerOpen = $state(false);
+  mobileRightDrawerOpen = $state(false);
   settingsOverlayOpen = $state(false);
   leftSidebarWidth = $state(LEFT_SIDEBAR_DEFAULT);
   rightSidebarWidth = $state(RIGHT_SIDEBAR_DEFAULT);
