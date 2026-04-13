@@ -278,6 +278,8 @@ let autoScrollGuard = $state(false);
 // Intentionally non-reactive — the scroll effect is driven by scrollTargetSessionId
 let visitedSessions = $state.raw(new Set<string>());
 let scrollPosBySession = $state.raw(new Map<string, number>());
+// Prevent saving a transient scrollTop=0 before initial positioning finishes
+let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
 
 // Explicit signal to trigger scroll after session data is ready
 let scrollTargetSessionId = $state<string | null>(null);
@@ -806,6 +808,7 @@ async function loadSessionState(sessionId: string, force = false) {
 		void syncSessionNewer(sessionId, cached);
 
 		// Signal scroll effect that data is ready
+		suppressScrollSaveSessionIds.add(sessionId);
 		scrollTargetSessionId = sessionId;
 		// Reset after scheduling so same-session force reload can trigger again
 		scheduleResetScrollTarget();
@@ -860,6 +863,7 @@ async function loadSessionState(sessionId: string, force = false) {
 			},
 		};
 		// Signal scroll effect that data is ready
+		suppressScrollSaveSessionIds.add(sessionId);
 		scrollTargetSessionId = sessionId;
 		// Reset after scheduling so same-session force reload can trigger again
 		scheduleResetScrollTarget();
@@ -1004,8 +1008,8 @@ function handleFirstVisible(index: number) {
 	const state = sessionStateById[activeSessionId];
 	if (!state || !state.hasMore || state.loadingOlder) return;
 
-	const unseen = state.messages.length - index;
-	if (unseen <= PRELOAD_THRESHOLD && !preloadingSessionIds.has(activeSessionId)) {
+	const unseenTopCount = index;
+	if (unseenTopCount <= PRELOAD_THRESHOLD && !preloadingSessionIds.has(activeSessionId)) {
 		const sid = activeSessionId;
 		preloadingSessionIds.add(sid);
 		loadOlderMessages(sid).finally(() => {
@@ -1724,7 +1728,7 @@ $effect(() => {
 	const container = el as HTMLDivElement;
 
 	function handleScrollTrack() {
-		if (activeSessionId) {
+		if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
 			scrollPosBySession.set(activeSessionId, container.scrollTop);
 		}
 	}
@@ -1756,26 +1760,34 @@ $effect(() => {
 		visitedSessions.add(targetId);
 	}
 
-	// Scroll after DOM is ready, with retry for async content
-	const doScroll = (retries = 3) => {
+	const savedPos = scrollPosBySession.get(targetId);
+	const shouldScrollToBottom = isFirstVisit || savedPos == null;
+
+	// Scroll after DOM is ready, with retry for async content/layout.
+	// Repeating over several frames makes initial positioning much more
+	// reliable for markdown/tool cards/image layout changes.
+	const doScroll = (retries = shouldScrollToBottom ? 6 : 2) => {
 		requestAnimationFrame(() => {
 			if (!listEl) return;
-			if (isFirstVisit) {
+
+			if (shouldScrollToBottom) {
 				scrollToBottomNow();
 				shouldAutoFollow = true;
+				userScrolledUp = false;
 			} else {
-				const savedPos = scrollPosBySession.get(targetId);
-				if (savedPos != null) {
-					listEl.scrollTop = savedPos;
-				} else {
-					scrollToBottomNow();
-				}
+				listEl.scrollTop = savedPos;
 			}
 
-			// Retry if scrollHeight is still 0 (content not fully rendered)
-			if (listEl.scrollHeight === 0 && retries > 0) {
+			if (retries > 0) {
 				doScroll(retries - 1);
+				return;
 			}
+
+			suppressScrollSaveSessionIds.delete(targetId);
+			if (listEl) {
+				scrollPosBySession.set(targetId, listEl.scrollTop);
+			}
+			updateAutoFollow();
 		});
 	};
 
