@@ -15,7 +15,7 @@ import {
 } from "$lib/gestures/drawer-swipe";
 import { getResolvedTheme } from "$lib/theme";
 import { onMount } from "svelte";
-import { uiState } from "$lib/stores/ui.svelte";
+import { LEFT_SIDEBAR_MAX, LEFT_SIDEBAR_MIN, uiState } from "$lib/stores/ui.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 import { hydrateRuntimeStoreFromSidebarCache } from "$lib/stores/cache-hydration";
@@ -36,6 +36,7 @@ let lastPointerTime = $state(0);
 let dragOffsetPx = $state(0);
 let velocityX = $state(0);
 let isDragging = $state(false);
+let leftSidebarResizeCleanup: (() => void) | null = null;
 
 const isDrawerVisible = $derived(
   isDragging || gesturePhase === "settling" || uiState.mobileDrawerOpen,
@@ -174,6 +175,43 @@ function handleTouchCancel(e: TouchEvent) {
   finalizeGesture();
 }
 
+function beginLeftSidebarResize(event: PointerEvent) {
+  if (window.innerWidth < 1024) return;
+  event.preventDefault();
+
+  leftSidebarResizeCleanup?.();
+
+  const startX = event.clientX;
+  const startWidth = uiState.leftSidebarWidth;
+  const minMainWidth = 640;
+
+  const onPointerMove = (moveEvent: PointerEvent) => {
+    const delta = moveEvent.clientX - startX;
+    const viewportLimit = window.innerWidth - minMainWidth;
+    const nextWidth = Math.min(
+      LEFT_SIDEBAR_MAX,
+      Math.max(LEFT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
+    );
+    uiState.setLeftSidebarWidth(nextWidth);
+  };
+
+  const stop = () => {
+    document.body.classList.remove("sidebar-resizing");
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", stop);
+    window.removeEventListener("pointercancel", stop);
+    if (leftSidebarResizeCleanup === stop) {
+      leftSidebarResizeCleanup = null;
+    }
+  };
+
+  leftSidebarResizeCleanup = stop;
+  document.body.classList.add("sidebar-resizing");
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", stop);
+  window.addEventListener("pointercancel", stop);
+}
+
 // Close drawer on Escape
 $effect(() => {
   function handleKeydown(e: KeyboardEvent) {
@@ -237,6 +275,7 @@ $effect(() => {
 });
 
 onMount(() => {
+  uiState.loadLayoutPrefs();
   hydrateRuntimeStoreFromSidebarCache();
   void authStore.ensureLoaded();
 
@@ -246,6 +285,11 @@ onMount(() => {
       void navigator.serviceWorker.register("/sw.js");
     });
   }
+
+  return () => {
+    leftSidebarResizeCleanup?.();
+    document.body.classList.remove("sidebar-resizing");
+  };
 });
 </script>
 
@@ -256,8 +300,17 @@ onMount(() => {
 {:else}
   <div class="h-screen flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
-    <div class="hidden lg:block">
-      <Sidebar />
+    <div class="hidden lg:flex shrink-0 min-h-0" style={`width: ${uiState.leftSidebarWidth}px`}>
+      <div class="min-w-0 flex-1">
+        <Sidebar />
+      </div>
+      <button
+        type="button"
+        class="sidebar-resize-handle"
+        aria-label="Resize navigation sidebar"
+        title="Resize navigation sidebar"
+        onpointerdown={beginLeftSidebarResize}
+      ></button>
     </div>
 
     <!-- Main content area -->
@@ -280,3 +333,36 @@ onMount(() => {
   <!-- Global media lightbox -->
   <MediaLightbox />
 {/if}
+
+<style>
+  .sidebar-resize-handle {
+    width: 8px;
+    flex-shrink: 0;
+    border: none;
+    padding: 0;
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+    touch-action: none;
+  }
+
+  .sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 1px;
+    background: var(--border-subtle);
+    transition: background-color 120ms ease;
+  }
+
+  .sidebar-resize-handle:hover::after {
+    background: var(--brand);
+  }
+
+  :global(body.sidebar-resizing) {
+    cursor: col-resize;
+    user-select: none;
+  }
+</style>

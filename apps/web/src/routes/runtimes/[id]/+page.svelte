@@ -50,6 +50,7 @@ import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { messageCache } from "$lib/stores/message-cache";
 import { authStore } from "$lib/stores/auth.svelte";
 import { runtimeStore } from "$lib/stores/runtime-store.svelte";
+import { uiState, RIGHT_SIDEBAR_MAX, RIGHT_SIDEBAR_MIN } from "$lib/stores/ui.svelte";
 import { hydrateSessionCacheToRuntimeStore } from "$lib/stores/cache-hydration";
 import type { MessageRecord } from "@cohub/protocol";
 import {
@@ -63,6 +64,8 @@ import {
 	Lock,
 	Moon,
 	MoreVertical,
+	PanelRightClose,
+	PanelRightOpen,
 	Plus,
 	Power,
 	Settings,
@@ -304,6 +307,7 @@ let createSessionError = $state("");
 let showSettings = $state(false);
 let showMoreMenu = $state(false);
 let showScrollToBottom = $state(false);
+let rightSidebarResizeCleanup: (() => void) | null = null;
 
 // Share / Permissions
 let runtimePermissions = $state<ResourcePermission[]>([]);
@@ -1948,7 +1952,45 @@ function handleRemoveAttachment(id: string) {
 	imageAttachments = imageAttachments.filter((attachment) => attachment.id !== id);
 }
 
+function beginRightSidebarResize(event: PointerEvent) {
+	event.preventDefault();
+	if (window.innerWidth < 1280 || uiState.rightSidebarCollapsed) return;
+
+	rightSidebarResizeCleanup?.();
+
+	const startX = event.clientX;
+	const startWidth = uiState.rightSidebarWidth;
+	const minMainWidth = 720;
+
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		const delta = startX - moveEvent.clientX;
+		const viewportLimit = window.innerWidth - minMainWidth;
+		const nextWidth = Math.min(
+			RIGHT_SIDEBAR_MAX,
+			Math.max(RIGHT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
+		);
+		uiState.setRightSidebarWidth(nextWidth);
+	};
+
+	const stop = () => {
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (rightSidebarResizeCleanup === stop) {
+			rightSidebarResizeCleanup = null;
+		}
+	};
+
+	rightSidebarResizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
+}
+
 onMount(() => {
+	uiState.loadLayoutPrefs();
 	pageMounted = true;
 	pageVisible = document.visibilityState === "visible";
 	pageOnline = typeof navigator === "undefined" ? true : navigator.onLine;
@@ -2009,6 +2051,8 @@ onMount(() => {
 	// so no recursive self-scheduling is needed here.
 
 	return () => {
+		rightSidebarResizeCleanup?.();
+		document.body.classList.remove("sidebar-resizing");
 		pageMounted = false;
 		if (runtimePollingTimer) clearTimeout(runtimePollingTimer);
 		window.removeEventListener("online", handleOnline);
@@ -2223,6 +2267,22 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
+    <button
+      type="button"
+      class="hidden xl:flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+      onclick={() => uiState.toggleRightSidebarCollapsed()}
+      title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+      aria-label={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+    >
+      {#if uiState.rightSidebarCollapsed}
+        <PanelRightOpen class="w-4 h-4 shrink-0" />
+        <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
+      {:else}
+        <PanelRightClose class="w-4 h-4 shrink-0" />
+        <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
+      {/if}
+    </button>
+
     {#if isOwner}
     <button
       type="button"
@@ -2450,21 +2510,31 @@ $effect(() => {
     </RuntimeFilePane>
   </div>
 
-  <div class="hidden w-[320px] shrink-0 xl:block">
-    <RuntimeFileSidebar
-      nodes={fileTree}
-      selectedPath={selectedFilePath}
-      loading={fileTreeLoading}
-      error={fileTreeError}
-      onToggle={handleFileToggle}
-      onSelect={handleFileSelect}
-      onRefresh={refreshFileTree}
-      onCreateFile={handleCreateFile}
-      onCreateDir={handleCreateDir}
-      onRename={handleRenameNode}
-      onDelete={handleDeleteNode}
-    />
-  </div>
+  {#if !uiState.rightSidebarCollapsed}
+    <button
+      type="button"
+      class="hidden xl:block right-sidebar-resize-handle"
+      aria-label="Resize files sidebar"
+      title="Resize files sidebar"
+      onpointerdown={beginRightSidebarResize}
+    ></button>
+
+    <div class="hidden shrink-0 xl:block" style={`width: ${uiState.rightSidebarWidth}px`}>
+      <RuntimeFileSidebar
+        nodes={fileTree}
+        selectedPath={selectedFilePath}
+        loading={fileTreeLoading}
+        error={fileTreeError}
+        onToggle={handleFileToggle}
+        onSelect={handleFileSelect}
+        onRefresh={refreshFileTree}
+        onCreateFile={handleCreateFile}
+        onCreateDir={handleCreateDir}
+        onRename={handleRenameNode}
+        onDelete={handleDeleteNode}
+      />
+    </div>
+  {/if}
 
   <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->
   <SettingsOverlay open={showSettings} onClose={() => showSettings = false}>
@@ -2813,3 +2883,36 @@ $effect(() => {
     currentModel={activeSessionModel}
   />
 </div>
+
+<style>
+  .right-sidebar-resize-handle {
+    width: 8px;
+    flex-shrink: 0;
+    border: none;
+    padding: 0;
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+    touch-action: none;
+  }
+
+  .right-sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: var(--border-subtle);
+    transition: background-color 120ms ease;
+  }
+
+  .right-sidebar-resize-handle:hover::after {
+    background: var(--brand);
+  }
+
+  :global(body.sidebar-resizing) {
+    cursor: col-resize;
+    user-select: none;
+  }
+</style>

@@ -423,7 +423,7 @@ onMount(() => {
 });
 </script>
 
-<aside class="{isMobile ? 'h-full' : 'w-[240px] border-r border-border-subtle shrink-0 h-screen'} flex flex-col bg-bg-primary">
+<aside class="{isMobile ? 'h-full' : 'border-r border-border-subtle shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Logo -->
   <div class="h-[48px] flex items-center px-3 border-b border-border-subtle shrink-0">
     <a href="/" class="flex items-center gap-2 group" aria-label="Cohub">
