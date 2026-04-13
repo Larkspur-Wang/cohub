@@ -16,6 +16,70 @@ const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
 const resolvedTheme = $derived(getResolvedTheme());
 
+// ─── Swipe gesture for mobile drawer ───
+const SWIPE_THRESHOLD = 60;
+let touchStartX = $state<number | null>(null);
+let touchStartY = $state(0);
+let dragProgress = $state(0);
+let isDragging = $state(false);
+
+function handleTouchStart(e: TouchEvent) {
+  if (window.innerWidth >= 1024) return;
+  // Only trigger from the left 20px edge when drawer is closed
+  if (!uiState.mobileDrawerOpen && e.touches[0].clientX > 20) return;
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}
+
+function handleTouchMove(e: TouchEvent) {
+  if (touchStartX === null) return;
+  const dx = e.touches[0].clientX - touchStartX;
+  const dy = e.touches[0].clientY - touchStartY;
+
+  // If drawer is closed and user scrolls vertically, don't capture
+  if (!uiState.mobileDrawerOpen && !isDragging) {
+    if (Math.abs(dy) > Math.abs(dx)) {
+      touchStartX = 0;
+      return;
+    }
+    if (dx <= 0) {
+      touchStartX = 0;
+      return;
+    }
+  }
+
+  // If drawer is open and user swipes left, allow close gesture
+  if (uiState.mobileDrawerOpen && !isDragging) {
+    if (dx >= 0 || Math.abs(dy) > Math.abs(dx)) {
+      touchStartX = 0;
+      return;
+    }
+  }
+
+  if (dx > 0 && !uiState.mobileDrawerOpen) {
+    isDragging = true;
+    dragProgress = Math.min(dx / SWIPE_THRESHOLD, 1);
+    e.preventDefault();
+  } else if (dx < 0 && uiState.mobileDrawerOpen) {
+    isDragging = true;
+    dragProgress = Math.max(1 + dx / SWIPE_THRESHOLD, 0);
+    e.preventDefault();
+  }
+}
+
+function handleTouchEnd() {
+  if (!isDragging || touchStartX === 0) return;
+  isDragging = false;
+  if (dragProgress > 0.5) {
+    uiState.mobileDrawerOpen = true;
+  } else {
+    uiState.mobileDrawerOpen = false;
+  }
+  dragProgress = 0;
+  touchStartX = null;
+  touchStartY = 0;
+}
+
 // Close drawer on Escape
 $effect(() => {
   function handleKeydown(e: KeyboardEvent) {
@@ -25,6 +89,27 @@ $effect(() => {
   }
   window.addEventListener("keydown", handleKeydown);
   return () => window.removeEventListener("keydown", handleKeydown);
+});
+
+// Register touch gesture listeners on document for reliable capture
+$effect(() => {
+  function onTouchStart(e: TouchEvent) {
+    handleTouchStart(e);
+  }
+  function onTouchMove(e: TouchEvent) {
+    handleTouchMove(e);
+  }
+  function onTouchEnd() {
+    handleTouchEnd();
+  }
+  document.addEventListener("touchstart", onTouchStart, { passive: true });
+  document.addEventListener("touchmove", onTouchMove, { passive: false });
+  document.addEventListener("touchend", onTouchEnd, { passive: true });
+  return () => {
+    document.removeEventListener("touchstart", onTouchStart);
+    document.removeEventListener("touchmove", onTouchMove);
+    document.removeEventListener("touchend", onTouchEnd);
+  };
 });
 
 // Lock body scroll when drawer is open
@@ -71,7 +156,7 @@ onMount(() => {
   </div>
 
   <!-- Mobile drawer — outside flex container to avoid stacking context issues -->
-  <MobileSidebarDrawer />
+  <MobileSidebarDrawer {dragProgress} {isDragging} />
 
   <!-- Global media lightbox -->
   <MediaLightbox />
