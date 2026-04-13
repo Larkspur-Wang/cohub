@@ -49,6 +49,10 @@ class RuntimeStore {
   loadingRuntimeList = $state(false);
   loadingSessionsByRuntime = $state<Record<string, boolean>>({});
 
+  // Track shared runtimes injected by the runtime page (non-owner viewing)
+  // so they survive runtime list refreshes
+  private injectedSharedRuntimeIds = $state(new Set<string>());
+
   private runtimeListPromise: Promise<RuntimeListItem[]> | null = null;
   private sessionPromises = new Map<string, Promise<SessionRecord[]>>();
   private permissionPromises = new Map<string, Promise<Map<string, ResourcePermissionLevel>>>();
@@ -311,10 +315,24 @@ class RuntimeStore {
   }
 
   replaceRuntimeList(items: RuntimeListItem[]) {
-    this.runtimeList = items;
+    // Preserve injected shared runtimes that aren't in the new list
+    const sharedToPreserve = [...this.injectedSharedRuntimeIds]
+      .map((id) => this.runtimeDetailsById[id])
+      .filter((r) => r && !items.some((item) => item.id === r.id));
+    this.runtimeList = [...sharedToPreserve, ...items];
     this.lastRuntimeListFetchedAt = Date.now();
     for (const item of items) {
       this.runtimeDetailsById[item.id] = item;
+    }
+  }
+
+  /** Inject a shared runtime (non-owned) into the runtime list at the front */
+  injectSharedRuntime(runtime: RuntimeRecord | RuntimeListItem) {
+    this.injectedSharedRuntimeIds = new Set(this.injectedSharedRuntimeIds).add(runtime.id);
+    this.runtimeDetailsById[runtime.id] = runtime as RuntimeRecord;
+    // Only add if not already in the list
+    if (!this.runtimeList.some((item) => item.id === runtime.id)) {
+      this.runtimeList = [{ ...(runtime as RuntimeListItem) }, ...this.runtimeList];
     }
   }
 
