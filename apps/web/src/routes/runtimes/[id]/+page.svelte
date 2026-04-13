@@ -2374,7 +2374,7 @@ $effect(() => {
         {#if showScrollToBottom && timeline.length > 0}
           <button
             type="button"
-            class="absolute bottom-5 right-4 z-10 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-2 text-[12px] text-text-secondary shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary sm:right-6"
+            class="absolute bottom-14 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-1.5 text-[12px] text-text-secondary shadow-lg backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary animate-in fade-in slide-in-from-bottom-2 duration-200"
             onclick={() => {
               shouldAutoFollow = true;
               forceScrollToBottom();
