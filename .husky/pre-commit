@@ -1,1 +1,2 @@
-pnpm run typecheck && pnpm run lint
+npx lint-staged
+pnpm run typecheck
