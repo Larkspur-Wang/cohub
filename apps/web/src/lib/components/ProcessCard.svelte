@@ -77,7 +77,7 @@ const summaryLabel = $derived(labelParts.join(" · "));
 			<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
 		</button>
 
-		<div class="flex flex-col gap-2 pl-4 border-l border-border-subtle/40 ml-4">
+		<div class="flex flex-col gap-2 pl-2 border-l border-border-subtle/40 ml-2">
 			{#each messages as msg (msg.id)}
 				<ChatMessageBubble message={msg} />
 			{/each}

@@ -110,7 +110,7 @@ $effect(() => {
 	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 py-4 sm:px-6"
 	onscroll={() => onScrollChange?.()}
 >
-	<div bind:this={bindContentEl} class={`mx-auto flex w-full max-w-4xl flex-col [&>*]:mb-2 ${bottomInsetClass}`}>
+	<div bind:this={bindContentEl} class={`mx-auto max-w-4xl flex flex-col [&>*]:mb-2 ${bottomInsetClass}`}>
 		{#if loadingOlder}
 			<div class="flex items-center justify-center gap-1.5 py-3">
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" />
