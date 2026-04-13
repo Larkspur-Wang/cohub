@@ -40,14 +40,25 @@ ENV WORKSPACE_DIR=/workspace
 
 # 安装基础系统工具、Python 和常用命令行依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git wget jq ca-certificates \
-    iputils-ping \
-    ripgrep fd-find \
-    python3 python3-pip python3-venv \
+    # 网络与远程访问
+    curl git wget jq ca-certificates openssh-client \
+    iputils-ping iproute2 dnsutils \
+    # 搜索与文件操作
+    ripgrep fd-find file unzip zip \
+    # Python 生态
+    python3 python3-pip python3-venv python3-dev \
+    # 多媒体处理
     ffmpeg imagemagick libimage-exiftool-perl \
-    unzip vim tree tmux htop xz-utils \
+    # 终端与系统工具
+    vim tree tmux htop xz-utils less \
+    # 编译工具链
+    build-essential \
+    # 调试与诊断
+    strace lsof \
+    # 字体
     fonts-noto-cjk \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 设置 Python 和 fd 软链接
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
