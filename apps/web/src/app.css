@@ -303,6 +303,19 @@ body.drawer-open {
 	overflow: hidden;
 }
 
+/*
+ Enable custom mobile drawer swipe gestures on real touch devices.
+ `touch-action: pan-y` allows normal vertical scrolling while preventing
+ the browser from eagerly consuming horizontal swipes that should open
+ the mobile drawer. DevTools mobile emulation is less strict than real
+ Android Chrome here, which explains why desktop simulation worked.
+*/
+@media (max-width: 1023px) {
+	.mobile-drawer-gesture-surface {
+		touch-action: pan-y;
+	}
+}
+
 /* ============================================================
    Markdown Prose — theme-aware overrides for @tailwindcss/typography
    ============================================================ */

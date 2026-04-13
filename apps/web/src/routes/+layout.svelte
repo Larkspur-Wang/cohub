@@ -248,7 +248,7 @@ onMount(() => {
     </div>
 
     <!-- Main content area -->
-    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden mobile-drawer-gesture-surface">
 
       <!-- Page content -->
       <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
