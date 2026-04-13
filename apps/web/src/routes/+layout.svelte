@@ -39,11 +39,11 @@ function handleTouchMove(e: TouchEvent) {
   // If drawer is closed and user scrolls vertically, don't capture
   if (!uiState.mobileDrawerOpen && !isDragging) {
     if (Math.abs(dy) > Math.abs(dx)) {
-      touchStartX = 0;
+      touchStartX = null;
       return;
     }
     if (dx <= 0) {
-      touchStartX = 0;
+      touchStartX = null;
       return;
     }
   }
@@ -51,7 +51,7 @@ function handleTouchMove(e: TouchEvent) {
   // If drawer is open and user swipes left, allow close gesture
   if (uiState.mobileDrawerOpen && !isDragging) {
     if (dx >= 0 || Math.abs(dy) > Math.abs(dx)) {
-      touchStartX = 0;
+      touchStartX = null;
       return;
     }
   }
@@ -59,16 +59,16 @@ function handleTouchMove(e: TouchEvent) {
   if (dx > 0 && !uiState.mobileDrawerOpen) {
     isDragging = true;
     dragProgress = Math.min(dx / SWIPE_THRESHOLD, 1);
-    e.preventDefault();
+    if (e.cancelable) e.preventDefault();
   } else if (dx < 0 && uiState.mobileDrawerOpen) {
     isDragging = true;
     dragProgress = Math.max(1 + dx / SWIPE_THRESHOLD, 0);
-    e.preventDefault();
+    if (e.cancelable) e.preventDefault();
   }
 }
 
 function handleTouchEnd() {
-  if (!isDragging || touchStartX === 0) return;
+  if (!isDragging || touchStartX === null) return;
   isDragging = false;
   if (dragProgress > 0.5) {
     uiState.mobileDrawerOpen = true;
