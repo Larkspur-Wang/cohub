@@ -145,7 +145,7 @@ onMount(() => {
         {/if}
 
         <div>
-          <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">User UUID</label>
+          <div class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">User UUID</div>
           <div class="flex items-center gap-2">
             <code class="flex-1 px-3 py-[6px] rounded-[5px] bg-bg-code border border-border-subtle text-[12px] font-mono text-text-primary truncate select-all">{userUuid}</code>
             <button

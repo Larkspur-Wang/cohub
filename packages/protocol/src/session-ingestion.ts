@@ -188,6 +188,7 @@ export type MessageRecord = {
   usageInput: number | null;
   usageOutput: number | null;
   costTotal: string | null;
+  meta: Record<string, unknown> | null;
   createdAt: string;
 };
 

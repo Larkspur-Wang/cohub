@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { access, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { config } from "./config.js";
@@ -183,7 +183,7 @@ async function toEntry(root: string, absPath: string, name: string): Promise<Run
 
 export async function listRuntimeDirectory(runtimeId: string, path = ""): Promise<RuntimeFsTreeResponse> {
   const { root, target, relativePath } = await resolveTarget(runtimeId, path, { allowEmpty: true });
-  let targetStats;
+  let targetStats: Stats;
   try {
     targetStats = await lstat(target);
   } catch {
@@ -209,7 +209,7 @@ export async function listRuntimeDirectory(runtimeId: string, path = ""): Promis
 
 export async function readRuntimeFile(runtimeId: string, path: string): Promise<RuntimeFsFileResponse> {
   const { target, relativePath } = await resolveTarget(runtimeId, path);
-  let stats;
+  let stats: Stats;
   try {
     stats = await lstat(target);
   } catch {

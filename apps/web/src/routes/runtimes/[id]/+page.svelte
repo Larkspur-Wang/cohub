@@ -1770,6 +1770,7 @@ async function handleSend() {
 				usageInput: null,
 				usageOutput: null,
 				costTotal: null,
+				meta: null,
 				createdAt: new Date().toISOString(),
 			} satisfies MessageRecord;
 
