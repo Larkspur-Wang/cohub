@@ -7,6 +7,7 @@ import {
   MOBILE_DRAWER_WIDTH_PX,
   getDrawerOffsetFromDrag,
   resolveDrawerGestureDirection,
+  shouldKeepDrawerOpen,
   shouldOpenDrawer,
   shouldStartDrawerGesture,
   type DrawerGestureDirection,
@@ -27,7 +28,7 @@ const resolvedTheme = $derived(getResolvedTheme());
 
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);
-let activePointerId = $state<number | null>(null);
+let activeTouchId = $state<number | null>(null);
 let pointerStartX = $state(0);
 let pointerStartY = $state(0);
 let lastPointerX = $state(0);
@@ -43,7 +44,7 @@ const isDrawerVisible = $derived(
 function resetGestureState() {
   gesturePhase = "idle";
   gestureDirection = null;
-  activePointerId = null;
+  activeTouchId = null;
   pointerStartX = 0;
   pointerStartY = 0;
   lastPointerX = 0;
@@ -57,7 +58,7 @@ function beginSettling(open: boolean) {
   gesturePhase = "settling";
   uiState.mobileDrawerOpen = open;
   isDragging = false;
-  activePointerId = null;
+  activeTouchId = null;
   gestureDirection = null;
   velocityX = 0;
   lastPointerTime = 0;
@@ -66,9 +67,19 @@ function beginSettling(open: boolean) {
   pointerStartY = 0;
 }
 
-function handlePointerDown(e: PointerEvent) {
-  if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
-  if (window.innerWidth >= 1024 || activePointerId !== null || uiState.mobileDrawerOpen) return;
+function findTrackedTouch(touches: TouchList) {
+  if (activeTouchId === null) return null;
+  for (const touch of Array.from(touches)) {
+    if (touch.identifier === activeTouchId) return touch;
+  }
+  return null;
+}
+
+function handleTouchStart(e: TouchEvent) {
+  if (window.innerWidth >= 1024 || activeTouchId !== null) return;
+  const touch = e.changedTouches[0];
+  if (!touch) return;
+
   if (
     !shouldStartDrawerGesture({
       isOpen: uiState.mobileDrawerOpen,
@@ -79,23 +90,24 @@ function handlePointerDown(e: PointerEvent) {
     return;
   }
 
-  activePointerId = e.pointerId;
+  activeTouchId = touch.identifier;
   gesturePhase = "tracking";
   gestureDirection = null;
-  pointerStartX = e.clientX;
-  pointerStartY = e.clientY;
-  lastPointerX = e.clientX;
+  pointerStartX = touch.clientX;
+  pointerStartY = touch.clientY;
+  lastPointerX = touch.clientX;
   lastPointerTime = e.timeStamp;
-  dragOffsetPx = 0;
+  dragOffsetPx = uiState.mobileDrawerOpen ? MOBILE_DRAWER_WIDTH_PX : 0;
   velocityX = 0;
   isDragging = false;
 }
 
-function handlePointerMove(e: PointerEvent) {
-  if (e.pointerId !== activePointerId || uiState.mobileDrawerOpen) return;
+function handleTouchMove(e: TouchEvent) {
+  const touch = findTrackedTouch(e.touches);
+  if (!touch) return;
 
-  const dx = e.clientX - pointerStartX;
-  const dy = e.clientY - pointerStartY;
+  const dx = touch.clientX - pointerStartX;
+  const dy = touch.clientY - pointerStartY;
   const absDx = Math.abs(dx);
   const absDy = Math.abs(dy);
 
@@ -104,31 +116,33 @@ function handlePointerMove(e: PointerEvent) {
     if (resolvedDirection === null) {
       return;
     }
-    if (resolvedDirection === "vertical" || dx <= 0) {
+    if (resolvedDirection === "vertical") {
       resetGestureState();
       return;
     }
     gestureDirection = resolvedDirection;
   }
 
-  if (dx <= 0) {
-    resetGestureState();
-    return;
-  }
-
   const deltaTime = Math.max(e.timeStamp - lastPointerTime, 1);
-  velocityX = (e.clientX - lastPointerX) / deltaTime;
-  lastPointerX = e.clientX;
+  velocityX = (touch.clientX - lastPointerX) / deltaTime;
+  lastPointerX = touch.clientX;
   lastPointerTime = e.timeStamp;
 
-  const nextOffsetPx = getDrawerOffsetFromDrag({ deltaX: dx });
-  if (nextOffsetPx <= 0) {
+  const nextOffsetPx = getDrawerOffsetFromDrag({
+    isOpen: uiState.mobileDrawerOpen,
+    deltaX: dx,
+  });
+
+  if (!uiState.mobileDrawerOpen && nextOffsetPx <= 0) {
+    return;
+  }
+  if (uiState.mobileDrawerOpen && nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX && dx >= 0) {
     return;
   }
 
   isDragging = true;
   dragOffsetPx = nextOffsetPx;
-  gesturePhase = "dragging-open";
+  gesturePhase = uiState.mobileDrawerOpen ? "dragging-close" : "dragging-open";
 
   if (e.cancelable) {
     e.preventDefault();
@@ -136,22 +150,27 @@ function handlePointerMove(e: PointerEvent) {
 }
 
 function finalizeGesture() {
-  if (!isDragging || uiState.mobileDrawerOpen) {
+  if (!isDragging) {
     resetGestureState();
     return;
   }
 
-  const shouldOpen = shouldOpenDrawer({ offsetPx: dragOffsetPx, velocityX });
+  const shouldOpen = uiState.mobileDrawerOpen
+    ? shouldKeepDrawerOpen({ offsetPx: dragOffsetPx, velocityX })
+    : shouldOpenDrawer({ offsetPx: dragOffsetPx, velocityX });
+
   beginSettling(shouldOpen);
 }
 
-function handlePointerUp(e: PointerEvent) {
-  if (e.pointerId !== activePointerId) return;
+function handleTouchEnd(e: TouchEvent) {
+  const touch = findTrackedTouch(e.changedTouches);
+  if (!touch) return;
   finalizeGesture();
 }
 
-function handlePointerCancel(e: PointerEvent) {
-  if (e.pointerId !== activePointerId) return;
+function handleTouchCancel(e: TouchEvent) {
+  const touch = findTrackedTouch(e.changedTouches);
+  if (!touch) return;
   finalizeGesture();
 }
 
@@ -167,29 +186,29 @@ $effect(() => {
 });
 
 $effect(() => {
-  function onPointerDown(e: PointerEvent) {
-    handlePointerDown(e);
+  function onTouchStart(e: TouchEvent) {
+    handleTouchStart(e);
   }
-  function onPointerMove(e: PointerEvent) {
-    handlePointerMove(e);
+  function onTouchMove(e: TouchEvent) {
+    handleTouchMove(e);
   }
-  function onPointerUp(e: PointerEvent) {
-    handlePointerUp(e);
+  function onTouchEnd(e: TouchEvent) {
+    handleTouchEnd(e);
   }
-  function onPointerCancel(e: PointerEvent) {
-    handlePointerCancel(e);
+  function onTouchCancel(e: TouchEvent) {
+    handleTouchCancel(e);
   }
 
-  document.addEventListener("pointerdown", onPointerDown, { passive: true });
-  document.addEventListener("pointermove", onPointerMove, { passive: false });
-  document.addEventListener("pointerup", onPointerUp, { passive: true });
-  document.addEventListener("pointercancel", onPointerCancel, { passive: true });
+  document.addEventListener("touchstart", onTouchStart, { passive: true });
+  document.addEventListener("touchmove", onTouchMove, { passive: false });
+  document.addEventListener("touchend", onTouchEnd, { passive: true });
+  document.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
   return () => {
-    document.removeEventListener("pointerdown", onPointerDown);
-    document.removeEventListener("pointermove", onPointerMove);
-    document.removeEventListener("pointerup", onPointerUp);
-    document.removeEventListener("pointercancel", onPointerCancel);
+    document.removeEventListener("touchstart", onTouchStart);
+    document.removeEventListener("touchmove", onTouchMove);
+    document.removeEventListener("touchend", onTouchEnd);
+    document.removeEventListener("touchcancel", onTouchCancel);
   };
 });
 
