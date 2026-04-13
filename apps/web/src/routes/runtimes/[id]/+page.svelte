@@ -45,7 +45,7 @@ import RuntimeFileSidebar from "$lib/components/RuntimeFileSidebar.svelte";
 import RuntimeFilePane from "$lib/components/RuntimeFilePane.svelte";
 import type { RuntimeFsNode } from "$lib/runtime-fs";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
-import { type TimelineItem, toChatMessages } from "$lib/session-tree";
+import { type ChatMessage, type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { messageCache } from "$lib/stores/message-cache";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -419,6 +419,44 @@ const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
 );
 
+function isIntermediate(msg: ChatMessage): boolean {
+	if (msg.meta?.messageKind === "assistant_intermediate") return true;
+	return msg.content?.some((b) => b.type === "tool_use") ?? false;
+}
+
+function groupIntermediateMessages(items: TimelineItem[]): TimelineItem[] {
+	const result: TimelineItem[] = [];
+	let buffer: ChatMessage[] = [];
+
+	function flushBuffer() {
+		if (buffer.length === 0) return;
+		const id = `process-${buffer.map((m) => m.id).join("|")}`;
+		result.push({ id, kind: "process", messages: [...buffer] });
+		buffer = [];
+	}
+
+	for (const item of items) {
+		if (item.kind !== "message") {
+			flushBuffer();
+			result.push(item);
+			continue;
+		}
+
+		const msg = item.message;
+		if (msg.role !== "assistant" || !isIntermediate(msg)) {
+			// user/system message or assistant without tool_use → final
+			flushBuffer();
+			result.push(item);
+		} else {
+			// Intermediate assistant message → collect
+			buffer.push(msg);
+		}
+	}
+
+	flushBuffer();
+	return result;
+}
+
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
@@ -430,94 +468,101 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		}),
 	);
 
-	// Build streaming items in the correct interleaved order.
-	// Walk through raw content blocks so text → tool_use → text preserves order.
-	if (streamingContentBlocks.length > 0) {
-		let accText = "";
-		let accThinking = "";
-		const baseSequence = state.messages.at(-1)?.sequence ?? 0;
+	// During streaming: keep items flat so tool cards and streaming text
+	// render inline as they arrive. No grouping.
+	if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
+		// Build streaming items in the correct interleaved order.
+		// Walk through raw content blocks so text → tool_use → text preserves order.
+		if (streamingContentBlocks.length > 0) {
+			let accText = "";
+			let accThinking = "";
+			const baseSequence = state.messages.at(-1)?.sequence ?? 0;
 
-		function flushMessage() {
-			const trimmedText = accText.trim();
-			const trimmedThinking = accThinking.trim();
-			if (!trimmedText && !trimmedThinking) return;
+			function flushMessage() {
+				const trimmedText = accText.trim();
+				const trimmedThinking = accThinking.trim();
+				if (!trimmedText && !trimmedThinking) return;
 
-			const blocks: ContentBlock[] = [];
-			if (trimmedThinking) blocks.push({ type: "thinking", thinking: trimmedThinking });
-			if (trimmedText) blocks.push({ type: "text", text: trimmedText });
+				const blocks: ContentBlock[] = [];
+				if (trimmedThinking) blocks.push({ type: "thinking", thinking: trimmedThinking });
+				if (trimmedText) blocks.push({ type: "text", text: trimmedText });
 
+				items.push({
+					id: `assistant-streaming-seg-${items.length}`,
+					kind: "message",
+					message: {
+						id: "assistant-streaming",
+						role: "assistant",
+						content: blocks as never,
+						text: trimmedText,
+						sequence: baseSequence + 1,
+					},
+				});
+				accText = "";
+				accThinking = "";
+			}
+
+			for (const block of streamingContentBlocks) {
+				if (block.type === "thinking") {
+					accThinking += (accThinking ? "\n" : "") + block.thinking;
+				} else if (block.type === "text") {
+					accText += (accText ? "\n\n" : "") + block.text;
+				} else if (block.type === "tool_use") {
+					// Flush accumulated text/thinking before inserting tool card
+					flushMessage();
+					const meta = block._meta as
+						| { toolStatus?: string; summary?: string }
+						| undefined;
+					items.push({
+						id: `stream-tool-${block.id}`,
+						kind: "tool",
+						tool: {
+							id: block.id,
+							name: block.name,
+							input: block.input ?? {},
+							status:
+								meta?.toolStatus === "running"
+									? "running"
+									: meta?.toolStatus === "done"
+										? "done"
+										: "failed",
+							output: meta?.summary ?? "",
+						},
+					});
+				}
+			}
+
+			// Flush remaining text/thinking after the last tool
+			flushMessage();
+		} else if (streamingAssistantText.trim() || streamingThinking.trim()) {
+			// Fallback: when raw blocks aren't available yet, use the flat state
+			const contentBlocks: Array<
+				{ type: "thinking"; thinking: string } | { type: "text"; text: string }
+			> = [];
+			if (streamingThinking.trim()) {
+				contentBlocks.push({ type: "thinking", thinking: streamingThinking });
+			}
+			if (streamingAssistantText.trim()) {
+				contentBlocks.push({ type: "text", text: streamingAssistantText });
+			}
 			items.push({
-				id: `assistant-streaming-seg-${items.length}`,
+				id: "assistant-streaming",
 				kind: "message",
 				message: {
 					id: "assistant-streaming",
 					role: "assistant",
-					content: blocks as never,
-					text: trimmedText,
-					sequence: baseSequence + 1,
+					content: contentBlocks as never,
+					text: streamingAssistantText,
+					sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
 				},
 			});
-			accText = "";
-			accThinking = "";
 		}
 
-		for (const block of streamingContentBlocks) {
-			if (block.type === "thinking") {
-				accThinking += (accThinking ? "\n" : "") + block.thinking;
-			} else if (block.type === "text") {
-				accText += (accText ? "\n\n" : "") + block.text;
-			} else if (block.type === "tool_use") {
-				// Flush accumulated text/thinking before inserting tool card
-				flushMessage();
-				const meta = block._meta as
-					| { toolStatus?: string; summary?: string }
-					| undefined;
-				items.push({
-					id: `stream-tool-${block.id}`,
-					kind: "tool",
-					tool: {
-						id: block.id,
-						name: block.name,
-						input: block.input ?? {},
-						status:
-							meta?.toolStatus === "running"
-								? "running"
-								: meta?.toolStatus === "done"
-									? "done"
-									: "failed",
-						output: meta?.summary ?? "",
-					},
-				});
-			}
-		}
-
-		// Flush remaining text/thinking after the last tool
-		flushMessage();
-	} else if (streamingAssistantText.trim() || streamingThinking.trim()) {
-		// Fallback: when raw blocks aren't available yet, use the flat state
-		const contentBlocks: Array<
-			{ type: "thinking"; thinking: string } | { type: "text"; text: string }
-		> = [];
-		if (streamingThinking.trim()) {
-			contentBlocks.push({ type: "thinking", thinking: streamingThinking });
-		}
-		if (streamingAssistantText.trim()) {
-			contentBlocks.push({ type: "text", text: streamingAssistantText });
-		}
-		items.push({
-			id: "assistant-streaming",
-			kind: "message",
-			message: {
-				id: "assistant-streaming",
-				role: "assistant",
-				content: contentBlocks as never,
-				text: streamingAssistantText,
-				sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
-			},
-		});
+		return items;
 	}
 
-	return items;
+	// After streaming: group intermediate assistant messages into process cards
+	return groupIntermediateMessages(items);
 });
 
 $effect(() => {

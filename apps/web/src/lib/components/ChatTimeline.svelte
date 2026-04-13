@@ -1,5 +1,6 @@
 <script lang="ts">
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
+import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
 import { Loader2 } from "lucide-svelte";
 import type { TimelineItem } from "$lib/session-tree";
@@ -124,6 +125,8 @@ $effect(() => {
 			>
 				{#if item.kind === 'message'}
 					<ChatMessageBubble message={item.message} />
+				{:else if item.kind === 'process'}
+					<ProcessCard messages={item.messages} />
 				{:else}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}
@@ -139,6 +142,14 @@ $effect(() => {
 	}
 	/* Remove bottom margin of tool when followed by another tool */
 	:global([data-kind="tool"]:has(+ [data-kind="tool"])) {
+		margin-bottom: 0 !important;
+	}
+	/* Remove bottom margin of process card when followed by a message */
+	:global([data-kind="process"]:has(+ [data-kind="message"])) {
+		margin-bottom: 0 !important;
+	}
+	/* Remove bottom margin of message when followed by a process card */
+	:global([data-kind="message"]:has(+ [data-kind="process"])) {
 		margin-bottom: 0 !important;
 	}
 </style>

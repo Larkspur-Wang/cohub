@@ -8,6 +8,7 @@ export type ChatMessage = {
   sequence: number;
   blocks?: ContentBlock[];
   meta?: {
+    messageKind?: string | null;
     model?: string | null;
     provider?: string | null;
     usageOutput?: number | null;
@@ -34,6 +35,11 @@ export type TimelineItem =
       id: string;
       kind: "tool";
       tool: ToolState;
+    }
+  | {
+      id: string;
+      kind: "process";
+      messages: ChatMessage[];
     };
 
 export const stringifyUnknown = (value: unknown) => {
@@ -92,6 +98,7 @@ export const toChatMessages = (
     meta:
       message.role === "assistant"
         ? {
+            messageKind: (message.meta as Record<string, unknown> | null | undefined)?.messageKind as string | null,
             model: message.model,
             provider: message.provider,
             usageInput: message.usageInput,
