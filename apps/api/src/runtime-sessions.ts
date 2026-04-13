@@ -437,7 +437,7 @@ export const listRuntimeSessions = async (runtimeId: string) => {
     .select()
     .from(runtimeSessions)
     .where(eq(runtimeSessions.runtimeId, runtimeId))
-    .orderBy(asc(runtimeSessions.createdAt));
+    .orderBy(desc(runtimeSessions.createdAt));
 };
 
 export const getRuntimeSessionBootstrap = async (runtimeSessionId: string) => {

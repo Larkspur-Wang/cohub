@@ -1605,6 +1605,8 @@ onMount(() => {
 	pageMounted = true;
 	pageVisible = document.visibilityState === "visible";
 	pageOnline = typeof navigator === "undefined" ? true : navigator.onLine;
+	// Preload model catalog so the composer shows a default model immediately
+	void loadModelsCatalog();
 	void authStore.ensureLoaded().then(() => {
 		if (runtime) {
 			isOwner = runtime.userUuid === authStore.userUuid;

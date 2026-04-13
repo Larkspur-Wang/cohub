@@ -408,7 +408,7 @@ class RuntimeStore {
     next.sort((a, b) => {
       const aTime = new Date(a.updatedAt ?? a.createdAt).getTime();
       const bTime = new Date(b.updatedAt ?? b.createdAt).getTime();
-      return aTime - bTime;
+      return bTime - aTime;
     });
     this.setSessions(runtimeId, next);
   }
