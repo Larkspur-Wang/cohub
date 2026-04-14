@@ -5,7 +5,7 @@ export const MOBILE_DRAWER_DIRECTION_RATIO = 1.25;
 export const MOBILE_DRAWER_OPEN_THRESHOLD_RATIO = 0.26;
 export const MOBILE_DRAWER_CLOSE_THRESHOLD_RATIO = 0.74;
 export const MOBILE_DRAWER_FLICK_VELOCITY_PX_PER_MS = 0.35;
-export const EDGE_ZONE_RATIO = 1 / 3;
+export const EDGE_ZONE_RATIO = 2 / 5;
 
 const INTERACTIVE_SELECTORS = [
   "input",
@@ -57,7 +57,7 @@ export function shouldStartDrawerGesture(options: {
   if (otherDrawerOpen) return false;
   if (isOpen) return true;
 
-  // When closed, only allow from the left edge zone (leftmost 1/3 of screen)
+  // When closed, only allow from the left edge zone (leftmost 2/5 of screen)
   const edgeZoneEnd = viewportWidth * EDGE_ZONE_RATIO;
   if (touchStartX > edgeZoneEnd) return false;
 
@@ -124,7 +124,9 @@ export function shouldKeepDrawerOpen(options: {
 
 /**
  * Calculate drag offset for a right-side drawer.
- * Mirrors the left-drawer logic: sliding left (negative deltaX) increases offset.
+ * Natural right-drawer behavior:
+ *   - Open  → swipe RIGHT (towards edge) to close
+ *   - Closed → swipe LEFT to open
  */
 export function getRightDrawerOffsetFromDrag(options: {
   isOpen: boolean;
@@ -132,17 +134,16 @@ export function getRightDrawerOffsetFromDrag(options: {
 }) {
   const { isOpen, deltaX } = options;
   if (isOpen) {
-    // Drawer is open, deltaX left (negative) reduces offset
-    return clamp(MOBILE_DRAWER_WIDTH_PX + deltaX, 0, MOBILE_DRAWER_WIDTH_PX);
+    // Drawer is open, swipe RIGHT (positive deltaX) reduces offset → closes
+    return clamp(MOBILE_DRAWER_WIDTH_PX - deltaX, 0, MOBILE_DRAWER_WIDTH_PX);
   }
-  // Drawer is closed, deltaX left (negative) increases offset
+  // Drawer is closed, swipe LEFT (negative deltaX) increases offset → opens
   return clamp(-deltaX, 0, MOBILE_DRAWER_WIDTH_PX);
 }
 
 /**
  * Decide whether to open a right drawer based on drag offset and velocity.
- * For right drawers, positive velocityX means dragging right (away from edge),
- * so we check for negative velocity (flick left) to trigger open.
+ * For right drawers, negative velocityX means swiping left → open.
  */
 export function shouldOpenRightDrawer(options: {
   offsetPx: number;
@@ -158,6 +159,7 @@ export function shouldOpenRightDrawer(options: {
 
 /**
  * Decide whether to keep a right drawer open after drag ends.
+ * For right drawers, positive velocityX means swiping right (towards edge) → close.
  */
 export function shouldKeepRightDrawerOpen(options: {
   offsetPx: number;
@@ -173,7 +175,7 @@ export function shouldKeepRightDrawerOpen(options: {
 
 /**
  * Decide whether a right-drawer gesture should start.
- * When closed: only from the right edge region (rightmost 1/3 of screen).
+ * When closed: only from the right edge region (rightmost 2/5 of screen).
  * When open: anywhere (to allow swipe-to-close).
  * Disabled when left sidebar is open.
  */
@@ -189,7 +191,7 @@ export function shouldStartRightDrawerGesture(options: {
   if (otherDrawerOpen) return false;
   if (isOpen) return true;
 
-  // When closed, only allow from the right edge zone (rightmost 1/3)
+  // When closed, only allow from the right edge zone (rightmost 2/5)
   const edgeZoneStart = viewportWidth * (1 - EDGE_ZONE_RATIO);
   if (touchStartX < edgeZoneStart) return false;
 

@@ -2134,7 +2134,9 @@ function rightDrawerHandleTouchMove(e: TouchEvent) {
 	});
 
 	if (!uiState.mobileRightDrawerOpen && nextOffsetPx <= 0) return;
-	if (uiState.mobileRightDrawerOpen && nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX && dx >= 0) return;
+	// When open, positive deltaX (swipe right towards edge) reduces offset;
+	// negative deltaX (swipe left into screen) increases offset, capped at max.
+	if (uiState.mobileRightDrawerOpen && nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX && dx <= 0) return;
 
 	rightDrawerIsDragging = true;
 	rightDrawerDragOffsetPx = nextOffsetPx;
