@@ -1,13 +1,28 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-		<link rel="manifest" href="/manifest.webmanifest" />
-		%sveltekit.head%
-	</head>
-	<body data-sveltekit-preload-data="hover">
-		<div style="display: contents">%sveltekit.body%</div>
-	</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    %sveltekit.head%
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">%sveltekit.body%</div>
+    <script>
+      (function () {
+        const s = Storage.prototype;
+        const origR = s.removeItem.bind(localStorage);
+        const origC = s.clear.bind(localStorage);
+        s.removeItem = function (k) {
+          console.trace("[removeItem]", k);
+          return origR(k);
+        };
+        s.clear = function () {
+          console.trace("[clear]");
+          return origC();
+        };
+      })();
+    </script>
+  </body>
 </html>
