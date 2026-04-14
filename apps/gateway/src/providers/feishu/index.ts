@@ -279,30 +279,29 @@ export class FeishuProvider implements GatewayProvider {
 
     try {
       const config = await getRuntimeChannelConfig<FeishuChannelConfig>(this.channelId);
-      const renderMode = (config?.outbound?.renderMode ?? "post") as "card" | "post";
       const isFinalMessage = cmd.meta?.source === "session_persist";
+      // Per-command renderMode override; falls back to channel config, then default "post"
+      const renderMode = (cmd.meta?.renderMode ?? config?.outbound?.renderMode ?? "post") as "card" | "post";
 
       let msgType: string;
       let content: string;
+      let imageKeys: string[] = [];
 
       if (renderMode === "card") {
         msgType = "interactive";
-        const card = this.buildCard(cmd.content, {
+        const card = this.buildCard(cmd, {
           isFinal: isFinalMessage,
           showThinking: config?.outbound?.showThinking ?? false,
           showToolCalls: config?.outbound?.showToolCalls ?? false,
-          thinking: cmd.meta?.thinking as string | undefined,
-          toolCalls: cmd.meta?.toolCalls as Array<Record<string, unknown>> | undefined,
         });
         content = JSON.stringify(card);
+        imageKeys = this.extractImageKeys(cmd.content);
       } else {
         msgType = "post";
-        const text = this.buildPostText(cmd.content, {
+        const text = this.buildPostText(cmd, {
           isFinal: isFinalMessage,
           showThinking: config?.outbound?.showThinking ?? false,
           showToolCalls: config?.outbound?.showToolCalls ?? false,
-          thinking: cmd.meta?.thinking as string | undefined,
-          toolCalls: cmd.meta?.toolCalls as Array<Record<string, unknown>> | undefined,
         });
         if (!text.trim()) {
           console.log(`[Feishu:${this.channelId}] Skipping empty outbound message`);
@@ -377,6 +376,25 @@ export class FeishuProvider implements GatewayProvider {
       if (turnAnchorMessageId && messageId) {
         await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, messageId).catch(() => {});
       }
+
+      // Send images as separate messages after the card/text (Feishu doesn't support inline images)
+      if (imageKeys.length > 0 && messageId) {
+        for (const imgKey of imageKeys) {
+          try {
+            await this.client.im.message.create({
+              params: { receive_id_type: receiveIdType as "chat_id" | "open_id" | "user_id" },
+              data: {
+                receive_id: cmd.externalChatId,
+                msg_type: "image",
+                content: JSON.stringify({ image_key: imgKey }),
+              },
+            });
+          } catch {
+            console.log(`[Feishu:${this.channelId}] Failed to send image ${imgKey}`);
+          }
+        }
+      }
+
       console.log(`[Feishu:${this.channelId}] ✓ Message created: ${messageId}`);
       return { success: true, externalMessageId: messageId };
     } catch (err) {
@@ -390,31 +408,37 @@ export class FeishuProvider implements GatewayProvider {
   }
 
   private buildCard(
-    content: ContentBlock[],
+    cmd: GatewayOutboundCommand,
     opts: {
       isFinal: boolean;
       showThinking: boolean;
       showToolCalls: boolean;
-      thinking?: string;
-      toolCalls?: Array<Record<string, unknown>>;
     },
   ): Record<string, unknown> {
     const elements: Record<string, unknown>[] = [];
+    const thinking = !opts.isFinal && opts.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
+    const toolCalls = opts.showToolCalls && !opts.isFinal && Array.isArray(cmd.meta?.toolCalls)
+      ? (cmd.meta.toolCalls as Array<Record<string, unknown>>)
+      : [];
+    const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : this.extractText(cmd.content);
 
-    if (opts.showThinking && !opts.isFinal && opts.thinking?.trim()) {
-      elements.push({ tag: "markdown", content: `> ${opts.thinking.trim()}` });
+    if (thinking.trim()) {
+      elements.push({ tag: "markdown", content: `> ${thinking.trim()}` });
     }
 
-    if (opts.showToolCalls && !opts.isFinal && opts.toolCalls?.length) {
-      const lines = opts.toolCalls
-        .map((t) => `[${(t.status as string) ?? "queued"}] ${(t.toolName as string) ?? "tool"}`)
+    if (toolCalls.length > 0) {
+      const lines = toolCalls
+        .map((t) => this.buildToolLine(
+          typeof t.status === "string" ? t.status : undefined,
+          typeof t.toolName === "string" ? t.toolName : undefined,
+          typeof t.summary === "string" ? t.summary : undefined,
+        ))
         .join("\n");
       elements.push({ tag: "markdown", content: lines });
     }
 
-    const text = this.extractText(content);
-    if (text.trim()) {
-      elements.push({ tag: "markdown", content: text.trim() });
+    if (answer.trim()) {
+      elements.push({ tag: "markdown", content: answer.trim() });
     }
 
     if (!opts.isFinal) {
@@ -429,36 +453,37 @@ export class FeishuProvider implements GatewayProvider {
   }
 
   private buildPostText(
-    content: ContentBlock[],
+    cmd: GatewayOutboundCommand,
     opts: {
       isFinal: boolean;
       showThinking: boolean;
       showToolCalls: boolean;
-      thinking?: string;
-      toolCalls?: Array<Record<string, unknown>>;
     },
   ): string {
     const parts: string[] = [];
+    const thinking = !opts.isFinal && opts.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
+    const toolCalls = opts.showToolCalls && !opts.isFinal && Array.isArray(cmd.meta?.toolCalls)
+      ? (cmd.meta.toolCalls as Array<Record<string, unknown>>)
+      : [];
+    const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : this.extractText(cmd.content);
 
-    if (opts.showThinking && !opts.isFinal && opts.thinking?.trim()) {
-      parts.push(`> ${opts.thinking.trim()}`);
+    if (thinking.trim()) {
+      parts.push(`> ${thinking.trim()}`);
     }
 
-    if (opts.showToolCalls && !opts.isFinal && opts.toolCalls?.length) {
-      const lines = opts.toolCalls
-        .map((t) => `[${(t.status as string) ?? "queued"}] ${(t.toolName as string) ?? "tool"}`)
+    if (toolCalls.length > 0) {
+      const lines = toolCalls
+        .map((t) => this.buildToolLine(
+          typeof t.status === "string" ? t.status : undefined,
+          typeof t.toolName === "string" ? t.toolName : undefined,
+          typeof t.summary === "string" ? t.summary : undefined,
+        ))
         .join("\n");
       parts.push(lines);
     }
 
-    for (const block of content) {
-      if (block.type === "text") {
-        parts.push(block.text);
-      } else if (block.type === "tool_use") {
-        parts.push(`[done] ${block.name}`);
-      } else if (block.type === "system_note") {
-        parts.push(`ℹ️ ${block.text}`);
-      }
+    if (answer.trim()) {
+      parts.push(answer.trim());
     }
 
     if (!opts.isFinal) {
@@ -468,8 +493,38 @@ export class FeishuProvider implements GatewayProvider {
     return parts.join("\n").trim();
   }
 
+  private buildToolLine(status: string | undefined, toolName: string | undefined, summary: string | undefined): string {
+    const safeStatus = status ?? "queued";
+    const safeToolName = toolName ?? "tool";
+    const suffix = summary?.trim() ? ` ${summary.trim()}` : "";
+    return `[${safeStatus}] ${safeToolName}${suffix}`;
+  }
+
   private extractText(content: ContentBlock[]): string {
     return content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("\n");
+  }
+
+  private extractImageKeys(content: ContentBlock[]): string[] {
+    const keys: string[] = [];
+    for (const block of content) {
+      if (block.type === "image" && block.source.type === "url") {
+        // Extract image_key from Feishu image URL if present
+        const url = block.source.url;
+        const match = url.match(/img_v3_([a-zA-Z0-9_-]+)/);
+        if (match) keys.push(match[0]);
+      } else if (block.type === "text") {
+        // Check for image_key placeholders in text (e.g. [image:img_v3_xxx])
+        const imgPattern = /\[image:(img_v3_[a-zA-Z0-9_-]+)\]/g;
+        const matches = block.text.match(imgPattern);
+        if (matches) {
+          for (const match of matches) {
+            const key = match.slice(8, -1); // strip "[image:" and "]"
+            if (key) keys.push(key);
+          }
+        }
+      }
+    }
+    return keys;
   }
 
   public destroy() {
