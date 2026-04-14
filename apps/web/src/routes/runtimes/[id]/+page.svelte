@@ -1470,7 +1470,7 @@ function hasSessionPermission(sessionId: string): boolean {
 // ─── Collaborators ───
 
 async function loadCollaborators(force = false) {
-	if (!isOwner || loadingCollaborators) return;
+	if (!isOwner) return;
 	if (!force && collaboratorsLoaded) return;
 	loadingCollaborators = true;
 	try {
