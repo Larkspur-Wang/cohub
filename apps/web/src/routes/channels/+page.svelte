@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay, X, Box } from "lucide-svelte";
-import { createChannel, deleteChannel, getChannels, type Channel } from "$lib/api";
+import { deleteChannel, getChannels, type Channel } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
@@ -9,13 +9,6 @@ import PageHeader from "$lib/components/PageHeader.svelte";
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
-
-let isAdding = $state(false);
-let isSubmitting = $state(false);
-
-let formProvider = $state("discord");
-let formName = $state("");
-let formToken = $state("");
 
 const providerIcons: Record<string, typeof MessageSquare> = {
   discord: MessageSquare,
@@ -51,28 +44,6 @@ onMount(() => {
   loadChannels();
 });
 
-async function handleSubmit(e: Event) {
-  e.preventDefault();
-  if (!formName.trim() || !formToken.trim() || isSubmitting) return;
-
-  isSubmitting = true;
-  try {
-    await createChannel({
-      provider: formProvider,
-      name: formName.trim(),
-      credentials: { token: formToken.trim() },
-    });
-    isAdding = false;
-    formName = "";
-    formToken = "";
-    await loadChannels();
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to create channel");
-  } finally {
-    isSubmitting = false;
-  }
-}
-
 async function handleDelete(id: string) {
   if (!confirm("Are you sure you want to delete this channel?")) return;
   try {
@@ -91,79 +62,17 @@ async function handleDelete(id: string) {
       <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Channels</span>
     {/snippet}
     {#snippet right()}
-      <button
-        type="button"
+      <a
+        href="/channels/new"
         class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
-        onclick={() => isAdding = true}
       >
         <Plus class="w-3.5 h-3.5" />
         Add Channel
-      </button>
+      </a>
     {/snippet}
   </PageHeader>
 
   <div class="flex-1 p-4 overflow-y-auto">
-    <!-- Create Form -->
-    {#if isAdding}
-      <div class="mb-4 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-[13px] font-medium text-text-primary">New Channel</h2>
-          <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors">
-            <X class="w-4 h-4" />
-          </button>
-        </div>
-
-        <form onsubmit={handleSubmit} class="space-y-3">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-provider">Platform</label>
-              <select
-                id="ch-provider"
-                bind:value={formProvider}
-                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-              >
-                <option value="discord">Discord</option>
-                <option value="feishu">Feishu</option>
-                <option value="web">Web Widget</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Name</label>
-              <input
-                id="ch-name"
-                type="text"
-                bind:value={formName}
-                placeholder="Support Bot"
-                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
-                required
-              />
-            </div>
-
-            <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-token">Bot Token</label>
-              <input
-                id="ch-token"
-                type="password"
-                bind:value={formToken}
-                placeholder="Enter token..."
-                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
-                required
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? "Saving..." : "Save Channel"}
-          </button>
-        </form>
-      </div>
-    {/if}
-
     <!-- Channel List -->
     {#if isLoading}
       <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
