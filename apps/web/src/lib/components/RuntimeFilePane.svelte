@@ -61,8 +61,8 @@ const editorLanguage = $derived.by(() => {
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-bg-content">
-  <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
-    <div class="min-w-0 flex-1 truncate text-[12px] text-text-secondary">
+  <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+    <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
       {file?.path ?? "Chat"}
     </div>
     {#if file?.kind === 'text'}
@@ -73,8 +73,8 @@ const editorLanguage = $derived.by(() => {
         disabled={saving || !dirty}
         title="Save"
       >
-        <Save class="w-3.5 h-3.5" />
-        <span>Save</span>
+        <Save class="w-3.5 h-3.5 shrink-0" />
+        <span class="hidden sm:inline">Save</span>
       </button>
     {/if}
     {#if file}
@@ -97,13 +97,13 @@ const editorLanguage = $derived.by(() => {
     {:else if file.kind === 'text'}
       <div class="flex h-full min-h-0 flex-col">
         {#if isMarkdown && markdownHtml}
-          <div class="grid min-h-0 flex-1 grid-cols-2 divide-x divide-border-subtle">
+          <div class="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-2 divide-x divide-border-subtle">
             <CodeEditor
               value={draftContent}
               language={editorLanguage}
               onInput={onInput}
             />
-            <article class="preview prose prose-invert max-w-none p-4">{@html markdownHtml}</article>
+            <article class="hidden md:block preview prose prose-invert max-w-none p-4 overflow-auto">{@html markdownHtml}</article>
           </div>
         {:else}
           <CodeEditor
@@ -139,8 +139,8 @@ const editorLanguage = $derived.by(() => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border: none;
     border-radius: 6px;
     background: transparent;
@@ -150,8 +150,9 @@ const editorLanguage = $derived.by(() => {
   .action-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    height: 28px;
+    min-height: 32px;
     padding: 0 10px;
     border-radius: 6px;
     border: 1px solid var(--border-subtle);

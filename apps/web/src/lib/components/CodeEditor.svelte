@@ -64,8 +64,17 @@ function getLanguageExtension(lang: string) {
   return map[l]?.() ?? [];
 }
 
+function isMobile(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < 640;
+}
+
 function getThemeExtension(dark: boolean) {
   return dark ? githubDark : githubLight;
+}
+
+function getEditorFont(): string {
+  return isMobile() ? "15px" : "13px";
 }
 
 function resolveTheme(): boolean {
@@ -173,7 +182,7 @@ onMount(() => {
         }),
         EditorView.theme({
           "&": {
-            fontSize: "13px",
+            fontSize: getEditorFont(),
             fontFamily: "var(--font-mono, monospace)",
           },
           "&.cm-focused": {
