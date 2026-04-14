@@ -11,17 +11,11 @@
     <div style="display: contents">%sveltekit.body%</div>
     <script>
       (function () {
-        const s = Storage.prototype;
-        const origR = s.removeItem.bind(localStorage);
-        const origC = s.clear.bind(localStorage);
-        s.removeItem = function (k) {
-          console.trace("[removeItem]", k);
-          return origR(k);
-        };
-        s.clear = function () {
-          console.trace("[clear]");
-          return origC();
-        };
+        window.addEventListener("storage", function (event) {
+          if (event.key.startsWith("logto")) {
+            console.log("[storage]", event);
+          }
+        });
       })();
     </script>
   </body>
