@@ -86,6 +86,8 @@ function handleTouchStart(e: TouchEvent) {
       isOpen: uiState.mobileDrawerOpen,
       target: e.target,
       viewportWidth: window.innerWidth,
+      touchStartX: touch.clientX,
+      otherDrawerOpen: uiState.mobileRightDrawerOpen,
     })
   ) {
     return;

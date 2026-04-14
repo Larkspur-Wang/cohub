@@ -5,6 +5,28 @@ export const MOBILE_DRAWER_DIRECTION_RATIO = 1.25;
 export const MOBILE_DRAWER_OPEN_THRESHOLD_RATIO = 0.26;
 export const MOBILE_DRAWER_CLOSE_THRESHOLD_RATIO = 0.74;
 export const MOBILE_DRAWER_FLICK_VELOCITY_PX_PER_MS = 0.35;
+export const EDGE_ZONE_RATIO = 1 / 3;
+
+const INTERACTIVE_SELECTORS = [
+  "input",
+  "textarea",
+  "select",
+  "button",
+  "a",
+  "label",
+  "summary",
+  "[contenteditable='true']",
+  "[data-drawer-swipe-ignore]",
+].join(", ");
+
+/**
+ * Check if the touch target is inside an interactive element.
+ */
+export function isTouchOnInteractive(target: EventTarget | null): boolean {
+  const element = target instanceof Element ? target : null;
+  if (!element) return false;
+  return !!element.closest(INTERACTIVE_SELECTORS);
+}
 
 export type DrawerGesturePhase =
   | "idle"
@@ -27,27 +49,20 @@ export function shouldStartDrawerGesture(options: {
   isOpen: boolean;
   target: EventTarget | null;
   viewportWidth: number;
+  touchStartX: number;
+  otherDrawerOpen: boolean;
 }) {
-  const { isOpen, target, viewportWidth } = options;
+  const { isOpen, target, viewportWidth, touchStartX, otherDrawerOpen } = options;
   if (viewportWidth >= 1024) return false;
+  if (otherDrawerOpen) return false;
   if (isOpen) return true;
 
-  const element = target instanceof Element ? target : null;
-  if (!element) return true;
+  // When closed, only allow from the left edge zone (leftmost 1/3 of screen)
+  const edgeZoneEnd = viewportWidth * EDGE_ZONE_RATIO;
+  if (touchStartX > edgeZoneEnd) return false;
 
-  return !element.closest(
-    [
-      "input",
-      "textarea",
-      "select",
-      "button",
-      "a",
-      "label",
-      "summary",
-      "[contenteditable='true']",
-      "[data-drawer-swipe-ignore]",
-    ].join(", "),
-  );
+  if (isTouchOnInteractive(target)) return false;
+  return true;
 }
 
 export function resolveDrawerGestureDirection(options: {
@@ -158,37 +173,26 @@ export function shouldKeepRightDrawerOpen(options: {
 
 /**
  * Decide whether a right-drawer gesture should start.
- * When closed: only from the right edge region (rightmost 30% of screen).
- * When open: anywhere.
+ * When closed: only from the right edge region (rightmost 1/3 of screen).
+ * When open: anywhere (to allow swipe-to-close).
+ * Disabled when left sidebar is open.
  */
 export function shouldStartRightDrawerGesture(options: {
   isOpen: boolean;
   target: EventTarget | null;
   viewportWidth: number;
   touchStartX: number;
+  otherDrawerOpen: boolean;
 }) {
-  const { isOpen, target, viewportWidth, touchStartX } = options;
+  const { isOpen, target, viewportWidth, touchStartX, otherDrawerOpen } = options;
   if (viewportWidth >= 1024) return false;
+  if (otherDrawerOpen) return false;
   if (isOpen) return true;
 
-  // When closed, only allow from the right edge zone (rightmost 30%)
-  const edgeZoneStart = viewportWidth * 0.7;
+  // When closed, only allow from the right edge zone (rightmost 1/3)
+  const edgeZoneStart = viewportWidth * (1 - EDGE_ZONE_RATIO);
   if (touchStartX < edgeZoneStart) return false;
 
-  const element = target instanceof Element ? target : null;
-  if (!element) return true;
-
-  return !element.closest(
-    [
-      "input",
-      "textarea",
-      "select",
-      "button",
-      "a",
-      "label",
-      "summary",
-      "[contenteditable='true']",
-      "[data-drawer-swipe-ignore]",
-    ].join(", "),
-  );
+  if (isTouchOnInteractive(target)) return false;
+  return true;
 }
