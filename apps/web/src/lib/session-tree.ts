@@ -7,6 +7,9 @@ export type ChatMessage = {
   text: string;
   sequence: number;
   blocks?: ContentBlock[];
+  authorUuid?: string | null;
+  authorName?: string | null;
+  authorAvatar?: string | null;
   meta?: {
     messageKind?: string | null;
     model?: string | null;
@@ -88,23 +91,29 @@ export const renderToolPreview = (
 export const toChatMessages = (
   messages: MessageRecord[],
 ): ChatMessage[] => {
-  return messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    text: message.text ?? "",
-    sequence: message.sequence,
-    blocks: [...(message.content ?? [])],
-    meta:
-      message.role === "assistant"
-        ? {
-            messageKind: (message.meta as Record<string, unknown> | null | undefined)?.messageKind as string | null,
-            model: message.model,
-            provider: message.provider,
-            usageInput: message.usageInput,
-            usageOutput: message.usageOutput,
-            costTotal: message.costTotal,
-          }
-        : undefined,
-  } satisfies ChatMessage));
+  return messages.map((message) => {
+    const msgMeta = message.meta as Record<string, unknown> | null | undefined;
+    return {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      text: message.text ?? "",
+      sequence: message.sequence,
+      blocks: [...(message.content ?? [])],
+      authorUuid: (msgMeta?.authorUuid as string | undefined) ?? null,
+      authorName: (msgMeta?.authorName as string | undefined) ?? null,
+      authorAvatar: (msgMeta?.authorAvatar as string | undefined) ?? null,
+      meta:
+        message.role === "assistant"
+          ? {
+              messageKind: msgMeta?.messageKind as string | null,
+              model: message.model,
+              provider: message.provider,
+              usageInput: message.usageInput,
+              usageOutput: message.usageOutput,
+              costTotal: message.costTotal,
+            }
+          : undefined,
+    } satisfies ChatMessage;
+  });
 };

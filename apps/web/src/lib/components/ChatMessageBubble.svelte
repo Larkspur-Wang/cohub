@@ -319,6 +319,19 @@ $effect(() => {
         </div>
       {/if}
 
+      {#if message.role === 'user' && message.authorName}
+        <div class="mt-2 flex items-center gap-1.5 justify-end">
+          {#if message.authorAvatar}
+            <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full" />
+          {:else}
+            <span class="w-4 h-4 rounded-full bg-brand/20 flex items-center justify-center text-[9px] text-brand font-medium">
+              {message.authorName.charAt(0).toUpperCase()}
+            </span>
+          {/if}
+          <span class="text-[11px] text-text-placeholder/60">{message.authorName}</span>
+        </div>
+      {/if}
+
 
     </div>
   </div>
