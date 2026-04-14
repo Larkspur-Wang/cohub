@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { serve } from "@hono/node-server";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
@@ -17,6 +18,7 @@ import {
   moveRuntimeNode,
   readRuntimeFile,
   runtimeFsJsonError,
+  streamRuntimeFile,
   writeRuntimeFile,
 } from "./runtime-fs.js";
 import { assertRequiredConfig, config } from "./config.js";
@@ -1295,6 +1297,30 @@ app.post("/api/runtimes/:id/fs/move", async (c) => {
       toPath: body.toPath,
     });
     return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);
+  }
+});
+
+app.get("/api/runtimes/:id/fs/download", async (c) => {
+  const user = c.get("authUser");
+  const runtimeId = c.req.param("id");
+  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
+
+  if (!await canWrite(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  try {
+    const path = c.req.query("path") ?? "";
+    const info = await streamRuntimeFile(runtimeId, path);
+    const buffer = await readFile(info.target);
+    const fileName = encodeURIComponent(info.name).replace(/['()]/g, escape).replace(/\*/g, "%2A");
+    c.header("Content-Disposition", `attachment; filename="${info.name}"; filename*=UTF-8''${fileName}`);
+    c.header("Content-Type", info.mimeType || "application/octet-stream");
+    c.header("Content-Length", String(info.size));
+    return c.body(buffer);
   } catch (error) {
     const { status, body } = runtimeFsJsonError(error);
     return c.json(body, status as 400 | 404 | 409 | 413 | 500 | 503);

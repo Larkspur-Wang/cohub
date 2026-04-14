@@ -623,6 +623,27 @@ export const getRuntimeFsFile = async (
   }) as Promise<RuntimeFsFileResponse>;
 };
 
+export const getRuntimeFsDownloadUrl = (
+  runtimeId: string,
+  path: string,
+): string => {
+  const params = new URLSearchParams({ path });
+  return `/api/runtimes/${runtimeId}/fs/download?${params.toString()}`;
+};
+
+export const triggerRuntimeFsDownload = (
+  runtimeId: string,
+  path: string,
+) => {
+  const url = getRuntimeFsDownloadUrl(runtimeId, path);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = path.split("/").pop() ?? "download";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 export const putRuntimeFsFile = async (
   runtimeId: string,
   input: RuntimeFsWriteFileInput,

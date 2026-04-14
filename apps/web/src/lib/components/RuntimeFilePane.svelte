@@ -1,7 +1,7 @@
 <script lang="ts">
 import { renderMarkdown } from "$lib/markdown";
 import type { RuntimeFsFileResponse } from "$lib/api";
-import { FileWarning, Save, X } from "lucide-svelte";
+import { Eye, FileWarning, Pencil, Save, X, Download } from "lucide-svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 
 const {
@@ -14,6 +14,8 @@ const {
   onInput,
   onSave,
   onClose,
+  onDownload,
+  downloadUrl,
   children,
 }: {
   file: RuntimeFsFileResponse | null;
@@ -25,10 +27,13 @@ const {
   onInput: (value: string) => void;
   onSave: () => void;
   onClose: () => void;
+  onDownload?: () => void;
+  downloadUrl?: string;
   children?: import("svelte").Snippet;
 } = $props();
 
 let markdownHtml = $state("");
+let fileEdit = $state(true);
 
 $effect(() => {
   const current = file;
@@ -41,6 +46,10 @@ $effect(() => {
   }).catch(() => {
     markdownHtml = "";
   });
+});
+
+$effect(() => {
+  if (file) fileEdit = true;
 });
 
 const dataUrl = $derived.by(() => {
@@ -65,6 +74,28 @@ const editorLanguage = $derived.by(() => {
     <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
       {file?.path ?? "Chat"}
     </div>
+    {#if isMarkdown}
+      <button
+        type="button"
+        class="toggle-btn"
+        class:active={!fileEdit}
+        onclick={() => fileEdit = false}
+        title="Preview"
+      >
+        <Eye class="w-3.5 h-3.5" />
+        <span class="hidden sm:inline">Preview</span>
+      </button>
+      <button
+        type="button"
+        class="toggle-btn"
+        class:active={fileEdit}
+        onclick={() => fileEdit = true}
+        title="Edit"
+      >
+        <Pencil class="w-3.5 h-3.5" />
+        <span class="hidden sm:inline">Edit</span>
+      </button>
+    {/if}
     {#if file?.kind === 'text'}
       <button
         type="button"
@@ -75,6 +106,20 @@ const editorLanguage = $derived.by(() => {
       >
         <Save class="w-3.5 h-3.5 shrink-0" />
         <span class="hidden sm:inline">Save</span>
+      </button>
+    {/if}
+    {#if downloadUrl}
+      <a
+        href={downloadUrl}
+        download
+        class="icon-btn"
+        title="Download file"
+      >
+        <Download class="w-4 h-4" />
+      </a>
+    {:else if onDownload}
+      <button type="button" class="icon-btn" onclick={onDownload} title="Download file">
+        <Download class="w-4 h-4" />
       </button>
     {/if}
     {#if file}
@@ -95,24 +140,21 @@ const editorLanguage = $derived.by(() => {
     {:else if !file}
       {@render children?.()}
     {:else if file.kind === 'text'}
-      <div class="flex h-full min-h-0 flex-col">
-        {#if isMarkdown && markdownHtml}
-          <div class="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-2 divide-x divide-border-subtle">
-            <CodeEditor
-              value={draftContent}
-              language={editorLanguage}
-              onInput={onInput}
-            />
-            <article class="hidden md:block preview prose prose-invert max-w-none p-4 overflow-auto">{@html markdownHtml}</article>
-          </div>
-        {:else}
-          <CodeEditor
-            value={draftContent}
-            language={editorLanguage}
-            onInput={onInput}
-          />
-        {/if}
-      </div>
+      {#if fileEdit}
+        <CodeEditor
+          value={draftContent}
+          language={editorLanguage}
+          onInput={onInput}
+        />
+      {:else if isMarkdown && markdownHtml}
+        <article class="markdown-preview">{@html markdownHtml}</article>
+      {:else}
+        <CodeEditor
+          value={draftContent}
+          language={editorLanguage}
+          readonly={true}
+        />
+      {/if}
     {:else if isImage && dataUrl}
       <div class="flex h-full items-center justify-center p-4">
         <img src={dataUrl} alt={file.name} class="max-h-full max-w-full rounded-md border border-border-subtle object-contain" />
@@ -161,7 +203,109 @@ const editorLanguage = $derived.by(() => {
     font-size: 12px;
   }
   .action-btn:disabled { opacity: 0.5; }
-  .preview {
+  .toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 28px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+  .toggle-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .toggle-btn.active {
+    border-color: var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .markdown-preview {
+    height: 100%;
     overflow: auto;
+    padding: 20px 24px;
+    max-width: 860px;
+    margin: 0 auto;
+    line-height: 1.7;
+    font-size: 14px;
+  }
+  .markdown-preview :global(h1) {
+    font-size: 1.8em;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 0.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .markdown-preview :global(h2) {
+    font-size: 1.4em;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+  .markdown-preview :global(h3) {
+    font-size: 1.15em;
+    font-weight: 600;
+    margin-top: 1.2em;
+    margin-bottom: 0.4em;
+  }
+  .markdown-preview :global(p) { margin-bottom: 1em; }
+  .markdown-preview :global(code) {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    font-size: 0.9em;
+    font-family: var(--font-mono, monospace);
+  }
+  .markdown-preview :global(pre) {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 16px;
+    overflow: auto;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(pre code) {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .markdown-preview :global(ul),
+  .markdown-preview :global(ol) {
+    padding-left: 1.5em;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(li) { margin-bottom: 0.3em; }
+  .markdown-preview :global(blockquote) {
+    border-left: 3px solid var(--border-subtle);
+    padding-left: 1em;
+    color: var(--text-tertiary);
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(img) {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 0.5em 0;
+  }
+  .markdown-preview :global(a) { color: var(--brand, #58a6ff); }
+  .markdown-preview :global(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(th),
+  .markdown-preview :global(td) {
+    border: 1px solid var(--border-subtle);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .markdown-preview :global(th) {
+    background: var(--bg-hover);
+    font-weight: 600;
   }
 </style>

@@ -85,8 +85,10 @@ function getMimeType(path: string) {
 
 function isTextMime(mimeType: string | null, path: string) {
   if (!mimeType) {
-    const lower = basename(path).toLowerCase();
-    return ["dockerfile", "makefile", "license", "readme"].includes(lower) || lower.startsWith(".env");
+    // Unknown MIME type: treat as text by default.
+    // Most extensionless config files (.gitignore, .editorconfig, .dockerignore,
+    // Procfile, etc.) are plain text and should be editable.
+    return true;
   }
   return (
     mimeType.startsWith("text/") ||
@@ -241,6 +243,35 @@ export async function readRuntimeFile(runtimeId: string, path: string): Promise<
     kind,
     encoding: kind === "text" ? "utf-8" : "base64",
     content: kind === "text" ? buffer.toString("utf8") : buffer.toString("base64"),
+  };
+}
+
+export async function streamRuntimeFile(runtimeId: string, path: string): Promise<{
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  target: string;
+}> {
+  const { target, relativePath } = await resolveTarget(runtimeId, path);
+  let stats: Stats;
+  try {
+    stats = await lstat(target);
+  } catch {
+    throw new RuntimeFsError(404, "path_not_found", "File or directory not found.");
+  }
+  if (stats.isSymbolicLink()) {
+    throw new RuntimeFsError(400, "symlink_not_supported", "Symlink download is not supported.");
+  }
+  if (!stats.isFile()) {
+    throw new RuntimeFsError(400, "not_a_file", "The selected path is not a file.");
+  }
+  return {
+    path: relativePath,
+    name: basename(target),
+    size: stats.size,
+    mimeType: getMimeType(target),
+    target,
   };
 }
 

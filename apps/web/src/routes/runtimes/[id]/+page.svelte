@@ -43,8 +43,11 @@ import ModelSelector from "$lib/components/ModelSelector.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import RuntimeFileSidebar from "$lib/components/RuntimeFileSidebar.svelte";
+import CodeEditor from "$lib/components/CodeEditor.svelte";
 import type { RuntimeFsNode } from "$lib/runtime-fs";
+import { renderMarkdown } from "$lib/markdown";
 import { getRuntimeStatusMeta } from "$lib/runtime-status";
+import { triggerRuntimeFsDownload } from "$lib/api";
 import { type ChatMessage, type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { messageCache } from "$lib/stores/message-cache";
@@ -69,6 +72,8 @@ import {
 	Brain,
 	Check,
 	Copy,
+	Download,
+	Eye,
 	Globe,
 	Hash,
 	Loader2,
@@ -77,8 +82,10 @@ import {
 	MoreVertical,
 	PanelRightClose,
 	PanelRightOpen,
+	Pencil,
 	Plus,
 	Power,
+	Save,
 	Settings,
 	Share2,
 	Terminal,
@@ -383,6 +390,9 @@ let openFileDraft = $state("");
 let openFileLoading = $state(false);
 let openFileSaving = $state(false);
 let openFileError = $state<string | null>(null);
+let fileEdit = $state(true);
+let fileMarkdownHtml = $state("");
+let openFileTooLarge = $state(false);
 
 async function handleHibernate() {
 	if (!confirm("Hibernate this runtime? The sandbox pod will be stopped."))
@@ -851,6 +861,33 @@ async function handleDeleteNode(node: RuntimeFsNode) {
 
 const fileDirty = $derived(Boolean(openFile && openFile.kind === "text" && openFileDraft !== openFile.content));
 
+const openFileIsMarkdown = $derived(Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)));
+const openFileExt = $derived.by(() => {
+	if (!openFile || openFile.kind !== "text") return "plaintext";
+	return openFile.name.split(".").pop()?.toLowerCase() ?? "plaintext";
+});
+const openFileIsImage = $derived(Boolean(openFile?.mimeType?.startsWith("image/")));
+const openFileIsVideo = $derived(Boolean(openFile?.mimeType?.startsWith("video/")));
+const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
+const openFileDownloadUrl = $derived.by(() => {
+	if (!urlFilePath) return "";
+	return `/api/runtimes/${runtimeId}/fs/download?path=${encodeURIComponent(urlFilePath)}`;
+});
+
+// Render markdown preview when file is markdown
+$effect(() => {
+	const current = openFile;
+	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
+		fileMarkdownHtml = "";
+		return;
+	}
+	void renderMarkdown(current.content).then((html) => {
+		if (openFile?.path === current.path) fileMarkdownHtml = html;
+	}).catch(() => {
+		fileMarkdownHtml = "";
+	});
+});
+
 async function handleFileSelect(node: RuntimeFsNode) {
 	if (node.type !== "file") {
 		await expandDirectory(node);
@@ -875,16 +912,26 @@ $effect(() => {
 		void (async () => {
 			openFileLoading = true;
 			openFileError = null;
+			openFileTooLarge = false;
 			try {
 				const file = await getRuntimeFsFile(runtimeId, path);
 				if (urlFilePath !== path) return;
 				openFile = file;
 				openFileDraft = file.kind === "text" ? file.content : "";
+				fileEdit = true;
 			} catch (error) {
 				if (urlFilePath !== path) return;
-				openFile = null;
-				openFileDraft = "";
-				openFileError = error instanceof Error ? error.message : "Failed to open file";
+				const msg = error instanceof Error ? error.message : "";
+				// Detect file_too_large error (API returns 413 with code "file_too_large")
+				if (msg.includes("file_too_large")) {
+					openFileTooLarge = true;
+					openFileError = null;
+				} else {
+					openFile = null;
+					openFileDraft = "";
+					openFileError = error instanceof Error ? error.message : "Failed to open file";
+					openFileTooLarge = false;
+				}
 			} finally {
 				if (urlFilePath === path) {
 					openFileLoading = false;
@@ -895,8 +942,16 @@ $effect(() => {
 		openFile = null;
 		openFileDraft = "";
 		openFileError = null;
+		openFileTooLarge = false;
+		fileMarkdownHtml = "";
 	}
 });
+
+function closeFile() {
+	const params = new URLSearchParams(page.url.searchParams);
+	params.delete("file");
+	void goto(`/runtimes/${runtimeId}?${params.toString()}`, { replaceState: true });
+}
 
 function handleFileInput(value: string) {
 	openFileDraft = value;
@@ -2691,29 +2746,177 @@ $effect(() => {
         <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
           {openFileError}
         </div>
+      {:else if openFileTooLarge}
+        <!-- File too large: show info + download -->
+        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+            <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+              {urlFilePath}
+            </div>
+            <a
+              href={openFileDownloadUrl}
+              download
+              class="download-btn"
+              title="Download file"
+            >
+              <Download class="w-3.5 h-3.5 shrink-0" />
+              <span class="hidden sm:inline">Download</span>
+            </a>
+            <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="flex-1 flex items-center justify-center">
+            <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
+              <div class="text-[40px] mb-3">📦</div>
+              <div class="text-[14px] font-semibold text-text-primary mb-1">File too large to preview</div>
+              <div class="text-[12px] text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
+              <a
+                href={openFileDownloadUrl}
+                download
+                class="download-btn primary"
+              >
+                <Download class="w-3.5 h-3.5" />
+                Download file
+              </a>
+            </div>
+          </div>
+        </div>
       {:else if openFile}
         {@const dataUrl = openFile.kind === 'binary' ? `data:${openFile.mimeType ?? 'application/octet-stream'};base64,${openFile.content}` : null}
-        {@const isImage = openFile.mimeType?.startsWith('image/')}
-        {@const isVideo = openFile.mimeType?.startsWith('video/')}
         <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {#if openFile.kind === 'text'}
-            <textarea
-              class="flex-1 min-h-0 w-full resize-none bg-transparent p-4 text-[12px] leading-relaxed outline-none font-mono"
-              value={openFileDraft}
-              spellcheck="false"
-              oninput={(e) => openFileDraft = (e.currentTarget as HTMLTextAreaElement).value}
-            ></textarea>
-          {:else if isImage && dataUrl}
+          {#if openFileIsText}
+            <!-- Text file: toolbar with edit/preview toggle + save/close -->
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              {#if openFileIsMarkdown}
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  class:active={!fileEdit}
+                  onclick={() => fileEdit = false}
+                  title="Preview"
+                >
+                  <Eye class="w-3.5 h-3.5" />
+                  <span class="hidden sm:inline">Preview</span>
+                </button>
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  class:active={fileEdit}
+                  onclick={() => fileEdit = true}
+                  title="Edit"
+                >
+                  <Pencil class="w-3.5 h-3.5" />
+                  <span class="hidden sm:inline">Edit</span>
+                </button>
+              {/if}
+              <a
+                href={openFileDownloadUrl}
+                download
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button
+                type="button"
+                class="action-btn"
+                onclick={saveOpenFile}
+                disabled={openFileSaving || !fileDirty}
+                title="Save (Ctrl+S)"
+              >
+                <Save class="w-3.5 h-3.5 shrink-0" />
+                <span class="hidden sm:inline">Save</span>
+              </button>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex-1 min-h-0">
+              {#if fileEdit}
+                <CodeEditor
+                  value={openFileDraft}
+                  language={openFileExt}
+                  onInput={(v) => openFileDraft = v}
+                />
+              {:else if openFileIsMarkdown && fileMarkdownHtml}
+                <article class="markdown-preview">{@html fileMarkdownHtml}</article>
+              {:else}
+                <CodeEditor
+                  value={openFileDraft}
+                  language={openFileExt}
+                  readonly={true}
+                />
+              {/if}
+            </div>
+          {:else if openFileIsImage && dataUrl}
+            <!-- Image: info toolbar + image preview -->
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <a
+                href={openFileDownloadUrl}
+                download
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
             <div class="flex flex-1 items-center justify-center p-4">
               <img src={dataUrl} alt={openFile.name} class="max-h-full max-w-full rounded-md object-contain" />
             </div>
-          {:else if isVideo && dataUrl}
+          {:else if openFileIsVideo && dataUrl}
+            <!-- Video: info toolbar + video preview -->
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <a
+                href={openFileDownloadUrl}
+                download
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
             <div class="flex flex-1 items-center justify-center p-4">
               <video src={dataUrl} controls class="max-h-full max-w-full rounded-md">
                 <track kind="captions" />
               </video>
             </div>
           {:else}
+            <!-- Binary/unknown: info toolbar + fallback -->
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <a
+                href={openFileDownloadUrl}
+                download
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
             <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-[12px] text-text-secondary">
               <div><strong>Name:</strong> {openFile.name}</div>
               <div><strong>Type:</strong> {openFile.mimeType ?? 'application/octet-stream'}</div>
@@ -3219,5 +3422,159 @@ $effect(() => {
   :global(body.sidebar-resizing) {
     cursor: col-resize;
     user-select: none;
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-tertiary);
+    text-decoration: none;
+  }
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+  .action-btn:disabled { opacity: 0.5; }
+  .toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 28px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+  .toggle-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .toggle-btn.active {
+    border-color: var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .download-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .download-btn:hover { background: var(--bg-hover-strong); color: var(--text-primary); }
+  .download-btn.primary {
+    background: var(--brand, #58a6ff);
+    border-color: var(--brand, #58a6ff);
+    color: #fff;
+  }
+  .download-btn.primary:hover { opacity: 0.9; }
+  .markdown-preview {
+    height: 100%;
+    overflow: auto;
+    padding: 20px 24px;
+    max-width: 860px;
+    margin: 0 auto;
+    line-height: 1.7;
+    font-size: 14px;
+  }
+  .markdown-preview :global(h1) {
+    font-size: 1.8em;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 0.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .markdown-preview :global(h2) {
+    font-size: 1.4em;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+  .markdown-preview :global(h3) {
+    font-size: 1.15em;
+    font-weight: 600;
+    margin-top: 1.2em;
+    margin-bottom: 0.4em;
+  }
+  .markdown-preview :global(p) { margin-bottom: 1em; }
+  .markdown-preview :global(code) {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    font-size: 0.9em;
+    font-family: var(--font-mono, monospace);
+  }
+  .markdown-preview :global(pre) {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 16px;
+    overflow: auto;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(pre code) {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .markdown-preview :global(ul),
+  .markdown-preview :global(ol) {
+    padding-left: 1.5em;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(li) { margin-bottom: 0.3em; }
+  .markdown-preview :global(blockquote) {
+    border-left: 3px solid var(--border-subtle);
+    padding-left: 1em;
+    color: var(--text-tertiary);
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(img) {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 0.5em 0;
+  }
+  .markdown-preview :global(a) { color: var(--brand, #58a6ff); }
+  .markdown-preview :global(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(th),
+  .markdown-preview :global(td) {
+    border: 1px solid var(--border-subtle);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .markdown-preview :global(th) {
+    background: var(--bg-hover);
+    font-weight: 600;
   }
 </style>
