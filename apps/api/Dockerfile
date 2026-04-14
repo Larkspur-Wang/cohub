@@ -25,8 +25,9 @@ COPY apps/api/package.json ./apps/api/package.json
 
 # Install production deps for @cohub/api
 # Use hoisted linker to make runtime copy simpler (no pnpm needed in runtime image)
+# --ignore-scripts to skip "prepare" (husky) which needs devDependencies
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --prod --filter @cohub/api...
+  && pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/api...
 
 # ============================================
 # Stage 2: build
@@ -40,8 +41,9 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY apps/api/package.json ./apps/api/package.json
 
 # Install full deps (build needs dev deps like typescript)
+# --ignore-scripts to skip "prepare" (husky) — no git in Docker
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --filter @cohub/api...
+  && pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
 
 # Copy protocol source and build runtime JS output
 COPY packages/protocol ./packages/protocol

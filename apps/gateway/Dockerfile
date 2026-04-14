@@ -25,7 +25,7 @@ COPY apps/gateway/package.json ./apps/gateway/package.json
 
 # Install production deps
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --prod --filter @cohub/gateway...
+  && pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/gateway...
 
 # ============================================
 # Stage 2: build
@@ -38,7 +38,7 @@ COPY apps/gateway/package.json ./apps/gateway/package.json
 
 # Install full deps (build needs dev deps like typescript)
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --filter @cohub/gateway...
+  && pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway...
 
 COPY packages/protocol ./packages/protocol
 COPY apps/gateway/src ./apps/gateway/src

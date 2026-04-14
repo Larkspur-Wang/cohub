@@ -22,7 +22,7 @@ COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --prod --filter @cohub/worker...
+  && pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/worker...
 
 # ============================================
 # Stage 2: build
@@ -36,7 +36,7 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY apps/worker/package.json ./apps/worker/package.json
 
 RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --filter @cohub/worker...
+  && pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker...
 
 # Copy protocol source and build
 COPY packages/protocol ./packages/protocol
