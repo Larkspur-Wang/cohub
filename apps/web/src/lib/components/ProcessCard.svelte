@@ -5,26 +5,14 @@ import type { ChatMessage } from "$lib/session-tree";
 
 type Props = {
 	messages: ChatMessage[];
-	isStreaming?: boolean;
 };
 
-const { messages, isStreaming = false }: Props = $props();
+const { messages }: Props = $props();
 
 let expanded = $state(false);
-let userToggled = $state(false);
-
-// Auto-expand during streaming, auto-collapse after (unless user toggled)
-$effect(() => {
-	if (isStreaming && !userToggled) {
-		expanded = true;
-	} else if (!isStreaming && !userToggled) {
-		expanded = false;
-	}
-});
 
 function toggle() {
 	expanded = !expanded;
-	userToggled = true;
 }
 
 const toolCallCount = $derived(

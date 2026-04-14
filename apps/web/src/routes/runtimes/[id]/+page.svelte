@@ -596,7 +596,9 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 				});
 			}
 
-			return groupedHistory;
+			// Group all items (including streaming) so process cards stay collapsed
+			// by default and the summary numbers update as messages arrive
+			return groupIntermediateMessages(groupedHistory);
 		}
 
 		// Not streaming: group the streaming portion too
