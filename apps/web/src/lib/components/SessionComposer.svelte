@@ -175,7 +175,7 @@ $effect(() => {
 						oninput={() => resizeTextarea()}
 						onpaste={handlePaste}
 						onkeydown={(event) => {
-							if (event.key === 'Enter' && !event.shiftKey) {
+							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 								event.preventDefault();
 								if (!disabled && (value.trim() || attachments.length > 0)) {
 									onsubmit();
