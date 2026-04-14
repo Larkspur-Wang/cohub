@@ -895,6 +895,10 @@ const openFileDownloadUrl = $derived.by(() => {
 	if (!urlFilePath) return "";
 	return `/api/runtimes/${runtimeId}/fs/download?path=${encodeURIComponent(urlFilePath)}`;
 });
+const openFileDownloadName = $derived.by(() => {
+	if (!urlFilePath) return "";
+	return urlFilePath.split("/").pop() ?? "download";
+});
 
 // Render markdown preview when file is markdown
 $effect(() => {
@@ -2790,7 +2794,7 @@ $effect(() => {
             </div>
             <a
               href={openFileDownloadUrl}
-              download
+              download={openFileDownloadName}
               class="download-btn"
               title="Download file"
             >
@@ -2808,7 +2812,7 @@ $effect(() => {
               <div class="text-[12px] text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
               <a
                 href={openFileDownloadUrl}
-                download
+                download={openFileDownloadName}
                 class="download-btn primary"
               >
                 <Download class="w-3.5 h-3.5" />
@@ -2850,7 +2854,7 @@ $effect(() => {
               {/if}
               <a
                 href={openFileDownloadUrl}
-                download
+                download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
               >
@@ -2896,7 +2900,7 @@ $effect(() => {
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
               <a
                 href={openFileDownloadUrl}
-                download
+                download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
               >
@@ -2918,7 +2922,7 @@ $effect(() => {
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
               <a
                 href={openFileDownloadUrl}
-                download
+                download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
               >
@@ -2942,7 +2946,7 @@ $effect(() => {
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
               <a
                 href={openFileDownloadUrl}
-                download
+                download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
               >

@@ -111,7 +111,7 @@ const editorLanguage = $derived.by(() => {
     {#if downloadUrl}
       <a
         href={downloadUrl}
-        download
+        download={file?.name}
         class="icon-btn"
         title="Download file"
       >
