@@ -2598,12 +2598,14 @@ $effect(() => {
     <div class="flex items-center gap-2 min-w-0">
       <Terminal class="w-3.5 h-3.5 text-text-tertiary shrink-0 hidden sm:block" />
       <span class="text-[13px] text-text-primary truncate">{runtime?.title || runtime?.id || runtimeId}</span>
-      <div class="hidden md:flex items-center gap-1.5 ml-1 px-1.5 py-0.5 rounded-sm bg-bg-hover border border-border-subtle shrink-0">
-        <div class="w-[5px] h-[5px] rounded-full bg-current {getRuntimeStatusMeta(runtime?.status ?? 'unknown').textColorClass}"></div>
-        <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
-          {runtime?.status ?? "unknown"}
-        </span>
-      </div>
+      {#if runtime}
+        <div class="hidden md:flex items-center gap-1.5 ml-1 px-1.5 py-0.5 rounded-sm bg-bg-hover border border-border-subtle shrink-0">
+          <div class="w-[5px] h-[5px] rounded-full bg-current {getRuntimeStatusMeta(runtime.status).textColorClass}"></div>
+          <span class="text-[10px] uppercase tracking-wider font-medium text-text-secondary">
+            {runtime.status}
+          </span>
+        </div>
+      {/if}
     </div>
   {/snippet}
   {#snippet right()}
