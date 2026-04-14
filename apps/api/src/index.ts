@@ -305,7 +305,8 @@ type Variables = { token: string | null; authUser: AuthUserProfile | null };
 const app = new Hono<{ Variables: Variables }>();
 
 const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ||
+  /^[0-9a-f]{32}$/i.test(value);
 const requireValidId = (id: string) => isUuid(id);
 const ensureInternalRequest = (c: Context<{ Variables: Variables }>) => {
   // Priority: Worker Secret header (timing-safe comparison)
