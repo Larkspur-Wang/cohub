@@ -2,6 +2,7 @@
 import { renderMarkdown } from "$lib/markdown";
 import type { RuntimeFsFileResponse } from "$lib/api";
 import { FileWarning, Save, X } from "lucide-svelte";
+import CodeEditor from "$lib/components/CodeEditor.svelte";
 
 const {
   file,
@@ -51,6 +52,12 @@ const dataUrl = $derived.by(() => {
 const isImage = $derived(Boolean(file?.mimeType?.startsWith("image/")));
 const isVideo = $derived(Boolean(file?.mimeType?.startsWith("video/")));
 const isMarkdown = $derived(Boolean(file?.kind === "text" && /\.md$/i.test(file.path)));
+
+const editorLanguage = $derived.by(() => {
+  if (!file || file.kind !== "text") return "plaintext";
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return ext;
+});
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-bg-content">
@@ -91,21 +98,19 @@ const isMarkdown = $derived(Boolean(file?.kind === "text" && /\.md$/i.test(file.
       <div class="flex h-full min-h-0 flex-col">
         {#if isMarkdown && markdownHtml}
           <div class="grid min-h-0 flex-1 grid-cols-2 divide-x divide-border-subtle">
-            <textarea
-              class="editor"
+            <CodeEditor
               value={draftContent}
-              spellcheck="false"
-              oninput={(e) => onInput((e.currentTarget as HTMLTextAreaElement).value)}
-            ></textarea>
+              language={editorLanguage}
+              onInput={onInput}
+            />
             <article class="preview prose prose-invert max-w-none p-4">{@html markdownHtml}</article>
           </div>
         {:else}
-          <textarea
-            class="editor"
+          <CodeEditor
             value={draftContent}
-            spellcheck="false"
-            oninput={(e) => onInput((e.currentTarget as HTMLTextAreaElement).value)}
-          ></textarea>
+            language={editorLanguage}
+            onInput={onInput}
+          />
         {/if}
       </div>
     {:else if isImage && dataUrl}
@@ -155,20 +160,6 @@ const isMarkdown = $derived(Boolean(file?.kind === "text" && /\.md$/i.test(file.
     font-size: 12px;
   }
   .action-btn:disabled { opacity: 0.5; }
-  .editor {
-    width: 100%;
-    height: 100%;
-    min-height: 100%;
-    border: none;
-    background: var(--bg-content);
-    color: var(--text-primary);
-    padding: 16px;
-    resize: none;
-    outline: none;
-    font-family: var(--font-mono, monospace);
-    font-size: 12px;
-    line-height: 1.6;
-  }
   .preview {
     overflow: auto;
   }
