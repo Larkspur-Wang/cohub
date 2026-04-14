@@ -3106,7 +3106,13 @@ $effect(() => {
           <div class="text-[11px] text-text-placeholder px-2">Session access</div>
           {#each sharedSessionPermissions as perm (perm.id)}
             <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group">
-              <div class="w-[5px] h-[5px] rounded-full shrink-0 bg-brand"></div>
+              {#if perm.level === 'write'}
+                <Share2 class="w-3.5 h-3.5 text-brand shrink-0" />
+              {:else if perm.level === 'private'}
+                <Lock class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+              {:else}
+                <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
+              {/if}
               <span class="text-[12.5px] text-text-secondary truncate flex-1">
                 {sessionTitleById.get(perm.resourceId) || 'Session ' + perm.resourceId.slice(0, 8)}
               </span>
@@ -3199,7 +3205,11 @@ $effect(() => {
           <div class="space-y-1">
             {#each runtimeCollaborators as collab (collab.granteeUuid)}
               <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group hover:bg-bg-hover transition-colors">
-                <div class="w-[5px] h-[5px] rounded-full shrink-0 {collab.level === 'write' ? 'bg-brand' : 'bg-text-placeholder'}"></div>
+                {#if collab.level === 'write'}
+                  <Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
+                {:else}
+                  <Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+                {/if}
                 <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{collab.granteeUuid}</code>
                 <select
                   value={collab.level}
