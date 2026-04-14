@@ -855,6 +855,7 @@ async function handleFileSelect(node: RuntimeFsNode) {
 		return;
 	}
 	await openRuntimeFile(node.path);
+	uiState.mobileRightDrawerOpen = false;
 }
 
 async function handleFileToggle(node: RuntimeFsNode) {
