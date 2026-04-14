@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { RuntimeFsNode } from "$lib/runtime-fs";
-import { File, Folder, FolderOpen, RefreshCw, Plus, FolderPlus, Pencil, Trash2, AlertCircle } from "lucide-svelte";
+import { File, Folder, FolderOpen, RefreshCw, Plus, FolderPlus, Pencil, Trash2, AlertCircle, Lock } from "lucide-svelte";
 
 const {
   nodes,
@@ -14,6 +14,7 @@ const {
   onCreateDir,
   onRename,
   onDelete,
+  canWrite = true,
 }: {
   nodes: RuntimeFsNode[];
   selectedPath: string;
@@ -26,6 +27,7 @@ const {
   onCreateDir: (parentPath: string) => void;
   onRename: (node: RuntimeFsNode) => void;
   onDelete: (node: RuntimeFsNode) => void;
+  canWrite?: boolean;
 } = $props();
 
 function handleCreateFileAtRoot() {
@@ -50,12 +52,18 @@ function action(handler: () => void) {
       <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Files</div>
       <div class="text-[12px] text-text-secondary">Runtime workspace</div>
     </div>
-    <button class="icon-btn" type="button" title="New file" onclick={handleCreateFileAtRoot}>
-      <Plus class="w-3.5 h-3.5" />
-    </button>
-    <button class="icon-btn" type="button" title="New folder" onclick={handleCreateDirAtRoot}>
-      <FolderPlus class="w-3.5 h-3.5" />
-    </button>
+    {#if canWrite}
+      <button class="icon-btn" type="button" title="New file" onclick={handleCreateFileAtRoot}>
+        <Plus class="w-3.5 h-3.5" />
+      </button>
+      <button class="icon-btn" type="button" title="New folder" onclick={handleCreateDirAtRoot}>
+        <FolderPlus class="w-3.5 h-3.5" />
+      </button>
+    {:else}
+      <div class="w-7 h-7 flex items-center justify-center text-text-tertiary" title="Read-only">
+        <Lock class="w-3.5 h-3.5" />
+      </div>
+    {/if}
     <button class="icon-btn" type="button" title="Refresh" onclick={onRefresh}>
       <RefreshCw class="w-3.5 h-3.5 {loading ? 'animate-spin' : ''}" />
     </button>
@@ -97,14 +105,16 @@ function action(handler: () => void) {
           {#if node.isLoading}
             <span class="loading">...</span>
           {/if}
-          <span class="actions">
-            {#if node.type === 'dir'}
-              <button type="button" class="action" title="New file" onclick={action(() => onCreateFile(node.path))}><Plus class="w-3 h-3" /></button>
-              <button type="button" class="action" title="New folder" onclick={action(() => onCreateDir(node.path))}><FolderPlus class="w-3 h-3" /></button>
-            {/if}
-            <button type="button" class="action" title="Rename" onclick={action(() => onRename(node))}><Pencil class="w-3 h-3" /></button>
-            <button type="button" class="action danger" title="Delete" onclick={action(() => onDelete(node))}><Trash2 class="w-3 h-3" /></button>
-          </span>
+          {#if canWrite}
+            <span class="actions">
+              {#if node.type === 'dir'}
+                <button type="button" class="action" title="New file" onclick={action(() => onCreateFile(node.path))}><Plus class="w-3 h-3" /></button>
+                <button type="button" class="action" title="New folder" onclick={action(() => onCreateDir(node.path))}><FolderPlus class="w-3 h-3" /></button>
+              {/if}
+              <button type="button" class="action" title="Rename" onclick={action(() => onRename(node))}><Pencil class="w-3 h-3" /></button>
+              <button type="button" class="action danger" title="Delete" onclick={action(() => onDelete(node))}><Trash2 class="w-3 h-3" /></button>
+            </span>
+          {/if}
         </div>
 
         {#if node.type === 'dir' && node.isOpen}
@@ -133,14 +143,16 @@ function action(handler: () => void) {
               {#if child.isLoading}
                 <span class="loading">...</span>
               {/if}
-              <span class="actions">
-                {#if child.type === 'dir'}
-                  <button type="button" class="action" title="New file" onclick={action(() => onCreateFile(child.path))}><Plus class="w-3 h-3" /></button>
-                  <button type="button" class="action" title="New folder" onclick={action(() => onCreateDir(child.path))}><FolderPlus class="w-3 h-3" /></button>
-                {/if}
-                <button type="button" class="action" title="Rename" onclick={action(() => onRename(child))}><Pencil class="w-3 h-3" /></button>
-                <button type="button" class="action danger" title="Delete" onclick={action(() => onDelete(child))}><Trash2 class="w-3 h-3" /></button>
-              </span>
+              {#if canWrite}
+                <span class="actions">
+                  {#if child.type === 'dir'}
+                    <button type="button" class="action" title="New file" onclick={action(() => onCreateFile(child.path))}><Plus class="w-3 h-3" /></button>
+                    <button type="button" class="action" title="New folder" onclick={action(() => onCreateDir(child.path))}><FolderPlus class="w-3 h-3" /></button>
+                  {/if}
+                  <button type="button" class="action" title="Rename" onclick={action(() => onRename(child))}><Pencil class="w-3 h-3" /></button>
+                  <button type="button" class="action danger" title="Delete" onclick={action(() => onDelete(child))}><Trash2 class="w-3 h-3" /></button>
+                </span>
+              {/if}
             </div>
 
             {#if child.type === 'dir' && child.isOpen}
@@ -166,14 +178,16 @@ function action(handler: () => void) {
                     {/if}
                   </span>
                   <span class="name">{grandchild.name}</span>
-                  <span class="actions">
-                    {#if grandchild.type === 'dir'}
-                      <button type="button" class="action" title="New file" onclick={action(() => onCreateFile(grandchild.path))}><Plus class="w-3 h-3" /></button>
-                      <button type="button" class="action" title="New folder" onclick={action(() => onCreateDir(grandchild.path))}><FolderPlus class="w-3 h-3" /></button>
-                    {/if}
-                    <button type="button" class="action" title="Rename" onclick={action(() => onRename(grandchild))}><Pencil class="w-3 h-3" /></button>
-                    <button type="button" class="action danger" title="Delete" onclick={action(() => onDelete(grandchild))}><Trash2 class="w-3 h-3" /></button>
-                  </span>
+                  {#if canWrite}
+                    <span class="actions">
+                      {#if grandchild.type === 'dir'}
+                        <button type="button" class="action" title="New file" onclick={action(() => onCreateFile(grandchild.path))}><Plus class="w-3 h-3" /></button>
+                        <button type="button" class="action" title="New folder" onclick={action(() => onCreateDir(grandchild.path))}><FolderPlus class="w-3 h-3" /></button>
+                      {/if}
+                      <button type="button" class="action" title="Rename" onclick={action(() => onRename(grandchild))}><Pencil class="w-3 h-3" /></button>
+                      <button type="button" class="action danger" title="Delete" onclick={action(() => onDelete(grandchild))}><Trash2 class="w-3 h-3" /></button>
+                    </span>
+                  {/if}
                 </div>
               {/each}
             {/if}

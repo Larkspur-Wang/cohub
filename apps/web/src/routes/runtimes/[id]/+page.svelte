@@ -356,6 +356,11 @@ let shareModalSaving = $state(false);
 let sessionPermError = $state("");
 let isOwner = $state(false);
 
+// Write permission: owner always has write access;
+// non-owners need to be a collaborator with "write" level.
+// We also need to check if the current user is a write collaborator.
+let canWrite = $derived(isOwner);
+
 // Collaborators
 let runtimeCollaborators = $state<ResourcePermission[]>([]);
 let collaboratorsLoaded = $state(false);
@@ -380,6 +385,16 @@ const PRELOAD_THRESHOLD = 10;
 // Runtime actions
 let runtimeActionError = $state("");
 let runtimeActionInProgress: string | null = $state(null);
+
+// No-write-permission hint toast
+let showNoWriteHint = $state(false);
+let noWriteHintTimer: ReturnType<typeof setTimeout> | null = null;
+
+function triggerNoWriteHint() {
+	if (noWriteHintTimer) clearTimeout(noWriteHintTimer);
+	showNoWriteHint = true;
+	noWriteHintTimer = setTimeout(() => { showNoWriteHint = false; }, 3000);
+}
 
 let fileTree = $state<RuntimeFsNode[]>([]);
 let fileTreeLoading = $state(false);
@@ -624,6 +639,13 @@ $effect(() => {
 	const userUuid = authStore.userUuid;
 	if (currentRuntime) {
 		isOwner = currentRuntime.userUuid === userUuid;
+	}
+});
+
+// Collapse right sidebar when user doesn't have write permission
+$effect(() => {
+	if (!canWrite && typeof window !== "undefined") {
+		uiState.setRightSidebarCollapsed(true);
 	}
 });
 
@@ -2701,27 +2723,40 @@ $effect(() => {
     {/if}
 
     <!-- Toggle right sidebar -->
-    <button
-      type="button"
-      class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-      onclick={() => {
-        if (window.innerWidth < 1024) {
-          uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
-        } else {
-          uiState.toggleRightSidebarCollapsed();
-        }
-      }}
-      title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
-      aria-label={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
-    >
-      {#if uiState.rightSidebarCollapsed}
-        <PanelRightOpen class="w-4 h-4 shrink-0" />
-        <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
-      {:else}
-        <PanelRightClose class="w-4 h-4 shrink-0" />
-        <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
+    <div class="relative">
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        onclick={() => {
+          if (!canWrite) {
+            triggerNoWriteHint();
+            return;
+          }
+          if (window.innerWidth < 1024) {
+            uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
+          } else {
+            uiState.toggleRightSidebarCollapsed();
+          }
+        }}
+        title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+        aria-label={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+      >
+        {#if uiState.rightSidebarCollapsed}
+          <PanelRightOpen class="w-4 h-4 shrink-0" />
+          <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
+        {:else}
+          <PanelRightClose class="w-4 h-4 shrink-0" />
+          <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
+        {/if}
+      </button>
+
+      <!-- No-write-permission hint -->
+      {#if showNoWriteHint}
+        <div class="hint-toast">
+          <span>Read-only — you don't have write access to this runtime</span>
+        </div>
       {/if}
-    </button>
+    </div>
   {/snippet}
 </PageHeader>
 
@@ -3024,6 +3059,7 @@ $effect(() => {
         onCreateDir={handleCreateDir}
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
+        canWrite={canWrite}
       />
       <button
         type="button"
@@ -3400,6 +3436,7 @@ $effect(() => {
       onCreateDir={handleCreateDir}
       onRename={handleRenameNode}
       onDelete={handleDeleteNode}
+      canWrite={canWrite}
     />
   </MobileRightDrawer>
 </div>
@@ -3576,5 +3613,28 @@ $effect(() => {
   .markdown-preview :global(th) {
     background: var(--bg-hover);
     font-weight: 600;
+  }
+
+  /* No-write-permission hint toast */
+  .hint-toast {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 50;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--bg-primary, #1a1a2e);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    font-size: 12px;
+    color: var(--text-secondary, #b0b0c0);
+    white-space: nowrap;
+    animation: hint-fade-in 0.2s ease-out;
+    pointer-events: none;
+  }
+
+  @keyframes hint-fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 </style>
