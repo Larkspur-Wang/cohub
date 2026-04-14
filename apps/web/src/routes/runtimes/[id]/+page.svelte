@@ -505,7 +505,12 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		const streamingItems = items.slice(lastUserIndex + 1);
 
 		if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
-			// Append flat streaming items after the grouped history.
+			// Append items that arrived after the last user message first
+			for (const item of streamingItems) {
+				groupedHistory.push(item);
+			}
+
+			// Then append the live streaming content at the very end
 			if (streamingContentBlocks.length > 0) {
 				let accText = "";
 				let accThinking = "";
@@ -589,11 +594,6 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 						sequence: (state.messages.at(-1)?.sequence ?? 0) + 1,
 					},
 				});
-			}
-
-			// Append any remaining non-streaming items (e.g. optimistic user message)
-			for (const item of streamingItems) {
-				groupedHistory.push(item);
 			}
 
 			return groupedHistory;
