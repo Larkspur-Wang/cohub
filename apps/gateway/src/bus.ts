@@ -25,11 +25,31 @@ export const LOG_STREAM = GATEWAY_LOGS_STREAM;
 
 console.log(`[Bus] Stream names: inbound=${INBOUND_STREAM}, outbound=${OUTBOUND_STREAM}, logs=${LOG_STREAM}`);
 
+// Inbound event dedup — prevents duplicate processing on WS reconnects
+const inboundDedup = new Map<string, number>();
+const DEDUP_TTL_MS = 5 * 60 * 1000;
+const DEDUP_MAX_ENTRIES = 10000;
+
 const publishLogEvent = async (event: GatewayLogEvent) => {
   await xaddWithMaxlen(redisCommandClient, LOG_STREAM, "*", "payload", JSON.stringify(event));
 };
 
 export const publishInboundEvent = async (event: GatewayInboundEvent) => {
+  // Dedup: skip if already processed (handles WS reconnect duplicate delivery)
+  if (inboundDedup.has(event.eventId)) {
+    console.log(`[Bus] Duplicate inbound event ${event.eventId.slice(0, 8)}, skipping`);
+    return;
+  }
+  inboundDedup.set(event.eventId, Date.now());
+
+  // Periodic cleanup
+  if (inboundDedup.size > DEDUP_MAX_ENTRIES) {
+    const now = Date.now();
+    for (const [id, ts] of inboundDedup) {
+      if (now - ts > DEDUP_TTL_MS) inboundDedup.delete(id);
+    }
+  }
+
   const logEvent: GatewayLogEvent = {
     logId: randomUUID(),
     timestamp: Date.now(),

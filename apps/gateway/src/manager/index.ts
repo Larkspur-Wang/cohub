@@ -1,13 +1,12 @@
 import os from "node:os";
 import { redisCommandClient } from "../redis.js";
 import { DiscordProvider } from "../providers/discord/index.js";
+import { FeishuProvider } from "../providers/feishu/index.js";
 import type { GatewayProvider } from "../providers/base.js";
 
 interface ChannelConfig {
   provider: string;
-  credentials: {
-    token: string;
-  };
+  credentials: Record<string, string>;
   externalChatId?: string;
 }
 
@@ -154,7 +153,15 @@ export class GatewayManager {
     console.log(`[Manager] Starting provider for channel ${channelId} (${config.provider})`);
     try {
       if (config.provider === "discord") {
-        const provider = new DiscordProvider(channelId, config.credentials.token);
+        const provider = new DiscordProvider(channelId, config.credentials.token as string);
+        this.providers.set(channelId, provider);
+        console.log(`[Manager] Provider for ${channelId} created and added to active providers`);
+      } else if (config.provider === "feishu") {
+        const provider = new FeishuProvider(channelId, {
+          appId: config.credentials.appId as string,
+          appSecret: config.credentials.appSecret as string,
+          brand: (config.credentials.brand as "feishu" | "lark") ?? "feishu",
+        });
         this.providers.set(channelId, provider);
         console.log(`[Manager] Provider for ${channelId} created and added to active providers`);
       } else {

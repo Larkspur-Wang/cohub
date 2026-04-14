@@ -1075,7 +1075,7 @@ function getDiscordRuntimeChannelConfig(
 	runtimeChannel: RuntimeChannelRecord,
 ): DiscordChannelConfig {
 	return (
-		runtimeChannel.config ?? {
+		(runtimeChannel.config as DiscordChannelConfig) ?? {
 			inbound: { requireMentionInGuild: true },
 			outbound: { showThinking: false, showToolCalls: false },
 		}

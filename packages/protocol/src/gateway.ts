@@ -15,6 +15,8 @@ export function buildSessionSourceChannel(event: GatewayInboundEvent): string {
   switch (provider) {
     case "discord":
       return buildDiscordSourceChannel(event, meta);
+    case "feishu":
+      return buildFeishuSourceChannel(event, meta);
     case "web":
       return "web";
     default:
@@ -45,6 +47,21 @@ function buildDiscordSourceChannel(event: GatewayInboundEvent, meta: Record<stri
   return `discord:${event.conversation?.id?.trim() || event.externalChatId}`;
 }
 
+function buildFeishuSourceChannel(event: GatewayInboundEvent, meta: Record<string, unknown>): string {
+  const chatType = meta.chatType as string | undefined;
+  const chatName = typeof meta.chatName === "string" ? meta.chatName : null;
+  const senderName = event.sender?.name ?? null;
+  const isDm = chatType === "p2p";
+
+  if (isDm) {
+    return `feishu:dm:${senderName ?? event.sender.id}`;
+  }
+  if (chatName) {
+    return `feishu:group:${chatName}`;
+  }
+  return `feishu:${event.conversation?.id?.trim() || event.externalChatId}`;
+}
+
 export interface DiscordChannelConfig {
   inbound?: {
     requireMentionInGuild?: boolean;
@@ -55,7 +72,19 @@ export interface DiscordChannelConfig {
   };
 }
 
-export type ChannelConfig = DiscordChannelConfig | Record<string, unknown>;
+export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | Record<string, unknown>;
+
+export interface FeishuChannelConfig {
+  brand?: "feishu" | "lark";
+  inbound?: {
+    requireMentionInGroup?: boolean;
+  };
+  outbound?: {
+    renderMode?: "card" | "post";
+    showThinking?: boolean;
+    showToolCalls?: boolean;
+  };
+}
 
 export interface GatewayInboundEvent {
   eventId: string;

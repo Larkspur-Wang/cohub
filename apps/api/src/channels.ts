@@ -14,6 +14,10 @@ import { randomUUID } from "node:crypto";
 import { forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
 import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 
+// In-memory lock to prevent concurrent binding creation for the same chat
+// (database unique index + onConflictDoUpdate provides the safety net for multi-instance)
+const bindingLocks = new Map<string, Promise<unknown>>();
+
 /**
  * 分配算法：目前简单采用随机分配活跃节点
  */
@@ -504,6 +508,40 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
 }
 
 async function resolveOrCreateSessionBindingForEvent(input: {
+  runtimeId: string;
+  runtimeChannelId: string;
+  provider: string;
+  externalChatId: string;
+  bindingKey: string;
+  event: GatewayInboundEvent;
+}) {
+  const lockKey = `${input.runtimeChannelId}:${input.bindingKey}`;
+
+  // If another request is already creating the binding, wait and retry
+  const existingLock = bindingLocks.get(lockKey);
+  if (existingLock) {
+    await existingLock;
+    const existing = await getBindingByRuntimeChannelAndKey({
+      runtimeChannelId: input.runtimeChannelId,
+      bindingKey: input.bindingKey,
+    });
+    if (existing?.runtimeSessionId) return existing;
+  }
+
+  // Create a lock for this binding
+  let unlock: (() => void) | undefined;
+  const lock = new Promise<void>((resolve) => { unlock = resolve; });
+  bindingLocks.set(lockKey, lock);
+
+  try {
+    return await resolveOrCreateSessionBindingForEventImpl(input);
+  } finally {
+    unlock?.();
+    bindingLocks.delete(lockKey);
+  }
+}
+
+async function resolveOrCreateSessionBindingForEventImpl(input: {
   runtimeId: string;
   runtimeChannelId: string;
   provider: string;

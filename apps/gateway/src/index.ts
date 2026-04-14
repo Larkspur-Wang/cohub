@@ -95,12 +95,21 @@ async function main() {
   if (process.env.DEBUG_MODE === "true") {
     console.log("[Gateway] DEBUG_MODE enabled.");
 
-    const startDebugProvider = async (channelId: string, providerType: string, token: string) => {
+    const startDebugProvider = async (channelId: string, providerType: string, credential: string | { appId: string; appSecret: string; brand?: string }) => {
       console.log(`[Debug] Initializing test channel: ${channelId} (${providerType})`);
 
-      if (providerType === "discord") {
+      if (providerType === "discord" && typeof credential === "string") {
         const { DiscordProvider } = await import("./providers/discord/index.js");
-        const provider = new DiscordProvider(channelId, token);
+        const provider = new DiscordProvider(channelId, credential);
+        // @ts-ignore
+        manager.providers.set(channelId, provider);
+      } else if (providerType === "feishu" && typeof credential === "object") {
+        const { FeishuProvider } = await import("./providers/feishu/index.js");
+        const provider = new FeishuProvider(channelId, {
+          appId: credential.appId,
+          appSecret: credential.appSecret,
+          brand: (credential.brand as "feishu" | "lark") ?? "feishu",
+        });
         // @ts-ignore
         manager.providers.set(channelId, provider);
       }
@@ -111,6 +120,13 @@ async function main() {
     }
     if (process.env.DEBUG_TELEGRAM_BOT_TOKEN) {
       await startDebugProvider("debug-telegram", "telegram", process.env.DEBUG_TELEGRAM_BOT_TOKEN);
+    }
+    if (process.env.DEBUG_FEISHU_APP_ID) {
+      await startDebugProvider("debug-feishu", "feishu", {
+        appId: process.env.DEBUG_FEISHU_APP_ID,
+        appSecret: process.env.DEBUG_FEISHU_APP_SECRET ?? "",
+        brand: process.env.DEBUG_FEISHU_BRAND ?? "feishu",
+      });
     }
 
     const redis = createBlockingRedisClient();

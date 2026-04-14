@@ -102,7 +102,7 @@ function updateEnvValue(index: number, value: string) {
 function updateDiscordConfig(channelId: string, updater: (config: DiscordChannelConfig) => DiscordChannelConfig) {
   channelConfigById = {
     ...channelConfigById,
-    [channelId]: updater(channelConfigById[channelId] ?? {}),
+    [channelId]: updater((channelConfigById[channelId] ?? {}) as DiscordChannelConfig),
   };
 }
 
