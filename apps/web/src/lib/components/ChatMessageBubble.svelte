@@ -210,6 +210,18 @@ $effect(() => {
   {/if}
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : 'max-w-full sm:max-w-[52rem]'}`}>
+    {#if message.role === 'user' && message.authorName}
+      <div class="flex items-center gap-2 mb-1 justify-end">
+        <span class="text-[12px] text-text-tertiary font-medium">{message.authorName}</span>
+        {#if message.authorAvatar}
+          <img src={message.authorAvatar} alt="" class="w-5 h-5 rounded-full shrink-0" />
+        {:else}
+          <span class="w-5 h-5 rounded-full bg-brand/20 flex items-center justify-center text-[10px] text-brand font-semibold shrink-0">
+            {message.authorName.charAt(0).toUpperCase()}
+          </span>
+        {/if}
+      </div>
+    {/if}
     <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? 'text-text-primary' : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
 
       {#if thinkingContent}
@@ -318,20 +330,6 @@ $effect(() => {
           {message.meta.provider}/{message.meta.model}
         </div>
       {/if}
-
-      {#if message.role === 'user' && message.authorName}
-        <div class="mt-2 flex items-center gap-1.5 justify-end">
-          {#if message.authorAvatar}
-            <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full" />
-          {:else}
-            <span class="w-4 h-4 rounded-full bg-brand/20 flex items-center justify-center text-[9px] text-brand font-medium">
-              {message.authorName.charAt(0).toUpperCase()}
-            </span>
-          {/if}
-          <span class="text-[11px] text-text-placeholder/60">{message.authorName}</span>
-        </div>
-      {/if}
-
 
     </div>
   </div>
