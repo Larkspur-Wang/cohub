@@ -7,7 +7,7 @@
  * Task type identifier.
  * Open-ended — add new types as needed.
  */
-export type TaskType = "echo" | string;
+export type TaskType = string;
 
 /**
  * Universal task payload carried by every BullMQ job.

@@ -33,23 +33,6 @@ export const triggerTask = async (
 };
 
 /**
- * Quick trigger for the echo task.
- */
-export const triggerEcho = async (
-  message: string,
-  runtimeId: string,
-  sessionId: string,
-) => {
-  return triggerTask({
-    type: "echo",
-    runtimeId,
-    sessionId,
-    userId: "test-user",
-    data: { message },
-  });
-};
-
-/**
  * List all currently scheduled repeatable jobs.
  */
 export const listScheduled = async () => {
@@ -76,16 +59,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const command = process.argv[2];
 
   switch (command) {
-    case "trigger-echo": {
-      const [message, runtimeId, sessionId] = process.argv.slice(3);
-      if (!message || !runtimeId || !sessionId) {
-        console.error("Usage: trigger-echo <message> <runtimeId> <sessionId>");
-        process.exit(1);
-      }
-      await triggerEcho(message, runtimeId, sessionId);
-      break;
-    }
-
     case "trigger": {
       const [type, json] = process.argv.slice(3);
       if (!type) {
@@ -105,9 +78,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     default:
       console.log("Available commands:");
-      console.log("  trigger-echo <message> <runtimeId> <sessionId>  — Quick echo test");
-      console.log("  trigger <type> '<json>'                         — Enqueue arbitrary task");
-      console.log("  list-scheduled                                  — List cron jobs");
+      console.log("  trigger <type> '<json>'      — Enqueue arbitrary task");
+      console.log("  list-scheduled               — List cron jobs");
       process.exit(1);
   }
 }
