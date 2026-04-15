@@ -28,7 +28,9 @@ COPY apps/api/package.json ./apps/api/package.json
 
 # Install full deps (build needs dev deps like typescript)
 # --ignore-scripts to skip "prepare" (husky) — no git in Docker
-RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store && \
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
 
 # Copy source and build runtime JS output
 COPY packages/protocol ./packages/protocol
@@ -41,9 +43,9 @@ RUN pnpm --filter @cohub/api build
 RUN pnpm --filter @cohub/api --prod deploy /prod/api
 
 # ============================================
-# Stage 2: production
+# Stage 2: runtime
 # ============================================
-FROM node:24-slim AS production
+FROM node:24-slim AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=8787

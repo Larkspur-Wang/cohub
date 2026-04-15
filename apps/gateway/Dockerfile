@@ -27,7 +27,9 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY apps/gateway/package.json ./apps/gateway/package.json
 
 # Install full deps (build needs dev deps like typescript)
-RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway...
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store && \
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway...
 
 COPY packages/protocol ./packages/protocol
 COPY apps/gateway/src ./apps/gateway/src
@@ -38,9 +40,9 @@ RUN pnpm --filter @cohub/gateway build
 RUN pnpm --filter @cohub/gateway --prod deploy /prod/gateway
 
 # ============================================
-# Stage 2: production
+# Stage 2: runtime
 # ============================================
-FROM node:24-slim AS production
+FROM node:24-slim AS runtime
 
 ENV NODE_ENV=production
 

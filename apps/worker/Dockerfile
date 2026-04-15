@@ -24,7 +24,9 @@ COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
-RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker...
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store && \
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker...
 
 # Copy source and build
 COPY packages/protocol ./packages/protocol
@@ -36,9 +38,9 @@ RUN pnpm --filter @cohub/worker build
 RUN pnpm --filter @cohub/worker --prod deploy /prod/worker
 
 # ============================================
-# Stage 2: production
+# Stage 2: runtime
 # ============================================
-FROM node:24-slim AS production
+FROM node:24-slim AS runtime
 
 ENV NODE_ENV=production
 

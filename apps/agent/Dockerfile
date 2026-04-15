@@ -25,7 +25,9 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY apps/agent/package.json ./apps/agent/package.json
 
 # Install full deps (build needs dev deps like typescript, tsx)
-RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/agent...
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store && \
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/agent...
 
 # Copy source and build
 COPY packages/protocol ./packages/protocol
