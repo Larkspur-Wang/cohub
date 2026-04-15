@@ -21,8 +21,7 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
-RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/worker...
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/worker...
 
 # ============================================
 # Stage 2: build
@@ -35,8 +34,7 @@ COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
-RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker...
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker...
 
 # Copy protocol source and build
 COPY packages/protocol ./packages/protocol

@@ -17,8 +17,7 @@ COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/agent/package.json ./apps/agent/package.json
 
 # Install production deps only
-RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/agent...
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/agent...
 
 # ============================================
 # Stage 2: builder
@@ -36,8 +35,7 @@ COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY apps/agent/package.json ./apps/agent/
 
 # Install full deps (build needs dev deps like typescript, tsx)
-RUN pnpm config set node-linker hoisted \
-  && pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/agent...
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/agent...
 
 # Copy protocol source and build
 COPY packages/protocol ./packages/protocol
