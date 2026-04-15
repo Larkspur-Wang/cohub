@@ -1722,6 +1722,20 @@ async function processEventQueue() {
 						}
 					}
 
+					// Fallback: if retry didn't find messages, the agent's persistence
+					// may still be writing (especially for turns with many tool calls).
+					// Wait longer then fetch latest messages directly.
+					if (newMessages.length === 0) {
+						await new Promise((r) => setTimeout(r, 2000));
+						const response = await getSessionMessagesPaginated(currentActiveSessionId, {
+							limit: 100,
+						});
+						if (response.messages.length > 0) {
+							newMessages = response.messages;
+							updatedSession = response.session;
+						}
+					}
+
 					// Update cache with server-persisted messages (user + assistant).
 					if (newMessages.length > 0) {
 						await messageCache.append(currentActiveSessionId, newMessages);
