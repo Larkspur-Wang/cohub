@@ -124,7 +124,7 @@ export const removeCronJob = async (cronJobId: string, bullJobKey: string) => {
   await taskQueue.removeRepeatableByKey(bullJobKey);
   await db
     .update(cronJobs)
-    .set({ enabled: false, updatedAt: new Date() })
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(cronJobs.id, cronJobId));
 };
 

@@ -36,6 +36,13 @@
       "when": 1776100306979,
       "tag": "0004_grey_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776117600000,
+      "tag": "0005_add_deleted_at_cron_jobs",
+      "breakpoints": true
     }
   ]
 }

@@ -2332,7 +2332,7 @@ app.get("/api/cron-jobs", async (c) => {
   const jobs = await db
     .select()
     .from(cronJobs)
-    .where(eq(cronJobs.userUuid, user.uuid))
+    .where(and(eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
     .orderBy(desc(cronJobs.createdAt));
 
   return c.json({ jobs });
@@ -2351,7 +2351,7 @@ app.get("/api/cron-jobs/:id/runs", async (c) => {
   const [job] = await db
     .select()
     .from(cronJobs)
-    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid)))
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
 
@@ -2377,7 +2377,7 @@ app.delete("/api/cron-jobs/:id", async (c) => {
   const [job] = await db
     .select()
     .from(cronJobs)
-    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid)))
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
 
@@ -2397,7 +2397,7 @@ app.patch("/api/cron-jobs/:id", async (c) => {
   const [job] = await db
     .select()
     .from(cronJobs)
-    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid)))
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
 

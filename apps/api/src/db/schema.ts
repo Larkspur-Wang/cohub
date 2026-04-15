@@ -344,6 +344,7 @@ export const cronJobs = pgTable(
     runtimeId: uuid("runtime_id"),
     sessionId: uuid("session_id"),
     enabled: boolean("enabled").notNull().default(true),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
