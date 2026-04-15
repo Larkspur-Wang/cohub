@@ -88,6 +88,12 @@ function toggleCronJobExpand(cronJobId: string) {
   expandedCronJobs = next;
 }
 
+function handleCronJobHeaderKeydown(event: KeyboardEvent, cronJobId: string) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  toggleCronJobExpand(cronJobId);
+}
+
 async function handleDelete(id: string, e: Event) {
   e.stopPropagation();
   if (!confirm("Are you sure you want to delete this cron job?")) return;
@@ -144,6 +150,10 @@ function openCreateModal() {
 function closeCreateModal() {
   if (isCreating) return;
   showCreateModal = false;
+}
+
+function handleModalBackdropKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") closeCreateModal();
 }
 
 async function handleCreate() {
@@ -298,7 +308,11 @@ onMount(() => {
                   <!-- Cronjob header -->
                   <div
                     class="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-bg-hover/50 transition-colors"
+                    role="button"
+                    tabindex="0"
+                    aria-expanded={isExpanded}
                     onclick={() => toggleCronJobExpand(job.id)}
+                    onkeydown={(e) => handleCronJobHeaderKeydown(e, job.id)}
                   >
                     <span class="text-text-tertiary">
                       {#if isExpanded}
@@ -423,14 +437,22 @@ onMount(() => {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={closeCreateModal}>
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    role="presentation"
+    onclick={closeCreateModal}
+    onkeydown={handleModalBackdropKeydown}
+  >
     <div
       class="w-full max-w-lg rounded-xl bg-bg-primary border border-border-subtle shadow-2xl mx-4"
-      onclick={(e) => e.stopPropagation()}
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="create-cronjob-title"
     >
       <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-        <h2 class="text-[14px] font-semibold">新建 Cronjob</h2>
-        <button type="button" class="text-text-tertiary hover:text-text-primary" onclick={closeCreateModal}>
+        <h2 id="create-cronjob-title" class="text-[14px] font-semibold">新建 Cronjob</h2>
+        <button type="button" class="text-text-tertiary hover:text-text-primary" aria-label="关闭" onclick={closeCreateModal}>
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -440,8 +462,9 @@ onMount(() => {
       <div class="p-4 space-y-4">
         <!-- Title -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1">名称</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-title">名称</label>
           <input
+            id="cronjob-title"
             type="text"
             bind:value={createTitle}
             placeholder="例如：每天早上10点报告"
@@ -451,8 +474,9 @@ onMount(() => {
 
         <!-- Runtime -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1">目标 Runtime</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-runtime">目标 Runtime</label>
           <select
+            id="cronjob-runtime"
             bind:value={createRuntimeId}
             class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
           >
@@ -465,8 +489,9 @@ onMount(() => {
 
         <!-- Cron Expression -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1">Cron 表达式</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-expression">Cron 表达式</label>
           <input
+            id="cronjob-expression"
             type="text"
             bind:value={createCronExpression}
             placeholder="例如：0 10 * * * （每天10点）"
@@ -479,8 +504,9 @@ onMount(() => {
 
         <!-- Prompt -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1">Prompt 消息</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-prompt">Prompt 消息</label>
           <textarea
+            id="cronjob-prompt"
             bind:value={createPromptText}
             rows="3"
             placeholder="定时发送给 runtime 的消息内容..."

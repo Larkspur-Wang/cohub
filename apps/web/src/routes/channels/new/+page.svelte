@@ -318,8 +318,8 @@ async function handleSubmit(e: Event) {
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Platform</label>
-              <div class="flex gap-2">
+              <p id="channel-platform-label" class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Platform</p>
+              <div class="flex gap-2" aria-labelledby="channel-platform-label">
                 <button
                   type="button"
                   onclick={() => formBrand = "feishu"}

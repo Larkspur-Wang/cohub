@@ -1,9 +1,15 @@
+import { fileURLToPath, URL } from "node:url";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@cohub/protocol": fileURLToPath(new URL("../../packages/protocol/src/index.ts", import.meta.url)),
+    },
+  },
   plugins: [
     tailwindcss(),
     sveltekit(),
