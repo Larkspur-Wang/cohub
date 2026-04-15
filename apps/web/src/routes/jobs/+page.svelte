@@ -171,7 +171,7 @@ async function handleCreate() {
   // Basic frontend cron format validation (5-6 space-separated fields)
   const cronParts = createCronExpression.trim().split(/\s+/);
   if (cronParts.length < 5 || cronParts.length > 6) {
-    createError = "Cron 表达式格式错误，应为 5 或 6 个空格分隔的字段（分 时 日 月 周 [年]）";
+    createError = "Invalid cron expression format. Expected 5 or 6 space-separated fields (min hour day month weekday [year])";
     return;
   }
   if (!createPromptText.trim()) {
@@ -259,14 +259,14 @@ onMount(() => {
       class="px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors {activeTab === 'cronjobs' ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={() => { activeTab = "cronjobs"; }}
     >
-      Cronjob 设置
+      Cronjob Settings
     </button>
     <button
       type="button"
       class="px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors {activeTab === 'runs' ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={() => { activeTab = "runs"; void loadTaskRuns(); }}
     >
-      Jobs 流水
+      Job Runs
     </button>
   </div>
 
@@ -291,13 +291,13 @@ onMount(() => {
               onclick={openCreateModal}
             >
               <Plus class="w-3.5 h-3.5" />
-              新建 Cronjob
+              New Cronjob
             </button>
           </div>
 
           {#if cronJobs.length === 0}
             <div class="py-12 text-center text-text-tertiary text-[13px]">
-              暂无 Cronjob，点击「新建 Cronjob」创建一个定时任务
+              No cronjobs yet. Click "New Cronjob" to create a scheduled task
             </div>
           {:else}
             <div class="space-y-2">
@@ -391,7 +391,7 @@ onMount(() => {
       <div class="max-w-4xl mx-auto">
         {#if taskRuns.length === 0}
           <div class="py-12 text-center text-text-tertiary text-[13px]">
-            暂无任务执行记录
+            No task run records
           </div>
         {:else}
           <div class="rounded-lg border border-border-subtle overflow-hidden">
@@ -452,8 +452,8 @@ onMount(() => {
       onclick={(e) => e.stopPropagation()}
     >
       <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-        <h2 id="create-cronjob-title" class="text-[14px] font-semibold">新建 Cronjob</h2>
-        <button type="button" class="text-text-tertiary hover:text-text-primary" aria-label="关闭" onclick={closeCreateModal}>
+        <h2 id="create-cronjob-title" class="text-[14px] font-semibold">New Cronjob</h2>
+        <button type="button" class="text-text-tertiary hover:text-text-primary" aria-label="Close" onclick={closeCreateModal}>
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -463,25 +463,25 @@ onMount(() => {
       <div class="p-4 space-y-4">
         <!-- Title -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-title">名称</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-title">Name</label>
           <input
             id="cronjob-title"
             type="text"
             bind:value={createTitle}
-            placeholder="例如：每天早上10点报告"
+            placeholder="e.g. Daily 10AM report"
             class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
           />
         </div>
 
         <!-- Runtime -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-runtime">目标 Runtime</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-runtime">Target Runtime</label>
           <select
             id="cronjob-runtime"
             bind:value={createRuntimeId}
             class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
           >
-            <option value="">— 选择 —</option>
+            <option value="">— Select —</option>
             {#each runtimes as rt (rt.id)}
               <option value={rt.id}>{rt.title || rt.id.slice(0, 12)}</option>
             {/each}
@@ -490,27 +490,27 @@ onMount(() => {
 
         <!-- Cron Expression -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-expression">Cron 表达式</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-expression">Cron Expression</label>
           <input
             id="cronjob-expression"
             type="text"
             bind:value={createCronExpression}
-            placeholder="例如：0 10 * * * （每天10点）"
+            placeholder="e.g. 0 10 * * * (daily at 10AM)"
             class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
           />
           <p class="mt-1 text-[11px] text-text-placeholder">
-            格式：分 时 日 月 周 · 示例：*/30 * * * *（每30分钟）
+            Format: min hour day month weekday · Example: */30 * * * * (every 30 min)
           </p>
         </div>
 
         <!-- Prompt -->
         <div>
-          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-prompt">Prompt 消息</label>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-prompt">Prompt Message</label>
           <textarea
             id="cronjob-prompt"
             bind:value={createPromptText}
             rows="3"
-            placeholder="定时发送给 runtime 的消息内容..."
+            placeholder="Message content to send to the runtime on schedule..."
             class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
           ></textarea>
         </div>
@@ -529,7 +529,7 @@ onMount(() => {
           onclick={closeCreateModal}
           disabled={isCreating}
         >
-          取消
+          Cancel
         </button>
         <button
           type="button"
@@ -539,9 +539,9 @@ onMount(() => {
         >
           {#if isCreating}
             <Loader2 class="w-3.5 h-3.5 animate-spin" />
-            创建中...
+            Creating...
           {:else}
-            创建
+            Create
           {/if}
         </button>
       </div>

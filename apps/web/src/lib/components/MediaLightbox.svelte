@@ -80,7 +80,7 @@ async function handleDownload() {
 		a.remove();
 		URL.revokeObjectURL(url);
 	} catch (err) {
-		downloadError = err instanceof Error ? err.message : "下载失败";
+		downloadError = err instanceof Error ? err.message : "Download failed";
 	} finally {
 		downloading = false;
 	}
@@ -100,7 +100,7 @@ function extractFilename(src: string, fallback?: string): string {
 
 async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
 	const res = await fetch(dataUrl);
-	if (!res.ok) throw new Error(`下载失败：${res.status}`);
+	if (!res.ok) throw new Error(`Download failed: ${res.status}`);
 	return res.blob();
 }
 

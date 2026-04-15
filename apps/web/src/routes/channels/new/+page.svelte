@@ -281,8 +281,8 @@ async function handleSubmit(e: Event) {
               <div class="px-3 pb-3 text-[12px] text-text-tertiary space-y-2 border-t border-border-subtle">
                 <ol class="list-decimal list-inside space-y-1.5 pt-2">
                   <li>Go to the <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" class="text-brand hover:underline">Feishu Open Platform</a></li>
-                  <li>Click <strong>Create App</strong> (创建应用) and choose <strong>Enterprise Self-built</strong> (企业自建)</li>
-                  <li>In the app settings, go to <strong>Credentials & Basic Info</strong> (凭证与基础信息)</li>
+                  <li>Click <strong>Create App</strong> and choose <strong>Enterprise Self-built</strong></li>
+                  <li>In the app settings, go to <strong>Credentials & Basic Info</strong></li>
                   <li>Copy the <strong>App ID</strong> and <strong>App Secret</strong></li>
                   <li>Enable required <strong>Bot</strong> capability in the app:
                     <ul class="list-disc list-inside ml-4 mt-1 text-text-placeholder">
@@ -329,7 +329,7 @@ async function handleSubmit(e: Event) {
                       : 'border-border-subtle bg-bg-code text-text-tertiary hover:border-border-primary'
                   }"
                 >
-                  飞书 Feishu
+                  Feishu
                 </button>
                 <button
                   type="button"
