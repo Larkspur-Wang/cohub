@@ -1,54 +1,43 @@
+# syntax=docker/dockerfile:1.4
 # Cohub Agent Dockerfile
-# Multi-stage build: deps + builder + runtime
+# Multi-stage build with pnpm deploy
 
 # ============================================
-# Stage 1: deps (production dependencies only)
+# Base: build tooling
 # ============================================
-FROM node:24-slim AS deps
+FROM node:24-slim AS base
 
 WORKDIR /app
 
 # Use Corepack to manage pnpm
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
+# ============================================
+# Stage 1: build workspace and deploy portable app
+# ============================================
+FROM base AS builder
+
 # Copy workspace config and dependency manifests
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/protocol/package.json ./packages/protocol/package.json
+COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
+COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
 COPY apps/agent/package.json ./apps/agent/package.json
-
-# Install production deps only
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/agent...
-
-# ============================================
-# Stage 2: builder
-# ============================================
-FROM node:24-slim AS builder
-
-WORKDIR /app
-
-# Use Corepack to manage pnpm
-RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
-
-# Copy workspace config and dependency manifests
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
-COPY packages/protocol/package.json ./packages/protocol/package.json
-COPY apps/agent/package.json ./apps/agent/
 
 # Install full deps (build needs dev deps like typescript, tsx)
 RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/agent...
 
-# Copy protocol source and build
+# Copy source and build
 COPY packages/protocol ./packages/protocol
-RUN pnpm --filter @cohub/protocol build
-
-# Copy agent source and build
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
 
+RUN pnpm --filter @cohub/protocol build
 RUN pnpm --filter @cohub/agent build
+RUN pnpm --filter @cohub/agent --prod deploy /prod/agent
 
 # ============================================
-# Stage 3: runtime
+# Stage 2: runtime
 # ============================================
 FROM node:24-slim AS runtime
 
@@ -95,15 +84,10 @@ RUN npm install -g @mariozechner/pi-coding-agent
 
 WORKDIR /app
 
-# 从 deps 复制生产依赖，从 builder 复制构建产物
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/apps/agent/dist ./apps/agent/dist
-COPY apps/agent/package.json ./apps/agent/package.json
+COPY --from=builder /prod/agent ./
 
 # 设置沙盒运行时工作目录
 RUN mkdir -p "$WORKSPACE_DIR"
-
-WORKDIR /app/apps/agent
 
 # 启动
 CMD ["node", "dist/index.js"]

@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1.4
 # Cohub API Dockerfile
-# Hono + Node.js runtime - Multi-stage build
+# Hono + Node.js runtime - Multi-stage build with pnpm deploy
 
 # ============================================
 # Base: common build tooling
@@ -15,25 +16,11 @@ RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 
 # ============================================
-# Stage 1: deps (production dependencies only)
-# ============================================
-FROM base AS deps
-
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
-COPY packages/protocol/package.json ./packages/protocol/package.json
-COPY apps/api/package.json ./apps/api/package.json
-
-# Install production deps for @cohub/api
-# Use hoisted linker to make runtime copy simpler (no pnpm needed in runtime image)
-# --ignore-scripts to skip "prepare" (husky) which needs devDependencies
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @cohub/api...
-
-# ============================================
-# Stage 2: build
+# Stage 1: build workspace and deploy portable app
 # ============================================
 FROM base AS builder
 
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
@@ -43,19 +30,18 @@ COPY apps/api/package.json ./apps/api/package.json
 # --ignore-scripts to skip "prepare" (husky) — no git in Docker
 RUN pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
 
-# Copy protocol source and build runtime JS output
+# Copy source and build runtime JS output
 COPY packages/protocol ./packages/protocol
-RUN pnpm --filter @cohub/protocol build
-
-# Copy api source and build
 COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
 COPY apps/api/drizzle ./apps/api/drizzle
 
+RUN pnpm --filter @cohub/protocol build
 RUN pnpm --filter @cohub/api build
+RUN pnpm --filter @cohub/api --prod deploy /prod/api
 
 # ============================================
-# Stage 3: production
+# Stage 2: production
 # ============================================
 FROM node:24-slim AS production
 
@@ -64,16 +50,7 @@ ENV PORT=8787
 
 WORKDIR /app
 
-# Copy runtime dependencies and built output
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/api/drizzle ./apps/api/drizzle
-COPY apps/api/package.json ./apps/api/package.json
-
-# Explicitly bundle workspace package into runtime node_modules
-RUN mkdir -p /app/node_modules/@cohub/protocol
-COPY --from=builder /app/packages/protocol/dist /app/node_modules/@cohub/protocol/dist
-COPY packages/protocol/package.runtime.json /app/node_modules/@cohub/protocol/package.json
+COPY --from=builder /prod/api ./
 
 # Run as non-root
 USER node
@@ -82,7 +59,5 @@ EXPOSE 8787
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:8787/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
-
-WORKDIR /app/apps/api
 
 CMD ["node", "dist/index.js"]
