@@ -185,10 +185,7 @@ async function handleCreate() {
       title: createTitle.trim(),
       taskType: "send_message",
       payload: {
-        runtimeId: createRuntimeId,
-        data: {
-          content: [{ type: "text", text: createPromptText.trim() }],
-        },
+        content: [{ type: "text", text: createPromptText.trim() }],
       },
       cronExpression: createCronExpression.trim(),
       runtimeId: createRuntimeId || undefined,
