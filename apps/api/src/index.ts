@@ -1665,6 +1665,51 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   return c.json({ ok: true, message: messageNode });
 });
 
+/**
+ * POST /internal/runtimes/:runtimeId/sessions/:sessionId/prompt
+ * Enqueue a user prompt into the runtime's input queue.
+ * Used by worker tasks to simulate user messages (cronjob send_message, etc.)
+ */
+app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/prompt", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const runtimeId = c.req.param("runtimeId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(runtimeId) || !requireValidId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session || session.runtimeId !== runtimeId) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req
+    .json<{
+      content: ContentBlock[];
+      userMessageId?: string | null;
+      meta?: Record<string, unknown> | null;
+    }>()
+    .catch(() => null);
+
+  if (!body || !Array.isArray(body.content) || body.content.length === 0) {
+    return c.json({ message: "content is required" }, 400);
+  }
+
+  const userMessageId = body.userMessageId?.trim() || crypto.randomUUID();
+
+  await enqueueRuntimePrompt({
+    runtimeId,
+    sessionId,
+    userMessageId,
+    content: body.content,
+    meta: body.meta ?? null,
+  });
+
+  return c.json({ ok: true, userMessageId });
+});
+
 app.get("/api/sessions/:id", async (c) => {
   const token = c.get("token");
   const user = c.get("authUser");
@@ -2241,6 +2286,24 @@ app.post("/api/cron-jobs", async (c) => {
   if (!body?.title?.trim()) return c.json({ message: "title is required" }, 400);
   if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
   if (!body?.cronExpression) return c.json({ message: "cronExpression is required" }, 400);
+
+  // Validate cron expression using cron-parser
+  const { parseExpression } = await import("cron-parser");
+  let nextRun: Date;
+  try {
+    const interval = parseExpression(body.cronExpression, {
+      tz: body.timezone ?? "Asia/Shanghai",
+    });
+    nextRun = interval.next().toDate();
+    // Enforce minimum 1-minute interval
+    const secondRun = interval.next().toDate();
+    const intervalMs = secondRun.getTime() - nextRun.getTime();
+    if (intervalMs < 60_000) {
+      return c.json({ message: "cron interval must be at least 1 minute" }, 400);
+    }
+  } catch (parseError) {
+    return c.json({ message: `invalid cron expression: ${parseError instanceof Error ? parseError.message : String(parseError)}` }, 400);
+  }
 
   const schedule: TaskScheduleConfig = {
     pattern: body.cronExpression,

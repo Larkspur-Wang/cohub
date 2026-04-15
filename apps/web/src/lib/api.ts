@@ -988,3 +988,95 @@ export const streamSessionEvents = async function* (
     }
   }
 };
+
+// ─── Cronjob & Task Runs ──────────────────────────────
+
+export type CronJobRecord = {
+  id: string;
+  userUuid: string;
+  title: string;
+  taskType: string;
+  payload: Record<string, unknown>;
+  cronExpression: string;
+  timezone: string;
+  bullJobKey: string;
+  workspaceId: string | null;
+  runtimeId: string | null;
+  sessionId: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaskRunRecord = {
+  id: string;
+  jobId: string;
+  cronJobId: string | null;
+  taskType: string;
+  status: "pending" | "running" | "completed" | "failed";
+  payload: unknown;
+  result: unknown;
+  errorMessage: string | null;
+  attemptCount: number;
+  workspaceId: string | null;
+  runtimeId: string | null;
+  sessionId: string | null;
+  userUuid: string | null;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateCronJobInput = {
+  title: string;
+  taskType: string;
+  payload: Record<string, unknown>;
+  cronExpression: string;
+  timezone?: string;
+  workspaceId?: string;
+  runtimeId?: string;
+  sessionId?: string;
+};
+
+export const getCronJobs = async () => {
+  return apiFetch("/api/cron-jobs") as Promise<{ jobs: CronJobRecord[] }>;
+};
+
+export const createCronJob = async (data: CreateCronJobInput) => {
+  return apiFetch("/api/cron-jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }) as Promise<CronJobRecord>;
+};
+
+export const deleteCronJob = async (id: string) => {
+  return apiFetch(`/api/cron-jobs/${id}`, { method: "DELETE" }) as Promise<{ ok: true }>;
+};
+
+export const toggleCronJob = async (id: string, enabled: boolean) => {
+  return apiFetch(`/api/cron-jobs/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  }) as Promise<{ ok: true }>;
+};
+
+export const getCronJobRuns = async (cronJobId: string) => {
+  return apiFetch(`/api/cron-jobs/${cronJobId}/runs`) as Promise<{ runs: TaskRunRecord[] }>;
+};
+
+export const getTaskRuns = async (filters?: {
+  cronJobId?: string;
+  runtimeId?: string;
+  workspaceId?: string;
+}) => {
+  const params = new URLSearchParams();
+  if (filters?.cronJobId) params.set("cronJobId", filters.cronJobId);
+  if (filters?.runtimeId) params.set("runtimeId", filters.runtimeId);
+  if (filters?.workspaceId) params.set("workspaceId", filters.workspaceId);
+  const query = params.toString();
+  return apiFetch(`/api/tasks/runs${query ? `?${query}` : ""}`) as Promise<{ runs: TaskRunRecord[] }>;
+};

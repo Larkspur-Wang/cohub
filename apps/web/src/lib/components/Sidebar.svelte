@@ -15,6 +15,7 @@ import {
   Settings,
   LogOut,
   Users,
+  Clock,
 } from "lucide-svelte";
 import {
   deleteRuntime,
@@ -459,6 +460,14 @@ onMount(() => {
     >
       <Network class="w-[15px] h-[15px] shrink-0" />
       <span>Channels</span>
+    </a>
+    <a
+      href="/jobs"
+      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/jobs') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+      onclick={(e) => { e.preventDefault(); handleNavigate('/jobs'); }}
+    >
+      <Clock class="w-[15px] h-[15px] shrink-0" />
+      <span>Jobs</span>
     </a>
   </nav>
 
