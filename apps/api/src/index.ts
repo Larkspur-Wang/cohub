@@ -74,7 +74,6 @@ import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP, getStreamInfo, checkPendingMessages } from "./redis.js";
 import type { GatewayInboundEvent, ResourcePermissionLevel, TaskScheduleConfig } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
-import { CronExpressionParser } from "cron-parser";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
 import {
   createCronJob,
@@ -82,6 +81,8 @@ import {
   enableCronJob,
   taskQueue,
 } from "./tasks.js";
+import cronParser from "cron-parser";
+const { CronExpressionParser } = cronParser;
 
 const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
   ...workspace,
