@@ -81,7 +81,7 @@ import {
   enableCronJob,
   taskQueue,
 } from "./tasks.js";
-import cronParser from "cron-parser";
+import * as cronParser from "cron-parser";
 const { CronExpressionParser } = cronParser;
 
 const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
