@@ -19,7 +19,7 @@
     "@hono/node-server": "1.19.11",
     "@kubernetes/client-node": "^1.0.0",
     "bullmq": "^5.73.4",
-    "cron-parser": "^4.9.0",
+    "cron-parser": "^5.0.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "hono": "4.12.8",

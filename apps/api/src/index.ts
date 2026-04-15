@@ -2287,12 +2287,11 @@ app.post("/api/cron-jobs", async (c) => {
   if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
   if (!body?.cronExpression) return c.json({ message: "cronExpression is required" }, 400);
 
-  // Validate cron expression using cron-parser (CJS module → parseExpression is on .default)
-  const cronParser = await import("cron-parser");
-  const parseExpression: typeof cronParser.parseExpression = cronParser.default.parseExpression;
+  // Validate cron expression using cron-parser v5
+  const { CronExpressionParser } = await import("cron-parser");
   let nextRun: Date;
   try {
-    const interval = parseExpression(body.cronExpression, {
+    const interval = CronExpressionParser.parse(body.cronExpression, {
       tz: body.timezone ?? "Asia/Shanghai",
     });
     nextRun = interval.next().toDate();
