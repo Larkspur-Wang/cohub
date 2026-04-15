@@ -22,6 +22,7 @@ import {
   writeRuntimeFile,
 } from "./runtime-fs.js";
 import { assertRequiredConfig, config } from "./config.js";
+import { decryptSecret } from "./crypto.js";
 import {
   getDirectoryEntries,
   getFileContent,
@@ -70,9 +71,10 @@ import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, r
 import { eq, and, inArray, isNull, desc, asc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
-import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP } from "./redis.js";
+import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP, getStreamInfo, checkPendingMessages } from "./redis.js";
 import type { GatewayInboundEvent, ResourcePermissionLevel, TaskScheduleConfig } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
+import { CronExpressionParser } from "cron-parser";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
 import {
   createCronJob,
@@ -377,8 +379,6 @@ app.get("/internal/metrics", async (c) => {
   const forbidden = ensureInternalRequest(c);
   if (forbidden) return forbidden;
 
-  const { getStreamInfo, checkPendingMessages, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP } = await import("./redis.js");
-
   const [inbound, logs, inboundPending, logsPending] = await Promise.all([
     getStreamInfo(GATEWAY_INBOUND_STREAM),
     getStreamInfo(GATEWAY_LOGS_STREAM),
@@ -517,7 +517,6 @@ app.delete("/api/user/ssh-keys/:id", async (c) => {
   const targetEntry = keys.find((k) => k.id === sshKeyId);
   if (!targetEntry) return c.json({ message: "SSH key not found" }, 404);
 
-  const { decryptSecret } = await import("./crypto.js");
   const gitAccessToken = decryptSecret(account.giteaAccessTokenEncrypted);
 
   await deleteSshKey(gitAccessToken, targetEntry.giteaKeyId).catch(() => {
@@ -2288,7 +2287,6 @@ app.post("/api/cron-jobs", async (c) => {
   if (!body?.cronExpression) return c.json({ message: "cronExpression is required" }, 400);
 
   // Validate cron expression using cron-parser v5
-  const { CronExpressionParser } = await import("cron-parser");
   let nextRun: Date;
   try {
     const interval = CronExpressionParser.parse(body.cronExpression, {
