@@ -81,8 +81,10 @@ import {
   enableCronJob,
   taskQueue,
 } from "./tasks.js";
-import * as cronParser from "cron-parser";
-const { CronExpressionParser } = cronParser;
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { CronExpressionParser } = require("cron-parser") as typeof import("cron-parser");
 
 const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
   ...workspace,
