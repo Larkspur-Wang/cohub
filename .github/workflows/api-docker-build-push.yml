@@ -122,7 +122,7 @@ jobs:
           fi
           
           SHORT_SHA=$(git rev-parse --short HEAD)
-          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}
           echo "Migration needed, running with image: $IMAGE"
           
           kubectl apply -f - <<EOF
@@ -276,7 +276,7 @@ jobs:
       - name: Run migration
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
-          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}
           echo "Running migration with image: $IMAGE"
 
           kubectl apply -f - <<EOF
@@ -339,7 +339,8 @@ jobs:
 
       - name: Run migration
         run: |
-          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}
           echo "Running migration with image: $IMAGE"
 
           kubectl apply -f - <<EOF
