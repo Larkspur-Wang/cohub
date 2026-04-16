@@ -22,8 +22,8 @@ import { ensureSpaceSandbox, getSpaceSandboxBySpaceId, updateSpaceSandbox } from
 import { config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import {
-  getRuntimeInputQueueKey,
-  getRuntimeOutputStreamKey,
+  getSpaceInputQueueKey,
+  getSpaceOutputStreamKey,
   redisCommandClient,
   createStreamingRedisClient,
 } from "./redis.js";
@@ -1007,7 +1007,7 @@ export const enqueueRuntimePrompt = async (input: {
   }
 
   await redisCommandClient.rpush(
-    getRuntimeInputQueueKey(input.runtimeId),
+    getSpaceInputQueueKey(input.runtimeId),
     JSON.stringify({
       action: "prompt",
       id: randomUUID(),
@@ -1027,7 +1027,7 @@ export const readRuntimeOutputStream = async (input: {
   blockMs?: number;
   signal?: AbortSignal;
 }) => {
-  const streamKey = getRuntimeOutputStreamKey(input.runtimeId);
+  const streamKey = getSpaceOutputStreamKey(input.runtimeId);
   const startId = input.lastEventId?.trim() || "$";
   const blockMs = input.blockMs ?? 15000;
   const client = createStreamingRedisClient();

@@ -3,13 +3,9 @@ import { config } from "./config.js";
 
 export type RedisStreamEntry = [string, string[]];
 
-// Stream 长度限制配置
 export const STREAM_MAXLEN = 10000;
 export const STREAM_APPROX = "~";
 
-/**
- * Shared command client for short-lived, non-blocking Redis commands only.
- */
 export const redisCommandClient = new Redis(config.redisUrl);
 
 export const createBlockingRedisClient = () => {
@@ -31,23 +27,21 @@ export const isRedisReady = async () => {
   }
 };
 
-const redisRuntimePrefix = (runtimeId: string) => `runtimes:${runtimeId}`;
+const redisSpacePrefix = (spaceId: string) => `spaces:${spaceId}`;
 
-export const getRuntimeMetaKey = (runtimeId: string) =>
-  `${redisRuntimePrefix(runtimeId)}:meta`;
+export const getSpaceMetaKey = (spaceId: string) =>
+  `${redisSpacePrefix(spaceId)}:meta`;
 
-export const getRuntimeInputQueueKey = (runtimeId: string) =>
-  `${redisRuntimePrefix(runtimeId)}:input_queue`;
+export const getSpaceInputQueueKey = (spaceId: string) =>
+  `${redisSpacePrefix(spaceId)}:input_queue`;
 
-export const getRuntimeOutputStreamKey = (runtimeId: string) =>
-  `${redisRuntimePrefix(runtimeId)}:output_stream`;
+export const getSpaceOutputStreamKey = (spaceId: string) =>
+  `${redisSpacePrefix(spaceId)}:output_stream`;
 
-// Gateway Stream Keys
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
 
-// Consumer Groups
 export const INBOUND_CONSUMER_GROUP = "api-inbound-consumers";
 export const LOG_CONSUMER_GROUP = "api-loggers";
 
