@@ -23,16 +23,14 @@ import {
 } from "./space-fs.js";
 import { assertRequiredConfig, config } from "./config.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
-import {
-  createRepository,
-} from "./gitea.js";
+import { createRepository } from "./gitea.js";
+import { provisionSpaceInBackground } from "./space-sandboxes.js";
 import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
   RegisterSessionInput,
   ContentBlock,
 } from "@cohub/protocol";
-import { createRuntime, provisionRuntimeInBackground } from "./runtime-sessions.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -287,33 +285,31 @@ app.post("/api/spaces", async (c) => {
     : [];
   if (occupiedChannels.length > 0) return c.json({ message: "channel binding already exists for this channel" }, 409);
 
-  const runtime = (await createRuntime({
-    id: crypto.randomUUID(),
-    userUuid: user.uuid,
-    title: name,
-    cwd: body.cwd ?? null,
-    protocol: body.protocol ?? "pi",
-    meta: { ...(body.meta ?? {}), extraEnv: normalizedExtraEnv, spaceDescription: body.description ?? null },
-    start: true,
-  })).runtime;
-
-  await db.insert(spaces).values({
-    id: runtime.id,
+  const spaceId = crypto.randomUUID();
+  const [space] = await db.insert(spaces).values({
+    id: spaceId,
     userUuid: user.uuid,
     name,
     description: body.description ?? null,
     giteaRepoName: repoSlug,
     baseCheckpointId: null,
-    meta: body.meta ?? null,
-  });
+    meta: {
+      ...(body.meta ?? {}),
+      extraEnv: normalizedExtraEnv,
+      cwd: body.cwd ?? null,
+      protocol: body.protocol ?? "pi",
+    },
+  }).returning();
+
+  if (!space) return c.json({ message: "failed to create space" }, 500);
 
   if (normalizedChannelBindings.length > 0) {
-    const insertedRuntimeChannels = await db.insert(runtimeChannels).values(normalizedChannelBindings.map((binding) => ({ runtimeId: runtime.id, channelId: binding.channelId, config: binding.config }))).returning();
+    const insertedRuntimeChannels = await db.insert(runtimeChannels).values(normalizedChannelBindings.map((binding) => ({ runtimeId: space.id, channelId: binding.channelId, config: binding.config }))).returning();
     await Promise.all(insertedRuntimeChannels.map((runtimeChannel) => syncRuntimeChannelConfigCache({ runtimeChannelId: runtimeChannel.id, config: (runtimeChannel.config as Record<string, unknown> | null) ?? null })));
   }
 
   const session = await createInitialSpaceSession({
-    spaceId: runtime.id,
+    spaceId: space.id,
     sessionId: crypto.randomUUID(),
     title: null,
     source: body.source ?? null,
@@ -323,9 +319,12 @@ app.post("/api/spaces", async (c) => {
     meta: { createdBy: "api_space_create", channelBindings: normalizedChannelBindings.length },
   });
 
-  void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid: user.uuid }).catch(console.error);
+  void provisionSpaceInBackground({
+    spaceId: space.id,
+    userUuid: user.uuid,
+    extraEnv: normalizedExtraEnv,
+  }).catch(console.error);
 
-  const [space] = await db.select().from(spaces).where(eq(spaces.id, runtime.id)).limit(1);
   return c.json({ space, session });
 });
 
