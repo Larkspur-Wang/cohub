@@ -1,4 +1,4 @@
-CREATE SCHEMA "v2";
+CREATE SCHEMA IF NOT EXISTS "v2";
 --> statement-breakpoint
 CREATE TABLE "v2"."checkpoints" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
