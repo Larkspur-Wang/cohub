@@ -1141,6 +1141,478 @@ app.get("/api/spaces/:id", async (c) => {
   });
 });
 
+app.post("/api/spaces/:id/sessions", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const runtime = await getRuntimeById(spaceId);
+  if (!runtime) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<{ title?: string; source?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, source: undefined, cwd: undefined, protocol: undefined }));
+
+  const session = await createInitialRuntimeSession({
+    spaceId: runtime.id,
+    sessionId: crypto.randomUUID(),
+    title: body.title ?? null,
+    source: body.source ?? null,
+    protocol: body.protocol ?? ((runtime.meta as Record<string, unknown>)?.protocol as "pi" | "acp" | "internal" | undefined) ?? "pi",
+    cwd: body.cwd ?? ((runtime.meta as Record<string, unknown>)?.cwd as string | undefined) ?? null,
+    externalSessionId: null,
+    meta: { createdBy: "api_space_session_create" },
+  });
+
+  return c.json({ ok: true, session });
+});
+
+app.get("/api/spaces/:id/sessions", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canRead(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const runtime = await getRuntimeById(spaceId);
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!runtime || !space) return c.json({ message: "space not found" }, 404);
+  const sessions = await listRuntimeSessions(runtime.id);
+
+  const permissions = await db
+    .select()
+    .from(resourcePermissions)
+    .where(inArray(resourcePermissions.resourceId, [spaceId, ...sessions.map((s) => s.id)]));
+  const sessionShareLevels = new Map(
+    permissions
+      .filter((p) => p.resourceType === "session")
+      .map((p) => [p.resourceId, p.level as ResourcePermissionLevel]),
+  );
+
+  const isOwner = user?.uuid === runtime.userUuid;
+  const isCollaborator = !isOwner && permissions.some(
+    (p) => p.resourceType === "space" && p.resourceId === spaceId && p.granteeUuid === user?.uuid,
+  );
+
+  const visibleSessions = isOwner || isCollaborator
+    ? sessions
+    : (await Promise.all(sessions.map(async (s) => ((await canReadForSession(user, spaceId, s.id)) ? s : null)))).filter((s): s is NonNullable<typeof s> => Boolean(s));
+
+  return c.json({
+    space,
+    sessions: visibleSessions.map((session) => ({
+      ...session,
+      shareLevel: sessionShareLevels.get(session.id) ?? null,
+    })),
+  });
+});
+
+app.get("/api/spaces/:id/channels", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const runtime = await getRuntimeById(spaceId);
+  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
+
+  const runtimeChannelRows = await getRuntimeChannelsByRuntimeId(runtime.id);
+  const userChannelIds = runtimeChannelRows.map((item) => item.channelId);
+  const channelRows = userChannelIds.length > 0
+    ? await db
+        .select()
+        .from(userChannels)
+        .where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, userChannelIds)))
+    : [];
+
+  const userChannelById = new Map(channelRows.map((item) => [item.id, item]));
+
+  return c.json(
+    runtimeChannelRows.map((runtimeChannel) => ({
+      ...runtimeChannel,
+      channel: userChannelById.get(runtimeChannel.channelId) ?? null,
+    })),
+  );
+});
+
+app.get("/api/spaces/:id/fs/tree", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const path = c.req.query("path") ?? "";
+  try {
+    const result = await listRuntimeDirectory(spaceId, path);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.get("/api/spaces/:id/fs/file", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const path = c.req.query("path") ?? "";
+  try {
+    const result = await readRuntimeFile(spaceId, path);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.put("/api/spaces/:id/fs/file", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const body = await c.req.json<{ path: string; content: string; encoding: "utf-8" | "base64" }>().catch(() => null);
+  if (!body?.path || typeof body.content !== "string" || !body.encoding) {
+    return c.json({ message: "path, content and encoding are required" }, 400);
+  }
+
+  try {
+    const result = await writeRuntimeFile(spaceId, body);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.post("/api/spaces/:id/fs/dir", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const body = await c.req.json<{ path: string }>().catch(() => null);
+  if (!body?.path) return c.json({ message: "path is required" }, 400);
+
+  try {
+    const result = await createRuntimeDirectory(spaceId, body.path);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.delete("/api/spaces/:id/fs/node", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const path = c.req.query("path") ?? "";
+  const recursive = c.req.query("recursive") === "true";
+  try {
+    const result = await deleteRuntimeNode(spaceId, path, recursive);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.post("/api/spaces/:id/fs/move", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const body = await c.req.json<{ fromPath: string; toPath: string }>().catch(() => null);
+  if (!body?.fromPath || !body?.toPath) {
+    return c.json({ message: "fromPath and toPath are required" }, 400);
+  }
+
+  try {
+    const result = await moveRuntimeNode(spaceId, body);
+    return c.json(result);
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.get("/api/spaces/:id/fs/download", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canWrite(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const path = c.req.query("path") ?? "";
+  try {
+    const info = await streamRuntimeFile(spaceId, path);
+    return c.body(await readFile(info.target), 200, {
+      "content-type": info.mimeType ?? "application/octet-stream",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(info.name)}`,
+    });
+  } catch (error) {
+    const { status, body } = runtimeFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+app.get("/api/spaces/:id/stream", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  if (!await canRead(user, spaceId)) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const runtime = await getRuntimeById(spaceId);
+  if (!runtime) return c.json({ message: "space not found" }, 404);
+
+  const lastEventId = c.req.header("last-event-id") ?? c.req.query("lastEventId") ?? undefined;
+
+  return streamSSE(c, async (stream) => {
+    const heartbeatMs = 25000;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+      if (c.req.raw.signal.aborted || stream.aborted || stream.closed) return;
+      void stream.write(`: ping ${Date.now()}\n\n`).catch(() => undefined);
+    }, heartbeatMs);
+
+    stream.onAbort(() => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    });
+
+    try {
+      await stream.writeSSE({ event: "ready", data: JSON.stringify({ spaceId: runtime.id }) });
+      const output = await readRuntimeOutputStream({ runtimeId: runtime.id, lastEventId, signal: c.req.raw.signal });
+      for await (const item of output) {
+        if (stream.aborted || stream.closed) break;
+        if (!item.payload) continue;
+        await stream.writeSSE({ id: item.id, event: "message", data: item.payload });
+      }
+    } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    }
+  });
+});
+
+app.post("/internal/spaces/:id/status", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  const runtime = await getRuntimeById(spaceId);
+  if (!runtime) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<{ status?: string }>().catch(() => null);
+  if (!body?.status) return c.json({ message: "status is required" }, 400);
+
+  await updateRuntimeStatus(spaceId, body.status);
+  return c.json({ ok: true });
+});
+
+app.post("/internal/spaces/:id/sessions", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  const runtime = await getRuntimeById(spaceId);
+  if (!runtime) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<RegisterSessionInput>().catch(() => null);
+  if (!body?.sessionId) return c.json({ message: "sessionId is required" }, 400);
+
+  const existing = await getRuntimeSessionById(body.sessionId);
+  if (existing) {
+    const bootstrap = await getRuntimeSessionBootstrap(existing.id);
+    return c.json({ ok: true, session: existing, bootstrap });
+  }
+
+  const session = await registerRuntimeSession({
+    spaceId,
+    sessionId: body.sessionId,
+    title: body.title,
+    protocol: body.protocol,
+    externalSessionId: body.externalSessionId,
+    cwd: body.cwd,
+    meta: body.meta,
+  });
+
+  const bootstrap = await getRuntimeSessionBootstrap(session.id);
+  return c.json({ ok: true, session, bootstrap });
+});
+
+app.post("/internal/spaces/:spaceId/sessions/:sessionId/info", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("spaceId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session || session.runtimeId !== spaceId) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req.json<UpdateSessionInfoInput>().catch(() => null);
+  if (!body) return c.json({ message: "invalid body" }, 400);
+
+  await updateRuntimeSessionInfo({
+    spaceId,
+    sessionId,
+    title: body.title,
+    updatedAt: body.updatedAt,
+    meta: body.meta,
+  });
+
+  return c.json({ ok: true });
+});
+
+app.post("/internal/spaces/:spaceId/sessions/:sessionId/messages", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("spaceId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session || session.runtimeId !== spaceId) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req
+    .json<{
+      previousMessageId?: string | null;
+      anchorUserMessageId?: string | null;
+      idempotencyKey?: string;
+      message?: PersistMessageInput["message"] & { id?: string | null };
+    }>()
+    .catch(() => null);
+
+  if (!body?.idempotencyKey?.trim()) return c.json({ message: "idempotencyKey is required" }, 400);
+  if (!body.message || !Array.isArray(body.message.content)) {
+    return c.json({ message: "message.content is required" }, 400);
+  }
+
+  const messageNode = await persistMessageNode({
+    spaceId,
+    sessionId,
+    previousMessageId: body.previousMessageId ?? null,
+    anchorUserMessageId: body.anchorUserMessageId ?? null,
+    idempotencyKey: body.idempotencyKey,
+    message: {
+      ...(body.message as PersistMessageInput["message"]),
+      id: body.message.id ?? undefined,
+      content: body.message.content as never,
+    } as PersistMessageInput["message"] & { id?: string },
+  });
+
+  return c.json({ ok: true, message: messageNode });
+});
+
+app.post("/internal/spaces/:spaceId/sessions/:sessionId/prompt", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("spaceId");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId)) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const session = await getRuntimeSessionById(sessionId);
+  if (!session || session.runtimeId !== spaceId) {
+    return c.json({ message: "session not found" }, 404);
+  }
+
+  const body = await c.req
+    .json<{
+      content: ContentBlock[];
+      userMessageId?: string | null;
+      meta?: Record<string, unknown> | null;
+    }>()
+    .catch(() => null);
+
+  if (!body || !Array.isArray(body.content) || body.content.length === 0) {
+    return c.json({ message: "content is required" }, 400);
+  }
+
+  const userMessageId = body.userMessageId?.trim() || crypto.randomUUID();
+
+  try {
+    await enqueueRuntimePrompt({
+      runtimeId: spaceId,
+      sessionId,
+      userMessageId,
+      content: body.content,
+      meta: body.meta ?? null,
+    });
+  } catch (error) {
+    if (error instanceof SandboxNotReadyError) {
+      return c.json({ message: error.message }, 409);
+    }
+    throw error;
+  }
+
+  return c.json({ ok: true, userMessageId });
+});
+
 app.post("/api/runtimes", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
