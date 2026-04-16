@@ -760,9 +760,9 @@ export const persistMessageNode = async (input: PersistMessageInput & {
 
       await touchRuntimeSessionBinding(binding.id).catch(console.error);
       await dispatchOutboundMessage({
-        runtimeChannelId: binding.runtimeChannelId,
-        runtimeId: session.runtimeId,
-        runtimeSessionId: session.id,
+        spaceChannelId: binding.spaceChannelId,
+        spaceId: session.runtimeId,
+        spaceSessionId: session.id,
         sessionMessageId: messageNode.id,
         provider: binding.provider,
         externalChatId: binding.externalChatId,
@@ -784,9 +784,9 @@ export const persistMessageNode = async (input: PersistMessageInput & {
 
     for (const rc of channels) {
       await dispatchOutboundMessage({
-        runtimeChannelId: rc.id,
-        runtimeId: session.runtimeId,
-        runtimeSessionId: session.id,
+        spaceChannelId: rc.id,
+        spaceId: session.runtimeId,
+        spaceSessionId: session.id,
         sessionMessageId: messageNode.id,
         content: messageNode.content,
         replyToExternalMessageId: undefined,

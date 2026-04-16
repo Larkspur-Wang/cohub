@@ -305,7 +305,7 @@ app.post("/api/spaces", async (c) => {
 
   if (normalizedChannelBindings.length > 0) {
     const insertedRuntimeChannels = await db.insert(runtimeChannels).values(normalizedChannelBindings.map((binding) => ({ runtimeId: space.id, channelId: binding.channelId, config: binding.config }))).returning();
-    await Promise.all(insertedRuntimeChannels.map((runtimeChannel) => syncRuntimeChannelConfigCache({ runtimeChannelId: runtimeChannel.id, config: (runtimeChannel.config as Record<string, unknown> | null) ?? null })));
+    await Promise.all(insertedRuntimeChannels.map((runtimeChannel) => syncRuntimeChannelConfigCache({ spaceChannelId: runtimeChannel.id, config: (runtimeChannel.config as Record<string, unknown> | null) ?? null })));
   }
 
   const session = await createInitialSpaceSession({

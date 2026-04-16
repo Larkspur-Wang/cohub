@@ -11,7 +11,7 @@ import {
 } from "./db/schema-v2.js";
 import { createStreamingRedisClient, getSpaceInputQueueKey, getSpaceOutputStreamKey, redisCommandClient } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
-import { dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding } from "./channels.js";
+import { dispatchOutboundMessage, getBindingsBySessionId, touchSpaceSessionBinding } from "./channels.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 
 export class SandboxNotReadyError extends Error {
@@ -239,11 +239,11 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const bindings = await getBindingsBySessionId(session.id);
   if (bindings.length > 0) {
     for (const binding of bindings) {
-      await touchRuntimeSessionBinding(binding.id).catch(console.error);
+      await touchSpaceSessionBinding(binding.id).catch(console.error);
       await dispatchOutboundMessage({
-        runtimeChannelId: binding.runtimeChannelId,
-        runtimeId: session.spaceId,
-        runtimeSessionId: session.id,
+        spaceChannelId: binding.spaceChannelId,
+        spaceId: session.spaceId,
+        spaceSessionId: session.id,
         sessionMessageId: messageNode.id,
         provider: binding.provider,
         externalChatId: binding.externalChatId,
@@ -260,9 +260,9 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, session.spaceId));
     for (const channel of channels) {
       await dispatchOutboundMessage({
-        runtimeChannelId: channel.id,
-        runtimeId: session.spaceId,
-        runtimeSessionId: session.id,
+        spaceChannelId: channel.id,
+        spaceId: session.spaceId,
+        spaceSessionId: session.id,
         sessionMessageId: messageNode.id,
         content: messageNode.content,
         replyToExternalMessageId: undefined,

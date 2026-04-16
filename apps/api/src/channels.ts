@@ -1,125 +1,63 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
-import { db } from "./db/index.js";
-import { providerMessageRefs, runtimeChannels, runtimeSessionBindings, userChannels } from "./db/schema.js";
-import { redisCommandClient, GATEWAY_OUTBOUND_STREAM, xaddWithMaxlen } from "./redis.js";
-import type {
-  GatewayInboundEvent,
-  GatewayOutboundCommand,
-  ContentBlock,
-  ChannelProvider,
-  ChannelConfig,
-} from "@cohub/protocol";
-import { buildSessionSourceChannel } from "@cohub/protocol";
+import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
-import { executeSessionInteraction, resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
+import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
+import { buildSessionSourceChannel } from "@cohub/protocol";
+import { db } from "./db/index.js";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels } from "./db/schema-v2.js";
+import { GATEWAY_OUTBOUND_STREAM, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
+import { executeSessionInteraction } from "./session-interactions.js";
 
-// In-memory lock to prevent concurrent binding creation for the same chat
-// (database unique index + onConflictDoUpdate provides the safety net for multi-instance)
 const bindingLocks = new Map<string, Promise<unknown>>();
 
-/**
- * 分配算法：目前简单采用随机分配活跃节点
- */
 async function pickGatewayNode(): Promise<string> {
   const now = Date.now();
-  // 获取 15 秒内有心跳的节点
   const activeNodes = await redisCommandClient.zrangebyscore("gateway:nodes", now - 15000, "+inf");
-
-  if (activeNodes.length === 0) {
-    throw new Error("No active gateway nodes available");
-  }
-
+  if (activeNodes.length === 0) throw new Error("No active gateway nodes available");
   const nodeId = activeNodes[Math.floor(Math.random() * activeNodes.length)];
-  if (!nodeId) {
-    throw new Error("Failed to pick gateway node");
-  }
+  if (!nodeId) throw new Error("Failed to pick gateway node");
   return nodeId;
 }
 
-const getRuntimeChannelConfigKey = (runtimeChannelId: string) => `gateway:runtime_channel_config:${runtimeChannelId}`;
+const getSpaceChannelConfigKey = (spaceChannelId: string) => `gateway:space_channel_config:${spaceChannelId}`;
 
-export async function syncRuntimeChannelConfigCache(input: {
-  runtimeChannelId: string;
-  config: ChannelConfig | Record<string, unknown> | null;
-}) {
-  const key = getRuntimeChannelConfigKey(input.runtimeChannelId);
-  const payload = JSON.stringify(input.config ?? {});
-  await redisCommandClient.set(key, payload);
+export async function syncSpaceChannelConfigCache(input: { spaceChannelId: string; config: ChannelConfig | Record<string, unknown> | null }) {
+  await redisCommandClient.set(getSpaceChannelConfigKey(input.spaceChannelId), JSON.stringify(input.config ?? {}));
 }
 
-export async function getRuntimeChannelRecord(runtimeChannelId: string) {
-  const [rc] = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.id, runtimeChannelId))
-    .limit(1);
-
-  return rc ?? null;
+export async function getSpaceChannelRecord(spaceChannelId: string) {
+  const [channel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, spaceChannelId)).limit(1);
+  return channel ?? null;
 }
 
-/**
- * 将 Runtime 关联的所有渠道拉起并分配给 Gateway 节点
- */
-export async function bindRuntimeChannelsToGateway(runtimeId: string) {
-  const rcs = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.runtimeId, runtimeId));
+export async function bindSpaceChannelsToGateway(spaceId: string) {
+  const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, spaceId));
+  for (const channel of channels) {
+    const [userChannel] = await db.select().from(userChannels).where(eq(userChannels.id, channel.channelId)).limit(1);
+    if (!userChannel || userChannel.status !== "active") continue;
 
-  for (const rc of rcs) {
-    const [uc] = await db
-      .select()
-      .from(userChannels)
-      .where(eq(userChannels.id, rc.channelId))
-      .limit(1);
-
-    if (!uc || uc.status !== "active") continue;
-
-    // 检查 channel 是否已经被分配且目标节点仍然活跃
-    const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", rc.id);
+    const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", channel.id);
     if (existingNodeId) {
-      const now = Date.now();
       const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
       const nodeLastHeartbeat = typeof nodeLastHeartbeatStr === "string" ? Number.parseFloat(nodeLastHeartbeatStr) : null;
-      if (nodeLastHeartbeat && now - nodeLastHeartbeat < 15000) {
-        console.log(`[Channels] Channel ${rc.id} already assigned to active node ${existingNodeId}, skipping`);
-        continue;
-      }
-      console.log(`[Channels] Channel ${rc.id} was assigned to node ${existingNodeId} but node is inactive, reassigning`);
+      if (nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < 15000) continue;
     }
 
     const nodeId = await pickGatewayNode();
-
-    // 构造分配给 Gateway 的配置
-    const config = {
-      channelId: rc.id, // 这里我们让 gateway 内部使用 runtime_channels.id 作为 key
-      provider: uc.provider,
-      credentials: uc.credentials,
-    };
-
-    await syncRuntimeChannelConfigCache({
-      runtimeChannelId: rc.id,
-      config: (rc.config as ChannelConfig | Record<string, unknown> | null) ?? null,
-    });
-
-    // 1. 塞进节点的专属任务 Hash
-    await redisCommandClient.hset(`gateway:node:${nodeId}:channels`, rc.id, JSON.stringify(config));
-
-    // 2. 记录路由反查表
-    await redisCommandClient.hset("gateway:channel_routing", rc.id, nodeId);
-
-    console.log(`[Channels] Assigned channel ${rc.id} to gateway node ${nodeId}`);
+    await syncSpaceChannelConfigCache({ spaceChannelId: channel.id, config: (channel.config as ChannelConfig | Record<string, unknown> | null) ?? null });
+    await redisCommandClient.hset(`gateway:node:${nodeId}:channels`, channel.id, JSON.stringify({
+      channelId: channel.id,
+      provider: userChannel.provider,
+      credentials: userChannel.credentials,
+    }));
+    await redisCommandClient.hset("gateway:channel_routing", channel.id, nodeId);
   }
 }
 
-/**
- * 推送出站消息到对应的 Gateway 节点
- */
 export async function dispatchOutboundMessage(input: {
-  runtimeChannelId: string;
-  runtimeId?: string;
-  runtimeSessionId?: string;
+  spaceChannelId: string;
+  spaceId?: string;
+  spaceSessionId?: string;
   sessionMessageId?: string;
   provider?: string;
   externalChatId?: string | null;
@@ -127,229 +65,123 @@ export async function dispatchOutboundMessage(input: {
   replyToExternalMessageId?: string;
   meta?: Record<string, unknown> | null;
 }) {
-  // 1. 查找该渠道目前归哪个节点管
-  const nodeId = await redisCommandClient.hget("gateway:channel_routing", input.runtimeChannelId);
-  if (!nodeId) {
-    console.warn(`[Channels] No routing found for channel ${input.runtimeChannelId}`);
-    return;
-  }
+  const nodeId = await redisCommandClient.hget("gateway:channel_routing", input.spaceChannelId);
+  if (!nodeId) return;
 
-  // 2. 查出渠道的详细信息 (provider)
-  const [rc] = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.id, input.runtimeChannelId))
-    .limit(1);
+  const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, input.spaceChannelId)).limit(1);
+  if (!spaceChannel) return;
 
-  if (!rc) return;
+  const [userChannel] = await db.select().from(userChannels).where(eq(userChannels.id, spaceChannel.channelId)).limit(1);
+  if (!userChannel) return;
 
-  const [uc] = await db
-    .select()
-    .from(userChannels)
-    .where(eq(userChannels.id, rc.channelId))
-    .limit(1);
-
-  if (!uc) return;
-
-  const resolvedExternalChatId = input.externalChatId?.trim();
-  if (!resolvedExternalChatId) {
-    console.warn(
-      `[Channels] Skip outbound for runtimeChannel=${input.runtimeChannelId}: missing externalChatId`,
-    );
-    return;
-  }
+  const externalChatId = input.externalChatId?.trim();
+  if (!externalChatId) return;
 
   const command: GatewayOutboundCommand = {
     commandId: randomUUID(),
     timestamp: Date.now(),
-    channelId: rc.id,
-    provider: (input.provider ?? uc.provider) as ChannelProvider,
-    externalChatId: resolvedExternalChatId,
+    channelId: spaceChannel.id,
+    provider: (input.provider ?? userChannel.provider) as ChannelProvider,
+    externalChatId,
     content: input.content,
     replyToExternalMessageId: input.replyToExternalMessageId,
-    spaceId: input.runtimeId ?? rc.runtimeId,
-    spaceSessionId: input.runtimeSessionId,
+    spaceId: input.spaceId ?? spaceChannel.spaceId,
+    spaceSessionId: input.spaceSessionId,
     sessionMessageId: input.sessionMessageId,
     meta: input.meta ?? null,
   };
 
-  console.log(
-    `[Channels] Dispatch outbound runtimeChannel=${input.runtimeChannelId} provider=${command.provider} externalChatId=${command.externalChatId} replyTo=${command.replyToExternalMessageId ?? "none"}`,
-  );
-
-  // 3. 塞进 Outbound Stream（使用 MAXLEN 限制长度）
-  await xaddWithMaxlen(
-    redisCommandClient,
-    GATEWAY_OUTBOUND_STREAM,
-    "*",
-    "payload",
-    JSON.stringify(command),
-  );
+  await xaddWithMaxlen(redisCommandClient, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
 }
 
-export async function getBindingByRuntimeChannelAndKey(input: {
-  runtimeChannelId: string;
-  bindingKey: string;
-}) {
-  const [binding] = await db
-    .select()
-    .from(runtimeSessionBindings)
-    .where(
-      and(
-        eq(runtimeSessionBindings.runtimeChannelId, input.runtimeChannelId),
-        eq(runtimeSessionBindings.bindingKey, input.bindingKey),
-      ),
-    )
-    .limit(1);
-
+export async function getBindingBySpaceChannelAndKey(input: { spaceChannelId: string; bindingKey: string }) {
+  const [binding] = await db.select().from(spaceSessionBindings).where(and(eq(spaceSessionBindings.spaceChannelId, input.spaceChannelId), eq(spaceSessionBindings.bindingKey, input.bindingKey))).limit(1);
   return binding ?? null;
 }
 
-export async function getBindingsByRuntimeId(runtimeId: string) {
-  return db
-    .select()
-    .from(runtimeSessionBindings)
-    .where(eq(runtimeSessionBindings.runtimeId, runtimeId));
+export async function getBindingsBySpaceId(spaceId: string) {
+  return db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.spaceId, spaceId));
 }
 
-export async function getRuntimeChannelsByRuntimeId(runtimeId: string) {
-  return db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.runtimeId, runtimeId));
+export async function getSpaceChannelsBySpaceId(spaceId: string) {
+  return db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, spaceId));
 }
 
-export async function getRuntimeChannelById(runtimeChannelId: string) {
-  const [runtimeChannel] = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.id, runtimeChannelId))
-    .limit(1);
-
-  return runtimeChannel ?? null;
+export async function getSpaceChannelById(spaceChannelId: string) {
+  const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, spaceChannelId)).limit(1);
+  return spaceChannel ?? null;
 }
 
-export async function updateRuntimeChannelConfig(input: {
-  runtimeChannelId: string;
-  config: Record<string, unknown> | null;
-}) {
-  const [updated] = await db
-    .update(runtimeChannels)
-    .set({
-      config: input.config ?? null,
-    })
-    .where(eq(runtimeChannels.id, input.runtimeChannelId))
-    .returning();
-
+export async function updateSpaceChannelConfig(input: { spaceChannelId: string; config: Record<string, unknown> | null }) {
+  const [updated] = await db.update(spaceChannels).set({ config: input.config ?? null }).where(eq(spaceChannels.id, input.spaceChannelId)).returning();
   if (!updated) return null;
-
-  await syncRuntimeChannelConfigCache({
-    runtimeChannelId: updated.id,
-    config: (updated.config as Record<string, unknown> | null) ?? null,
-  });
-
+  await syncSpaceChannelConfigCache({ spaceChannelId: updated.id, config: (updated.config as Record<string, unknown> | null) ?? null });
   return updated;
 }
 
-export async function getBindingsBySessionId(runtimeSessionId: string) {
-  return db
-    .select()
-    .from(runtimeSessionBindings)
-    .where(eq(runtimeSessionBindings.runtimeSessionId, runtimeSessionId));
+export async function getBindingsBySessionId(spaceSessionId: string) {
+  return db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.spaceSessionId, spaceSessionId));
 }
 
-export async function getBindingBySessionId(runtimeSessionId: string) {
-  const [binding] = await getBindingsBySessionId(runtimeSessionId);
+export async function getBindingBySessionId(spaceSessionId: string) {
+  const [binding] = await getBindingsBySessionId(spaceSessionId);
   return binding ?? null;
 }
 
-export async function createRuntimeSessionBinding(input: {
-  runtimeId: string;
-  runtimeSessionId: string;
-  runtimeChannelId: string;
+export async function createSpaceSessionBinding(input: {
+  spaceId: string;
+  spaceSessionId: string;
+  spaceChannelId: string;
   provider: string;
   bindingKey: string;
   externalChatId: string;
   meta?: Record<string, unknown> | null;
 }) {
-  const [binding] = await db
-    .insert(runtimeSessionBindings)
-    .values({
-      runtimeId: input.runtimeId,
-      runtimeSessionId: input.runtimeSessionId,
-      runtimeChannelId: input.runtimeChannelId,
+  const [binding] = await db.insert(spaceSessionBindings).values({
+    spaceId: input.spaceId,
+    spaceSessionId: input.spaceSessionId,
+    spaceChannelId: input.spaceChannelId,
+    provider: input.provider,
+    bindingKey: input.bindingKey,
+    externalChatId: input.externalChatId,
+    status: "active",
+    meta: input.meta ?? null,
+    updatedAt: new Date(),
+    lastMessageAt: new Date(),
+  }).onConflictDoUpdate({
+    target: [spaceSessionBindings.spaceChannelId, spaceSessionBindings.bindingKey],
+    set: {
+      spaceId: input.spaceId,
+      spaceSessionId: input.spaceSessionId,
       provider: input.provider,
-      bindingKey: input.bindingKey,
       externalChatId: input.externalChatId,
       status: "active",
       meta: input.meta ?? null,
       updatedAt: new Date(),
       lastMessageAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [runtimeSessionBindings.runtimeChannelId, runtimeSessionBindings.bindingKey],
-      set: {
-        runtimeId: input.runtimeId,
-        runtimeSessionId: input.runtimeSessionId,
-        provider: input.provider,
-        externalChatId: input.externalChatId,
-        status: "active",
-        meta: input.meta ?? null,
-        updatedAt: new Date(),
-        lastMessageAt: new Date(),
-      },
-    })
-    .returning();
-
-  if (!binding) {
-    throw new Error("Failed to create runtime session binding");
-  }
-
+    },
+  }).returning();
+  if (!binding) throw new Error("Failed to create space session binding");
   return binding;
 }
 
-export async function touchRuntimeSessionBinding(bindingId: string) {
-  await db
-    .update(runtimeSessionBindings)
-    .set({ updatedAt: new Date(), lastMessageAt: new Date() })
-    .where(eq(runtimeSessionBindings.id, bindingId));
+export async function touchSpaceSessionBinding(bindingId: string) {
+  await db.update(spaceSessionBindings).set({ updatedAt: new Date(), lastMessageAt: new Date() }).where(eq(spaceSessionBindings.id, bindingId));
 }
 
-export async function updateRuntimeSessionBindingMeta(input: {
-  bindingId: string;
-  meta: Record<string, unknown> | null;
-}) {
-  const [binding] = await db
-    .select()
-    .from(runtimeSessionBindings)
-    .where(eq(runtimeSessionBindings.id, input.bindingId))
-    .limit(1);
-
+export async function updateSpaceSessionBindingMeta(input: { bindingId: string; meta: Record<string, unknown> | null }) {
+  const [binding] = await db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.id, input.bindingId)).limit(1);
   if (!binding) return null;
-
-  const mergedMeta = {
-    ...((binding.meta as Record<string, unknown> | null) ?? {}),
-    ...(input.meta ?? {}),
-  };
-
-  const [updated] = await db
-    .update(runtimeSessionBindings)
-    .set({
-      meta: mergedMeta,
-      updatedAt: new Date(),
-      lastMessageAt: new Date(),
-    })
-    .where(eq(runtimeSessionBindings.id, input.bindingId))
-    .returning();
-
+  const mergedMeta = { ...((binding.meta as Record<string, unknown> | null) ?? {}), ...(input.meta ?? {}) };
+  const [updated] = await db.update(spaceSessionBindings).set({ meta: mergedMeta, updatedAt: new Date(), lastMessageAt: new Date() }).where(eq(spaceSessionBindings.id, input.bindingId)).returning();
   return updated ?? null;
 }
 
 export async function createProviderMessageRef(input: {
   provider: string;
-  runtimeId: string;
-  runtimeSessionId: string;
-  runtimeChannelId?: string | null;
+  spaceId: string;
+  spaceSessionId: string;
+  spaceChannelId?: string | null;
   sessionMessageId?: string | null;
   direction: "inbound" | "outbound";
   externalConversationId: string;
@@ -360,124 +192,63 @@ export async function createProviderMessageRef(input: {
   externalAuthorName?: string | null;
   meta?: Record<string, unknown> | null;
 }) {
-  const [ref] = await db
-    .insert(providerMessageRefs)
-    .values({
-      provider: input.provider,
-      runtimeId: input.runtimeId,
-      runtimeSessionId: input.runtimeSessionId,
-      runtimeChannelId: input.runtimeChannelId ?? null,
+  const [ref] = await db.insert(providerMessageRefs).values({
+    provider: input.provider,
+    spaceId: input.spaceId,
+    spaceSessionId: input.spaceSessionId,
+    spaceChannelId: input.spaceChannelId ?? null,
+    sessionMessageId: input.sessionMessageId ?? null,
+    direction: input.direction,
+    externalConversationId: input.externalConversationId,
+    externalMessageId: input.externalMessageId,
+    parentExternalConversationId: input.parentExternalConversationId ?? null,
+    parentExternalMessageId: input.parentExternalMessageId ?? null,
+    externalAuthorId: input.externalAuthorId ?? null,
+    externalAuthorName: input.externalAuthorName ?? null,
+    meta: input.meta ?? null,
+    updatedAt: new Date(),
+  }).onConflictDoUpdate({
+    target: [providerMessageRefs.provider, providerMessageRefs.externalConversationId, providerMessageRefs.externalMessageId, providerMessageRefs.direction],
+    set: {
+      spaceId: input.spaceId,
+      spaceSessionId: input.spaceSessionId,
+      spaceChannelId: input.spaceChannelId ?? null,
       sessionMessageId: input.sessionMessageId ?? null,
-      direction: input.direction,
-      externalConversationId: input.externalConversationId,
-      externalMessageId: input.externalMessageId,
       parentExternalConversationId: input.parentExternalConversationId ?? null,
       parentExternalMessageId: input.parentExternalMessageId ?? null,
       externalAuthorId: input.externalAuthorId ?? null,
       externalAuthorName: input.externalAuthorName ?? null,
       meta: input.meta ?? null,
       updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [
-        providerMessageRefs.provider,
-        providerMessageRefs.externalConversationId,
-        providerMessageRefs.externalMessageId,
-        providerMessageRefs.direction,
-      ],
-      set: {
-        runtimeId: input.runtimeId,
-        runtimeSessionId: input.runtimeSessionId,
-        runtimeChannelId: input.runtimeChannelId ?? null,
-        sessionMessageId: input.sessionMessageId ?? null,
-        parentExternalConversationId: input.parentExternalConversationId ?? null,
-        parentExternalMessageId: input.parentExternalMessageId ?? null,
-        externalAuthorId: input.externalAuthorId ?? null,
-        externalAuthorName: input.externalAuthorName ?? null,
-        meta: input.meta ?? null,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
-
+    },
+  }).returning();
   return ref ?? null;
 }
 
-export async function getProviderMessageRef(input: {
-  provider: string;
-  externalConversationId: string;
-  externalMessageId: string;
-  direction?: "inbound" | "outbound";
-}) {
-  const [ref] = await db
-    .select()
-    .from(providerMessageRefs)
-    .where(
-      input.direction
-        ? and(
-            eq(providerMessageRefs.provider, input.provider),
-            eq(providerMessageRefs.externalConversationId, input.externalConversationId),
-            eq(providerMessageRefs.externalMessageId, input.externalMessageId),
-            eq(providerMessageRefs.direction, input.direction),
-          )
-        : and(
-            eq(providerMessageRefs.provider, input.provider),
-            eq(providerMessageRefs.externalConversationId, input.externalConversationId),
-            eq(providerMessageRefs.externalMessageId, input.externalMessageId),
-          ),
-    )
-    .orderBy(desc(providerMessageRefs.createdAt))
-    .limit(1);
-
+export async function getProviderMessageRef(input: { provider: string; externalConversationId: string; externalMessageId: string; direction?: "inbound" | "outbound" }) {
+  const [ref] = await db.select().from(providerMessageRefs).where(
+    input.direction
+      ? and(eq(providerMessageRefs.provider, input.provider), eq(providerMessageRefs.externalConversationId, input.externalConversationId), eq(providerMessageRefs.externalMessageId, input.externalMessageId), eq(providerMessageRefs.direction, input.direction))
+      : and(eq(providerMessageRefs.provider, input.provider), eq(providerMessageRefs.externalConversationId, input.externalConversationId), eq(providerMessageRefs.externalMessageId, input.externalMessageId)),
+  ).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
   return ref ?? null;
 }
 
-export async function resolveForkSourceForInboundEvent(input: {
-  runtimeId: string;
-  runtimeChannelId: string;
-  provider: string;
-  conversationId: string;
-  parentConversationId?: string | null;
-  parentMessageId?: string | null;
-}) {
+export async function resolveForkSourceForInboundEvent(input: { spaceChannelId: string; provider: string; conversationId: string; parentConversationId?: string | null; parentMessageId?: string | null }) {
   const parentConversationId = input.parentConversationId?.trim();
   const parentMessageId = input.parentMessageId?.trim();
   if (!parentConversationId || !parentMessageId) return null;
-
   const parentBindingKey = `${input.provider}:conversation:${parentConversationId}`;
-  const parentBinding = await getBindingByRuntimeChannelAndKey({
-    runtimeChannelId: input.runtimeChannelId,
-    bindingKey: parentBindingKey,
-  });
+  const parentBinding = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: parentBindingKey });
   if (!parentBinding) return null;
-
-  const anchorRef = await getProviderMessageRef({
-    provider: input.provider,
-    externalConversationId: parentConversationId,
-    externalMessageId: parentMessageId,
-    direction: "inbound",
-  });
-
-  if (anchorRef?.sessionMessageId && anchorRef.runtimeSessionId === parentBinding.runtimeSessionId) {
-    return {
-      parentSessionId: parentBinding.runtimeSessionId,
-      fromMessageId: anchorRef.sessionMessageId,
-    };
+  const anchorRef = await getProviderMessageRef({ provider: input.provider, externalConversationId: parentConversationId, externalMessageId: parentMessageId, direction: "inbound" });
+  if (anchorRef?.sessionMessageId && anchorRef.spaceSessionId === parentBinding.spaceSessionId) {
+    return { parentSessionId: parentBinding.spaceSessionId, fromMessageId: anchorRef.sessionMessageId };
   }
-
-  const fallbackAnchorRef = await getProviderMessageRef({
-    provider: input.provider,
-    externalConversationId: parentConversationId,
-    externalMessageId: parentMessageId,
-  });
-
-  if (fallbackAnchorRef?.sessionMessageId && fallbackAnchorRef.runtimeSessionId === parentBinding.runtimeSessionId) {
-    return {
-      parentSessionId: parentBinding.runtimeSessionId,
-      fromMessageId: fallbackAnchorRef.sessionMessageId,
-    };
+  const fallbackAnchorRef = await getProviderMessageRef({ provider: input.provider, externalConversationId: parentConversationId, externalMessageId: parentMessageId });
+  if (fallbackAnchorRef?.sessionMessageId && fallbackAnchorRef.spaceSessionId === parentBinding.spaceSessionId) {
+    return { parentSessionId: parentBinding.spaceSessionId, fromMessageId: fallbackAnchorRef.sessionMessageId };
   }
-
   return null;
 }
 
@@ -486,10 +257,7 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
     conversation: event.conversation ?? null,
     message: event.message ?? null,
     providerMeta: event.meta ?? null,
-    displayMode:
-      event.conversation?.parentId || (event.conversation?.meta as Record<string, unknown> | null)?.isDm === true
-        ? "compact"
-        : "minimal",
+    displayMode: event.conversation?.parentId || (event.conversation?.meta as Record<string, unknown> | null)?.isDm === true ? "compact" : "minimal",
     lifecycle: {
       sourceEventType: event.eventType ?? "message_create",
       precreated: event.eventType === "conversation_create",
@@ -497,42 +265,21 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
       lastEventAt: new Date(event.timestamp).toISOString(),
       lastEventId: event.eventId,
     },
-    forkedFromExternal:
-      event.conversation?.parentId && event.message?.parentMessageId
-        ? {
-            conversationId: event.conversation.parentId,
-            messageId: event.message.parentMessageId,
-          }
-        : null,
+    forkedFromExternal: event.conversation?.parentId && event.message?.parentMessageId ? { conversationId: event.conversation.parentId, messageId: event.message.parentMessageId } : null,
   } as Record<string, unknown>;
 }
 
-async function resolveOrCreateSessionBindingForEvent(input: {
-  runtimeId: string;
-  runtimeChannelId: string;
-  provider: string;
-  externalChatId: string;
-  bindingKey: string;
-  event: GatewayInboundEvent;
-}) {
-  const lockKey = `${input.runtimeChannelId}:${input.bindingKey}`;
-
-  // If another request is already creating the binding, wait and retry
+async function resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+  const lockKey = `${input.spaceChannelId}:${input.bindingKey}`;
   const existingLock = bindingLocks.get(lockKey);
   if (existingLock) {
     await existingLock;
-    const existing = await getBindingByRuntimeChannelAndKey({
-      runtimeChannelId: input.runtimeChannelId,
-      bindingKey: input.bindingKey,
-    });
-    if (existing?.runtimeSessionId) return existing;
+    const existing = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: input.bindingKey });
+    if (existing?.spaceSessionId) return existing;
   }
-
-  // Create a lock for this binding
   let unlock: (() => void) | undefined;
   const lock = new Promise<void>((resolve) => { unlock = resolve; });
   bindingLocks.set(lockKey, lock);
-
   try {
     return await resolveOrCreateSessionBindingForEventImpl(input);
   } finally {
@@ -541,62 +288,26 @@ async function resolveOrCreateSessionBindingForEvent(input: {
   }
 }
 
-async function resolveOrCreateSessionBindingForEventImpl(input: {
-  runtimeId: string;
-  runtimeChannelId: string;
-  provider: string;
-  externalChatId: string;
-  bindingKey: string;
-  event: GatewayInboundEvent;
-}) {
-  console.log("[Channels] resolveOrCreateSessionBindingForEvent", {
-    runtimeId: input.runtimeId,
-    runtimeChannelId: input.runtimeChannelId,
-    provider: input.provider,
-    externalChatId: input.externalChatId,
-    bindingKey: input.bindingKey,
-    eventType: input.event.eventType,
-  });
-
-  let binding = await getBindingByRuntimeChannelAndKey({
-    runtimeChannelId: input.runtimeChannelId,
-    bindingKey: input.bindingKey,
-  });
-
-  if (binding?.runtimeSessionId) {
-    console.log("[Channels] Reusing existing session binding", {
-      bindingId: binding.id,
-      runtimeSessionId: binding.runtimeSessionId,
-      runtimeChannelId: binding.runtimeChannelId,
-    });
+async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: string; spaceChannelId: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+  let binding = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: input.bindingKey });
+  if (binding?.spaceSessionId) {
     const lifecycleUpdate = {
       lifecycle: {
         sourceEventType: input.event.eventType ?? "message_create",
-        precreated:
-          ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.precreated === true ||
-          input.event.eventType === "conversation_create",
-        createdVia:
-          (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.createdVia as string | undefined) ??
-          (input.event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
+        precreated: ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.precreated === true || input.event.eventType === "conversation_create",
+        createdVia: (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.createdVia as string | undefined) ?? (input.event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
         lastEventAt: new Date(input.event.timestamp).toISOString(),
         lastEventId: input.event.eventId,
-        lastMaterializedBy:
-          input.event.eventType === "conversation_create"
-            ? "conversation_create"
-            : ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.lastMaterializedBy ?? "message_create",
+        lastMaterializedBy: input.event.eventType === "conversation_create" ? "conversation_create" : ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.lastMaterializedBy ?? "message_create",
       },
     };
-    await updateRuntimeSessionBindingMeta({
-      bindingId: binding.id,
-      meta: lifecycleUpdate,
-    }).catch(console.error);
-    await touchRuntimeSessionBinding(binding.id);
+    await updateSpaceSessionBindingMeta({ bindingId: binding.id, meta: lifecycleUpdate }).catch(console.error);
+    await touchSpaceSessionBinding(binding.id);
     return binding;
   }
 
   const forkSource = await resolveForkSourceForInboundEvent({
-    runtimeId: input.runtimeId,
-    runtimeChannelId: input.runtimeChannelId,
+    spaceChannelId: input.spaceChannelId,
     provider: input.provider,
     conversationId: input.event.conversation?.id?.trim() || input.externalChatId,
     parentConversationId: input.event.conversation?.parentId ?? null,
@@ -604,16 +315,10 @@ async function resolveOrCreateSessionBindingForEventImpl(input: {
   });
 
   const sessionSource = buildSessionSourceChannel(input.event);
-
   const session = forkSource
-    ? await forkRuntimeSession({
-        runtimeId: input.runtimeId,
-        parentSessionId: forkSource.parentSessionId,
-        fromMessageId: forkSource.fromMessageId,
-        newSessionId: randomUUID(),
-        })
-    : await registerRuntimeSession({
-        spaceId: input.runtimeId,
+    ? await forkSpaceSession({ spaceId: input.spaceId, parentSessionId: forkSource.parentSessionId, fromMessageId: forkSource.fromMessageId, newSessionId: randomUUID() })
+    : await registerSpaceSession({
+        spaceId: input.spaceId,
         sessionId: randomUUID(),
         source: sessionSource,
         protocol: "pi",
@@ -627,85 +332,40 @@ async function resolveOrCreateSessionBindingForEventImpl(input: {
         },
       });
 
-  console.log("[Channels] Created new runtime session for inbound", {
-    runtimeSessionId: session.id,
-    forked: Boolean(forkSource),
-    parentSessionId: forkSource?.parentSessionId ?? null,
-    fromMessageId: forkSource?.fromMessageId ?? null,
-  });
-
-
-  const bindingMeta = buildDefaultBindingMeta(input.event);
-
-  binding = await createRuntimeSessionBinding({
-    runtimeId: input.runtimeId,
-    runtimeSessionId: session.id,
-    runtimeChannelId: input.runtimeChannelId,
+  binding = await createSpaceSessionBinding({
+    spaceId: input.spaceId,
+    spaceSessionId: session.id,
+    spaceChannelId: input.spaceChannelId,
     provider: input.provider,
     bindingKey: input.bindingKey,
     externalChatId: input.externalChatId,
     meta: {
-      ...bindingMeta,
+      ...buildDefaultBindingMeta(input.event),
       lifecycle: {
-        ...(bindingMeta.lifecycle as Record<string, unknown>),
+        ...(buildDefaultBindingMeta(input.event).lifecycle as Record<string, unknown>),
         initializedAt: new Date(input.event.timestamp).toISOString(),
         initializedFromEventId: input.event.eventId,
         lastMaterializedBy: input.event.eventType === "conversation_create" ? "conversation_create" : "message_create",
       },
     },
   });
-
-  console.log("[Channels] Created runtime session binding", {
-    bindingId: binding.id,
-    runtimeSessionId: binding.runtimeSessionId,
-    runtimeChannelId: binding.runtimeChannelId,
-    bindingKey: binding.bindingKey,
-    externalChatId: binding.externalChatId,
-  });
-
-
   return binding;
 }
 
-/**
- * 处理网关发来的入站事件
- */
 export async function handleInboundEvent(event: GatewayInboundEvent) {
-  console.log("[Channels] handleInboundEvent begin", {
-    eventId: event.eventId,
-    channelId: event.channelId,
-    provider: event.provider,
-    externalChatId: event.externalChatId,
-    bindingKey: event.bindingKey,
-    eventType: event.eventType,
-  });
-
-  const resolved = await resolveSessionInteractionForInboundEvent(event);
-  if (!resolved) return;
-
-  const { runtimeId, runtimeChannelId, sessionId, binding, conversationId, bindingKey } = resolved;
-
-  console.log("[Channels] Resolved binding", {
-    bindingId: binding.id,
-    runtimeSessionId: binding.runtimeSessionId,
-    runtimeChannelId: binding.runtimeChannelId,
-    externalChatId: binding.externalChatId,
-  });
-
-  if (event.eventType === "conversation_create") {
-    console.log("[Channels] conversation_create handled without materializing user message", {
-      eventId: event.eventId,
-      runtimeSessionId: sessionId,
-    });
-    return;
-  }
-
+  const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, event.channelId)).limit(1);
+  if (!spaceChannel) return;
+  const conversationId = event.conversation?.id?.trim() || event.externalChatId;
+  const existingInboundRef = await getProviderMessageRef({ provider: event.provider, externalConversationId: conversationId, externalMessageId: event.externalMessageId, direction: "inbound" });
+  if (existingInboundRef) return;
+  const bindingKey = event.bindingKey?.trim() || `${event.provider}:conversation:${conversationId}`;
+  const binding = await resolveOrCreateSessionBindingForEvent({ spaceId: spaceChannel.spaceId, spaceChannelId: spaceChannel.id, provider: event.provider, externalChatId: event.externalChatId, bindingKey, event });
+  if (event.eventType === "conversation_create") return;
   const textBlock = event.content.find((block): block is { type: "text"; text: string } => block.type === "text");
   const text = textBlock?.text || "";
-
-  const result = await executeSessionInteraction({
-    runtimeId,
-    sessionId,
+  await executeSessionInteraction({
+    spaceId: spaceChannel.spaceId,
+    sessionId: binding.spaceSessionId,
     inputText: text,
     content: event.content,
     source: `channel:${event.provider}`,
@@ -713,44 +373,24 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     actorUserId: event.sender.id,
     inboundRef: {
       provider: event.provider,
-      runtimeChannelId,
+      spaceChannelId: spaceChannel.id,
       externalConversationId: conversationId,
       externalMessageId: event.externalMessageId,
       externalAuthorId: event.sender.id,
       externalAuthorName: event.sender.name ?? null,
-      meta: {
-        bindingKey,
-        conversation: event.conversation ?? null,
-        message: event.message ?? null,
-        content: event.content,
-        providerMeta: event.meta ?? null,
-      },
+      meta: { bindingKey },
     },
   });
-
-  console.log("[Channels] Executed session interaction", {
-    runtimeId,
-    runtimeSessionId: sessionId,
-    userMessageId: result.userMessageId,
-    interactionId: event.eventId,
-  });
-
-  await updateRuntimeSessionBindingMeta({
-    bindingId: binding.id,
-    meta: {
-      lifecycle: {
-        sourceEventType: event.eventType ?? "message_create",
-        precreated:
-          ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.precreated === true,
-        createdVia:
-          (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.createdVia as string | undefined) ?? "message_create",
-        lastEventAt: new Date(event.timestamp).toISOString(),
-        lastEventId: event.eventId,
-        lastMaterializedBy: "message_create",
-        firstMessageExternalId:
-          (((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.firstMessageExternalId as string | undefined) ??
-          event.externalMessageId,
-      },
-    },
-  }).catch(console.error);
 }
+
+// Temporary aliases for callers not renamed yet.
+export const syncRuntimeChannelConfigCache = syncSpaceChannelConfigCache;
+export const getRuntimeChannelsByRuntimeId = getSpaceChannelsBySpaceId;
+export const getRuntimeChannelById = getSpaceChannelById;
+export const updateRuntimeChannelConfig = updateSpaceChannelConfig;
+export const getBindingByRuntimeChannelAndKey = getBindingBySpaceChannelAndKey;
+export const createRuntimeSessionBinding = createSpaceSessionBinding;
+export const touchRuntimeSessionBinding = touchSpaceSessionBinding;
+export const updateRuntimeSessionBindingMeta = updateSpaceSessionBindingMeta;
+export const bindRuntimeChannelsToGateway = bindSpaceChannelsToGateway;
+export const getRuntimeChannelRecord = getSpaceChannelRecord;
