@@ -211,6 +211,10 @@ app.get("/healthz", async (c) => {
   return c.json({ ok: true, redisReady, inboundInfo, outboundInfo, pendingInbound, consumer: CONSUMER_NAME });
 });
 
+app.get("/readyz", async (c) => {
+  return c.json({ ok: true });
+});
+
 app.get("/api/models", async (c) => {
   try {
     const catalog = await fetchModelsCatalog();
