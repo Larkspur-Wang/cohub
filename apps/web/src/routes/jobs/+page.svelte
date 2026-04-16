@@ -5,7 +5,6 @@ import {
   createCronJob,
   deleteCronJob,
   toggleCronJob,
-  getCronJobRuns,
   getTaskRuns,
   getRuntimes,
   type CronJobRecord,
@@ -13,7 +12,7 @@ import {
   type RuntimeRecord,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
-import { Plus, Trash2, Power, PowerOff, Loader2, ChevronDown, Clock, Activity } from "lucide-svelte";
+import { Plus, Trash2, Power, PowerOff, Loader2, Clock, Activity, Filter, X } from "lucide-svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 
 type TabId = "cronjobs" | "runs";
@@ -23,8 +22,7 @@ let isLoading = $state(true);
 let loadError = $state("");
 let cronJobs = $state<CronJobRecord[]>([]);
 let taskRuns = $state<TaskRunRecord[]>([]);
-let expandedCronJobs = $state<Set<string>>(new Set());
-let cronJobRuns = $state<Map<string, TaskRunRecord[]>>(new Map());
+let filterCronJobId = $state<string | null>(null);
 let actionInProgress = $state<Record<string, string>>({});
 
 // ── Create modal ──
@@ -67,34 +65,6 @@ async function loadTaskRuns() {
   }
 }
 
-async function loadCronJobRuns(cronJobId: string) {
-  if (cronJobRuns.has(cronJobId)) return;
-
-  try {
-    const result = await getCronJobRuns(cronJobId);
-    cronJobRuns = new Map(cronJobRuns).set(cronJobId, result.runs ?? []);
-  } catch (error) {
-    console.warn("Failed to load cron job runs", error);
-  }
-}
-
-function toggleCronJobExpand(cronJobId: string) {
-  const next = new Set(expandedCronJobs);
-  if (next.has(cronJobId)) {
-    next.delete(cronJobId);
-  } else {
-    next.add(cronJobId);
-    void loadCronJobRuns(cronJobId);
-  }
-  expandedCronJobs = next;
-}
-
-function handleCronJobHeaderKeydown(event: KeyboardEvent, cronJobId: string) {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  toggleCronJobExpand(cronJobId);
-}
-
 async function handleDelete(id: string, e: Event) {
   e.stopPropagation();
   if (!confirm("Are you sure you want to delete this cron job?")) return;
@@ -123,6 +93,15 @@ async function handleToggle(id: string, enabled: boolean, e: Event) {
     const { [id]: _, ...rest } = actionInProgress;
     actionInProgress = rest;
   }
+}
+
+function showRunsForJob(jobId: string) {
+  filterCronJobId = jobId;
+  activeTab = "runs";
+}
+
+function clearFilter() {
+  filterCronJobId = null;
 }
 
 async function loadRuntimes() {
@@ -223,6 +202,16 @@ function formatDate(dateStr: string | null) {
   });
 }
 
+function getJobTitle(cronJobId: string | null) {
+  if (!cronJobId) return null;
+  const job = cronJobs.find((j) => j.id === cronJobId);
+  return job?.title ?? null;
+}
+
+const filteredRuns = $derived(
+  filterCronJobId ? taskRuns.filter((r) => r.cronJobId === filterCronJobId) : taskRuns
+);
+
 $effect(() => {
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape" && showCreateModal && !isCreating) {
@@ -310,35 +299,27 @@ onMount(() => {
         {:else}
           <div class="space-y-0.5">
             {#each cronJobs as job (job.id)}
-              {@const isExpanded = expandedCronJobs.has(job.id)}
               {@const isBusy = actionInProgress[job.id]}
-              <!-- Cronjob row — flat, no card wrapper -->
               <div class="group rounded-[5px] border border-transparent hover:border-border-subtle transition-colors">
-                <div
-                  class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer"
-                  role="button"
-                  tabindex="0"
-                  aria-expanded={isExpanded}
-                  onclick={() => toggleCronJobExpand(job.id)}
-                  onkeydown={(e) => handleCronJobHeaderKeydown(e, job.id)}
-                >
-                  <!-- Expand chevron -->
-                  <span class="text-text-tertiary transition-transform {isExpanded ? '' : '-rotate-90'}">
-                    <ChevronDown class="w-3.5 h-3.5" />
-                  </span>
-
+                <div class="flex items-center gap-2.5 px-3 py-2.5">
                   <!-- Status dot -->
                   <span class="w-[7px] h-[7px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
 
-                  <!-- Title -->
-                  <span class="flex-1 text-[13px] font-medium truncate">{job.title}</span>
+                  <!-- Title (clickable to view runs) -->
+                  <button
+                    type="button"
+                    class="flex-1 text-left text-[13px] font-medium truncate hover:text-brand transition-colors"
+                    onclick={() => showRunsForJob(job.id)}
+                    title="View runs"
+                  >
+                    {job.title}
+                  </button>
 
-                  <!-- Cron expression — subtle pill -->
+                  <!-- Cron expression -->
                   <span class="text-[11px] font-mono text-text-placeholder px-1.5 py-0.5 rounded-sm bg-bg-code hidden sm:inline">{job.cronExpression}</span>
 
-                  <!-- Actions — visible on hover / always on mobile -->
+                  <!-- Actions -->
                   <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity lg:opacity-100 lg:group-hover:opacity-100">
-                    <!-- Enable/disable toggle -->
                     <button
                       type="button"
                       class="p-1.5 rounded-[5px] hover:bg-bg-hover transition-colors {job.enabled ? 'text-text-tertiary hover:text-status-running' : 'text-text-placeholder hover:text-status-running'}"
@@ -353,7 +334,6 @@ onMount(() => {
                         <PowerOff class="w-3.5 h-3.5" />
                       {/if}
                     </button>
-                    <!-- Delete -->
                     <button
                       type="button"
                       class="p-1.5 rounded-[5px] hover:bg-bg-hover text-text-placeholder hover:text-error-soft transition-colors"
@@ -364,40 +344,6 @@ onMount(() => {
                     </button>
                   </div>
                 </div>
-
-                <!-- Run history (expanded) -->
-                {#if isExpanded}
-                  <div class="pl-[34px] pr-3 pb-2.5">
-                    {#if cronJobRuns.has(job.id)}
-                      {@const runs = cronJobRuns.get(job.id)!}
-                      {#if runs.length === 0}
-                        <div class="py-1.5 text-[11px] text-text-placeholder">No runs yet</div>
-                      {:else}
-                        <div class="space-y-1.5">
-                          {#each runs.slice(0, 10) as run (run.id)}
-                            {@const badge = statusBadge(run)}
-                            <div class="flex items-center gap-2 text-[11px]">
-                              <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}"></span>
-                              <span class="text-text-secondary font-medium">{badge.label}</span>
-                              <span class="text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</span>
-                              {#if run.startedAt && run.finishedAt}
-                                <span class="text-text-placeholder font-mono">{((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000).toFixed(1)}s</span>
-                              {/if}
-                              {#if run.errorMessage}
-                                <span class="text-status-error truncate ml-auto max-w-[180px]" title={run.errorMessage}>{run.errorMessage.slice(0, 60)}</span>
-                              {/if}
-                            </div>
-                          {/each}
-                        </div>
-                      {/if}
-                    {:else}
-                      <div class="flex items-center gap-1.5 py-1.5 text-[11px] text-text-placeholder">
-                        <Loader2 class="w-3 h-3 animate-spin" />
-                        Loading runs...
-                      </div>
-                    {/if}
-                  </div>
-                {/if}
               </div>
             {/each}
           </div>
@@ -407,27 +353,44 @@ onMount(() => {
     {:else}
       <!-- Runs Tab -->
       <div class="max-w-4xl mx-auto px-4 py-4">
-        {#if taskRuns.length === 0}
+        <!-- Filter bar -->
+        {#if filterCronJobId}
+          {@const jobTitle = getJobTitle(filterCronJobId)}
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <Filter class="w-3.5 h-3.5 text-text-tertiary" />
+            <span class="text-[12px] text-text-secondary">Filtered by</span>
+            <span class="text-[12px] font-medium text-text-primary">{jobTitle ?? filterCronJobId}</span>
+            <button type="button" class="p-0.5 rounded hover:bg-bg-hover text-text-tertiary hover:text-text-primary transition-colors" onclick={clearFilter} title="Clear filter">
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        {/if}
+
+        {#if filteredRuns.length === 0}
           <div class="flex flex-col items-center justify-center py-16 text-center">
             <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
               <Activity class="w-5 h-5 text-text-placeholder" />
             </div>
-            <p class="text-[14px] text-text-tertiary">No task run records</p>
-            <p class="text-[12px] text-text-placeholder mt-1">Task runs will appear here once cronjobs start executing</p>
+            {#if filterCronJobId}
+              <p class="text-[14px] text-text-tertiary">No runs for this cronjob</p>
+            {:else}
+              <p class="text-[14px] text-text-tertiary">No task run records</p>
+              <p class="text-[12px] text-text-placeholder mt-1">Task runs will appear here once cronjobs start executing</p>
+            {/if}
           </div>
         {:else}
           <table class="w-full text-[12px]">
             <thead>
               <tr class="text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
                 <th class="text-left py-2 pr-3 font-medium">Status</th>
-                <th class="text-left py-2 pr-3 font-medium">Type</th>
+                <th class="text-left py-2 pr-3 font-medium">Cronjob</th>
                 <th class="text-left py-2 pr-3 font-medium">Started</th>
                 <th class="text-left py-2 pr-3 font-medium">Duration</th>
                 <th class="text-left py-2 font-medium">Error</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-border-subtle/50">
-              {#each taskRuns as run (run.id)}
+              {#each filteredRuns as run (run.id)}
                 {@const badge = statusBadge(run)}
                 {@const duration = run.startedAt && run.finishedAt
                   ? (() => {
@@ -442,7 +405,19 @@ onMount(() => {
                       <span class="{badge.color}">{badge.label}</span>
                     </span>
                   </td>
-                  <td class="py-2 pr-3 font-mono text-text-secondary">{run.taskType}</td>
+                  <td class="py-2 pr-3">
+                    <button
+                      type="button"
+                      class="text-left text-[12px] text-text-secondary hover:text-brand transition-colors truncate max-w-[150px]"
+                      onclick={() => {
+                        if (run.cronJobId) {
+                          filterCronJobId = run.cronJobId;
+                        }
+                      }}
+                    >
+                      {getJobTitle(run.cronJobId) ?? "—"}
+                    </button>
+                  </td>
                   <td class="py-2 pr-3 text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</td>
                   <td class="py-2 pr-3 text-text-placeholder font-mono">{duration}</td>
                   <td class="py-2 text-status-error max-w-[200px] truncate" title={run.errorMessage ?? ""}>
@@ -484,7 +459,6 @@ onMount(() => {
       </div>
 
       <div class="p-4 space-y-4">
-        <!-- Title -->
         <div>
           <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-title">Name</label>
           <input
@@ -496,7 +470,6 @@ onMount(() => {
           />
         </div>
 
-        <!-- Runtime -->
         <div>
           <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-runtime">Target Runtime</label>
           <select
@@ -511,7 +484,6 @@ onMount(() => {
           </select>
         </div>
 
-        <!-- Cron Expression -->
         <div>
           <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-expression">Cron Expression</label>
           <input
@@ -526,7 +498,6 @@ onMount(() => {
           </p>
         </div>
 
-        <!-- Prompt -->
         <div>
           <label class="block text-[12px] font-medium text-text-secondary mb-1" for="cronjob-prompt">Prompt Message</label>
           <textarea
@@ -538,13 +509,11 @@ onMount(() => {
           ></textarea>
         </div>
 
-        <!-- Error -->
         {#if createError}
           <div class="text-[12px] text-error-soft">{createError}</div>
         {/if}
       </div>
 
-      <!-- Footer -->
       <div class="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
         <button
           type="button"
