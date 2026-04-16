@@ -304,24 +304,13 @@ let runtimePollingTimer: ReturnType<typeof setTimeout> | null = null;
 let loadingPermissions = $state(false);
 let loadingChannels = $state(false);
 const listEl = $state<HTMLDivElement | null>(null);
-const contentEl = $state<HTMLDivElement | null>(null);
 let savingChannelConfigById = $state<Record<string, boolean>>({});
 let channelConfigErrorById = $state<Record<string, string>>({});
 let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
-let shouldAutoFollow = $state(true);
-let userScrolledUp = $state(false);
-let autoScrollGuard = $state(false);
-
-// Track visited sessions and restore scroll position
-// Intentionally non-reactive — the scroll effect is driven by scrollTargetSessionId
-let visitedSessions = $state.raw(new Set<string>());
-let scrollPosBySession = $state.raw(new Map<string, number>());
-// Prevent saving a transient scrollTop=0 before initial positioning finishes
-let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
-
-// Explicit signal to trigger scroll after session data is ready
-let scrollTargetSessionId = $state<string | null>(null);
+// In column-reverse: scrollTop=0 means the user is at the visual bottom.
+// We track if the user has manually scrolled up (away from bottom).
+let hasScrolledUp = $state(false);
 
 let creatingSession = $state(false);
 let createSessionError = $state("");
@@ -375,7 +364,7 @@ let canWrite = $derived(
 );
 
 
-// Chat timeline ref for prepend scroll restoration
+// Chat timeline ref (for API compat with preparePrepend/finalizePrepend no-ops)
 type ChatTimelineHandle = {
 	preparePrepend: () => void;
 	finalizePrepend: () => void;
@@ -671,7 +660,8 @@ $effect(() => {
 	if (urlSessionId && urlSessionId !== activeSessionId) {
 		activeSessionId = urlSessionId;
 		ensureSessionModelLoaded(urlSessionId);
-		shouldAutoFollow = true;
+		// Reset scroll state on session switch
+		hasScrolledUp = false;
 		// Mark session as viewed when navigating to it
 		const state = sessionStateById[urlSessionId];
 		if (state?.session?.lastMessageId) {
@@ -1231,12 +1221,6 @@ async function loadSessionState(sessionId: string, force = false) {
 		// Background sync: fetch newer messages since cache
 		void syncSessionNewer(sessionId, cached);
 
-		// Signal scroll effect that data is ready
-		suppressScrollSaveSessionIds.add(sessionId);
-		scrollTargetSessionId = sessionId;
-		// Reset after scheduling so same-session force reload can trigger again
-		scheduleResetScrollTarget();
-
 		return;
 	}
 
@@ -1286,11 +1270,6 @@ async function loadSessionState(sessionId: string, force = false) {
 					: undefined,
 			},
 		};
-		// Signal scroll effect that data is ready
-		suppressScrollSaveSessionIds.add(sessionId);
-		scrollTargetSessionId = sessionId;
-		// Reset after scheduling so same-session force reload can trigger again
-		scheduleResetScrollTarget();
 	} catch (error) {
 		sessionStateById = {
 			...sessionStateById,
@@ -1691,8 +1670,8 @@ async function processEventQueue() {
 					streamingSessionId = currentActiveSessionId;
 					notifyStreamingStatus(currentActiveSessionId, true);
 				}
-				await tick();
-				if (!userScrolledUp) scrollToBottomNow();
+				// No manual scroll needed: column-reverse + scroll anchoring keeps
+				// the view pinned to the bottom automatically.
 			}
 
 			if (event.turnEnd) {
@@ -1779,7 +1758,8 @@ async function processEventQueue() {
 					},
 				};
 
-				if (!userScrolledUp) scrollToBottomNow();
+				// column-reverse + scroll anchoring keeps the view pinned to
+				// the bottom automatically — no manual scroll needed.
 			}
 		}
 	}
@@ -1943,43 +1923,33 @@ async function handleSend() {
 	}
 }
 
-function scrollToBottomNow() {
+// In column-reverse: scrollTop=0 is the visual bottom. The browser's scroll
+// anchoring automatically keeps the view pinned as content grows.
+function scrollToBottom() {
 	if (!listEl) return;
-	autoScrollGuard = true;
-	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
-	requestAnimationFrame(() => {
-		autoScrollGuard = false;
-	});
+	try {
+		listEl.scrollTop = 0;
+	} catch {
+		// Element may have been detached between the null check and assignment
+	}
+	hasScrolledUp = false;
 }
 
-async function forceScrollToBottom() {
-	await tick();
-	// Use rAF to ensure the browser has computed layout after DOM update
-	await new Promise<void>((resolve) => {
-		requestAnimationFrame(() => {
-			scrollToBottomNow();
-			resolve();
-		});
-	});
-}
-
-function updateAutoFollow() {
+function updateScrollState() {
 	if (!listEl) return;
+	// In column-reverse, the anchor edge is the start (scrollTop=0 = bottom).
+	// If the user has scrolled away from 0, they've scrolled "up" visually.
+	// Only write to $state when the value actually changes to avoid unnecessary
+	// Svelte reactivity updates on every scroll event tick.
 	const threshold = 80;
-	const distanceFromBottom =
-		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
-
-	// Only mark userScrolledUp when the scroll was NOT triggered by auto-scroll
-	if (!autoScrollGuard && distanceFromBottom > threshold) {
-		userScrolledUp = true;
+	const scrolledUp = listEl.scrollTop > threshold;
+	if (scrolledUp !== hasScrolledUp) {
+		hasScrolledUp = scrolledUp;
 	}
-
-	shouldAutoFollow = distanceFromBottom <= threshold;
-	if (shouldAutoFollow) {
-		userScrolledUp = false;
+	const shouldShow = hasScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
+	if (shouldShow !== showScrollToBottom) {
+		showScrollToBottom = shouldShow;
 	}
-
-	showScrollToBottom = userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
 
 async function fileToDataUrl(file: Blob): Promise<string> {
@@ -2472,97 +2442,44 @@ $effect(() => {
 	}
 });
 
-// Scroll position tracking — use event listener so we capture position
-// *before* the DOM switches to the new session (effects run too late)
+// Scroll position tracking — detect when user has scrolled away from bottom.
+// In column-reverse, scrollTop=0 is the visual bottom, so any positive
+// scrollTop means the user has scrolled "up" to see older messages.
 $effect(() => {
 	const el = listEl;
 	if (!el) return;
 
-	// Capture in a const that TS knows is non-null within this effect scope
-	const container = el as HTMLDivElement;
-
-	function handleScrollTrack() {
-		if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
-			scrollPosBySession.set(activeSessionId, container.scrollTop);
-		}
+	function handleScroll() {
+		updateScrollState();
 	}
 
-	container.addEventListener("scroll", handleScrollTrack, { passive: true });
-	return () => container.removeEventListener("scroll", handleScrollTrack);
+	el.addEventListener("scroll", handleScroll, { passive: true });
+	return () => el.removeEventListener("scroll", handleScroll);
 });
 
-// Handle scroll when session data is ready
-let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleResetScrollTarget() {
-	if (resetScrollTargetTimer) clearTimeout(resetScrollTargetTimer);
-	resetScrollTargetTimer = setTimeout(() => {
-		scrollTargetSessionId = null;
-	}, 0);
-}
+// On session data ready: snap to bottom on first visit.
+// With column-reverse + scroll anchoring, scrollTop=0 pins to the bottom
+// automatically. No manual positioning needed beyond that.
+let prevSessionForScroll = $state<string | null>(null);
 
 $effect(() => {
-	if (!listEl) return;
-	const targetId = scrollTargetSessionId;
-	if (!targetId) return;
+	const sessionId = activeSessionId;
+	if (!sessionId || !listEl) return;
 
-	const state = sessionStateById[targetId];
+	const state = sessionStateById[sessionId];
 	if (!state?.loaded) return;
 
-	const isFirstVisit = !visitedSessions.has(targetId);
-	if (isFirstVisit) {
-		visitedSessions.add(targetId);
-	}
-
-	const savedPos = scrollPosBySession.get(targetId);
-	const shouldScrollToBottom = isFirstVisit || savedPos == null;
-
-	// Scroll after DOM is ready, with retry for async content/layout.
-	// Repeating over several frames makes initial positioning much more
-	// reliable for markdown/tool cards/image layout changes.
-	const doScroll = (retries = shouldScrollToBottom ? 6 : 2) => {
+	// Only snap to bottom on first visit to this session (not on re-renders)
+	if (prevSessionForScroll !== sessionId) {
+		prevSessionForScroll = sessionId;
 		requestAnimationFrame(() => {
-			if (!listEl) return;
-
-			if (shouldScrollToBottom) {
-				scrollToBottomNow();
-				shouldAutoFollow = true;
-				userScrolledUp = false;
-			} else {
-				listEl.scrollTop = savedPos;
-			}
-
-			if (retries > 0) {
-				doScroll(retries - 1);
-				return;
-			}
-
-			suppressScrollSaveSessionIds.delete(targetId);
 			if (listEl) {
-				scrollPosBySession.set(targetId, listEl.scrollTop);
+				listEl.scrollTop = 0;
+				hasScrolledUp = false;
+				updateScrollState();
 			}
-			updateAutoFollow();
 		});
-	};
-
-	void tick().then(() => doScroll());
-});
-
-$effect(() => {
-	if (!listEl || !activeSessionId) return;
-	requestAnimationFrame(() => updateAutoFollow());
-});
-
-// Auto-follow scroll: when new content arrives and user hasn't scrolled up
-$effect(() => {
-	if (!listEl || !activeSessionId) return;
-	if (userScrolledUp) return;
-	requestAnimationFrame(() => {
-		if (listEl && !userScrolledUp) {
-			scrollToBottomNow();
-			updateAutoFollow();
-		}
-	});
+	}
 });
 
 $effect(() => {
@@ -3029,10 +2946,7 @@ $effect(() => {
           <ChatTimeline
             bind:this={chatTimelineRef}
             bindListEl={listEl}
-            bindContentEl={contentEl}
             timeline={timeline}
-            onScrollChange={updateAutoFollow}
-            bottomInsetClass="pb-[calc(4rem+env(safe-area-inset-bottom))] sm:pb-[4rem]"
             preloadThreshold={10}
             onFirstVisible={handleFirstVisible}
             loadingOlder={activeSessionState?.loadingOlder ?? false}
@@ -3042,10 +2956,7 @@ $effect(() => {
             <button
               type="button"
               class="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-1.5 text-[12px] text-text-secondary shadow-lg backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary animate-in fade-in slide-in-from-bottom-2 duration-200"
-              onclick={() => {
-                shouldAutoFollow = true;
-                forceScrollToBottom();
-              }}
+              onclick={() => scrollToBottom()}
             >
               <ArrowDown class="w-3.5 h-3.5" />
               <span>Scroll to bottom</span>
