@@ -627,8 +627,9 @@ onMount(() => {
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
     role="presentation"
+    aria-hidden="true"
     onclick={closeCreateModal}
-    onkeydown={handleModalBackdropKeydown}
+    onkeydown={(e) => { if (e.key === 'Escape') closeCreateModal(); }}
   >
     <div
       class="w-full max-w-2xl rounded-xl bg-bg-primary border border-border-subtle shadow-2xl mx-4"
@@ -674,22 +675,24 @@ onMount(() => {
 
           <div class="space-y-3">
             <div>
+              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
               <input
                 id="task-title"
                 type="text"
                 bind:value={createTitle}
-                placeholder="Name"
-                class="w-full px-0 py-2 text-[14px] font-medium border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
+                placeholder="e.g. Daily report"
+                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
               />
             </div>
 
             <div>
+              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-runtime">Target Runtime</label>
               <select
                 id="task-runtime"
                 bind:value={createRuntimeId}
-                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 transition-colors"
+                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
               >
-                <option value="">— Select runtime —</option>
+                <option value="">— Select —</option>
                 {#each runtimes as rt (rt.id)}
                   <option value={rt.id}>{rt.title || rt.id.slice(0, 12)}</option>
                 {/each}
@@ -697,22 +700,24 @@ onMount(() => {
             </div>
 
             <div>
+              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
               <input
                 id="task-expression"
                 type="text"
                 bind:value={createCronExpression}
-                placeholder="Cron expression — e.g. 0 10 * * *"
-                class="w-full px-0 py-2 text-[13px] font-mono border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
+                placeholder="e.g. 0 10 * * *"
+                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
               />
             </div>
 
             <div>
+              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
               <textarea
                 id="task-prompt"
                 bind:value={createPromptText}
                 rows="2"
-                placeholder="Prompt message..."
-                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none transition-colors"
+                placeholder="Message content to send to the runtime..."
+                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
               ></textarea>
             </div>
           </div>
@@ -764,27 +769,29 @@ onMount(() => {
             </button>
           </div>
 
-          <!-- Form fields — minimal underline style -->
+          <!-- Form fields -->
           <div class="space-y-3">
             {#if createType === "repeating"}
               <div>
+                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
                 <input
                   id="task-title"
                   type="text"
                   bind:value={createTitle}
-                  placeholder="Name"
-                  class="w-full px-0 py-2 text-[14px] font-medium border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
+                  placeholder="e.g. Daily report"
+                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
                 />
               </div>
             {/if}
 
             <div>
+              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-runtime">Target Runtime</label>
               <select
                 id="task-runtime"
                 bind:value={createRuntimeId}
-                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 transition-colors"
+                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
               >
-                <option value="">— Select runtime —</option>
+                <option value="">— Select —</option>
                 {#each runtimes as rt (rt.id)}
                   <option value={rt.id}>{rt.title || rt.id.slice(0, 12)}</option>
                 {/each}
@@ -793,12 +800,13 @@ onMount(() => {
 
             {#if createType === "repeating"}
               <div>
+                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
                 <input
                   id="task-expression"
                   type="text"
                   bind:value={createCronExpression}
-                  placeholder="Cron expression — e.g. 0 10 * * *"
-                  class="w-full px-0 py-2 text-[13px] font-mono border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
+                  placeholder="e.g. 0 10 * * * (daily at 10AM)"
+                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
                 />
                 <p class="mt-1 text-[11px] text-text-placeholder">
                   Format: min hour day month weekday · Example: */30 * * * * (every 30 min)
@@ -806,11 +814,12 @@ onMount(() => {
               </div>
             {:else}
               <div>
+                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-schedule">Schedule At</label>
                 <input
                   id="task-schedule"
                   type="datetime-local"
                   bind:value={createScheduleAt}
-                  class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 transition-colors"
+                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
                 />
                 <p class="mt-1 text-[11px] text-text-placeholder">
                   Local time (UTC{new Date().getTimezoneOffset() > 0 ? '-' : '+'}{Math.abs(new Date().getTimezoneOffset() / 60)})
@@ -819,12 +828,13 @@ onMount(() => {
             {/if}
 
             <div>
+              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
               <textarea
                 id="task-prompt"
                 bind:value={createPromptText}
                 rows="2"
-                placeholder="Prompt message..."
-                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none transition-colors"
+                placeholder="Message content to send to the runtime..."
+                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
               ></textarea>
             </div>
           </div>
