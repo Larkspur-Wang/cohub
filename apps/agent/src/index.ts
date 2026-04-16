@@ -44,7 +44,7 @@ type SessionHandle = {
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 
-async function shutdown(status: "hibernated" | "error", exitCode: number) {
+async function shutdown(status: "stopped" | "error", exitCode: number) {
   if (isShuttingDown) {
     process.exit(exitCode);
   }
@@ -74,7 +74,7 @@ async function shutdown(status: "hibernated" | "error", exitCode: number) {
   }
 
   try {
-    await setRuntimeStatus(status);
+    await setRuntimeStatus(status === "stopped" ? "stopped" : "error");
   } catch (error) {
     console.error("[Supervisor] Failed to update runtime status on shutdown:", error);
   }
@@ -587,7 +587,7 @@ async function main() {
   const modelRegistry = ModelRegistry.create(authStorage);
   const tools = createCodingTools(env.WORKSPACE_DIR);
 
-  await setRuntimeStatus("running");
+  await setRuntimeStatus("ready");
   console.log("[Supervisor] Runtime is now running and listening for input.");
 
   await listenForInput((inputEntry, ack, reject) => {
@@ -701,12 +701,12 @@ async function main() {
 
 process.on("SIGTERM", () => {
   console.log("[Supervisor] SIGTERM received. Shutting down.");
-  void shutdown("hibernated", 0);
+  void shutdown("stopped", 0);
 });
 
 process.on("SIGINT", () => {
   console.log("[Supervisor] SIGINT received. Shutting down.");
-  void shutdown("hibernated", 0);
+  void shutdown("stopped", 0);
 });
 
 main().catch(async (err) => {

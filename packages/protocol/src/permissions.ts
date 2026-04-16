@@ -1,5 +1,5 @@
 /**
- * Permission level for runtime / session resources.
+ * Permission level for space / session resources.
  *
  * - `read`   — anyone can read (including anonymous users)
  * - `write`  — anyone can read and write

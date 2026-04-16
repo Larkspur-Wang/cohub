@@ -68,7 +68,7 @@ export async function initializeContainer() {
   console.log(
     `[Init] Starting container initialization for runtime: ${env.RUNTIME_ID}`,
   );
-  await setRuntimeStatus("starting");
+  await setRuntimeStatus("provisioning");
 
   try {
     await mkdir(env.WORKSPACE_DIR, { recursive: true });

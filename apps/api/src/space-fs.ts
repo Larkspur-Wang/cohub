@@ -4,11 +4,11 @@ import { access, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, st
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { config } from "./config.js";
 import type {
-  RuntimeFsEntry,
-  RuntimeFsFileResponse,
-  RuntimeFsMoveInput,
-  RuntimeFsTreeResponse,
-  RuntimeFsWriteFileInput,
+  SpaceFsEntry,
+  SpaceFsFileResponse,
+  SpaceFsMoveInput,
+  SpaceFsTreeResponse,
+  SpaceFsWriteFileInput,
 } from "@cohub/protocol";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -149,13 +149,13 @@ function toRelativePath(root: string, absPath: string) {
   return relative(root, absPath).replace(/\\/g, "/");
 }
 
-function entryType(stats: Awaited<ReturnType<typeof lstat>>): RuntimeFsEntry["type"] {
+function entryType(stats: Awaited<ReturnType<typeof lstat>>): SpaceFsEntry["type"] {
   if (stats.isSymbolicLink()) return "symlink";
   if (stats.isDirectory()) return "dir";
   return "file";
 }
 
-async function toEntry(root: string, absPath: string, name: string): Promise<RuntimeFsEntry> {
+async function toEntry(root: string, absPath: string, name: string): Promise<SpaceFsEntry> {
   const stats = await lstat(absPath);
   const type = entryType(stats);
   return {
@@ -168,7 +168,7 @@ async function toEntry(root: string, absPath: string, name: string): Promise<Run
   };
 }
 
-export async function listSpaceDirectory(spaceId: string, path = ""): Promise<RuntimeFsTreeResponse> {
+export async function listSpaceDirectory(spaceId: string, path = ""): Promise<SpaceFsTreeResponse> {
   const { root, target, relativePath } = await resolveTarget(spaceId, path, { allowEmpty: true });
   let targetStats: Stats;
   try {
@@ -184,15 +184,15 @@ export async function listSpaceDirectory(spaceId: string, path = ""): Promise<Ru
   const limitedNames = names.slice(0, MAX_DIR_ENTRIES);
   const entries = await Promise.all(limitedNames.map((name) => toEntry(root, join(target, name), name)));
 
-  entries.sort((a, b) => {
-    const typeRank = (item: RuntimeFsEntry) => item.type === "dir" ? 0 : item.type === "symlink" ? 1 : 2;
+  entries.sort((a: SpaceFsEntry, b: SpaceFsEntry) => {
+    const typeRank = (item: SpaceFsEntry) => item.type === "dir" ? 0 : item.type === "symlink" ? 1 : 2;
     return typeRank(a) - typeRank(b) || a.name.localeCompare(b.name);
   });
 
   return { path: relativePath, entries };
 }
 
-export async function readSpaceFile(spaceId: string, path: string): Promise<RuntimeFsFileResponse> {
+export async function readSpaceFile(spaceId: string, path: string): Promise<SpaceFsFileResponse> {
   const { target, relativePath } = await resolveTarget(spaceId, path);
   let stats: Stats;
   try {
@@ -231,7 +231,7 @@ export async function streamSpaceFile(spaceId: string, path: string): Promise<{ 
   return { path: relativePath, name: basename(target), size: stats.size, mimeType: getMimeType(target), target };
 }
 
-export async function writeSpaceFile(spaceId: string, input: RuntimeFsWriteFileInput) {
+export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInput) {
   const { target, relativePath } = await resolveTarget(spaceId, input.path);
   await mkdir(dirname(target), { recursive: true });
   const data = input.encoding === "base64" ? Buffer.from(input.content, "base64") : Buffer.from(input.content, "utf8");
@@ -260,7 +260,7 @@ export async function deleteSpaceNode(spaceId: string, path: string, recursive =
   return { path: relativePath, deleted: true };
 }
 
-export async function moveSpaceNode(spaceId: string, input: RuntimeFsMoveInput) {
+export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
   const from = await resolveTarget(spaceId, input.fromPath);
   const to = await resolveTarget(spaceId, input.toPath);
   await mkdir(dirname(to.target), { recursive: true });
