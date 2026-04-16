@@ -17,17 +17,19 @@ const client = postgres(connectionString, {
 const db = drizzle(client);
 
 async function runMigrate() {
-  console.log("[Migration] Running database migrations...");
+  console.log("[Migration] Running V2 database migrations...");
 
   try {
-    // Verify connectivity first
     await client`SELECT 1`;
     console.log("[Migration] Database connection verified.");
 
-    await migrate(db, { migrationsFolder: "./drizzle" });
-    console.log("[Migration] Migrations completed successfully.");
+    await client`CREATE SCHEMA IF NOT EXISTS v2`;
+    console.log("[Migration] Ensured schema v2 exists.");
+
+    await migrate(db, { migrationsFolder: "./drizzle/v2" });
+    console.log("[Migration] V2 migrations completed successfully.");
   } catch (error) {
-    console.error("[Migration] Migration failed:", error);
+    console.error("[Migration] V2 migration failed:", error);
     throw error;
   } finally {
     await client.end({ timeout: 5 });

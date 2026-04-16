@@ -1,17 +1,17 @@
 import {
-  pgTable,
+  pgSchema,
   uuid,
   varchar,
   text,
   timestamp,
-  index,
   integer,
   jsonb,
-  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { TaskPayload } from "@cohub/protocol";
 
-export const taskRuns = pgTable(
+export const v2 = pgSchema("v2");
+
+export const taskRuns = v2.table(
   "task_runs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -23,8 +23,7 @@ export const taskRuns = pgTable(
     result: jsonb("result"),
     errorMessage: text("error_message"),
     attemptCount: integer("attempt_count").notNull().default(0),
-    workspaceId: uuid("workspace_id"),
-    runtimeId: uuid("runtime_id"),
+    spaceId: uuid("space_id"),
     sessionId: uuid("session_id"),
     userUuid: varchar("user_uuid", { length: 255 }),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),

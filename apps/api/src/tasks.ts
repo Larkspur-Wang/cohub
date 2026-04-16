@@ -2,19 +2,15 @@ import { Queue, type JobsOptions } from "bullmq";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
-import { cronJobs, taskRuns } from "./db/schema.js";
+import { cronJobs, taskRuns } from "./db/schema-v2.js";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol";
 
 const QUEUE_NAME = "cohub-tasks";
 
-// Use connection string to avoid ioredis type version mismatch across pnpm resolutions
 const connection = { url: config.bullmqRedisUrl };
 
 export const taskQueue = new Queue(QUEUE_NAME, { connection });
 
-/**
- * Enqueue a one-off task and create its task_runs record (status=pending).
- */
 export const enqueueTask = async (payload: TaskPayload, opts?: JobsOptions) => {
   const job = await taskQueue.add(payload.type, payload, opts);
 
@@ -24,8 +20,7 @@ export const enqueueTask = async (payload: TaskPayload, opts?: JobsOptions) => {
   await db.insert(taskRuns).values({
     jobId,
     taskType: payload.type,
-    workspaceId: payload.workspaceId ?? null,
-    runtimeId: payload.runtimeId ?? null,
+    spaceId: payload.spaceId ?? null,
     sessionId: payload.sessionId ?? null,
     userUuid: payload.userId ?? null,
     cronJobId: payload.cronJobId ?? null,
@@ -37,25 +32,18 @@ export const enqueueTask = async (payload: TaskPayload, opts?: JobsOptions) => {
   return job;
 };
 
-/**
- * Create a cron-scheduled task.
- * Writes cron_jobs record + sets up BullMQ repeatable job.
- * Does NOT write task_runs — those are created by the Worker on each execution.
- */
 export const createCronJob = async (params: {
   userId: string;
   title: string;
   taskType: string;
   payload: Record<string, unknown>;
   schedule: TaskScheduleConfig;
-  workspaceId?: string | null;
-  runtimeId?: string | null;
+  spaceId?: string | null;
   sessionId?: string | null;
 }) => {
   const taskPayload: TaskPayload = {
     type: params.taskType,
-    workspaceId: params.workspaceId ?? undefined,
-    runtimeId: params.runtimeId ?? undefined,
+    spaceId: params.spaceId ?? undefined,
     sessionId: params.sessionId ?? undefined,
     userId: params.userId,
     data: params.payload,
@@ -68,9 +56,8 @@ export const createCronJob = async (params: {
     payload: params.payload,
     cronExpression: params.schedule.pattern,
     timezone: params.schedule.timezone ?? "Asia/Shanghai",
-    bullJobKey: "", // will be updated after queue.add
-    workspaceId: params.workspaceId ?? null,
-    runtimeId: params.runtimeId ?? null,
+    bullJobKey: "",
+    spaceId: params.spaceId ?? null,
     sessionId: params.sessionId ?? null,
   }).returning();
 
@@ -102,8 +89,6 @@ export const createCronJob = async (params: {
       .set({ bullJobKey: repeatJobKey })
       .where(eq(cronJobs.id, cronJob.id));
   } catch (queueError) {
-    // Queue add failed — mark as disabled so user can retry later
-    // Keep the DB record for visibility instead of deleting it
     await db
       .update(cronJobs)
       .set({ enabled: false, updatedAt: new Date() })
@@ -117,9 +102,6 @@ export const createCronJob = async (params: {
   return cronJob;
 };
 
-/**
- * Remove a scheduled cron job from BullMQ and disable in DB.
- */
 export const removeCronJob = async (cronJobId: string, bullJobKey: string) => {
   await taskQueue.removeRepeatableByKey(bullJobKey);
   await db
@@ -128,23 +110,18 @@ export const removeCronJob = async (cronJobId: string, bullJobKey: string) => {
     .where(eq(cronJobs.id, cronJobId));
 };
 
-/**
- * Re-enable a disabled cron job in BullMQ.
- */
 export const enableCronJob = async (cronJobId: string, _bullJobKey: string, jobData: {
   taskType: string;
   payload: Record<string, unknown>;
   cronExpression: string;
   timezone: string;
   userUuid: string;
-  workspaceId?: string | null;
-  runtimeId?: string | null;
+  spaceId?: string | null;
   sessionId?: string | null;
 }) => {
   const taskPayload: TaskPayload = {
     type: jobData.taskType,
-    workspaceId: jobData.workspaceId ?? undefined,
-    runtimeId: jobData.runtimeId ?? undefined,
+    spaceId: jobData.spaceId ?? undefined,
     sessionId: jobData.sessionId ?? undefined,
     userId: jobData.userUuid,
     data: jobData.payload,
@@ -164,7 +141,6 @@ export const enableCronJob = async (cronJobId: string, _bullJobKey: string, jobD
     },
   );
 
-  // bullJobKey may change on re-add
   const repeatJobKey = job.repeatJobKey;
   if (!repeatJobKey) throw new Error("Failed to get repeat job key");
 

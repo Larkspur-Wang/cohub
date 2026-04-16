@@ -67,7 +67,8 @@ import {
 } from "./runtime-sessions.js";
 import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
-import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions, cronJobs, taskRuns } from "./db/schema.js";
+import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions } from "./db/schema.js";
+import { cronJobs, taskRuns } from "./db/schema-v2.js";
 import { eq, and, inArray, isNull, desc, asc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
@@ -2316,8 +2317,7 @@ app.post("/api/cron-jobs", async (c) => {
     taskType: body.taskType,
     payload: body.payload ?? {},
     schedule,
-    workspaceId: body.workspaceId ?? null,
-    runtimeId: body.runtimeId ?? null,
+    spaceId: body.runtimeId ?? null,
     sessionId: body.sessionId ?? null,
   });
 
@@ -2412,8 +2412,7 @@ app.patch("/api/cron-jobs/:id", async (c) => {
       cronExpression: job.cronExpression,
       timezone: job.timezone,
       userUuid: job.userUuid,
-      workspaceId: job.workspaceId,
-      runtimeId: job.runtimeId,
+      spaceId: job.spaceId,
       sessionId: job.sessionId,
     });
   } else if (!body.enabled && job.enabled) {
@@ -2455,9 +2454,8 @@ app.post("/api/tasks", async (c) => {
 
   const taskPayload = {
     type: body.taskType,
-    runtimeId: body.runtimeId ?? undefined,
+    spaceId: body.runtimeId ?? undefined,
     sessionId: body.sessionId ?? undefined,
-    workspaceId: body.workspaceId ?? undefined,
     userId: user.uuid,
     data: body.payload ?? {},
   };
@@ -2490,13 +2488,11 @@ app.get("/api/tasks/runs", async (c) => {
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
 
   const cronJobId = c.req.query("cronJobId");
-  const runtimeId = c.req.query("runtimeId");
-  const workspaceId = c.req.query("workspaceId");
+  const spaceId = c.req.query("spaceId");
 
   const conditions = [eq(taskRuns.userUuid, user.uuid)];
   if (cronJobId && requireValidId(cronJobId)) conditions.push(eq(taskRuns.cronJobId, cronJobId));
-  if (runtimeId && requireValidId(runtimeId)) conditions.push(eq(taskRuns.runtimeId, runtimeId));
-  if (workspaceId && requireValidId(workspaceId)) conditions.push(eq(taskRuns.workspaceId, workspaceId));
+  if (spaceId && requireValidId(spaceId)) conditions.push(eq(taskRuns.spaceId, spaceId));
 
   const runs = await db
     .select()
