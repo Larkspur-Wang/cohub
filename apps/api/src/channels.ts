@@ -382,15 +382,3 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
     },
   });
 }
-
-// Temporary aliases for callers not renamed yet.
-export const syncRuntimeChannelConfigCache = syncSpaceChannelConfigCache;
-export const getRuntimeChannelsByRuntimeId = getSpaceChannelsBySpaceId;
-export const getRuntimeChannelById = getSpaceChannelById;
-export const updateRuntimeChannelConfig = updateSpaceChannelConfig;
-export const getBindingByRuntimeChannelAndKey = getBindingBySpaceChannelAndKey;
-export const createRuntimeSessionBinding = createSpaceSessionBinding;
-export const touchRuntimeSessionBinding = touchSpaceSessionBinding;
-export const updateRuntimeSessionBindingMeta = updateSpaceSessionBindingMeta;
-export const bindRuntimeChannelsToGateway = bindSpaceChannelsToGateway;
-export const getRuntimeChannelRecord = getSpaceChannelRecord;

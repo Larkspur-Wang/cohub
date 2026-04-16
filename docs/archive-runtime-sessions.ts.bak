@@ -29,7 +29,7 @@ import {
 } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
-import { bindRuntimeChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchRuntimeSessionBinding, getRuntimeChannelRecord } from "./channels.js";
+import { bindSpaceChannelsToGateway, createProviderMessageRef, dispatchOutboundMessage, getBindingsBySessionId, touchSpaceSessionBinding, getSpaceChannelRecord } from "./channels.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 
 
@@ -758,7 +758,7 @@ export const persistMessageNode = async (input: PersistMessageInput & {
           })
         : null;
 
-      await touchRuntimeSessionBinding(binding.id).catch(console.error);
+      await touchSpaceSessionBinding(binding.id).catch(console.error);
       await dispatchOutboundMessage({
         spaceChannelId: binding.spaceChannelId,
         spaceId: session.runtimeId,
@@ -1143,7 +1143,7 @@ export const launchRuntimeSandbox = async (input: {
 
   await tryCreatePod(k8sCoreApi, input.runtimeId, pod);
 
-  await bindRuntimeChannelsToGateway(input.runtimeId).catch(console.error);
+  await bindSpaceChannelsToGateway(input.runtimeId).catch(console.error);
   return pod;
 };
 
@@ -1216,7 +1216,7 @@ export const provisionRuntimeInBackground = async (input: {
 
     await tryCreatePod(k8sCoreApi, runtimeId, pod);
 
-    await bindRuntimeChannelsToGateway(runtimeId);
+    await bindSpaceChannelsToGateway(runtimeId);
 
     const ready = await waitForRuntimeRunning(runtimeId, 60000);
     if (!ready) {

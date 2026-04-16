@@ -49,10 +49,10 @@ import {
   SandboxNotReadyError,
 } from "./space-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, runtimeChannels, resourcePermissions } from "./db/schema.js";
-import { spaces } from "./db/schema-v2.js";
+import { userChannels, resourcePermissions } from "./db/schema.js";
+import { spaces, spaceChannels } from "./db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId } from "./channels.js";
+import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
 import { getSpaceSandboxBySpaceId } from "./space-sandboxes.js";
 import type { GatewayInboundEvent, TaskScheduleConfig } from "@cohub/protocol";
@@ -281,7 +281,7 @@ app.post("/api/spaces", async (c) => {
   }
 
   const occupiedChannels = normalizedChannelBindings.length
-    ? await db.select({ channelId: runtimeChannels.channelId }).from(runtimeChannels).where(inArray(runtimeChannels.channelId, normalizedChannelBindings.map((binding) => binding.channelId)))
+    ? await db.select({ channelId: spaceChannels.channelId }).from(spaceChannels).where(inArray(spaceChannels.channelId, normalizedChannelBindings.map((binding) => binding.channelId)))
     : [];
   if (occupiedChannels.length > 0) return c.json({ message: "channel binding already exists for this channel" }, 409);
 
@@ -304,8 +304,8 @@ app.post("/api/spaces", async (c) => {
   if (!space) return c.json({ message: "failed to create space" }, 500);
 
   if (normalizedChannelBindings.length > 0) {
-    const insertedRuntimeChannels = await db.insert(runtimeChannels).values(normalizedChannelBindings.map((binding) => ({ runtimeId: space.id, channelId: binding.channelId, config: binding.config }))).returning();
-    await Promise.all(insertedRuntimeChannels.map((runtimeChannel) => syncRuntimeChannelConfigCache({ spaceChannelId: runtimeChannel.id, config: (runtimeChannel.config as Record<string, unknown> | null) ?? null })));
+    const insertedRuntimeChannels = await db.insert(spaceChannels).values(normalizedChannelBindings.map((binding) => ({ spaceId: space.id, channelId: binding.channelId, config: binding.config }))).returning();
+    await Promise.all(insertedRuntimeChannels.map((runtimeChannel) => syncSpaceChannelConfigCache({ spaceChannelId: runtimeChannel.id, config: (runtimeChannel.config as Record<string, unknown> | null) ?? null })));
   }
 
   const session = await createInitialSpaceSession({
@@ -395,7 +395,7 @@ app.get("/api/spaces/:id/channels", async (c) => {
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const space = await getSpaceById(spaceId);
   if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
-  const runtimeChannelRows = await getRuntimeChannelsByRuntimeId(space.id);
+  const runtimeChannelRows = await getSpaceChannelsBySpaceId(space.id);
   const userChannelIds = runtimeChannelRows.map((item) => item.channelId);
   const channelRows = userChannelIds.length > 0 ? await db.select().from(userChannels).where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, userChannelIds))) : [];
   const userChannelById = new Map(channelRows.map((item) => [item.id, item]));
