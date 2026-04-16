@@ -205,8 +205,8 @@ function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolRes
 
 // ─── API calls ───
 
-export async function registerRuntimeSession(input: RegisterSessionInput) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions`;
+export async function registerSpaceSession(input: RegisterSessionInput) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -228,14 +228,14 @@ export async function registerRuntimeSession(input: RegisterSessionInput) {
 }
 
 export async function persistUserMessage(input: {
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
   userMessageId: string;
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 }) {
   const payload: PersistMessageInput = {
-    runtimeId: input.runtimeId,
+    spaceId: input.spaceId,
     sessionId: input.sessionId,
     previousMessageId: null,
     anchorUserMessageId: input.userMessageId,
@@ -259,7 +259,7 @@ export async function persistUserMessage(input: {
     },
   };
 
-  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.sessionId}/messages`;
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/messages`;
   return postJsonWithRetry({
     url,
     body: {
@@ -276,8 +276,8 @@ export async function persistUserMessage(input: {
 }
 
 export async function persistAssistantMessage(input: {
-  runtimeId: string;
-  runtimeSessionId: string;
+  spaceId: string;
+  spaceSessionId: string;
   userMessageId: string;
   event: Record<string, unknown>;
 }) {
@@ -297,8 +297,8 @@ export async function persistAssistantMessage(input: {
 
   if (content.length === 0) {
     console.warn("[Persist] skipping empty assistant message", {
-      runtimeId: input.runtimeId,
-      runtimeSessionId: input.runtimeSessionId,
+      spaceId: input.spaceId,
+      spaceSessionId: input.spaceSessionId,
       userMessageId: input.userMessageId,
       stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
     });
@@ -321,8 +321,8 @@ export async function persistAssistantMessage(input: {
     });
 
   const payload: PersistMessageInput = {
-    runtimeId: input.runtimeId,
-    sessionId: input.runtimeSessionId,
+    spaceId: input.spaceId,
+    sessionId: input.spaceSessionId,
     previousMessageId: input.userMessageId,
     anchorUserMessageId: input.userMessageId,
     idempotencyKey: "",
@@ -336,8 +336,8 @@ export async function persistAssistantMessage(input: {
       stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
       errorMessage: typeof assistant.errorMessage === "string" ? assistant.errorMessage : null,
       meta: {
-        runtimeId: input.runtimeId,
-        sessionId: input.runtimeSessionId,
+        spaceId: input.spaceId,
+        sessionId: input.spaceSessionId,
         rawStopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
         thinking,
         thinkingSummary: summarizeThinking(thinking),
@@ -370,7 +370,7 @@ export async function persistAssistantMessage(input: {
     message: payload.message,
   });
 
-  const url = `${INTERNAL_API_BASE_URL}/internal/runtimes/${input.runtimeId}/sessions/${input.runtimeSessionId}/messages`;
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.spaceSessionId}/messages`;
   await postJsonWithRetry({
     url,
     body: payload,

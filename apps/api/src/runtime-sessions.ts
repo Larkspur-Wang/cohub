@@ -489,7 +489,7 @@ export const createInitialRuntimeSession = async (input: RegisterSessionInput) =
     .insert(runtimeSessions)
     .values({
       id: input.sessionId,
-      runtimeId: input.runtimeId,
+      runtimeId: input.spaceId,
       title: input.title ?? null,
       source: input.source ?? null,
       status: "active",
@@ -510,7 +510,7 @@ export const createInitialRuntimeSession = async (input: RegisterSessionInput) =
 };
 
 export const registerRuntimeSession = async (input: RegisterSessionInput) => {
-  const runtime = await getRuntimeById(input.runtimeId);
+  const runtime = await getRuntimeById(input.spaceId);
   if (!runtime) throw new Error("Runtime not found");
 
   try {
@@ -518,7 +518,7 @@ export const registerRuntimeSession = async (input: RegisterSessionInput) => {
       .insert(runtimeSessions)
       .values({
         id: input.sessionId,
-        runtimeId: input.runtimeId,
+        runtimeId: input.spaceId,
         title: input.title ?? null,
         source: input.source ?? null,
         status: "active",
@@ -619,7 +619,7 @@ export const persistMessageNode = async (input: PersistMessageInput & {
   if (existing) return existing;
 
   const session = await getRuntimeSessionById(input.sessionId);
-  if (!session || session.runtimeId !== input.runtimeId) {
+  if (!session || session.runtimeId !== input.spaceId) {
     throw new Error("Runtime session not found");
   }
 
@@ -802,7 +802,7 @@ export const persistMessageNode = async (input: PersistMessageInput & {
 
 export const updateRuntimeSessionInfo = async (input: UpdateSessionInfoInput) => {
   const session = await getRuntimeSessionById(input.sessionId);
-  if (!session || session.runtimeId !== input.runtimeId) {
+  if (!session || session.runtimeId !== input.spaceId) {
     throw new Error("Runtime session not found");
   }
 

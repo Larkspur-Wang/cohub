@@ -167,8 +167,8 @@ export async function dispatchOutboundMessage(input: {
     externalChatId: resolvedExternalChatId,
     content: input.content,
     replyToExternalMessageId: input.replyToExternalMessageId,
-    runtimeId: input.runtimeId ?? rc.runtimeId,
-    runtimeSessionId: input.runtimeSessionId,
+    spaceId: input.runtimeId ?? rc.runtimeId,
+    spaceSessionId: input.runtimeSessionId,
     sessionMessageId: input.sessionMessageId,
     meta: input.meta ?? null,
   };
@@ -613,7 +613,7 @@ async function resolveOrCreateSessionBindingForEventImpl(input: {
         newSessionId: randomUUID(),
         })
     : await registerRuntimeSession({
-        runtimeId: input.runtimeId,
+        spaceId: input.runtimeId,
         sessionId: randomUUID(),
         source: sessionSource,
         protocol: "pi",

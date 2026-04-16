@@ -6,7 +6,7 @@ import {
   createCodingTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage, persistUserMessage, registerRuntimeSession } from "./api.js";
+import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -196,7 +196,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
 
   const event: SessionStreamEvent = {
     type: "stream_update",
-    runtimeId: env.RUNTIME_ID,
+    spaceId: env.RUNTIME_ID,
     sessionId: handle.sessionId,
     content: handle.streamState.content,
     sourceMessageId,
@@ -283,7 +283,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
 
         void enqueuePersistence(handle, `user:${userMessageId}`, async () => {
           await persistUserMessage({
-            runtimeId: env.RUNTIME_ID,
+            spaceId: env.RUNTIME_ID,
             sessionId: handle.sessionId,
             userMessageId,
             content,
@@ -387,8 +387,8 @@ function subscribeSessionEvents(handle: SessionHandle) {
       // per-session queue used by user messages.
       void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
         await persistAssistantMessage({
-          runtimeId: env.RUNTIME_ID,
-          runtimeSessionId: handle.sessionId,
+          spaceId: env.RUNTIME_ID,
+          spaceSessionId: handle.sessionId,
           userMessageId: currentUserMessageId,
           event: enrichedEvent as Record<string, unknown>,
         });
@@ -397,7 +397,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
       // Emit final render update with turnEnd flag
       const finalEvent: SessionStreamEvent = {
         type: "stream_update",
-        runtimeId: env.RUNTIME_ID,
+        spaceId: env.RUNTIME_ID,
         sessionId: handle.sessionId,
         content: handle.streamState.content,
         sourceMessageId: currentUserMessageId,
@@ -449,15 +449,15 @@ async function loadOrCreateSessionHandle(input: {
   const existing = sessionHandles.get(input.sessionId);
   if (existing) return existing;
 
-  const registration = await registerRuntimeSession({
-    runtimeId: env.RUNTIME_ID,
+  const registration = await registerSpaceSession({
+    spaceId: env.RUNTIME_ID,
     sessionId: input.sessionId,
     title: null,
     protocol: "pi",
     externalSessionId: null,
     cwd: null,
     meta: null,
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     console.error(`[Supervisor] Failed to register session bootstrap for ${input.sessionId}:`, error);
     return null;
   });
@@ -570,7 +570,7 @@ async function main() {
   console.log(`[Supervisor] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
-    runtimeId: env.RUNTIME_ID,
+    spaceId: env.RUNTIME_ID,
     runtimeVersion: env.RUNTIME_VERSION || null,
     publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
@@ -688,7 +688,7 @@ async function main() {
         console.error("[Supervisor] Error processing input:", error);
         const errEvent: SessionStreamError = {
           type: "error",
-          runtimeId: env.RUNTIME_ID,
+          spaceId: env.RUNTIME_ID,
           sessionId: inputEntry.sessionId ?? null,
           error: String(error),
         };

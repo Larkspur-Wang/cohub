@@ -131,7 +131,7 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
           newSessionId: randomUUID(),
         })
       : await registerRuntimeSession({
-          runtimeId: rc.runtimeId,
+          spaceId: rc.runtimeId,
           sessionId: randomUUID(),
           source: sessionSource,
           protocol: "pi",

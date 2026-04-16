@@ -1084,7 +1084,7 @@ app.post("/api/spaces", async (c) => {
   }
 
   const session = await createInitialRuntimeSession({
-    runtimeId: runtime.id,
+    spaceId: runtime.id,
     sessionId: crypto.randomUUID(),
     title: null,
     source: body.source ?? null,
@@ -1249,7 +1249,7 @@ app.post("/api/runtimes", async (c) => {
   }
 
   const session = await createInitialRuntimeSession({
-    runtimeId: runtime.id,
+    spaceId: runtime.id,
     sessionId: crypto.randomUUID(),
     title: null,
     source: body.source ?? null,
@@ -1619,7 +1619,7 @@ app.post("/api/runtimes/:id/sessions", async (c) => {
   const body = await c.req.json<{ title?: string; source?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, source: undefined, cwd: undefined, protocol: undefined }));
 
   const session = await createInitialRuntimeSession({
-    runtimeId: runtime.id,
+    spaceId: runtime.id,
     sessionId: crypto.randomUUID(),
     title: body.title ?? null,
     source: body.source ?? null,
@@ -1712,7 +1712,7 @@ app.post("/internal/runtimes/:id/sessions", async (c) => {
   }
 
   const session = await registerRuntimeSession({
-    runtimeId,
+    spaceId: runtimeId,
     sessionId: body.sessionId,
     title: body.title,
     protocol: body.protocol,
@@ -1744,7 +1744,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/info", async (c) => 
   if (!body) return c.json({ message: "invalid body" }, 400);
 
   await updateRuntimeSessionInfo({
-    runtimeId,
+    spaceId: runtimeId,
     sessionId,
     title: body.title,
     updatedAt: body.updatedAt,
@@ -1784,7 +1784,7 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c)
   }
 
   const messageNode = await persistMessageNode({
-    runtimeId,
+    spaceId: runtimeId,
     sessionId,
     previousMessageId: body.previousMessageId ?? null,
     anchorUserMessageId: body.anchorUserMessageId ?? null,

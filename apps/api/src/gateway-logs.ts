@@ -100,14 +100,14 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
   if (event.direction !== "outbound" || !event.externalMessageId) return;
 
   const rawPayload = event.rawPayload as Partial<GatewayOutboundCommand>;
-  if (!rawPayload.runtimeId || !rawPayload.runtimeSessionId) return;
+  if (!rawPayload.spaceId || !rawPayload.spaceSessionId) return;
 
   await db
     .insert(providerMessageRefs)
     .values({
       provider: event.provider,
-      runtimeId: rawPayload.runtimeId,
-      runtimeSessionId: rawPayload.runtimeSessionId,
+      runtimeId: rawPayload.spaceId,
+      runtimeSessionId: rawPayload.spaceSessionId,
       runtimeChannelId: event.channelId,
       sessionMessageId: rawPayload.sessionMessageId ?? null,
       direction: "outbound",
@@ -141,8 +141,8 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
         providerMessageRefs.direction,
       ],
       set: {
-        runtimeId: rawPayload.runtimeId,
-        runtimeSessionId: rawPayload.runtimeSessionId,
+        runtimeId: rawPayload.spaceId,
+        runtimeSessionId: rawPayload.spaceSessionId,
         runtimeChannelId: event.channelId,
         sessionMessageId: rawPayload.sessionMessageId ?? null,
         meta: {

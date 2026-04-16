@@ -13,7 +13,6 @@ import type {
   SessionBindingRecord as ProtocolSessionBindingRecord,
   SessionRecord as ProtocolSessionRecord,
   MessageRecord,
-  RuntimeRecord as ProtocolRuntimeRecord,
   ChannelConfig,
   ResourcePermissionLevel,
   RuntimeFsTreeResponse,
@@ -49,10 +48,19 @@ export type SessionRecord = ProtocolSessionRecord & {
   shareLevel?: ResourcePermissionLevel | null;
 };
 
-/** Web-extended runtime record with live status and channels */
-export type RuntimeListItem = RuntimeRecord;
-
-export type RuntimeRecord = ProtocolRuntimeRecord & {
+/** Runtime record (mirrors the DB schema; protocol type was removed in v2) */
+export type RuntimeRecord = {
+  id: string;
+  userUuid: string;
+  workspaceId: string | null;
+  workspaceCommitHash: string | null;
+  agentId: string | null;
+  agentCommitHash: string | null;
+  title: string | null;
+  status: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
   channels?: {
     id: string;
     name: string | null;
@@ -60,6 +68,9 @@ export type RuntimeRecord = ProtocolRuntimeRecord & {
     status: string;
   }[];
 };
+
+/** Web-extended runtime record with live status and channels */
+export type RuntimeListItem = RuntimeRecord;
 
 export type SessionMessagesResponse = {
   runtime: RuntimeRecord;
