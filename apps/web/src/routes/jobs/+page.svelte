@@ -395,7 +395,7 @@ onMount(() => {
     >
       <span class="flex items-center gap-1.5">
         <Clock class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">Cronjobs</span>
+        Cronjobs
       </span>
       {#if activeTab === 'cronjobs'}
         <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
@@ -408,7 +408,7 @@ onMount(() => {
     >
       <span class="flex items-center gap-1.5">
         <Activity class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">History</span>
+        History
       </span>
       {#if activeTab === 'history'}
         <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
