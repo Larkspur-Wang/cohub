@@ -638,6 +638,7 @@ onMount(() => {
       aria-modal="true"
       aria-labelledby="modal-title"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => { if (e.key === 'Escape') closeCreateModal(); }}
     >
       <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
         <h2 id="modal-title" class="text-[14px] font-semibold">{modalMode === 'edit' ? 'Edit Cronjob' : 'New Task'}</h2>
