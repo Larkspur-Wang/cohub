@@ -2177,8 +2177,9 @@ app.get("/api/runtimes/:id/collaborators", async (c) => {
 
   const runtimeId = c.req.param("id");
   if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const runtime = await getRuntimeById(runtimeId);
-  if (!runtime || runtime.userUuid !== user.uuid) return c.json({ message: "runtime not found" }, 404);
+  if (!await canRead(user, runtimeId)) {
+    return c.json({ message: "not found" }, 404);
+  }
 
   const collaborators = await db
     .select()

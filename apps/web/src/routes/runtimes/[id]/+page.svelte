@@ -356,11 +356,6 @@ let shareModalSaving = $state(false);
 let sessionPermError = $state("");
 let isOwner = $state(false);
 
-// Write permission: owner always has write access;
-// non-owners need to be a collaborator with "write" level.
-// We also need to check if the current user is a write collaborator.
-let canWrite = $derived(isOwner);
-
 // Collaborators
 let runtimeCollaborators = $state<ResourcePermission[]>([]);
 let collaboratorsLoaded = $state(false);
@@ -369,6 +364,15 @@ let addingCollaboratorUuid = $state("");
 let addingCollaboratorLevel = $state<"read" | "write">("write");
 let addingCollaboratorError = $state("");
 let savingCollaborator = $state(false);
+
+// Write permission: owner always has write access;
+// non-owners need to be a collaborator with "write" level.
+let canWrite = $derived(
+  isOwner ||
+  runtimeCollaborators.some(
+    (c) => c.granteeUuid === authStore.userUuid && c.level === "write",
+  ),
+);
 
 
 // Chat timeline ref for prepend scroll restoration
@@ -1553,14 +1557,14 @@ function hasSessionPermission(sessionId: string): boolean {
 // ─── Collaborators ───
 
 async function loadCollaborators(force = false) {
-	if (!isOwner) return;
 	if (!force && collaboratorsLoaded) return;
 	loadingCollaborators = true;
 	try {
-		runtimeCollaborators = await listRuntimeCollaborators(runtimeId);
+		const perms = await listRuntimeCollaborators(runtimeId);
+		runtimeCollaborators = perms;
 		collaboratorsLoaded = true;
 	} catch {
-		// ignore
+		// ignore — collaborator endpoint requires auth; anonymous users stay read-only
 	} finally {
 		loadingCollaborators = false;
 	}
@@ -2576,7 +2580,9 @@ $effect(() => {
 			loadingPermissions = false;
 		});
 	}
-	if (showSettings && isOwner && !collaboratorsLoaded && !loadingCollaborators) {
+	// Load collaborators for owner (to manage them) and for non-owners
+	// (so canWrite derivation knows if they have write access).
+	if (authStore.isAuthenticated && !collaboratorsLoaded && !loadingCollaborators) {
 		loadingCollaborators = true;
 		void loadCollaborators().finally(() => {
 			loadingCollaborators = false;
@@ -2623,7 +2629,7 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
-    {#if isOwner}
+    {#if canWrite}
     <button
       type="button"
       class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
@@ -2993,7 +2999,7 @@ $effect(() => {
       {:else if !activeSessionState}
         <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
           <div class="text-[14px]">No session selected</div>
-          {#if isOwner}
+          {#if canWrite}
           <button
             type="button"
             class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
