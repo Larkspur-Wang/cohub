@@ -308,8 +308,8 @@ let savingChannelConfigById = $state<Record<string, boolean>>({});
 let channelConfigErrorById = $state<Record<string, string>>({});
 let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
-// In column-reverse: scrollTop=0 means the user is at the visual bottom.
-// We track if the user has manually scrolled up (away from bottom).
+// In column-reverse: scrollTop=0 is the visual top, scrollTop=max is the
+// visual bottom. We track if the user has manually scrolled up (away from bottom).
 let hasScrolledUp = $state(false);
 
 let creatingSession = $state(false);
@@ -1923,26 +1923,39 @@ async function handleSend() {
 	}
 }
 
-// In column-reverse: scrollTop=0 is the visual bottom. The browser's scroll
-// anchoring automatically keeps the view pinned as content grows.
+// In column-reverse: the scroll coordinate system is unchanged — scrollTop=0 is
+// the visual top, scrollTop=max is the visual bottom. The benefit of column-reverse
+// is that when content is added at the DOM START (new messages), CSS scroll
+// anchoring keeps the viewport pinned to the bottom automatically.
+//
+// scrollToBottom: explicitly set scrollTop to max. Uses rAF retries because
+// markdown rendering / image loading can change scrollHeight asynchronously.
 function scrollToBottom() {
 	if (!listEl) return;
-	try {
-		listEl.scrollTop = 0;
-	} catch {
-		// Element may have been detached between the null check and assignment
-	}
 	hasScrolledUp = false;
+	const doScroll = (retries = 5) => {
+		requestAnimationFrame(() => {
+			if (!listEl) return;
+			listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
+			if (retries > 0) {
+				doScroll(retries - 1);
+			} else {
+				updateScrollState();
+			}
+		});
+	};
+	doScroll();
 }
 
 function updateScrollState() {
 	if (!listEl) return;
-	// In column-reverse, the anchor edge is the start (scrollTop=0 = bottom).
-	// If the user has scrolled away from 0, they've scrolled "up" visually.
+	// In column-reverse the scroll coordinate is standard:
+	// scrollTop=0 = visual top, scrollTop=max = visual bottom.
 	// Only write to $state when the value actually changes to avoid unnecessary
 	// Svelte reactivity updates on every scroll event tick.
 	const threshold = 80;
-	const scrolledUp = listEl.scrollTop > threshold;
+	const distanceFromBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+	const scrolledUp = distanceFromBottom > threshold;
 	if (scrolledUp !== hasScrolledUp) {
 		hasScrolledUp = scrolledUp;
 	}
@@ -2443,8 +2456,6 @@ $effect(() => {
 });
 
 // Scroll position tracking — detect when user has scrolled away from bottom.
-// In column-reverse, scrollTop=0 is the visual bottom, so any positive
-// scrollTop means the user has scrolled "up" to see older messages.
 $effect(() => {
 	const el = listEl;
 	if (!el) return;
@@ -2457,9 +2468,10 @@ $effect(() => {
 	return () => el.removeEventListener("scroll", handleScroll);
 });
 
-// On session data ready: snap to bottom on first visit.
-// With column-reverse + scroll anchoring, scrollTop=0 pins to the bottom
-// automatically. No manual positioning needed beyond that.
+// On session data ready: scroll to bottom on first visit.
+// With column-reverse, scroll anchoring keeps the view pinned to the bottom
+// as new content arrives, but we must explicitly scroll there once after
+// the initial content renders (markdown, images, etc can change scrollHeight).
 let prevSessionForScroll = $state<string | null>(null);
 
 $effect(() => {
@@ -2469,17 +2481,27 @@ $effect(() => {
 	const state = sessionStateById[sessionId];
 	if (!state?.loaded) return;
 
-	// Only snap to bottom on first visit to this session (not on re-renders)
+	// Only scroll to bottom on first visit to this session (not on re-renders)
 	if (prevSessionForScroll !== sessionId) {
 		prevSessionForScroll = sessionId;
-		requestAnimationFrame(() => {
-			if (listEl) {
-				listEl.scrollTop = 0;
-				hasScrolledUp = false;
-				updateScrollState();
-			}
-		});
+		hasScrolledUp = false;
+		scrollToBottom();
 	}
+});
+
+// Auto-scroll when new content arrives during streaming and user hasn't scrolled up.
+// In column-reverse, scroll anchoring handles most cases, but we need an explicit
+// trigger when the timeline grows to ensure the view stays at the bottom.
+$effect(() => {
+	// React to timeline length changes (new messages added)
+	const _len = timeline.length;
+	if (!listEl || hasScrolledUp) return;
+
+	requestAnimationFrame(() => {
+		if (listEl && !hasScrolledUp) {
+			scrollToBottom();
+		}
+	});
 });
 
 $effect(() => {

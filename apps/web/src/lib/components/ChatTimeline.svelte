@@ -40,14 +40,25 @@ const reversedTimeline = $derived([...timeline].reverse());
 let observedNodes = new Map<HTMLElement, number>();
 let observer: IntersectionObserver | null = null;
 
-// With column-reverse + scroll anchoring, prepend/append no longer need manual
-// scroll compensation. Keep these as no-ops for API compatibility.
+// With column-reverse, new messages are added at the DOM START (visual bottom)
+// where scroll anchoring works well. However, old messages loaded via pagination
+// are added at the DOM END (visual top) — the far end of the scroll container
+// — so scroll anchoring does NOT help. We need manual scroll compensation.
+let prevScrollHeight = $state(0);
+
 export function preparePrepend() {
-	// No-op: scroll anchoring handles position preservation in column-reverse
+	if (!bindListEl) return;
+	prevScrollHeight = bindListEl.scrollHeight;
 }
 
 export function finalizePrepend() {
-	// No-op: scroll anchoring handles position preservation in column-reverse
+	if (!bindListEl || prevScrollHeight === 0) return;
+	const newScrollHeight = bindListEl.scrollHeight;
+	const addedHeight = newScrollHeight - prevScrollHeight;
+	if (addedHeight > 0) {
+		bindListEl.scrollTop += addedHeight;
+	}
+	prevScrollHeight = 0;
 }
 
 // Svelte action: register element with IntersectionObserver
