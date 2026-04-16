@@ -372,49 +372,40 @@ onMount(() => {
   <!-- Header -->
   <PageHeader>
     {#snippet left()}
-      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Jobs</span>
+      <div class="flex items-center gap-0.5">
+        <button
+          type="button"
+          class={`px-2 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${activeTab === "cronjobs" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
+          onclick={() => { activeTab = "cronjobs"; }}
+        >
+          <span class="flex items-center gap-1.5">
+            <Clock class="w-3.5 h-3.5" />
+            Cronjobs
+          </span>
+        </button>
+        <button
+          type="button"
+          class={`px-2 py-1 rounded-[5px] text-[12px] font-medium transition-colors duration-100 ${activeTab === "history" ? "bg-bg-active text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"}`}
+          onclick={() => { activeTab = "history"; void loadTaskRuns(); }}
+        >
+          <span class="flex items-center gap-1.5">
+            <Activity class="w-3.5 h-3.5" />
+            History
+          </span>
+        </button>
+      </div>
     {/snippet}
     {#snippet right()}
       <button
         type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
         onclick={openCreateModal}
       >
         <Plus class="w-3.5 h-3.5" />
-        <span>New Task</span>
+        <span class="hidden sm:inline">New Task</span>
       </button>
     {/snippet}
   </PageHeader>
-
-  <!-- Tabs -->
-  <div class="flex items-center gap-0 px-4 border-b border-border-subtle shrink-0">
-    <button
-      type="button"
-      class="relative px-1 py-2.5 text-[13px] font-medium transition-colors {activeTab === 'cronjobs' ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}"
-      onclick={() => { activeTab = "cronjobs"; }}
-    >
-      <span class="flex items-center gap-1.5">
-        <Clock class="w-3.5 h-3.5" />
-        Cronjobs
-      </span>
-      {#if activeTab === 'cronjobs'}
-        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
-      {/if}
-    </button>
-    <button
-      type="button"
-      class="relative px-1 py-2.5 text-[13px] font-medium transition-colors {activeTab === 'history' ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}"
-      onclick={() => { activeTab = "history"; void loadTaskRuns(); }}
-    >
-      <span class="flex items-center gap-1.5">
-        <Activity class="w-3.5 h-3.5" />
-        History
-      </span>
-      {#if activeTab === 'history'}
-        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
-      {/if}
-    </button>
-  </div>
 
   <!-- Content -->
   <div class="flex-1 overflow-y-auto">
