@@ -46,12 +46,10 @@ import type {
 import {
   createRuntime,
   createInitialRuntimeSession,
-  deleteRuntime,
   forkRuntimeSession,
   getRuntimeById,
   getRuntimeSessionBootstrap,
   getRuntimeSessionById,
-  hibernateRuntime,
   listRuntimeSessions,
   listSessionMessages,
   normalizeRuntimeEnv,
@@ -61,9 +59,9 @@ import {
   registerRuntimeSession,
   updateRuntimeSessionInfo,
   validateRuntimeEnv,
-  wakeRuntime,
   enqueueRuntimePrompt,
   updateRuntimeStatus,
+  SandboxNotReadyError,
 } from "./runtime-sessions.js";
 import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
@@ -1081,7 +1079,7 @@ app.post("/api/runtimes", async (c) => {
   const userUuid = user.uuid;
 
   if (body.start !== false) {
-    void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid }).catch((error) => {
+    void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid }).catch((error: unknown) => {
       console.error("[RuntimeProvision] background task failed:", {
         runtimeId: runtime.id,
         error: error instanceof Error ? error.message : String(error),
@@ -1375,66 +1373,15 @@ app.get("/api/runtimes/:id/channels", async (c) => {
 });
 
 app.post("/api/runtimes/:id/hibernate", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const runtimeId = c.req.param("id");
-  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = c.get("authUser");
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  try {
-    const result = await hibernateRuntime({ runtimeId, userUuid: user.uuid });
-    return c.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Can only hibernate")) {
-      return c.json({ message }, 400);
-    }
-    return c.json({ message: "failed to hibernate runtime" }, 500);
-  }
+  return c.json({ message: "sandbox lifecycle is managed automatically" }, 410);
 });
 
 app.post("/api/runtimes/:id/wake", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const runtimeId = c.req.param("id");
-  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = c.get("authUser");
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  try {
-    const result = await wakeRuntime({ runtimeId, userUuid: user.uuid });
-    return c.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Can only wake") || message.includes("still terminating")) {
-      return c.json({ message }, 409);
-    }
-    return c.json({ message: "failed to wake runtime" }, 500);
-  }
+  return c.json({ message: "sandbox lifecycle is managed automatically" }, 410);
 });
 
 app.delete("/api/runtimes/:id", async (c) => {
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  const runtimeId = c.req.param("id");
-  if (!requireValidId(runtimeId)) return c.json({ message: "runtime not found" }, 404);
-  const user = c.get("authUser");
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-
-  try {
-    const result = await deleteRuntime({ runtimeId, userUuid: user.uuid });
-    return c.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Can only delete")) {
-      return c.json({ message }, 400);
-    }
-    if (message.includes("Unauthorized")) {
-      return c.json({ message: "runtime not found" }, 404);
-    }
-    return c.json({ message: "failed to delete runtime" }, 500);
-  }
+  return c.json({ message: "sandbox lifecycle is managed automatically" }, 410);
 });
 
 app.patch("/api/runtime-channels/:id/config", async (c) => {
@@ -1700,13 +1647,20 @@ app.post("/internal/runtimes/:runtimeId/sessions/:sessionId/prompt", async (c) =
 
   const userMessageId = body.userMessageId?.trim() || crypto.randomUUID();
 
-  await enqueueRuntimePrompt({
-    runtimeId,
-    sessionId,
-    userMessageId,
-    content: body.content,
-    meta: body.meta ?? null,
-  });
+  try {
+    await enqueueRuntimePrompt({
+      runtimeId,
+      sessionId,
+      userMessageId,
+      content: body.content,
+      meta: body.meta ?? null,
+    });
+  } catch (error) {
+    if (error instanceof SandboxNotReadyError) {
+      return c.json({ message: error.message }, 409);
+    }
+    throw error;
+  }
 
   return c.json({ ok: true, userMessageId });
 });
@@ -1797,21 +1751,28 @@ app.post("/api/sessions/:id/messages", async (c) => {
   // to guarantee correct sequence ordering
   const userMessageId = crypto.randomUUID();
 
-  await enqueueRuntimePrompt({
-    runtimeId: runtime.id,
-    sessionId: session.id,
-    userMessageId,
-    content: body.content,
-    meta: {
-      intent: "continue",
-      source: "web",
-      model: body.model ?? null,
-      provider: body.provider ?? null,
-      authorUuid: user?.uuid ?? null,
-      authorName: (user?.nick_name as string | undefined) ?? null,
-      authorAvatar: (user?.avatar_url as string | undefined) ?? null,
-    },
-  });
+  try {
+    await enqueueRuntimePrompt({
+      runtimeId: runtime.id,
+      sessionId: session.id,
+      userMessageId,
+      content: body.content,
+      meta: {
+        intent: "continue",
+        source: "web",
+        model: body.model ?? null,
+        provider: body.provider ?? null,
+        authorUuid: user?.uuid ?? null,
+        authorName: (user?.nick_name as string | undefined) ?? null,
+        authorAvatar: (user?.avatar_url as string | undefined) ?? null,
+      },
+    });
+  } catch (error) {
+    if (error instanceof SandboxNotReadyError) {
+      return c.json({ message: error.message }, 409);
+    }
+    throw error;
+  }
 
   return c.json({ ok: true, userMessageId });
 });

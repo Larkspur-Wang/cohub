@@ -18,6 +18,7 @@ import {
   workspaces,
   providerMessageRefs,
 } from "./db/schema.js";
+import { ensureSpaceSandbox, getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import {
@@ -35,6 +36,30 @@ import { ensureUserGitAccount } from "./git-accounts.js";
 type RuntimeEnvVar = {
   name: string;
   value: string;
+};
+
+export class SandboxNotReadyError extends Error {
+  constructor(message = "space sandbox is not ready") {
+    super(message);
+    this.name = "SandboxNotReadyError";
+  }
+}
+
+const mapRuntimeStatusToSandboxStatus = (status: string | null | undefined) => {
+  switch (status) {
+    case "starting":
+      return "provisioning" as const;
+    case "running":
+      return "ready" as const;
+    case "hibernated":
+      return "stopped" as const;
+    case "error":
+      return "error" as const;
+    case "deleted":
+      return "terminated" as const;
+    default:
+      return "pending" as const;
+  }
 };
 
 
@@ -336,6 +361,15 @@ export const updateRuntimeStatus = async (runtimeId: string, status: string) => 
     .update(runtimes)
     .set({ status, updatedAt: new Date() })
     .where(eq(runtimes.id, runtimeId));
+
+  await updateSpaceSandbox({
+    spaceId: runtimeId,
+    status: mapRuntimeStatusToSandboxStatus(status),
+    podName: status === "deleted" ? null : `sandbox-${runtimeId}`,
+    meta: {
+      lastRuntimeStatus: status,
+    },
+  }).catch(() => undefined);
 };
 
 
@@ -416,6 +450,17 @@ export const createRuntime = async (input: {
     .returning();
 
   if (!runtime) throw new Error("Failed to create runtime");
+
+  await ensureSpaceSandbox({
+    spaceId: runtime.id,
+    status: mapRuntimeStatusToSandboxStatus(runtime.status),
+    podName: `sandbox-${runtime.id}`,
+    meta: {
+      autoManaged: true,
+      runtimeId: runtime.id,
+    },
+  });
+
   return { runtime };
 };
 
@@ -954,6 +999,11 @@ export const enqueueRuntimePrompt = async (input: {
     meta: input.meta ?? null,
   });
 
+  const sandbox = await getSpaceSandboxBySpaceId(input.runtimeId);
+  if (!sandbox || sandbox.status !== "ready") {
+    throw new SandboxNotReadyError();
+  }
+
   await redisCommandClient.rpush(
     getRuntimeInputQueueKey(input.runtimeId),
     JSON.stringify({
@@ -1102,6 +1152,15 @@ export const provisionRuntimeInBackground = async (input: {
   const runtimeId = input.runtimeId;
 
   try {
+    await updateSpaceSandbox({
+      spaceId: runtimeId,
+      status: "provisioning",
+      podName: `sandbox-${runtimeId}`,
+      meta: {
+        provisioningStartedAt: new Date().toISOString(),
+      },
+    });
+
     const runtime = await getRuntimeById(runtimeId);
     if (!runtime) throw new Error("Runtime not found");
 
@@ -1167,213 +1226,16 @@ export const provisionRuntimeInBackground = async (input: {
   } catch (error) {
     console.error(`[RuntimeProvision] runtimeId=${runtimeId} error:`, error instanceof Error ? error.message : String(error));
     await updateRuntimeStatus(runtimeId, "error").catch(() => undefined);
+    await updateSpaceSandbox({
+      spaceId: runtimeId,
+      status: "error",
+      podName: `sandbox-${runtimeId}`,
+      meta: {
+        lastError: error instanceof Error ? error.message : String(error),
+      },
+    }).catch(() => undefined);
   }
 };
 
-export const hibernateRuntime = async (input: { runtimeId: string; userUuid: string }) => {
-  const runtime = await getRuntimeById(input.runtimeId);
-  if (!runtime) {
-    throw new Error("Runtime not found");
-  }
-  if (runtime.userUuid !== input.userUuid) {
-    throw new Error("Unauthorized");
-  }
-
-  if (runtime.status !== "running") {
-    throw new Error(`Can only hibernate running runtime, current status: ${runtime.status}`);
-  }
-
-  try {
-    await k8sCoreApi.deleteNamespacedPod({
-      name: `sandbox-${runtime.id}`,
-      namespace: sessionsNamespace,
-    });
-    console.log(`[Hibernate] Deleted pod sandbox-${runtime.id} for runtime ${runtime.id}`);
-  } catch (error) {
-    if (error instanceof ApiException && error.code === 404) {
-      console.log(`[Hibernate] Pod sandbox-${runtime.id} already gone, runtime ${runtime.id}`);
-    } else {
-      console.error(
-        `[Hibernate] Failed to delete pod sandbox-${runtime.id} for runtime ${runtime.id}:`,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  await db
-    .update(runtimes)
-    .set({ status: "hibernated", updatedAt: new Date() })
-    .where(eq(runtimes.id, runtime.id));
-
-  return { runtime: { ...runtime, status: "hibernated" } };
-};
-
-export const wakeRuntime = async (input: { runtimeId: string; userUuid: string }) => {
-  const runtime = await getRuntimeById(input.runtimeId);
-  if (!runtime) {
-    throw new Error("Runtime not found");
-  }
-  if (runtime.userUuid !== input.userUuid) {
-    throw new Error("Unauthorized");
-  }
-
-  if (runtime.status !== "hibernated") {
-    throw new Error(`Can only wake hibernated runtime, current status: ${runtime.status}`);
-  }
-
-  // Build pod template inline so we can create it synchronously
-  const extraEnv = getSessionExtraEnv(runtime.meta);
-  validateRuntimeEnv(extraEnv);
-
-  let workspaceRepoUrl: string | undefined;
-  let workspaceGitUsername: string | undefined;
-  let workspaceGitEmail: string | undefined;
-
-  if (runtime.workspaceId) {
-    const gitAccount = await ensureUserGitAccount(input.userUuid);
-    workspaceGitUsername = gitAccount.giteaUsername;
-    workspaceGitEmail = `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`;
-
-    const [workspace] = await db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, runtime.workspaceId))
-      .limit(1);
-
-    if (workspace) {
-      const url = new URL(config.giteaBaseUrl);
-      workspaceRepoUrl = `${url.protocol}//${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@${url.host}/${gitAccount.giteaUsername}/${workspace.giteaRepoName}.git`;
-    }
-  }
-
-  const pod = renderSandboxPodTemplate({
-    RUNTIME_ID: runtime.id,
-    USER_ID: input.userUuid,
-    REDIS_URL: config.redisUrl,
-    LITELLM_API_KEY: config.litellmApiKey,
-    ENV: config.env,
-    WORKSPACE_REPO_URL: workspaceRepoUrl,
-    WORKSPACE_GIT_USERNAME: workspaceGitUsername,
-    WORKSPACE_GIT_EMAIL: workspaceGitEmail,
-  }) as V1Pod;
-
-  if (pod.spec?.containers?.[0]) {
-    pod.spec.containers[0].env = buildRuntimeContainerEnv({
-      runtimeId: runtime.id,
-      redisUrl: config.redisUrl,
-      litellmApiKey: config.litellmApiKey,
-      env: config.env,
-      workspaceRepoUrl,
-      workspaceGitUsername,
-      workspaceGitEmail,
-      extraEnv,
-    });
-  }
-
-  await db
-    .update(runtimes)
-    .set({ status: "starting", updatedAt: new Date() })
-    .where(eq(runtimes.id, runtime.id));
-
-  // Create pod synchronously — if it fails, rollback and propagate the error
-  try {
-    await tryCreatePod(k8sCoreApi, runtime.id, pod);
-  } catch (error) {
-    await db
-      .update(runtimes)
-      .set({ status: "hibernated", updatedAt: new Date() })
-      .where(eq(runtimes.id, runtime.id))
-      .catch((rollbackErr) => {
-        console.error(
-          `[wakeRuntime] Failed to rollback runtime ${runtime.id} to hibernated:`,
-          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-        );
-      });
-    throw error;
-  }
-
-  // Fire-and-forget: bind channels + wait for runtime to become ready
-  void (
-    bindRuntimeChannelsToGateway(runtime.id)
-      .then(() => waitForRuntimeRunning(runtime.id, 60000))
-      .then((ready) => {
-        if (!ready) {
-          console.warn(`[wakeRuntime] runtimeId=${runtime.id} failed to become ready`);
-        }
-        return updateRuntimeStatus(runtime.id, ready ? "running" : "error");
-      })
-      .catch(async (err) => {
-        console.error(`[wakeRuntime] runtimeId=${runtime.id} background error:`, err instanceof Error ? err.message : String(err));
-        await updateRuntimeStatus(runtime.id, "error").catch((e) =>
-          console.error(`[wakeRuntime] Failed to set error status for ${runtime.id}:`, e instanceof Error ? e.message : String(e)),
-        );
-      })
-  );
-
-  return { runtime: { ...runtime, status: "starting" } };
-};
-
-export const deleteRuntime = async (input: { runtimeId: string; userUuid: string }) => {
-  const runtime = await getRuntimeById(input.runtimeId);
-  if (!runtime) {
-    throw new Error("Runtime not found");
-  }
-  if (runtime.userUuid !== input.userUuid) {
-    throw new Error("Unauthorized");
-  }
-
-  const deletableStatuses = ["hibernated", "error"];
-  if (!deletableStatuses.includes(runtime.status ?? "")) {
-    throw new Error(`Can only delete hibernated, boot_failed or error runtime, current status: ${runtime.status}`);
-  }
-
-  try {
-    await k8sCoreApi.deleteNamespacedPod({
-      name: `sandbox-${runtime.id}`,
-      namespace: sessionsNamespace,
-    });
-    console.log(`[DeleteRuntime] Deleted pod sandbox-${runtime.id} for runtime ${runtime.id}`);
-  } catch (error) {
-    if (error instanceof ApiException && error.code === 404) {
-      console.log(`[DeleteRuntime] Pod sandbox-${runtime.id} already gone, runtime ${runtime.id}`);
-    } else {
-      console.error(
-        `[DeleteRuntime] Failed to delete pod sandbox-${runtime.id} for runtime ${runtime.id}:`,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  // Clean up channel routing cache
-  const channels = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.runtimeId, input.runtimeId));
-  for (const ch of channels) {
-    if (ch.id) {
-      await redisCommandClient.hdel("gateway:channel_routing", ch.id).catch(console.error);
-      await redisCommandClient.hdel("gateway:node:*:channels", ch.id).catch(console.error);
-    }
-  }
-  await db.delete(runtimeChannels).where(eq(runtimeChannels.runtimeId, input.runtimeId));
-
-  // Clean up Redis keys
-  const keysToDelete = [
-    getRuntimeInputQueueKey(input.runtimeId),
-    getRuntimeOutputStreamKey(input.runtimeId),
-  ];
-  if (keysToDelete.length > 0) {
-    await redisCommandClient.del(...keysToDelete).catch(console.error);
-  }
-
-  await db
-    .update(runtimes)
-    .set({
-      status: "deleted",
-      meta: { ...(runtime.meta as Record<string, unknown> | null), deletedAt: new Date().toISOString() },
-      updatedAt: new Date(),
-    })
-    .where(eq(runtimes.id, runtime.id));
-
-  return { success: true };
-};
+// Runtime lifecycle is now managed internally via space_sandboxes.
+// User-facing hibernate / wake / delete actions are being phased out.
