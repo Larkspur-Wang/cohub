@@ -15,7 +15,7 @@ import {
   extractContentText,
   listenForInput,
   sendOutput,
-  setRuntimeStatus,
+  reportSandboxStatus,
 } from "./redis.js";
 import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
 
@@ -74,9 +74,9 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   }
 
   try {
-    await setRuntimeStatus(status === "stopped" ? "stopped" : "error");
+    await reportSandboxStatus(status === "stopped" ? "stopped" : "error");
   } catch (error) {
-    console.error("[Supervisor] Failed to update runtime status on shutdown:", error);
+    console.error("[Supervisor] Failed to update sandbox status on shutdown:", error);
   }
 
   try {
@@ -564,9 +564,9 @@ async function loadOrCreateSessionHandle(input: {
 }
 
 async function main() {
-  console.log(`[Supervisor] Starting for Runtime: ${env.RUNTIME_ID}`);
+  console.log(`[Supervisor] Starting for Space: ${env.RUNTIME_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
-  console.log(`[Supervisor] Runtime version: ${env.RUNTIME_VERSION || "unknown"}`);
+  console.log(`[Supervisor] Agent version: ${env.RUNTIME_VERSION || "unknown"}`);
   console.log(`[Supervisor] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
@@ -587,8 +587,8 @@ async function main() {
   const modelRegistry = ModelRegistry.create(authStorage);
   const tools = createCodingTools(env.WORKSPACE_DIR);
 
-  await setRuntimeStatus("ready");
-  console.log("[Supervisor] Runtime is now running and listening for input.");
+  await reportSandboxStatus("ready");
+  console.log("[Supervisor] Space is now ready and listening for input.");
 
   await listenForInput((inputEntry, ack, reject) => {
     console.log("[Supervisor] Received input from Redis:", inputEntry);

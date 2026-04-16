@@ -49,8 +49,7 @@ import {
   SandboxNotReadyError,
 } from "./space-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, resourcePermissions } from "./db/schema.js";
-import { spaces, spaceChannels } from "./db/schema-v2.js";
+import { userChannels, resourcePermissions, spaceChannels, spaces } from "./db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
@@ -304,8 +303,8 @@ app.post("/api/spaces", async (c) => {
   if (!space) return c.json({ message: "failed to create space" }, 500);
 
   if (normalizedChannelBindings.length > 0) {
-    const insertedRuntimeChannels = await db.insert(spaceChannels).values(normalizedChannelBindings.map((binding) => ({ spaceId: space.id, channelId: binding.channelId, config: binding.config }))).returning();
-    await Promise.all(insertedRuntimeChannels.map((runtimeChannel) => syncSpaceChannelConfigCache({ spaceChannelId: runtimeChannel.id, config: (runtimeChannel.config as Record<string, unknown> | null) ?? null })));
+    const insertedChannels = await db.insert(spaceChannels).values(normalizedChannelBindings.map((binding) => ({ spaceId: space.id, channelId: binding.channelId, config: binding.config }))).returning();
+    await Promise.all(insertedChannels.map((channel) => syncSpaceChannelConfigCache({ spaceChannelId: channel.id, config: (channel.config as Record<string, unknown> | null) ?? null })));
   }
 
   const session = await createInitialSpaceSession({
@@ -395,11 +394,11 @@ app.get("/api/spaces/:id/channels", async (c) => {
   if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
   const space = await getSpaceById(spaceId);
   if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
-  const runtimeChannelRows = await getSpaceChannelsBySpaceId(space.id);
-  const userChannelIds = runtimeChannelRows.map((item) => item.channelId);
-  const channelRows = userChannelIds.length > 0 ? await db.select().from(userChannels).where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, userChannelIds))) : [];
-  const userChannelById = new Map(channelRows.map((item) => [item.id, item]));
-  return c.json(runtimeChannelRows.map((runtimeChannel) => ({ ...runtimeChannel, channel: userChannelById.get(runtimeChannel.channelId) ?? null })));
+  const channels = await getSpaceChannelsBySpaceId(space.id);
+  const channelIds = channels.map((item) => item.channelId);
+  const channelList = channelIds.length > 0 ? await db.select().from(userChannels).where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, channelIds))) : [];
+  const userChannelById = new Map(channelList.map((item) => [item.id, item]));
+  return c.json(channels.map((channel) => ({ ...channel, channel: userChannelById.get(channel.channelId) ?? null })));
 });
 
 app.get("/api/spaces/:id/fs/tree", async (c) => {
@@ -634,30 +633,6 @@ app.post("/internal/spaces/:spaceId/sessions/:sessionId/prompt", async (c) => {
   }
   return c.json({ ok: true, userMessageId });
 });
-
-const legacyRuntimeRemoved = () => ({ message: "runtime routes have been removed; use /spaces instead" });
-app.all("/api/runtimes", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/fs/tree", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/fs/file", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/fs/dir", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/fs/node", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/fs/move", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/fs/download", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/channels", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/hibernate", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/wake", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/sessions", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/stream", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/permissions", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/collaborators", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtimes/:id/collaborators/:granteeUuid", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/api/runtime-channels/:id/config", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/internal/runtimes/:id/status", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/internal/runtimes/:id/sessions", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/internal/runtimes/:runtimeId/sessions/:sessionId/info", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/internal/runtimes/:runtimeId/sessions/:sessionId/messages", async (c) => c.json(legacyRuntimeRemoved(), 410));
-app.all("/internal/runtimes/:runtimeId/sessions/:sessionId/prompt", async (c) => c.json(legacyRuntimeRemoved(), 410));
 
 app.onError((error, c) => {
   const path = c.req.path;

@@ -113,7 +113,7 @@ export const provisionSpaceInBackground = async (input: {
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "SESSIONS_DIR", value: "/sessions" },
         { name: "PUBLIC_URL_PREFIX", value: config.env === "prod" ? `https://public.cohub.run/r/${input.spaceId}` : `https://public.cohub.run/dev/r/${input.spaceId}` },
-        { name: "RUNTIME_VERSION", value: config.sandboxRuntimeImage },
+        { name: "RUNTIME_VERSION", value: config.sandboxAgentImage },
         { name: "LITELLM_API_KEY", value: config.litellmApiKey ?? "" },
         { name: "WORKSPACE_REPO_URL", value: input.workspaceRepoUrl ?? "" },
         { name: "WORKSPACE_GIT_USERNAME", value: input.workspaceGitUsername ?? "" },

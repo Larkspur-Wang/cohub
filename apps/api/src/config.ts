@@ -8,7 +8,7 @@ export type AppConfig = {
   env: "dev" | "prod";
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
-  sandboxRuntimeImage: string;
+  sandboxAgentImage: string;
   bullmqRedisUrl: string;
   workerSecret: string;
   runtimeStorageRoot: string;
@@ -20,7 +20,7 @@ const getSessionsNamespace = (env: string): string => {
   return env === "dev" ? "cohub-sessions-dev" : "cohub-sessions";
 };
 
-const getDefaultSandboxRuntimeImage = (env: "dev" | "prod") => {
+const getDefaultSandboxAgentImage = (env: "dev" | "prod") => {
   return env === "prod"
     ? "git.talesofai.com/talesofai/cohub-agent:v20260325"
     : "git.talesofai.com/talesofai/cohub-agent:latest";
@@ -39,8 +39,8 @@ export const config: AppConfig = {
   env,
   giteaManagedEmailDomain: process.env.GITEA_MANAGED_EMAIL_DOMAIN ?? "cohub.local",
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
-  sandboxRuntimeImage:
-    process.env.SANDBOX_RUNTIME_IMAGE ?? getDefaultSandboxRuntimeImage(env),
+  sandboxAgentImage:
+    process.env.SANDBOX_AGENT_IMAGE ?? getDefaultSandboxAgentImage(env),
   bullmqRedisUrl:
     process.env.BULLMQ_REDIS_URL ?? "",
   runtimeStorageRoot: process.env.RUNTIME_STORAGE_ROOT ?? "",

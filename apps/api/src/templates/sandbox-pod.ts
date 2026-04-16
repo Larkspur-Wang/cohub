@@ -40,7 +40,7 @@ export const SANDBOX_POD_TEMPLATE = {
     name: "sandbox-${RUNTIME_ID}",
     labels: {
       app: "agent-sandbox",
-      "runtime-id": "${RUNTIME_ID}",
+      "space-id": "${RUNTIME_ID}",
       "user-id": "${USER_ID}",
     },
   },
@@ -49,8 +49,8 @@ export const SANDBOX_POD_TEMPLATE = {
     imagePullSecrets: [{ name: "gitea-registry" }],
     containers: [
       {
-        name: "runtime",
-        image: config.sandboxRuntimeImage,
+        name: "agent",
+        image: config.sandboxAgentImage,
         resources: {
           limits: {
             cpu: "1",

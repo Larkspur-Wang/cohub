@@ -64,7 +64,7 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
   return results;
 }
 
-export async function setRuntimeStatus(
+export async function reportSandboxStatus(
   status: SpaceSandboxStatus,
 ) {
   const internalApiBaseUrl = env.ENV === "prod"
@@ -76,7 +76,7 @@ export async function setRuntimeStatus(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status }),
   }).catch((err) => {
-    console.error("[Redis] Failed to report runtime status via internal API:", err);
+    console.error("[Redis] Failed to report sandbox status via internal API:", err);
   });
 }
 

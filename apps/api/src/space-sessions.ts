@@ -442,6 +442,6 @@ export const updateSpaceStatus = async (spaceId: string, status: string) => {
                 ? "error"
                 : "pending",
     podName: status === "deleted" ? null : `sandbox-${spaceId}`,
-    meta: { lastRuntimeStatus: status },
+    meta: { lastStatus: status },
   });
 };
