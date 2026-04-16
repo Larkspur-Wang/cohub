@@ -423,6 +423,7 @@ export const validateRuntimeEnv = (envs: RuntimeEnvVar[]) => {
 };
 
 export const createRuntime = async (input: {
+  id?: string;
   userUuid: string;
   workspaceId?: string | null;
   agentId?: string | null;
@@ -436,6 +437,7 @@ export const createRuntime = async (input: {
   const [runtime] = await db
     .insert(runtimes)
     .values({
+      id: input.id,
       userUuid: input.userUuid,
       workspaceId: input.workspaceId ?? null,
       agentId: input.agentId ?? null,

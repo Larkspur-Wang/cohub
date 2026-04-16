@@ -66,11 +66,12 @@ import {
 import { resolveSessionInteractionForInboundEvent } from "./session-interactions.js";
 import { db } from "./db/index.js";
 import { userChannels, userGitAccounts, workspaces, runtimeChannels, runtimes, resourcePermissions } from "./db/schema.js";
-import { cronJobs, taskRuns } from "./db/schema-v2.js";
+import { cronJobs, taskRuns, spaces } from "./db/schema-v2.js";
 import { eq, and, inArray, isNull, desc, asc, sql, ne } from "drizzle-orm";
 import { handleInboundEvent, syncRuntimeChannelConfigCache, getRuntimeChannelsByRuntimeId, getRuntimeChannelById, updateRuntimeChannelConfig } from "./channels.js";
 import { initLogConsumerGroup, startGatewayLogConsumer, stopLogConsumer } from "./gateway-logs.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP, getStreamInfo, checkPendingMessages } from "./redis.js";
+import { getSpaceSandboxBySpaceId } from "./space-sandboxes.js";
 import type { GatewayInboundEvent, ResourcePermissionLevel, TaskScheduleConfig } from "@cohub/protocol";
 import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
@@ -87,6 +88,14 @@ const buildWorkspaceListItem = (workspace: typeof workspaces.$inferSelect) => ({
   ...workspace,
   ownerUserUuid: workspace.userUuid,
 });
+
+const buildSpaceListItem = async (space: typeof spaces.$inferSelect) => {
+  const sandbox = await getSpaceSandboxBySpaceId(space.id);
+  return {
+    ...space,
+    sandboxStatus: sandbox?.status ?? null,
+  };
+};
 
 const buildWorkspaceForkInfo = async (parentId: string | null) => {
   if (!parentId) return null;
@@ -953,6 +962,183 @@ app.get("/api/workspaces/:id/file", async (c) => {
   const file = await getFileContent(gitAccount.giteaUsername, workspace.giteaRepoName, path, ref);
   if (!file) return c.json({ message: "file not found" }, 404);
   return c.json(file);
+});
+
+app.post("/api/spaces", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = (await c.req.json<{
+    name?: string;
+    description?: string | null;
+    source?: string;
+    cwd?: string;
+    protocol?: "pi" | "acp" | "internal";
+    meta?: Record<string, unknown>;
+    extraEnv?: Array<{ name: string; value: string }>;
+    channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
+  }>().catch(() => ({}))) as {
+    name?: string;
+    description?: string | null;
+    source?: string;
+    cwd?: string;
+    protocol?: "pi" | "acp" | "internal";
+    meta?: Record<string, unknown>;
+    extraEnv?: Array<{ name: string; value: string }>;
+    channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
+  };
+
+  const name = body.name?.trim();
+  if (!name) return c.json({ message: "name is required" }, 400);
+
+  const repoSlug = normalizeWorkspaceSlug(name);
+
+  const existingSpace = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(and(eq(spaces.userUuid, user.uuid), eq(spaces.giteaRepoName, repoSlug)))
+    .limit(1);
+  if (existingSpace.length > 0) {
+    return c.json({ message: "space already exists" }, 409);
+  }
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  const repo = await createRepository(gitAccount.giteaAccessToken, repoSlug, true).catch((error) => error as Error);
+  if (repo instanceof Error) {
+    return c.json({ message: repo.message }, 500);
+  }
+
+  const normalizedExtraEnv = normalizeRuntimeEnv(body.extraEnv);
+  validateRuntimeEnv(normalizedExtraEnv);
+
+  const normalizedChannelBindings = Array.isArray(body.channelBindings)
+    ? body.channelBindings
+        .filter((binding) => binding?.channelId && requireValidId(binding.channelId))
+        .map((binding) => ({ channelId: binding.channelId, config: binding.config ?? null }))
+    : [];
+
+  if (normalizedChannelBindings.length > 0) {
+    const ids = normalizedChannelBindings.map((binding) => binding.channelId);
+    const channels = await db
+      .select({ id: userChannels.id })
+      .from(userChannels)
+      .where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, ids)));
+    if (channels.length !== ids.length) {
+      return c.json({ message: "one or more channels are invalid" }, 400);
+    }
+  }
+
+  const occupiedChannels = normalizedChannelBindings.length
+    ? await db
+        .select({ channelId: runtimeChannels.channelId })
+        .from(runtimeChannels)
+        .where(inArray(runtimeChannels.channelId, normalizedChannelBindings.map((binding) => binding.channelId)))
+    : [];
+  if (occupiedChannels.length > 0) {
+    return c.json({ message: "channel binding already exists for this channel" }, 409);
+  }
+
+  const runtime = (await createRuntime({
+    id: crypto.randomUUID(),
+    userUuid: user.uuid,
+    title: name,
+    cwd: body.cwd ?? null,
+    protocol: body.protocol ?? "pi",
+    meta: {
+      ...(body.meta ?? {}),
+      extraEnv: normalizedExtraEnv,
+      spaceDescription: body.description ?? null,
+    },
+    start: true,
+  })).runtime;
+
+  await db.insert(spaces).values({
+    id: runtime.id,
+    userUuid: user.uuid,
+    name,
+    description: body.description ?? null,
+    giteaRepoName: repoSlug,
+    baseCheckpointId: null,
+    meta: body.meta ?? null,
+  });
+
+  if (normalizedChannelBindings.length > 0) {
+    const insertedRuntimeChannels = await db.insert(runtimeChannels).values(
+      normalizedChannelBindings.map((binding) => ({
+        runtimeId: runtime.id,
+        channelId: binding.channelId,
+        config: binding.config,
+      })),
+    ).returning();
+
+    await Promise.all(
+      insertedRuntimeChannels.map((runtimeChannel) =>
+        syncRuntimeChannelConfigCache({
+          runtimeChannelId: runtimeChannel.id,
+          config: (runtimeChannel.config as Record<string, unknown> | null) ?? null,
+        }),
+      ),
+    );
+  }
+
+  const session = await createInitialRuntimeSession({
+    runtimeId: runtime.id,
+    sessionId: crypto.randomUUID(),
+    title: null,
+    source: body.source ?? null,
+    protocol: body.protocol ?? "pi",
+    cwd: body.cwd ?? null,
+    externalSessionId: null,
+    meta: {
+      createdBy: "api_space_create",
+      channelBindings: normalizedChannelBindings.length,
+    },
+  });
+
+  void provisionRuntimeInBackground({ runtimeId: runtime.id, userUuid: user.uuid }).catch((error: unknown) => {
+    console.error("[SpaceProvision] background task failed:", {
+      spaceId: runtime.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, runtime.id)).limit(1);
+  return c.json({ space, session });
+});
+
+app.get("/api/spaces", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const spaceList = await db
+    .select()
+    .from(spaces)
+    .where(eq(spaces.userUuid, user.uuid))
+    .orderBy(desc(spaces.updatedAt), desc(spaces.createdAt));
+
+  const items = await Promise.all(spaceList.map((space) => buildSpaceListItem(space)));
+  return c.json(items);
+});
+
+app.get("/api/spaces/:id", async (c) => {
+  const token = c.get("token");
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
+
+  const sandbox = await getSpaceSandboxBySpaceId(space.id);
+  return c.json({
+    ...space,
+    sandboxStatus: sandbox?.status ?? null,
+  });
 });
 
 app.post("/api/runtimes", async (c) => {
