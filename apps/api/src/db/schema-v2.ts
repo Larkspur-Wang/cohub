@@ -93,6 +93,25 @@ export const spaces = v2.table(
   }),
 );
 
+export const spaceSandboxes = v2.table(
+  "space_sandboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    podName: varchar("pod_name", { length: 255 }),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    spaceIdx: uniqueIndex("v2_uq_space_sandboxes_space_id").on(table.spaceId),
+    statusIdx: index("v2_idx_space_sandboxes_status").on(table.status),
+    heartbeatIdx: index("v2_idx_space_sandboxes_last_heartbeat_at").on(table.lastHeartbeatAt),
+  }),
+);
+
 export const checkpoints = v2.table(
   "checkpoints",
   {

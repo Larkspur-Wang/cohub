@@ -108,7 +108,6 @@ async function migrateV2Data() {
         jsonb_strip_nulls(jsonb_build_object(
           'legacyRuntimeId', r.id,
           'legacyWorkspaceId', r.workspace_id,
-          'legacyStatus', r.status,
           'legacyWorkspaceCommitHash', r.workspace_commit_hash,
           'legacyAgentId', r.agent_id,
           'legacyAgentCommitHash', r.agent_commit_hash,
@@ -121,6 +120,40 @@ async function migrateV2Data() {
         r.updated_at
       FROM public.runtimes r
       LEFT JOIN public.workspaces w ON w.id = r.workspace_id
+      ON CONFLICT DO NOTHING
+    `;
+
+    console.log("[V2 Data Migration] Migrating runtime sandboxes as space sandboxes...");
+    await sql`
+      INSERT INTO v2.space_sandboxes (
+        space_id,
+        status,
+        pod_name,
+        last_heartbeat_at,
+        meta,
+        created_at,
+        updated_at
+      )
+      SELECT
+        r.id,
+        CASE
+          WHEN r.status = 'starting' THEN 'provisioning'
+          WHEN r.status = 'running' THEN 'ready'
+          WHEN r.status = 'hibernated' THEN 'stopped'
+          WHEN r.status = 'error' THEN 'error'
+          WHEN r.status = 'deleted' THEN 'terminated'
+          ELSE 'pending'
+        END,
+        CONCAT('sandbox-', r.id::text),
+        NULL,
+        jsonb_strip_nulls(jsonb_build_object(
+          'legacyRuntimeStatus', r.status,
+          'legacyWorkspaceId', r.workspace_id,
+          'legacyRuntimeMeta', r.meta
+        )),
+        r.created_at,
+        r.updated_at
+      FROM public.runtimes r
       ON CONFLICT DO NOTHING
     `;
 
