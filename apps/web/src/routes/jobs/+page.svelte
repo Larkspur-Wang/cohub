@@ -15,7 +15,7 @@ import { logtoClient } from "$lib/auth";
 import { Plus, Trash2, Power, PowerOff, Loader2, Clock, Activity, Filter, X } from "lucide-svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 
-type TabId = "cronjobs" | "runs";
+type TabId = "cronjobs" | "history";
 
 let activeTab: TabId = $state("cronjobs");
 let isLoading = $state(true);
@@ -97,7 +97,7 @@ async function handleToggle(id: string, enabled: boolean, e: Event) {
 
 function showRunsForJob(jobId: string) {
   filterCronJobId = jobId;
-  activeTab = "runs";
+  activeTab = "history";
 }
 
 function clearFilter() {
@@ -263,14 +263,14 @@ onMount(() => {
     </button>
     <button
       type="button"
-      class="relative px-1 py-2.5 text-[13px] font-medium transition-colors {activeTab === 'runs' ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}"
-      onclick={() => { activeTab = "runs"; void loadTaskRuns(); }}
+      class="relative px-1 py-2.5 text-[13px] font-medium transition-colors {activeTab === 'history' ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}"
+      onclick={() => { activeTab = "history"; void loadTaskRuns(); }}
     >
       <span class="flex items-center gap-1.5">
         <Activity class="w-3.5 h-3.5" />
-        Runs
+        History
       </span>
-      {#if activeTab === 'runs'}
+      {#if activeTab === 'history'}
         <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
       {/if}
     </button>
@@ -305,12 +305,12 @@ onMount(() => {
                   <!-- Status dot -->
                   <span class="w-[7px] h-[7px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
 
-                  <!-- Title (clickable to view runs) -->
+                  <!-- Title (clickable to view history) -->
                   <button
                     type="button"
                     class="flex-1 text-left text-[13px] font-medium truncate hover:text-brand transition-colors"
                     onclick={() => showRunsForJob(job.id)}
-                    title="View runs"
+                    title="View history"
                   >
                     {job.title}
                   </button>
@@ -351,7 +351,7 @@ onMount(() => {
       </div>
 
     {:else}
-      <!-- Runs Tab -->
+      <!-- History Tab -->
       <div class="max-w-4xl mx-auto px-4 py-4">
         <!-- Filter bar -->
         {#if filterCronJobId}
