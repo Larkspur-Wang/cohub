@@ -13,7 +13,8 @@ import {
   type RuntimeRecord,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
-import { Plus, Trash2, Power, PowerOff, Loader2, ChevronDown, ChevronRight, Clock } from "lucide-svelte";
+import { Plus, Trash2, Power, PowerOff, Loader2, ChevronDown, Clock, Activity } from "lucide-svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 type TabId = "cronjobs" | "runs";
 
@@ -100,7 +101,6 @@ async function handleDelete(id: string, e: Event) {
   actionInProgress = { ...actionInProgress, [id]: "delete" };
   try {
     await deleteCronJob(id);
-    // Refresh from server to ensure consistency
     await loadCronJobs();
   } catch (error) {
     alert(error instanceof Error ? error.message : "Failed to delete");
@@ -115,11 +115,9 @@ async function handleToggle(id: string, enabled: boolean, e: Event) {
   actionInProgress = { ...actionInProgress, [id]: "toggle" };
   try {
     await toggleCronJob(id, enabled);
-    // Update only after successful API call
     cronJobs = cronJobs.map((j) => (j.id === id ? { ...j, enabled } : j));
   } catch (error) {
     alert(error instanceof Error ? error.message : "Failed to toggle");
-    // Revert UI to match server state — reload to get correct status
     await loadCronJobs();
   } finally {
     const { [id]: _, ...rest } = actionInProgress;
@@ -168,7 +166,6 @@ async function handleCreate() {
     createError = "Cron expression is required";
     return;
   }
-  // Basic frontend cron format validation (5-6 space-separated fields)
   const cronParts = createCronExpression.trim().split(/\s+/);
   if (cronParts.length < 5 || cronParts.length > 6) {
     createError = "Invalid cron expression format. Expected 5 or 6 space-separated fields (min hour day month weekday [year])";
@@ -202,15 +199,15 @@ async function handleCreate() {
 function statusBadge(run: TaskRunRecord) {
   switch (run.status) {
     case "completed":
-      return { label: "Completed", color: "bg-emerald-500/15 text-emerald-400" };
+      return { label: "Completed", color: "text-status-running", dot: "bg-status-running" };
     case "failed":
-      return { label: "Failed", color: "bg-red-500/15 text-red-400" };
+      return { label: "Failed", color: "text-status-error", dot: "bg-status-error" };
     case "running":
-      return { label: "Running", color: "bg-blue-500/15 text-blue-400" };
+      return { label: "Running", color: "text-info", dot: "bg-info" };
     case "pending":
-      return { label: "Pending", color: "bg-amber-500/15 text-amber-400" };
+      return { label: "Pending", color: "text-warning", dot: "bg-warning" };
     default:
-      return { label: run.status, color: "bg-bg-hover text-text-tertiary" };
+      return { label: run.status, color: "text-text-placeholder", dot: "bg-text-placeholder" };
   }
 }
 
@@ -226,7 +223,6 @@ function formatDate(dateStr: string | null) {
   });
 }
 
-// Close modal on Escape key
 $effect(() => {
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape" && showCreateModal && !isCreating) {
@@ -243,88 +239,109 @@ onMount(() => {
 });
 </script>
 
-<div class="h-screen flex flex-col bg-bg-primary text-text-primary">
+<div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <!-- Header -->
-  <div class="h-12 flex items-center px-4 border-b border-border-subtle shrink-0">
-    <h1 class="text-[15px] font-semibold">Jobs</h1>
-  </div>
+  <PageHeader>
+    {#snippet left()}
+      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Jobs</span>
+    {/snippet}
+    {#snippet right()}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+        onclick={openCreateModal}
+      >
+        <Plus class="w-3.5 h-3.5" />
+        New Cronjob
+      </button>
+    {/snippet}
+  </PageHeader>
 
   <!-- Tabs -->
-  <div class="flex items-center gap-1 px-4 pt-3 pb-2 border-b border-border-subtle shrink-0">
+  <div class="flex items-center gap-0 px-4 border-b border-border-subtle shrink-0">
     <button
       type="button"
-      class="px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors {activeTab === 'cronjobs' ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+      class="relative px-1 py-2.5 text-[13px] font-medium transition-colors {activeTab === 'cronjobs' ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}"
       onclick={() => { activeTab = "cronjobs"; }}
     >
-      Cronjob Settings
+      <span class="flex items-center gap-1.5">
+        <Clock class="w-3.5 h-3.5" />
+        Cronjobs
+      </span>
+      {#if activeTab === 'cronjobs'}
+        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full" />
+      {/if}
     </button>
     <button
       type="button"
-      class="px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors {activeTab === 'runs' ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+      class="relative px-1 py-2.5 text-[13px] font-medium transition-colors {activeTab === 'runs' ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}"
       onclick={() => { activeTab = "runs"; void loadTaskRuns(); }}
     >
-      Job Runs
+      <span class="flex items-center gap-1.5">
+        <Activity class="w-3.5 h-3.5" />
+        Runs
+      </span>
+      {#if activeTab === 'runs'}
+        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full" />
+      {/if}
     </button>
   </div>
 
   <!-- Content -->
-  <div class="flex-1 overflow-y-auto px-4 py-3">
+  <div class="flex-1 overflow-y-auto">
     {#if activeTab === "cronjobs"}
-      <!-- Cronjob Settings Tab -->
-      <div class="max-w-3xl mx-auto">
+      <!-- Cronjobs Tab -->
+      <div class="max-w-3xl mx-auto px-4 py-4">
         {#if isLoading}
-          <div class="flex items-center justify-center gap-2 py-8 text-text-tertiary">
+          <div class="flex items-center justify-center gap-2 py-12 text-text-tertiary text-[13px]">
             <Loader2 class="w-4 h-4 animate-spin" />
             Loading...
           </div>
         {:else if loadError}
-          <div class="py-4 text-center text-error-soft">{loadError}</div>
-        {:else}
-          <!-- Create button -->
-          <div class="flex justify-end mb-3">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-brand text-white hover:bg-brand-hover transition-colors"
-              onclick={openCreateModal}
-            >
-              <Plus class="w-3.5 h-3.5" />
-              New Cronjob
-            </button>
-          </div>
-
-          {#if cronJobs.length === 0}
-            <div class="py-12 text-center text-text-tertiary text-[13px]">
-              No cronjobs yet. Click "New Cronjob" to create a scheduled task
+          <div class="py-4 text-center text-error-soft text-[13px]">{loadError}</div>
+        {:else if cronJobs.length === 0}
+          <div class="flex flex-col items-center justify-center py-16 text-center">
+            <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
+              <Clock class="w-5 h-5 text-text-placeholder" />
             </div>
-          {:else}
-            <div class="space-y-2">
-              {#each cronJobs as job (job.id)}
-                {@const isExpanded = expandedCronJobs.has(job.id)}
-                {@const isBusy = actionInProgress[job.id]}
-                <div class="rounded-lg border border-border-subtle overflow-hidden">
-                  <!-- Cronjob header -->
-                  <div
-                    class="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-bg-hover/50 transition-colors"
-                    role="button"
-                    tabindex="0"
-                    aria-expanded={isExpanded}
-                    onclick={() => toggleCronJobExpand(job.id)}
-                    onkeydown={(e) => handleCronJobHeaderKeydown(e, job.id)}
-                  >
-                    <span class="text-text-tertiary">
-                      {#if isExpanded}
-                        <ChevronDown class="w-4 h-4" />
-                      {:else}
-                        <ChevronRight class="w-4 h-4" />
-                      {/if}
-                    </span>
-                    <span class="flex-1 text-[13px] font-medium truncate">{job.title}</span>
-                    <span class="text-[11px] text-text-placeholder font-mono">{job.taskType}</span>
-                    <span class="text-[11px] text-text-placeholder font-mono px-1.5 py-0.5 rounded bg-bg-hover">{job.cronExpression}</span>
-                    <!-- Enabled toggle -->
+            <p class="text-[14px] text-text-tertiary">No cronjobs yet</p>
+            <p class="text-[12px] text-text-placeholder mt-1">Create a scheduled task to automate your workflows</p>
+          </div>
+        {:else}
+          <div class="space-y-0.5">
+            {#each cronJobs as job (job.id)}
+              {@const isExpanded = expandedCronJobs.has(job.id)}
+              {@const isBusy = actionInProgress[job.id]}
+              <!-- Cronjob row — flat, no card wrapper -->
+              <div class="group rounded-[5px] border border-transparent hover:border-border-subtle transition-colors">
+                <div
+                  class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer"
+                  role="button"
+                  tabindex="0"
+                  aria-expanded={isExpanded}
+                  onclick={() => toggleCronJobExpand(job.id)}
+                  onkeydown={(e) => handleCronJobHeaderKeydown(e, job.id)}
+                >
+                  <!-- Expand chevron -->
+                  <span class="text-text-tertiary transition-transform {isExpanded ? '' : '-rotate-90'}">
+                    <ChevronDown class="w-3.5 h-3.5" />
+                  </span>
+
+                  <!-- Status dot -->
+                  <span class="w-[7px] h-[7px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}" />
+
+                  <!-- Title -->
+                  <span class="flex-1 text-[13px] font-medium truncate">{job.title}</span>
+
+                  <!-- Cron expression — subtle pill -->
+                  <span class="text-[11px] font-mono text-text-placeholder px-1.5 py-0.5 rounded-sm bg-bg-code hidden sm:inline">{job.cronExpression}</span>
+
+                  <!-- Actions — visible on hover / always on mobile -->
+                  <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity lg:opacity-100 lg:group-hover:opacity-100">
+                    <!-- Enable/disable toggle -->
                     <button
                       type="button"
-                      class="p-1 rounded hover:bg-bg-hover transition-colors {job.enabled ? 'text-emerald-400' : 'text-text-placeholder'}"
+                      class="p-1.5 rounded-[5px] hover:bg-bg-hover transition-colors {job.enabled ? 'text-text-tertiary hover:text-status-running' : 'text-text-placeholder hover:text-status-running'}"
                       title={job.enabled ? "Disable" : "Enable"}
                       onclick={(e) => handleToggle(job.id, !job.enabled, e)}
                     >
@@ -339,93 +356,102 @@ onMount(() => {
                     <!-- Delete -->
                     <button
                       type="button"
-                      class="p-1 rounded hover:bg-bg-hover text-text-placeholder hover:text-error-soft transition-colors"
+                      class="p-1.5 rounded-[5px] hover:bg-bg-hover text-text-placeholder hover:text-error-soft transition-colors"
                       title="Delete"
                       onclick={(e) => handleDelete(job.id, e)}
                     >
                       <Trash2 class="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
 
-                  <!-- Run history (expanded) -->
-                  {#if isExpanded}
-                    <div class="border-t border-border-subtle px-3 py-2 bg-bg-secondary/30">
-                      {#if cronJobRuns.has(job.id)}
-                        {@const runs = cronJobRuns.get(job.id)!}
-                        {#if runs.length === 0}
-                          <div class="py-2 text-[11px] text-text-placeholder italic">No runs yet</div>
-                        {:else}
-                          <div class="space-y-1">
-                            {#each runs.slice(0, 10) as run (run.id)}
-                              {@const badge = statusBadge(run)}
-                              <div class="flex items-center gap-2 text-[11px]">
-                                <span class="px-1.5 py-0.5 rounded font-medium {badge.color}">{badge.label}</span>
-                                <span class="text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</span>
-                                {#if run.errorMessage}
-                                  <span class="text-red-400 truncate" title={run.errorMessage}>{run.errorMessage.slice(0, 60)}</span>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
-                        {/if}
+                <!-- Run history (expanded) -->
+                {#if isExpanded}
+                  <div class="pl-[34px] pr-3 pb-2.5">
+                    {#if cronJobRuns.has(job.id)}
+                      {@const runs = cronJobRuns.get(job.id)!}
+                      {#if runs.length === 0}
+                        <div class="py-1.5 text-[11px] text-text-placeholder">No runs yet</div>
                       {:else}
-                        <div class="flex items-center gap-1.5 py-2 text-[11px] text-text-placeholder">
-                          <Loader2 class="w-3 h-3 animate-spin" />
-                          Loading runs...
+                        <div class="space-y-1.5">
+                          {#each runs.slice(0, 10) as run (run.id)}
+                            {@const badge = statusBadge(run)}
+                            <div class="flex items-center gap-2 text-[11px]">
+                              <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}" />
+                              <span class="text-text-secondary font-medium">{badge.label}</span>
+                              <span class="text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</span>
+                              {#if run.startedAt && run.finishedAt}
+                                <span class="text-text-placeholder font-mono">{((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000).toFixed(1)}s</span>
+                              {/if}
+                              {#if run.errorMessage}
+                                <span class="text-status-error truncate ml-auto max-w-[180px]" title={run.errorMessage}>{run.errorMessage.slice(0, 60)}</span>
+                              {/if}
+                            </div>
+                          {/each}
                         </div>
                       {/if}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
+                    {:else}
+                      <div class="flex items-center gap-1.5 py-1.5 text-[11px] text-text-placeholder">
+                        <Loader2 class="w-3 h-3 animate-spin" />
+                        Loading runs...
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          </div>
         {/if}
       </div>
 
     {:else}
-      <!-- Task Runs Tab -->
-      <div class="max-w-4xl mx-auto">
+      <!-- Runs Tab -->
+      <div class="max-w-4xl mx-auto px-4 py-4">
         {#if taskRuns.length === 0}
-          <div class="py-12 text-center text-text-tertiary text-[13px]">
-            No task run records
+          <div class="flex flex-col items-center justify-center py-16 text-center">
+            <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
+              <Activity class="w-5 h-5 text-text-placeholder" />
+            </div>
+            <p class="text-[14px] text-text-tertiary">No task run records</p>
+            <p class="text-[12px] text-text-placeholder mt-1">Task runs will appear here once cronjobs start executing</p>
           </div>
         {:else}
-          <div class="rounded-lg border border-border-subtle overflow-hidden">
-            <table class="w-full text-[12px]">
-              <thead>
-                <tr class="border-b border-border-subtle bg-bg-secondary/30 text-text-tertiary">
-                  <th class="text-left px-3 py-2 font-medium">Status</th>
-                  <th class="text-left px-3 py-2 font-medium">Type</th>
-                  <th class="text-left px-3 py-2 font-medium">Started</th>
-                  <th class="text-left px-3 py-2 font-medium">Duration</th>
-                  <th class="text-left px-3 py-2 font-medium">Error</th>
+          <table class="w-full text-[12px]">
+            <thead>
+              <tr class="text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
+                <th class="text-left py-2 pr-3 font-medium">Status</th>
+                <th class="text-left py-2 pr-3 font-medium">Type</th>
+                <th class="text-left py-2 pr-3 font-medium">Started</th>
+                <th class="text-left py-2 pr-3 font-medium">Duration</th>
+                <th class="text-left py-2 font-medium">Error</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border-subtle/50">
+              {#each taskRuns as run (run.id)}
+                {@const badge = statusBadge(run)}
+                {@const duration = run.startedAt && run.finishedAt
+                  ? (() => {
+                      const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
+                      return `${(ms / 1000).toFixed(1)}s`;
+                    })()
+                  : "—"}
+                <tr class="hover:bg-bg-hover/30 transition-colors">
+                  <td class="py-2 pr-3">
+                    <span class="flex items-center gap-1.5">
+                      <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}" />
+                      <span class="{badge.color}">{badge.label}</span>
+                    </span>
+                  </td>
+                  <td class="py-2 pr-3 font-mono text-text-secondary">{run.taskType}</td>
+                  <td class="py-2 pr-3 text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</td>
+                  <td class="py-2 pr-3 text-text-placeholder font-mono">{duration}</td>
+                  <td class="py-2 text-status-error max-w-[200px] truncate" title={run.errorMessage ?? ""}>
+                    {run.errorMessage ?? "—"}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {#each taskRuns as run (run.id)}
-                  {@const badge = statusBadge(run)}
-                  {@const duration = run.startedAt && run.finishedAt
-                    ? (() => {
-                        const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
-                        return `${(ms / 1000).toFixed(1)}s`;
-                      })()
-                    : "—"}
-                  <tr class="border-b border-border-subtle/50 hover:bg-bg-hover/30 transition-colors">
-                    <td class="px-3 py-2">
-                      <span class="px-1.5 py-0.5 rounded font-medium text-[11px] {badge.color}">{badge.label}</span>
-                    </td>
-                    <td class="px-3 py-2 font-mono text-text-secondary">{run.taskType}</td>
-                    <td class="px-3 py-2 text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</td>
-                    <td class="px-3 py-2 text-text-placeholder">{duration}</td>
-                    <td class="px-3 py-2 text-red-400 max-w-[200px] truncate" title={run.errorMessage ?? ""}>
-                      {run.errorMessage ?? "—"}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
+              {/each}
+            </tbody>
+          </table>
         {/if}
       </div>
     {/if}
