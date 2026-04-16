@@ -1068,6 +1068,23 @@ export const getCronJobRuns = async (cronJobId: string) => {
   return apiFetch(`/api/cron-jobs/${cronJobId}/runs`) as Promise<{ runs: TaskRunRecord[] }>;
 };
 
+export type CreateScheduledTaskInput = {
+  taskType: string;
+  payload: Record<string, unknown>;
+  scheduleAt: string;
+  runtimeId?: string;
+  sessionId?: string;
+  workspaceId?: string;
+};
+
+export const createScheduledTask = async (data: CreateScheduledTaskInput) => {
+  return apiFetch("/api/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }) as Promise<{ ok: true; jobId: string; scheduledAt: string }>;
+};
+
 export const getTaskRuns = async (filters?: {
   cronJobId?: string;
   runtimeId?: string;

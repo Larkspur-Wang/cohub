@@ -2422,6 +2422,64 @@ app.patch("/api/cron-jobs/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Scheduled Task ───
+
+app.post("/api/tasks", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = await fetchAuthUser(token);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = await c.req.json<{
+    taskType: string;
+    payload: Record<string, unknown>;
+    scheduleAt: string;
+    runtimeId?: string;
+    sessionId?: string;
+    workspaceId?: string;
+  }>().catch(() => null);
+
+  if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
+  if (!body?.scheduleAt) return c.json({ message: "scheduleAt is required" }, 400);
+
+  const scheduledTime = new Date(body.scheduleAt);
+  if (Number.isNaN(scheduledTime.getTime())) {
+    return c.json({ message: "invalid scheduleAt, must be a valid ISO 8601 datetime" }, 400);
+  }
+
+  const delay = scheduledTime.getTime() - Date.now();
+  if (delay < 0) {
+    return c.json({ message: "scheduleAt must be in the future" }, 400);
+  }
+
+  const taskPayload = {
+    type: body.taskType,
+    runtimeId: body.runtimeId ?? undefined,
+    sessionId: body.sessionId ?? undefined,
+    workspaceId: body.workspaceId ?? undefined,
+    userId: user.uuid,
+    data: body.payload ?? {},
+  };
+
+  try {
+    const job = await taskQueue.add(body.taskType, taskPayload, { delay });
+    const jobId = job.id;
+    if (!jobId) throw new Error("Failed to get job id");
+
+    // Override scheduledAt to match the exact time requested by the user
+    await db
+      .update(taskRuns)
+      .set({ scheduledAt: scheduledTime })
+      .where(eq(taskRuns.jobId, jobId));
+
+    return c.json({ ok: true, jobId, scheduledAt: scheduledTime.toISOString() });
+  } catch (error) {
+    return c.json({
+      message: `Failed to schedule task: ${error instanceof Error ? error.message : String(error)}`,
+    }, 500);
+  }
+});
+
 // ─── Task Run History ───
 
 app.get("/api/tasks/runs", async (c) => {
