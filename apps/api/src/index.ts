@@ -502,7 +502,7 @@ app.get("/api/spaces/:id/fs/download", async (c) => {
   try {
     const info = await streamSpaceFile(spaceId, path);
     const buffer = await readFile(info.target);
-    return c.body(buffer, 200, {
+    return c.body(new Uint8Array(buffer), 200, {
       "content-type": info.mimeType ?? "application/octet-stream",
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(info.name)}`,
     });

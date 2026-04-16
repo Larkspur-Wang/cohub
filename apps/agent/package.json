@@ -11,7 +11,7 @@
     "build": "tsc",
     "lint": "biome lint src/",
     "lint:fix": "biome lint --write src/",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "start": "node dist/index.js"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.4.2"
+    "typescript": "^6.0.2",
+    "@typescript/native-preview": "^7.0.0-dev"
   }
 }

@@ -14,9 +14,10 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
-    "typescript": "5.7.3"
+    "typescript": "^6.0.2",
+    "@typescript/native-preview": "^7.0.0-dev"
   }
 }
