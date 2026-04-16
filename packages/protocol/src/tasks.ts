@@ -11,15 +11,13 @@ export type TaskType = string;
 
 /**
  * Universal task payload carried by every BullMQ job.
- * Fields like workspaceId / runtimeId / sessionId are optional
+ * Fields like spaceId / sessionId are optional
  * so tasks can be scoped or global.
  */
 export interface TaskPayload {
   type: TaskType;
-  /** Optional: which workspace this task relates to */
-  workspaceId?: string;
-  /** Optional: which runtime this task relates to */
-  runtimeId?: string;
+  /** Optional: which space this task relates to */
+  spaceId?: string;
   /** Optional: which session this task relates to */
   sessionId?: string;
   /** Optional: the user who owns / triggered this task */

@@ -6,7 +6,7 @@ import {
   createCodingTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { persistAssistantMessage, persistUserMessage, registerRuntimeSession } from "./api.js";
+import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
 import {
@@ -15,7 +15,7 @@ import {
   extractContentText,
   listenForInput,
   sendOutput,
-  setRuntimeStatus,
+  reportSandboxStatus,
 } from "./redis.js";
 import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
 
@@ -44,7 +44,7 @@ type SessionHandle = {
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 
-async function shutdown(status: "hibernated" | "error", exitCode: number) {
+async function shutdown(status: "stopped" | "error", exitCode: number) {
   if (isShuttingDown) {
     process.exit(exitCode);
   }
@@ -74,9 +74,9 @@ async function shutdown(status: "hibernated" | "error", exitCode: number) {
   }
 
   try {
-    await setRuntimeStatus(status);
+    await reportSandboxStatus(status === "stopped" ? "stopped" : "error");
   } catch (error) {
-    console.error("[Supervisor] Failed to update runtime status on shutdown:", error);
+    console.error("[Supervisor] Failed to update sandbox status on shutdown:", error);
   }
 
   try {
@@ -196,7 +196,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
 
   const event: SessionStreamEvent = {
     type: "stream_update",
-    runtimeId: env.RUNTIME_ID,
+    spaceId: env.RUNTIME_ID,
     sessionId: handle.sessionId,
     content: handle.streamState.content,
     sourceMessageId,
@@ -283,7 +283,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
 
         void enqueuePersistence(handle, `user:${userMessageId}`, async () => {
           await persistUserMessage({
-            runtimeId: env.RUNTIME_ID,
+            spaceId: env.RUNTIME_ID,
             sessionId: handle.sessionId,
             userMessageId,
             content,
@@ -387,8 +387,8 @@ function subscribeSessionEvents(handle: SessionHandle) {
       // per-session queue used by user messages.
       void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
         await persistAssistantMessage({
-          runtimeId: env.RUNTIME_ID,
-          runtimeSessionId: handle.sessionId,
+          spaceId: env.RUNTIME_ID,
+          spaceSessionId: handle.sessionId,
           userMessageId: currentUserMessageId,
           event: enrichedEvent as Record<string, unknown>,
         });
@@ -397,7 +397,7 @@ function subscribeSessionEvents(handle: SessionHandle) {
       // Emit final render update with turnEnd flag
       const finalEvent: SessionStreamEvent = {
         type: "stream_update",
-        runtimeId: env.RUNTIME_ID,
+        spaceId: env.RUNTIME_ID,
         sessionId: handle.sessionId,
         content: handle.streamState.content,
         sourceMessageId: currentUserMessageId,
@@ -449,15 +449,15 @@ async function loadOrCreateSessionHandle(input: {
   const existing = sessionHandles.get(input.sessionId);
   if (existing) return existing;
 
-  const registration = await registerRuntimeSession({
-    runtimeId: env.RUNTIME_ID,
+  const registration = await registerSpaceSession({
+    spaceId: env.RUNTIME_ID,
     sessionId: input.sessionId,
     title: null,
     protocol: "pi",
     externalSessionId: null,
     cwd: null,
     meta: null,
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     console.error(`[Supervisor] Failed to register session bootstrap for ${input.sessionId}:`, error);
     return null;
   });
@@ -564,13 +564,13 @@ async function loadOrCreateSessionHandle(input: {
 }
 
 async function main() {
-  console.log(`[Supervisor] Starting for Runtime: ${env.RUNTIME_ID}`);
+  console.log(`[Supervisor] Starting for Space: ${env.RUNTIME_ID}`);
   console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
-  console.log(`[Supervisor] Runtime version: ${env.RUNTIME_VERSION || "unknown"}`);
+  console.log(`[Supervisor] Agent version: ${env.RUNTIME_VERSION || "unknown"}`);
   console.log(`[Supervisor] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
-    runtimeId: env.RUNTIME_ID,
+    spaceId: env.RUNTIME_ID,
     runtimeVersion: env.RUNTIME_VERSION || null,
     publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
@@ -587,8 +587,8 @@ async function main() {
   const modelRegistry = ModelRegistry.create(authStorage);
   const tools = createCodingTools(env.WORKSPACE_DIR);
 
-  await setRuntimeStatus("running");
-  console.log("[Supervisor] Runtime is now running and listening for input.");
+  await reportSandboxStatus("ready");
+  console.log("[Supervisor] Space is now ready and listening for input.");
 
   await listenForInput((inputEntry, ack, reject) => {
     console.log("[Supervisor] Received input from Redis:", inputEntry);
@@ -688,7 +688,7 @@ async function main() {
         console.error("[Supervisor] Error processing input:", error);
         const errEvent: SessionStreamError = {
           type: "error",
-          runtimeId: env.RUNTIME_ID,
+          spaceId: env.RUNTIME_ID,
           sessionId: inputEntry.sessionId ?? null,
           error: String(error),
         };
@@ -701,12 +701,12 @@ async function main() {
 
 process.on("SIGTERM", () => {
   console.log("[Supervisor] SIGTERM received. Shutting down.");
-  void shutdown("hibernated", 0);
+  void shutdown("stopped", 0);
 });
 
 process.on("SIGINT", () => {
   console.log("[Supervisor] SIGINT received. Shutting down.");
-  void shutdown("hibernated", 0);
+  void shutdown("stopped", 0);
 });
 
 main().catch(async (err) => {

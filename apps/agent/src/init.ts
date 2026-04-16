@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { access, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { GLOBAL_CONFIG_REPO, env } from "./env.js";
-import { setRuntimeStatus } from "./redis.js";
+import { reportSandboxStatus } from "./redis.js";
 
 async function runGitCommand(args: string[], cwd?: string) {
   await new Promise<void>((resolve, reject) => {
@@ -66,9 +66,9 @@ async function copyConfigToHome(sourceDir: string, name: string) {
 
 export async function initializeContainer() {
   console.log(
-    `[Init] Starting container initialization for runtime: ${env.RUNTIME_ID}`,
+    `[Init] Starting container initialization for space: ${env.RUNTIME_ID}`,
   );
-  await setRuntimeStatus("starting");
+  await reportSandboxStatus("provisioning");
 
   try {
     await mkdir(env.WORKSPACE_DIR, { recursive: true });

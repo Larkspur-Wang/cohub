@@ -1,5 +1,5 @@
 import { db } from "./db/index.js";
-import { gatewayLogs, providerMessageRefs } from "./db/schema.js";
+import { gatewayLogs, providerMessageRefs } from "./db/schema-v2.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP } from "./redis.js";
 import type { GatewayLogEvent, GatewayOutboundCommand } from "@cohub/protocol";
 
@@ -100,15 +100,15 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
   if (event.direction !== "outbound" || !event.externalMessageId) return;
 
   const rawPayload = event.rawPayload as Partial<GatewayOutboundCommand>;
-  if (!rawPayload.runtimeId || !rawPayload.runtimeSessionId) return;
+  if (!rawPayload.spaceId || !rawPayload.spaceSessionId) return;
 
   await db
     .insert(providerMessageRefs)
     .values({
       provider: event.provider,
-      runtimeId: rawPayload.runtimeId,
-      runtimeSessionId: rawPayload.runtimeSessionId,
-      runtimeChannelId: event.channelId,
+      spaceId: rawPayload.spaceId,
+      spaceSessionId: rawPayload.spaceSessionId,
+      spaceChannelId: event.channelId,
       sessionMessageId: rawPayload.sessionMessageId ?? null,
       direction: "outbound",
       externalConversationId: event.externalChatId,
@@ -141,9 +141,9 @@ const persistLogEvent = async (event: GatewayLogEvent) => {
         providerMessageRefs.direction,
       ],
       set: {
-        runtimeId: rawPayload.runtimeId,
-        runtimeSessionId: rawPayload.runtimeSessionId,
-        runtimeChannelId: event.channelId,
+        spaceId: rawPayload.spaceId,
+        spaceSessionId: rawPayload.spaceSessionId,
+        spaceChannelId: event.channelId,
         sessionMessageId: rawPayload.sessionMessageId ?? null,
         meta: {
           commandId: rawPayload.commandId ?? event.correlationId ?? null,

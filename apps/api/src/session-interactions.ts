@@ -1,23 +1,23 @@
 import { randomUUID } from "node:crypto";
 import type { ContentBlock, GatewayInboundEvent } from "@cohub/protocol";
-import { enqueueRuntimePrompt, forkRuntimeSession, registerRuntimeSession } from "./runtime-sessions.js";
+import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import {
-  createRuntimeSessionBinding,
-  getBindingByRuntimeChannelAndKey,
-  getProviderMessageRef,
-  resolveForkSourceForInboundEvent,
-  touchRuntimeSessionBinding,
-  updateRuntimeSessionBindingMeta,
   buildDefaultBindingMeta,
   createProviderMessageRef,
+  createSpaceSessionBinding,
+  getBindingBySpaceChannelAndKey,
+  getProviderMessageRef,
+  resolveForkSourceForInboundEvent,
+  touchSpaceSessionBinding,
+  updateSpaceSessionBindingMeta,
 } from "./channels.js";
 import { buildSessionSourceChannel } from "@cohub/protocol";
-import { providerMessageRefs, runtimeChannels } from "./db/schema.js";
+import { spaceChannels } from "./db/schema-v2.js";
 import { db } from "./db/index.js";
 import { eq } from "drizzle-orm";
 
 export const executeSessionInteraction = async (input: {
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
   inputText: string;
   content: ContentBlock[];
@@ -26,7 +26,7 @@ export const executeSessionInteraction = async (input: {
   actorUserId?: string | null;
   inboundRef?: {
     provider: string;
-    runtimeChannelId: string;
+    spaceChannelId: string;
     externalConversationId: string;
     externalMessageId: string;
     externalAuthorId?: string | null;
@@ -34,17 +34,14 @@ export const executeSessionInteraction = async (input: {
     meta?: Record<string, unknown> | null;
   } | null;
 }) => {
-  // Generate UUID for user message — actual persistence happens on agent's message_end event
-  // to guarantee correct sequence ordering
   const userMessageId = randomUUID();
 
-  // Record inbound reference for provider routing (Discord reply/edit)
   if (input.inboundRef) {
     await createProviderMessageRef({
       provider: input.inboundRef.provider,
-      runtimeId: input.runtimeId,
-      runtimeSessionId: input.sessionId,
-      runtimeChannelId: input.inboundRef.runtimeChannelId,
+      spaceId: input.spaceId,
+      spaceSessionId: input.sessionId,
+      spaceChannelId: input.inboundRef.spaceChannelId,
       sessionMessageId: userMessageId,
       direction: "inbound",
       externalConversationId: input.inboundRef.externalConversationId,
@@ -60,8 +57,8 @@ export const executeSessionInteraction = async (input: {
     });
   }
 
-  await enqueueRuntimePrompt({
-    runtimeId: input.runtimeId,
+  await enqueueSpacePrompt({
+    spaceId: input.spaceId,
     sessionId: input.sessionId,
     userMessageId,
     content: input.content,
@@ -78,16 +75,8 @@ export const executeSessionInteraction = async (input: {
 };
 
 export const resolveSessionInteractionForInboundEvent = async (event: GatewayInboundEvent) => {
-  const [rc] = await db
-    .select()
-    .from(runtimeChannels)
-    .where(eq(runtimeChannels.id, event.channelId))
-    .limit(1);
-
-  if (!rc) {
-    console.warn(`[Channels] Received inbound event for unknown runtime-channel: ${event.channelId}`);
-    return null;
-  }
+  const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, event.channelId)).limit(1);
+  if (!spaceChannel) return null;
 
   const conversationId = event.conversation?.id?.trim() || event.externalChatId;
   const existingInboundRef = await getProviderMessageRef({
@@ -96,42 +85,30 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
     externalMessageId: event.externalMessageId,
     direction: "inbound",
   });
-
-  if (existingInboundRef) {
-    console.log(
-      `[Channels] Duplicate inbound ignored provider=${event.provider} conversation=${conversationId} message=${event.externalMessageId}`,
-    );
-    return null;
-  }
+  if (existingInboundRef) return null;
 
   const bindingKey = event.bindingKey?.trim() || `${event.provider}:conversation:${conversationId}`;
+  let binding = await getBindingBySpaceChannelAndKey({ spaceChannelId: spaceChannel.id, bindingKey });
 
-  let binding = await getBindingByRuntimeChannelAndKey({
-    runtimeChannelId: rc.id,
-    bindingKey,
-  });
-
-  if (!binding?.runtimeSessionId) {
+  if (!binding?.spaceSessionId) {
     const forkSource = await resolveForkSourceForInboundEvent({
-      runtimeId: rc.runtimeId,
-      runtimeChannelId: rc.id,
+      spaceChannelId: spaceChannel.id,
       provider: event.provider,
-      conversationId: event.conversation?.id?.trim() || event.externalChatId,
+      conversationId,
       parentConversationId: event.conversation?.parentId ?? null,
       parentMessageId: event.message?.parentMessageId ?? null,
     });
 
     const sessionSource = buildSessionSourceChannel(event);
-
     const session = forkSource
-      ? await forkRuntimeSession({
-          runtimeId: rc.runtimeId,
+      ? await forkSpaceSession({
+          spaceId: spaceChannel.spaceId,
           parentSessionId: forkSource.parentSessionId,
           fromMessageId: forkSource.fromMessageId,
           newSessionId: randomUUID(),
         })
-      : await registerRuntimeSession({
-          runtimeId: rc.runtimeId,
+      : await registerSpaceSession({
+          spaceId: spaceChannel.spaceId,
           sessionId: randomUUID(),
           source: sessionSource,
           protocol: "pi",
@@ -145,18 +122,17 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
           },
         });
 
-    const bindingMeta = buildDefaultBindingMeta(event);
-    binding = await createRuntimeSessionBinding({
-      runtimeId: rc.runtimeId,
-      runtimeSessionId: session.id,
-      runtimeChannelId: rc.id,
+    binding = await createSpaceSessionBinding({
+      spaceId: spaceChannel.spaceId,
+      spaceSessionId: session.id,
+      spaceChannelId: spaceChannel.id,
       provider: event.provider,
       bindingKey,
       externalChatId: event.externalChatId,
       meta: {
-        ...bindingMeta,
+        ...buildDefaultBindingMeta(event),
         lifecycle: {
-          ...(bindingMeta.lifecycle as Record<string, unknown>),
+          ...(buildDefaultBindingMeta(event).lifecycle as Record<string, unknown>),
           initializedAt: new Date(event.timestamp).toISOString(),
           initializedFromEventId: event.eventId,
           lastMaterializedBy: event.eventType === "conversation_create" ? "conversation_create" : "message_create",
@@ -165,29 +141,26 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
     });
   } else {
     const existingLifecycle = (binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null;
-    const lifecycleUpdate = {
-      lifecycle: {
-        sourceEventType: event.eventType ?? "message_create",
-        precreated: existingLifecycle?.precreated === true || event.eventType === "conversation_create",
-        createdVia:
-          (typeof existingLifecycle?.createdVia === "string" ? existingLifecycle.createdVia : undefined) ??
-          (event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
-        lastEventAt: new Date(event.timestamp).toISOString(),
-        lastEventId: event.eventId,
-        lastMaterializedBy:
-          event.eventType === "conversation_create"
-            ? "conversation_create"
-            : (typeof existingLifecycle?.lastMaterializedBy === "string" ? existingLifecycle.lastMaterializedBy : "message_create"),
+    await updateSpaceSessionBindingMeta({
+      bindingId: binding.id,
+      meta: {
+        lifecycle: {
+          sourceEventType: event.eventType ?? "message_create",
+          precreated: existingLifecycle?.precreated === true || event.eventType === "conversation_create",
+          createdVia: (typeof existingLifecycle?.createdVia === "string" ? existingLifecycle.createdVia : undefined) ?? (event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
+          lastEventAt: new Date(event.timestamp).toISOString(),
+          lastEventId: event.eventId,
+          lastMaterializedBy: event.eventType === "conversation_create" ? "conversation_create" : (typeof existingLifecycle?.lastMaterializedBy === "string" ? existingLifecycle.lastMaterializedBy : "message_create"),
+        },
       },
-    };
-    await updateRuntimeSessionBindingMeta({ bindingId: binding.id, meta: lifecycleUpdate }).catch(console.error);
-    await touchRuntimeSessionBinding(binding.id);
+    }).catch(console.error);
+    await touchSpaceSessionBinding(binding.id);
   }
 
   return {
-    runtimeId: rc.runtimeId,
-    runtimeChannelId: rc.id,
-    sessionId: binding.runtimeSessionId,
+    spaceId: spaceChannel.spaceId,
+    spaceChannelId: spaceChannel.id,
+    sessionId: binding.spaceSessionId,
     binding,
     conversationId,
     bindingKey,

@@ -1,9 +1,6 @@
 import type { ContentBlock, PersistMessageInput, RegisterSessionInput } from "@cohub/protocol";
 import { config } from "./config.js";
 
-/**
- * Custom error that carries HTTP status code for callers to inspect.
- */
 export class InternalApiError extends Error {
   constructor(
     message: string,
@@ -34,17 +31,13 @@ const internalFetch = async (path: string, options: RequestInit = {}) => {
   return res.json();
 };
 
-/**
- * Send a message to a session via the internal API.
- * Reuses the same logic as user-facing message sending (enqueue + dispatch).
- */
 export const sendSessionMessage = async (
-  runtimeId: string,
+  spaceId: string,
   sessionId: string,
   message: PersistMessageInput["message"],
 ) => {
   return internalFetch(
-    `/internal/runtimes/${runtimeId}/sessions/${sessionId}/messages`,
+    `/internal/spaces/${spaceId}/sessions/${sessionId}/messages`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -55,12 +48,8 @@ export const sendSessionMessage = async (
   );
 };
 
-/**
- * Register a new session for a cronjob execution.
- * Sets source to identify the origin for sidebar display.
- */
 export const registerCronjobSession = async (
-  runtimeId: string,
+  spaceId: string,
   options: {
     source: string;
     title?: string | null;
@@ -68,7 +57,7 @@ export const registerCronjobSession = async (
 ) => {
   const sessionId = crypto.randomUUID();
   const input: RegisterSessionInput = {
-    runtimeId,
+    spaceId,
     sessionId,
     title: options.title ?? null,
     source: options.source,
@@ -78,7 +67,7 @@ export const registerCronjobSession = async (
     meta: { createdBy: "cronjob" },
   };
   const result = await internalFetch(
-    `/internal/runtimes/${runtimeId}/sessions`,
+    `/internal/spaces/${spaceId}/sessions`,
     {
       method: "POST",
       body: JSON.stringify(input),
@@ -87,12 +76,8 @@ export const registerCronjobSession = async (
   return result.session;
 };
 
-/**
- * Enqueue a user prompt into a session's input queue.
- * Reuses the same pipeline as frontend message sending — full multimodal support.
- */
 export const enqueuePrompt = async (
-  runtimeId: string,
+  spaceId: string,
   sessionId: string,
   options: {
     content: ContentBlock[];
@@ -101,7 +86,7 @@ export const enqueuePrompt = async (
   },
 ) => {
   return internalFetch(
-    `/internal/runtimes/${runtimeId}/sessions/${sessionId}/prompt`,
+    `/internal/spaces/${spaceId}/sessions/${sessionId}/prompt`,
     {
       method: "POST",
       body: JSON.stringify({

@@ -6,11 +6,11 @@ import { InternalApiError, registerCronjobSession, enqueuePrompt } from "../api-
 /**
  * Task: send_message
  *
- * Sends a user prompt to a runtime session, triggering the agent to process it.
- * Reuses the same pipeline as frontend message sending (enqueueRuntimePrompt).
+ * Sends a user prompt to a space session, triggering the agent to process it.
+ * Reuses the same pipeline as frontend message sending.
  *
  * Payload:
- *   runtimeId        — target runtime (required)
+ *   spaceId          — target space (required)
  *   userId           — owner user (required)
  *   cronJobId        — optional, set when triggered by a cronjob
  *   data.sessionId   — optional, existing session ID. If absent or not found, creates a new one
@@ -21,7 +21,7 @@ import { InternalApiError, registerCronjobSession, enqueuePrompt } from "../api-
  */
 const sendMessageHandler = async (job: Job) => {
   const payload = job.data as TaskPayload;
-  const runtimeId = payload.runtimeId;
+  const spaceId = payload.spaceId;
   const { content, sessionId, title, model, provider } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
@@ -30,8 +30,8 @@ const sendMessageHandler = async (job: Job) => {
     provider?: string;
   };
 
-  if (!runtimeId) {
-    throw new Error("runtimeId is required for send_message task");
+  if (!spaceId) {
+    throw new Error("spaceId is required for send_message task");
   }
 
   if (!content || content.length === 0) {
@@ -40,23 +40,20 @@ const sendMessageHandler = async (job: Job) => {
 
   let targetSessionId = sessionId?.trim() || null;
 
-  // If no sessionId provided, create a new session
   if (!targetSessionId) {
     const source = payload.cronJobId
       ? `cronjob:${payload.cronJobId}`
       : "cronjob:manual";
 
-    const session = await registerCronjobSession(runtimeId, {
+    const session = await registerCronjobSession(spaceId, {
       source,
       title: title ?? null,
     });
 
     targetSessionId = session.id;
   } else {
-    // sessionId provided — try to prompt it.
-    // If the session doesn't exist (404), fall back to creating a new session.
     try {
-      await enqueuePrompt(runtimeId, targetSessionId, {
+      await enqueuePrompt(spaceId, targetSessionId, {
         content,
         meta: {
           source: "cronjob",
@@ -68,17 +65,16 @@ const sendMessageHandler = async (job: Job) => {
 
       return {
         sessionId: targetSessionId,
-        runtimeId,
+        spaceId,
         messageSent: true,
       };
     } catch (error) {
       if (error instanceof InternalApiError && error.statusCode === 404) {
-        // Session not found — create a new one as fallback
         const source = payload.cronJobId
           ? `cronjob:${payload.cronJobId}`
           : "cronjob:manual";
 
-        const session = await registerCronjobSession(runtimeId, {
+        const session = await registerCronjobSession(spaceId, {
           source,
           title: title ?? null,
         });
@@ -90,11 +86,11 @@ const sendMessageHandler = async (job: Job) => {
     }
   }
 
-  // Enqueue the prompt (targetSessionId is guaranteed to be a string here)
   if (!targetSessionId) {
     throw new Error("sessionId is unexpectedly null after session creation");
   }
-  await enqueuePrompt(runtimeId, targetSessionId, {
+
+  await enqueuePrompt(spaceId, targetSessionId, {
     content,
     meta: {
       source: "cronjob",
@@ -106,7 +102,7 @@ const sendMessageHandler = async (job: Job) => {
 
   return {
     sessionId: targetSessionId,
-    runtimeId,
+    spaceId,
     messageSent: true,
   };
 };

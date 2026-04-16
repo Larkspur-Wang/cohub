@@ -1,13 +1,5 @@
 export type ChannelProvider = "web" | "discord" | "feishu" | "telegram" | "slack";
 
-/**
- * 根据入站事件生成来源渠道名称
- * - discord:dm:{sender_name} - 私信
- * - discord:{guild_name}:#{channel_name} - 频道
- * - discord:{guild_name}:#{parent_channel}>{thread_name} - 线程
- * - web - Web 端
- * - {provider}:{chat_id} - 其他 fallback
- */
 export function buildSessionSourceChannel(event: GatewayInboundEvent): string {
   const provider = event.provider;
   const meta = (event.conversation?.meta ?? event.meta ?? {}) as Record<string, unknown>;
@@ -126,8 +118,8 @@ export interface GatewayOutboundCommand {
   content: import("./session-ingestion.js").ContentBlock[];
 
   replyToExternalMessageId?: string;
-  runtimeId?: string;
-  runtimeSessionId?: string;
+  spaceId?: string;
+  spaceSessionId?: string;
   sessionMessageId?: string;
   meta?: Record<string, unknown> | null;
 }
@@ -158,7 +150,5 @@ export interface GatewayLogEvent {
 
   status: GatewayLogStatus;
   errorMessage?: string;
-
-  /** 关联的事件/命令 ID，便于追踪 */
   correlationId?: string;
 }

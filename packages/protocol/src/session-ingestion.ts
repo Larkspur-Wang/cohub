@@ -3,13 +3,8 @@
 export type ContentBlockMeta = Record<string, unknown>;
 
 export type ContentBlock =
-  // ─── 文本 ───
   | { type: "text"; text: string; _meta?: ContentBlockMeta }
-
-  // ─── 思考 ───
   | { type: "thinking"; thinking: string; signature?: string; _meta?: ContentBlockMeta }
-
-  // ─── 图片 ───
   | {
       type: "image";
       source:
@@ -17,8 +12,6 @@ export type ContentBlock =
         | { type: "base64"; media_type: string; data: string };
       _meta?: ContentBlockMeta;
     }
-
-  // ─── 工具调用（对标 Anthropic tool_use） ───
   | {
       type: "tool_use";
       id: string;
@@ -26,8 +19,6 @@ export type ContentBlock =
       input: Record<string, unknown>;
       _meta?: ContentBlockMeta;
     }
-
-  // ─── 工具结果（对标 Anthropic tool_result） ───
   | {
       type: "tool_result";
       tool_use_id: string;
@@ -35,8 +26,6 @@ export type ContentBlock =
       is_error?: boolean;
       _meta?: ContentBlockMeta;
     }
-
-  // ─── 系统注解（cohub 扩展） ───
   | {
       type: "system_note";
       note_type: "session_created" | "forked" | "compacted" | "info";
@@ -44,14 +33,10 @@ export type ContentBlock =
       _meta?: ContentBlockMeta;
     };
 
-// ─── Protocol types ───
-
-export type RuntimeProtocol = "pi" | "acp" | "internal";
-
-// ─── Session prompt input (API → Agent queue) ───
+export type SessionProtocol = "pi" | "acp" | "internal";
 
 export type SessionPromptInput = {
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
   userMessageId?: string | null;
   message: {
@@ -65,23 +50,19 @@ export type SessionPromptInput = {
   } | null;
 };
 
-// ─── Session registration ───
-
 export type RegisterSessionInput = {
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
   title?: string | null;
   source?: string | null;
-  protocol?: RuntimeProtocol | null;
+  protocol?: SessionProtocol | null;
   externalSessionId?: string | null;
   cwd?: string | null;
   meta?: Record<string, unknown> | null;
 };
 
-// ─── Message persistence (Agent → API) ───
-
 export type PersistMessageInput = {
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
   previousMessageId?: string | null;
   anchorUserMessageId?: string | null;
@@ -105,23 +86,18 @@ export type PersistMessageInput = {
   };
 };
 
-// ─── Session info update ───
-
 export type UpdateSessionInfoInput = {
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
   title?: string | null;
   updatedAt?: string | null;
   meta?: Record<string, unknown> | null;
 };
 
-// ─── Session stream events (Agent → Redis Stream → API SSE → Web) ───
-
 export type SessionStreamEvent = {
   type: "stream_update";
-  runtimeId: string;
+  spaceId: string;
   sessionId: string;
-  /** 当前助手消息的完整 content blocks（增量快照） */
   content: ContentBlock[];
   sourceMessageId: string | null;
   timestamp: number;
@@ -131,18 +107,16 @@ export type SessionStreamEvent = {
 
 export type SessionStreamError = {
   type: "error";
-  runtimeId: string;
+  spaceId: string;
   sessionId: string | null;
   error: string;
 };
 
-// ─── Record types (read-only DB projections) ───
-
 export type SessionBindingRecord = {
   id: string;
-  runtimeId: string;
-  runtimeSessionId: string;
-  runtimeChannelId: string;
+  spaceId: string;
+  spaceSessionId: string;
+  spaceChannelId: string;
   provider: string;
   bindingKey: string;
   externalChatId: string;
@@ -155,7 +129,7 @@ export type SessionBindingRecord = {
 
 export type SessionRecord = {
   id: string;
-  runtimeId: string;
+  spaceId: string;
   title: string | null;
   source: string | null;
   status: string | null;
@@ -190,18 +164,4 @@ export type MessageRecord = {
   costTotal: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
-};
-
-export type RuntimeRecord = {
-  id: string;
-  userUuid: string;
-  workspaceId: string | null;
-  workspaceCommitHash: string | null;
-  agentId: string | null;
-  agentCommitHash: string | null;
-  title: string | null;
-  status: string | null;
-  meta: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
 };

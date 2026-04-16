@@ -1,12 +1,12 @@
 import { Redis } from "ioredis";
 import { z } from "zod";
-import type { ContentBlock, RuntimeStatus } from "@cohub/protocol";
+import type { ContentBlock, SpaceSandboxStatus } from "@cohub/protocol";
 import { env } from "./env.js";
 
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const runtimePrefix = `runtimes:${env.RUNTIME_ID}`;
+const runtimePrefix = `spaces:${env.RUNTIME_ID}`;
 const LIST_KEY_IN = `${runtimePrefix}:input_queue`;
 const PROCESSING_KEY = `${runtimePrefix}:processing_queue`;
 const DEAD_LETTER_KEY = `${runtimePrefix}:dead_letter_queue`;
@@ -15,7 +15,7 @@ const META_KEY = `${runtimePrefix}:meta`;
 
 const PromptInputSchema = z.object({
   action: z.literal("prompt"),
-  runtimeId: z.string().uuid(),
+  spaceId: z.string().uuid(),
   sessionId: z.string().uuid(),
   userMessageId: z.string().uuid().nullable().optional(),
   content: z.array(z.unknown()).min(1),
@@ -32,7 +32,7 @@ const PromptInputSchema = z.object({
 
 const AbortInputSchema = z.object({
   action: z.literal("abort"),
-  runtimeId: z.string().uuid(),
+  spaceId: z.string().uuid(),
   sessionId: z.string().uuid().nullable().optional(),
 });
 
@@ -64,19 +64,19 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
   return results;
 }
 
-export async function setRuntimeStatus(
-  status: RuntimeStatus,
+export async function reportSandboxStatus(
+  status: SpaceSandboxStatus,
 ) {
   const internalApiBaseUrl = env.ENV === "prod"
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
     : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
-  const url = `${internalApiBaseUrl}/internal/runtimes/${env.RUNTIME_ID}/status`;
+  const url = `${internalApiBaseUrl}/internal/spaces/${env.RUNTIME_ID}/status`;
   await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status }),
   }).catch((err) => {
-    console.error("[Redis] Failed to report runtime status via internal API:", err);
+    console.error("[Redis] Failed to report sandbox status via internal API:", err);
   });
 }
 

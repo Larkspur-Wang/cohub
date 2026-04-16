@@ -1,5 +1,5 @@
 import {
-  pgTable,
+  pgSchema,
   uuid,
   varchar,
   text,
@@ -13,7 +13,9 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ContentBlock, TaskPayload } from "@cohub/protocol";
 
-export const userGitAccounts = pgTable(
+export const v2 = pgSchema("v2");
+
+export const userGitAccounts = v2.table(
   "user_git_accounts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -37,67 +39,19 @@ export const userGitAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    userUuidProviderUniqueIdx: uniqueIndex("uq_user_git_accounts_user_provider").on(
+    userUuidProviderUniqueIdx: uniqueIndex("v2_uq_user_git_accounts_user_provider").on(
       table.userUuid,
       table.provider,
     ),
-    giteaUsernameUniqueIdx: uniqueIndex("uq_user_git_accounts_gitea_username").on(
+    giteaUsernameUniqueIdx: uniqueIndex("v2_uq_user_git_accounts_gitea_username").on(
       table.giteaUsername,
     ),
-    userUuidIdx: index("idx_user_git_accounts_user_uuid").on(table.userUuid),
-    providerIdx: index("idx_user_git_accounts_provider").on(table.provider),
+    userUuidIdx: index("v2_idx_user_git_accounts_user_uuid").on(table.userUuid),
+    providerIdx: index("v2_idx_user_git_accounts_provider").on(table.provider),
   }),
 );
 
-export const workspaces = pgTable(
-  "workspaces",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
-    name: varchar("name", { length: 255 }).notNull(),
-    description: text("description"),
-    giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
-    defaultBranch: varchar("default_branch", { length: 50 }).default("main"),
-    visibility: varchar("visibility", { length: 20 }).default("private"),
-    parentId: uuid("parent_id"),
-    forkCount: integer("fork_count").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => ({
-    userUuidIdx: index("idx_workspaces_user_uuid").on(table.userUuid),
-    parentIdIdx: index("idx_workspaces_parent_id").on(table.parentId),
-    visibilityIdx: index("idx_workspaces_visibility").on(table.visibility),
-    userWorkspaceNameUniqueIdx: uniqueIndex("uq_workspaces_user_name").on(
-      table.userUuid,
-      table.name,
-    ),
-    userWorkspaceRepoNameUniqueIdx: uniqueIndex("uq_workspaces_user_repo_name").on(
-      table.userUuid,
-      table.giteaRepoName,
-    ),
-  }),
-);
-
-export const agents = pgTable(
-  "agents",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
-    name: varchar("name", { length: 255 }).notNull(),
-    description: text("description"),
-    giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
-    defaultBranch: varchar("default_branch", { length: 50 }).default("main"),
-    visibility: varchar("visibility", { length: 20 }).default("public"),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => ({
-    userUuidIdx: index("idx_agents_user_uuid").on(table.userUuid),
-  }),
-);
-
-export const userChannels = pgTable(
+export const userChannels = v2.table(
   "user_channels",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -110,53 +64,119 @@ export const userChannels = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    userUuidIdx: index("idx_user_channels_user_uuid").on(table.userUuid),
-    providerIdx: index("idx_user_channels_provider").on(table.provider),
+    userUuidIdx: index("v2_idx_user_channels_user_uuid").on(table.userUuid),
+    providerIdx: index("v2_idx_user_channels_provider").on(table.provider),
   }),
 );
 
-export const runtimes = pgTable(
-  "runtimes",
+export const spaces = v2.table(
+  "spaces",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userUuid: varchar("user_uuid", { length: 255 }).notNull(),
-    workspaceId: uuid("workspace_id"),
-    workspaceCommitHash: varchar("workspace_commit_hash", { length: 40 }),
-    agentId: uuid("agent_id"),
-    agentCommitHash: varchar("agent_commit_hash", { length: 40 }),
-    title: varchar("title", { length: 255 }),
-    status: varchar("status", { length: 50 }).default("hibernated"),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
+    baseCheckpointId: uuid("base_checkpoint_id"),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    userUuidIdx: index("idx_runtimes_user_uuid").on(table.userUuid),
-    workspaceIdx: index("idx_runtimes_workspace_id").on(table.workspaceId),
-    agentIdx: index("idx_runtimes_agent_id").on(table.agentId),
+    userUuidIdx: index("v2_idx_spaces_user_uuid").on(table.userUuid),
+    baseCheckpointIdx: index("v2_idx_spaces_base_checkpoint_id").on(table.baseCheckpointId),
+    userSpaceNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_name").on(table.userUuid, table.name),
+    userSpaceRepoNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_repo_name").on(
+      table.userUuid,
+      table.giteaRepoName,
+    ),
   }),
 );
 
-export const runtimeChannels = pgTable(
-  "runtime_channels",
+export const spaceSandboxes = v2.table(
+  "space_sandboxes",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    runtimeId: uuid("runtime_id").notNull(),
+    spaceId: uuid("space_id").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    podName: varchar("pod_name", { length: 255 }),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    spaceIdx: uniqueIndex("v2_uq_space_sandboxes_space_id").on(table.spaceId),
+    statusIdx: index("v2_idx_space_sandboxes_status").on(table.status),
+    heartbeatIdx: index("v2_idx_space_sandboxes_last_heartbeat_at").on(table.lastHeartbeatAt),
+  }),
+);
+
+export const checkpoints = v2.table(
+  "checkpoints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    commitHash: varchar("commit_hash", { length: 40 }).notNull(),
+    description: text("description").notNull(),
+    parentCheckpointId: uuid("parent_checkpoint_id"),
+    forkCount: integer("fork_count").notNull().default(0),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    spaceIdx: index("v2_idx_checkpoints_space_id").on(table.spaceId),
+    parentIdx: index("v2_idx_checkpoints_parent_id").on(table.parentCheckpointId),
+    spaceCommitUniqueIdx: uniqueIndex("v2_uq_checkpoints_space_commit").on(
+      table.spaceId,
+      table.commitHash,
+    ),
+  }),
+);
+
+export const proposals = v2.table(
+  "proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    sourceCheckpointId: uuid("source_checkpoint_id").notNull(),
+    targetSpaceId: uuid("target_space_id").notNull(),
+    sourceBranchName: varchar("source_branch_name", { length: 255 }),
+    targetBranchName: varchar("target_branch_name", { length: 255 }),
+    externalPrId: varchar("external_pr_id", { length: 255 }),
+    status: varchar("status", { length: 20 }).default("open"),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    targetSpaceIdx: index("v2_idx_proposals_target_space_id").on(table.targetSpaceId),
+    sourceCheckpointIdx: index("v2_idx_proposals_source_checkpoint_id").on(table.sourceCheckpointId),
+    statusIdx: index("v2_idx_proposals_status").on(table.status),
+  }),
+);
+
+export const spaceChannels = v2.table(
+  "space_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
     channelId: uuid("channel_id").notNull(),
     config: jsonb("config"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    runtimeIdx: index("idx_runtime_channels_runtime").on(table.runtimeId),
-    channelIdx: uniqueIndex("uq_runtime_channels_channel").on(table.channelId),
+    spaceIdx: index("v2_idx_space_channels_space").on(table.spaceId),
+    channelIdx: uniqueIndex("v2_uq_space_channels_channel").on(table.channelId),
   }),
 );
 
-export const runtimeSessions = pgTable(
-  "runtime_sessions",
+export const spaceSessions = v2.table(
+  "space_sessions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    runtimeId: uuid("runtime_id").notNull(),
+    spaceId: uuid("space_id").notNull(),
     title: varchar("title", { length: 255 }),
     source: varchar("source", { length: 255 }),
     status: varchar("status", { length: 50 }).default("active"),
@@ -175,22 +195,24 @@ export const runtimeSessions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    runtimeIdx: index("idx_runtime_sessions_runtime_id").on(table.runtimeId),
-    parentIdx: index("idx_runtime_sessions_parent_session_id").on(table.parentSessionId),
-    rootIdx: index("idx_runtime_sessions_lineage_root_session_id").on(table.lineageRootSessionId),
-    forkedFromMessageIdx: index("idx_runtime_sessions_forked_from_message_id").on(table.forkedFromMessageId),
-    lastMessageIdx: index("idx_runtime_sessions_last_message_id").on(table.lastMessageId),
-    lastMessageAtIdx: index("idx_runtime_sessions_last_message_at").on(table.lastMessageAt),
+    spaceIdx: index("v2_idx_space_sessions_space_id").on(table.spaceId),
+    parentIdx: index("v2_idx_space_sessions_parent_session_id").on(table.parentSessionId),
+    rootIdx: index("v2_idx_space_sessions_lineage_root_session_id").on(table.lineageRootSessionId),
+    forkedFromMessageIdx: index("v2_idx_space_sessions_forked_from_message_id").on(
+      table.forkedFromMessageId,
+    ),
+    lastMessageIdx: index("v2_idx_space_sessions_last_message_id").on(table.lastMessageId),
+    lastMessageAtIdx: index("v2_idx_space_sessions_last_message_at").on(table.lastMessageAt),
   }),
 );
 
-export const runtimeSessionBindings = pgTable(
-  "runtime_session_bindings",
+export const spaceSessionBindings = v2.table(
+  "space_session_bindings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    runtimeId: uuid("runtime_id").notNull(),
-    runtimeSessionId: uuid("runtime_session_id").notNull(),
-    runtimeChannelId: uuid("runtime_channel_id").notNull(),
+    spaceId: uuid("space_id").notNull(),
+    spaceSessionId: uuid("space_session_id").notNull(),
+    spaceChannelId: uuid("space_channel_id").notNull(),
     provider: varchar("provider", { length: 50 }).notNull(),
     bindingKey: varchar("binding_key", { length: 255 }).notNull(),
     externalChatId: varchar("external_chat_id", { length: 255 }).notNull(),
@@ -201,26 +223,26 @@ export const runtimeSessionBindings = pgTable(
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
   },
   (table) => ({
-    runtimeIdx: index("idx_runtime_session_bindings_runtime").on(table.runtimeId),
-    sessionIdx: index("idx_runtime_session_bindings_session").on(table.runtimeSessionId),
-    channelIdx: index("idx_runtime_session_bindings_channel").on(table.runtimeChannelId),
-    bindingKeyIdx: index("idx_runtime_session_bindings_binding_key").on(table.bindingKey),
-    externalChatIdx: index("idx_runtime_session_bindings_external_chat").on(table.externalChatId),
-    uniqueChannelBinding: uniqueIndex("uq_runtime_session_bindings_channel_binding").on(
-      table.runtimeChannelId,
+    spaceIdx: index("v2_idx_space_session_bindings_space").on(table.spaceId),
+    sessionIdx: index("v2_idx_space_session_bindings_session").on(table.spaceSessionId),
+    channelIdx: index("v2_idx_space_session_bindings_channel").on(table.spaceChannelId),
+    bindingKeyIdx: index("v2_idx_space_session_bindings_binding_key").on(table.bindingKey),
+    externalChatIdx: index("v2_idx_space_session_bindings_external_chat").on(table.externalChatId),
+    uniqueChannelBinding: uniqueIndex("v2_uq_space_session_bindings_channel_binding").on(
+      table.spaceChannelId,
       table.bindingKey,
     ),
   }),
 );
 
-export const providerMessageRefs = pgTable(
+export const providerMessageRefs = v2.table(
   "provider_message_refs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     provider: varchar("provider", { length: 50 }).notNull(),
-    runtimeId: uuid("runtime_id").notNull(),
-    runtimeSessionId: uuid("runtime_session_id").notNull(),
-    runtimeChannelId: uuid("runtime_channel_id"),
+    spaceId: uuid("space_id").notNull(),
+    spaceSessionId: uuid("space_session_id").notNull(),
+    spaceChannelId: uuid("space_channel_id"),
     sessionMessageId: uuid("session_message_id"),
     direction: varchar("direction", { length: 20 }).notNull(),
     externalConversationId: varchar("external_conversation_id", { length: 255 }).notNull(),
@@ -234,32 +256,30 @@ export const providerMessageRefs = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    providerConversationIdx: index("idx_provider_message_refs_provider_conversation").on(
+    providerConversationIdx: index("v2_idx_provider_message_refs_provider_conversation").on(
       table.provider,
       table.externalConversationId,
     ),
-    providerMessageIdx: uniqueIndex("uq_provider_message_refs_provider_message").on(
+    providerMessageIdx: uniqueIndex("v2_uq_provider_message_refs_provider_message").on(
       table.provider,
       table.externalConversationId,
       table.externalMessageId,
       table.direction,
     ),
-    runtimeSessionIdx: index("idx_provider_message_refs_runtime_session").on(
-      table.runtimeSessionId,
-    ),
-    sessionMessageIdx: index("idx_provider_message_refs_session_message").on(
+    spaceSessionIdx: index("v2_idx_provider_message_refs_space_session").on(table.spaceSessionId),
+    sessionMessageIdx: index("v2_idx_provider_message_refs_session_message").on(
       table.sessionMessageId,
     ),
-    parentMessageIdx: index("idx_provider_message_refs_parent_message").on(
+    parentMessageIdx: index("v2_idx_provider_message_refs_parent_message").on(
       table.provider,
       table.parentExternalConversationId,
       table.parentExternalMessageId,
     ),
-    runtimeChannelIdx: index("idx_provider_message_refs_runtime_channel").on(table.runtimeChannelId),
+    spaceChannelIdx: index("v2_idx_provider_message_refs_space_channel").on(table.spaceChannelId),
   }),
 );
 
-export const sessionMessages = pgTable(
+export const sessionMessages = v2.table(
   "session_messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -280,13 +300,19 @@ export const sessionMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    sessionIdx: index("idx_session_messages_session_id").on(table.sessionId),
-    sessionSequenceUniqueIdx: uniqueIndex("uq_session_messages_session_sequence").on(table.sessionId, table.sequence),
-    idempotencyKeyUniqueIdx: uniqueIndex("uq_session_messages_session_id_idempotency_key").on(table.sessionId, table.idempotencyKey),
+    sessionIdx: index("v2_idx_session_messages_session_id").on(table.sessionId),
+    sessionSequenceUniqueIdx: uniqueIndex("v2_uq_session_messages_session_sequence").on(
+      table.sessionId,
+      table.sequence,
+    ),
+    idempotencyKeyUniqueIdx: uniqueIndex("v2_uq_session_messages_session_id_idempotency_key").on(
+      table.sessionId,
+      table.idempotencyKey,
+    ),
   }),
 );
 
-export const gatewayLogs = pgTable(
+export const gatewayLogs = v2.table(
   "gateway_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -301,25 +327,25 @@ export const gatewayLogs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    channelIdx: index("idx_gateway_logs_channel").on(table.channelId),
-    directionIdx: index("idx_gateway_logs_direction").on(table.direction),
-    createdIdx: index("idx_gateway_logs_created").on(table.createdAt),
+    channelIdx: index("v2_idx_gateway_logs_channel").on(table.channelId),
+    directionIdx: index("v2_idx_gateway_logs_direction").on(table.direction),
+    createdIdx: index("v2_idx_gateway_logs_created").on(table.createdAt),
   }),
 );
 
-export const resourcePermissions = pgTable(
+export const resourcePermissions = v2.table(
   "resource_permissions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     resourceType: varchar("resource_type", { length: 20 }).notNull(),
     resourceId: uuid("resource_id").notNull(),
-    granteeUuid: varchar("grantee_uuid", { length: 255 }),  // NULL = public permission level
-    level: varchar("level", { length: 20 }).notNull().default("read"),  // ResourcePermissionLevel from @cohub/protocol
+    granteeUuid: varchar("grantee_uuid", { length: 255 }),
+    level: varchar("level", { length: 20 }).notNull().default("read"),
     createdBy: varchar("created_by", { length: 255 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    resourceGrantUniqueIdx: uniqueIndex("uq_resource_permissions_resource_grantee").on(
+    resourceGrantUniqueIdx: uniqueIndex("v2_uq_resource_permissions_resource_grantee").on(
       table.resourceType,
       table.resourceId,
       table.granteeUuid,
@@ -327,9 +353,7 @@ export const resourcePermissions = pgTable(
   }),
 );
 
-// ─── Task System ───
-
-export const cronJobs = pgTable(
+export const cronJobs = v2.table(
   "cron_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -340,8 +364,7 @@ export const cronJobs = pgTable(
     cronExpression: varchar("cron_expression", { length: 100 }).notNull(),
     timezone: varchar("timezone", { length: 50 }).notNull().default("Asia/Shanghai"),
     bullJobKey: varchar("bull_job_key", { length: 500 }).notNull(),
-    workspaceId: uuid("workspace_id"),
-    runtimeId: uuid("runtime_id"),
+    spaceId: uuid("space_id"),
     sessionId: uuid("session_id"),
     enabled: boolean("enabled").notNull().default(true),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -349,14 +372,14 @@ export const cronJobs = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    userIdx: index("idx_cron_jobs_user_uuid").on(table.userUuid),
-    runtimeIdx: index("idx_cron_jobs_runtime_id").on(table.runtimeId),
-    enabledIdx: index("idx_cron_jobs_enabled").on(table.enabled),
-    createdAtIdx: index("idx_cron_jobs_created_at").on(table.createdAt),
+    userIdx: index("v2_idx_cron_jobs_user_uuid").on(table.userUuid),
+    spaceIdx: index("v2_idx_cron_jobs_space_id").on(table.spaceId),
+    enabledIdx: index("v2_idx_cron_jobs_enabled").on(table.enabled),
+    createdAtIdx: index("v2_idx_cron_jobs_created_at").on(table.createdAt),
   }),
 );
 
-export const taskRuns = pgTable(
+export const taskRuns = v2.table(
   "task_runs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -368,8 +391,7 @@ export const taskRuns = pgTable(
     result: jsonb("result"),
     errorMessage: text("error_message"),
     attemptCount: integer("attempt_count").notNull().default(0),
-    workspaceId: uuid("workspace_id"),
-    runtimeId: uuid("runtime_id"),
+    spaceId: uuid("space_id"),
     sessionId: uuid("session_id"),
     userUuid: varchar("user_uuid", { length: 255 }),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
@@ -379,14 +401,13 @@ export const taskRuns = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    jobIdUniqueIdx: uniqueIndex("uq_task_runs_job_id").on(table.jobId),
-    cronJobIdx: index("idx_task_runs_cron_job_id").on(table.cronJobId),
-    workspaceIdx: index("idx_task_runs_workspace_id").on(table.workspaceId),
-    runtimeIdx: index("idx_task_runs_runtime_id").on(table.runtimeId),
-    sessionIdx: index("idx_task_runs_session_id").on(table.sessionId),
-    userIdx: index("idx_task_runs_user_uuid").on(table.userUuid),
-    statusIdx: index("idx_task_runs_status").on(table.status),
-    createdAtIdx: index("idx_task_runs_created_at").on(table.createdAt),
-    scheduledAtIdx: index("idx_task_runs_scheduled_at").on(table.scheduledAt),
+    jobIdUniqueIdx: uniqueIndex("v2_uq_task_runs_job_id").on(table.jobId),
+    cronJobIdx: index("v2_idx_task_runs_cron_job_id").on(table.cronJobId),
+    spaceIdx: index("v2_idx_task_runs_space_id").on(table.spaceId),
+    sessionIdx: index("v2_idx_task_runs_session_id").on(table.sessionId),
+    userIdx: index("v2_idx_task_runs_user_uuid").on(table.userUuid),
+    statusIdx: index("v2_idx_task_runs_status").on(table.status),
+    createdAtIdx: index("v2_idx_task_runs_created_at").on(table.createdAt),
+    scheduledAtIdx: index("v2_idx_task_runs_scheduled_at").on(table.scheduledAt),
   }),
 );

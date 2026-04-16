@@ -13,15 +13,35 @@ import type {
   SessionBindingRecord as ProtocolSessionBindingRecord,
   SessionRecord as ProtocolSessionRecord,
   MessageRecord,
-  RuntimeRecord as ProtocolRuntimeRecord,
   ChannelConfig,
   ResourcePermissionLevel,
-  RuntimeFsTreeResponse,
-  RuntimeFsFileResponse,
-  RuntimeFsWriteFileInput,
-  RuntimeFsMoveInput,
 } from "@cohub/protocol";
-export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig, ResourcePermissionLevel, RuntimeFsTreeResponse, RuntimeFsFileResponse } from "@cohub/protocol";
+export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig, ResourcePermissionLevel } from "@cohub/protocol";
+
+// Runtime FS types (moved to SpaceFs* in protocol; kept locally for web compat)
+export type RuntimeFsEntry = {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "symlink";
+  size: number;
+  mimeType: string | null;
+  mtimeMs: number;
+};
+export type RuntimeFsTreeResponse = { path: string; entries: RuntimeFsEntry[] };
+export type RuntimeFsFileKind = "text" | "binary";
+export type RuntimeFsEncoding = "utf-8" | "base64";
+export type RuntimeFsFileResponse = {
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  mtimeMs: number;
+  kind: RuntimeFsFileKind;
+  encoding: RuntimeFsEncoding;
+  content: string;
+};
+export type RuntimeFsWriteFileInput = { path: string; content: string; encoding: RuntimeFsEncoding };
+export type RuntimeFsMoveInput = { fromPath: string; toPath: string };
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -49,10 +69,19 @@ export type SessionRecord = ProtocolSessionRecord & {
   shareLevel?: ResourcePermissionLevel | null;
 };
 
-/** Web-extended runtime record with live status and channels */
-export type RuntimeListItem = RuntimeRecord;
-
-export type RuntimeRecord = ProtocolRuntimeRecord & {
+/** Runtime record (mirrors the DB schema; protocol type was removed in v2) */
+export type RuntimeRecord = {
+  id: string;
+  userUuid: string;
+  workspaceId: string | null;
+  workspaceCommitHash: string | null;
+  agentId: string | null;
+  agentCommitHash: string | null;
+  title: string | null;
+  status: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
   channels?: {
     id: string;
     name: string | null;
@@ -60,6 +89,9 @@ export type RuntimeRecord = ProtocolRuntimeRecord & {
     status: string;
   }[];
 };
+
+/** Web-extended runtime record with live status and channels */
+export type RuntimeListItem = RuntimeRecord;
 
 export type SessionMessagesResponse = {
   runtime: RuntimeRecord;
