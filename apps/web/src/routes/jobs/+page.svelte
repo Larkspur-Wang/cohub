@@ -269,7 +269,7 @@ onMount(() => {
         Cronjobs
       </span>
       {#if activeTab === 'cronjobs'}
-        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full" />
+        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
       {/if}
     </button>
     <button
@@ -282,7 +282,7 @@ onMount(() => {
         Runs
       </span>
       {#if activeTab === 'runs'}
-        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full" />
+        <span class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand rounded-full"></span>
       {/if}
     </button>
   </div>
@@ -328,7 +328,7 @@ onMount(() => {
                   </span>
 
                   <!-- Status dot -->
-                  <span class="w-[7px] h-[7px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}" />
+                  <span class="w-[7px] h-[7px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
 
                   <!-- Title -->
                   <span class="flex-1 text-[13px] font-medium truncate">{job.title}</span>
@@ -377,7 +377,7 @@ onMount(() => {
                           {#each runs.slice(0, 10) as run (run.id)}
                             {@const badge = statusBadge(run)}
                             <div class="flex items-center gap-2 text-[11px]">
-                              <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}" />
+                              <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}"></span>
                               <span class="text-text-secondary font-medium">{badge.label}</span>
                               <span class="text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</span>
                               {#if run.startedAt && run.finishedAt}
@@ -438,7 +438,7 @@ onMount(() => {
                 <tr class="hover:bg-bg-hover/30 transition-colors">
                   <td class="py-2 pr-3">
                     <span class="flex items-center gap-1.5">
-                      <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}" />
+                      <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}"></span>
                       <span class="{badge.color}">{badge.label}</span>
                     </span>
                   </td>
