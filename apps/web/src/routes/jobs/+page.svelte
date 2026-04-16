@@ -381,7 +381,7 @@ onMount(() => {
         onclick={openCreateModal}
       >
         <Plus class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">New Task</span>
+        <span>New Task</span>
       </button>
     {/snippet}
   </PageHeader>
@@ -420,7 +420,7 @@ onMount(() => {
   <div class="flex-1 overflow-y-auto">
     {#if activeTab === "cronjobs"}
       <!-- Cronjobs Tab -->
-      <div class="max-w-3xl mx-auto px-4 py-4">
+      <div class="px-4 py-3">
         {#if isLoading}
           <div class="flex items-center justify-center gap-2 py-12 text-text-tertiary text-[13px]">
             <Loader2 class="w-4 h-4 animate-spin" />
@@ -429,75 +429,67 @@ onMount(() => {
         {:else if loadError}
           <div class="py-4 text-center text-error-soft text-[13px]">{loadError}</div>
         {:else if cronJobs.length === 0}
-          <div class="flex flex-col items-center justify-center py-16 text-center">
-            <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
-              <Clock class="w-5 h-5 text-text-placeholder" />
-            </div>
-            <p class="text-[14px] text-text-tertiary">No cronjobs yet</p>
+          <div class="flex flex-col items-center justify-center py-20 text-center">
+            <Clock class="w-8 h-8 text-text-placeholder mb-3" />
+            <p class="text-[14px] font-medium text-text-secondary">No cronjobs yet</p>
             <p class="text-[12px] text-text-placeholder mt-1">Create a scheduled task to automate your workflows</p>
           </div>
         {:else}
-          <div class="space-y-0.5">
+          <div class="divide-y divide-border-subtle/40">
             {#each cronJobs as job (job.id)}
               {@const isBusy = actionInProgress[job.id]}
-              <div class="group rounded-[5px] border border-transparent hover:border-border-subtle transition-colors">
-                <div class="flex items-center gap-2.5 px-3 py-2.5">
-                  <!-- Status dot -->
-                  <span class="w-[7px] h-[7px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+              <div class="group flex items-center gap-3 px-3 py-3 hover:bg-bg-hover/30 transition-colors">
+                <!-- Status dot -->
+                <span class="w-2 h-2 rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
 
-                  <!-- Title (clickable to edit) -->
+                <!-- Title (clickable to edit) -->
+                <button
+                  type="button"
+                  class="flex-1 min-w-0 text-left text-[14px] font-medium truncate hover:text-brand transition-colors"
+                  onclick={() => openEditModal(job)}
+                  title="Edit"
+                >
+                  {job.title}
+                </button>
+
+                <!-- Cron expression — pill on desktop, hidden on mobile -->
+                <span class="text-[11px] font-mono text-text-placeholder px-2 py-0.5 rounded bg-bg-code hidden md:inline">{job.cronExpression}</span>
+
+                <!-- Actions — hover on desktop, always on mobile -->
+                <div class="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                  <!-- History filter -->
                   <button
                     type="button"
-                    class="flex-1 text-left text-[13px] font-medium truncate hover:text-brand transition-colors"
-                    onclick={() => openEditModal(job)}
-                    title="Edit"
+                    class="p-1.5 rounded-[5px] hover:bg-bg-hover text-text-tertiary hover:text-brand transition-colors"
+                    title="View history"
+                    onclick={() => filterHistoryForJob(job.id)}
                   >
-                    {job.title}
+                    <Filter class="w-3.5 h-3.5" />
                   </button>
-
-                  <!-- Cron expression — pill on desktop, hidden on mobile -->
-                  <span class="text-[11px] font-mono text-text-placeholder px-1.5 py-0.5 rounded-sm bg-bg-code hidden sm:inline">{job.cronExpression}</span>
-
-                  <!-- Actions — always visible on mobile, hover on desktop -->
-                  <div class="flex items-center gap-0.5">
-                    <!-- History filter -->
-                    <button
-                      type="button"
-                      class="p-1.5 rounded-[5px] hover:bg-bg-hover text-text-tertiary hover:text-brand transition-colors"
-                      title="View history"
-                      onclick={() => filterHistoryForJob(job.id)}
-                    >
-                      <Filter class="w-3.5 h-3.5" />
-                    </button>
-                    <!-- Enable/disable toggle -->
-                    <button
-                      type="button"
-                      class="p-1.5 rounded-[5px] hover:bg-bg-hover transition-colors {job.enabled ? 'text-text-tertiary hover:text-status-running' : 'text-text-placeholder hover:text-status-running'}"
-                      title={job.enabled ? "Disable" : "Enable"}
-                      onclick={(e) => handleToggle(job.id, !job.enabled, e)}
-                    >
-                      {#if isBusy}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      {:else if job.enabled}
-                        <Power class="w-3.5 h-3.5" />
-                      {:else}
-                        <PowerOff class="w-3.5 h-3.5" />
-                      {/if}
-                    </button>
-                    <!-- Delete -->
-                    <button
-                      type="button"
-                      class="p-1.5 rounded-[5px] hover:bg-bg-hover text-text-placeholder hover:text-error-soft transition-colors"
-                      title="Delete"
-                      onclick={(e) => handleDelete(job.id, e)}
-                    >
-                      <Trash2 class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <!-- Cron expression on mobile — second row -->
-                <div class="sm:hidden px-3 pb-2 -mt-1">
-                  <span class="text-[11px] font-mono text-text-placeholder">{job.cronExpression}</span>
+                  <!-- Enable/disable toggle -->
+                  <button
+                    type="button"
+                    class="p-1.5 rounded-[5px] hover:bg-bg-hover transition-colors {job.enabled ? 'text-text-tertiary hover:text-status-running' : 'text-text-placeholder hover:text-status-running'}"
+                    title={job.enabled ? "Disable" : "Enable"}
+                    onclick={(e) => handleToggle(job.id, !job.enabled, e)}
+                  >
+                    {#if isBusy}
+                      <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                    {:else if job.enabled}
+                      <Power class="w-3.5 h-3.5" />
+                    {:else}
+                      <PowerOff class="w-3.5 h-3.5" />
+                    {/if}
+                  </button>
+                  <!-- Delete -->
+                  <button
+                    type="button"
+                    class="p-1.5 rounded-[5px] hover:bg-bg-hover text-text-placeholder hover:text-error-soft transition-colors"
+                    title="Delete"
+                    onclick={(e) => handleDelete(job.id, e)}
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             {/each}
@@ -507,14 +499,13 @@ onMount(() => {
 
     {:else}
       <!-- History Tab -->
-      <div class="max-w-4xl mx-auto px-4 py-4">
+      <div class="px-4 py-3">
         <!-- Filter bar -->
         {#if filterCronJobId}
           {@const jobTitle = getJobTitle(filterCronJobId)}
-          <div class="flex items-center gap-2 mb-3 px-1">
-            <Filter class="w-3.5 h-3.5 text-text-tertiary" />
-            <span class="text-[12px] text-text-secondary">Filtered by</span>
-            <span class="text-[12px] font-medium text-text-primary">{jobTitle ?? filterCronJobId}</span>
+          <div class="flex items-center gap-2 mb-2 px-1">
+            <span class="text-[11px] text-text-tertiary">Filtered by</span>
+            <span class="text-[11px] font-medium text-text-primary">{jobTitle ?? filterCronJobId}</span>
             <button type="button" class="p-0.5 rounded hover:bg-bg-hover text-text-tertiary hover:text-text-primary transition-colors" onclick={clearFilter} title="Clear filter">
               <X class="w-3.5 h-3.5" />
             </button>
@@ -522,31 +513,29 @@ onMount(() => {
         {/if}
 
         {#if filteredRuns.length === 0}
-          <div class="flex flex-col items-center justify-center py-16 text-center">
-            <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
-              <Activity class="w-5 h-5 text-text-placeholder" />
-            </div>
+          <div class="flex flex-col items-center justify-center py-20 text-center">
+            <Activity class="w-8 h-8 text-text-placeholder mb-3" />
             {#if filterCronJobId}
-              <p class="text-[14px] text-text-tertiary">No runs for this cronjob</p>
+              <p class="text-[14px] font-medium text-text-secondary">No runs for this cronjob</p>
             {:else}
-              <p class="text-[14px] text-text-tertiary">No task run records</p>
+              <p class="text-[14px] font-medium text-text-secondary">No task run records</p>
               <p class="text-[12px] text-text-placeholder mt-1">Task runs will appear here once cronjobs start executing</p>
             {/if}
           </div>
         {:else}
           <!-- Desktop table -->
-          <table class="hidden md:block w-full text-[12px]">
+          <table class="hidden md:block w-full text-[13px]">
             <thead>
               <tr class="text-[10px] font-medium uppercase tracking-[0.08em] text-text-placeholder border-b border-border-subtle">
-                <th class="text-left py-2 pr-3 font-medium">Status</th>
-                <th class="text-left py-2 pr-3 font-medium">Source</th>
-                <th class="text-left py-2 pr-3 font-medium">Scheduled</th>
-                <th class="text-left py-2 pr-3 font-medium">Started</th>
-                <th class="text-left py-2 pr-3 font-medium">Duration</th>
-                <th class="text-left py-2 font-medium">Error</th>
+                <th class="text-left py-2.5 pr-4">Status</th>
+                <th class="text-left py-2.5 pr-4">Source</th>
+                <th class="text-left py-2.5 pr-4">Scheduled</th>
+                <th class="text-left py-2.5 pr-4">Started</th>
+                <th class="text-left py-2.5 pr-4">Duration</th>
+                <th class="text-left py-2.5">Error</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-border-subtle/50">
+            <tbody class="divide-y divide-border-subtle/30">
               {#each filteredRuns as run (run.id)}
                 {@const badge = statusBadge(run)}
                 {@const duration = run.startedAt && run.finishedAt
@@ -556,17 +545,17 @@ onMount(() => {
                     })()
                   : "—"}
                 <tr class="hover:bg-bg-hover/30 transition-colors">
-                  <td class="py-2 pr-3">
-                    <span class="flex items-center gap-1.5">
-                      <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}"></span>
+                  <td class="py-3 pr-4">
+                    <span class="flex items-center gap-2">
+                      <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
                       <span class="{badge.color}">{badge.label}</span>
                     </span>
                   </td>
-                  <td class="py-2 pr-3">
+                  <td class="py-3 pr-4">
                     {#if run.cronJobId}
                       <button
                         type="button"
-                        class="text-left text-[12px] text-text-secondary hover:text-brand transition-colors truncate max-w-[150px]"
+                        class="text-left text-[13px] text-text-secondary hover:text-brand transition-colors truncate max-w-[200px]"
                         onclick={() => {
                           filterCronJobId = run.cronJobId;
                         }}
@@ -574,13 +563,13 @@ onMount(() => {
                         {getJobTitle(run.cronJobId) ?? "—"}
                       </button>
                     {:else}
-                      <span class="text-[12px] text-text-placeholder">One-time</span>
+                      <span class="text-[13px] text-text-placeholder">One-time</span>
                     {/if}
                   </td>
-                  <td class="py-2 pr-3 text-text-placeholder">{formatScheduled(run.scheduledAt)}</td>
-                  <td class="py-2 pr-3 text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</td>
-                  <td class="py-2 pr-3 text-text-placeholder font-mono">{duration}</td>
-                  <td class="py-2 text-status-error max-w-[200px] truncate" title={run.errorMessage ?? ""}>
+                  <td class="py-3 pr-4 text-text-placeholder">{formatScheduled(run.scheduledAt)}</td>
+                  <td class="py-3 pr-4 text-text-placeholder">{formatDate(run.startedAt ?? run.createdAt)}</td>
+                  <td class="py-3 pr-4 text-text-placeholder font-mono">{duration}</td>
+                  <td class="py-3 text-status-error max-w-[280px] truncate" title={run.errorMessage ?? ""}>
                     {run.errorMessage ?? "—"}
                   </td>
                 </tr>
@@ -589,7 +578,7 @@ onMount(() => {
           </table>
 
           <!-- Mobile cards -->
-          <div class="md:hidden space-y-2">
+          <div class="md:hidden divide-y divide-border-subtle/30">
             {#each filteredRuns as run (run.id)}
               {@const badge = statusBadge(run)}
               {@const duration = run.startedAt && run.finishedAt
@@ -598,11 +587,11 @@ onMount(() => {
                     return `${(ms / 1000).toFixed(1)}s`;
                   })()
                 : "—"}
-              <div class="p-3 rounded-[5px] border border-border-subtle bg-bg-surface">
-                <div class="flex items-center gap-2 mb-2">
+              <div class="py-3">
+                <div class="flex items-center gap-2 mb-1.5">
                   <span class="flex items-center gap-1.5">
-                    <span class="w-[5px] h-[5px] rounded-full shrink-0 {badge.dot}"></span>
-                    <span class="text-[12px] font-medium {badge.color}">{badge.label}</span>
+                    <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
+                    <span class="text-[13px] font-medium {badge.color}">{badge.label}</span>
                   </span>
                   {#if run.cronJobId}
                     <button
@@ -617,15 +606,13 @@ onMount(() => {
                   {/if}
                 </div>
                 <div class="flex items-center gap-4 text-[11px] text-text-placeholder">
-                  <span>Scheduled: {formatScheduled(run.scheduledAt)}</span>
-                  <span>Started: {formatDate(run.startedAt ?? run.createdAt)}</span>
+                  <span>{formatScheduled(run.scheduledAt)}</span>
+                  <span>{formatDate(run.startedAt ?? run.createdAt)}</span>
+                  <span class="font-mono">{duration}</span>
                 </div>
-                <div class="flex items-center gap-4 text-[11px] text-text-placeholder mt-1">
-                  <span>Duration: {duration}</span>
-                  {#if run.errorMessage}
-                    <span class="text-status-error truncate">{run.errorMessage}</span>
-                  {/if}
-                </div>
+                {#if run.errorMessage}
+                  <p class="text-[11px] text-status-error mt-1 truncate">{run.errorMessage}</p>
+                {/if}
               </div>
             {/each}
           </div>
@@ -660,64 +647,49 @@ onMount(() => {
         </button>
       </div>
 
-      <div class="p-4">
+      <div class="px-4 py-3 space-y-4">
         {#if modalMode === "edit"}
-          <!-- Edit mode: agent hint + form -->
-          <div class="mb-4 p-3 rounded-lg bg-bg-surface border border-border-subtle">
-            <div class="flex items-start gap-2 mb-2">
-              <span class="text-[13px] font-medium text-text-primary">Edit via Agent</span>
-            </div>
-            <p class="text-[12px] text-text-secondary mb-3">
-              Ask your agent in any workspace chat. Examples:
-            </p>
-            <div class="space-y-2">
+          <!-- Edit mode -->
+          <div>
+            <p class="text-[12px] text-text-tertiary mb-2">Edit via Agent — or fill the form below:</p>
+            <div class="flex flex-col gap-1.5 mb-3">
               {#each editExamplePrompts as prompt, i}
                 <button
                   type="button"
-                  class="w-full text-left group/prompt p-2 rounded-md bg-bg-code border border-border-subtle hover:border-border-primary transition-colors"
+                  class="w-full text-left text-[12px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-between gap-2 py-1 group/prompt"
                   onclick={() => copyPrompt(prompt, i)}
                 >
-                  <div class="flex items-start justify-between gap-2">
-                    <span class="text-[12px] text-text-primary leading-relaxed flex-1">{prompt}</span>
-                    <span class="shrink-0 text-text-placeholder group-hover/prompt:text-text-tertiary transition-colors">
-                      {#if copiedIndex === i}
-                        <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
-                      {:else}
-                        <Clipboard class="w-3.5 h-3.5" />
-                      {/if}
-                    </span>
-                  </div>
+                  <span class="leading-relaxed flex-1">{prompt}</span>
+                  <span class="shrink-0 text-text-placeholder group-hover/prompt:text-brand transition-colors">
+                    {#if copiedIndex === i}
+                      <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
+                    {:else}
+                      <Clipboard class="w-3.5 h-3.5" />
+                    {/if}
+                  </span>
                 </button>
               {/each}
             </div>
           </div>
 
-          <div class="flex items-center gap-3 mb-4">
-            <span class="flex-1 h-px bg-border-subtle"></span>
-            <span class="text-[11px] text-text-placeholder uppercase tracking-wider font-medium">Or edit manually</span>
-            <span class="flex-1 h-px bg-border-subtle"></span>
-          </div>
-
           <div class="space-y-3">
             <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
               <input
                 id="task-title"
                 type="text"
                 bind:value={createTitle}
-                placeholder="e.g. Daily report"
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+                placeholder="Name"
+                class="w-full px-0 py-2 text-[14px] font-medium border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
               />
             </div>
 
             <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-runtime">Target Runtime</label>
               <select
                 id="task-runtime"
                 bind:value={createRuntimeId}
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
+                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 transition-colors"
               >
-                <option value="">— Select —</option>
+                <option value="">— Select runtime —</option>
                 {#each runtimes as rt (rt.id)}
                   <option value={rt.id}>{rt.title || rt.id.slice(0, 12)}</option>
                 {/each}
@@ -725,112 +697,94 @@ onMount(() => {
             </div>
 
             <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
               <input
                 id="task-expression"
                 type="text"
                 bind:value={createCronExpression}
-                placeholder="e.g. 0 10 * * *"
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+                placeholder="Cron expression — e.g. 0 10 * * *"
+                class="w-full px-0 py-2 text-[13px] font-mono border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
               />
             </div>
 
             <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
               <textarea
                 id="task-prompt"
                 bind:value={createPromptText}
                 rows="2"
-                placeholder="Message content to send to the runtime..."
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
+                placeholder="Prompt message..."
+                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none transition-colors"
               ></textarea>
             </div>
           </div>
         {:else}
           <!-- Create mode -->
-          <div class="mb-4 p-3 rounded-lg bg-bg-surface border border-border-subtle">
-            <div class="flex items-start gap-2 mb-3">
-              <span class="text-[13px] font-medium text-text-primary">Create via Agent</span>
-              <span class="text-[11px] text-text-placeholder font-normal">Recommended</span>
-            </div>
-            <p class="text-[12px] text-text-secondary mb-3">
-              Simply ask your agent in any workspace chat. Try these examples:
-            </p>
-            <div class="space-y-2">
+          <div>
+            <p class="text-[12px] text-text-tertiary mb-2">Create via Agent — or fill the form below:</p>
+            <div class="flex flex-col gap-1.5 mb-1">
               {#each createExamplePrompts as prompt, i}
                 <button
                   type="button"
-                  class="w-full text-left group/prompt p-2 rounded-md bg-bg-code border border-border-subtle hover:border-border-primary transition-colors"
+                  class="w-full text-left text-[12px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-between gap-2 py-1 group/prompt"
                   onclick={() => copyPrompt(prompt, i)}
                 >
-                  <div class="flex items-start justify-between gap-2">
-                    <span class="text-[12px] text-text-primary leading-relaxed flex-1">{prompt}</span>
-                    <span class="shrink-0 text-text-placeholder group-hover/prompt:text-text-tertiary transition-colors">
-                      {#if copiedIndex === i}
-                        <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
-                      {:else}
-                        <Clipboard class="w-3.5 h-3.5" />
-                      {/if}
-                    </span>
-                  </div>
+                  <span class="leading-relaxed flex-1">{prompt}</span>
+                  <span class="shrink-0 text-text-placeholder group-hover/prompt:text-brand transition-colors">
+                    {#if copiedIndex === i}
+                      <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
+                    {:else}
+                      <Clipboard class="w-3.5 h-3.5" />
+                    {/if}
+                  </span>
                 </button>
               {/each}
             </div>
           </div>
 
-          <div class="flex items-center gap-3 mb-4">
-            <span class="flex-1 h-px bg-border-subtle"></span>
-            <span class="text-[11px] text-text-placeholder uppercase tracking-wider font-medium">Or create manually</span>
-            <span class="flex-1 h-px bg-border-subtle"></span>
-          </div>
-
           <!-- Type toggle -->
-          <div class="flex items-center gap-2 mb-4">
+          <div class="flex items-center gap-1">
             <button
               type="button"
-              class="px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors {createType === 'repeating' ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+              class="px-2.5 py-1 text-[12px] font-medium rounded transition-colors {createType === 'repeating' ? 'text-text-primary bg-bg-active' : 'text-text-tertiary hover:text-text-secondary'}"
               onclick={() => { createType = "repeating"; }}
             >
               <span class="flex items-center gap-1.5">
                 <Clock class="w-3.5 h-3.5" />
-                <span class="hidden sm:inline">Repeating</span>
+                Repeating
               </span>
             </button>
             <button
               type="button"
-              class="px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors {createType === 'onetime' ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+              class="px-2.5 py-1 text-[12px] font-medium rounded transition-colors {createType === 'onetime' ? 'text-text-primary bg-bg-active' : 'text-text-tertiary hover:text-text-secondary'}"
               onclick={() => { createType = "onetime"; }}
             >
               <span class="flex items-center gap-1.5">
                 <Activity class="w-3.5 h-3.5" />
-                <span class="hidden sm:inline">One-time</span>
+                One-time
               </span>
             </button>
           </div>
 
-          <!-- Form fields -->
+          <!-- Form fields — minimal underline style -->
           <div class="space-y-3">
             {#if createType === "repeating"}
               <div>
-                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
                 <input
                   id="task-title"
                   type="text"
                   bind:value={createTitle}
-                  placeholder="e.g. Daily report"
-                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+                  placeholder="Name"
+                  class="w-full px-0 py-2 text-[14px] font-medium border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
                 />
               </div>
             {/if}
 
             <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-runtime">Target Runtime</label>
               <select
                 id="task-runtime"
                 bind:value={createRuntimeId}
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
+                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 transition-colors"
               >
-                <option value="">— Select —</option>
+                <option value="">— Select runtime —</option>
                 {#each runtimes as rt (rt.id)}
                   <option value={rt.id}>{rt.title || rt.id.slice(0, 12)}</option>
                 {/each}
@@ -839,13 +793,12 @@ onMount(() => {
 
             {#if createType === "repeating"}
               <div>
-                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
                 <input
                   id="task-expression"
                   type="text"
                   bind:value={createCronExpression}
-                  placeholder="e.g. 0 10 * * * (daily at 10AM)"
-                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+                  placeholder="Cron expression — e.g. 0 10 * * *"
+                  class="w-full px-0 py-2 text-[13px] font-mono border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder transition-colors"
                 />
                 <p class="mt-1 text-[11px] text-text-placeholder">
                   Format: min hour day month weekday · Example: */30 * * * * (every 30 min)
@@ -853,12 +806,11 @@ onMount(() => {
               </div>
             {:else}
               <div>
-                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-schedule">Schedule At</label>
                 <input
                   id="task-schedule"
                   type="datetime-local"
                   bind:value={createScheduleAt}
-                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
+                  class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 transition-colors"
                 />
                 <p class="mt-1 text-[11px] text-text-placeholder">
                   Local time (UTC{new Date().getTimezoneOffset() > 0 ? '-' : '+'}{Math.abs(new Date().getTimezoneOffset() / 60)})
@@ -867,27 +819,26 @@ onMount(() => {
             {/if}
 
             <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
               <textarea
                 id="task-prompt"
                 bind:value={createPromptText}
                 rows="2"
-                placeholder="Message content to send to the runtime..."
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
+                placeholder="Prompt message..."
+                class="w-full px-0 py-2 text-[13px] border-b border-border-subtle bg-transparent text-text-primary outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none transition-colors"
               ></textarea>
             </div>
           </div>
         {/if}
 
         {#if createError}
-          <div class="mt-3 text-[12px] text-error-soft">{createError}</div>
+          <p class="text-[12px] text-error-soft">{createError}</p>
         {/if}
       </div>
 
-      <div class="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
+      <div class="flex justify-end gap-2 px-4 py-2.5 border-t border-border-subtle">
         <button
           type="button"
-          class="px-4 py-1.5 rounded-md text-[12px] text-text-tertiary hover:bg-bg-hover transition-colors"
+          class="px-3 py-1.5 rounded text-[12px] text-text-tertiary hover:text-text-primary transition-colors"
           onclick={closeCreateModal}
           disabled={isCreating}
         >
@@ -895,7 +846,7 @@ onMount(() => {
         </button>
         <button
           type="button"
-          class="px-4 py-1.5 rounded-md text-[12px] font-medium bg-brand text-white hover:bg-brand-hover transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          class="px-3 py-1.5 rounded text-[12px] font-medium bg-brand text-white hover:bg-brand-hover transition-colors disabled:opacity-50 flex items-center gap-1.5"
           disabled={isCreating || !createPromptText.trim() || !createRuntimeId || (modalMode === 'edit' && !createTitle.trim()) || (modalMode === 'edit' && !createCronExpression.trim()) || (modalMode === 'create' && createType === 'repeating' && !createTitle.trim()) || (modalMode === 'create' && createType === 'repeating' && !createCronExpression.trim()) || (modalMode === 'create' && createType === 'onetime' && !createScheduleAt)}
           onclick={handleCreate}
         >
