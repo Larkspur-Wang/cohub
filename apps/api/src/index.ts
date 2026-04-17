@@ -22,9 +22,11 @@ import {
   writeSpaceFile,
 } from "./space-fs.js";
 import { assertRequiredConfig, config } from "./config.js";
+import { k8sCoreApi } from "./k8s.js";
+import { sessionsNamespace } from "./config.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
 import { addSshKey, createRepository, deleteSshKey, listSshKeys } from "./gitea.js";
-import { provisionSpaceInBackground } from "./space-sandboxes.js";
+import { deleteSpaceSandbox, getSpaceSandboxBySpaceId, provisionSpaceInBackground, updateSpaceSandbox } from "./space-sandboxes.js";
 import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
@@ -53,7 +55,6 @@ import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccoun
 import { eq, and, inArray, desc, isNull } from "drizzle-orm";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
-import { getSpaceSandboxBySpaceId } from "./space-sandboxes.js";
 import type { GatewayInboundEvent, TaskScheduleConfig } from "@cohub/protocol";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
 import { handleInboundEvent } from "./channels.js";
@@ -474,7 +475,7 @@ app.post("/api/spaces", async (c) => {
   void provisionSpaceInBackground({
     spaceId: space.id,
     userUuid: user.uuid,
-    spaceRepoUrl: `ssh://git@git.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
+    spaceRepoUrl: `https://${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
     spaceGitUsername: gitAccount.giteaUsername,
     spaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
     extraEnv: normalizedExtraEnv,
@@ -524,6 +525,50 @@ app.get("/api/spaces/:id/checkpoints", async (c) => {
     .limit(100);
 
   return c.json({ checkpoints: rows });
+});
+
+app.get("/api/spaces/:id/sandbox", async (c) => {
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  if (!await canWrite(user, spaceId)) return c.json({ message: "not found" }, 404);
+
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+  return c.json({ sandbox: sandbox ?? null });
+});
+
+app.post("/api/spaces/:id/sandbox/recreate", async (c) => {
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  if (!await canWrite(user, spaceId)) return c.json({ message: "not found" }, 404);
+
+  const space = await getSpaceById(spaceId);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  const existingSandbox = await getSpaceSandboxBySpaceId(spaceId);
+  const podName = existingSandbox?.podName ?? `sandbox-${spaceId}`;
+
+  // Delete existing pod if it exists
+  if (existingSandbox?.podName) {
+    await k8sCoreApi.deleteNamespacedPod({ name: podName, namespace: sessionsNamespace }).catch(() => undefined);
+  }
+
+  // Reset sandbox status
+  await updateSpaceSandbox({ spaceId, status: "provisioning", meta: { recreatedAt: new Date().toISOString() } });
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  void provisionSpaceInBackground({
+    spaceId: space.id,
+    userUuid: user.uuid,
+    spaceRepoUrl: `ssh://git@git.cohub.run/${gitAccount.giteaUsername}/${space.storageRepoName}.git`,
+    spaceGitUsername: gitAccount.giteaUsername,
+    spaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
+  }).catch(console.error);
+
+  return c.json({ ok: true, message: "Sandbox recreation triggered" });
 });
 
 app.get("/api/spaces", async (c) => {

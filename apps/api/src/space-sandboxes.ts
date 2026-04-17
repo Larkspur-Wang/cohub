@@ -46,6 +46,15 @@ export const ensureSpaceSandbox = async (input: {
   return sandbox;
 };
 
+export const deleteSpaceSandbox = async (spaceId: string) => {
+  const [sandbox] = await db
+    .delete(spaceSandboxes)
+    .where(eq(spaceSandboxes.spaceId, spaceId))
+    .returning();
+
+  return sandbox ?? null;
+};
+
 export const updateSpaceSandbox = async (input: {
   spaceId: string;
   status?: SpaceSandboxStatus;

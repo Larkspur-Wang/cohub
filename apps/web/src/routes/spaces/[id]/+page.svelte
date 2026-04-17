@@ -144,6 +144,21 @@ let scrollPosBySession = $state.raw(new Map<string, number>());
 let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
 let scrollTargetSessionId = $state<string | null>(null);
 let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
+let titleClickCount = $state(0);
+let titleClickTimer: ReturnType<typeof setTimeout> | null = null;
+
+function handleTitleClick() {
+  titleClickCount++;
+  if (titleClickTimer) clearTimeout(titleClickTimer);
+  if (titleClickCount >= 4) {
+    titleClickCount = 0;
+    void goto(`/spaces/${spaceId}/_debug`);
+    return;
+  }
+  titleClickTimer = setTimeout(() => {
+    titleClickCount = 0;
+  }, 600);
+}
 
 const activeSessionState = $derived(activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null);
 const firstCatalogModel = $derived(
@@ -1406,7 +1421,12 @@ $effect(() => {
   {#snippet left()}
     <div class="flex items-center gap-2 min-w-0">
       <Terminal class="w-3.5 h-3.5 text-text-tertiary shrink-0 hidden sm:block" />
-      <span class="text-[13px] text-text-primary truncate">{space?.name || space?.title || space?.id || spaceId}</span>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span
+        class="text-[13px] text-text-primary truncate cursor-default select-none"
+        onclick={handleTitleClick}
+      >{space?.name || space?.title || space?.id || spaceId}</span>
     </div>
   {/snippet}
   {#snippet right()}

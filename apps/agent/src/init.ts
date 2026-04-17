@@ -114,13 +114,7 @@ export async function initializeContainer() {
         for (const file of files) {
           await rm(join(env.SPACE_DIR, file), { recursive: true, force: true });
         }
-        await runGitCommand([
-          "-c",
-          "core.sshCommand=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
-          "clone",
-          env.SPACE_REPO_URL,
-          env.SPACE_DIR,
-        ]);
+        await runGitCommand(["clone", env.SPACE_REPO_URL, env.SPACE_DIR]);
 
         if (env.SPACE_GIT_USERNAME) {
           await runGitCommand(["config", "user.name", env.SPACE_GIT_USERNAME], env.SPACE_DIR);

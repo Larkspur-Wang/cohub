@@ -814,3 +814,24 @@ export const getTaskRuns = async (filters?: {
   const query = params.toString();
   return apiFetch(`/api/tasks/runs${query ? `?${query}` : ""}`) as Promise<{ runs: TaskRunRecord[] }>;
 };
+
+export type SandboxRecord = {
+  id: string;
+  spaceId: string;
+  status: string;
+  podName: string | null;
+  lastHeartbeatAt: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const getSpaceSandbox = async (spaceId: string) => {
+  return apiFetch(`/api/spaces/${spaceId}/sandbox`) as Promise<{ sandbox: SandboxRecord | null }>;
+};
+
+export const recreateSpaceSandbox = async (spaceId: string) => {
+  return apiFetch(`/api/spaces/${spaceId}/sandbox/recreate`, {
+    method: "POST",
+  }) as Promise<{ ok: true; message: string }>;
+};
