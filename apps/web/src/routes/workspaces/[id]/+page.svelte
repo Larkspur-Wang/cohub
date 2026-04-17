@@ -1,16 +1,16 @@
 <script lang="ts">
 import {
+  ArrowLeft,
+  Check,
+  Copy,
+  FileCode,
+  Folder,
   FolderKanban,
+  GitFork,
   Globe,
   Lock,
   Play,
   Terminal,
-  Copy,
-  Check,
-  FileCode,
-  Folder,
-  GitFork,
-  ArrowLeft,
   X,
 } from "lucide-svelte";
 import { getWorkspaceById, getWorkspaceTree, getWorkspaceFile, forkWorkspace, updateWorkspace, type Tree, type WorkspaceDetail } from "$lib/api";

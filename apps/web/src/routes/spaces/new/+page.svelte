@@ -220,7 +220,7 @@ async function handleSubmit(event: SubmitEvent) {
         <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
           <div>
             <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Environment Variables</div>
-            <p class="text-[13px] text-text-tertiary mt-1">Optional env vars injected into the space sandbox.</p>
+            <p class="text-[13px] text-text-tertiary mt-1">Optional env vars injected into the space environment.</p>
           </div>
 
           {#if extraEnv.length === 0}
