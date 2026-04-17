@@ -45,7 +45,7 @@ export const config: AppConfig = {
   bullmqRedisUrl:
     process.env.BULLMQ_REDIS_URL ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
-  spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-sessions-pvc",
+  spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
