@@ -321,8 +321,6 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
         spaceId: input.spaceId,
         sessionId: randomUUID(),
         source: sessionSource,
-        protocol: "pi",
-        cwd: null,
         externalSessionId: null,
         meta: {
           source: `channel:${input.provider}`,

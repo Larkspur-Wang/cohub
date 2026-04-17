@@ -61,9 +61,7 @@ export const registerCronjobSession = async (
     sessionId,
     title: options.title ?? null,
     source: options.source,
-    protocol: "pi",
     externalSessionId: null,
-    cwd: null,
     meta: { createdBy: "cronjob" },
   };
   const result = await internalFetch(

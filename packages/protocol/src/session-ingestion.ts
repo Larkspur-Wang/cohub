@@ -33,8 +33,6 @@ export type ContentBlock =
       _meta?: ContentBlockMeta;
     };
 
-export type SessionProtocol = "pi" | "acp" | "internal";
-
 export type SessionPromptInput = {
   spaceId: string;
   sessionId: string;
@@ -55,9 +53,7 @@ export type RegisterSessionInput = {
   sessionId: string;
   title?: string | null;
   source?: string | null;
-  protocol?: SessionProtocol | null;
   externalSessionId?: string | null;
-  cwd?: string | null;
   meta?: Record<string, unknown> | null;
 };
 
@@ -133,8 +129,6 @@ export type SessionRecord = {
   title: string | null;
   source: string | null;
   status: string | null;
-  cwd: string | null;
-  protocol: string | null;
   externalSessionId: string | null;
   meta: Record<string, unknown> | null;
   parentSessionId: string | null;

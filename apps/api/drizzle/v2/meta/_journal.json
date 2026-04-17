@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1776325705184,
-      "tag": "0000_condemned_fenris",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1776327684050,
-      "tag": "0001_complete_starhawk",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1776492000000,
-      "tag": "0002_brisk_space_repo_identity",
+      "when": 1776421331488,
+      "tag": "0000_neat_tyrannus",
       "breakpoints": true
     }
   ]

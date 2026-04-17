@@ -415,8 +415,6 @@ export const createSpace = async (input?: {
   name?: string;
   description?: string;
   source?: string;
-  cwd?: string;
-  protocol?: "pi" | "acp" | "internal";
   extraEnv?: SpaceEnvInput[];
   channelBindings?: SpaceChannelBindingInput[];
 }) => {
@@ -447,8 +445,6 @@ export const createSpaceSession = async (
   input?: {
     title?: string;
     source?: string;
-    cwd?: string;
-    protocol?: "pi" | "acp" | "internal";
   },
 ) => {
   return apiFetch(`/api/spaces/${id}/sessions`, {

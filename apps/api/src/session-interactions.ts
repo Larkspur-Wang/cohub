@@ -111,8 +111,6 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
           spaceId: spaceChannel.spaceId,
           sessionId: randomUUID(),
           source: sessionSource,
-          protocol: "pi",
-          cwd: null,
           externalSessionId: null,
           meta: {
             source: `channel:${event.provider}`,

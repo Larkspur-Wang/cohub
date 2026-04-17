@@ -1,4 +1,4 @@
-CREATE SCHEMA IF NOT EXISTS "v2";
+CREATE SCHEMA "v2";
 --> statement-breakpoint
 CREATE TABLE "v2"."checkpoints" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -112,6 +112,17 @@ CREATE TABLE "v2"."space_channels" (
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
+CREATE TABLE "v2"."space_sandboxes" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"space_id" uuid NOT NULL,
+	"status" varchar(30) DEFAULT 'pending' NOT NULL,
+	"pod_name" varchar(255),
+	"last_heartbeat_at" timestamp with time zone,
+	"meta" jsonb,
+	"created_at" timestamp with time zone DEFAULT now(),
+	"updated_at" timestamp with time zone DEFAULT now()
+);
+--> statement-breakpoint
 CREATE TABLE "v2"."space_session_bindings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"space_id" uuid NOT NULL,
@@ -133,8 +144,6 @@ CREATE TABLE "v2"."space_sessions" (
 	"title" varchar(255),
 	"source" varchar(255),
 	"status" varchar(50) DEFAULT 'active',
-	"cwd" text,
-	"protocol" varchar(30),
 	"external_session_id" text,
 	"meta" jsonb,
 	"parent_session_id" uuid,
@@ -153,8 +162,9 @@ CREATE TABLE "v2"."spaces" (
 	"user_uuid" varchar(255) NOT NULL,
 	"name" varchar(255) NOT NULL,
 	"description" text,
-	"gitea_repo_name" varchar(255) NOT NULL,
+	"storage_repo_name" varchar(255) NOT NULL,
 	"base_checkpoint_id" uuid,
+	"head_checkpoint_id" uuid,
 	"meta" jsonb,
 	"created_at" timestamp with time zone DEFAULT now(),
 	"updated_at" timestamp with time zone DEFAULT now()
@@ -232,6 +242,9 @@ CREATE UNIQUE INDEX "v2_uq_session_messages_session_sequence" ON "v2"."session_m
 CREATE UNIQUE INDEX "v2_uq_session_messages_session_id_idempotency_key" ON "v2"."session_messages" USING btree ("session_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "v2_idx_space_channels_space" ON "v2"."space_channels" USING btree ("space_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "v2_uq_space_channels_channel" ON "v2"."space_channels" USING btree ("channel_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "v2_uq_space_sandboxes_space_id" ON "v2"."space_sandboxes" USING btree ("space_id");--> statement-breakpoint
+CREATE INDEX "v2_idx_space_sandboxes_status" ON "v2"."space_sandboxes" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "v2_idx_space_sandboxes_last_heartbeat_at" ON "v2"."space_sandboxes" USING btree ("last_heartbeat_at");--> statement-breakpoint
 CREATE INDEX "v2_idx_space_session_bindings_space" ON "v2"."space_session_bindings" USING btree ("space_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_space_session_bindings_session" ON "v2"."space_session_bindings" USING btree ("space_session_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_space_session_bindings_channel" ON "v2"."space_session_bindings" USING btree ("space_channel_id");--> statement-breakpoint
@@ -246,8 +259,9 @@ CREATE INDEX "v2_idx_space_sessions_last_message_id" ON "v2"."space_sessions" US
 CREATE INDEX "v2_idx_space_sessions_last_message_at" ON "v2"."space_sessions" USING btree ("last_message_at");--> statement-breakpoint
 CREATE INDEX "v2_idx_spaces_user_uuid" ON "v2"."spaces" USING btree ("user_uuid");--> statement-breakpoint
 CREATE INDEX "v2_idx_spaces_base_checkpoint_id" ON "v2"."spaces" USING btree ("base_checkpoint_id");--> statement-breakpoint
+CREATE INDEX "v2_idx_spaces_head_checkpoint_id" ON "v2"."spaces" USING btree ("head_checkpoint_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "v2_uq_spaces_user_name" ON "v2"."spaces" USING btree ("user_uuid","name");--> statement-breakpoint
-CREATE UNIQUE INDEX "v2_uq_spaces_user_repo_name" ON "v2"."spaces" USING btree ("user_uuid","gitea_repo_name");--> statement-breakpoint
+CREATE UNIQUE INDEX "v2_uq_spaces_storage_repo_name" ON "v2"."spaces" USING btree ("storage_repo_name");--> statement-breakpoint
 CREATE UNIQUE INDEX "v2_uq_task_runs_job_id" ON "v2"."task_runs" USING btree ("job_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_task_runs_cron_job_id" ON "v2"."task_runs" USING btree ("cron_job_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_task_runs_space_id" ON "v2"."task_runs" USING btree ("space_id");--> statement-breakpoint

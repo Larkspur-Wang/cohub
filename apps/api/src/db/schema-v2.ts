@@ -181,8 +181,6 @@ export const spaceSessions = v2.table(
     title: varchar("title", { length: 255 }),
     source: varchar("source", { length: 255 }),
     status: varchar("status", { length: 50 }).default("active"),
-    cwd: text("cwd"),
-    protocol: varchar("protocol", { length: 30 }),
     externalSessionId: text("external_session_id"),
     meta: jsonb("meta"),
     parentSessionId: uuid("parent_session_id"),

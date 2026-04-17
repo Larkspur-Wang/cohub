@@ -452,8 +452,6 @@ app.post("/api/spaces", async (c) => {
     meta: {
       ...(body.meta ?? {}),
       extraEnv: normalizedExtraEnv,
-      cwd: body.cwd ?? null,
-      protocol: body.protocol ?? "pi",
     },
   }).returning();
 
@@ -469,8 +467,6 @@ app.post("/api/spaces", async (c) => {
     sessionId: crypto.randomUUID(),
     title: null,
     source: body.source ?? null,
-    protocol: body.protocol ?? "pi",
-    cwd: body.cwd ?? null,
     externalSessionId: null,
     meta: { createdBy: "api_space_create", channelBindings: normalizedChannelBindings.length },
   });
@@ -559,14 +555,12 @@ app.post("/api/spaces/:id/sessions", async (c) => {
   if (!await canWrite(user, spaceId)) return c.json({ message: "not found" }, 404);
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
-  const body = await c.req.json<{ title?: string; source?: string; cwd?: string; protocol?: "pi" | "acp" | "internal" }>().catch(() => ({ title: undefined, source: undefined, cwd: undefined, protocol: undefined }));
+  const body = await c.req.json<{ title?: string; source?: string }>().catch(() => ({ title: undefined, source: undefined }));
   const session = await createInitialSpaceSession({
     spaceId: space.id,
     sessionId: crypto.randomUUID(),
     title: body.title ?? null,
     source: body.source ?? null,
-    protocol: body.protocol ?? ((space.meta as Record<string, unknown>)?.protocol as "pi" | "acp" | "internal" | undefined) ?? "pi",
-    cwd: body.cwd ?? ((space.meta as Record<string, unknown>)?.cwd as string | undefined) ?? null,
     externalSessionId: null,
     meta: { createdBy: "api_space_session_create" },
   });
@@ -784,7 +778,7 @@ app.post("/internal/spaces/:id/sessions", async (c) => {
     const bootstrap = await getSpaceSessionBootstrap(existing.id);
     return c.json({ ok: true, session: existing, bootstrap });
   }
-  const session = await registerSpaceSession({ spaceId, sessionId: body.sessionId, title: body.title, protocol: body.protocol, externalSessionId: body.externalSessionId, cwd: body.cwd, meta: body.meta });
+  const session = await registerSpaceSession({ spaceId, sessionId: body.sessionId, title: body.title, externalSessionId: body.externalSessionId, meta: body.meta });
   const bootstrap = await getSpaceSessionBootstrap(session.id);
   return c.json({ ok: true, session, bootstrap });
 });

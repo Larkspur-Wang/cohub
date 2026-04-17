@@ -1,5 +1,5 @@
 {
-  "id": "241b300d-78c6-4fee-b9a8-acb2402dec84",
+  "id": "f77ea53e-cff2-470b-b86b-c5a95d0b3606",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1110,6 +1110,117 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "v2.space_sandboxes": {
+      "name": "space_sandboxes",
+      "schema": "v2",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "space_id": {
+          "name": "space_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "pod_name": {
+          "name": "pod_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_heartbeat_at": {
+          "name": "last_heartbeat_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meta": {
+          "name": "meta",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "v2_uq_space_sandboxes_space_id": {
+          "name": "v2_uq_space_sandboxes_space_id",
+          "columns": [
+            {
+              "expression": "space_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_idx_space_sandboxes_status": {
+          "name": "v2_idx_space_sandboxes_status",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_idx_space_sandboxes_last_heartbeat_at": {
+          "name": "v2_idx_space_sandboxes_last_heartbeat_at",
+          "columns": [
+            {
+              "expression": "last_heartbeat_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "v2.space_session_bindings": {
       "name": "space_session_bindings",
       "schema": "v2",
@@ -1332,18 +1443,6 @@
           "notNull": false,
           "default": "'active'"
         },
-        "cwd": {
-          "name": "cwd",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "protocol": {
-          "name": "protocol",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "external_session_id": {
           "name": "external_session_id",
           "type": "text",
@@ -1542,14 +1641,20 @@
           "primaryKey": false,
           "notNull": false
         },
-        "gitea_repo_name": {
-          "name": "gitea_repo_name",
+        "storage_repo_name": {
+          "name": "storage_repo_name",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         },
         "base_checkpoint_id": {
           "name": "base_checkpoint_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_checkpoint_id": {
+          "name": "head_checkpoint_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1606,6 +1711,21 @@
           "method": "btree",
           "with": {}
         },
+        "v2_idx_spaces_head_checkpoint_id": {
+          "name": "v2_idx_spaces_head_checkpoint_id",
+          "columns": [
+            {
+              "expression": "head_checkpoint_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "v2_uq_spaces_user_name": {
           "name": "v2_uq_spaces_user_name",
           "columns": [
@@ -1627,17 +1747,11 @@
           "method": "btree",
           "with": {}
         },
-        "v2_uq_spaces_user_repo_name": {
-          "name": "v2_uq_spaces_user_repo_name",
+        "v2_uq_spaces_storage_repo_name": {
+          "name": "v2_uq_spaces_storage_repo_name",
           "columns": [
             {
-              "expression": "user_uuid",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "gitea_repo_name",
+              "expression": "storage_repo_name",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

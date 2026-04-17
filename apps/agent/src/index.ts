@@ -453,9 +453,7 @@ async function loadOrCreateSessionHandle(input: {
     spaceId: env.SPACE_ID,
     sessionId: input.sessionId,
     title: null,
-    protocol: "pi",
     externalSessionId: null,
-    cwd: null,
     meta: null,
   }).catch((error: unknown) => {
     console.error(`[Supervisor] Failed to register session bootstrap for ${input.sessionId}:`, error);

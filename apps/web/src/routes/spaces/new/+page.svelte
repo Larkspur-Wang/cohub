@@ -21,8 +21,6 @@ let submitError = $state("");
 
 let name = $state("");
 let description = $state("");
-let cwd = $state("");
-let protocol = $state<"pi" | "acp" | "internal">("pi");
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<SpaceEnvInput[]>([]);
 let channelConfigById = $state<Record<string, ChannelConfig>>({});
@@ -116,8 +114,6 @@ async function handleSubmit(event: SubmitEvent) {
       name: name.trim(),
       description: description.trim() || undefined,
       source: "web",
-      cwd: cwd.trim() || undefined,
-      protocol,
       extraEnv: normalizedExtraEnv,
       channelBindings,
     });
@@ -190,31 +186,7 @@ async function handleSubmit(event: SubmitEvent) {
             ></textarea>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="space-protocol">Protocol</label>
-              <select
-                id="space-protocol"
-                bind:value={protocol}
-                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-              >
-                <option value="pi">pi</option>
-                <option value="acp">acp</option>
-                <option value="internal">internal</option>
-              </select>
-            </div>
 
-            <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="space-cwd">Working Directory</label>
-              <input
-                id="space-cwd"
-                bind:value={cwd}
-                type="text"
-                placeholder="/space"
-                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
-              />
-            </div>
-          </div>
         </div>
 
         <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
