@@ -6,10 +6,8 @@ import {
   createSpaceFsDir,
   deleteSpaceFsNode,
   getSessionMessages,
-  getSpace,
   getSpaceFsFile,
   getSpaceFsTree,
-  getSpaceSessions,
   moveSpaceFsNode,
   postSessionMessage,
   putSpaceFsFile,
@@ -19,6 +17,7 @@ import {
   type SpaceFsFileResponse,
   type SpaceRecord,
 } from "$lib/api";
+import { spaceStore } from "$lib/stores/space-store.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFilePane from "$lib/components/SpaceFilePane.svelte";
@@ -102,14 +101,14 @@ async function loadSpacePage(force = false) {
   pageError = "";
   try {
     const [spaceData, sessionData] = await Promise.all([
-      getSpace(spaceId),
-      getSpaceSessions(spaceId),
+      spaceStore.ensureSpaceDetail(spaceId, { force }),
+      spaceStore.ensureSpaceSessions(spaceId, { force }),
     ]);
     space = spaceData;
-    sessions = sessionData.sessions ?? [];
+    sessions = sessionData;
     const nextSessionId = urlSessionId && sessions.some((session) => session.id === urlSessionId)
       ? urlSessionId
-      : sessionData.sessions?.[0]?.id ?? null;
+      : sessionData[0]?.id ?? null;
     activeSessionId = nextSessionId;
     if (force || fileTree.length === 0) {
       await loadFileTree(true);
@@ -158,6 +157,7 @@ async function handleSubmit() {
   if (!activeSession || sending || !input.trim()) return;
   sending = true;
   try {
+    // TODO: 恢复旧版完整的流式聊天体验：SSE、乐观更新、分页缓存、模型选择与附件支持。
     await postSessionMessage(activeSession.id, [{ type: "text", text: input.trim() }]);
     input = "";
     await loadMessages(activeSession.id);
@@ -233,7 +233,7 @@ async function saveOpenFile() {
   openFileSaving = true;
   openFileError = null;
   try {
-    await putSpaceFsFile(spaceId, { path: openFile.path, content: openFileDraft, encoding: openFile.encoding });
+    await putSpaceFsFile(spaceId, { path: openFile.path, content: openFileDraft, encoding: "utf-8" });
     openFile = { ...openFile, content: openFileDraft, size: new Blob([openFileDraft]).size };
     await loadFileTree(true);
   } catch (error) {
@@ -247,17 +247,25 @@ async function handleCreateFile(parentPath: string) {
   const name = prompt("New file name");
   if (!name?.trim()) return;
   const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-  await putSpaceFsFile(spaceId, { path, content: "", encoding: "utf-8" });
-  await loadFileTree(true);
-  await openSpaceFile(path);
+  try {
+    await putSpaceFsFile(spaceId, { path, content: "", encoding: "utf-8" });
+    await loadFileTree(true);
+    await openSpaceFile(path);
+  } catch (error) {
+    fileTreeError = error instanceof Error ? error.message : "Failed to create file";
+  }
 }
 
 async function handleCreateDir(parentPath: string) {
   const name = prompt("New folder name");
   if (!name?.trim()) return;
   const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-  await createSpaceFsDir(spaceId, path);
-  await loadFileTree(true);
+  try {
+    await createSpaceFsDir(spaceId, path);
+    await loadFileTree(true);
+  } catch (error) {
+    fileTreeError = error instanceof Error ? error.message : "Failed to create folder";
+  }
 }
 
 async function handleRenameNode(node: SpaceFsNode) {
@@ -265,19 +273,27 @@ async function handleRenameNode(node: SpaceFsNode) {
   if (!nextName?.trim() || nextName.trim() === node.name) return;
   const parent = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : "";
   const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
-  await moveSpaceFsNode(spaceId, { fromPath: node.path, toPath });
-  await loadFileTree(true);
-  if (openFile?.path === node.path) {
-    await openSpaceFile(toPath);
+  try {
+    await moveSpaceFsNode(spaceId, { fromPath: node.path, toPath });
+    await loadFileTree(true);
+    if (openFile?.path === node.path) {
+      await openSpaceFile(toPath);
+    }
+  } catch (error) {
+    fileTreeError = error instanceof Error ? error.message : "Failed to rename";
   }
 }
 
 async function handleDeleteNode(node: SpaceFsNode) {
   if (!confirm(`Delete ${node.name}?`)) return;
-  await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
-  await loadFileTree(true);
-  if (openFile?.path === node.path) {
-    closeFile();
+  try {
+    await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
+    await loadFileTree(true);
+    if (openFile?.path === node.path) {
+      closeFile();
+    }
+  } catch (error) {
+    fileTreeError = error instanceof Error ? error.message : "Failed to delete";
   }
 }
 

@@ -806,6 +806,7 @@ export const deleteSshKey = async (id: string) => {
 /**
  * Extract render state from ContentBlock[] for UI display.
  */
+/** @deprecated 当前前端主链路未使用，保留供后续恢复流式聊天能力。 */
 export function extractSessionRenderState(content: ContentBlock[]) {
   const thinkingBlocks = content.filter(
     (b): b is Extract<ContentBlock, { type: "thinking" }> => b.type === "thinking"
@@ -829,6 +830,7 @@ export function extractSessionRenderState(content: ContentBlock[]) {
   return { thinking, answer, toolCalls };
 }
 
+/** @deprecated 当前前端主链路未使用，保留供后续恢复流式聊天能力。 */
 export const streamSpaceEvents = async function* (
   spaceId: string,
   lastEventId?: string,
@@ -865,6 +867,7 @@ export const streamSpaceEvents = async function* (
   }
 };
 
+/** @deprecated 当前前端主链路未使用，保留供后续恢复流式聊天能力。 */
 export const streamSessionEvents = async function* (
   sessionId: string,
   lastEventId?: string,

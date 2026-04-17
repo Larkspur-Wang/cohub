@@ -20,8 +20,10 @@ function mergeSpaceList(existing: SpaceListItem[], incoming: SpaceListItem[]) {
     });
   }
   return Array.from(byId.values()).sort((a, b) => {
-    const aTime = new Date(a.updatedAt ?? a.createdAt).getTime();
-    const bTime = new Date(b.updatedAt ?? b.createdAt).getTime();
+    const aDate = a.updatedAt ?? a.createdAt;
+    const bDate = b.updatedAt ?? b.createdAt;
+    const aTime = aDate ? new Date(aDate).getTime() : 0;
+    const bTime = bDate ? new Date(bDate).getTime() : 0;
     return bTime - aTime;
   });
 }

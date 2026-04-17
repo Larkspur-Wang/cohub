@@ -1,6 +1,7 @@
 <script lang="ts">
+import { spaceStore } from "$lib/stores/space-store.svelte";
 import { FolderKanban, Plus, MessageSquare } from "lucide-svelte";
-import { getSpaces, type SpaceListItem } from "$lib/api";
+import type { SpaceListItem } from "$lib/api";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
 import PageHeader from "$lib/components/PageHeader.svelte";
@@ -14,7 +15,7 @@ async function loadSpaces() {
   isLoading = true;
   loadError = "";
   try {
-    spaces = await getSpaces();
+    spaces = await spaceStore.ensureSpaceList();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load spaces";
     if (message.includes("unauthorized") || message.includes("401")) {
