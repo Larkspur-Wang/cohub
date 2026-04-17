@@ -477,9 +477,9 @@ app.post("/api/spaces", async (c) => {
   void provisionSpaceInBackground({
     spaceId: space.id,
     userUuid: user.uuid,
-    workspaceRepoUrl: `ssh://git@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
-    workspaceGitUsername: gitAccount.giteaUsername,
-    workspaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
+    spaceRepoUrl: `ssh://git@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
+    spaceGitUsername: gitAccount.giteaUsername,
+    spaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
     extraEnv: normalizedExtraEnv,
   }).catch(console.error);
 
@@ -544,6 +544,18 @@ app.get("/api/spaces/:id/sessions", async (c) => {
   const isCollaborator = !isOwner && permissions.some((p) => p.resourceType === "space" && p.resourceId === spaceId && p.granteeUuid === user?.uuid);
   const visibleSessions = isOwner || isCollaborator ? sessions : (await Promise.all(sessions.map(async (s) => ((await canReadForSession(user, spaceId, s.id)) ? s : null)))).filter((s): s is NonNullable<typeof s> => Boolean(s));
   return c.json({ space: spaceRow, sessions: visibleSessions.map((session) => ({ ...session, shareLevel: sessionShareLevels.get(session.id) ?? null })) });
+});
+
+app.get("/api/sessions/:id", async (c) => {
+  const user = c.get("authUser");
+  const sessionId = c.req.param("id");
+  if (!requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!await canReadForSession(user, session.spaceId, session.id)) return c.json({ message: "not found" }, 404);
+  const space = await getSpaceById(session.spaceId);
+  if (!space) return c.json({ message: "session not found" }, 404);
+  return c.json({ space, session, user });
 });
 
 app.get("/api/spaces/:id/channels", async (c) => {

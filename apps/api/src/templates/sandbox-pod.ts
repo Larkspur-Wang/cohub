@@ -6,9 +6,10 @@ type SandboxPodTemplateVariables = {
   REDIS_URL: string;
   LITELLM_API_KEY?: string;
   ENV?: string;
-  WORKSPACE_REPO_URL?: string;
-  WORKSPACE_GIT_USERNAME?: string;
-  WORKSPACE_GIT_EMAIL?: string;
+  SPACE_REPO_URL?: string;
+  SPACE_GIT_USERNAME?: string;
+  SPACE_GIT_EMAIL?: string;
+  SPACE_STORAGE_PVC?: string;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -63,12 +64,12 @@ export const SANDBOX_POD_TEMPLATE = {
         },
         volumeMounts: [
           {
-            name: "workspace-storage",
+            name: "space-storage",
             mountPath: "/workspace",
             subPath: "cohub-${ENV}/${SPACE_ID}/workspace",
           },
           {
-            name: "workspace-storage",
+            name: "space-storage",
             mountPath: "/sessions",
             subPath: "cohub-${ENV}/${SPACE_ID}/sessions",
           },
@@ -85,9 +86,9 @@ export const SANDBOX_POD_TEMPLATE = {
     ],
     volumes: [
       {
-        name: "workspace-storage",
+        name: "space-storage",
         persistentVolumeClaim: {
-          claimName: "cohub-sessions-pvc",
+          claimName: "${SPACE_STORAGE_PVC}",
         },
       },
       {

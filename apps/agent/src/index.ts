@@ -89,7 +89,7 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
 }
 
 async function findSessionFileById(sessionId: string) {
-  const sessions = await SessionManager.list(env.WORKSPACE_DIR, env.SESSIONS_DIR).catch((error) => {
+  const sessions = await SessionManager.list(env.SPACE_DIR, env.SESSIONS_DIR).catch((error) => {
     console.error(`[Supervisor] Failed to list sessions for lookup ${sessionId}:`, error);
     return [];
   });
@@ -517,7 +517,7 @@ async function loadOrCreateSessionHandle(input: {
       sessionManager = SessionManager.open(rewrittenSessionFile, env.SESSIONS_DIR);
     } else {
       console.log(`[Supervisor] Creating new pi session ${input.sessionId}`);
-      sessionManager = SessionManager.create(env.WORKSPACE_DIR, env.SESSIONS_DIR);
+      sessionManager = SessionManager.create(env.SPACE_DIR, env.SESSIONS_DIR);
       sessionManager.newSession({ id: input.sessionId });
     }
   }
@@ -528,7 +528,7 @@ async function loadOrCreateSessionHandle(input: {
     : undefined;
 
   const { session } = await createAgentSession({
-    cwd: env.WORKSPACE_DIR,
+    cwd: env.SPACE_DIR,
     authStorage: input.authStorage,
     modelRegistry: input.modelRegistry,
     tools: input.tools,
@@ -565,13 +565,13 @@ async function loadOrCreateSessionHandle(input: {
 
 async function main() {
   console.log(`[Supervisor] Starting for Space: ${env.SPACE_ID}`);
-  console.log(`[Supervisor] Workspace: ${env.WORKSPACE_DIR}`);
-  console.log(`[Supervisor] Agent version: ${env.RUNTIME_VERSION || "unknown"}`);
+  console.log(`[Supervisor] Space directory: ${env.SPACE_DIR}`);
+  console.log(`[Supervisor] Agent version: ${env.AGENT_VERSION || "unknown"}`);
   console.log(`[Supervisor] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
     spaceId: env.SPACE_ID,
-    runtimeVersion: env.RUNTIME_VERSION || null,
+    runtimeVersion: env.AGENT_VERSION || null,
     publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
       env.ENV === "prod"
@@ -585,7 +585,7 @@ async function main() {
 
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
-  const tools = createCodingTools(env.WORKSPACE_DIR);
+  const tools = createCodingTools(env.SPACE_DIR);
 
   await reportSandboxStatus("ready");
   console.log("[Supervisor] Space is now ready and listening for input.");

@@ -71,10 +71,10 @@ export async function initializeContainer() {
   await reportSandboxStatus("provisioning");
 
   try {
-    await mkdir(env.WORKSPACE_DIR, { recursive: true });
-    console.log(`[Init] Workspace directory ready: ${env.WORKSPACE_DIR}`);
+    await mkdir(env.SPACE_DIR, { recursive: true });
+    console.log(`[Init] Space directory ready: ${env.SPACE_DIR}`);
   } catch (error) {
-    console.error("[Init] Failed to create workspace directory:", error);
+    console.error("[Init] Failed to create space directory:", error);
     throw error;
   }
 
@@ -102,33 +102,33 @@ export async function initializeContainer() {
     await rm(tempDir, { recursive: true, force: true });
   }
 
-  if (env.WORKSPACE_REPO_URL) {
+  if (env.SPACE_REPO_URL) {
     try {
-      const files = await readdir(env.WORKSPACE_DIR);
+      const files = await readdir(env.SPACE_DIR);
       // Filter out K8s PVC system artifacts
       const userFiles = files.filter((f) => f !== "lost+found");
 
       if (userFiles.length === 0) {
         // Only system artifacts like lost+found — safe to clear and clone
-        console.log("[Init] Workspace directory is empty (ignoring system files), cloning workspace repo...");
+        console.log("[Init] Space directory is empty (ignoring system files), cloning space repo...");
         for (const file of files) {
-          await rm(join(env.WORKSPACE_DIR, file), { recursive: true, force: true });
+          await rm(join(env.SPACE_DIR, file), { recursive: true, force: true });
         }
-        await runGitCommand(["clone", env.WORKSPACE_REPO_URL, env.WORKSPACE_DIR]);
+        await runGitCommand(["clone", env.SPACE_REPO_URL, env.SPACE_DIR]);
 
-        if (env.WORKSPACE_GIT_USERNAME) {
-          await runGitCommand(["config", "user.name", env.WORKSPACE_GIT_USERNAME], env.WORKSPACE_DIR);
+        if (env.SPACE_GIT_USERNAME) {
+          await runGitCommand(["config", "user.name", env.SPACE_GIT_USERNAME], env.SPACE_DIR);
         }
-        if (env.WORKSPACE_GIT_EMAIL) {
-          await runGitCommand(["config", "user.email", env.WORKSPACE_GIT_EMAIL], env.WORKSPACE_DIR);
+        if (env.SPACE_GIT_EMAIL) {
+          await runGitCommand(["config", "user.email", env.SPACE_GIT_EMAIL], env.SPACE_DIR);
         }
 
-        console.log("[Init] Workspace repo cloned and configured successfully.");
+        console.log("[Init] Space repo cloned and configured successfully.");
       } else {
-        console.log("[Init] Workspace directory has existing user files, skipping clone.");
+        console.log("[Init] Space directory has existing user files, skipping clone.");
       }
     } catch (error) {
-      console.error("[Init] Failed to clone workspace repo:", error);
+      console.error("[Init] Failed to clone space repo:", error);
       throw error;
     }
   }

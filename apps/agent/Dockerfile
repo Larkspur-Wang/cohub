@@ -46,7 +46,7 @@ FROM node:24-slim AS runtime
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
-ENV WORKSPACE_DIR=/workspace
+ENV SPACE_DIR=/workspace
 
 # 安装基础系统工具、Python 和常用命令行依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -89,7 +89,7 @@ WORKDIR /app
 COPY --from=builder /prod/agent ./
 
 # 设置沙盒运行时工作目录
-RUN mkdir -p "$WORKSPACE_DIR"
+RUN mkdir -p "$SPACE_DIR"
 
 # 启动
 CMD ["node", "dist/index.js"]

@@ -160,7 +160,7 @@ Checkpoint 1 : 1 Git Commit
 
 ```txt
 Save Checkpoint
-  -> commit current workspace state
+  -> commit current space state
   -> push to backing repo
   -> insert checkpoint record
 ```

@@ -20,7 +20,7 @@ export default defineConfig({
       manifest: {
         name: "Cohub",
         short_name: "Cohub",
-        description: "AI-powered workspace",
+        description: "AI-powered space collaboration",
         theme_color: "#FF3E00",
         background_color: "#1a1a1a",
         display: "standalone",
