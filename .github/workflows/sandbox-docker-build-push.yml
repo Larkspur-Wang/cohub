@@ -1,0 +1,85 @@
+name: Sandbox Docker Build and Push
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'apps/sandbox/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: git.talesofai.com
+  NAMESPACE: ${{ secrets.GITEA_OWNER }}
+  IMAGE_NAME: cohub-sandbox
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: apps/sandbox/go.sum
+
+      - name: Go fmt check
+        run: |
+          cd apps/sandbox
+          test -z "$(gofmt -l .)"
+
+      - name: Go vet
+        run: |
+          cd apps/sandbox
+          go vet ./...
+
+      - name: Go test
+        run: |
+          cd apps/sandbox
+          go test ./...
+
+      - name: Go build
+        run: |
+          cd apps/sandbox
+          go build ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.GITEA_USERNAME }}
+          password: ${{ secrets.GITEA_PAT }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch,suffix=-{{sha}}
+            type=sha,format=short
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/sandbox
+          file: ./apps/sandbox/Dockerfile
+          cache-from: type=gha,scope=sandbox-build
+          cache-to: type=gha,mode=min,scope=sandbox-build
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64

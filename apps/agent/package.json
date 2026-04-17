@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:sandbox-ws": "tsx watch src/sandbox/ws-server.ts",
     "build": "tsc",
     "lint": "biome lint src/",
     "lint:fix": "biome lint --write src/",
@@ -15,6 +16,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@cohub/agent-sandbox-protocol": "workspace:*",
     "@cohub/protocol": "workspace:*",
     "@mariozechner/pi-coding-agent": "0.64.0",
     "ioredis": "^5.3.2",

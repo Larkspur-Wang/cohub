@@ -27,6 +27,9 @@ importers:
 
   apps/agent:
     dependencies:
+      '@cohub/agent-sandbox-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-sandbox-protocol
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -305,6 +308,15 @@ importers:
       tsx:
         specifier: 4.19.2
         version: 4.19.2
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+
+  packages/agent-sandbox-protocol:
+    devDependencies:
+      '@typescript/native-preview':
+        specifier: ^7.0.0-dev
+        version: 7.0.0-dev.20260417.1
       typescript:
         specifier: ^6.0.2
         version: 6.0.2
