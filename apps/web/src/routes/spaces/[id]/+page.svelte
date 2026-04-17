@@ -1357,7 +1357,6 @@ onMount(() => {
         return;
       }
       sandboxProvisioning = false;
-      sandboxProvisioning = false;
       // Refresh space data now that sandbox is ready
       await loadSpace({ force: true });
     }
@@ -1390,12 +1389,6 @@ onMount(() => {
     broadcastChannel?.close();
     rightSidebarResizeCleanup?.();
   };
-});
-
-$effect(() => {
-  if (!space) return;
-  spaceStore.upsertSpace(space);
-  if (!space.userUuid || space.userUuid === "") return;
 });
 
 $effect(() => {
