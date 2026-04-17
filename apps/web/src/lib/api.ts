@@ -18,8 +18,8 @@ import type {
 } from "@cohub/protocol";
 export type { SessionStreamEvent, ChannelConfig, DiscordChannelConfig, ResourcePermissionLevel } from "@cohub/protocol";
 
-// Runtime FS types (moved to SpaceFs* in protocol; kept locally for web compat)
-export type RuntimeFsEntry = {
+// Space FS types (moved to SpaceFs* in protocol; kept locally for web compat)
+export type SpaceFsEntry = {
   name: string;
   path: string;
   type: "file" | "dir" | "symlink";
@@ -27,21 +27,21 @@ export type RuntimeFsEntry = {
   mimeType: string | null;
   mtimeMs: number;
 };
-export type RuntimeFsTreeResponse = { path: string; entries: RuntimeFsEntry[] };
-export type RuntimeFsFileKind = "text" | "binary";
-export type RuntimeFsEncoding = "utf-8" | "base64";
-export type RuntimeFsFileResponse = {
+export type SpaceFsTreeResponse = { path: string; entries: SpaceFsEntry[] };
+export type SpaceFsFileKind = "text" | "binary";
+export type SpaceFsEncoding = "utf-8" | "base64";
+export type SpaceFsFileResponse = {
   path: string;
   name: string;
   size: number;
   mimeType: string | null;
   mtimeMs: number;
-  kind: RuntimeFsFileKind;
-  encoding: RuntimeFsEncoding;
+  kind: SpaceFsFileKind;
+  encoding: SpaceFsEncoding;
   content: string;
 };
-export type RuntimeFsWriteFileInput = { path: string; content: string; encoding: RuntimeFsEncoding };
-export type RuntimeFsMoveInput = { fromPath: string; toPath: string };
+export type SpaceFsWriteFileInput = { path: string; content: string; encoding: SpaceFsEncoding };
+export type SpaceFsMoveInput = { fromPath: string; toPath: string };
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
 const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
@@ -69,16 +69,17 @@ export type SessionRecord = ProtocolSessionRecord & {
   shareLevel?: ResourcePermissionLevel | null;
 };
 
-/** Runtime record (mirrors the DB schema; protocol type was removed in v2) */
-export type RuntimeRecord = {
+/** Space record (mirrors the DB schema; protocol type was removed in v2) */
+export type SpaceRecord = {
   id: string;
   userUuid: string;
-  workspaceId: string | null;
-  workspaceCommitHash: string | null;
-  agentId: string | null;
-  agentCommitHash: string | null;
+  name: string | null;
+  description: string | null;
+  giteaRepoName?: string | null;
+  baseCheckpointId?: string | null;
   title: string | null;
   status: string | null;
+  sandboxStatus?: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -90,17 +91,17 @@ export type RuntimeRecord = {
   }[];
 };
 
-/** Web-extended runtime record with live status and channels */
-export type RuntimeListItem = RuntimeRecord;
+/** Web-extended space record with live status and channels */
+export type SpaceListItem = SpaceRecord;
 
 export type SessionMessagesResponse = {
-  runtime: RuntimeRecord;
+  space: SpaceRecord;
   session: SessionRecord;
   messages: MessageRecord[];
 };
 
 export type SessionMessagesPaginatedResponse = {
-  runtime: RuntimeRecord;
+  space: SpaceRecord;
   session: SessionRecord;
   messages: MessageRecord[];
   hasMore: boolean;
@@ -326,7 +327,7 @@ export const getWorkspaceFile = async (
 export const getSession = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/sessions/${id}`, {
     fetch: customFetch,
-  }) as Promise<{ runtime: RuntimeRecord; session: SessionRecord }>;
+  }) as Promise<{ space: SpaceRecord; session: SessionRecord }>;
 };
 
 export const getSessionMessages = async (id: string, customFetch?: Fetch) => {
@@ -421,7 +422,7 @@ export type Channel = {
   status: string;
   createdAt: string;
   updatedAt: string;
-  boundRuntime: {
+  boundSpace: {
     id: string;
     title: string | null;
     status: string;
@@ -538,70 +539,59 @@ export const createWorkspace = async (data: {
 };
 
 
-export type RuntimeCreateResponse = {
-  runtime: RuntimeRecord;
+export type SpaceCreateResponse = {
+  space: SpaceRecord;
   session: SessionRecord;
   ready: boolean;
 };
 
-export type RuntimeEnvInput = {
+export type SpaceEnvInput = {
   name: string;
   value: string;
 };
 
-export type RuntimeChannelBindingInput = {
+export type SpaceChannelBindingInput = {
   channelId: string;
   config?: ChannelConfig | null;
 };
 
-export type RuntimeChannelRecord = {
-  id: string;
-  runtimeId: string;
-  channelId: string;
-  config?: ChannelConfig | null;
-  createdAt: string;
-  channel?: Channel | null;
-};
-
-export type RuntimeSessionsResponse = {
-  runtime: RuntimeRecord;
+export type SpaceSessionsResponse = {
+  space: SpaceRecord;
   sessions: SessionRecord[];
 };
 
-export const createRuntime = async (input?: {
-  workspaceId?: string;
-  agentId?: string;
-  title?: string;
+export const createSpace = async (input?: {
+  name?: string;
+  description?: string;
   source?: string;
   cwd?: string;
   protocol?: "pi" | "acp" | "internal";
-  start?: boolean;
-  extraEnv?: RuntimeEnvInput[];
-  channelBindings?: RuntimeChannelBindingInput[];
+  extraEnv?: SpaceEnvInput[];
+  channelBindings?: SpaceChannelBindingInput[];
 }) => {
-  return apiFetch("/api/runtimes", {
+  return apiFetch("/api/spaces", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input ?? {}),
-  }) as Promise<RuntimeCreateResponse>;
+  }) as Promise<SpaceCreateResponse>;
 };
 
-export const getRuntimes = async (customFetch?: Fetch) => {
-  return apiFetch("/api/runtimes", {
+export const getSpaces = async (customFetch?: Fetch) => {
+  return apiFetch("/api/spaces", {
     method: "GET",
     fetch: customFetch,
-  }) as Promise<RuntimeRecord[]>;
+  }) as Promise<SpaceRecord[]>;
 };
 
-export const getRuntime = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/runtimes/${id}`, {
+export const getSpace = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/spaces/${id}`, {
     fetch: customFetch,
-  }) as Promise<RuntimeRecord>;
+  }) as Promise<SpaceRecord>;
 };
 
-export const createRuntimeSession = async (
+export const createSpaceSession = async (
   id: string,
   input?: {
     title?: string;
@@ -610,7 +600,7 @@ export const createRuntimeSession = async (
     protocol?: "pi" | "acp" | "internal";
   },
 ) => {
-  return apiFetch(`/api/runtimes/${id}/sessions`, {
+  return apiFetch(`/api/spaces/${id}/sessions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -619,55 +609,49 @@ export const createRuntimeSession = async (
   }) as Promise<{ ok: true; session: SessionRecord }>;
 };
 
-export const getRuntimeSessions = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/runtimes/${id}/sessions`, {
+export const getSpaceSessions = async (id: string, customFetch?: Fetch) => {
+  return apiFetch(`/api/spaces/${id}/sessions`, {
     fetch: customFetch,
-  }) as Promise<RuntimeSessionsResponse>;
+  }) as Promise<SpaceSessionsResponse>;
 };
 
-export const getRuntimeChannels = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/runtimes/${id}/channels`, {
-    fetch: customFetch,
-  }) as Promise<RuntimeChannelRecord[]>;
-};
-
-export const getRuntimeFsTree = async (
-  runtimeId: string,
+export const getSpaceFsTree = async (
+  spaceId: string,
   path = "",
   customFetch?: Fetch,
 ) => {
   const params = new URLSearchParams();
   if (path) params.set("path", path);
   const query = params.toString();
-  return apiFetch(`/api/runtimes/${runtimeId}/fs/tree${query ? `?${query}` : ""}`, {
+  return apiFetch(`/api/spaces/${spaceId}/fs/tree${query ? `?${query}` : ""}`, {
     fetch: customFetch,
-  }) as Promise<RuntimeFsTreeResponse>;
+  }) as Promise<SpaceFsTreeResponse>;
 };
 
-export const getRuntimeFsFile = async (
-  runtimeId: string,
+export const getSpaceFsFile = async (
+  spaceId: string,
   path: string,
   customFetch?: Fetch,
 ) => {
   const params = new URLSearchParams({ path });
-  return apiFetch(`/api/runtimes/${runtimeId}/fs/file?${params.toString()}`, {
+  return apiFetch(`/api/spaces/${spaceId}/fs/file?${params.toString()}`, {
     fetch: customFetch,
-  }) as Promise<RuntimeFsFileResponse>;
+  }) as Promise<SpaceFsFileResponse>;
 };
 
-export const getRuntimeFsDownloadUrl = (
-  runtimeId: string,
+export const getSpaceFsDownloadUrl = (
+  spaceId: string,
   path: string,
 ): string => {
   const params = new URLSearchParams({ path });
-  return `/api/runtimes/${runtimeId}/fs/download?${params.toString()}`;
+  return `/api/spaces/${spaceId}/fs/download?${params.toString()}`;
 };
 
-export const triggerRuntimeFsDownload = (
-  runtimeId: string,
+export const triggerSpaceFsDownload = (
+  spaceId: string,
   path: string,
 ) => {
-  const url = getRuntimeFsDownloadUrl(runtimeId, path);
+  const url = getSpaceFsDownloadUrl(spaceId, path);
   const a = document.createElement("a");
   a.href = url;
   a.download = path.split("/").pop() ?? "download";
@@ -676,59 +660,46 @@ export const triggerRuntimeFsDownload = (
   document.body.removeChild(a);
 };
 
-export const putRuntimeFsFile = async (
-  runtimeId: string,
-  input: RuntimeFsWriteFileInput,
+export const putSpaceFsFile = async (
+  spaceId: string,
+  input: SpaceFsWriteFileInput,
 ) => {
-  return apiFetch(`/api/runtimes/${runtimeId}/fs/file`, {
+  return apiFetch(`/api/spaces/${spaceId}/fs/file`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   }) as Promise<{ ok: true; path: string; size: number; mtimeMs: number }>;
 };
 
-export const createRuntimeFsDir = async (runtimeId: string, path: string) => {
-  return apiFetch(`/api/runtimes/${runtimeId}/fs/dir`, {
+export const createSpaceFsDir = async (spaceId: string, path: string) => {
+  return apiFetch(`/api/spaces/${spaceId}/fs/dir`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
   }) as Promise<{ ok: true; path: string; size: number; mtimeMs: number }>;
 };
 
-export const deleteRuntimeFsNode = async (
-  runtimeId: string,
+export const deleteSpaceFsNode = async (
+  spaceId: string,
   path: string,
   recursive = false,
 ) => {
   const params = new URLSearchParams({ path });
   if (recursive) params.set("recursive", "true");
-  return apiFetch(`/api/runtimes/${runtimeId}/fs/node?${params.toString()}`, {
+  return apiFetch(`/api/spaces/${spaceId}/fs/node?${params.toString()}`, {
     method: "DELETE",
   }) as Promise<{ ok: true; path: string }>;
 };
 
-export const moveRuntimeFsNode = async (
-  runtimeId: string,
-  input: RuntimeFsMoveInput,
+export const moveSpaceFsNode = async (
+  spaceId: string,
+  input: SpaceFsMoveInput,
 ) => {
-  return apiFetch(`/api/runtimes/${runtimeId}/fs/move`, {
+  return apiFetch(`/api/spaces/${spaceId}/fs/move`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   }) as Promise<{ ok: true; fromPath: string; toPath: string }>;
-};
-
-export const updateRuntimeChannelConfig = async (
-  id: string,
-  input: { config: ChannelConfig | null },
-) => {
-  return apiFetch(`/api/runtime-channels/${id}/config`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  }) as Promise<RuntimeChannelRecord>;
 };
 
 export type PublicWorkspacesResponse = {
@@ -797,25 +768,7 @@ export const deleteWorkspace = async (id: string) => {
   }) as Promise<null>;
 };
 
-export const hibernateRuntime = async (id: string) => {
-  return apiFetch(`/api/runtimes/${id}/hibernate`, {
-    method: "POST",
-  }) as Promise<{ runtime: RuntimeRecord }>;
-};
-
-export const wakeRuntime = async (id: string) => {
-  return apiFetch(`/api/runtimes/${id}/wake`, {
-    method: "POST",
-  }) as Promise<{ runtime: RuntimeRecord }>;
-};
-
-export const deleteRuntime = async (id: string) => {
-  return apiFetch(`/api/runtimes/${id}`, {
-    method: "DELETE",
-  }) as Promise<{ success: boolean }>;
-};
-
-// ─── SSH Key Management ──────────────────────────────
+// ─── Fork Workspace ──────────────────────────────
 
 export type UserSshKey = {
   id: string;
@@ -848,79 +801,6 @@ export const deleteSshKey = async (id: string) => {
   }) as Promise<{ ok: true }>;
 };
 
-// ─── Permission Management ──────────────────────────────
-
-export type ResourcePermission = {
-  id: string;
-  resourceType: "runtime" | "session";
-  resourceId: string;
-  granteeUuid: string | null;
-  level: ResourcePermissionLevel;
-  createdBy: string;
-  createdAt: string;
-};
-
-export const createRuntimePermission = async (
-  runtimeId: string,
-  level: ResourcePermissionLevel,
-) =>
-  apiFetch(`/api/runtimes/${runtimeId}/permissions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ level }),
-  }) as Promise<ResourcePermission>;
-
-export const deleteRuntimePermission = async (runtimeId: string) =>
-  apiFetch(`/api/runtimes/${runtimeId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
-
-export const listRuntimePermissions = async (runtimeId: string) =>
-  apiFetch(`/api/runtimes/${runtimeId}/permissions`) as Promise<ResourcePermission[]>;
-
-export const createSessionPermission = async (
-  sessionId: string,
-  level: ResourcePermissionLevel,
-) =>
-  apiFetch(`/api/sessions/${sessionId}/permissions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ level }),
-  }) as Promise<ResourcePermission>;
-
-export const deleteSessionPermission = async (sessionId: string) =>
-  apiFetch(`/api/sessions/${sessionId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
-
-// ─── Collaborator Management ──────────────────────────────
-
-export const addRuntimeCollaborator = async (
-  runtimeId: string,
-  granteeUuid: string,
-  level: ResourcePermissionLevel,
-) =>
-  apiFetch(`/api/runtimes/${runtimeId}/collaborators`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ granteeUuid, level }),
-  }) as Promise<ResourcePermission>;
-
-export const listRuntimeCollaborators = async (runtimeId: string) =>
-  apiFetch(`/api/runtimes/${runtimeId}/collaborators`) as Promise<ResourcePermission[]>;
-
-export const updateRuntimeCollaborator = async (
-  runtimeId: string,
-  granteeUuid: string,
-  level: ResourcePermissionLevel,
-) =>
-  apiFetch(`/api/runtimes/${runtimeId}/collaborators/${granteeUuid}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ level }),
-  }) as Promise<ResourcePermission>;
-
-export const removeRuntimeCollaborator = async (runtimeId: string, granteeUuid: string) =>
-  apiFetch(`/api/runtimes/${runtimeId}/collaborators/${granteeUuid}`, {
-    method: "DELETE",
-  }) as Promise<{ ok: true }>;
-
 // ─── SSE Streaming ──────────────────────────────
 
 /**
@@ -949,14 +829,14 @@ export function extractSessionRenderState(content: ContentBlock[]) {
   return { thinking, answer, toolCalls };
 }
 
-export const streamRuntimeEvents = async function* (
-  runtimeId: string,
+export const streamSpaceEvents = async function* (
+  spaceId: string,
   lastEventId?: string,
   signal?: AbortSignal,
 ): AsyncGenerator<SessionStreamEnvelope> {
   const url = API_BASE_URL
-    ? `${API_BASE_URL}/api/runtimes/${runtimeId}/stream`
-    : `/api/runtimes/${runtimeId}/stream`;
+    ? `${API_BASE_URL}/api/spaces/${spaceId}/stream`
+    : `/api/spaces/${spaceId}/stream`;
 
   const headers = new Headers();
   const token = await getAuthToken();
@@ -1033,7 +913,7 @@ export type CronJobRecord = {
   timezone: string;
   bullJobKey: string;
   workspaceId: string | null;
-  runtimeId: string | null;
+  spaceId: string | null;
   sessionId: string | null;
   enabled: boolean;
   createdAt: string;
@@ -1051,7 +931,7 @@ export type TaskRunRecord = {
   errorMessage: string | null;
   attemptCount: number;
   workspaceId: string | null;
-  runtimeId: string | null;
+  spaceId: string | null;
   sessionId: string | null;
   userUuid: string | null;
   scheduledAt: string | null;
@@ -1068,7 +948,7 @@ export type CreateCronJobInput = {
   cronExpression: string;
   timezone?: string;
   workspaceId?: string;
-  runtimeId?: string;
+  spaceId?: string;
   sessionId?: string;
 };
 
@@ -1104,7 +984,7 @@ export type CreateScheduledTaskInput = {
   taskType: string;
   payload: Record<string, unknown>;
   scheduleAt: string;
-  runtimeId?: string;
+  spaceId?: string;
   sessionId?: string;
   workspaceId?: string;
 };
@@ -1119,12 +999,12 @@ export const createScheduledTask = async (data: CreateScheduledTaskInput) => {
 
 export const getTaskRuns = async (filters?: {
   cronJobId?: string;
-  runtimeId?: string;
+  spaceId?: string;
   workspaceId?: string;
 }) => {
   const params = new URLSearchParams();
   if (filters?.cronJobId) params.set("cronJobId", filters.cronJobId);
-  if (filters?.runtimeId) params.set("runtimeId", filters.runtimeId);
+  if (filters?.spaceId) params.set("spaceId", filters.spaceId);
   if (filters?.workspaceId) params.set("workspaceId", filters.workspaceId);
   const query = params.toString();
   return apiFetch(`/api/tasks/runs${query ? `?${query}` : ""}`) as Promise<{ runs: TaskRunRecord[] }>;

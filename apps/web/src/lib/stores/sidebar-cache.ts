@@ -1,4 +1,4 @@
-import type { RuntimeListItem, SessionRecord } from "$lib/api";
+import type { SpaceListItem, SessionRecord } from "$lib/api";
 
 const STORAGE_KEY = "cohub:sidebar_cache";
 const CACHE_VERSION = 1;
@@ -9,16 +9,16 @@ const MAX_RUNTIME_ENTRIES = 50;
 interface SidebarCacheData {
   userUuid: string | null;
   version: number;
-  runtimes: RuntimeListItem[] | null;
-  sessionsByRuntime: Record<string, SessionRecord[]>;
+  spaces: SpaceListItem[] | null;
+  sessionsBySpace: Record<string, SessionRecord[]>;
 }
 
 class SidebarCache {
   private data: SidebarCacheData = {
     userUuid: null,
     version: CACHE_VERSION,
-    runtimes: null,
-    sessionsByRuntime: {},
+    spaces: null,
+    sessionsBySpace: {},
   };
 
   constructor() {
@@ -55,8 +55,8 @@ class SidebarCache {
       this.data = {
         userUuid: uuid,
         version: CACHE_VERSION,
-        runtimes: null,
-        sessionsByRuntime: {},
+        spaces: null,
+        sessionsBySpace: {},
       };
       this.persist();
       return;
@@ -67,21 +67,21 @@ class SidebarCache {
     }
   }
 
-  getRuntimes(): RuntimeListItem[] | null {
-    return this.data.runtimes;
+  getSpaces(): SpaceListItem[] | null {
+    return this.data.spaces;
   }
 
-  setRuntimes(data: RuntimeListItem[]) {
-    this.data.runtimes = data;
+  setSpaces(data: SpaceListItem[]) {
+    this.data.spaces = data;
     this.persist();
   }
 
-  getSessions(runtimeId: string): SessionRecord[] | null {
-    return this.data.sessionsByRuntime[runtimeId] ?? null;
+  getSessions(spaceId: string): SessionRecord[] | null {
+    return this.data.sessionsBySpace[spaceId] ?? null;
   }
 
-  setSessions(runtimeId: string, sessions: SessionRecord[]) {
-    this.data.sessionsByRuntime[runtimeId] = sessions;
+  setSessions(spaceId: string, sessions: SessionRecord[]) {
+    this.data.sessionsBySpace[spaceId] = sessions;
     this.trim();
     this.persist();
   }
@@ -90,8 +90,8 @@ class SidebarCache {
     this.data = {
       userUuid: null,
       version: CACHE_VERSION,
-      runtimes: null,
-      sessionsByRuntime: {},
+      spaces: null,
+      sessionsBySpace: {},
     };
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -100,12 +100,12 @@ class SidebarCache {
 
   /** Evict oldest entries when exceeding the limit */
   private trim() {
-    const keys = Object.keys(this.data.sessionsByRuntime);
+    const keys = Object.keys(this.data.sessionsBySpace);
     if (keys.length <= MAX_RUNTIME_ENTRIES) return;
     // Keep the most recently set entries (last N keys in insertion order)
     const toRemove = keys.slice(0, keys.length - MAX_RUNTIME_ENTRIES);
     for (const key of toRemove) {
-      delete this.data.sessionsByRuntime[key];
+      delete this.data.sessionsBySpace[key];
     }
     this.persist();
   }

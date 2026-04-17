@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { RuntimeFsNode } from "$lib/runtime-fs";
+import type { SpaceFsNode } from "$lib/space-fs";
 import { File, Folder, FolderOpen, Plus, FolderPlus, Pencil, Trash2 } from "lucide-svelte";
 import FsTreeItem from "./FsTreeItem.svelte";
 
@@ -15,15 +15,15 @@ const {
   onDelete,
   canWrite = true,
 }: {
-  node: RuntimeFsNode;
+  node: SpaceFsNode;
   depth: number;
   selectedPath: string;
-  onToggle: (node: RuntimeFsNode) => void;
-  onSelect: (node: RuntimeFsNode) => void;
+  onToggle: (node: SpaceFsNode) => void;
+  onSelect: (node: SpaceFsNode) => void;
   onCreateFile: (parentPath: string) => void;
   onCreateDir: (parentPath: string) => void;
-  onRename: (node: RuntimeFsNode) => void;
-  onDelete: (node: RuntimeFsNode) => void;
+  onRename: (node: SpaceFsNode) => void;
+  onDelete: (node: SpaceFsNode) => void;
   canWrite?: boolean;
 } = $props();
 
@@ -118,11 +118,26 @@ function stop(handler: () => void) {
     background: transparent;
     color: var(--text-secondary);
     border-radius: 6px;
-    text-align: left;
+    cursor: pointer;
   }
-  .tree-item:hover { background: var(--bg-hover); }
-  .tree-item.selected { background: var(--bg-hover-strong); color: var(--text-primary); }
-  .icon { color: var(--text-tertiary); }
+
+  .tree-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .tree-item.selected {
+    background: var(--bg-hover-strong);
+    color: var(--text-primary);
+  }
+
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+  }
+
   .name {
     min-width: 0;
     flex: 1;
@@ -131,23 +146,44 @@ function stop(handler: () => void) {
     white-space: nowrap;
     font-size: 12px;
   }
-  .loading { font-size: 11px; color: var(--text-tertiary); }
+
+  .loading {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
   .actions {
-    display: none;
+    display: inline-flex;
     align-items: center;
     gap: 2px;
-    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 120ms ease;
   }
-  .tree-item:hover .actions { display: inline-flex; }
+
+  .tree-item:hover .actions,
+  .tree-item.selected .actions {
+    opacity: 1;
+  }
+
   .action {
+    width: 22px;
+    height: 22px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
     color: var(--text-tertiary);
+    cursor: pointer;
   }
-  .action:hover { background: var(--panel-soft); color: var(--text-primary); }
-  .action.danger:hover { color: var(--error-soft); }
+
+  .action:hover {
+    background: var(--bg-hover-strong);
+    color: var(--text-primary);
+  }
+
+  .action.danger:hover {
+    color: var(--error-soft);
+  }
 </style>

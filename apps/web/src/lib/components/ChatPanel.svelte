@@ -8,7 +8,7 @@ let draft = $state("");
 const messages = $state<ChatBubble[]>([
   {
     role: "system",
-    content: "Runtime chat preview placeholder.",
+    content: "Space chat preview placeholder.",
   },
 ]);
 
@@ -25,7 +25,7 @@ const submit = () => {
 
 <section class="chat-panel">
   <header class="chat-header">
-    <strong>Workspace Chat</strong>
+    <strong>Space Chat</strong>
     <span class="badge">Placeholder</span>
   </header>
 

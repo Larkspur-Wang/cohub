@@ -28,7 +28,7 @@ export type Workspace = {
   description: string;
 };
 
-export type RuntimeSummary = {
+export type SpaceSummary = {
   id: string;
   workspaceId: string;
   status: string;

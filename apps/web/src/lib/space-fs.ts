@@ -1,4 +1,4 @@
-export type RuntimeFsEntry = {
+export type SpaceFsEntry = {
   name: string;
   path: string;
   type: "file" | "dir" | "symlink";
@@ -7,8 +7,8 @@ export type RuntimeFsEntry = {
   mtimeMs: number;
 };
 
-export type RuntimeFsNode = RuntimeFsEntry & {
-  children: RuntimeFsNode[];
+export type SpaceFsNode = SpaceFsEntry & {
+  children: SpaceFsNode[];
   isOpen: boolean;
   isLoaded: boolean;
   isLoading: boolean;
