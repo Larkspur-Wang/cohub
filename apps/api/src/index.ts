@@ -474,7 +474,7 @@ app.post("/api/spaces", async (c) => {
   void provisionSpaceInBackground({
     spaceId: space.id,
     userUuid: user.uuid,
-    spaceRepoUrl: `ssh://git@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
+    spaceRepoUrl: `ssh://git@git.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
     spaceGitUsername: gitAccount.giteaUsername,
     spaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
     extraEnv: normalizedExtraEnv,
