@@ -49,8 +49,8 @@ import {
   SandboxNotReadyError,
 } from "./space-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccounts } from "./db/schema-v2.js";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccounts, cronJobs, taskRuns } from "./db/schema-v2.js";
+import { eq, and, inArray, desc, isNull } from "drizzle-orm";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
 import { getSpaceSandboxBySpaceId } from "./space-sandboxes.js";
@@ -58,6 +58,7 @@ import type { GatewayInboundEvent, TaskScheduleConfig } from "@cohub/protocol";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
 import { handleInboundEvent } from "./channels.js";
 import * as cronParser from "cron-parser";
+import { createCronJob, disableCronJob, enableCronJob, enqueueTask, removeCronJob, SUPPORTED_TASK_TYPES } from "./tasks.js";
 const { CronExpressionParser } = cronParser;
 
 const buildSpaceListItem = async (space: typeof spaces.$inferSelect) => {
@@ -803,6 +804,255 @@ app.post("/internal/spaces/:spaceId/sessions/:sessionId/prompt", async (c) => {
     throw error;
   }
   return c.json({ ok: true, userMessageId });
+});
+
+app.post("/api/cron-jobs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = await c.req.json<{
+    title: string;
+    taskType: string;
+    payload: Record<string, unknown>;
+    cronExpression: string;
+    timezone?: string;
+    spaceId?: string;
+    sessionId?: string;
+  }>().catch(() => null);
+
+  if (!body?.title?.trim()) return c.json({ message: "title is required" }, 400);
+  if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
+  if (!SUPPORTED_TASK_TYPES.has(body.taskType)) return c.json({ message: "unsupported taskType" }, 400);
+  if (!body?.cronExpression) return c.json({ message: "cronExpression is required" }, 400);
+  if (body.spaceId && !requireValidId(body.spaceId)) return c.json({ message: "invalid spaceId" }, 400);
+  if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
+
+  let effectiveSpaceId = body.spaceId ?? null;
+  if (body.sessionId) {
+    const session = await getSpaceSessionById(body.sessionId);
+    if (!session) return c.json({ message: "session not found" }, 404);
+    effectiveSpaceId = effectiveSpaceId ?? session.spaceId;
+    if (session.spaceId !== effectiveSpaceId) return c.json({ message: "session does not belong to space" }, 400);
+  }
+  if (effectiveSpaceId && !(await canWrite(user, effectiveSpaceId))) return c.json({ message: "not found" }, 404);
+
+  try {
+    const interval = CronExpressionParser.parse(body.cronExpression, {
+      tz: body.timezone ?? "Asia/Shanghai",
+    });
+    const nextRun = interval.next().toDate();
+    const secondRun = interval.next().toDate();
+    const intervalMs = secondRun.getTime() - nextRun.getTime();
+    if (intervalMs < 60_000) {
+      return c.json({ message: "cron interval must be at least 1 minute" }, 400);
+    }
+  } catch (parseError) {
+    return c.json({ message: `invalid cron expression: ${parseError instanceof Error ? parseError.message : String(parseError)}` }, 400);
+  }
+
+  const schedule: TaskScheduleConfig = {
+    pattern: body.cronExpression,
+    timezone: body.timezone,
+  };
+
+  try {
+    const cronJob = await createCronJob({
+      userId: user.uuid,
+      title: body.title.trim(),
+      taskType: body.taskType,
+      payload: body.payload ?? {},
+      schedule,
+      spaceId: effectiveSpaceId,
+      sessionId: body.sessionId ?? null,
+    });
+
+    return c.json(cronJob);
+  } catch (error) {
+    console.error("[CronJobs] Failed to create cron job:", error);
+    return c.json({ message: "cron job was created, but scheduling failed; please check the job status and retry later" }, 500);
+  }
+});
+
+app.get("/api/cron-jobs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const jobs = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .orderBy(desc(cronJobs.createdAt));
+
+  return c.json({ jobs });
+});
+
+app.get("/api/cron-jobs/:id/runs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.param("id");
+  if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
+
+  const [job] = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .limit(1);
+  if (!job) return c.json({ message: "not found" }, 404);
+
+  const runs = await db
+    .select()
+    .from(taskRuns)
+    .where(eq(taskRuns.cronJobId, cronJobId))
+    .orderBy(desc(taskRuns.createdAt))
+    .limit(50);
+
+  return c.json({ runs });
+});
+
+app.delete("/api/cron-jobs/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.param("id");
+  if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
+
+  const [job] = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .limit(1);
+  if (!job) return c.json({ message: "not found" }, 404);
+
+  await removeCronJob(cronJobId, job.bullJobKey);
+  return c.json({ ok: true });
+});
+
+app.patch("/api/cron-jobs/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.param("id");
+  if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
+
+  const [job] = await db
+    .select()
+    .from(cronJobs)
+    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .limit(1);
+  if (!job) return c.json({ message: "not found" }, 404);
+
+  const body = await c.req.json<{ enabled?: boolean }>().catch(() => null);
+  if (body?.enabled === undefined) return c.json({ message: "enabled is required" }, 400);
+
+  if (body.enabled && !job.enabled) {
+    await enableCronJob(cronJobId, job.bullJobKey, {
+      taskType: job.taskType,
+      payload: job.payload as Record<string, unknown>,
+      cronExpression: job.cronExpression,
+      timezone: job.timezone,
+      userUuid: job.userUuid,
+      spaceId: job.spaceId,
+      sessionId: job.sessionId,
+    });
+  } else if (!body.enabled && job.enabled) {
+    await disableCronJob(cronJobId, job.bullJobKey);
+  }
+
+  return c.json({ ok: true });
+});
+
+app.post("/api/tasks", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = await c.req.json<{
+    taskType: string;
+    payload: Record<string, unknown>;
+    scheduleAt: string;
+    spaceId?: string;
+    sessionId?: string;
+  }>().catch(() => null);
+
+  if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
+  if (!SUPPORTED_TASK_TYPES.has(body.taskType)) return c.json({ message: "unsupported taskType" }, 400);
+  if (!body?.scheduleAt) return c.json({ message: "scheduleAt is required" }, 400);
+  if (body.spaceId && !requireValidId(body.spaceId)) return c.json({ message: "invalid spaceId" }, 400);
+  if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
+
+  let effectiveSpaceId = body.spaceId ?? null;
+  if (body.sessionId) {
+    const session = await getSpaceSessionById(body.sessionId);
+    if (!session) return c.json({ message: "session not found" }, 404);
+    effectiveSpaceId = effectiveSpaceId ?? session.spaceId;
+    if (session.spaceId !== effectiveSpaceId) return c.json({ message: "session does not belong to space" }, 400);
+  }
+  if (effectiveSpaceId && !(await canWrite(user, effectiveSpaceId))) return c.json({ message: "not found" }, 404);
+
+  const scheduledTime = new Date(body.scheduleAt);
+  if (Number.isNaN(scheduledTime.getTime())) {
+    return c.json({ message: "invalid scheduleAt, must be a valid ISO 8601 datetime" }, 400);
+  }
+
+  const delay = scheduledTime.getTime() - Date.now();
+  if (delay < 0) {
+    return c.json({ message: "scheduleAt must be in the future" }, 400);
+  }
+
+  try {
+    const job = await enqueueTask({
+      type: body.taskType,
+      spaceId: effectiveSpaceId ?? undefined,
+      sessionId: body.sessionId ?? undefined,
+      userId: user.uuid,
+      data: body.payload ?? {},
+    }, { delay, scheduledAt: scheduledTime });
+
+    const jobId = job.id;
+    if (!jobId) throw new Error("Failed to get job id");
+
+    return c.json({ ok: true, jobId, scheduledAt: scheduledTime.toISOString() });
+  } catch (error) {
+    console.error("[Tasks] Failed to schedule task:", error);
+    return c.json({
+      message: "failed to schedule task",
+    }, 500);
+  }
+});
+
+app.get("/api/tasks/runs", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const cronJobId = c.req.query("cronJobId");
+  const spaceId = c.req.query("spaceId");
+
+  const conditions = [eq(taskRuns.userUuid, user.uuid)];
+  if (cronJobId && requireValidId(cronJobId)) conditions.push(eq(taskRuns.cronJobId, cronJobId));
+  if (spaceId && requireValidId(spaceId)) conditions.push(eq(taskRuns.spaceId, spaceId));
+
+  const runs = await db
+    .select()
+    .from(taskRuns)
+    .where(and(...conditions))
+    .orderBy(desc(taskRuns.createdAt))
+    .limit(50);
+
+  return c.json({ runs });
 });
 
 app.onError((error, c) => {

@@ -11,7 +11,12 @@ const connection = { url: config.bullmqRedisUrl };
 
 export const taskQueue = new Queue(QUEUE_NAME, { connection });
 
-export const enqueueTask = async (payload: TaskPayload, opts?: JobsOptions) => {
+export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message"]);
+
+export const enqueueTask = async (
+  payload: TaskPayload,
+  opts?: JobsOptions & { scheduledAt?: Date | null },
+) => {
   const job = await taskQueue.add(payload.type, payload, opts);
 
   const jobId = job.id;
@@ -26,7 +31,7 @@ export const enqueueTask = async (payload: TaskPayload, opts?: JobsOptions) => {
     cronJobId: payload.cronJobId ?? null,
     status: "pending",
     payload,
-    scheduledAt: opts?.delay ? new Date(Date.now() + opts.delay) : null,
+    scheduledAt: opts?.scheduledAt ?? (opts?.delay ? new Date(Date.now() + opts.delay) : null),
   });
 
   return job;
@@ -88,6 +93,15 @@ export const createCronJob = async (params: {
       .update(cronJobs)
       .set({ bullJobKey: repeatJobKey })
       .where(eq(cronJobs.id, cronJob.id));
+
+    const [createdJob] = await db
+      .select()
+      .from(cronJobs)
+      .where(eq(cronJobs.id, cronJob.id))
+      .limit(1);
+    if (!createdJob) throw new Error("Failed to load cron job record after scheduling");
+
+    return createdJob;
   } catch (queueError) {
     await db
       .update(cronJobs)
@@ -98,19 +112,29 @@ export const createCronJob = async (params: {
       `Cron job record created but failed to schedule in queue: ${queueError instanceof Error ? queueError.message : String(queueError)}`,
     );
   }
-
-  return cronJob;
 };
 
 export const removeCronJob = async (cronJobId: string, bullJobKey: string) => {
-  await taskQueue.removeRepeatableByKey(bullJobKey);
+  if (bullJobKey) {
+    await taskQueue.removeRepeatableByKey(bullJobKey);
+  }
   await db
     .update(cronJobs)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(cronJobs.id, cronJobId));
 };
 
-export const enableCronJob = async (cronJobId: string, _bullJobKey: string, jobData: {
+export const disableCronJob = async (cronJobId: string, bullJobKey: string) => {
+  if (bullJobKey) {
+    await taskQueue.removeRepeatableByKey(bullJobKey);
+  }
+  await db
+    .update(cronJobs)
+    .set({ enabled: false, updatedAt: new Date() })
+    .where(eq(cronJobs.id, cronJobId));
+};
+
+export const enableCronJob = async (cronJobId: string, bullJobKey: string, jobData: {
   taskType: string;
   payload: Record<string, unknown>;
   cronExpression: string;
@@ -119,6 +143,10 @@ export const enableCronJob = async (cronJobId: string, _bullJobKey: string, jobD
   spaceId?: string | null;
   sessionId?: string | null;
 }) => {
+  if (bullJobKey) {
+    await taskQueue.removeRepeatableByKey(bullJobKey).catch(() => undefined);
+  }
+
   const taskPayload: TaskPayload = {
     type: jobData.taskType,
     spaceId: jobData.spaceId ?? undefined,
@@ -148,4 +176,13 @@ export const enableCronJob = async (cronJobId: string, _bullJobKey: string, jobD
     .update(cronJobs)
     .set({ enabled: true, bullJobKey: repeatJobKey, updatedAt: new Date() })
     .where(eq(cronJobs.id, cronJobId));
+
+  const [enabledJob] = await db
+    .select()
+    .from(cronJobs)
+    .where(eq(cronJobs.id, cronJobId))
+    .limit(1);
+  if (!enabledJob) throw new Error("Failed to load enabled cron job");
+
+  return enabledJob;
 };
