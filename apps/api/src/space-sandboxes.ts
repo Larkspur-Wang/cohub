@@ -96,7 +96,7 @@ export const provisionSpaceInBackground = async (input: {
   const podName = `sandbox-${input.spaceId}`;
 
   try {
-    await updateSpaceSandbox({
+    await ensureSpaceSandbox({
       spaceId: input.spaceId,
       status: "provisioning",
       podName,
