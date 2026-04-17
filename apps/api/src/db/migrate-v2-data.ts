@@ -87,39 +87,62 @@ async function migrateV2Data() {
 
     console.log("[V2 Data Migration] Migrating runtimes as spaces...");
     await sql`
+      WITH runtime_candidates AS (
+        SELECT
+          r.id,
+          r.user_uuid,
+          COALESCE(r.title, w.name, 'Untitled Space') AS base_name,
+          w.description,
+          CONCAT('space-', r.id::text) AS storage_repo_name,
+          jsonb_strip_nulls(jsonb_build_object(
+            'legacyRuntimeId', r.id,
+            'legacyWorkspaceId', r.workspace_id,
+            'legacyWorkspaceCommitHash', r.workspace_commit_hash,
+            'legacyAgentId', r.agent_id,
+            'legacyAgentCommitHash', r.agent_commit_hash,
+            'legacyRuntimeMeta', r.meta,
+            'legacyWorkspaceDefaultBranch', w.default_branch,
+            'legacyWorkspaceVisibility', w.visibility,
+            'legacyWorkspaceForkCount', w.fork_count,
+            'legacyRepoName', w.gitea_repo_name,
+            'legacyOriginalName', COALESCE(r.title, w.name, 'Untitled Space')
+          )) AS meta,
+          r.created_at,
+          r.updated_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY r.user_uuid, COALESCE(r.title, w.name, 'Untitled Space')
+            ORDER BY r.created_at ASC, r.id ASC
+          ) AS name_rank
+        FROM public.runtimes r
+        LEFT JOIN public.workspaces w ON w.id = r.workspace_id
+      )
       INSERT INTO v2.spaces (
         id,
         user_uuid,
         name,
         description,
-        gitea_repo_name,
+        storage_repo_name,
         base_checkpoint_id,
+        head_checkpoint_id,
         meta,
         created_at,
         updated_at
       )
       SELECT
-        r.id,
-        r.user_uuid,
-        COALESCE(r.title, w.name, 'Untitled Space'),
-        w.description,
-        COALESCE(w.gitea_repo_name, CONCAT('runtime-', r.id::text)),
+        id,
+        user_uuid,
+        CASE
+          WHEN name_rank = 1 THEN base_name
+          ELSE CONCAT(base_name, '-', (name_rank - 1)::text)
+        END,
+        description,
+        storage_repo_name,
         NULL,
-        jsonb_strip_nulls(jsonb_build_object(
-          'legacyRuntimeId', r.id,
-          'legacyWorkspaceId', r.workspace_id,
-          'legacyWorkspaceCommitHash', r.workspace_commit_hash,
-          'legacyAgentId', r.agent_id,
-          'legacyAgentCommitHash', r.agent_commit_hash,
-          'legacyRuntimeMeta', r.meta,
-          'legacyWorkspaceDefaultBranch', w.default_branch,
-          'legacyWorkspaceVisibility', w.visibility,
-          'legacyWorkspaceForkCount', w.fork_count
-        )),
-        r.created_at,
-        r.updated_at
-      FROM public.runtimes r
-      LEFT JOIN public.workspaces w ON w.id = r.workspace_id
+        NULL,
+        meta,
+        created_at,
+        updated_at
+      FROM runtime_candidates
       ON CONFLICT DO NOTHING
     `;
 

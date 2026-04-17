@@ -75,8 +75,9 @@ export type SpaceRecord = {
   userUuid: string;
   name: string | null;
   description: string | null;
-  giteaRepoName?: string | null;
+  storageRepoName?: string | null;
   baseCheckpointId?: string | null;
+  headCheckpointId?: string | null;
   title: string | null;
   status: string | null;
   sandboxStatus?: string | null;

@@ -15,6 +15,13 @@
       "when": 1776327684050,
       "tag": "0001_complete_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776492000000,
+      "tag": "0002_brisk_space_repo_identity",
+      "breakpoints": true
     }
   ]
 }

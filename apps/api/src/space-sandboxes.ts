@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { spaceSandboxes } from "./db/schema-v2.js";
+import { spaceSandboxes, spaces, userGitAccounts } from "./db/schema-v2.js";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
@@ -76,6 +76,27 @@ const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
   return { podName: `sandbox-${spaceId}` };
 };
 
+const buildSpaceRepoUrl = (username: string, repoName: string) =>
+  `ssh://git@gitea.cohub.run/${username}/${repoName}.git`;
+
+export const getSpaceGitContext = async (spaceId: string) => {
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space) return null;
+
+  const [gitAccount] = await db
+    .select()
+    .from(userGitAccounts)
+    .where(eq(userGitAccounts.userUuid, space.userUuid))
+    .limit(1);
+  if (!gitAccount) return null;
+
+  return {
+    repoUrl: buildSpaceRepoUrl(gitAccount.giteaUsername, space.storageRepoName),
+    gitUsername: gitAccount.giteaUsername,
+    gitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
+  };
+};
+
 export const provisionSpaceInBackground = async (input: {
   spaceId: string;
   userUuid: string;
@@ -95,7 +116,7 @@ export const provisionSpaceInBackground = async (input: {
     });
 
     const pod = renderSandboxPodTemplate({
-      RUNTIME_ID: input.spaceId,
+      SPACE_ID: input.spaceId,
       USER_ID: input.userUuid,
       REDIS_URL: config.redisUrl,
       LITELLM_API_KEY: config.litellmApiKey,
@@ -107,7 +128,7 @@ export const provisionSpaceInBackground = async (input: {
 
     if (pod.spec?.containers?.[0]) {
       pod.spec.containers[0].env = [
-        { name: "RUNTIME_ID", value: input.spaceId },
+        { name: "SPACE_ID", value: input.spaceId },
         { name: "REDIS_URL", value: config.redisUrl },
         { name: "ENV", value: config.env },
         { name: "WORKSPACE_DIR", value: "/workspace" },

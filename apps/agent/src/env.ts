@@ -15,7 +15,7 @@ const redisUrlSchema = z
 export const GLOBAL_CONFIG_REPO = "https://gitea.cohub.run/global/configs.git";
 
 export const EnvSchema = z.object({
-  RUNTIME_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
+  SPACE_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
   WORKSPACE_DIR: z
     .string()

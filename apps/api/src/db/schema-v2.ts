@@ -76,8 +76,9 @@ export const spaces = v2.table(
     userUuid: varchar("user_uuid", { length: 255 }).notNull(),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
-    giteaRepoName: varchar("gitea_repo_name", { length: 255 }).notNull(),
+    storageRepoName: varchar("storage_repo_name", { length: 255 }).notNull(),
     baseCheckpointId: uuid("base_checkpoint_id"),
+    headCheckpointId: uuid("head_checkpoint_id"),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -85,10 +86,10 @@ export const spaces = v2.table(
   (table) => ({
     userUuidIdx: index("v2_idx_spaces_user_uuid").on(table.userUuid),
     baseCheckpointIdx: index("v2_idx_spaces_base_checkpoint_id").on(table.baseCheckpointId),
+    headCheckpointIdx: index("v2_idx_spaces_head_checkpoint_id").on(table.headCheckpointId),
     userSpaceNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_name").on(table.userUuid, table.name),
-    userSpaceRepoNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_repo_name").on(
-      table.userUuid,
-      table.giteaRepoName,
+    storageRepoNameUniqueIdx: uniqueIndex("v2_uq_spaces_storage_repo_name").on(
+      table.storageRepoName,
     ),
   }),
 );

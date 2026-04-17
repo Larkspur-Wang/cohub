@@ -55,7 +55,6 @@ import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channe
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
 import { getSpaceSandboxBySpaceId } from "./space-sandboxes.js";
 import type { GatewayInboundEvent, TaskScheduleConfig } from "@cohub/protocol";
-import { normalizeWorkspaceSlug } from "@cohub/protocol";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
 import { handleInboundEvent } from "./channels.js";
 import * as cronParser from "cron-parser";
@@ -68,6 +67,8 @@ const buildSpaceListItem = async (space: typeof spaces.$inferSelect) => {
     sandboxStatus: sandbox?.status ?? null,
   };
 };
+
+const buildStorageRepoName = (spaceId: string) => `space-${spaceId}`;
 
 const MODELS_CATALOG_URL = "https://gitea.cohub.run/global/configs/raw/branch/main/.pi/agent/models.json";
 const MODELS_REDIS_KEY = "configs:models";
@@ -411,12 +412,14 @@ app.post("/api/spaces", async (c) => {
   const name = body.name?.trim();
   if (!name) return c.json({ message: "name is required" }, 400);
 
-  const repoSlug = normalizeWorkspaceSlug(name);
-  const existingSpace = await db.select({ id: spaces.id }).from(spaces).where(and(eq(spaces.userUuid, user.uuid), eq(spaces.giteaRepoName, repoSlug))).limit(1);
+  const existingSpace = await db.select({ id: spaces.id }).from(spaces).where(and(eq(spaces.userUuid, user.uuid), eq(spaces.name, name))).limit(1);
   if (existingSpace.length > 0) return c.json({ message: "space already exists" }, 409);
 
+  const spaceId = crypto.randomUUID();
+  const storageRepoName = buildStorageRepoName(spaceId);
+
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  const repo = await createRepository(gitAccount.giteaAccessToken, repoSlug, true).catch((error) => error as Error);
+  const repo = await createRepository(gitAccount.giteaAccessToken, storageRepoName, true).catch((error) => error as Error);
   if (repo instanceof Error) return c.json({ message: repo.message }, 500);
 
   const normalizedExtraEnv = normalizeSpaceEnv(body.extraEnv);
@@ -437,14 +440,14 @@ app.post("/api/spaces", async (c) => {
     : [];
   if (occupiedChannels.length > 0) return c.json({ message: "channel binding already exists for this channel" }, 409);
 
-  const spaceId = crypto.randomUUID();
   const [space] = await db.insert(spaces).values({
     id: spaceId,
     userUuid: user.uuid,
     name,
     description: body.description ?? null,
-    giteaRepoName: repoSlug,
+    storageRepoName,
     baseCheckpointId: null,
+    headCheckpointId: null,
     meta: {
       ...(body.meta ?? {}),
       extraEnv: normalizedExtraEnv,
@@ -474,6 +477,9 @@ app.post("/api/spaces", async (c) => {
   void provisionSpaceInBackground({
     spaceId: space.id,
     userUuid: user.uuid,
+    workspaceRepoUrl: `ssh://git@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
+    workspaceGitUsername: gitAccount.giteaUsername,
+    workspaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
     extraEnv: normalizedExtraEnv,
   }).catch(console.error);
 

@@ -6,7 +6,7 @@ import { env } from "./env.js";
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const runtimePrefix = `spaces:${env.RUNTIME_ID}`;
+const runtimePrefix = `spaces:${env.SPACE_ID}`;
 const LIST_KEY_IN = `${runtimePrefix}:input_queue`;
 const PROCESSING_KEY = `${runtimePrefix}:processing_queue`;
 const DEAD_LETTER_KEY = `${runtimePrefix}:dead_letter_queue`;
@@ -70,7 +70,7 @@ export async function reportSandboxStatus(
   const internalApiBaseUrl = env.ENV === "prod"
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
     : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
-  const url = `${internalApiBaseUrl}/internal/spaces/${env.RUNTIME_ID}/status`;
+  const url = `${internalApiBaseUrl}/internal/spaces/${env.SPACE_ID}/status`;
   await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
