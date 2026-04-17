@@ -6,12 +6,12 @@ import { env } from "./env.js";
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const runtimePrefix = `spaces:${env.SPACE_ID}`;
-const LIST_KEY_IN = `${runtimePrefix}:input_queue`;
-const PROCESSING_KEY = `${runtimePrefix}:processing_queue`;
-const DEAD_LETTER_KEY = `${runtimePrefix}:dead_letter_queue`;
-const STREAM_KEY_OUT = `${runtimePrefix}:output_stream`;
-const META_KEY = `${runtimePrefix}:meta`;
+const spacePrefix = `spaces:${env.SPACE_ID}`;
+const LIST_KEY_IN = `${spacePrefix}:input_queue`;
+const PROCESSING_KEY = `${spacePrefix}:processing_queue`;
+const DEAD_LETTER_KEY = `${spacePrefix}:dead_letter_queue`;
+const STREAM_KEY_OUT = `${spacePrefix}:output_stream`;
+const META_KEY = `${spacePrefix}:meta`;
 
 const PromptInputSchema = z.object({
   action: z.literal("prompt"),

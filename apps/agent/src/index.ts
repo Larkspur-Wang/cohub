@@ -571,13 +571,13 @@ async function main() {
   console.log("[Supervisor] Build features:", {
     env: env.ENV,
     spaceId: env.SPACE_ID,
-    runtimeVersion: env.AGENT_VERSION || null,
+    agentVersion: env.AGENT_VERSION || null,
     publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
       env.ENV === "prod"
         ? "http://cohub-api.cohub.svc.cluster.local:8787"
         : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
-    runtimeOwnedSessions: false,
+    sessionOwnershipManagedByAgent: false,
     multiSessionRestore: true,
   });
 
@@ -686,10 +686,11 @@ async function main() {
         }
       } catch (error) {
         console.error("[Supervisor] Error processing input:", error);
+        const sessionId = inputEntry.action === "prompt" ? inputEntry.sessionId : null;
         const errEvent: SessionStreamError = {
           type: "error",
           spaceId: env.SPACE_ID,
-          sessionId: inputEntry.sessionId ?? null,
+          sessionId,
           error: String(error),
         };
         await sendOutput(errEvent);

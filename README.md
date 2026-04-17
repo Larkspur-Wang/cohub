@@ -1,83 +1,89 @@
 # Cohub
 
-*Host workspaces. Run agents.*
+*Create in spaces. Save checkpoints. Co-create with agents.*
 
-Cohub is a **workspace hosting platform** for deploying and running agents in the cloud.
+Cohub is a cloud platform for **space-based agent creation, execution, and collaboration**.
 
 It combines:
-- **JupyterLab / Colab-like** browser-based runtime and debugging
+- **JupyterLab / Colab-like** in-browser creation and debugging
 - **Heroku / Fly.io-like** local-to-cloud deployment
-- **GitHub / Hugging Face-like** workspace hosting, sharing, and reuse
+- **GitHub / Hugging Face-like** sharing, reuse, and community collaboration
 
 ## Core Concepts
 
-### Workspace
-A **Workspace** is the core unit in Cohub.
+### Space
+A **Space** is the core unit in Cohub.
 
-It is a versionable, hostable, shareable, and deployable package that contains the project context, configuration, code, and resources needed to run agent workloads.
+A space is a live, isolated working environment where users and agents create together. It contains ongoing conversations, file changes, experiments, and unpublished drafts.
 
-A workspace is:
-- the unit you host in the cloud
-- the unit you push from local to remote
-- the unit you share with others
-- the unit you deploy agents from
-- the unit others can reuse or fork
+A space is:
+- the main place where creation happens
+- the unit you open in the browser
+- the unit you run agents inside
+- the unit you can later save, fork, and evolve
+
+### Checkpoint
+A **Checkpoint** is an immutable snapshot saved from a space.
+
+It captures a meaningful milestone in time and becomes a stable base for sharing, rollback, branching, and reuse.
+
+A checkpoint is:
+- a frozen snapshot of a space state
+- the basis for sharing and discovery
+- the source for future forks
+- the safe anchor point for collaboration
+
+### Proposal
+A **Proposal** is the collaboration flow for contributing one checkpoint back into another space.
+
+It is Cohub’s co-creation primitive for review, discussion, and merge-like integration.
 
 ### Agent
-An **Agent** is the executable logic that runs within a workspace.
+An **Agent** is the executable logic that works inside a space.
 
-If the workspace is the project unit, the agent is the runtime behavior operating inside it.
-
-### Runtime
-A **Runtime** is a runtime instance of an agent started from a specific workspace.
-
-A runtime may be active, sleeping, resumable, or stopped. It is the outer lifecycle unit used for execution, debugging, and long-lived interaction.
-
-A runtime can contain one or more internal sessions.
+If the space is the creative environment, the agent is the active collaborator operating within it.
 
 ### Session
-A **Session** is an internal LLM / conversation session within a runtime.
+A **Session** is an internal LLM conversation context inside a space.
 
-Each session maintains its own conversation context and may evolve as a tree with branches and forks.
+Each session maintains its own interaction history and can evolve independently as users explore ideas with agents.
 
 ### Channel
-A **Channel** is an external communication endpoint for a runtime.
+A **Channel** is an external communication endpoint connected to a space.
 
-Examples include Web, Discord, and Telegram. Users interact with agents through channels, and agents can send results back through them.
+Examples include Web, Discord, Telegram, and Feishu. Users interact through channels, and agents can send results back through them.
+
+### Sandbox
+A **Sandbox** is the internal execution infrastructure behind a space.
+
+Sandbox state still exists in the system, but it is treated as infrastructure rather than a primary user-facing concept.
 
 ## Positioning
 
-Cohub is built around the idea that **workspaces are the primary cloud asset**.
+Cohub is built around the idea that **spaces are the primary creative surface**, while **checkpoints are the durable assets** created from them.
 
 The platform is for:
-- **hosting** reusable workspaces
-- **running** agents from those workspaces
-- **deploying** workspace-based agent workloads
-- **distributing** reusable workspaces to other developers
+- **creating** with agents in live spaces
+- **saving** milestones as checkpoints
+- **forking** from checkpoints into new spaces
+- **proposing** changes back for collaborative integration
+- **deploying** agent-powered workloads from space context
 
-> Cohub is a cloud platform for hosting reusable workspaces and deploying agents from them.
+> Cohub is a cloud platform for creating in spaces, saving checkpoints, and collaborating with agents.
 
-## Use Cases
+## Co-Creation Workflow
 
-### 1. Browser-based runtime
-Start an agent directly from a workspace in the browser for cloud debugging and execution.
+### 1. Create in a Space
+Start a space, chat with an agent, edit files, and iterate in the browser.
 
-### 2. Local-to-cloud deployment
-Push a local workspace to the cloud and deploy an agent from it.
+### 2. Save a Checkpoint
+When a space reaches a meaningful milestone, save it as a checkpoint.
 
-### 3. Multi-channel interaction
-Run long-lived tasks in the cloud, push results through channels such as Discord or Telegram, and continue execution from user replies.
+### 3. Fork and Explore
+Fork from an existing checkpoint into a new isolated space for further exploration.
 
-### 4. Workspace sharing and reuse
-Host mature workspaces like code on GitHub or models on Hugging Face, so other developers can discover, reuse, and build on top of them.
-
-## Terminology Notes
-
-- **Workspace**: a runnable, hostable, shareable project unit
-- **Agent**: executable behavior running inside a workspace
-- **Runtime**: the outer runtime instance / lifecycle unit
-- **Session**: an internal LLM or conversation session inside a runtime
-- **Channel**: an external communication interface
+### 4. Propose Back
+Turn your result into a proposal and contribute it back into another space.
 
 ## Tech Stack
 
@@ -94,15 +100,15 @@ Host mature workspaces like code on GitHub or models on Hugging Face, so other d
 cohub/
 ├── apps/
 │   ├── api/          # Hono API — orchestration, provisioning, session persistence
-│   ├── agent/        # Runtime Pod Supervisor — wraps Pi coding agent
+│   ├── agent/        # Space sandbox supervisor — wraps Pi coding agent
 │   ├── gateway/      # External channel provider gateway (independent deploy)
 │   ├── web/          # SvelteKit web console
 │   └── worker/       # Task scheduler — cron jobs & async task processing
-├── deploy/           # deployment configs (K8s manifests per env)
-├── docs/             # architecture and design docs
+├── deploy/           # Deployment configs (K8s manifests per env)
+├── docs/             # Architecture, migration, and product model docs
 ├── packages/
-│   └── protocol/     # shared types & protocols across apps
-├── scripts/          # utility scripts
+│   └── protocol/     # Shared types & protocols across apps
+├── scripts/          # Utility scripts
 └── README.md
 ```
 
@@ -123,14 +129,7 @@ pnpm build
 
 ## Docs
 
-- `docs/terminology.md`
-- `docs/runtime-session-model.md`
-- `docs/use-cases.md`
-- `docs/db-schema.md`
-
-## Roadmap
-
-- **Phase 1**: establish the Workspace + Agent + Runtime + internal Session + Web Channel loop
-- **Phase 2**: improve cloud runtime, debugging, and task lifecycle management
-- **Phase 3**: support local workspace push-to-cloud deployment and more channel integrations
-- **Phase 4**: build workspace sharing, reuse, and distribution flows
+Recommended starting points:
+- `docs/CO-CREATION-MODEL.md`
+- `docs/MIGRATION-PROGRESS.md`
+- `docs/SCHEMA-MIGRATION-PLAN.md`

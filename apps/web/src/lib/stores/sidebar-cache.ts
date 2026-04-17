@@ -3,8 +3,8 @@ import type { SpaceListItem, SessionRecord } from "$lib/api";
 const STORAGE_KEY = "cohub:sidebar_cache";
 const CACHE_VERSION = 1;
 
-// Max cached sessions entries (oldest by last access are evicted)
-const MAX_RUNTIME_ENTRIES = 50;
+// Max cached session entries (oldest by last access are evicted)
+const MAX_CACHE_ENTRIES = 50;
 
 interface SidebarCacheData {
   userUuid: string | null;
@@ -101,9 +101,9 @@ class SidebarCache {
   /** Evict oldest entries when exceeding the limit */
   private trim() {
     const keys = Object.keys(this.data.sessionsBySpace);
-    if (keys.length <= MAX_RUNTIME_ENTRIES) return;
+    if (keys.length <= MAX_CACHE_ENTRIES) return;
     // Keep the most recently set entries (last N keys in insertion order)
-    const toRemove = keys.slice(0, keys.length - MAX_RUNTIME_ENTRIES);
+    const toRemove = keys.slice(0, keys.length - MAX_CACHE_ENTRIES);
     for (const key of toRemove) {
       delete this.data.sessionsBySpace[key];
     }

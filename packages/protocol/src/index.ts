@@ -1,6 +1,5 @@
 export * from "./session-ingestion.js";
 export * from "./gateway.js";
-export * from "./workspace.js";
 export * from "./permissions.js";
 export * from "./tasks.js";
 export * from "./space-sandbox.js";
