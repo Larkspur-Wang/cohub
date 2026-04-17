@@ -23,7 +23,7 @@ import {
 } from "./space-fs.js";
 import { assertRequiredConfig, config } from "./config.js";
 import { ensureUserGitAccount } from "./git-accounts.js";
-import { createRepository } from "./gitea.js";
+import { addSshKey, createRepository, deleteSshKey, listSshKeys } from "./gitea.js";
 import { provisionSpaceInBackground } from "./space-sandboxes.js";
 import type {
   PersistMessageInput,
@@ -49,7 +49,7 @@ import {
   SandboxNotReadyError,
 } from "./space-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, resourcePermissions, spaceChannels, spaces } from "./db/schema-v2.js";
+import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccounts } from "./db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
@@ -231,6 +231,155 @@ app.get("/api/models", async (c) => {
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "Failed to fetch models catalog" }, 502);
   }
+});
+
+app.get("/api/me", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  return c.json(user);
+});
+
+app.get("/api/channels", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const channels = await db.select().from(userChannels).where(eq(userChannels.userUuid, user.uuid)).orderBy(desc(userChannels.updatedAt), desc(userChannels.createdAt));
+  const boundRows = await db.select({ channelId: spaceChannels.channelId, spaceId: spaceChannels.spaceId, name: spaces.name }).from(spaceChannels).leftJoin(spaces, eq(spaces.id, spaceChannels.spaceId));
+  const boundByChannelId = new Map(boundRows.map((row) => [row.channelId, row]));
+
+  return c.json(channels.map((channel) => {
+    const bound = boundByChannelId.get(channel.id);
+    return {
+      ...channel,
+      boundSpace: bound ? { id: bound.spaceId, title: bound.name ?? null, status: "active" } : null,
+    };
+  }));
+});
+
+app.post("/api/channels", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = (await c.req.json<{ provider?: string; name?: string; credentials?: Record<string, unknown> }>().catch(() => ({}))) as {
+    provider?: string;
+    name?: string;
+    credentials?: Record<string, unknown>;
+  };
+  const provider = body.provider?.trim();
+  const name = body.name?.trim();
+  if (!provider || !name || !body.credentials || typeof body.credentials !== "object") {
+    return c.json({ message: "provider, name and credentials are required" }, 400);
+  }
+
+  const [channel] = await db.insert(userChannels).values({
+    userUuid: user.uuid,
+    provider,
+    name,
+    credentials: body.credentials,
+    status: "active",
+  }).returning();
+
+  return c.json(channel, 201);
+});
+
+app.delete("/api/channels/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const channelId = c.req.param("id");
+  if (!requireValidId(channelId)) return c.json({ message: "channel not found" }, 404);
+
+  const [channel] = await db.select().from(userChannels).where(and(eq(userChannels.id, channelId), eq(userChannels.userUuid, user.uuid))).limit(1);
+  if (!channel) return c.json({ message: "channel not found" }, 404);
+
+  const bound = await db.select({ id: spaceChannels.id }).from(spaceChannels).where(eq(spaceChannels.channelId, channelId)).limit(1);
+  if (bound.length > 0) return c.json({ message: "channel is still bound to a space" }, 409);
+
+  await db.delete(userChannels).where(eq(userChannels.id, channelId));
+  return c.json({ ok: true });
+});
+
+app.get("/api/user/ssh-keys", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  const keys = await listSshKeys(gitAccount.giteaAccessToken);
+  const normalizedKeys = keys.map((key) => ({
+    id: String(key.id),
+    key: key.key,
+    title: key.title,
+    giteaKeyId: key.id,
+    createdAt: new Date().toISOString(),
+  }));
+
+  await db.update(userGitAccounts)
+    .set({ sshPublicKeys: normalizedKeys, updatedAt: new Date(), lastVerifiedAt: new Date() })
+    .where(and(eq(userGitAccounts.userUuid, user.uuid), eq(userGitAccounts.provider, "gitea")));
+
+  return c.json(normalizedKeys);
+});
+
+app.post("/api/user/ssh-keys", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const body = (await c.req.json<{ key?: string; title?: string }>().catch(() => ({}))) as {
+    key?: string;
+    title?: string;
+  };
+  const key = body.key?.trim();
+  const title = body.title?.trim();
+  if (!key || !title) return c.json({ message: "key and title are required" }, 400);
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  const created = await addSshKey(gitAccount.giteaAccessToken, key, title);
+  if ("alreadyExists" in created) return c.json({ message: "SSH key already exists" }, 409);
+
+  const record = {
+    id: String(created.id),
+    key: created.key,
+    title: created.title,
+    giteaKeyId: created.id,
+    createdAt: new Date().toISOString(),
+  };
+
+  const existingKeys = (gitAccount.sshPublicKeys ?? []).filter((item) => item.giteaKeyId !== created.id);
+  const nextKeys = [record, ...existingKeys];
+  await db.update(userGitAccounts)
+    .set({ sshPublicKeys: nextKeys, updatedAt: new Date(), lastVerifiedAt: new Date() })
+    .where(and(eq(userGitAccounts.userUuid, user.uuid), eq(userGitAccounts.provider, "gitea")));
+
+  return c.json(record, 201);
+});
+
+app.delete("/api/user/ssh-keys/:id", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  const keyId = Number(c.req.param("id"));
+  if (!Number.isFinite(keyId)) return c.json({ message: "invalid key id" }, 400);
+
+  const gitAccount = await ensureUserGitAccount(user.uuid);
+  await deleteSshKey(gitAccount.giteaAccessToken, keyId);
+  const nextKeys = (gitAccount.sshPublicKeys ?? []).filter((item) => item.giteaKeyId !== keyId);
+  await db.update(userGitAccounts)
+    .set({ sshPublicKeys: nextKeys, updatedAt: new Date(), lastVerifiedAt: new Date() })
+    .where(and(eq(userGitAccounts.userUuid, user.uuid), eq(userGitAccounts.provider, "gitea")));
+
+  return c.json({ ok: true });
 });
 
 app.post("/api/spaces", async (c) => {

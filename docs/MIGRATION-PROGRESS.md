@@ -65,19 +65,19 @@
 | **API 路由** | 🟢 100% | 旧路由已下线，新路由 `/api/spaces` 为主入口。 |
 | **核心逻辑 (API)** | 🟢 100% | 空间创建、Session、权限、FS 均已切换至 V2 实现。 |
 | **子进程 (Agent/Worker)** | 🟢 100% | 已切换至 Space 接口与 Sandbox 状态。 |
-| **前端 (Web UI)** | 🔴 0% | **目前最紧迫的下一步**，仍依赖旧 Runtime 路由。 |
+| **前端 (Web UI)** | 🟡 70% | 主链路已切换到 `/spaces`，已完成列表、创建、详情、Session 与文件操作；流式聊天、模型选择、附件与 Checkpoint/Proposal UI 仍待补齐。 |
 
 ---
 
 ## 4. 后续 TODO
 
 ### 4.1 前端重构 (Priority: P0)
-目前 API 已就绪，但前端仍调用 `/api/runtimes` 相关接口。
-- [ ] **路由切换**: 将 `/runtimes` 页面组重构为 `/spaces`。
-- [ ] **创建流改造**: 废弃 "Init Git Repo" 流程，改为 "Create Space -> Auto Run"。
-- [ ] **UI 概念替换**: 
-  - 将 "Runtime Status" (hibernated/running) 替换为更简单的 Space 状态或直接隐藏。
-  - 文件操作、Session 列表对接 `/api/spaces` 接口。
+当前主链路已可用，但仍有第二阶段能力待补齐。
+- [x] **路由切换**: `/spaces`、`/spaces/new`、`/spaces/:id` 已成为主入口，旧 `/runtimes/*` 页面已改为重定向。
+- [x] **创建流改造**: 已切为 `Create Space -> Auto Run`，移除 runtime/sandbox 用户操作入口。
+- [x] **UI 概念替换**: Spaces、Sessions、文件操作已切换到 `/api/spaces` 接口。
+- [ ] **恢复完整聊天体验**: 补回 SSE 流式响应、乐观更新、历史消息分页、模型选择、图片附件等能力。
+- [ ] **细节打磨**: 继续优化 `/spaces/:id` 的会话切换、错误状态与文件面板体验。
 
 ### 4.2 Checkpoint 与 Proposal 落地 (Priority: P1)
 虽然数据库表已建立，但业务逻辑尚未实现。
@@ -92,4 +92,5 @@
 
 ### 4.4 体验优化 (Priority: P3)
 - [ ] **自动启动优化**: 优化 `provisionSpaceInBackground` 的冷启动速度，让用户创建后更快进入可聊天状态。
+- [ ] **流式聊天恢复**: 逐步把旧版聊天能力迁回 Space 页面，包括 SSE、乐观更新、离线缓存、重连策略等。
 - [ ] **Sandbox 容错**: 增强 Sandbox Error 状态下的自愈能力或友好的用户报错提示。
