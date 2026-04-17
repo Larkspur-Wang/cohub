@@ -392,8 +392,6 @@ export type Channel = {
 
 export type SpaceCreateResponse = {
   space: SpaceRecord;
-  session: SessionRecord;
-  ready: boolean;
 };
 
 export type SpaceEnvInput = {

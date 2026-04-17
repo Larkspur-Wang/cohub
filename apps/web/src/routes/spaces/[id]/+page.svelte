@@ -9,10 +9,12 @@ import {
   extractSessionRenderState,
   getModels,
   getSessionMessagesPaginated,
+  getSpace,
   getSpaceCheckpoints,
   getSpaceFsFile,
   getSpaceFsTree,
   getSpaceSandbox,
+  getSpaceSessions,
   getTaskRun,
   moveSpaceFsNode,
   postSessionMessage,
@@ -40,10 +42,10 @@ import type { SpaceFsNode } from "$lib/space-fs";
 import { type ChatMessage, type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { messageCache } from "$lib/stores/message-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import { spaceStore } from "$lib/stores/space-store.svelte";
+
 import { uiState, RIGHT_SIDEBAR_MAX, RIGHT_SIDEBAR_MIN } from "$lib/stores/ui.svelte";
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
-import { AlertCircle, ArrowDown, FolderKanban, MessageSquare, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Terminal } from "lucide-svelte";
+import { AlertCircle, ArrowDown, FolderKanban, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Terminal } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 
 type Props = {
@@ -140,8 +142,8 @@ let checkpointNotice = $state("");
 let checkpointError = $state("");
 let checkpoints = $state<CheckpointRecord[]>([]);
 let latestCheckpointJob = $state<TaskRunRecord | null>(null);
-let broadcastChannel: BroadcastChannel | null = null;
 let sessionSSEs = new Map<string, AbortController>();
+
 let sessionLastEventIds = new Map<string, string>();
 let sessionReconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let sessionReconnectAttempts = new Map<string, number>();
@@ -351,13 +353,6 @@ function scheduleResetScrollTarget() {
   }, 0);
 }
 
-function notifySessionsUpdate() {
-  const sessions = spaceStore.getSessions(spaceId) ?? spaceSessions;
-  const normalizedSessions = sessions.map((session) => sessionForSidebar(session, sessionStateById[session.id]));
-  window.dispatchEvent(new CustomEvent("cohub:sessions-updated", { detail: { spaceId, sessions: normalizedSessions } }));
-  broadcastChannel?.postMessage({ type: "sessions-updated", spaceId, sessions: JSON.parse(JSON.stringify(normalizedSessions)) });
-}
-
 function notifyStreamingStatus(sessionId: string, isStreaming: boolean) {
   window.dispatchEvent(new CustomEvent("cohub:streaming-status", { detail: { spaceId, sessionId, isStreaming } }));
 }
@@ -403,7 +398,6 @@ function seedSessions(sessions: SessionRecord[]) {
     return bTime - aTime;
   });
   spaceSessions = sorted;
-  spaceStore.setSessions(spaceId, sorted);
   for (const session of sorted) {
     const existing = sessionStateById[session.id];
     sessionStateById = {
@@ -424,22 +418,11 @@ function seedSessions(sessions: SessionRecord[]) {
 
 async function loadSpace(options?: { force?: boolean }) {
   spaceLoadError = "";
-  const force = options?.force ?? false;
-
-  const cachedSpace = spaceStore.getSpace(spaceId);
-  if (cachedSpace && !space) {
-    space = cachedSpace as SpaceRecord;
-  }
-
-  const cachedSessions = spaceStore.getSessions(spaceId);
-  if (cachedSessions) {
-    seedSessions(cachedSessions);
-  }
 
   const tasks: Array<Promise<void>> = [];
   tasks.push((async () => {
     try {
-      space = await spaceStore.ensureSpaceDetail(spaceId, { force });
+      space = await getSpace(spaceId);
     } catch (error) {
       spaceLoadError = error instanceof Error ? error.message : "Failed to load space";
     }
@@ -447,7 +430,8 @@ async function loadSpace(options?: { force?: boolean }) {
 
   tasks.push((async () => {
     try {
-      seedSessions(await spaceStore.ensureSpaceSessions(spaceId, { force }));
+      const result = await getSpaceSessions(spaceId);
+      seedSessions(result.sessions ?? []);
     } catch (error) {
       if (!spaceLoadError) {
         spaceLoadError = error instanceof Error ? error.message : "Failed to load sessions";
@@ -875,11 +859,9 @@ async function processEventQueue() {
           },
         };
         if (updatedSession) {
-          spaceStore.patchSession(spaceId, updatedSession);
-          spaceSessions = (spaceStore.getSessions(spaceId) ?? spaceSessions).map((session) =>
+          spaceSessions = spaceSessions.map((session) =>
             session.id === updatedSession.id ? updatedSession : session,
           );
-          notifySessionsUpdate();
         }
         if (!userScrolledUp) scrollToBottomNow();
       }
@@ -1287,13 +1269,6 @@ function closeFile() {
   void goto(`/spaces/${spaceId}?${params.toString()}`, { replaceState: true, noScroll: true, keepFocus: true });
 }
 
-function sessionForSidebar(session: SessionRecord, state?: SessionViewState) {
-  return {
-    ...session,
-    latestMessageText: session.latestMessageText ?? state?.messages.at(-1)?.text ?? null,
-  } satisfies SessionRecord;
-}
-
 function handleCreateNewSession() {
   if (creatingSession || !space) return;
   creatingSession = true;
@@ -1306,7 +1281,6 @@ function handleCreateNewSession() {
     activeSessionId = newSession.id;
     ensureSessionModelLoaded(newSession.id);
     updateUrlSession(newSession.id);
-    notifySessionsUpdate();
     await loadSessionState(newSession.id, true);
     shouldAutoFollow = true;
     await forceScrollToBottom();
@@ -1340,14 +1314,8 @@ onMount(() => {
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
 
-  try {
-    broadcastChannel = new BroadcastChannel(`cohub:space:${spaceId}`);
-  } catch {
-    broadcastChannel = null;
-  }
-
   void loadSpace().then(async () => {
-    // Check if sandbox is still provisioning
+    // If sandbox is not ready yet, poll until it is
     if (space && space.sandboxStatus !== "ready") {
       sandboxProvisioning = true;
       const ready = await pollSandboxReady();
@@ -1361,20 +1329,19 @@ onMount(() => {
       await loadSpace({ force: true });
     }
 
+    // Only load file tree after sandbox is confirmed ready
     void loadFileTree(true);
-    if (urlSessionId) {
-      ensureSessionModelLoaded(urlSessionId);
-      void loadSessionState(urlSessionId).finally(() => {
+
+    const initialSessionId = urlSessionId ?? spaceSessions[0]?.id ?? null;
+    if (initialSessionId) {
+      activeSessionId = initialSessionId;
+      ensureSessionModelLoaded(initialSessionId);
+      void loadSessionState(initialSessionId).finally(() => {
         bootstrapping = false;
       });
       return;
     }
-    if (activeSessionId) {
-      void loadSessionState(activeSessionId).finally(() => {
-        bootstrapping = false;
-      });
-      return;
-    }
+
     bootstrapping = false;
   }).catch(() => {
     bootstrapping = false;
@@ -1386,7 +1353,6 @@ onMount(() => {
     window.removeEventListener("visibilitychange", handleVisibility);
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
-    broadcastChannel?.close();
     rightSidebarResizeCleanup?.();
   };
 });
@@ -1675,17 +1641,61 @@ $effect(() => {
         </div>
       </div>
     {:else if !activeSessionState}
-      <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
-        <div class="text-[14px]">No session selected</div>
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
-          onclick={handleCreateNewSession}
-          disabled={creatingSession || !space}
-        >
-          <Plus class="w-3.5 h-3.5" />
-          Create a session
-        </button>
+      <div class="flex-1 flex items-center justify-center px-5 py-6 sm:px-8">
+        <div class="w-full max-w-xl rounded-[14px] border border-border-subtle bg-bg-elevated/45 p-5 sm:p-6">
+          <div class="flex items-start gap-4">
+            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-brand/20 bg-brand/8 text-brand">
+              <FolderKanban class="w-5 h-5" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="text-[15px] font-semibold text-text-primary">This space is ready for its first session</h2>
+                {#if space?.sandboxStatus}
+                  <span class="rounded-full border border-border-subtle bg-bg-primary/65 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-placeholder">
+                    {space.sandboxStatus}
+                  </span>
+                {/if}
+              </div>
+              <p class="mt-2 max-w-lg text-[13px] leading-6 text-text-tertiary">
+                Sessions are created on demand now. Start one when you want to chat with the agent, inspect files, or continue work in this space.
+              </p>
+
+              <div class="mt-4 grid gap-2 sm:grid-cols-3">
+                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
+                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">State</div>
+                  <div class="mt-1 text-[12px] text-text-secondary">No active sessions</div>
+                </div>
+                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
+                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Sandbox</div>
+                  <div class="mt-1 text-[12px] text-text-secondary">{space?.sandboxStatus ?? "idle"}</div>
+                </div>
+                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
+                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Next step</div>
+                  <div class="mt-1 text-[12px] text-text-secondary">Create your first session</div>
+                </div>
+              </div>
+
+              <div class="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 items-center gap-2 rounded-[9px] border border-brand/25 bg-brand/10 px-4 py-2.5 text-[13px] font-medium text-brand transition-colors hover:bg-brand/14 disabled:opacity-50"
+                  onclick={handleCreateNewSession}
+                  disabled={creatingSession || !space}
+                >
+                  {#if creatingSession}
+                    <div class="w-3.5 h-3.5 rounded-full border-2 border-brand/20 border-t-brand animate-spin shrink-0"></div>
+                  {:else}
+                    <Plus class="w-3.5 h-3.5" />
+                  {/if}
+                  Create first session
+                </button>
+                <div class="text-[12px] text-text-placeholder">
+                  You can create additional sessions later for parallel threads of work.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
       <div class="flex-1 flex items-center justify-center">

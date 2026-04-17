@@ -463,15 +463,6 @@ app.post("/api/spaces", async (c) => {
     await Promise.all(insertedChannels.map((channel) => syncSpaceChannelConfigCache({ spaceChannelId: channel.id, config: (channel.config as Record<string, unknown> | null) ?? null })));
   }
 
-  const session = await createInitialSpaceSession({
-    spaceId: space.id,
-    sessionId: crypto.randomUUID(),
-    title: null,
-    source: body.source ?? null,
-    externalSessionId: null,
-    meta: { createdBy: "api_space_create", channelBindings: normalizedChannelBindings.length },
-  });
-
   void provisionSpaceInBackground({
     spaceId: space.id,
     userUuid: user.uuid,
@@ -481,7 +472,7 @@ app.post("/api/spaces", async (c) => {
     extraEnv: normalizedExtraEnv,
   }).catch(console.error);
 
-  return c.json({ space, session });
+  return c.json({ space });
 });
 
 app.post("/api/spaces/:id/checkpoints", async (c) => {
