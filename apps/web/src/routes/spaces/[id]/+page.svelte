@@ -152,7 +152,7 @@ function handleTitleClick() {
   if (titleClickTimer) clearTimeout(titleClickTimer);
   if (titleClickCount >= 4) {
     titleClickCount = 0;
-    void goto(`/spaces/${spaceId}/_debug`);
+    void goto(`/spaces/${spaceId}/debug`);
     return;
   }
   titleClickTimer = setTimeout(() => {
