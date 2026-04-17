@@ -29,6 +29,9 @@ REQUEST_MEMORY=$(get_value "REQUEST_MEMORY")
 LIMIT_CPU=$(get_value "LIMIT_CPU")
 LIMIT_MEMORY=$(get_value "LIMIT_MEMORY")
 INTERNAL_API_BASE_URL=$(get_value "INTERNAL_API_BASE_URL")
+SPACE_STORAGE_ROOT=$(get_value "SPACE_STORAGE_ROOT")
+SPACE_STORAGE_PVC=$(get_value "SPACE_STORAGE_PVC")
+SPACE_STORAGE_SUBPATH=$(get_value "SPACE_STORAGE_SUBPATH")
 ENV=$(get_value "ENV")
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
@@ -71,6 +74,9 @@ PY
     -e "s|__LIMIT_CPU__|${LIMIT_CPU}|g" \
     -e "s|__LIMIT_MEMORY__|${LIMIT_MEMORY}|g" \
     -e "s|__INTERNAL_API_BASE_URL__|${INTERNAL_API_BASE_URL}|g" \
+    -e "s|__SPACE_STORAGE_ROOT__|${SPACE_STORAGE_ROOT}|g" \
+    -e "s|__SPACE_STORAGE_PVC__|${SPACE_STORAGE_PVC}|g" \
+    -e "s|__SPACE_STORAGE_SUBPATH__|${SPACE_STORAGE_SUBPATH}|g" \
     -e "s|__ENV__|${ENV}|g" \
     "$dst"
   rm -f "$dst.bak"

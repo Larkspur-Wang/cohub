@@ -13,6 +13,7 @@ export type AppConfig = {
   workerSecret: string;
   spaceStorageRoot: string;
   spaceStoragePvc: string;
+  spaceStorageSubpath: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -46,6 +47,7 @@ export const config: AppConfig = {
     process.env.BULLMQ_REDIS_URL ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
+  spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);

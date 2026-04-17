@@ -19,4 +19,7 @@ LIMIT_MEMORY: "512Mi"
 
 # ========== Worker 配置 ==========
 INTERNAL_API_BASE_URL: "http://cohub-api-dev:8787"
+SPACE_STORAGE_ROOT: "/mnt/cohub-space-storage"
+SPACE_STORAGE_PVC: "cohub-spaces-pvc"
+SPACE_STORAGE_SUBPATH: "cohub-dev"
 ENV: "dev"

@@ -13,6 +13,11 @@ const INTERNAL_API_BASE_URL =
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
     : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
 
+const internalHeaders = () => ({
+  "content-type": "application/json",
+  ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
+});
+
 // ─── Idempotency ───
 
 const stableSerialize = (value: unknown): string => {
@@ -72,7 +77,7 @@ async function postJsonWithRetry(input: {
     try {
       const response = await fetch(input.url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: internalHeaders(),
         body: JSON.stringify(input.body),
       });
 
@@ -209,7 +214,7 @@ export async function registerSpaceSession(input: RegisterSessionInput) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions`;
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: internalHeaders(),
     body: JSON.stringify(input),
   });
 

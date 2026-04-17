@@ -125,6 +125,7 @@ export const provisionSpaceInBackground = async (input: {
       SPACE_GIT_USERNAME: input.spaceGitUsername,
       SPACE_GIT_EMAIL: input.spaceGitEmail,
       SPACE_STORAGE_PVC: config.spaceStoragePvc,
+      SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
     }) as V1Pod;
 
     if (pod.spec?.containers?.[0]) {
@@ -136,6 +137,7 @@ export const provisionSpaceInBackground = async (input: {
         { name: "SESSIONS_DIR", value: "/sessions" },
         { name: "PUBLIC_URL_PREFIX", value: config.env === "prod" ? `https://public.cohub.run/r/${input.spaceId}` : `https://public.cohub.run/dev/r/${input.spaceId}` },
         { name: "AGENT_VERSION", value: config.sandboxAgentImage },
+        { name: "WORKER_SECRET", value: config.workerSecret },
         { name: "LITELLM_API_KEY", value: config.litellmApiKey ?? "" },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },

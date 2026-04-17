@@ -73,7 +73,10 @@ export async function reportSandboxStatus(
   const url = `${internalApiBaseUrl}/internal/spaces/${env.SPACE_ID}/status`;
   await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
+    },
     body: JSON.stringify({ status }),
   }).catch((err) => {
     console.error("[Redis] Failed to report sandbox status via internal API:", err);

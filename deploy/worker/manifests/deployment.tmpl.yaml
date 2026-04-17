@@ -26,6 +26,10 @@ __IMAGE_PULL_SECRETS_BLOCK__
                 name: __APP_NAME__-config
             - secretRef:
                 name: __SECRET_NAME__
+          volumeMounts:
+            - name: space-storage
+              mountPath: __SPACE_STORAGE_ROOT__
+              subPath: __SPACE_STORAGE_SUBPATH__
           resources:
             requests:
               cpu: "__REQUEST_CPU__"
@@ -33,3 +37,7 @@ __IMAGE_PULL_SECRETS_BLOCK__
             limits:
               cpu: "__LIMIT_CPU__"
               memory: "__LIMIT_MEMORY__"
+      volumes:
+        - name: space-storage
+          persistentVolumeClaim:
+            claimName: __SPACE_STORAGE_PVC__

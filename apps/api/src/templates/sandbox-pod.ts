@@ -10,6 +10,7 @@ type SandboxPodTemplateVariables = {
   SPACE_GIT_USERNAME?: string;
   SPACE_GIT_EMAIL?: string;
   SPACE_STORAGE_PVC?: string;
+  SPACE_STORAGE_SUBPATH?: string;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -66,12 +67,12 @@ export const SANDBOX_POD_TEMPLATE = {
           {
             name: "space-storage",
             mountPath: "/workspace",
-            subPath: "cohub-${ENV}/${SPACE_ID}/workspace",
+            subPath: "${SPACE_STORAGE_SUBPATH}/${SPACE_ID}/workspace",
           },
           {
             name: "space-storage",
             mountPath: "/sessions",
-            subPath: "cohub-${ENV}/${SPACE_ID}/sessions",
+            subPath: "${SPACE_STORAGE_SUBPATH}/${SPACE_ID}/sessions",
           },
           {
             name: "public-storage",

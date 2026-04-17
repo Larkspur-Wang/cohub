@@ -49,7 +49,7 @@ import {
   SandboxNotReadyError,
 } from "./space-sessions.js";
 import { db } from "./db/index.js";
-import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccounts, cronJobs, taskRuns } from "./db/schema-v2.js";
+import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccounts, cronJobs, taskRuns, checkpoints } from "./db/schema-v2.js";
 import { eq, and, inArray, desc, isNull } from "drizzle-orm";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
@@ -485,6 +485,49 @@ app.post("/api/spaces", async (c) => {
   }).catch(console.error);
 
   return c.json({ space, session });
+});
+
+app.post("/api/spaces/:id/checkpoints", async (c) => {
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  if (!await canWrite(user, spaceId)) return c.json({ message: "not found" }, 404);
+
+  const body = await c.req.json<{ description?: string }>().catch(() => null);
+  const description = body?.description?.trim() || null;
+
+  const job = await enqueueTask({
+    type: "save_checkpoint",
+    spaceId,
+    userId: user.uuid,
+    data: {
+      spaceId,
+      description,
+    },
+  });
+
+  return c.json({
+    ok: true,
+    jobId: job.id,
+  });
+});
+
+app.get("/api/spaces/:id/checkpoints", async (c) => {
+  const user = c.get("authUser");
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+  if (!await canRead(user, spaceId)) return c.json({ message: "not found" }, 404);
+
+  const rows = await db
+    .select()
+    .from(checkpoints)
+    .where(eq(checkpoints.spaceId, spaceId))
+    .orderBy(desc(checkpoints.createdAt))
+    .limit(100);
+
+  return c.json({ checkpoints: rows });
 });
 
 app.get("/api/spaces", async (c) => {

@@ -37,6 +37,7 @@ export const EnvSchema = z.object({
   SPACE_GIT_EMAIL: z.string().optional(),
   PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
+  WORKER_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

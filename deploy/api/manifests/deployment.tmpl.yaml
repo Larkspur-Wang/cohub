@@ -32,7 +32,7 @@ __IMAGE_PULL_SECRETS_BLOCK__
           volumeMounts:
             - name: space-storage
               mountPath: __SPACE_STORAGE_ROOT__
-              subPath: cohub-__ENV__
+              subPath: __SPACE_STORAGE_SUBPATH__
           resources:
             requests:
               cpu: "__REQUEST_CPU__"
