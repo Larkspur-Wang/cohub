@@ -727,6 +727,17 @@ export type TaskRunRecord = {
   updatedAt: string;
 };
 
+export type CheckpointRecord = {
+  id: string;
+  spaceId: string;
+  commitHash: string;
+  description: string;
+  parentCheckpointId: string | null;
+  forkCount: number;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type CreateCronJobInput = {
   title: string;
   taskType: string;
@@ -779,6 +790,22 @@ export const createScheduledTask = async (data: CreateScheduledTaskInput) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   }) as Promise<{ ok: true; jobId: string; scheduledAt: string }>;
+};
+
+export const createSpaceCheckpoint = async (spaceId: string, description?: string | null) => {
+  return apiFetch(`/api/spaces/${spaceId}/checkpoints`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description: description ?? null }),
+  }) as Promise<{ ok: true; jobId: string }>;
+};
+
+export const getSpaceCheckpoints = async (spaceId: string) => {
+  return apiFetch(`/api/spaces/${spaceId}/checkpoints`) as Promise<{ checkpoints: CheckpointRecord[] }>;
+};
+
+export const getTaskRun = async (jobId: string) => {
+  return apiFetch(`/api/tasks/runs/${jobId}`) as Promise<{ run: TaskRunRecord }>;
 };
 
 export const getTaskRuns = async (filters?: {

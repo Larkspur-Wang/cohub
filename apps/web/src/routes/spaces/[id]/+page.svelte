@@ -2,24 +2,29 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import {
+  createSpaceCheckpoint,
   createSpaceSession,
   createSpaceFsDir,
   deleteSpaceFsNode,
   extractSessionRenderState,
   getModels,
   getSessionMessagesPaginated,
+  getSpaceCheckpoints,
   getSpaceFsFile,
   getSpaceFsTree,
+  getTaskRun,
   moveSpaceFsNode,
   postSessionMessage,
   putSpaceFsFile,
   streamSessionEvents,
   triggerSpaceFsDownload,
+  type CheckpointRecord,
   type SessionRecord,
   type SessionStreamEvent,
   type SpaceFsEntry,
   type SpaceFsFileResponse,
   type SpaceRecord,
+  type TaskRunRecord,
 } from "$lib/api";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
@@ -123,6 +128,11 @@ let chatTimelineRef = $state<{ preparePrepend: () => void; finalizePrepend: () =
 let eventProcessing = false;
 let eventQueue: SessionStreamEvent[] = [];
 let streamingSessionId: string | null = null;
+let checkpointSaving = $state(false);
+let checkpointNotice = $state("");
+let checkpointError = $state("");
+let checkpoints = $state<CheckpointRecord[]>([]);
+let latestCheckpointJob = $state<TaskRunRecord | null>(null);
 let broadcastChannel: BroadcastChannel | null = null;
 let sessionSSEs = new Map<string, AbortController>();
 let sessionLastEventIds = new Map<string, string>();
@@ -423,7 +433,59 @@ async function loadSpace(options?: { force?: boolean }) {
     }
   })());
 
+  tasks.push((async () => {
+    try {
+      checkpoints = (await getSpaceCheckpoints(spaceId)).checkpoints;
+    } catch {
+      // Non-blocking
+    }
+  })());
+
   await Promise.all(tasks);
+}
+
+async function pollCheckpointJob(jobId: string) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 90_000) {
+    try {
+      const { run } = await getTaskRun(jobId);
+      latestCheckpointJob = run;
+      if (run.status === "completed") return run;
+      if (run.status === "failed") throw new Error(run.errorMessage || "Checkpoint job failed");
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("404")) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  throw new Error("Checkpoint job timed out");
+}
+
+async function handleSaveCheckpoint() {
+  if (!space || checkpointSaving) return;
+  checkpointError = "";
+  checkpointNotice = "";
+
+  const input = typeof window !== "undefined"
+    ? window.prompt("Checkpoint description (optional)", "")
+    : "";
+  if (input === null) return;
+
+  checkpointSaving = true;
+  try {
+    const { jobId } = await createSpaceCheckpoint(space.id, input.trim() || null);
+    checkpointNotice = "Saving checkpoint…";
+    const run = await pollCheckpointJob(jobId);
+    latestCheckpointJob = run;
+    checkpoints = (await getSpaceCheckpoints(space.id)).checkpoints;
+    checkpointNotice = "Checkpoint saved.";
+    await loadSpace({ force: true });
+  } catch (error) {
+    checkpointError = error instanceof Error ? error.message : "Failed to save checkpoint";
+  } finally {
+    checkpointSaving = false;
+  }
 }
 
 async function loadSessionState(sessionId: string, force = false) {
@@ -1351,6 +1413,21 @@ $effect(() => {
     <button
       type="button"
       class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+      onclick={handleSaveCheckpoint}
+      disabled={checkpointSaving || !space}
+      title="Save checkpoint"
+    >
+      {#if checkpointSaving}
+        <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin shrink-0"></div>
+      {:else}
+        <FolderKanban class="w-4 h-4 shrink-0" />
+      {/if}
+      <span class="hidden lg:inline text-[13px] font-medium">Save checkpoint</span>
+    </button>
+
+    <button
+      type="button"
+      class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
       onclick={handleCreateNewSession}
       disabled={creatingSession || !space}
       title="New session"
@@ -1396,6 +1473,38 @@ $effect(() => {
 
     {#if createSessionError}
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
+    {/if}
+
+    {#if checkpointError}
+      <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointError}</div>
+    {/if}
+
+    {#if checkpointNotice}
+      <div class="m-4 mt-0 rounded-md border border-border-subtle bg-bg-hover p-3 text-[12px] text-text-secondary break-all">{checkpointNotice}</div>
+    {/if}
+
+    {#if checkpoints.length > 0}
+      <div class="mx-4 mb-4 mt-0 rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+        <div class="mb-2 flex items-center justify-between gap-3">
+          <div class="text-[12px] font-medium text-text-secondary">Checkpoints</div>
+          <div class="text-[11px] text-text-tertiary">{checkpoints.length} total</div>
+        </div>
+        <div class="space-y-2">
+          {#each checkpoints.slice(0, 5) as checkpoint}
+            <div class="flex items-start justify-between gap-3 rounded-[6px] border border-border-subtle/70 bg-bg-content/70 px-2.5 py-2">
+              <div class="min-w-0">
+                <div class="truncate text-[12px] text-text-primary">{checkpoint.description}</div>
+                <div class="mt-0.5 text-[11px] text-text-tertiary font-mono">
+                  {checkpoint.commitHash.slice(0, 12)}
+                </div>
+              </div>
+              <div class="shrink-0 text-[11px] text-text-tertiary">
+                {new Date(checkpoint.createdAt).toLocaleString()}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
     {/if}
 
     {#if bootstrapping && !activeSessionState}

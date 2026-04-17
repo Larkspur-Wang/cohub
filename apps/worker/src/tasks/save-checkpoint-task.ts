@@ -48,9 +48,9 @@ const buildAuthenticatedRemoteUrl = (input: {
   accessToken: string;
   repoName: string;
 }) => {
-  const base = new URL(config.env === "prod" ? "https://gitea.cohub.run" : "https://gitea.cohub.run");
-  base.username = encodeURIComponent(input.username);
-  base.password = encodeURIComponent(input.accessToken);
+  const base = new URL("https://gitea.cohub.run");
+  base.username = input.username;
+  base.password = input.accessToken;
   base.pathname = `/${input.username}/${input.repoName}.git`;
   return base.toString();
 };

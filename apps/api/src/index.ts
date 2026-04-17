@@ -1075,6 +1075,25 @@ app.post("/api/tasks", async (c) => {
   }
 });
 
+app.get("/api/tasks/runs/:jobId", async (c) => {
+  const token = c.get("token");
+  if (!token) return c.json({ message: "unauthorized" }, 401);
+  const user = c.get("authUser");
+  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
+
+  const jobId = c.req.param("jobId");
+  if (!jobId?.trim()) return c.json({ message: "job not found" }, 404);
+
+  const [run] = await db
+    .select()
+    .from(taskRuns)
+    .where(and(eq(taskRuns.userUuid, user.uuid), eq(taskRuns.jobId, jobId)))
+    .limit(1);
+
+  if (!run) return c.json({ message: "job not found" }, 404);
+  return c.json({ run });
+});
+
 app.get("/api/tasks/runs", async (c) => {
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
