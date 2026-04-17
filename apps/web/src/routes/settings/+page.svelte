@@ -191,7 +191,7 @@ onMount(() => {
     <!-- SSH Keys Section -->
     <section>
       <h2 class="text-[14px] font-semibold text-text-primary mb-1">SSH Keys</h2>
-      <p class="text-[13px] text-text-tertiary mb-4">Add your SSH public keys to enable pushing to workspace repositories via SSH.</p>
+      <p class="text-[13px] text-text-tertiary mb-4">Add your SSH public keys to enable pushing to your repositories via SSH.</p>
 
       {#if isAdding}
         <div class="mb-4 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
@@ -260,7 +260,7 @@ onMount(() => {
             <KeyRound class="w-5 h-5 text-text-placeholder" />
           </div>
           <p class="text-[14px] text-text-tertiary">No SSH keys</p>
-          <p class="text-[12px] text-text-placeholder mt-1">Add an SSH key to push to your workspace repositories</p>
+          <p class="text-[12px] text-text-placeholder mt-1">Add an SSH key to push to your repositories</p>
         </div>
       {:else}
         <div class="space-y-2">

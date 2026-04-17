@@ -345,22 +345,6 @@ onMount(() => {
   <!-- Top Navigation -->
   <nav class="px-1.5 py-2 space-y-[2px] shrink-0 border-b border-border-subtle">
     <a
-      href="/explore"
-      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/explore') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/explore'); }}
-    >
-      <MessageSquare class="w-[15px] h-[15px] shrink-0" />
-      <span>Explore</span>
-    </a>
-    <a
-      href="/workspaces"
-      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/workspaces') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/workspaces'); }}
-    >
-      <FolderKanban class="w-[15px] h-[15px] shrink-0" />
-      <span>Workspaces</span>
-    </a>
-    <a
       href="/channels"
       class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/channels') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/channels'); }}

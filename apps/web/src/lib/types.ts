@@ -1,4 +1,4 @@
-export type WorkspaceEntry = {
+export type RepositoryEntry = {
   name: string;
   path: string;
   type: "file" | "dir" | "symlink" | "submodule";
@@ -6,14 +6,14 @@ export type WorkspaceEntry = {
   sha: string;
 };
 
-export type TreeNode = WorkspaceEntry & {
-  children: TreeNode[];
+export type RepositoryTreeNode = RepositoryEntry & {
+  children: RepositoryTreeNode[];
   isOpen: boolean;
   isLoaded: boolean;
   isLoading: boolean;
 };
 
-export type WorkspaceFile = {
+export type RepositoryFile = {
   name: string;
   path: string;
   sha: string;
@@ -22,7 +22,7 @@ export type WorkspaceFile = {
   content: string;
 };
 
-export type Workspace = {
+export type RepositoryInfo = {
   id: string;
   name: string;
   description: string;
@@ -30,6 +30,6 @@ export type Workspace = {
 
 export type SpaceSummary = {
   id: string;
-  workspaceId: string;
+  spaceId: string;
   status: string;
 };

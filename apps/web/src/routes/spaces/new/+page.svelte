@@ -210,7 +210,7 @@ async function handleSubmit(event: SubmitEvent) {
                 id="space-cwd"
                 bind:value={cwd}
                 type="text"
-                placeholder="/workspace"
+                placeholder="/space"
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
               />
             </div>

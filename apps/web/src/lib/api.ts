@@ -284,46 +284,6 @@ export const getModels = async (customFetch?: Fetch) => {
   return response.json() as Promise<Record<string, ModelCatalogEntry[]>>;
 };
 
-export const getWorkspaceById = async (id: string, customFetch?: Fetch) => {
-  return apiFetch(`/api/workspaces/${id}`, {
-    fetch: customFetch,
-  }) as Promise<WorkspaceByIdResponse>;
-};
-
-export const getWorkspaceTree = async (
-  id: string,
-  path = "",
-  ref?: string,
-  customFetch?: Fetch,
-) => {
-  const params = new URLSearchParams();
-  if (path) {
-    params.set("path", path);
-  }
-  if (ref) {
-    params.set("ref", ref);
-  }
-  const query = params.toString();
-  return apiFetch(`/api/workspaces/${id}/tree${query ? `?${query}` : ""}`, {
-    fetch: customFetch,
-  }) as Promise<Tree>;
-};
-
-export const getWorkspaceFile = async (
-  id: string,
-  path: string,
-  ref?: string,
-  customFetch?: Fetch,
-) => {
-  const params = new URLSearchParams({ path });
-  if (ref) {
-    params.set("ref", ref);
-  }
-  return apiFetch(`/api/workspaces/${id}/file?${params.toString()}`, {
-    fetch: customFetch,
-  });
-};
-
 export const getSession = async (id: string, customFetch?: Fetch) => {
   return apiFetch(`/api/sessions/${id}`, {
     fetch: customFetch,
@@ -428,116 +388,6 @@ export type Channel = {
     status: string;
   } | null;
 };
-
-export type WorkspaceListItem = {
-  id: string;
-  userUuid: string;
-  ownerUserUuid: string;
-  name: string;
-  description: string | null;
-  giteaRepoName: string;
-  visibility: "public" | "private";
-  parentId?: string | null;
-  forkCount?: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type WorkspaceForkInfo = {
-  id: string;
-  name: string;
-  ownerUserUuid: string;
-  ownerUsername: string | null;
-};
-
-export type WorkspaceDetail = WorkspaceListItem & {
-  ownerUsername: string | null;
-  cloneUrl: string | null;
-  sshUrl: string | null;
-  htmlUrl: string | null;
-  fullName: string | null;
-  forkedFrom: WorkspaceForkInfo | null;
-  isOwner: boolean;
-};
-
-export type Workspace = WorkspaceListItem;
-
-export type PublicWorkspace = WorkspaceListItem & {
-  forkCount: number;
-  parentId: string | null;
-};
-
-export type TreeEntry = {
-  name: string;
-  path: string;
-  type: "dir" | "file";
-  size?: number;
-};
-
-export type Tree = {
-  repoOwner: string;
-  repoName: string;
-  path: string;
-  ref: string | null;
-  entries: TreeEntry[];
-};
-
-export type GiteaRepo = {
-  id: number;
-  name: string;
-  full_name: string;
-  private: boolean;
-  clone_url: string;
-  ssh_url: string;
-  html_url: string;
-};
-
-export const getChannels = async (customFetch?: Fetch) => {
-  return apiFetch("/api/channels", {
-    method: "GET",
-    fetch: customFetch,
-  }) as Promise<Channel[]>;
-};
-
-export const createChannel = async (data: {
-  provider: string;
-  name: string;
-  credentials: Record<string, unknown>;
-}) => {
-  return apiFetch("/api/channels", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-};
-
-export const deleteChannel = async (id: string) => {
-  return apiFetch(`/api/channels/${id}`, { method: "DELETE" });
-};
-
-export const getWorkspaces = async (customFetch?: Fetch) => {
-  return apiFetch("/api/workspaces", {
-    method: "GET",
-    fetch: customFetch,
-  }) as Promise<WorkspaceListItem[]>;
-};
-
-export const createWorkspace = async (data: {
-  name: string;
-  description?: string;
-  private?: boolean;
-}) => {
-  return apiFetch("/api/workspaces", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  }) as Promise<WorkspaceDetail>;
-};
-
 
 export type SpaceCreateResponse = {
   space: SpaceRecord;
@@ -702,73 +552,30 @@ export const moveSpaceFsNode = async (
   }) as Promise<{ ok: true; fromPath: string; toPath: string }>;
 };
 
-export type PublicWorkspacesResponse = {
-  items: PublicWorkspace[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-};
-
-export const getPublicWorkspaces = async (
-  page = 1,
-  limit = 20,
-  search?: string,
-  customFetch?: Fetch,
-) => {
-  const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
-  if (search) {
-    params.set("search", search);
-  }
-  return apiFetch(`/api/workspaces/public?${params.toString()}`, {
+export const getChannels = async (customFetch?: Fetch) => {
+  return apiFetch("/api/channels", {
+    method: "GET",
     fetch: customFetch,
-  }) as Promise<PublicWorkspacesResponse>;
+  }) as Promise<Channel[]>;
 };
 
-export type ForkWorkspaceResponse = WorkspaceDetail & {
-  forkedFrom: WorkspaceForkInfo;
-};
-
-export const forkWorkspace = async (id: string, name?: string) => {
-  return apiFetch(`/api/workspaces/${id}/fork`, {
+export const createChannel = async (data: {
+  provider: string;
+  name: string;
+  credentials: Record<string, unknown>;
+}) => {
+  return apiFetch("/api/channels", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(name ? { name } : {}),
-  }) as Promise<ForkWorkspaceResponse>;
-};
-
-export type WorkspaceByIdResponse = WorkspaceDetail;
-
-export const updateWorkspace = async (
-  id: string,
-  data: {
-    name?: string;
-    description?: string;
-    visibility?: "public" | "private";
-  },
-) => {
-  return apiFetch(`/api/workspaces/${id}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
     body: JSON.stringify(data),
-  }) as Promise<WorkspaceDetail>;
+  });
 };
 
-export const deleteWorkspace = async (id: string) => {
-  return apiFetch(`/api/workspaces/${id}`, {
-    method: "DELETE",
-  }) as Promise<null>;
+export const deleteChannel = async (id: string) => {
+  return apiFetch(`/api/channels/${id}`, { method: "DELETE" });
 };
-
-// ─── Fork Workspace ──────────────────────────────
 
 export type UserSshKey = {
   id: string;
@@ -801,21 +608,16 @@ export const deleteSshKey = async (id: string) => {
   }) as Promise<{ ok: true }>;
 };
 
-// ─── SSE Streaming ──────────────────────────────
-
-/**
- * Extract render state from ContentBlock[] for UI display.
- */
 /** @deprecated 当前前端主链路未使用，保留供后续恢复流式聊天能力。 */
 export function extractSessionRenderState(content: ContentBlock[]) {
   const thinkingBlocks = content.filter(
-    (b): b is Extract<ContentBlock, { type: "thinking" }> => b.type === "thinking"
+    (b): b is Extract<ContentBlock, { type: "thinking" }> => b.type === "thinking",
   );
   const textBlocks = content.filter(
-    (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text"
+    (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
   );
   const toolUseBlocks = content.filter(
-    (b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use"
+    (b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use",
   );
 
   const thinking = thinkingBlocks.map((b) => b.thinking).join("\n").trim();
@@ -842,18 +644,10 @@ export const streamSpaceEvents = async function* (
 
   const headers = new Headers();
   const token = await getAuthToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-  if (lastEventId) {
-    headers.set("Last-Event-ID", lastEventId);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (lastEventId) headers.set("Last-Event-ID", lastEventId);
 
-  const response = await fetch(url, {
-    headers,
-    signal,
-  });
-
+  const response = await fetch(url, { headers, signal });
   if (!response.ok) {
     throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
   }
@@ -862,7 +656,7 @@ export const streamSpaceEvents = async function* (
     try {
       yield { id: sse.id, event: JSON.parse(sse.data) as SessionStreamEvent };
     } catch {
-      // Skip non-JSON events (e.g. "ready" event)
+      // Skip non-JSON events
     }
   }
 };
@@ -879,18 +673,10 @@ export const streamSessionEvents = async function* (
 
   const headers = new Headers();
   const token = await getAuthToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-  if (lastEventId) {
-    headers.set("Last-Event-ID", lastEventId);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (lastEventId) headers.set("Last-Event-ID", lastEventId);
 
-  const response = await fetch(url, {
-    headers,
-    signal,
-  });
-
+  const response = await fetch(url, { headers, signal });
   if (!response.ok) {
     throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
   }
@@ -899,12 +685,10 @@ export const streamSessionEvents = async function* (
     try {
       yield { id: sse.id, event: JSON.parse(sse.data) as SessionStreamEvent };
     } catch {
-      // Skip non-JSON events (e.g. "ready" event)
+      // Skip non-JSON events
     }
   }
 };
-
-// ─── Cronjob & Task Runs ──────────────────────────────
 
 export type CronJobRecord = {
   id: string;
@@ -915,7 +699,6 @@ export type CronJobRecord = {
   cronExpression: string;
   timezone: string;
   bullJobKey: string;
-  workspaceId: string | null;
   spaceId: string | null;
   sessionId: string | null;
   enabled: boolean;
@@ -933,7 +716,6 @@ export type TaskRunRecord = {
   result: unknown;
   errorMessage: string | null;
   attemptCount: number;
-  workspaceId: string | null;
   spaceId: string | null;
   sessionId: string | null;
   userUuid: string | null;
@@ -950,7 +732,6 @@ export type CreateCronJobInput = {
   payload: Record<string, unknown>;
   cronExpression: string;
   timezone?: string;
-  workspaceId?: string;
   spaceId?: string;
   sessionId?: string;
 };
@@ -989,7 +770,6 @@ export type CreateScheduledTaskInput = {
   scheduleAt: string;
   spaceId?: string;
   sessionId?: string;
-  workspaceId?: string;
 };
 
 export const createScheduledTask = async (data: CreateScheduledTaskInput) => {
@@ -1003,12 +783,10 @@ export const createScheduledTask = async (data: CreateScheduledTaskInput) => {
 export const getTaskRuns = async (filters?: {
   cronJobId?: string;
   spaceId?: string;
-  workspaceId?: string;
 }) => {
   const params = new URLSearchParams();
   if (filters?.cronJobId) params.set("cronJobId", filters.cronJobId);
   if (filters?.spaceId) params.set("spaceId", filters.spaceId);
-  if (filters?.workspaceId) params.set("workspaceId", filters.workspaceId);
   const query = params.toString();
   return apiFetch(`/api/tasks/runs${query ? `?${query}` : ""}`) as Promise<{ runs: TaskRunRecord[] }>;
 };

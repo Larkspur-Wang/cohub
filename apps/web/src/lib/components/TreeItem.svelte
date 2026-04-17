@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { TreeNode } from "$lib/types";
+import type { RepositoryTreeNode } from "$lib/types";
 
 import TreeItem from "./TreeItem.svelte";
 
@@ -10,11 +10,11 @@ const {
   onToggle,
   onSelect,
 }: {
-  node: TreeNode;
+  node: RepositoryTreeNode;
   depth: number;
   selectedPath: string;
-  onToggle: (node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
+  onToggle: (node: RepositoryTreeNode) => void;
+  onSelect: (node: RepositoryTreeNode) => void;
 } = $props();
 
 const handleClick = () => {
