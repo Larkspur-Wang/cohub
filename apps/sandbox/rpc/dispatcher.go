@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/cohub/apps/sandbox/env"
@@ -52,6 +55,12 @@ func (d *Dispatcher) Handle(request protocol.RPCRequest) interface{} {
 		return d.handleFSRead(request)
 	case "fs.write":
 		return d.handleFSWrite(request)
+	case "fs.ls":
+		return d.handleFSLs(request)
+	case "fs.find":
+		return d.handleFSFind(request)
+	case "fs.grep":
+		return d.handleFSGrep(request)
 	case "process.start":
 		return d.handleProcessStart(request)
 	case "process.abort":
@@ -70,6 +79,27 @@ type fsReadParams struct {
 type fsWriteParams struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+type fsLsParams struct {
+	Path  string `json:"path"`
+	Limit int    `json:"limit"`
+}
+
+type fsFindParams struct {
+	Pattern string `json:"pattern"`
+	Path    string `json:"path"`
+	Limit   int    `json:"limit"`
+}
+
+type fsGrepParams struct {
+	Pattern    string `json:"pattern"`
+	Path       string `json:"path"`
+	Glob       string `json:"glob"`
+	IgnoreCase bool   `json:"ignoreCase"`
+	Literal    bool   `json:"literal"`
+	Context    int    `json:"context"`
+	Limit      int    `json:"limit"`
 }
 
 type processStartParams struct {
@@ -134,6 +164,152 @@ func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
 	return d.response(request, map[string]interface{}{
 		"path":         params.Path,
 		"bytesWritten": len([]byte(params.Content)),
+	})
+}
+
+func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
+	var params fsLsParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+	}
+
+	targetPath := d.cfg.WorkspaceDir
+	if strings.TrimSpace(params.Path) != "" && params.Path != "." {
+		targetPath = filepath.Join(d.cfg.WorkspaceDir, params.Path)
+	}
+
+	entries, err := osReadDir(targetPath)
+	if err != nil {
+		return d.errorResponse(request, "IO_ERROR", err.Error())
+	}
+
+	results := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+		}
+		results = append(results, name)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return strings.ToLower(results[i]) < strings.ToLower(results[j])
+	})
+
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	truncated := len(results) > limit
+	if truncated {
+		results = results[:limit]
+	}
+
+	return d.response(request, map[string]interface{}{
+		"entries":   results,
+		"truncated": truncated,
+	})
+}
+
+func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
+	var params fsFindParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+	}
+
+	searchPath := d.cfg.WorkspaceDir
+	if strings.TrimSpace(params.Path) != "" && params.Path != "." {
+		searchPath = filepath.Clean(params.Path)
+	}
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	cmd := exec.Command("fd", params.Pattern, searchPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		stderr := strings.TrimSpace(string(output))
+		if stderr == "" {
+			stderr = err.Error()
+		}
+		return d.errorResponse(request, "IO_ERROR", stderr)
+	}
+
+	matches := make([]string, 0)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		matches = append(matches, line)
+	}
+	truncated := len(matches) > limit
+	if truncated {
+		matches = matches[:limit]
+	}
+
+	return d.response(request, map[string]interface{}{
+		"matches":   matches,
+		"truncated": truncated,
+	})
+}
+
+func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
+	var params fsGrepParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+	}
+
+	searchPath := d.cfg.WorkspaceDir
+	if strings.TrimSpace(params.Path) != "" && params.Path != "." {
+		searchPath = filepath.Clean(params.Path)
+	}
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	args := []string{"--line-number", "--color=never", "--hidden"}
+	if params.Context > 0 {
+		args = append(args, "--context", fmt.Sprintf("%d", params.Context))
+	}
+	if params.IgnoreCase {
+		args = append(args, "--ignore-case")
+	}
+	if params.Literal {
+		args = append(args, "--fixed-strings")
+	}
+	if strings.TrimSpace(params.Glob) != "" {
+		args = append(args, "--glob", params.Glob)
+	}
+	args = append(args, params.Pattern, searchPath)
+
+	cmd := exec.Command("rg", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		stderr := strings.TrimSpace(string(output))
+		if stderr == "" {
+			stderr = err.Error()
+		}
+		if !strings.Contains(stderr, "No files were searched") && !strings.Contains(stderr, "No such file or directory") {
+			return d.errorResponse(request, "IO_ERROR", stderr)
+		}
+	}
+
+	lines := make([]string, 0)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	truncated := len(lines) > limit
+	if truncated {
+		lines = lines[:limit]
+	}
+
+	return d.response(request, map[string]interface{}{
+		"lines":     lines,
+		"truncated": truncated,
 	})
 }
 

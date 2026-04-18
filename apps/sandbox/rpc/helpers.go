@@ -23,6 +23,10 @@ func osReadFile(path string) (string, error) {
 	return string(bytes), nil
 }
 
+func osReadDir(path string) ([]os.DirEntry, error) {
+	return os.ReadDir(path)
+}
+
 func splitLines(content string) []string {
 	return strings.Split(content, "\n")
 }

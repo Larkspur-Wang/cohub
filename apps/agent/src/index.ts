@@ -6,6 +6,7 @@ import {
   createCodingTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
+import type { WorkspacePrepareResult } from "@cohub/agent-sandbox-protocol";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
 import { initializeContainer } from "./init.js";
@@ -17,6 +18,8 @@ import {
   sendOutput,
   reportSandboxStatus,
 } from "./redis.js";
+import { createSandboxCodingTools } from "./sandbox/tools.js";
+import { startSandboxWsServer, waitForSandboxConnection } from "./sandbox/ws-server.js";
 import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
 
 type PendingUserMessage = {
@@ -561,6 +564,16 @@ async function loadOrCreateSessionHandle(input: {
   return handle;
 }
 
+async function prepareRemoteSandbox() {
+  const connection = await waitForSandboxConnection();
+  const result = await connection.request("workspace.prepare", {}, {
+    spaceId: env.SPACE_ID,
+    sandboxId: connection.sandboxId,
+  }) as WorkspacePrepareResult;
+
+  console.log("[Supervisor] Remote sandbox prepared:", result);
+}
+
 async function main() {
   console.log(`[Supervisor] Starting for Space: ${env.SPACE_ID}`);
   console.log(`[Supervisor] Space directory: ${env.SPACE_DIR}`);
@@ -579,11 +592,22 @@ async function main() {
     multiSessionRestore: true,
   });
 
-  await initializeContainer();
+  if (env.SANDBOX_TRANSPORT === "local") {
+    await initializeContainer();
+  } else {
+    await reportSandboxStatus("provisioning");
+    await startSandboxWsServer();
+    console.log("[Supervisor] Waiting for sandbox connection...");
+    await waitForSandboxConnection();
+    console.log("[Supervisor] Sandbox connection established.");
+    await prepareRemoteSandbox();
+  }
 
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
-  const tools = createCodingTools(env.SPACE_DIR);
+  const tools = env.SANDBOX_TRANSPORT === "remote"
+    ? createSandboxCodingTools()
+    : createCodingTools(env.SPACE_DIR);
 
   await reportSandboxStatus("ready");
   console.log("[Supervisor] Space is now ready and listening for input.");

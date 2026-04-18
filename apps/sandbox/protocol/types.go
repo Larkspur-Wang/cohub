@@ -8,6 +8,10 @@ type SandboxCapabilities struct {
 	WorkspacePrepare bool `json:"workspacePrepare"`
 	FSRead           bool `json:"fsRead"`
 	FSWrite          bool `json:"fsWrite"`
+	FSStat           bool `json:"fsStat"`
+	FSLs             bool `json:"fsLs"`
+	FSFind           bool `json:"fsFind"`
+	FSGrep           bool `json:"fsGrep"`
 	ProcessStart     bool `json:"processStart"`
 	ProcessAbort     bool `json:"processAbort"`
 }

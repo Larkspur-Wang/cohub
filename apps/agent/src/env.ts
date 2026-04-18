@@ -38,6 +38,9 @@ export const EnvSchema = z.object({
   PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
+  SANDBOX_TRANSPORT: z.enum(["local", "remote"]).default("local"),
+  SANDBOX_WS_HOST: z.string().default("0.0.0.0"),
+  SANDBOX_WS_PORT: z.coerce.number().int().positive().default(8788),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

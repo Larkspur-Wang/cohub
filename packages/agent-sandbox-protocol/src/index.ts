@@ -14,6 +14,10 @@ export const RPC_METHODS = [
   "workspace.prepare",
   "fs.read",
   "fs.write",
+  "fs.stat",
+  "fs.ls",
+  "fs.find",
+  "fs.grep",
   "process.start",
   "process.abort",
 ] as const;
@@ -107,6 +111,51 @@ export type FsWriteResult = {
   bytesWritten: number;
 };
 
+export type FsStatParams = {
+  path?: string;
+};
+
+export type FsStatResult = {
+  exists: boolean;
+  isDirectory: boolean;
+};
+
+export type FsLsParams = {
+  path?: string;
+  limit?: number;
+};
+
+export type FsLsResult = {
+  entries: string[];
+  truncated?: boolean;
+};
+
+export type FsFindParams = {
+  pattern: string;
+  path?: string;
+  limit?: number;
+};
+
+export type FsFindResult = {
+  matches: string[];
+  truncated?: boolean;
+};
+
+export type FsGrepParams = {
+  pattern: string;
+  path?: string;
+  glob?: string;
+  ignoreCase?: boolean;
+  literal?: boolean;
+  context?: number;
+  limit?: number;
+};
+
+export type FsGrepResult = {
+  lines: string[];
+  truncated?: boolean;
+};
+
 export type ProcessStartParams = {
   command: string;
   timeoutSecs?: number;
@@ -139,6 +188,22 @@ export type RpcRequestMap = {
   "fs.write": {
     params: FsWriteParams;
     result: FsWriteResult;
+  };
+  "fs.stat": {
+    params: FsStatParams;
+    result: FsStatResult;
+  };
+  "fs.ls": {
+    params: FsLsParams;
+    result: FsLsResult;
+  };
+  "fs.find": {
+    params: FsFindParams;
+    result: FsFindResult;
+  };
+  "fs.grep": {
+    params: FsGrepParams;
+    result: FsGrepResult;
   };
   "process.start": {
     params: ProcessStartParams;
