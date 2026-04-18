@@ -130,19 +130,7 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 				s.logger.Warn("failed to parse rpc.request", slog.String("error", err.Error()))
 				continue
 			}
-			response := s.dispatcher.Handle(request)
-			if response == nil {
-				continue
-			}
-			payload, err := json.Marshal(response)
-			if err != nil {
-				s.logger.Warn("failed to marshal rpc response", slog.String("error", err.Error()))
-				continue
-			}
-			if err := enqueuePayload(session, payload); err != nil {
-				s.logger.Warn("failed to enqueue rpc response", slog.String("error", err.Error()))
-				return
-			}
+			go s.handleRPCRequest(session, request)
 		default:
 			s.logger.Warn("unknown incoming message type", slog.String("type", envelope.Type))
 		}
@@ -185,6 +173,28 @@ func (s *Server) writeLoop(session *connectionSession) {
 				return
 			}
 		}
+	}
+}
+
+func (s *Server) handleRPCRequest(session *connectionSession, request protocol.RPCRequest) {
+	response := s.dispatcher.Handle(request)
+	if response == nil {
+		return
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		s.logger.Warn("failed to marshal rpc response", slog.String("error", err.Error()))
+		return
+	}
+
+	if err := enqueuePayload(session, payload); err != nil {
+		s.logger.Warn(
+			"failed to enqueue rpc response",
+			slog.String("requestId", request.RequestID),
+			slog.String("method", request.Method),
+			slog.String("error", err.Error()),
+		)
 	}
 }
 
