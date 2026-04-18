@@ -106,8 +106,7 @@ export const provisionSpaceInBackground = async (input: {
     const pod = renderSandboxPodTemplate({
       SPACE_ID: input.spaceId,
       USER_ID: input.userUuid,
-      REDIS_URL: config.redisUrl,
-      LITELLM_API_KEY: config.litellmApiKey,
+      AGENT_WS_BASE_URL: config.agentWsBaseUrl,
       ENV: config.env,
       SPACE_REPO_URL: input.spaceRepoUrl,
       SPACE_GIT_USERNAME: input.spaceGitUsername,
@@ -119,18 +118,12 @@ export const provisionSpaceInBackground = async (input: {
     if (pod.spec?.containers?.[0]) {
       pod.spec.containers[0].env = [
         { name: "SPACE_ID", value: input.spaceId },
-        { name: "REDIS_URL", value: config.redisUrl },
-        { name: "ENV", value: config.env },
-        { name: "SPACE_DIR", value: "/workspace" },
-        { name: "SESSIONS_DIR", value: "/sessions" },
-        { name: "PUBLIC_URL_PREFIX", value: config.env === "prod" ? `https://public.cohub.run/r/${input.spaceId}` : `https://public.cohub.run/dev/r/${input.spaceId}` },
-        { name: "AGENT_VERSION", value: config.sandboxAgentImage },
-        { name: "WORKER_SECRET", value: config.workerSecret },
-        { name: "LITELLM_API_KEY", value: config.litellmApiKey ?? "" },
+        { name: "SANDBOX_WS_URL", value: `${config.agentWsBaseUrl.replace(/\/$/, "")}/sandbox` },
+        { name: "WORKSPACE_DIR", value: "/workspace" },
+        { name: "IMAGE_VERSION", value: config.sandboxImage },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },
         { name: "SPACE_GIT_EMAIL", value: input.spaceGitEmail ?? "" },
-        { name: "INTERNAL_API_BASE_URL", value: config.env === "prod" ? "http://cohub-api.cohub.svc.cluster.local:8787" : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787" },
         ...(input.extraEnv ?? []),
       ];
     }
@@ -139,9 +132,12 @@ export const provisionSpaceInBackground = async (input: {
 
     await updateSpaceSandbox({
       spaceId: input.spaceId,
-      status: "ready",
+      status: "provisioning",
       podName,
-      meta: { lastReadyAt: new Date().toISOString() },
+      meta: {
+        lastProvisionedAt: new Date().toISOString(),
+        agentWsBaseUrl: config.agentWsBaseUrl,
+      },
     });
   } catch (error) {
     await updateSpaceSandbox({

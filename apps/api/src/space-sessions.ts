@@ -421,21 +421,24 @@ export const waitForSpaceReady = async (spaceId: string, timeoutMs = 30000) => {
 };
 
 export const updateSpaceStatus = async (spaceId: string, status: string) => {
+  const normalizedStatus =
+    status === "running" || status === "ready"
+      ? "ready"
+      : status === "starting" || status === "provisioning"
+        ? "provisioning"
+        : status === "hibernated" || status === "stopped"
+          ? "stopped"
+          : status === "deleted" || status === "terminated"
+            ? "terminated"
+            : status === "error"
+              ? "error"
+              : "pending";
+
   await updateSpaceSandbox({
     spaceId,
-    status:
-      status === "running"
-        ? "ready"
-        : status === "starting"
-          ? "provisioning"
-          : status === "hibernated"
-            ? "stopped"
-            : status === "deleted"
-              ? "terminated"
-              : status === "error"
-                ? "error"
-                : "pending",
-    podName: status === "deleted" ? null : `sandbox-${spaceId}`,
+    status: normalizedStatus,
+    podName: normalizedStatus === "terminated" ? null : `sandbox-${spaceId}`,
+    lastHeartbeatAt: normalizedStatus === "ready" || normalizedStatus === "provisioning" ? new Date() : undefined,
     meta: { lastStatus: status },
   });
 };

@@ -87,9 +87,11 @@ Turn your result into a proposal and contribute it back into another space.
 
 ## Tech Stack
 
-- **Language**: TypeScript
+- **Language**: TypeScript + Go
 - **Frontend**: SvelteKit
 - **Backend**: Hono
+- **Agent Runtime**: pi-coding-agent
+- **Sandbox Runtime**: Go + WebSocket RPC
 - **Database**: PostgreSQL + Drizzle ORM
 - **Infrastructure**: Kubernetes (ACK)
 - **Package Manager**: pnpm monorepo
@@ -100,8 +102,8 @@ Turn your result into a proposal and contribute it back into another space.
 cohub/
 ├── apps/
 │   ├── api/          # Hono API — orchestration, provisioning, session persistence
-│   ├── agent/        # Space sandbox supervisor — wraps Pi coding agent
-│   ├── gateway/      # External channel provider gateway (independent deploy)
+│   ├── agent/        # Agent control service — Pi coding agent + sandbox WS server
+│   ├── sandbox/      # Sandbox executor — Go runtime for workspace / fs / process
 │   ├── web/          # SvelteKit web console
 │   └── worker/       # Task scheduler — cron jobs & async task processing
 ├── deploy/           # Deployment configs (K8s manifests per env)
@@ -130,6 +132,8 @@ pnpm build
 ## Docs
 
 Recommended starting points:
+- `docs/agent-sandbox-runtime.md`
+- `docs/prod-deploy-checklist.md`
 - `docs/CO-CREATION-MODEL.md`
 - `docs/MIGRATION-PROGRESS.md`
 - `docs/SCHEMA-MIGRATION-PLAN.md`

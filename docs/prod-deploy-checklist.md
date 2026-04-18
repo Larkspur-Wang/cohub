@@ -40,6 +40,8 @@
 | `GITEA_BASE_URL` | `https://gitea.cohub.run` | Gitea base URL |
 | `GITEA_TOKEN` | `xxx` | 可选：用于访问私有仓库或提高限额 |
 | `WEB_ORIGIN` | `https://cohub.run` | 用于 CORS 允许来源 |
+| `AGENT_WS_BASE_URL` | `ws://cohub-agent.cohub.svc.cluster.local:8788` | sandbox 连接 agent 的内部 WS 基地址 |
+| `SANDBOX_IMAGE` | `git.talesofai.com/.../cohub-sandbox:latest` | sandbox 镜像 |
 | `TOKEN_COOKIE_NAME` | `x_token` | Cookie 名称（默认 `x_token`） |
 | `PORT` | `8787` | 服务端口 |
 
@@ -69,6 +71,34 @@
   - `gitea.cohub.run`
   - `api.cohub.run`
 - Cloudflare 侧可做全站 HTTPS 强制。
+
+## 6) Agent / Sandbox（ACK 内部服务）
+
+### 推荐长期形态
+
+- `cohub-agent`：独立 Deployment / Service
+- `cohub-sandbox`：按 space 动态创建的 Pod
+- sandbox 通过 `AGENT_WS_BASE_URL` 主动连接 agent
+- agent 在 sandbox 建连后主动执行 `workspace.prepare`
+- `space_sandboxes.status=ready` 由 agent 在 prepare 成功后上报
+
+### 建议的内部地址
+
+| 环境 | Agent WS 基地址 |
+| --- | --- |
+| dev | `ws://cohub-agent-dev.cohub-dev.svc.cluster.local:8788` |
+| prod | `ws://cohub-agent.cohub.svc.cluster.local:8788` |
+
+### Sandbox Pod 约定
+
+- 挂载 `/workspace`
+- 不挂载 `/sessions`
+- 注入：
+  - `SANDBOX_WS_URL=${AGENT_WS_BASE_URL}/sandbox`
+  - `WORKSPACE_DIR=/workspace`
+  - `SPACE_REPO_URL`
+  - `SPACE_GIT_USERNAME`
+  - `SPACE_GIT_EMAIL`
 
 ---
 

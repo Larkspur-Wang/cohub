@@ -66,6 +66,7 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
 
 export async function reportSandboxStatus(
   status: SpaceSandboxStatus,
+  meta?: Record<string, unknown> | null,
 ) {
   const internalApiBaseUrl = env.ENV === "prod"
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
@@ -77,7 +78,7 @@ export async function reportSandboxStatus(
       "content-type": "application/json",
       ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
     },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, meta: meta ?? null }),
   }).catch((err) => {
     console.error("[Redis] Failed to report sandbox status via internal API:", err);
   });

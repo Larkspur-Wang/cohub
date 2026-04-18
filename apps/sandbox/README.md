@@ -1,6 +1,6 @@
 # Cohub Sandbox (Go)
 
-内部 sandbox 执行器，当前通过单一 WebSocket 主动连接 agent。
+内部 sandbox 执行器，通过单一 WebSocket 主动连接 agent。
 
 ## 当前已实现
 
@@ -9,6 +9,10 @@
 - `workspace.prepare`
 - `fs.read`
 - `fs.write`
+- `fs.stat`
+- `fs.ls`
+- `fs.find`
+- `fs.grep`
 - `process.start`
 - `process.abort`
 
@@ -38,15 +42,18 @@ go test ./...
 go build ./...
 ```
 
-### 1. 启动 agent 侧最小 WS server
+### 1. 启动 agent
 
 ```bash
-pnpm dev:sandbox-ws
+cd apps/agent
+SANDBOX_WS_HOST=0.0.0.0 \
+SANDBOX_WS_PORT=8788 \
+pnpm dev
 ```
 
 默认监听：`ws://0.0.0.0:8788/sandbox`
 
-### 2. 启动 Go sandbox
+### 2. 启动 sandbox
 
 ```bash
 cd apps/sandbox

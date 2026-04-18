@@ -1,0 +1,32 @@
+# Agent Dev 部署
+
+## 目录结构
+
+```text
+dev/
+├── values.yaml
+└── deploy.sh
+```
+
+## 部署步骤
+
+```bash
+cd deploy/agent/dev
+./deploy.sh
+```
+
+如果需要覆盖镜像：
+
+```bash
+OVERRIDE_IMAGE=git.talesofai.com/talesofai/cohub-agent:latest ./deploy.sh
+```
+
+## 说明
+
+- Agent 作为控制面独立部署
+- Sandbox 通过 `AGENT_WS_BASE_URL` 主动连接 Agent
+- Session 数据目录由 Agent 自己管理（`SESSIONS_DIR`）
+- 当前脚本会渲染并应用：
+  - `configmap.tmpl.yaml`
+  - `service.tmpl.yaml`
+  - `deployment.tmpl.yaml`

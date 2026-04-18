@@ -3,13 +3,11 @@ import {
   ModelRegistry,
   SessionManager,
   createAgentSession,
-  createCodingTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
 import type { WorkspacePrepareResult } from "@cohub/agent-sandbox-protocol";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
-import { initializeContainer } from "./init.js";
 import {
   closeRedisConnections,
   extractContentImages,
@@ -59,33 +57,33 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
       try {
         await handle.persistenceChain.catch((error) => {
           console.error(
-            `[Supervisor] Failed while draining persistence chain for ${handle.sessionId}:`,
+            `[Agent] Failed while draining persistence chain for ${handle.sessionId}:`,
             error,
           );
         });
         handle.session.dispose();
       } catch (error) {
         console.error(
-          `[Supervisor] Failed to dispose session ${handle.sessionId}:`,
+          `[Agent] Failed to dispose session ${handle.sessionId}:`,
           error,
         );
       }
     }
     sessionHandles.clear();
   } catch (error) {
-    console.error("[Supervisor] Failed to dispose session handles on shutdown:", error);
+    console.error("[Agent] Failed to dispose session handles on shutdown:", error);
   }
 
   try {
     await reportSandboxStatus(status === "stopped" ? "stopped" : "error");
   } catch (error) {
-    console.error("[Supervisor] Failed to update sandbox status on shutdown:", error);
+    console.error("[Agent] Failed to update sandbox status on shutdown:", error);
   }
 
   try {
     await closeRedisConnections();
   } catch (error) {
-    console.error("[Supervisor] Failed to close Redis connections:", error);
+    console.error("[Agent] Failed to close Redis connections:", error);
   }
 
   process.exit(exitCode);
@@ -93,7 +91,7 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
 
 async function findSessionFileById(sessionId: string) {
   const sessions = await SessionManager.list(env.SPACE_DIR, env.SESSIONS_DIR).catch((error) => {
-    console.error(`[Supervisor] Failed to list sessions for lookup ${sessionId}:`, error);
+    console.error(`[Agent] Failed to list sessions for lookup ${sessionId}:`, error);
     return [];
   });
 
@@ -220,14 +218,14 @@ function enqueuePersistence(handle: SessionHandle, label: string, task: () => Pr
   const next = handle.persistenceChain
     .catch((error) => {
       console.error(
-        `[Supervisor] Previous persistence task failed for session ${handle.sessionId}:`,
+        `[Agent] Previous persistence task failed for session ${handle.sessionId}:`,
         error,
       );
     })
     .then(task)
     .catch((error) => {
       console.error(
-        `[Supervisor] Persistence task failed (${label}) for session ${handle.sessionId}:`,
+        `[Agent] Persistence task failed (${label}) for session ${handle.sessionId}:`,
         error,
       );
       throw error;
@@ -250,11 +248,11 @@ function subscribeSessionEvents(handle: SessionHandle) {
           handle.currentUserMessageContent = pending.content;
           handle.currentUserMessageMeta = pending.meta ?? null;
           console.log(
-            `[Supervisor] Dequeued user message ${handle.currentUserMessageId} for session ${handle.sessionId}`
+            `[Agent] Dequeued user message ${handle.currentUserMessageId} for session ${handle.sessionId}`
           );
         } else {
           console.warn(
-            `[Supervisor] No pending user message in FIFO for session ${handle.sessionId}`
+            `[Agent] No pending user message in FIFO for session ${handle.sessionId}`
           );
         }
       }
@@ -446,7 +444,7 @@ async function loadOrCreateSessionHandle(input: {
   sessionId: string;
   authStorage: AuthStorage;
   modelRegistry: ModelRegistry;
-  tools: ReturnType<typeof createCodingTools>;
+  tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
 }) {
   const existing = sessionHandles.get(input.sessionId);
@@ -459,7 +457,7 @@ async function loadOrCreateSessionHandle(input: {
     externalSessionId: null,
     meta: null,
   }).catch((error: unknown) => {
-    console.error(`[Supervisor] Failed to register session bootstrap for ${input.sessionId}:`, error);
+    console.error(`[Agent] Failed to register session bootstrap for ${input.sessionId}:`, error);
     return null;
   });
 
@@ -468,13 +466,13 @@ async function loadOrCreateSessionHandle(input: {
   let sessionManager: SessionManager;
   if (existingSessionFile) {
     console.log(
-      `[Supervisor] Restoring pi session ${input.sessionId} from ${existingSessionFile}`,
+      `[Agent] Restoring pi session ${input.sessionId} from ${existingSessionFile}`,
     );
     sessionManager = SessionManager.open(existingSessionFile, env.SESSIONS_DIR);
 
     if (sessionManager.getSessionId() !== input.sessionId) {
       console.warn(
-        `[Supervisor] Restored session id mismatch. expected=${input.sessionId}, actual=${sessionManager.getSessionId()}`,
+        `[Agent] Restored session id mismatch. expected=${input.sessionId}, actual=${sessionManager.getSessionId()}`,
       );
     }
   } else {
@@ -484,7 +482,7 @@ async function loadOrCreateSessionHandle(input: {
 
     if (parentSessionFile && forkSourceProtocolMessageId) {
       console.log(
-        `[Supervisor] Forking pi session ${input.sessionId} from parent=${parentSessionId} entry=${forkSourceProtocolMessageId}`,
+        `[Agent] Forking pi session ${input.sessionId} from parent=${parentSessionId} entry=${forkSourceProtocolMessageId}`,
       );
       const parentManager = SessionManager.open(parentSessionFile, env.SESSIONS_DIR);
       const forkedSessionFile = parentManager.createBranchedSession(forkSourceProtocolMessageId);
@@ -517,7 +515,7 @@ async function loadOrCreateSessionHandle(input: {
       }
       sessionManager = SessionManager.open(rewrittenSessionFile, env.SESSIONS_DIR);
     } else {
-      console.log(`[Supervisor] Creating new pi session ${input.sessionId}`);
+      console.log(`[Agent] Creating new pi session ${input.sessionId}`);
       sessionManager = SessionManager.create(env.SPACE_DIR, env.SESSIONS_DIR);
       sessionManager.newSession({ id: input.sessionId });
     }
@@ -555,7 +553,7 @@ async function loadOrCreateSessionHandle(input: {
   subscribeSessionEvents(handle);
   sessionHandles.set(input.sessionId, handle);
 
-  console.log("[Supervisor] Agent Session ready:", {
+  console.log("[Agent] Agent Session ready:", {
     sessionId: handle.sessionId,
     sessionFile: handle.sessionManager.getSessionFile(),
     restored: Boolean(existingSessionFile),
@@ -571,15 +569,22 @@ async function prepareRemoteSandbox() {
     sandboxId: connection.sandboxId,
   }) as WorkspacePrepareResult;
 
-  console.log("[Supervisor] Remote sandbox prepared:", result);
+  console.log("[Agent] Remote sandbox prepared:", result);
+  await reportSandboxStatus("ready", {
+    workspaceDir: result.workspaceDir,
+    repoCloned: result.repoCloned,
+    configApplied: result.configApplied,
+    preparedAt: new Date().toISOString(),
+    sandboxId: connection.sandboxId,
+  });
 }
 
 async function main() {
-  console.log(`[Supervisor] Starting for Space: ${env.SPACE_ID}`);
-  console.log(`[Supervisor] Space directory: ${env.SPACE_DIR}`);
-  console.log(`[Supervisor] Agent version: ${env.AGENT_VERSION || "unknown"}`);
-  console.log(`[Supervisor] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
-  console.log("[Supervisor] Build features:", {
+  console.log(`[Agent] Starting for Space: ${env.SPACE_ID}`);
+  console.log(`[Agent] Space directory: ${env.SPACE_DIR}`);
+  console.log(`[Agent] Agent version: ${env.AGENT_VERSION || "unknown"}`);
+  console.log(`[Agent] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
+  console.log("[Agent] Build features:", {
     env: env.ENV,
     spaceId: env.SPACE_ID,
     agentVersion: env.AGENT_VERSION || null,
@@ -592,28 +597,21 @@ async function main() {
     multiSessionRestore: true,
   });
 
-  if (env.SANDBOX_TRANSPORT === "local") {
-    await initializeContainer();
-  } else {
-    await reportSandboxStatus("provisioning");
-    await startSandboxWsServer();
-    console.log("[Supervisor] Waiting for sandbox connection...");
-    await waitForSandboxConnection();
-    console.log("[Supervisor] Sandbox connection established.");
-    await prepareRemoteSandbox();
-  }
+  await reportSandboxStatus("provisioning");
+  await startSandboxWsServer();
+  console.log("[Agent] Waiting for sandbox connection...");
+  await waitForSandboxConnection();
+  console.log("[Agent] Sandbox connection established.");
+  await prepareRemoteSandbox();
 
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
-  const tools = env.SANDBOX_TRANSPORT === "remote"
-    ? createSandboxCodingTools()
-    : createCodingTools(env.SPACE_DIR);
+  const tools = createSandboxCodingTools();
 
-  await reportSandboxStatus("ready");
-  console.log("[Supervisor] Space is now ready and listening for input.");
+  console.log("[Agent] Space is now ready and listening for input.");
 
   await listenForInput((inputEntry, ack, reject) => {
-    console.log("[Supervisor] Received input from Redis:", inputEntry);
+    console.log("[Agent] Received input from Redis:", inputEntry);
 
     // Fire and forget async handler
     (async () => {
@@ -646,12 +644,12 @@ async function main() {
               const targetModel = handle.session.modelRegistry.find(requestedProvider, requestedModel);
               if (targetModel) {
                 console.log(
-                  `[Supervisor] Switching model from ${currentModel.provider}/${currentModel.id} to ${requestedProvider}/${requestedModel}`,
+                  `[Agent] Switching model from ${currentModel.provider}/${currentModel.id} to ${requestedProvider}/${requestedModel}`,
                 );
                 await handle.session.setModel(targetModel);
               } else {
                 console.warn(
-                  `[Supervisor] Requested model ${requestedProvider}/${requestedModel} not found, keeping current model`,
+                  `[Agent] Requested model ${requestedProvider}/${requestedModel} not found, keeping current model`,
                 );
               }
             }
@@ -674,12 +672,12 @@ async function main() {
           // Decide whether to use prompt or steer based on streaming state
           if (handle.session.isStreaming) {
             console.log(
-              `[Supervisor] Session ${sessionId} is streaming, using steer for new message`
+              `[Agent] Session ${sessionId} is streaming, using steer for new message`
             );
             await handle.session.steer(text, images);
           } else {
             console.log(
-              `[Supervisor] Session ${sessionId} is idle, using prompt for new message`
+              `[Agent] Session ${sessionId} is idle, using prompt for new message`
             );
             await handle.session.prompt(text, {
               images,
@@ -692,7 +690,7 @@ async function main() {
             const handle = sessionHandles.get(inputEntry.sessionId);
             if (!handle) {
               console.warn(
-                `[Supervisor] Abort requested for unknown session ${inputEntry.sessionId}`,
+                `[Agent] Abort requested for unknown session ${inputEntry.sessionId}`,
               );
             } else {
               await handle.session.abort();
@@ -707,7 +705,7 @@ async function main() {
           await reject(`Unknown action: ${(inputEntry as { action?: string }).action}`);
         }
       } catch (error) {
-        console.error("[Supervisor] Error processing input:", error);
+        console.error("[Agent] Error processing input:", error);
         const sessionId = inputEntry.action === "prompt" ? inputEntry.sessionId : null;
         const errEvent: SessionStreamError = {
           type: "error",
@@ -723,16 +721,16 @@ async function main() {
 }
 
 process.on("SIGTERM", () => {
-  console.log("[Supervisor] SIGTERM received. Shutting down.");
+  console.log("[Agent] SIGTERM received. Shutting down.");
   void shutdown("stopped", 0);
 });
 
 process.on("SIGINT", () => {
-  console.log("[Supervisor] SIGINT received. Shutting down.");
+  console.log("[Agent] SIGINT received. Shutting down.");
   void shutdown("stopped", 0);
 });
 
 main().catch(async (err) => {
-  console.error("[Supervisor] Fatal error:", err);
+  console.error("[Agent] Fatal error:", err);
   await shutdown("error", 1);
 });

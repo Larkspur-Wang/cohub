@@ -1,0 +1,9 @@
+appName: cohub-agent-dev
+namespace: cohub-dev
+serviceName: cohub-agent-dev
+port: 8788
+image: git.talesofai.com/talesofai/cohub-agent:latest
+env: dev
+redisUrl: redis://cohub-redis-dev:6379
+workerSecret: ""
+sessionsDir: /sessions

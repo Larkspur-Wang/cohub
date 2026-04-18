@@ -87,9 +87,11 @@ Cohub 的核心思路是：**Space 是主要的创作界面，Checkpoint 是沉�
 
 ## 技术栈
 
-- **语言**：TypeScript
+- **语言**：TypeScript + Go
 - **前端**：SvelteKit
 - **后端**：Hono
+- **Agent Runtime**：pi-coding-agent
+- **Sandbox Runtime**：Go + WebSocket RPC
 - **数据库**：PostgreSQL + Drizzle ORM
 - **基础设施**：Kubernetes (ACK)
 - **包管理**：pnpm monorepo
@@ -100,7 +102,8 @@ Cohub 的核心思路是：**Space 是主要的创作界面，Checkpoint 是沉�
 cohub/
 ├── apps/
 │   ├── api/          # Hono API — 编排、Provisioning、Session 持久化
-│   ├── agent/        # Space sandbox supervisor，封装 Pi coding agent
+│   ├── agent/        # Agent 控制服务 — 运行 Pi coding agent，并提供 sandbox WebSocket server
+│   ├── sandbox/      # Sandbox 执行器 — Go 运行时，负责 workspace / fs / process primitive
 │   ├── gateway/      # 外部 channel provider 网关（独立部署）
 │   ├── web/          # SvelteKit Web 控制台
 │   └── worker/       # 任务调度器 — 定时任务与异步任务处理
@@ -130,6 +133,8 @@ pnpm build
 ## 文档
 
 推荐优先阅读：
+- `docs/agent-sandbox-runtime.md`
+- `docs/prod-deploy-checklist.md`
 - `docs/CO-CREATION-MODEL.md`
 - `docs/MIGRATION-PROGRESS.md`
 - `docs/SCHEMA-MIGRATION-PLAN.md`

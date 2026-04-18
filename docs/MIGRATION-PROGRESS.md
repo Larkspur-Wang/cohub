@@ -37,18 +37,19 @@
   - `checkpoints`, `proposals`: 为后续共创功能预留.
 - ✅ **数据迁移**: 编写 `migrate-v2-data.ts`，支持将现有 `runtimes` 数据平滑迁移至 `v2` 空间.
 
-### 2.3 后端服务 (API & Worker & Agent)
-- ✅ **路由切换**: 
+### 2.3 后端服务 (API / Worker / Agent / Sandbox)
+- ✅ **路由切换**:
   - 新增 `/api/spaces/*`, `/internal/spaces/*`.
   - 移除所有 `/api/runtimes/*` (410 Gone -> 404).
 - ✅ **执行层重构**:
   - 删除 `runtime-sessions.ts`, `runtime-fs.ts`, `permissions.ts` (旧).
   - 新建 `space-sessions.ts`, `space-fs.ts`, `space-sandboxes.ts`.
   - `channels.ts` / `session-interactions.ts` 全面改用 `v2` 表查询.
-- ✅ **Agent/Worker 改造**: 
-  - Agent 内部通讯路径切换至 `/internal/spaces/*`.
-  - 状态上报改为 `reportSandboxStatus`.
-  - 配置项重命名: `sandboxRuntimeImage` -> `sandboxAgentImage`.
+- ✅ **运行架构收敛**:
+  - Agent 固定为控制面服务，负责 `pi-coding-agent`、Redis、session 与 sandbox ws server.
+  - Sandbox 固定为执行面服务，负责 workspace / fs / process primitive.
+  - Agent 不再承担 workspace 初始化，本地 init 逻辑已删除.
+  - sandbox 状态上报改为由 agent 在 `workspace.prepare` 成功后驱动.
 
 ### 2.4 清理与收尾
 - ✅ 移除 `db/schema.ts`，项目全面依赖 `schema-v2.ts`.
@@ -64,7 +65,7 @@
 | **数据库 (DB V2)** | 🟢 100% | V2 Schema 已上线 dev，迁移脚本已验证。 |
 | **API 路由** | 🟢 100% | 旧路由已下线，新路由 `/api/spaces` 为主入口。 |
 | **核心逻辑 (API)** | 🟢 100% | 空间创建、Session、权限、FS 均已切换至 V2 实现。 |
-| **子进程 (Agent/Worker)** | 🟢 100% | 已切换至 Space 接口与 Sandbox 状态。 |
+| **子进程 (Agent / Worker / Sandbox)** | 🟢 100% | Agent 已收敛为控制面服务，Sandbox 已独立为 Go 执行器，二者通过单一 WebSocket 协议协作。 |
 | **前端 (Web UI)** | 🟡 85% | `/spaces` 主链路、旧 `/runtimes` 重定向、SSE 聊天、分页缓存、模型选择、图片附件与文件工作台均已恢复；剩余主要为全站细节 polish 与 Checkpoint/Proposal UI。 |
 
 ---
@@ -87,8 +88,8 @@
 - [ ] **Proposal 流**: 实现创建提案、合并提案的接口，打通从 Checkpoint A 到 Space B 的代码合入。
 
 ### 4.3 基础设施完善 (Priority: P2)
-- [ ] **环境变量清理**: K8s Pod 模板中 `RUNTIME_ID`, `RUNTIME_VERSION` 逐步替换为 `SPACE_ID`, `AGENT_VERSION` (需配合发布脚本)。
-- [ ] **数据归档**: 在确认 V2 迁移无误后，计划在生产环境 drop 掉旧 `public.runtimes` 等表。
+- [ ] **旧迁移文档清理**: 继续移除历史 runtime / 单体 agent-sandbox 术语与旧配置名。
+- [ ] **部署模板完善**: 补齐 agent Deployment / Service 的长期模板与文档约定。
 - [ ] **公开访问链接**: 确认 `public.cohub.run/r/{id}` 的兼容策略，是维持重定向还是切换为 `/s/{id}`。
 
 ### 4.4 体验优化 (Priority: P3)

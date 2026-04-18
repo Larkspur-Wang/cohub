@@ -3,8 +3,7 @@ import { config } from "../config.js";
 type SandboxPodTemplateVariables = {
   SPACE_ID: string;
   USER_ID: string;
-  REDIS_URL: string;
-  LITELLM_API_KEY?: string;
+  AGENT_WS_BASE_URL: string;
   ENV?: string;
   SPACE_REPO_URL?: string;
   SPACE_GIT_USERNAME?: string;
@@ -21,17 +20,17 @@ function assertK8sSafeName(value: string, fieldName: string) {
   }
 }
 
-function assertRedisUrl(value: string) {
+function validateAgentWsBaseUrl(value: string) {
   let url: URL;
 
   try {
     url = new URL(value);
   } catch {
-    throw new Error("REDIS_URL must be a valid URL");
+    throw new Error("AGENT_WS_BASE_URL must be a valid URL");
   }
 
-  if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
-    throw new Error("REDIS_URL must use redis:// or rediss://");
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("AGENT_WS_BASE_URL must use ws:// or wss://");
   }
 }
 
@@ -51,8 +50,8 @@ export const SANDBOX_POD_TEMPLATE = {
     imagePullSecrets: [{ name: "gitea-registry" }],
     containers: [
       {
-        name: "agent",
-        image: config.sandboxAgentImage,
+        name: "sandbox",
+        image: config.sandboxImage,
         resources: {
           limits: {
             cpu: "1",
@@ -68,11 +67,6 @@ export const SANDBOX_POD_TEMPLATE = {
             name: "space-storage",
             mountPath: "/workspace",
             subPath: "${SPACE_STORAGE_SUBPATH}/${SPACE_ID}/workspace",
-          },
-          {
-            name: "space-storage",
-            mountPath: "/sessions",
-            subPath: "${SPACE_STORAGE_SUBPATH}/${SPACE_ID}/sessions",
           },
           {
             name: "public-storage",
@@ -107,7 +101,7 @@ export function validateSandboxPodTemplateVariables(
 ) {
   assertK8sSafeName(variables.SPACE_ID, "SPACE_ID");
   assertK8sSafeName(variables.USER_ID, "USER_ID");
-  assertRedisUrl(variables.REDIS_URL);
+  validateAgentWsBaseUrl(variables.AGENT_WS_BASE_URL);
   return variables;
 }
 

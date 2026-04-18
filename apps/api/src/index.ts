@@ -796,6 +796,35 @@ app.get("/api/spaces/:id/stream", async (c) => {
   });
 });
 
+const ALLOWED_SANDBOX_META_KEYS = new Set([
+  "workspaceDir",
+  "repoCloned",
+  "configApplied",
+  "preparedAt",
+  "sandboxId",
+  "agentWsBaseUrl",
+  "lastProvisionedAt",
+  "lastStatus",
+  "lastError",
+]);
+
+function sanitizeSandboxMeta(input: Record<string, unknown> | null | undefined) {
+  if (!input) return null;
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!ALLOWED_SANDBOX_META_KEYS.has(key)) continue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      output[key] = value;
+    }
+  }
+  return Object.keys(output).length > 0 ? output : null;
+}
+
 app.post("/internal/spaces/:id/status", async (c) => {
   const forbidden = ensureInternalRequest(c);
   if (forbidden) return forbidden;
@@ -803,9 +832,26 @@ app.post("/internal/spaces/:id/status", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
-  const body = await c.req.json<{ status?: string }>().catch(() => null);
+  const body = await c.req.json<{ status?: string; meta?: Record<string, unknown> | null }>().catch(() => null);
   if (!body?.status) return c.json({ message: "status is required" }, 400);
   await updateSpaceStatus(spaceId, body.status);
+
+  const safeMeta = sanitizeSandboxMeta(body.meta);
+  if (safeMeta) {
+    try {
+      const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+      await updateSpaceSandbox({
+        spaceId,
+        meta: {
+          ...((sandbox?.meta as Record<string, unknown> | null) ?? {}),
+          ...safeMeta,
+        },
+        lastHeartbeatAt: new Date(),
+      });
+    } catch (error) {
+      console.warn("[SandboxStatus] Failed to persist sandbox meta:", error);
+    }
+  }
   return c.json({ ok: true });
 });
 

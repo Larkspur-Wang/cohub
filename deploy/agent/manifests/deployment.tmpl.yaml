@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{APP_NAME}}
+  namespace: {{NAMESPACE}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{APP_NAME}}
+  template:
+    metadata:
+      labels:
+        app: {{APP_NAME}}
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      containers:
+        - name: agent
+          image: {{IMAGE}}
+          ports:
+            - containerPort: {{PORT}}
+          envFrom:
+            - configMapRef:
+                name: {{APP_NAME}}-config
+          env:
+            - name: WORKER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{APP_NAME}}-secrets
+                  key: WORKER_SECRET
+          volumeMounts:
+            - name: sessions-storage
+              mountPath: {{SESSIONS_DIR}}
+      volumes:
+        - name: sessions-storage
+          persistentVolumeClaim:
+            claimName: cohub-agent-pvc

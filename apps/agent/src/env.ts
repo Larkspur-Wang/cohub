@@ -12,8 +12,6 @@ const redisUrlSchema = z
     }
   }, "REDIS_URL must use redis:// or rediss://");
 
-export const GLOBAL_CONFIG_REPO = "https://gitea.cohub.run/global/configs.git";
-
 export const EnvSchema = z.object({
   SPACE_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
@@ -32,13 +30,9 @@ export const EnvSchema = z.object({
     })
     .default("/sessions"),
   ENV: z.enum(["dev", "prod"]).default("dev"),
-  SPACE_REPO_URL: z.string().optional(),
-  SPACE_GIT_USERNAME: z.string().optional(),
-  SPACE_GIT_EMAIL: z.string().optional(),
   PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
-  SANDBOX_TRANSPORT: z.enum(["local", "remote"]).default("local"),
   SANDBOX_WS_HOST: z.string().default("0.0.0.0"),
   SANDBOX_WS_PORT: z.coerce.number().int().positive().default(8788),
 });

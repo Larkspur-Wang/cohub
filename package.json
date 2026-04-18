@@ -12,7 +12,6 @@
     "dev:api": "pnpm --filter @cohub/api dev",
     "dev:web": "pnpm --filter web dev",
     "dev:agent": "pnpm --filter @cohub/agent dev",
-    "dev:sandbox-ws": "pnpm --filter @cohub/agent dev:sandbox-ws",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
