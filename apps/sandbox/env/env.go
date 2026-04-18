@@ -20,7 +20,6 @@ type Config struct {
 	SpaceRepoURL          string
 	SpaceGitUsername      string
 	SpaceGitEmail         string
-	CohubApiUrl           string
 }
 
 func Load() (Config, error) {
@@ -73,17 +72,6 @@ func Load() (Config, error) {
 		globalConfigRepo = "https://gitea.cohub.run/global/configs.git"
 	}
 
-	cohubApiUrl := strings.TrimSpace(os.Getenv("COHUB_API_URL"))
-	if cohubApiUrl == "" {
-		// Fallback to k8s service discovery
-		cohubEnv := strings.TrimSpace(os.Getenv("COHUB_ENV"))
-		if cohubEnv == "prod" {
-			cohubApiUrl = "http://cohub-api.cohub.svc.cluster.local:8787"
-		} else {
-			cohubApiUrl = "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787"
-		}
-	}
-
 	return Config{
 		SandboxWSHost:         wsHost,
 		SandboxWSPort:         wsPort,
@@ -96,6 +84,5 @@ func Load() (Config, error) {
 		SpaceRepoURL:          strings.TrimSpace(os.Getenv("SPACE_REPO_URL")),
 		SpaceGitUsername:      strings.TrimSpace(os.Getenv("SPACE_GIT_USERNAME")),
 		SpaceGitEmail:         strings.TrimSpace(os.Getenv("SPACE_GIT_EMAIL")),
-		CohubApiUrl:           cohubApiUrl,
 	}, nil
 }
