@@ -5,5 +5,8 @@ port: 8788
 image: git.talesofai.com/talesofai/cohub-agent:latest
 env: dev
 workerSecret: ""
+workspaceRoot: /space-storage
 sessionsDir: /sessions
-SPACE_STORAGE_SUBPATH: "cohub-dev"
+spaceStoragePvc: cohub-spaces-pvc
+workspaceSubpath: workspaces/dev
+sessionsSubpath: sessions/dev

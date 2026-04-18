@@ -28,7 +28,7 @@ __IMAGE_PULL_SECRETS_BLOCK__
                 name: __SECRET_NAME__
           volumeMounts:
             - name: space-storage
-              mountPath: __SPACE_STORAGE_ROOT__
+              mountPath: /space-storage
               subPath: __SPACE_STORAGE_SUBPATH__
           resources:
             requests:

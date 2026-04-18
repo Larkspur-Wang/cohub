@@ -5,6 +5,5 @@ metadata:
   namespace: {{NAMESPACE}}
 data:
   ENV: "{{ENV}}"
+  WORKSPACE_ROOT: "{{WORKSPACE_ROOT}}"
   SESSIONS_DIR: "{{SESSIONS_DIR}}"
-  SANDBOX_WS_HOST: "0.0.0.0"
-  SANDBOX_WS_PORT: "{{PORT}}"

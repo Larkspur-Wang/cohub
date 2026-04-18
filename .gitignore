@@ -3,8 +3,10 @@ AGENTS.md
 node_modules/
 dist/
 .pnpm-store/
-
 configs/
+
+# Local rendered manifests (do not commit)
+rendered/
 
 # Environment variables
 .env

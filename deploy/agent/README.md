@@ -1,6 +1,6 @@
-# Agent 部署约定（长期方案）
+# Agent 部署约定（当前架构）
 
-本文档描述 `apps/agent` 在长期架构中的部署角色与约定。
+本文档描述 `apps/agent` 在当前 ownership + 多 space 控制面架构下的部署角色与约定。
 
 ## 角色定位
 
@@ -8,79 +8,80 @@
 
 - 运行 `pi-coding-agent`
 - 管理 session / persistence / Redis I/O
-- 提供 sandbox WebSocket server
-- 将 tool 调用通过 ws rpc 转发给 sandbox
-- 在 sandbox 建连后主动执行 `workspace.prepare`
+- 基于 ownership 处理 owner-routed 输入
+- 主动发现并连接各个 sandbox 的 WebSocket server
+- 将 tool 调用通过 ws rpc 转发给对应 space 的 sandbox
+- 在 sandbox 可用后调用 `workspace.prepare`
 - 在 prepare 成功后上报 `space_sandboxes.status=ready`
 
 ## 运行模型
 
-- agent 为独立 Deployment / Service
+- agent 为独立 Deployment（可多副本）
 - sandbox 为按 space 动态创建的 Pod
-- sandbox 主动连接 agent
-- agent 不再承担 workspace 初始化
-- agent 不再挂载 `/workspace`
-- session 归 agent，自行管理 `SESSIONS_DIR`
+- 同一 `spaceId` 任意时刻只归一个 owner agent 实例
+- agent 需要挂载整个 workspace PVC 的环境子路径
+- session 由 agent 管理，并持久化到同一个 PVC 的 sessions 子路径
 
-## 推荐命名
+## Agent 关键环境变量
+
+- `REDIS_URL`
+- `WORKSPACE_ROOT`
+- `SESSIONS_DIR`
+- `ENV`
+- `WORKER_SECRET`
+- `AGENT_VERSION`
+
+本地调试可额外使用：
+- `LOCAL_SANDBOX_SPACE_ID`
+- `LOCAL_SANDBOX_WS_URL`
+
+## 共享 PVC 路径规划
+
+统一使用同一个 PVC，例如：
+
+```txt
+cohub-spaces-pvc
+```
+
+PVC 内推荐目录布局：
+
+```txt
+/workspaces/dev/{spaceId}/workspace
+/workspaces/prod/{spaceId}/workspace
+/sessions/dev/spaces/{spaceId}/...
+/sessions/prod/spaces/{spaceId}/...
+```
+
+## Agent 当前模板约定
 
 ### Dev
 
 - Deployment: `cohub-agent-dev`
-- Service: `cohub-agent-dev`
 - Namespace: `cohub-dev`
-- WS Base URL: `ws://cohub-agent-dev.cohub-dev.svc.cluster.local:8788`
+- workspace PVC: `cohub-spaces-pvc`
+- workspace mountPath: `/space-storage`
+- workspace subPath: `workspaces/dev`
+- `WORKSPACE_ROOT=/space-storage`
+- sessions mountPath: `/sessions`
+- sessions subPath: `sessions/dev`
+- 最终 session 实际目录：`/sessions/spaces/{spaceId}/...`
 
 ### Prod
 
 - Deployment: `cohub-agent`
-- Service: `cohub-agent`
 - Namespace: `cohub`
-- WS Base URL: `ws://cohub-agent.cohub.svc.cluster.local:8788`
+- workspace PVC: `cohub-spaces-pvc`
+- workspace mountPath: `/space-storage`
+- workspace subPath: `workspaces/prod`
+- `WORKSPACE_ROOT=/space-storage`
+- sessions mountPath: `/sessions`
+- sessions subPath: `sessions/prod`
+- 最终 session 实际目录：`/sessions/spaces/{spaceId}/...`
 
-## Agent 关键环境变量
+## 说明
 
-- `SPACE_ID`
-- `REDIS_URL`
-- `SESSIONS_DIR`
-- `ENV`
-- `WORKER_SECRET`
-- `SANDBOX_WS_HOST`
-- `SANDBOX_WS_PORT`
-- `AGENT_VERSION`
+这样设计后：
 
-## Sandbox 连接约定
-
-sandbox 通过以下环境变量主动连接 agent：
-
-- `SANDBOX_WS_URL=${AGENT_WS_BASE_URL}/sandbox`
-
-Agent 启动后：
-
-1. 上报 `provisioning`
-2. 启动 sandbox ws server
-3. 等待 sandbox 建连
-4. 调用 `workspace.prepare`
-5. prepare 成功后上报 `ready`
-
-## Agent / Sandbox 边界
-
-### Agent
-
-- session
-- Redis
-- persistence
-- tool 编排
-- sandbox ws server
-
-### Sandbox
-
-- workspace.prepare
-- fs.read / fs.write / fs.stat / fs.ls / fs.find / fs.grep
-- process.start / process.abort
-
-## 当前待补项
-
-- agent Deployment / Service 的 K8s 模板
-- agent 的 secrets / configmap 规范
-- sandbox status / heartbeat 更细粒度更新
+- sandbox 继续只挂自己的 `/workspace`
+- agent / api / worker 都按环境挂载共享 PVC 的对应环境子树
+- workspace 与 sessions 仍在同一个 PVC 中，但路径分区清晰，不混用

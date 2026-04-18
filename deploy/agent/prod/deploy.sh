@@ -22,8 +22,32 @@ SERVICE_NAME=$(get_value "serviceName")
 PORT=$(get_value "port")
 IMAGE=${OVERRIDE_IMAGE:-$(get_value "image")}
 ENV=$(get_value "env")
+WORKSPACE_ROOT=$(get_value "workspaceRoot")
 SESSIONS_DIR=$(get_value "sessionsDir")
-SPACE_STORAGE_SUBPATH=$(get_value "SPACE_STORAGE_SUBPATH")
+SPACE_STORAGE_PVC=$(get_value "spaceStoragePvc")
+WORKSPACE_SUBPATH=$(get_value "workspaceSubpath")
+SESSIONS_SUBPATH=$(get_value "sessionsSubpath")
+
+require_value() {
+  local name="$1"
+  local value="$2"
+  if [ -z "$value" ]; then
+    echo -e "${RED}✗ 缺少必填配置: ${name}${NC}"
+    exit 1
+  fi
+}
+
+require_value "appName" "$APP_NAME"
+require_value "namespace" "$NAMESPACE"
+require_value "serviceName" "$SERVICE_NAME"
+require_value "port" "$PORT"
+require_value "image" "$IMAGE"
+require_value "env" "$ENV"
+require_value "workspaceRoot" "$WORKSPACE_ROOT"
+require_value "sessionsDir" "$SESSIONS_DIR"
+require_value "spaceStoragePvc" "$SPACE_STORAGE_PVC"
+require_value "workspaceSubpath" "$WORKSPACE_SUBPATH"
+require_value "sessionsSubpath" "$SESSIONS_SUBPATH"
 
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml，请先参考 secrets.template.yaml 生成${NC}"
@@ -49,8 +73,11 @@ sed -i.bak \
   -e "s|{{IMAGE}}|${IMAGE}|g" \
   -e "s|{{PORT}}|${PORT}|g" \
   -e "s|{{ENV}}|${ENV}|g" \
+  -e "s|{{WORKSPACE_ROOT}}|${WORKSPACE_ROOT}|g" \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
-  -e "s|{{SPACE_STORAGE_SUBPATH}}|${SPACE_STORAGE_SUBPATH}|g" \
+  -e "s|{{SPACE_STORAGE_PVC}}|${SPACE_STORAGE_PVC}|g" \
+  -e "s|{{WORKSPACE_SUBPATH}}|${WORKSPACE_SUBPATH}|g" \
+  -e "s|{{SESSIONS_SUBPATH}}|${SESSIONS_SUBPATH}|g" \
   rendered/configmap.yaml rendered/deployment.yaml
 
 # Inject resource limits (prod)

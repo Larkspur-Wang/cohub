@@ -36,10 +36,16 @@ spec:
                   key: WORKER_SECRET
           {{RESOURCES}}
           volumeMounts:
+            - name: workspace-storage
+              mountPath: /space-storage
+              subPath: {{WORKSPACE_SUBPATH}}
             - name: sessions-storage
               mountPath: {{SESSIONS_DIR}}
-              subPath: {{SPACE_STORAGE_SUBPATH}}
+              subPath: {{SESSIONS_SUBPATH}}
       volumes:
+        - name: workspace-storage
+          persistentVolumeClaim:
+            claimName: {{SPACE_STORAGE_PVC}}
         - name: sessions-storage
           persistentVolumeClaim:
-            claimName: cohub-spaces-pvc
+            claimName: {{SPACE_STORAGE_PVC}}
