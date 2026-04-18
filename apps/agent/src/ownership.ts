@@ -210,9 +210,8 @@ export async function resolveOrClaimSpaceOwner(spaceId: string): Promise<SpaceOw
 
 export async function updateSpaceRuntime(input: {
   spaceId: string;
-  status: "idle" | "connecting" | "preparing" | "ready" | "error";
+  status: "idle" | "ready" | "error";
   sandboxId?: string | null;
-  preparedAt?: number | null;
   error?: string | null;
 }) {
   const key = getSpaceRuntimeKey(input.spaceId);
@@ -224,7 +223,6 @@ export async function updateSpaceRuntime(input: {
     ownerId: env.AGENT_INSTANCE_ID,
     status: input.status,
     sandboxId: input.sandboxId ?? existing.sandboxId ?? null,
-    preparedAt: input.preparedAt ?? existing.preparedAt ?? null,
     error: input.error ?? null,
     updatedAt: Date.now(),
   };

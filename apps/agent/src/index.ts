@@ -2,7 +2,6 @@ import {
   AuthStorage,
   ModelRegistry,
 } from "@mariozechner/pi-coding-agent";
-import type { WorkspacePrepareResult } from "@cohub/agent-sandbox-protocol";
 import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
 
 import { env, SPACE_OWNER_LEASE_MS } from "./env.js";
@@ -42,14 +41,12 @@ const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 const ownedSpaceEpochs = new Map<string, number>();
-const preparePromises = new Map<string, Promise<void>>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
 
 async function cleanupOwnedSpace(spaceId: string, reason: string) {
   console.warn(`[Agent] Cleaning up owned space ${spaceId}: ${reason}`);
   ownedSpaceEpochs.delete(spaceId);
-  preparePromises.delete(spaceId);
 
   const handlesToDispose = Array.from(sessionHandles.entries()).filter(([key, handle]) => {
     return handle.spaceId === spaceId || key.startsWith(`${spaceId}:`);
@@ -137,80 +134,14 @@ function buildSandboxWsUrl(spaceId: string): string {
   return `ws://sandbox-${spaceId}.${env.SESSIONS_NAMESPACE}.svc.cluster.local:8788/sandbox`;
 }
 
-async function ensureSandboxReadyForSpace(spaceId: string) {
-  const existing = preparePromises.get(spaceId);
-  if (existing) {
-    await existing;
-    return;
-  }
+async function ensureSandboxWsConnected(spaceId: string) {
+  const wsUrl = (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID)
+    ? LOCAL_SANDBOX_WS_URL
+    : buildSandboxWsUrl(spaceId);
 
-  const preparePromise = (async () => {
-    const connection = await waitForSandboxConnection(spaceId, 1000).catch(() => null);
-    if (connection) {
-      await updateSpaceRuntime({
-        spaceId,
-        status: "ready",
-        sandboxId: connection.sandboxId,
-      }).catch(() => undefined);
-      return;
-    }
-
-    await updateSpaceRuntime({ spaceId, status: "connecting" }).catch(() => undefined);
-
-    if (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID) {
-      await startSandboxWsClient({ spaceId, wsUrl: LOCAL_SANDBOX_WS_URL });
-      const readyConnection = await waitForSandboxConnection(spaceId);
-      await updateSpaceRuntime({
-        spaceId,
-        status: "preparing",
-        sandboxId: readyConnection.sandboxId,
-      }).catch(() => undefined);
-      await prepareRemoteSandbox(spaceId);
-      return;
-    }
-
-    const wsUrl = buildSandboxWsUrl(spaceId);
-    await startSandboxWsClient({ spaceId, wsUrl });
-    const readyConnection = await waitForSandboxConnection(spaceId);
-    await updateSpaceRuntime({
-      spaceId,
-      status: "preparing",
-      sandboxId: readyConnection.sandboxId,
-    }).catch(() => undefined);
-    await prepareRemoteSandbox(spaceId);
-  })();
-
-  preparePromises.set(spaceId, preparePromise);
-  try {
-    await preparePromise;
-  } finally {
-    if (preparePromises.get(spaceId) === preparePromise) {
-      preparePromises.delete(spaceId);
-    }
-  }
-}
-
-async function prepareRemoteSandbox(spaceId: string) {
-  const connection = await waitForSandboxConnection(spaceId);
-  const result = await connection.request("workspace.prepare", {}, {
-    spaceId,
-    sandboxId: connection.sandboxId,
-  }) as WorkspacePrepareResult;
-
-  console.log("[Agent] Remote sandbox prepared:", result);
-  await updateSpaceRuntime({
-    spaceId,
-    status: "ready",
-    sandboxId: connection.sandboxId,
-    preparedAt: Date.now(),
-  }).catch(() => undefined);
-  await reportSandboxStatus(spaceId, "ready", {
-    workspaceDir: result.workspaceDir,
-    repoCloned: result.repoCloned,
-    configApplied: result.configApplied,
-    preparedAt: new Date().toISOString(),
-    sandboxId: connection.sandboxId,
-  });
+  await startSandboxWsClient({ spaceId, wsUrl });
+  await waitForSandboxConnection(spaceId);
+  await updateSpaceRuntime({ spaceId, status: "ready" }).catch(() => undefined);
 }
 
 function startOwnerRenewLoop() {
@@ -280,7 +211,7 @@ async function main() {
           throw new Error(`ownership mismatch for space=${inputEntry.spaceId}, expectedOwner=${inputEntry.expectedOwnerId}, instance=${env.AGENT_INSTANCE_ID}, expectedEpoch=${inputEntry.expectedEpoch}`);
         }
 
-        await ensureSandboxReadyForSpace(inputEntry.spaceId);
+        await ensureSandboxWsConnected(inputEntry.spaceId);
 
         if (inputEntry.action === "prompt") {
           const sessionId = inputEntry.sessionId;

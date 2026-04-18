@@ -17,10 +17,15 @@ import (
 	"github.com/cohub/apps/sandbox/rpc"
 )
 
+type prepareState interface {
+	Get() (status string, errMsg string)
+}
+
 type Server struct {
 	cfg            env.Config
 	dispatcher     *rpc.Dispatcher
 	processManager *process.Manager
+	prepareState   prepareState
 	logger         *slog.Logger
 
 	mu     sync.Mutex
@@ -50,12 +55,14 @@ func NewServer(
 	cfg env.Config,
 	dispatcher *rpc.Dispatcher,
 	processManager *process.Manager,
+	prepareState prepareState,
 	logger *slog.Logger,
 ) *Server {
 	return &Server{
 		cfg:            cfg,
 		dispatcher:     dispatcher,
 		processManager: processManager,
+		prepareState:   prepareState,
 		logger:         logger,
 	}
 }
@@ -200,6 +207,7 @@ func (s *Server) handleRPCRequest(session *connectionSession, request protocol.R
 
 func (s *Server) sendHello(session *connectionSession) error {
 	hostname, _ := os.Hostname()
+	prepareStatus, prepareErr := s.prepareState.Get()
 	payload, err := json.Marshal(protocol.SandboxHello{
 		Version:   protocol.Version,
 		Type:      "sandbox.hello",
@@ -207,20 +215,21 @@ func (s *Server) sendHello(session *connectionSession) error {
 		SandboxID: s.cfg.SandboxID,
 		Timestamp: time.Now().UnixMilli(),
 		Capabilities: protocol.SandboxCapabilities{
-			WorkspacePrepare: true,
-			FSRead:           true,
-			FSWrite:          true,
-			FSStat:           true,
-			FSLs:             true,
-			FSFind:           true,
-			FSGrep:           true,
-			ProcessStart:     true,
-			ProcessAbort:     true,
+			FSRead:       true,
+			FSWrite:      true,
+			FSStat:       true,
+			FSLs:         true,
+			FSFind:       true,
+			FSGrep:       true,
+			ProcessStart: true,
+			ProcessAbort: true,
 		},
 		Metadata: &protocol.SandboxMetadata{
-			Hostname:     hostname,
-			ImageVersion: s.cfg.ImageVersion,
-			StartedAt:    time.Now().Format(time.RFC3339),
+			Hostname:      hostname,
+			ImageVersion:  s.cfg.ImageVersion,
+			StartedAt:     time.Now().Format(time.RFC3339),
+			PrepareStatus: prepareStatus,
+			PrepareError:  prepareErr,
 		},
 	})
 	if err != nil {
@@ -238,13 +247,14 @@ func (s *Server) heartbeatLoop(session *connectionSession) {
 		case <-session.ctx.Done():
 			return
 		case <-ticker.C:
+			prepareStatus, _ := s.prepareState.Get()
 			payload, err := json.Marshal(protocol.SandboxHeartbeat{
 				Version:   protocol.Version,
 				Type:      "sandbox.heartbeat",
 				SpaceID:   s.cfg.SpaceID,
 				SandboxID: s.cfg.SandboxID,
 				Timestamp: time.Now().UnixMilli(),
-				Status:    "ready",
+				Status:    prepareStatus,
 			})
 			if err != nil {
 				s.logger.Warn("failed to marshal heartbeat", slog.String("error", err.Error()))

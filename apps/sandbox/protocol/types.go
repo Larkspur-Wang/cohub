@@ -5,22 +5,23 @@ import "encoding/json"
 const Version = "1"
 
 type SandboxCapabilities struct {
-	WorkspacePrepare bool `json:"workspacePrepare"`
-	FSRead           bool `json:"fsRead"`
-	FSWrite          bool `json:"fsWrite"`
-	FSStat           bool `json:"fsStat"`
-	FSLs             bool `json:"fsLs"`
-	FSFind           bool `json:"fsFind"`
-	FSGrep           bool `json:"fsGrep"`
-	ProcessStart     bool `json:"processStart"`
-	ProcessAbort     bool `json:"processAbort"`
+	FSRead       bool `json:"fsRead"`
+	FSWrite      bool `json:"fsWrite"`
+	FSStat       bool `json:"fsStat"`
+	FSLs         bool `json:"fsLs"`
+	FSFind       bool `json:"fsFind"`
+	FSGrep       bool `json:"fsGrep"`
+	ProcessStart bool `json:"processStart"`
+	ProcessAbort bool `json:"processAbort"`
 }
 
 type SandboxMetadata struct {
-	PodName      string `json:"podName,omitempty"`
-	Hostname     string `json:"hostname,omitempty"`
-	ImageVersion string `json:"imageVersion,omitempty"`
-	StartedAt    string `json:"startedAt,omitempty"`
+	PodName       string `json:"podName,omitempty"`
+	Hostname      string `json:"hostname,omitempty"`
+	ImageVersion  string `json:"imageVersion,omitempty"`
+	StartedAt     string `json:"startedAt,omitempty"`
+	PrepareStatus string `json:"prepareStatus,omitempty"`
+	PrepareError  string `json:"prepareError,omitempty"`
 }
 
 type SandboxHello struct {

@@ -11,7 +11,6 @@ export const SANDBOX_STATUSES = [
 export type SandboxStatus = (typeof SANDBOX_STATUSES)[number];
 
 export const RPC_METHODS = [
-  "workspace.prepare",
   "fs.read",
   "fs.write",
   "fs.stat",
@@ -52,7 +51,6 @@ export type RequestScopedMessage = BaseMessage & {
 };
 
 export type SandboxCapabilities = {
-  workspacePrepare: boolean;
   fsRead: boolean;
   fsWrite: boolean;
   fsStat: boolean;
@@ -71,6 +69,8 @@ export type SandboxHello = BaseMessage & {
     hostname?: string;
     imageVersion?: string;
     startedAt?: string;
+    prepareStatus?: string;
+    prepareError?: string;
   };
 };
 
@@ -83,15 +83,6 @@ export type SandboxHelloAck = BaseMessage & {
 export type SandboxHeartbeat = BaseMessage & {
   type: "sandbox.heartbeat";
   status: SandboxStatus;
-};
-
-export type WorkspacePrepareParams = Record<string, never>;
-
-export type WorkspacePrepareResult = {
-  workspaceDir: string;
-  prepared: boolean;
-  repoCloned: boolean;
-  configApplied: boolean;
 };
 
 export type FsReadParams = {
@@ -181,10 +172,6 @@ export type ProcessAbortResult = {
 };
 
 export type RpcRequestMap = {
-  "workspace.prepare": {
-    params: WorkspacePrepareParams;
-    result: WorkspacePrepareResult;
-  };
   "fs.read": {
     params: FsReadParams;
     result: FsReadResult;

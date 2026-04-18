@@ -13,7 +13,6 @@ import (
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
-	"github.com/cohub/apps/sandbox/workspace"
 )
 
 type Sender interface {
@@ -40,17 +39,6 @@ func (d *Dispatcher) SetSender(sender Sender) {
 
 func (d *Dispatcher) Handle(request protocol.RPCRequest) interface{} {
 	switch request.Method {
-	case "workspace.prepare":
-		summary, err := workspace.Prepare(d.cfg)
-		if err != nil {
-			return d.errorResponse(request, "IO_ERROR", err.Error())
-		}
-		return d.response(request, map[string]interface{}{
-			"workspaceDir":  summary.WorkspaceDir,
-			"prepared":      true,
-			"repoCloned":    summary.RepoCloned,
-			"configApplied": summary.ConfigApplied,
-		})
 	case "fs.read":
 		return d.handleFSRead(request)
 	case "fs.write":
