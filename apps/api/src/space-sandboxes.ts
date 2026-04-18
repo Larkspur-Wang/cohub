@@ -139,6 +139,10 @@ export const provisionSpaceInBackground = async (input: {
       SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
     }) as V1Pod;
 
+    const internalApiBaseUrl = config.env === "prod"
+      ? "http://cohub-api.cohub.svc.cluster.local:8787"
+      : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
+
     if (pod.spec?.containers?.[0]) {
       pod.spec.containers[0].env = [
         { name: "SPACE_ID", value: input.spaceId },
@@ -146,6 +150,8 @@ export const provisionSpaceInBackground = async (input: {
         { name: "SANDBOX_WS_PORT", value: "8788" },
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "IMAGE_VERSION", value: config.sandboxImage },
+        { name: "COHUB_API_URL", value: internalApiBaseUrl },
+        { name: "COHUB_ENV", value: config.env },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },
         { name: "SPACE_GIT_EMAIL", value: input.spaceGitEmail ?? "" },
