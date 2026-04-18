@@ -20,12 +20,10 @@ import {
   postSessionMessage,
   putSpaceFsFile,
   recreateSpaceSandbox,
-  streamSessionEvents,
   triggerSpaceFsDownload,
   type CheckpointRecord,
   type SandboxRecord,
   type SessionRecord,
-  type SessionStreamEvent,
   type SpaceFsEntry,
   type SpaceFsFileResponse,
   type SpaceRecord,
@@ -45,6 +43,8 @@ import { unreadTracker } from "$lib/stores/session-state.svelte";
 
 import { uiState, RIGHT_SIDEBAR_MAX, RIGHT_SIDEBAR_MIN } from "$lib/stores/ui.svelte";
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import { getRealtimeClient } from "$lib/realtime";
+import type { RealtimeEventPayload } from "$lib/realtime";
 import { AlertCircle, ArrowDown, FolderKanban, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Terminal } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 
@@ -134,19 +134,12 @@ let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<{ preparePrepend: () => void; finalizePrepend: () => void } | null>(null);
-let eventProcessing = false;
-let eventQueue: SessionStreamEvent[] = [];
 let streamingSessionId: string | null = null;
 let checkpointSaving = $state(false);
 let checkpointNotice = $state("");
 let checkpointError = $state("");
 let checkpoints = $state<CheckpointRecord[]>([]);
 let latestCheckpointJob = $state<TaskRunRecord | null>(null);
-let sessionSSEs = new Map<string, AbortController>();
-
-let sessionLastEventIds = new Map<string, string>();
-let sessionReconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-let sessionReconnectAttempts = new Map<string, number>();
 let preloadingSessionIds = new Set<string>();
 let visitedSessions = $state.raw(new Set<string>());
 let scrollPosBySession = $state.raw(new Map<string, number>());
@@ -739,63 +732,64 @@ function handleFirstVisible(index: number) {
   }
 }
 
-function shouldKeepSessionSSE(sessionId: string) {
-  return pageMounted && pageVisible && pageOnline && activeSessionId === sessionId;
+function shouldHandleWsEvents(): boolean {
+  return pageMounted && pageVisible && pageOnline;
 }
 
-function clearReconnectTimer(sessionId: string) {
-  const timer = sessionReconnectTimers.get(sessionId);
-  if (timer) {
-    clearTimeout(timer);
-    sessionReconnectTimers.delete(sessionId);
-  }
-}
-
-function scheduleSessionReconnect(sessionId: string) {
-  clearReconnectTimer(sessionId);
-  const attempt = (sessionReconnectAttempts.get(sessionId) ?? 0) + 1;
-  sessionReconnectAttempts.set(sessionId, attempt);
-  const delay = Math.min(1500 * attempt, 10_000);
-  const timer = setTimeout(() => {
-    sessionReconnectTimers.delete(sessionId);
-    if (shouldKeepSessionSSE(sessionId)) connectSessionSSE(sessionId);
-  }, delay);
-  sessionReconnectTimers.set(sessionId, timer);
-}
-
-function disconnectSessionSSE(sessionId: string) {
-  clearReconnectTimer(sessionId);
-  const existing = sessionSSEs.get(sessionId);
-  if (existing) {
-    existing.abort();
-    sessionSSEs.delete(sessionId);
-  }
-}
-
-function disconnectAllSSE() {
-  for (const timer of sessionReconnectTimers.values()) clearTimeout(timer);
-  sessionReconnectTimers.clear();
-  for (const ctrl of sessionSSEs.values()) ctrl.abort();
-  sessionSSEs.clear();
-  eventQueue = [];
-  eventProcessing = false;
-}
-
-async function processEventQueue() {
-  if (eventProcessing || eventQueue.length === 0) return;
-  eventProcessing = true;
-  while (eventQueue.length > 0) {
-    const event = eventQueue.shift();
-    if (!event) continue;
+/**
+ * Handle a real-time event from the WebSocket gateway.
+ * Called whenever the server persists a new message in the current session.
+ */
+async function handleWsEvent(payload: RealtimeEventPayload) {
+  try {
     const currentActiveSessionId = activeSessionId;
-    if (!currentActiveSessionId || event.sessionId !== currentActiveSessionId) continue;
+    if (!currentActiveSessionId) return;
+    if (payload.sessionId !== currentActiveSessionId) return;
 
-    if (event.type === "stream_update") {
-      const { thinking, answer } = extractSessionRenderState(event.content);
+    const eventType = payload.eventType ?? payload.meta?.eventType;
+    if (eventType !== "session.message") return;
+
+    const state = sessionStateById[currentActiveSessionId];
+    if (!state) return;
+
+    const messageKind = payload.meta?.messageKind as string | undefined;
+    const content = payload.content;
+    if (!content || content.length === 0) return;
+
+    const sessionMessageId = payload.sessionMessageId;
+    if (!sessionMessageId) return;
+
+    const messageRole = payload.meta?.sessionMessageRole as string | undefined;
+    const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
+
+    const incomingMessage: MessageRecord = {
+      id: sessionMessageId,
+      sessionId: currentActiveSessionId,
+      role: (messageRole ?? "assistant") as "user" | "assistant",
+      content: content as MessageRecord["content"],
+      text: content.find((b) => b.type === "text")?.text ?? "",
+      sequence,
+      provider: null,
+      model: null,
+      stopReason: null,
+      errorMessage: null,
+      usageInput: null,
+      usageOutput: null,
+      costTotal: null,
+      meta: { messageKind },
+      createdAt: new Date().toISOString(),
+    };
+
+    // Deduplicate: skip if we already have this message
+    if (state.messages.some((m) => m.id === sessionMessageId)) return;
+
+    if (messageKind === "assistant_intermediate") {
+      // Show intermediate state (thinking, tool_use, etc.)
+      const { thinking, answer } = extractSessionRenderState(content);
       streamingThinking = thinking;
       streamingAssistantText = answer;
-      streamingContentBlocks = event.content;
-      if (event.content.length > 0) {
+      streamingContentBlocks = content;
+      if (content.length > 0) {
         if (streamingSessionId !== currentActiveSessionId) {
           streamingSessionId = currentActiveSessionId;
           notifyStreamingStatus(currentActiveSessionId, true);
@@ -803,103 +797,91 @@ async function processEventQueue() {
         await tick();
         if (!userScrolledUp) scrollToBottomNow();
       }
+    } else if (messageKind === "assistant_final" || messageKind === "assistant_error") {
+      // Final message — clear streaming state and merge into messages
+      streamingAssistantText = "";
+      streamingThinking = "";
+      streamingContentBlocks = [];
+      streamStatus = messageKind === "assistant_error" ? "error" : "done";
+      if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+      streamingSessionId = null;
 
-      if (event.turnEnd) {
-        const state = sessionStateById[currentActiveSessionId];
-        let newMessages: MessageRecord[] = [];
-        let updatedSession = state?.session;
-        try {
-          const prevSeq = state?.messages.length >= 2 ? state.messages.at(-2)?.sequence ?? 0 : 0;
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            const response = await getSessionMessagesPaginated(currentActiveSessionId, {
-              cursor: prevSeq,
-              direction: "newer",
-              limit: 100,
-            });
-            if (response.messages.length > 0) {
-              newMessages = response.messages;
-              updatedSession = response.session;
-              break;
-            }
-            if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 300));
-          }
-          if (newMessages.length === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            const response = await getSessionMessagesPaginated(currentActiveSessionId, { limit: 100 });
-            if (response.messages.length > 0) {
-              newMessages = response.messages;
-              updatedSession = response.session;
-            }
-          }
-          if (newMessages.length > 0) {
-            await messageCache.append(currentActiveSessionId, newMessages);
-          }
-        } catch (error) {
-          console.warn("[SSE] Failed to fetch turnEnd messages:", error);
-        }
-        streamingAssistantText = "";
-        streamingThinking = "";
-        streamingContentBlocks = [];
-        streamStatus = "done";
-        if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-        streamingSessionId = null;
+      const merged = mergeMessagesById(state.messages, [incomingMessage], { preferIncoming: true });
+      sessionStateById = {
+        ...sessionStateById,
+        [currentActiveSessionId]: {
+          ...state,
+          messages: merged,
+          loading: false,
+          loaded: true,
+          error: "",
+          hasMore: state.hasMore ?? true,
+          loadingOlder: false,
+          oldestCursor: state.oldestCursor,
+        },
+      };
 
-        const merged = mergeMessagesById(state?.messages ?? [], newMessages, { preferIncoming: true });
+      await messageCache.append(currentActiveSessionId, [incomingMessage]);
+
+      // Update session list (lastMessageId, updatedAt)
+      const updatedSession = state.session;
+      if (updatedSession) {
+        const refreshedSession = {
+          ...updatedSession,
+          lastMessageId: sessionMessageId,
+          updatedAt: new Date().toISOString(),
+        };
+        spaceSessions = spaceSessions.map((s) =>
+          s.id === updatedSession.id ? refreshedSession : s,
+        );
+      }
+      if (!userScrolledUp) scrollToBottomNow();
+    } else if (messageKind === "user") {
+      // User message — may be our own or from another device
+      // Only add if not already present (we optimistically add our own)
+      const merged = mergeMessagesById(state.messages, [incomingMessage], { preferIncoming: false });
+      if (merged.length > state.messages.length) {
         sessionStateById = {
           ...sessionStateById,
           [currentActiveSessionId]: {
-            session: updatedSession ?? state?.session,
+            ...state,
             messages: merged,
-            loading: false,
-            loaded: true,
-            error: "",
-            hasMore: state?.hasMore ?? true,
-            loadingOlder: false,
-            oldestCursor: state?.oldestCursor,
           },
         };
-        if (updatedSession) {
-          spaceSessions = spaceSessions.map((session) =>
-            session.id === updatedSession.id ? updatedSession : session,
-          );
-        }
-        if (!userScrolledUp) scrollToBottomNow();
       }
     }
+  } catch (error) {
+    console.error("[WS] handleWsEvent error:", error);
   }
-  eventProcessing = false;
-  if (eventQueue.length > 0) void processEventQueue();
 }
 
-function connectSessionSSE(sessionId: string) {
-  disconnectSessionSSE(sessionId);
-  clearReconnectTimer(sessionId);
-  if (!shouldKeepSessionSSE(sessionId)) return;
-  const abort = new AbortController();
-  sessionSSEs.set(sessionId, abort);
-  const lastEventId = sessionLastEventIds.get(sessionId);
-  void (async () => {
-    let shouldReconnect = true;
-    try {
-      for await (const packet of streamSessionEvents(sessionId, lastEventId, abort.signal)) {
-        if (packet.id) sessionLastEventIds.set(sessionId, packet.id);
-        sessionReconnectAttempts.set(sessionId, 0);
-        eventQueue.push(packet.event);
-        void processEventQueue();
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        shouldReconnect = false;
-        return;
-      }
-      console.error(`[SSE] Session ${sessionId} stream error:`, error);
-    } finally {
-      sessionSSEs.delete(sessionId);
-      if (shouldReconnect && shouldKeepSessionSSE(sessionId)) {
-        scheduleSessionReconnect(sessionId);
-      }
-    }
-  })();
+/**
+ * Set up WebSocket event listeners for the current active session.
+ * The RealtimeClient is a singleton — we only need to register/unregister handlers.
+ */
+function connectSessionWS(sessionId: string) {
+  if (!shouldHandleWsEvents()) return;
+  const client = getRealtimeClient();
+  if (client.state === "idle") {
+    void client.connect().catch((error) => {
+      console.error("[WS] Failed to connect:", error);
+    });
+  }
+}
+
+/**
+ * Disconnect WebSocket if no active session.
+ * (The singleton stays alive across session switches — no need to fully disconnect.)
+ */
+function disconnectSessionWS() {
+  // No-op: the singleton RealtimeClient stays connected.
+  // Event handlers filter by activeSessionId so no stale events apply.
+}
+
+function disconnectAllWS() {
+  // No-op on disconnect: keep the singleton connected.
+  // The client's own ping/pong and reconnect logic handles network issues.
+  // We only fully disconnect on page unload (handled in onMount cleanup).
 }
 
 function clearStreamingState() {
@@ -937,11 +919,30 @@ async function handleSend() {
 
   try {
     const model = activeSessionModel;
-    const result = await postSessionMessage(sessionId, content, {
-      model: model?.id,
-      provider: model?.provider,
-    });
-    const userMessageId = result?.userMessageId;
+    const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Try WebSocket first; fall back to HTTP if not available
+    try {
+      const wsClient = getRealtimeClient();
+      await Promise.race([
+        wsClient.sendMessage({
+          spaceId: space.id,
+          sessionId,
+          content,
+          clientMessageId,
+        }),
+        new Promise<void>((_, reject) => {
+          setTimeout(() => reject(new Error("WS send timeout")), 5000);
+        }),
+      ]);
+    } catch (wsError) {
+      console.warn("[handleSend] WS send failed, falling back to HTTP:", wsError);
+      await postSessionMessage(sessionId, content, {
+        model: model?.id,
+        provider: model?.provider,
+      });
+    }
+
     input = "";
     imageAttachments = [];
     clearStreamingState();
@@ -949,7 +950,7 @@ async function handleSend() {
     const currentState = sessionStateById[sessionId];
     if (currentState) {
       const optimisticMessage = {
-        id: userMessageId || `optimistic-user-${Date.now()}`,
+        id: `optimistic-user-${Date.now()}`,
         sessionId,
         role: "user" as const,
         content,
@@ -1296,18 +1297,24 @@ onMount(() => {
   pageVisible = !document.hidden;
   pageOnline = navigator.onLine;
 
+  // Set up WebSocket event listener once — filters by activeSessionId internally
+  const wsClient = getRealtimeClient();
+  const wsEventCleanup = wsClient.on("event", (payload) => {
+    void handleWsEvent(payload);
+  });
+
   const handleVisibility = () => {
     pageVisible = !document.hidden;
-    if (pageVisible && activeSessionId) connectSessionSSE(activeSessionId);
-    if (!pageVisible) disconnectAllSSE();
+    if (pageVisible && activeSessionId) connectSessionWS(activeSessionId);
+    if (!pageVisible) disconnectAllWS();
   };
   const handleOnline = () => {
     pageOnline = true;
-    if (activeSessionId) connectSessionSSE(activeSessionId);
+    if (activeSessionId) connectSessionWS(activeSessionId);
   };
   const handleOffline = () => {
     pageOnline = false;
-    disconnectAllSSE();
+    disconnectAllWS();
   };
 
   window.addEventListener("visibilitychange", handleVisibility);
@@ -1349,7 +1356,8 @@ onMount(() => {
 
   return () => {
     pageMounted = false;
-    disconnectAllSSE();
+    wsEventCleanup();
+    void wsClient.disconnect();
     window.removeEventListener("visibilitychange", handleVisibility);
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
@@ -1428,10 +1436,9 @@ $effect(() => {
   if (!state?.loaded && !state?.loading) {
     void loadSessionState(activeSessionId);
   }
-  const currentSessionId = activeSessionId;
-  connectSessionSSE(currentSessionId);
+  connectSessionWS(activeSessionId);
   return () => {
-    disconnectSessionSSE(currentSessionId);
+    disconnectSessionWS();
   };
 });
 
