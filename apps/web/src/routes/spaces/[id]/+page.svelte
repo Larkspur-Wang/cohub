@@ -737,6 +737,54 @@ function shouldHandleWsEvents(): boolean {
 }
 
 /**
+ * Merge delta content blocks into existing streaming state.
+ * Uses ordinal indexing (matching the backend's `computeDelta`) to
+ * correctly append to the nth text/thinking block, even when multiple
+ * blocks of the same type exist (e.g. text → tool_use → text).
+ * tool_use/tool_result blocks are upserted by id/tool_use_id.
+ */
+function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): ContentBlock[] {
+  if (delta.length === 0) return existing;
+
+  const result = structuredClone(existing);
+  // Track ordinal position per append-only type, matching backend computeDelta
+  const ordinal = { text: 0, thinking: 0 };
+
+  for (const block of delta) {
+    if (block.type === "text") {
+      const idx = ordinal.text++;
+      const existingTexts = result.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text");
+      const target = existingTexts[idx];
+      if (target) {
+        target.text += block.text;
+      } else {
+        result.push(block);
+      }
+    } else if (block.type === "thinking") {
+      const idx = ordinal.thinking++;
+      const existingThinkings = result.filter((b): b is Extract<ContentBlock, { type: "thinking" }> => b.type === "thinking");
+      const target = existingThinkings[idx];
+      if (target) {
+        target.thinking += block.thinking;
+      } else {
+        result.push(block);
+      }
+    } else {
+      const idKey = block.type === "tool_use" ? "id" : "tool_use_id";
+      const idx = result.findIndex(
+        (b) => (b as Record<string, unknown>)[idKey] === (block as Record<string, unknown>)[idKey],
+      );
+      if (idx !== -1) {
+        Object.assign(result[idx], block);
+      } else {
+        result.push(block);
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Handle a real-time event from the WebSocket gateway.
  * Called whenever the server persists a new message in the current session.
  */
@@ -754,6 +802,8 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 
     const messageKind = payload.meta?.messageKind as string | undefined;
     const content = payload.content;
+    // Empty delta means no new content to merge; early return is safe.
+    // This also guards against malformed events with missing content.
     if (!content || content.length === 0) return;
 
     const sessionMessageId = payload.sessionMessageId;
@@ -785,10 +835,14 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 
     if (messageKind === "assistant_intermediate") {
       // Show intermediate state (thinking, tool_use, etc.)
-      const { thinking, answer } = extractSessionRenderState(content);
+      const isDelta = payload.meta?.delta === true;
+      const mergedContent = isDelta
+        ? mergeDeltaBlocks(streamingContentBlocks, content as ContentBlock[])
+        : (content as ContentBlock[]);
+      const { thinking, answer } = extractSessionRenderState(mergedContent);
       streamingThinking = thinking;
       streamingAssistantText = answer;
-      streamingContentBlocks = content;
+      streamingContentBlocks = mergedContent;
       if (content.length > 0) {
         if (streamingSessionId !== currentActiveSessionId) {
           streamingSessionId = currentActiveSessionId;

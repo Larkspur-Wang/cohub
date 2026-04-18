@@ -99,6 +99,9 @@ export type SessionStreamEvent = {
   timestamp: number;
   turnEnd?: boolean;
   anchorUserMessageId?: string | null;
+  /** When `true`, `content` is a delta to be merged into the current streaming state.
+   *  Missing (or `false`) means `content` is the full snapshot. */
+  delta?: true;
 };
 
 export type SessionStreamError = {

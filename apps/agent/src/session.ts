@@ -33,6 +33,8 @@ export type SessionHandle = {
   streamState: {
     content: ContentBlock[];
     preferredDisplayMode: "full" | "compact" | "minimal";
+    /** Snapshot of the content sent in the last stream_update, used for delta computation. */
+    lastSent?: ContentBlock[];
   };
 };
 
@@ -149,23 +151,90 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
 
-  const event: SessionStreamEvent = {
+  const full = handle.streamState.content;
+  const last = handle.streamState.lastSent ?? [];
+  const delta = computeDelta(full, last);
+
+  await sendOutput({
     type: "stream_update",
     spaceId: handle.spaceId,
     sessionId: handle.sessionId,
-    content: handle.streamState.content,
+    content: delta,
     sourceMessageId,
     timestamp: Date.now(),
-  };
+    delta: true,
+  });
 
-  await sendOutput(event);
+  // Snapshot for next diff
+  handle.streamState.lastSent = structuredClone(full);
 }
 
 function resetStreamState(handle: SessionHandle) {
   handle.streamState = {
     content: [],
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
+    lastSent: [],
   };
+}
+
+/** Compute the minimal delta between the current full content and the last-sent snapshot. */
+function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[] {
+  const delta: ContentBlock[] = [];
+  const lastByType = groupByType(last);
+  const textBlocks = lastByType.text as Extract<ContentBlock, { type: "text" }>[];
+  const thinkingBlocks = lastByType.thinking as Extract<ContentBlock, { type: "thinking" }>[];
+  const toolUseBlocks = lastByType.tool_use as Extract<ContentBlock, { type: "tool_use" }>[];
+  const toolResultBlocks = lastByType.tool_result as Extract<ContentBlock, { type: "tool_result" }>[];
+
+  // Track ordinal position per type (only for append-only types)
+  const ordinal = { text: 0, thinking: 0 };
+
+  for (const block of full) {
+    if (block.type === "text") {
+      const idx = ordinal.text++;
+      const prev = textBlocks[idx];
+      if (!prev) {
+        delta.push(block);
+      } else if (block.text.length > prev.text.length) {
+        const suffix = block.text.slice(prev.text.length);
+        if (suffix) delta.push({ type: "text", text: suffix, _meta: block._meta });
+      }
+    } else if (block.type === "thinking") {
+      const idx = ordinal.thinking++;
+      const prev = thinkingBlocks[idx];
+      if (!prev) {
+        delta.push(block);
+      } else if (block.thinking.length > prev.thinking.length) {
+        const suffix = block.thinking.slice(prev.thinking.length);
+        if (suffix) delta.push({ type: "thinking", thinking: suffix, signature: block.signature, _meta: block._meta });
+      }
+    } else if (block.type === "tool_use") {
+      const prev = toolUseBlocks.find((b) => b.id === block.id);
+      if (!prev || prev._meta?.toolStatus !== block._meta?.toolStatus) {
+        delta.push(block);
+      }
+    } else if (block.type === "tool_result") {
+      const prev = toolResultBlocks.find((b) => b.tool_use_id === block.tool_use_id);
+      if (!prev || prev.content !== block.content) {
+        delta.push(block);
+      }
+    }
+  }
+
+  return delta;
+}
+
+function groupByType(blocks: ContentBlock[]) {
+  const result: Record<string, ContentBlock[]> = {};
+  for (const b of blocks) {
+    const arr = result[b.type];
+    if (arr) {
+      arr.push(b);
+    } else {
+      result[b.type] = [b];
+    }
+  }
+  return result;
 }
 
 function enqueuePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
@@ -428,7 +497,7 @@ export async function loadOrCreateSessionHandle(input: {
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
     persistenceChain: Promise.resolve(),
-    streamState: { content: [], preferredDisplayMode: "compact" },
+    streamState: { content: [], preferredDisplayMode: "compact", lastSent: [] },
   };
 
   subscribeSessionEvents(handle);
