@@ -90,4 +90,30 @@ export function validateSandboxPodTemplateVariables(
   return variables;
 }
 
+export const SANDBOX_SERVICE_TEMPLATE = {
+  apiVersion: "v1",
+  kind: "Service",
+  metadata: {
+    name: "sandbox-${SPACE_ID}",
+    labels: {
+      app: "agent-sandbox",
+      "space-id": "${SPACE_ID}",
+    },
+  },
+  spec: {
+    clusterIP: "None",
+    selector: {
+      "space-id": "${SPACE_ID}",
+    },
+    ports: [
+      {
+        port: 8788,
+        targetPort: 8788,
+        protocol: "TCP",
+        name: "sandbox-ws",
+      },
+    ],
+  },
+};
+
 export type { SandboxPodTemplateVariables };

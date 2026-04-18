@@ -3,9 +3,9 @@ import { db } from "./db/index.js";
 import { spaceSandboxes } from "./db/schema-v2.js";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
-import { renderSandboxPodTemplate } from "./sandbox-template.js";
+import { renderSandboxPodTemplate, renderSandboxServiceTemplate } from "./sandbox-template.js";
 import type { SpaceSandboxStatus } from "@cohub/protocol";
-import type { V1Pod } from "@kubernetes/client-node";
+import type { V1Pod, V1Service } from "@kubernetes/client-node";
 
 export const getSpaceSandboxBySpaceId = async (spaceId: string) => {
   const [sandbox] = await db
@@ -78,11 +78,36 @@ export const updateSpaceSandbox = async (input: {
 };
 
 const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
-  await k8sCoreApi.createNamespacedPod({
-    namespace: sessionsNamespace,
-    body: pod,
-  });
+  try {
+    await k8sCoreApi.createNamespacedPod({
+      namespace: sessionsNamespace,
+      body: pod,
+    });
+  } catch (error: unknown) {
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode === 409) {
+      // Ignore conflict if pod already exists
+      return { podName: `sandbox-${spaceId}` };
+    }
+    throw error;
+  }
   return { podName: `sandbox-${spaceId}` };
+};
+
+const tryCreateService = async (spaceId: string, service: V1Service) => {
+  try {
+    await k8sCoreApi.createNamespacedService({
+      namespace: sessionsNamespace,
+      body: service,
+    });
+  } catch (error: unknown) {
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode === 409) {
+      // Ignore conflict if service already exists
+      return;
+    }
+    throw error;
+  }
 };
 
 export const provisionSpaceInBackground = async (input: {
@@ -127,6 +152,9 @@ export const provisionSpaceInBackground = async (input: {
         ...(input.extraEnv ?? []),
       ];
     }
+
+    const service = renderSandboxServiceTemplate({ SPACE_ID: input.spaceId }) as V1Service;
+    await tryCreateService(input.spaceId, service);
 
     await tryCreatePod(input.spaceId, pod);
 

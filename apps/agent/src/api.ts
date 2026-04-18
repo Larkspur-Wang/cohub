@@ -18,26 +18,6 @@ const internalHeaders = () => ({
   ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
 });
 
-export async function getSandboxConnectionInfo(spaceId: string): Promise<{ wsUrl: string; podIp?: string | null } | null> {
-  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${spaceId}/sandbox-connection`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
-    },
-  });
-
-  if (!response.ok) {
-    if (response.status === 404 || response.status === 409) return null;
-    const text = await response.text().catch(() => "");
-    throw new Error(`Get sandbox connection failed ${response.status}: ${text}`);
-  }
-
-  const body = await response.json().catch(() => null) as { wsUrl?: string; podIp?: string | null } | null;
-  if (!body?.wsUrl) return null;
-  return { wsUrl: body.wsUrl, podIp: body.podIp ?? null };
-}
-
 // ─── Idempotency ───
 
 const stableSerialize = (value: unknown): string => {

@@ -27,6 +27,7 @@ SESSIONS_DIR=$(get_value "sessionsDir")
 SPACE_STORAGE_PVC=$(get_value "spaceStoragePvc")
 WORKSPACE_SUBPATH=$(get_value "workspaceSubpath")
 SESSIONS_SUBPATH=$(get_value "sessionsSubpath")
+SESSIONS_NAMESPACE=$(get_value "sessionsNamespace")
 
 require_value() {
   local name="$1"
@@ -48,6 +49,7 @@ require_value "sessionsDir" "$SESSIONS_DIR"
 require_value "spaceStoragePvc" "$SPACE_STORAGE_PVC"
 require_value "workspaceSubpath" "$WORKSPACE_SUBPATH"
 require_value "sessionsSubpath" "$SESSIONS_SUBPATH"
+require_value "sessionsNamespace" "$SESSIONS_NAMESPACE"
 
 if [ ! -f "../prod/secrets.template.yaml" ] && [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml（可参考 prod/secrets.template.yaml）${NC}"
@@ -73,6 +75,7 @@ sed -i.bak \
   -e "s|{{ENV}}|${ENV}|g" \
   -e "s|{{WORKSPACE_ROOT}}|${WORKSPACE_ROOT}|g" \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
+  -e "s|{{SESSIONS_NAMESPACE}}|${SESSIONS_NAMESPACE}|g" \
   -e "s|{{SPACE_STORAGE_PVC}}|${SPACE_STORAGE_PVC}|g" \
   -e "s|{{WORKSPACE_SUBPATH}}|${WORKSPACE_SUBPATH}|g" \
   -e "s|{{SESSIONS_SUBPATH}}|${SESSIONS_SUBPATH}|g" \

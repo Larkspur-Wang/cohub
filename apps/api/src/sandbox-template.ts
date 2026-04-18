@@ -1,4 +1,4 @@
-import { SANDBOX_POD_TEMPLATE } from "./templates/sandbox-pod.js";
+import { SANDBOX_POD_TEMPLATE, SANDBOX_SERVICE_TEMPLATE } from "./templates/sandbox-pod.js";
 
 type TemplateVars = Record<string, string | undefined>;
 
@@ -28,4 +28,8 @@ const replaceInValue = (value: unknown, vars: TemplateVars): unknown => {
 
 export const renderSandboxPodTemplate = (vars: TemplateVars) => {
   return replaceInValue(SANDBOX_POD_TEMPLATE, vars);
+};
+
+export const renderSandboxServiceTemplate = (vars: TemplateVars) => {
+  return replaceInValue(SANDBOX_SERVICE_TEMPLATE, vars);
 };

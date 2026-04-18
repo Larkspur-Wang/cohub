@@ -35,6 +35,7 @@ export const EnvSchema = z.object({
   PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
+  SESSIONS_NAMESPACE: z.string().min(1),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -545,9 +545,12 @@ app.post("/api/spaces/:id/sandbox/recreate", async (c) => {
   const existingSandbox = await getSpaceSandboxBySpaceId(spaceId);
   const podName = existingSandbox?.podName ?? `sandbox-${spaceId}`;
 
-  // Delete existing pod if it exists
+  // Delete existing pod and service if they exist
   if (existingSandbox?.podName) {
-    await k8sCoreApi.deleteNamespacedPod({ name: podName, namespace: sessionsNamespace }).catch(() => undefined);
+    await Promise.allSettled([
+      k8sCoreApi.deleteNamespacedPod({ name: podName, namespace: sessionsNamespace }),
+      k8sCoreApi.deleteNamespacedService({ name: podName, namespace: sessionsNamespace }),
+    ]);
   }
 
   // Reset sandbox status
@@ -799,8 +802,6 @@ const ALLOWED_SANDBOX_META_KEYS = new Set([
   "lastProvisionedAt",
   "lastStatus",
   "lastError",
-  "sandboxWsUrl",
-  "sandboxPodIp",
 ]);
 
 function sanitizeSandboxMeta(input: Record<string, unknown> | null | undefined) {
@@ -848,50 +849,6 @@ app.post("/internal/spaces/:id/status", async (c) => {
     }
   }
   return c.json({ ok: true });
-});
-
-app.get("/internal/spaces/:id/sandbox-connection", async (c) => {
-  const forbidden = ensureInternalRequest(c);
-  if (forbidden) return forbidden;
-  const spaceId = c.req.param("id");
-  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-
-  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
-  if (!sandbox?.podName) return c.json({ message: "sandbox not found" }, 404);
-
-  const meta = (sandbox.meta as Record<string, unknown> | null) ?? {};
-  const cachedWsUrl = typeof meta.sandboxWsUrl === "string" ? meta.sandboxWsUrl.trim() : "";
-  if (cachedWsUrl) {
-    return c.json({
-      ok: true,
-      spaceId,
-      podName: sandbox.podName,
-      wsUrl: cachedWsUrl,
-      podIp: typeof meta.sandboxPodIp === "string" ? meta.sandboxPodIp : null,
-    });
-  }
-
-  const pod = await k8sCoreApi.readNamespacedPod({
-    name: sandbox.podName,
-    namespace: sessionsNamespace,
-  }).catch(() => null);
-
-  const podIp = pod?.status?.podIP?.trim() || "";
-  if (!podIp) return c.json({ message: "sandbox pod ip unavailable" }, 409);
-
-  const wsUrl = `ws://${podIp}:8788/sandbox`;
-
-  await updateSpaceSandbox({
-    spaceId,
-    meta: {
-      ...meta,
-      sandboxPodIp: podIp,
-      sandboxWsUrl: wsUrl,
-    },
-    lastHeartbeatAt: new Date(),
-  }).catch(() => undefined);
-
-  return c.json({ ok: true, spaceId, podName: sandbox.podName, wsUrl, podIp });
 });
 
 app.post("/internal/spaces/:id/sessions", async (c) => {

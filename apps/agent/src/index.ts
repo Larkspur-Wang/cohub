@@ -4,7 +4,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { WorkspacePrepareResult } from "@cohub/agent-sandbox-protocol";
 import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
-import { getSandboxConnectionInfo } from "./api.js";
+
 import { env, SPACE_OWNER_LEASE_MS } from "./env.js";
 import {
   closeOwnershipRedis,
@@ -133,6 +133,10 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
 
 
 
+function buildSandboxWsUrl(spaceId: string): string {
+  return `ws://sandbox-${spaceId}.${env.SESSIONS_NAMESPACE}.svc.cluster.local:8788/sandbox`;
+}
+
 async function ensureSandboxReadyForSpace(spaceId: string) {
   const existing = preparePromises.get(spaceId);
   if (existing) {
@@ -146,7 +150,6 @@ async function ensureSandboxReadyForSpace(spaceId: string) {
       await updateSpaceRuntime({
         spaceId,
         status: "ready",
-        wsUrl: null,
         sandboxId: connection.sandboxId,
       }).catch(() => undefined);
       return;
@@ -160,25 +163,18 @@ async function ensureSandboxReadyForSpace(spaceId: string) {
       await updateSpaceRuntime({
         spaceId,
         status: "preparing",
-        wsUrl: LOCAL_SANDBOX_WS_URL,
         sandboxId: readyConnection.sandboxId,
       }).catch(() => undefined);
       await prepareRemoteSandbox(spaceId);
       return;
     }
 
-    const info = await getSandboxConnectionInfo(spaceId);
-    if (!info?.wsUrl) {
-      await updateSpaceRuntime({ spaceId, status: "error", error: `No sandbox ws url available for space ${spaceId}` }).catch(() => undefined);
-      throw new Error(`No sandbox ws url available for space ${spaceId}`);
-    }
-
-    await startSandboxWsClient({ spaceId, wsUrl: info.wsUrl });
+    const wsUrl = buildSandboxWsUrl(spaceId);
+    await startSandboxWsClient({ spaceId, wsUrl });
     const readyConnection = await waitForSandboxConnection(spaceId);
     await updateSpaceRuntime({
       spaceId,
       status: "preparing",
-      wsUrl: info.wsUrl,
       sandboxId: readyConnection.sandboxId,
     }).catch(() => undefined);
     await prepareRemoteSandbox(spaceId);
@@ -207,7 +203,6 @@ async function prepareRemoteSandbox(spaceId: string) {
     status: "ready",
     sandboxId: connection.sandboxId,
     preparedAt: Date.now(),
-    wsUrl: null,
   }).catch(() => undefined);
   await reportSandboxStatus(spaceId, "ready", {
     workspaceDir: result.workspaceDir,

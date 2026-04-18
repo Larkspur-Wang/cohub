@@ -10,3 +10,4 @@ sessionsDir: /sessions
 spaceStoragePvc: cohub-spaces-pvc
 workspaceSubpath: workspaces/dev
 sessionsSubpath: sessions/dev
+sessionsNamespace: cohub-sessions-dev
