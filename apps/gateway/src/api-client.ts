@@ -5,6 +5,20 @@ const parseJson = async <T>(response: Response): Promise<T | null> => {
   return response.json().catch(() => null) as Promise<T | null>;
 };
 
+export type RealtimeAuthResult =
+  | {
+      ok: true;
+      user: GatewayAuthUser & { uuid: string };
+    }
+  | {
+      ok: false;
+      status: 401 | 403;
+      error: {
+        message: string;
+        type: "authentication_error";
+      };
+    };
+
 export type SessionAuthorizationResult =
   | {
       ok: true;
@@ -14,12 +28,53 @@ export type SessionAuthorizationResult =
     }
   | {
       ok: false;
-      status: 401 | 404;
+      status: 401 | 403 | 404;
       error: {
         message: string;
         type: "authentication_error" | "invalid_request_error";
       };
     };
+
+export const authenticateRealtimeToken = async (input: { token: string }): Promise<RealtimeAuthResult> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/api/me`, {
+    headers: {
+      authorization: `Bearer ${input.token}`,
+    },
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    return {
+      ok: false,
+      status: response.status,
+      error: {
+        message: response.status === 403 ? "Forbidden" : "Unauthorized",
+        type: "authentication_error",
+      },
+    };
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Realtime auth failed ${response.status}: ${text}`);
+  }
+
+  const user = await parseJson<GatewayAuthUser>(response);
+  if (!user?.uuid) {
+    return {
+      ok: false,
+      status: 401,
+      error: {
+        message: "Unauthorized",
+        type: "authentication_error",
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    user: user as GatewayAuthUser & { uuid: string },
+  };
+};
 
 export const authorizeSessionAccess = async (input: {
   token: string;
@@ -35,9 +90,9 @@ export const authorizeSessionAccess = async (input: {
   if (sessionResponse.status === 401 || sessionResponse.status === 403) {
     return {
       ok: false,
-      status: 401,
+      status: sessionResponse.status,
       error: {
-        message: "Unauthorized",
+        message: sessionResponse.status === 403 ? "Forbidden" : "Unauthorized",
         type: "authentication_error",
       },
     };

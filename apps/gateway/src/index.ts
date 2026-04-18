@@ -1,13 +1,33 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { GatewayManager } from "./manager/index.js";
-import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM } from "./bus.js";
-import { createBlockingRedisClient, xaddWithMaxlen } from "./redis.js";
-import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
+import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import type { GatewayInboundEvent, GatewayOutboundCommand, WsClientEvent } from "@cohub/protocol";
+import { wsClientEventSchema } from "@cohub/protocol";
+import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client.js";
+import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
 import { gatewayConfig } from "./config.js";
-import { redisCommandClient } from "./redis.js";
+import { GatewayManager } from "./manager/index.js";
+import { createBlockingRedisClient, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+
+type WsConnectionContext = {
+  connectionId: string;
+  userId?: string;
+  userName?: string;
+  token?: string;
+};
+
+const WS_CONNECTION_TTL_SECONDS = 60 * 5;
+const WS_MAX_MESSAGE_BYTES = 64 * 1024;
+
+const wsConnections = new Map<string, WsConnectionContext>();
+const wsConnectionsByUserId = new Map<string, Set<string>>();
+const wsSockets = new Map<string, WebSocket>();
+
+const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
+const getWsUserConnectionsKey = (userId: string) => `gateway:ws:user:${userId}:connections`;
 
 function logStartupInfo() {
   console.log("=".repeat(60));
@@ -21,10 +41,152 @@ function logStartupInfo() {
   console.log("=".repeat(60));
 }
 
+const addUserConnection = (userId: string, connectionId: string) => {
+  let set = wsConnectionsByUserId.get(userId);
+  if (!set) {
+    set = new Set<string>();
+    wsConnectionsByUserId.set(userId, set);
+  }
+  set.add(connectionId);
+};
+
+const removeUserConnection = (userId: string, connectionId: string) => {
+  const set = wsConnectionsByUserId.get(userId);
+  if (!set) return;
+  set.delete(connectionId);
+  if (set.size === 0) wsConnectionsByUserId.delete(userId);
+};
+
+const persistWsConnection = async (ctx: WsConnectionContext) => {
+  await redisCommandClient.set(getWsConnectionKey(ctx.connectionId), JSON.stringify({
+    connectionId: ctx.connectionId,
+    userId: ctx.userId ?? null,
+    userName: ctx.userName ?? null,
+    connectedAt: Date.now(),
+    nodeId: process.env.POD_NAME || process.env.HOSTNAME || "unknown",
+  }), "EX", WS_CONNECTION_TTL_SECONDS);
+  if (ctx.userId) {
+    await redisCommandClient.sadd(getWsUserConnectionsKey(ctx.userId), ctx.connectionId);
+    await redisCommandClient.expire(getWsUserConnectionsKey(ctx.userId), WS_CONNECTION_TTL_SECONDS);
+  }
+};
+
+const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
+  if (!ctx) return;
+  wsSockets.delete(ctx.connectionId);
+  wsConnections.delete(ctx.connectionId);
+  await redisCommandClient.del(getWsConnectionKey(ctx.connectionId)).catch(() => undefined);
+  if (ctx.userId) {
+    removeUserConnection(ctx.userId, ctx.connectionId);
+    await redisCommandClient.srem(getWsUserConnectionsKey(ctx.userId), ctx.connectionId).catch(() => undefined);
+  }
+};
+
+const sendWsEnvelope = (socket: WebSocket, type: string, payload: Record<string, unknown>) => {
+  socket.send(JSON.stringify({ id: randomUUID(), type, timestamp: Date.now(), payload }));
+};
+
+const sendWsError = (socket: WebSocket, code: string, message: string, requestId?: string) => {
+  sendWsEnvelope(socket, "error", { code, message, requestId: requestId ?? null });
+};
+
+const parseWsJson = (value: string) => {
+  const parsed = wsClientEventSchema.safeParse(JSON.parse(value));
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((issue) => issue.message).join("; "));
+  }
+  return parsed.data as WsClientEvent;
+};
+
+const touchWsConnection = async (ctx: WsConnectionContext) => {
+  await redisCommandClient.expire(getWsConnectionKey(ctx.connectionId), WS_CONNECTION_TTL_SECONDS).catch(() => undefined);
+  if (ctx.userId) {
+    await redisCommandClient.sadd(getWsUserConnectionsKey(ctx.userId), ctx.connectionId).catch(() => undefined);
+    await redisCommandClient.expire(getWsUserConnectionsKey(ctx.userId), WS_CONNECTION_TTL_SECONDS).catch(() => undefined);
+  }
+};
+
+const startWsConnectionSweeper = () => {
+  setInterval(async () => {
+    const now = Date.now();
+    for (const [connectionId, ctx] of wsConnections.entries()) {
+      const raw = await redisCommandClient.get(getWsConnectionKey(connectionId)).catch(() => null);
+      if (raw) continue;
+      const socket = wsSockets.get(connectionId);
+      if (socket && socket.readyState === socket.OPEN) {
+        socket.close(4001, `expired:${now}`);
+      }
+      await cleanupWsConnection(ctx);
+    }
+  }, 30_000);
+};
+
+class WsClientInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WsClientInputError";
+  }
+}
+
+const buildWebsocketBindingKey = (spaceId: string, sessionId: string) => `websocket:space:${spaceId}:session:${sessionId}`;
+
+const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestId: string | undefined, payload: Record<string, unknown>) => {
+  const spaceId = typeof payload.spaceId === "string" ? payload.spaceId.trim() : "";
+  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId.trim() : "";
+  const clientMessageId = typeof payload.clientMessageId === "string" && payload.clientMessageId.trim()
+    ? payload.clientMessageId.trim()
+    : randomUUID();
+  const content = Array.isArray(payload.content)
+    ? payload.content as GatewayInboundEvent["content"]
+    : typeof payload.text === "string" && payload.text.trim()
+      ? [{ type: "text", text: payload.text.trim() } as const]
+      : [];
+
+  if (!spaceId || !sessionId) throw new WsClientInputError("spaceId and sessionId are required");
+  if (content.length === 0) throw new WsClientInputError("content is required");
+
+  const event: GatewayInboundEvent = {
+    eventId: randomUUID(),
+    timestamp: Date.now(),
+    eventType: "message_create",
+    channelId: sessionId,
+    provider: "websocket",
+    externalChatId: sessionId,
+    externalMessageId: clientMessageId,
+    bindingKey: buildWebsocketBindingKey(spaceId, sessionId),
+    conversation: {
+      id: sessionId,
+      parentId: null,
+      meta: { spaceId, source: "websocket" },
+    },
+    message: {
+      parentMessageId: null,
+      meta: { requestId: requestId ?? null, connectionId: ctx.connectionId },
+    },
+    sender: {
+      id: ctx.userId ?? "anonymous",
+      name: ctx.userName,
+    },
+    content,
+    meta: {
+      source: "websocket",
+      authToken: ctx.token ?? null,
+      userId: ctx.userId ?? null,
+      connectionId: ctx.connectionId,
+      requestId: requestId ?? null,
+      spaceId,
+      sessionId,
+    },
+  };
+
+  await publishInboundEvent(event);
+};
+
 async function main() {
   logStartupInfo();
 
   await initOutboundConsumerGroup();
+  startWsConnectionSweeper();
 
   const manager = new GatewayManager();
   await manager.start();
@@ -39,6 +201,47 @@ async function main() {
       externalChatId: cmd.externalChatId,
       contentPreview: cmd.content.map((c) => c.type).join(", "),
     });
+
+    if (cmd.provider === "websocket") {
+      const targetConnectionId = typeof cmd.meta?.targetConnectionId === "string" ? cmd.meta.targetConnectionId.trim() : "";
+      const targetUserIds = Array.isArray(cmd.meta?.targetUserIds)
+        ? (cmd.meta.targetUserIds as unknown[]).filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const eventType = typeof cmd.meta?.eventType === "string" ? cmd.meta.eventType : "event";
+      const messageType = eventType === "error" ? "error" : "event";
+      const payload = {
+        eventType,
+        requestId: typeof cmd.meta?.requestId === "string" ? cmd.meta.requestId : null,
+        spaceId: cmd.spaceId ?? null,
+        sessionId: cmd.spaceSessionId ?? null,
+        sessionMessageId: cmd.sessionMessageId ?? null,
+        content: cmd.content,
+        meta: cmd.meta ?? null,
+      };
+
+      if (targetConnectionId) {
+        const socket = wsSockets.get(targetConnectionId);
+        if (!socket) {
+          return { success: true, externalMessageId: targetConnectionId, error: "offline" };
+        }
+        sendWsEnvelope(socket, messageType, payload);
+        return { success: true, externalMessageId: targetConnectionId };
+      }
+
+      let delivered = 0;
+      for (const userId of targetUserIds) {
+        const connectionIds = wsConnectionsByUserId.get(userId);
+        if (!connectionIds) continue;
+        for (const connectionId of connectionIds) {
+          const socket = wsSockets.get(connectionId);
+          if (!socket) continue;
+          sendWsEnvelope(socket, messageType, payload);
+          delivered += 1;
+        }
+      }
+
+      return { success: true, externalMessageId: String(delivered) };
+    }
 
     const provider = manager.getProvider(cmd.channelId);
     if (!provider) {
@@ -56,30 +259,113 @@ async function main() {
   });
 
   const app = new Hono();
-
   app.use("*", cors());
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 
   app.get("/readyz", async (c) => {
     const checks: Record<string, boolean> = {};
-
-    // 1. Redis connectivity
     try {
       await redisCommandClient.ping();
       checks.redis = true;
     } catch {
       checks.redis = false;
     }
-
-    // 2. Manager initialization completed
     checks.manager = manager.started;
-
-    const ready = Object.values(checks).every(Boolean);
-    return c.json({ ready, checks }, ready ? 200 : 503);
+    return c.json({ ready: Object.values(checks).every(Boolean), checks }, Object.values(checks).every(Boolean) ? 200 : 503);
   });
 
-  serve({ fetch: app.fetch, port: gatewayConfig.port });
+  const server = serve({ fetch: app.fetch, port: gatewayConfig.port }) as unknown as import("node:http").Server;
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (socket: WebSocket) => {
+    const connectionId = randomUUID();
+    const ctx: WsConnectionContext = { connectionId };
+    wsConnections.set(connectionId, ctx);
+    wsSockets.set(connectionId, socket);
+    sendWsEnvelope(socket, "ready", { connectionId });
+
+    socket.on("message", async (data: RawData) => {
+      try {
+        const raw = typeof data === "string"
+          ? data
+          : Buffer.isBuffer(data)
+            ? data.toString("utf-8")
+            : Array.isArray(data)
+              ? Buffer.concat(data.map((chunk) => Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))).toString("utf-8")
+              : Buffer.from(data).toString("utf-8");
+        if (Buffer.byteLength(raw, "utf-8") > WS_MAX_MESSAGE_BYTES) {
+          sendWsError(socket, "MESSAGE_TOO_LARGE", "message too large");
+          return;
+        }
+
+        const message = parseWsJson(raw);
+        const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
+
+        if (message.type === "ping") {
+          await touchWsConnection(ctx);
+          sendWsEnvelope(socket, "pong", { requestId: requestId ?? null });
+          return;
+        }
+
+        if (message.type === "auth") {
+          const token = typeof message.payload?.token === "string" ? message.payload.token.trim() : "";
+          if (!token) {
+            sendWsError(socket, "UNAUTHORIZED", "token is required", requestId);
+            return;
+          }
+          const result: RealtimeAuthResult = await authenticateRealtimeToken({ token });
+          if (!result.ok) {
+            sendWsError(socket, "UNAUTHORIZED", result.error.message, requestId);
+            return;
+          }
+          ctx.userId = result.user.uuid;
+          ctx.userName = typeof result.user.nick_name === "string" ? result.user.nick_name : undefined;
+          ctx.token = token;
+          addUserConnection(result.user.uuid, connectionId);
+          await persistWsConnection(ctx);
+          sendWsEnvelope(socket, "auth.ok", { requestId: requestId ?? null, connectionId, user: result.user });
+          return;
+        }
+
+        if (!ctx.userId || !ctx.token) {
+          sendWsError(socket, "UNAUTHORIZED", "authentication required", requestId);
+          return;
+        }
+
+        await touchWsConnection(ctx);
+
+        if (message.type === "message.create") {
+          await publishWebsocketInboundMessage(ctx, requestId, message.payload ?? {});
+          sendWsEnvelope(socket, "message.accepted", { requestId: requestId ?? null, connectionId });
+          return;
+        }
+
+        if (message.type === "ack") {
+          sendWsEnvelope(socket, "ack.ok", { requestId: requestId ?? null });
+          return;
+        }
+
+        sendWsError(socket, "UNSUPPORTED_EVENT", "unsupported event type", requestId);
+      } catch (error) {
+        const requestId = undefined;
+        if (error instanceof WsClientInputError) {
+          sendWsError(socket, "BAD_REQUEST", error.message, requestId);
+          return;
+        }
+        console.error("[Gateway] WebSocket message handling failed:", error);
+        sendWsError(socket, "INTERNAL_ERROR", "internal error", requestId);
+      }
+    });
+
+    socket.on("close", () => {
+      void cleanupWsConnection(wsConnections.get(connectionId));
+    });
+    socket.on("error", () => {
+      void cleanupWsConnection(wsConnections.get(connectionId));
+    });
+  });
+
   console.log(`@cohub/gateway listening on :${gatewayConfig.port}`);
 
   const shutdown = async () => {
@@ -130,7 +416,6 @@ async function main() {
     }
 
     const redis = createBlockingRedisClient();
-
     await redis.connect().catch(() => undefined);
 
     (async () => {
@@ -146,7 +431,6 @@ async function main() {
             if (!payloadStr) continue;
 
             const payload = JSON.parse(payloadStr) as GatewayInboundEvent;
-
             if (payload.channelId.startsWith("debug-")) {
               console.log(`[Debug] Received ping from ${payload.sender.name} via ${payload.provider}, sending pong...`);
               const pongCmd: GatewayOutboundCommand = {

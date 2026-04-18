@@ -1,9 +1,9 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
 import { buildSessionSourceChannel } from "@cohub/protocol";
 import { db } from "./db/index.js";
-import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels } from "./db/schema-v2.js";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, resourcePermissions, spaces, spaceSessions } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import { executeSessionInteraction } from "./session-interactions.js";
@@ -92,6 +92,148 @@ export async function dispatchOutboundMessage(input: {
   };
 
   await xaddWithMaxlen(redisCommandClient, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
+}
+
+export async function dispatchRealtimeEventToUsers(input: {
+  userIds: string[];
+  spaceId?: string | null;
+  sessionId?: string | null;
+  sessionMessageId?: string | null;
+  content: ContentBlock[];
+  meta?: Record<string, unknown> | null;
+}) {
+  const targetUserIds = Array.from(new Set(input.userIds.map((value) => value.trim()).filter(Boolean)));
+  if (targetUserIds.length === 0) return;
+
+  const fallbackId = `ws-${randomUUID()}`;
+  const channelId = input.sessionId?.trim() || input.spaceId?.trim() || fallbackId;
+
+  const command: GatewayOutboundCommand = {
+    commandId: randomUUID(),
+    timestamp: Date.now(),
+    channelId,
+    provider: "websocket",
+    externalChatId: channelId,
+    content: input.content,
+    spaceId: input.spaceId?.trim() || undefined,
+    spaceSessionId: input.sessionId?.trim() || undefined,
+    sessionMessageId: input.sessionMessageId?.trim() || undefined,
+    meta: {
+      ...(input.meta ?? {}),
+      targetUserIds,
+    },
+  };
+
+  await xaddWithMaxlen(redisCommandClient, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
+}
+
+export async function getReadableUserIdsForSpace(spaceId: string) {
+  const [space] = await db.select({ ownerId: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  const permissions = await db.select({ granteeUuid: resourcePermissions.granteeUuid }).from(resourcePermissions).where(and(eq(resourcePermissions.resourceType, "space"), eq(resourcePermissions.resourceId, spaceId), inArray(resourcePermissions.level, ["read", "write"])));
+  const userIds = new Set<string>();
+  if (space?.ownerId) userIds.add(space.ownerId);
+  for (const permission of permissions) {
+    if (permission.granteeUuid) userIds.add(permission.granteeUuid);
+  }
+  return Array.from(userIds);
+}
+
+export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
+  const token = typeof event.meta?.authToken === "string" ? event.meta.authToken.trim() : "";
+  const userId = typeof event.meta?.userId === "string" ? event.meta.userId.trim() : event.sender.id;
+  const spaceId = typeof event.meta?.spaceId === "string" ? event.meta.spaceId.trim() : "";
+  const sessionId = typeof event.meta?.sessionId === "string" ? event.meta.sessionId.trim() : event.conversation?.id?.trim() || event.externalChatId;
+  const connectionId = typeof event.meta?.connectionId === "string" ? event.meta.connectionId.trim() : "";
+  const requestId = typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "";
+
+  if (!spaceId || !sessionId || !userId || !token) {
+    await dispatchRealtimeEventToUsers({
+      userIds: userId ? [userId] : [],
+      spaceId: spaceId || null,
+      sessionId: sessionId || null,
+      content: [],
+      meta: {
+        eventType: "error",
+        code: "BAD_REQUEST",
+        message: "invalid websocket message context",
+        requestId: requestId || null,
+        targetConnectionId: connectionId || null,
+      },
+    });
+    return;
+  }
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  const [session] = await db.select().from(spaceSessions).where(eq(spaceSessions.id, sessionId)).limit(1);
+  if (!space || !session || session.spaceId !== spaceId) {
+    await dispatchRealtimeEventToUsers({
+      userIds: [userId],
+      spaceId,
+      sessionId,
+      content: [],
+      meta: {
+        eventType: "error",
+        code: "NOT_FOUND",
+        message: "space or session not found",
+        requestId: requestId || null,
+        targetConnectionId: connectionId || null,
+      },
+    });
+    return;
+  }
+
+  const writePermissionRows = await db.select({
+    resourceType: resourcePermissions.resourceType,
+  }).from(resourcePermissions).where(
+    and(
+      inArray(resourcePermissions.resourceType, ["space", "session"]),
+      inArray(resourcePermissions.resourceId, [spaceId, sessionId]),
+      eq(resourcePermissions.granteeUuid, userId),
+      eq(resourcePermissions.level, "write"),
+    ),
+  );
+
+  const canUserWrite = space.userUuid === userId || writePermissionRows.length > 0;
+
+  if (!canUserWrite) {
+    await dispatchRealtimeEventToUsers({
+      userIds: [userId],
+      spaceId,
+      sessionId,
+      content: [],
+      meta: {
+        eventType: "error",
+        code: "FORBIDDEN",
+        message: "no write permission for session",
+        requestId: requestId || null,
+        targetConnectionId: connectionId || null,
+      },
+    });
+    return;
+  }
+
+  const textBlock = event.content.find((block): block is { type: "text"; text: string } => block.type === "text");
+  await executeSessionInteraction({
+    spaceId,
+    sessionId,
+    inputText: textBlock?.text || "",
+    content: event.content,
+    source: "channel:websocket",
+    interactionId: event.eventId,
+    actorUserId: userId,
+    inboundRef: {
+      provider: event.provider,
+      spaceChannelId: sessionId,
+      externalConversationId: sessionId,
+      externalMessageId: event.externalMessageId,
+      externalAuthorId: userId,
+      externalAuthorName: event.sender.name ?? null,
+      meta: {
+        requestId: requestId || null,
+        connectionId: connectionId || null,
+      },
+    },
+  });
 }
 
 export async function getBindingBySpaceChannelAndKey(input: { spaceChannelId: string; bindingKey: string }) {
