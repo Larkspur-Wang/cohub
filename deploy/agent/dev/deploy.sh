@@ -22,8 +22,8 @@ SERVICE_NAME=$(get_value "serviceName")
 PORT=$(get_value "port")
 IMAGE=${OVERRIDE_IMAGE:-$(get_value "image")}
 ENV=$(get_value "env")
-REDIS_URL=$(get_value "redisUrl")
 SESSIONS_DIR=$(get_value "sessionsDir")
+SPACE_STORAGE_SUBPATH=$(get_value "SPACE_STORAGE_SUBPATH")
 
 if [ ! -f "../prod/secrets.template.yaml" ] && [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml（可参考 prod/secrets.template.yaml）${NC}"
@@ -47,9 +47,22 @@ sed -i.bak \
   -e "s|{{IMAGE}}|${IMAGE}|g" \
   -e "s|{{PORT}}|${PORT}|g" \
   -e "s|{{ENV}}|${ENV}|g" \
-  -e "s|{{REDIS_URL}}|${REDIS_URL}|g" \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
+  -e "s|{{SPACE_STORAGE_SUBPATH}}|${SPACE_STORAGE_SUBPATH}|g" \
   rendered/configmap.yaml rendered/deployment.yaml
+
+# Inject resource limits (dev)
+awk '/{{RESOURCES}}/ {
+  print "          resources:"
+  print "            requests:"
+  print "              cpu: \"0.1\""
+  print "              memory: \"256Mi\""
+  print "            limits:"
+  print "              cpu: \"1\""
+  print "              memory: \"1024Mi\""
+  next
+}
+{ print }' rendered/deployment.yaml > rendered/deployment.tmp && mv rendered/deployment.tmp rendered/deployment.yaml
 
 rm -f rendered/*.bak
 

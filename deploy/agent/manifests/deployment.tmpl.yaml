@@ -24,15 +24,22 @@ spec:
             - configMapRef:
                 name: {{APP_NAME}}-config
           env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{APP_NAME}}-secrets
+                  key: REDIS_URL
             - name: WORKER_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{APP_NAME}}-secrets
                   key: WORKER_SECRET
+          {{RESOURCES}}
           volumeMounts:
             - name: sessions-storage
               mountPath: {{SESSIONS_DIR}}
+              subPath: {{SPACE_STORAGE_SUBPATH}}
       volumes:
         - name: sessions-storage
           persistentVolumeClaim:
-            claimName: cohub-agent-pvc
+            claimName: cohub-spaces-pvc
