@@ -9,18 +9,21 @@ import {
   extractSessionRenderState,
   getModels,
   getSessionMessagesPaginated,
+  getSpace,
   getSpaceCheckpoints,
   getSpaceFsFile,
   getSpaceFsTree,
+  getSpaceSandbox,
+  getSpaceSessions,
   getTaskRun,
   moveSpaceFsNode,
   postSessionMessage,
   putSpaceFsFile,
-  streamSessionEvents,
+  recreateSpaceSandbox,
   triggerSpaceFsDownload,
   type CheckpointRecord,
+  type SandboxRecord,
   type SessionRecord,
-  type SessionStreamEvent,
   type SpaceFsEntry,
   type SpaceFsFileResponse,
   type SpaceRecord,
@@ -37,10 +40,12 @@ import type { SpaceFsNode } from "$lib/space-fs";
 import { type ChatMessage, type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { messageCache } from "$lib/stores/message-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import { spaceStore } from "$lib/stores/space-store.svelte";
+
 import { uiState, RIGHT_SIDEBAR_MAX, RIGHT_SIDEBAR_MIN } from "$lib/stores/ui.svelte";
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
-import { ArrowDown, FolderKanban, Loader2, MessageSquare, PanelRightClose, PanelRightOpen, Plus, Terminal } from "lucide-svelte";
+import { getRealtimeClient } from "$lib/realtime";
+import type { RealtimeEventPayload } from "$lib/realtime";
+import { AlertCircle, ArrowDown, FolderKanban, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Terminal } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 
 type Props = {
@@ -118,6 +123,10 @@ let creatingSession = $state(false);
 let createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
+let sandbox = $state<SandboxRecord | null>(null);
+let sandboxProvisioning = $state(false);
+let sandboxError = $state<string | null>(null);
+let sandboxElapsed = $state(0);
 let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
 let autoScrollGuard = $state(false);
@@ -125,19 +134,12 @@ let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<{ preparePrepend: () => void; finalizePrepend: () => void } | null>(null);
-let eventProcessing = false;
-let eventQueue: SessionStreamEvent[] = [];
 let streamingSessionId: string | null = null;
 let checkpointSaving = $state(false);
 let checkpointNotice = $state("");
 let checkpointError = $state("");
 let checkpoints = $state<CheckpointRecord[]>([]);
 let latestCheckpointJob = $state<TaskRunRecord | null>(null);
-let broadcastChannel: BroadcastChannel | null = null;
-let sessionSSEs = new Map<string, AbortController>();
-let sessionLastEventIds = new Map<string, string>();
-let sessionReconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-let sessionReconnectAttempts = new Map<string, number>();
 let preloadingSessionIds = new Set<string>();
 let visitedSessions = $state.raw(new Set<string>());
 let scrollPosBySession = $state.raw(new Map<string, number>());
@@ -344,13 +346,6 @@ function scheduleResetScrollTarget() {
   }, 0);
 }
 
-function notifySessionsUpdate() {
-  const sessions = spaceStore.getSessions(spaceId) ?? spaceSessions;
-  const normalizedSessions = sessions.map((session) => sessionForSidebar(session, sessionStateById[session.id]));
-  window.dispatchEvent(new CustomEvent("cohub:sessions-updated", { detail: { spaceId, sessions: normalizedSessions } }));
-  broadcastChannel?.postMessage({ type: "sessions-updated", spaceId, sessions: JSON.parse(JSON.stringify(normalizedSessions)) });
-}
-
 function notifyStreamingStatus(sessionId: string, isStreaming: boolean) {
   window.dispatchEvent(new CustomEvent("cohub:streaming-status", { detail: { spaceId, sessionId, isStreaming } }));
 }
@@ -396,7 +391,6 @@ function seedSessions(sessions: SessionRecord[]) {
     return bTime - aTime;
   });
   spaceSessions = sorted;
-  spaceStore.setSessions(spaceId, sorted);
   for (const session of sorted) {
     const existing = sessionStateById[session.id];
     sessionStateById = {
@@ -417,22 +411,11 @@ function seedSessions(sessions: SessionRecord[]) {
 
 async function loadSpace(options?: { force?: boolean }) {
   spaceLoadError = "";
-  const force = options?.force ?? false;
-
-  const cachedSpace = spaceStore.getSpace(spaceId);
-  if (cachedSpace && !space) {
-    space = cachedSpace as SpaceRecord;
-  }
-
-  const cachedSessions = spaceStore.getSessions(spaceId);
-  if (cachedSessions) {
-    seedSessions(cachedSessions);
-  }
 
   const tasks: Array<Promise<void>> = [];
   tasks.push((async () => {
     try {
-      space = await spaceStore.ensureSpaceDetail(spaceId, { force });
+      space = await getSpace(spaceId);
     } catch (error) {
       spaceLoadError = error instanceof Error ? error.message : "Failed to load space";
     }
@@ -440,7 +423,8 @@ async function loadSpace(options?: { force?: boolean }) {
 
   tasks.push((async () => {
     try {
-      seedSessions(await spaceStore.ensureSpaceSessions(spaceId, { force }));
+      const result = await getSpaceSessions(spaceId);
+      seedSessions(result.sessions ?? []);
     } catch (error) {
       if (!spaceLoadError) {
         spaceLoadError = error instanceof Error ? error.message : "Failed to load sessions";
@@ -457,6 +441,71 @@ async function loadSpace(options?: { force?: boolean }) {
   })());
 
   await Promise.all(tasks);
+}
+
+async function pollSandboxReady() {
+  const startedAt = Date.now();
+  const TIMEOUT = 120_000;
+  sandboxElapsed = 0;
+
+  const elapsedTimer = setInterval(() => {
+    sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
+  }, 1000);
+
+  try {
+    while (Date.now() - startedAt < TIMEOUT) {
+      try {
+        const result = await getSpaceSandbox(spaceId);
+        sandbox = result.sandbox;
+
+        if (result.sandbox?.status === "ready") {
+          return true;
+        }
+        if (result.sandbox?.status === "error") {
+          sandboxError = (result.sandbox.meta?.lastError as string) ?? "Sandbox provision failed";
+          return false;
+        }
+      } catch {
+        // Network error, retry
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    sandboxError = "Sandbox provision timed out";
+    return false;
+  } finally {
+    clearInterval(elapsedTimer);
+  }
+}
+
+function formatElapsedTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
+}
+
+async function handleRecreateSandbox() {
+  if (!space) return;
+  sandboxError = null;
+  sandboxProvisioning = true;
+
+  try {
+    await recreateSpaceSandbox(spaceId);
+    const ready = await pollSandboxReady();
+    if (!ready) {
+      sandboxProvisioning = false;
+      return;
+    }
+
+    await loadSpace({ force: true });
+    void loadFileTree(true);
+    bootstrapping = false;
+  } catch (error) {
+    sandboxError = error instanceof Error ? error.message : "Failed to recreate sandbox";
+  } finally {
+    sandboxProvisioning = false;
+  }
 }
 
 async function pollCheckpointJob(jobId: string) {
@@ -683,63 +732,64 @@ function handleFirstVisible(index: number) {
   }
 }
 
-function shouldKeepSessionSSE(sessionId: string) {
-  return pageMounted && pageVisible && pageOnline && activeSessionId === sessionId;
+function shouldHandleWsEvents(): boolean {
+  return pageMounted && pageVisible && pageOnline;
 }
 
-function clearReconnectTimer(sessionId: string) {
-  const timer = sessionReconnectTimers.get(sessionId);
-  if (timer) {
-    clearTimeout(timer);
-    sessionReconnectTimers.delete(sessionId);
-  }
-}
-
-function scheduleSessionReconnect(sessionId: string) {
-  clearReconnectTimer(sessionId);
-  const attempt = (sessionReconnectAttempts.get(sessionId) ?? 0) + 1;
-  sessionReconnectAttempts.set(sessionId, attempt);
-  const delay = Math.min(1500 * attempt, 10_000);
-  const timer = setTimeout(() => {
-    sessionReconnectTimers.delete(sessionId);
-    if (shouldKeepSessionSSE(sessionId)) connectSessionSSE(sessionId);
-  }, delay);
-  sessionReconnectTimers.set(sessionId, timer);
-}
-
-function disconnectSessionSSE(sessionId: string) {
-  clearReconnectTimer(sessionId);
-  const existing = sessionSSEs.get(sessionId);
-  if (existing) {
-    existing.abort();
-    sessionSSEs.delete(sessionId);
-  }
-}
-
-function disconnectAllSSE() {
-  for (const timer of sessionReconnectTimers.values()) clearTimeout(timer);
-  sessionReconnectTimers.clear();
-  for (const ctrl of sessionSSEs.values()) ctrl.abort();
-  sessionSSEs.clear();
-  eventQueue = [];
-  eventProcessing = false;
-}
-
-async function processEventQueue() {
-  if (eventProcessing || eventQueue.length === 0) return;
-  eventProcessing = true;
-  while (eventQueue.length > 0) {
-    const event = eventQueue.shift();
-    if (!event) continue;
+/**
+ * Handle a real-time event from the WebSocket gateway.
+ * Called whenever the server persists a new message in the current session.
+ */
+async function handleWsEvent(payload: RealtimeEventPayload) {
+  try {
     const currentActiveSessionId = activeSessionId;
-    if (!currentActiveSessionId || event.sessionId !== currentActiveSessionId) continue;
+    if (!currentActiveSessionId) return;
+    if (payload.sessionId !== currentActiveSessionId) return;
 
-    if (event.type === "stream_update") {
-      const { thinking, answer } = extractSessionRenderState(event.content);
+    const eventType = payload.eventType ?? payload.meta?.eventType;
+    if (eventType !== "session.message") return;
+
+    const state = sessionStateById[currentActiveSessionId];
+    if (!state) return;
+
+    const messageKind = payload.meta?.messageKind as string | undefined;
+    const content = payload.content;
+    if (!content || content.length === 0) return;
+
+    const sessionMessageId = payload.sessionMessageId;
+    if (!sessionMessageId) return;
+
+    const messageRole = payload.meta?.sessionMessageRole as string | undefined;
+    const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
+
+    const incomingMessage: MessageRecord = {
+      id: sessionMessageId,
+      sessionId: currentActiveSessionId,
+      role: (messageRole ?? "assistant") as "user" | "assistant",
+      content: content as MessageRecord["content"],
+      text: content.find((b) => b.type === "text")?.text ?? "",
+      sequence,
+      provider: null,
+      model: null,
+      stopReason: null,
+      errorMessage: null,
+      usageInput: null,
+      usageOutput: null,
+      costTotal: null,
+      meta: { messageKind },
+      createdAt: new Date().toISOString(),
+    };
+
+    // Deduplicate: skip if we already have this message
+    if (state.messages.some((m) => m.id === sessionMessageId)) return;
+
+    if (messageKind === "assistant_intermediate") {
+      // Show intermediate state (thinking, tool_use, etc.)
+      const { thinking, answer } = extractSessionRenderState(content);
       streamingThinking = thinking;
       streamingAssistantText = answer;
-      streamingContentBlocks = event.content;
-      if (event.content.length > 0) {
+      streamingContentBlocks = content;
+      if (content.length > 0) {
         if (streamingSessionId !== currentActiveSessionId) {
           streamingSessionId = currentActiveSessionId;
           notifyStreamingStatus(currentActiveSessionId, true);
@@ -747,105 +797,91 @@ async function processEventQueue() {
         await tick();
         if (!userScrolledUp) scrollToBottomNow();
       }
+    } else if (messageKind === "assistant_final" || messageKind === "assistant_error") {
+      // Final message — clear streaming state and merge into messages
+      streamingAssistantText = "";
+      streamingThinking = "";
+      streamingContentBlocks = [];
+      streamStatus = messageKind === "assistant_error" ? "error" : "done";
+      if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+      streamingSessionId = null;
 
-      if (event.turnEnd) {
-        const state = sessionStateById[currentActiveSessionId];
-        let newMessages: MessageRecord[] = [];
-        let updatedSession = state?.session;
-        try {
-          const prevSeq = state?.messages.length >= 2 ? state.messages.at(-2)?.sequence ?? 0 : 0;
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            const response = await getSessionMessagesPaginated(currentActiveSessionId, {
-              cursor: prevSeq,
-              direction: "newer",
-              limit: 100,
-            });
-            if (response.messages.length > 0) {
-              newMessages = response.messages;
-              updatedSession = response.session;
-              break;
-            }
-            if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 300));
-          }
-          if (newMessages.length === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            const response = await getSessionMessagesPaginated(currentActiveSessionId, { limit: 100 });
-            if (response.messages.length > 0) {
-              newMessages = response.messages;
-              updatedSession = response.session;
-            }
-          }
-          if (newMessages.length > 0) {
-            await messageCache.append(currentActiveSessionId, newMessages);
-          }
-        } catch (error) {
-          console.warn("[SSE] Failed to fetch turnEnd messages:", error);
-        }
-        streamingAssistantText = "";
-        streamingThinking = "";
-        streamingContentBlocks = [];
-        streamStatus = "done";
-        if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-        streamingSessionId = null;
+      const merged = mergeMessagesById(state.messages, [incomingMessage], { preferIncoming: true });
+      sessionStateById = {
+        ...sessionStateById,
+        [currentActiveSessionId]: {
+          ...state,
+          messages: merged,
+          loading: false,
+          loaded: true,
+          error: "",
+          hasMore: state.hasMore ?? true,
+          loadingOlder: false,
+          oldestCursor: state.oldestCursor,
+        },
+      };
 
-        const merged = mergeMessagesById(state?.messages ?? [], newMessages, { preferIncoming: true });
+      await messageCache.append(currentActiveSessionId, [incomingMessage]);
+
+      // Update session list (lastMessageId, updatedAt)
+      const updatedSession = state.session;
+      if (updatedSession) {
+        const refreshedSession = {
+          ...updatedSession,
+          lastMessageId: sessionMessageId,
+          updatedAt: new Date().toISOString(),
+        };
+        spaceSessions = spaceSessions.map((s) =>
+          s.id === updatedSession.id ? refreshedSession : s,
+        );
+      }
+      if (!userScrolledUp) scrollToBottomNow();
+    } else if (messageKind === "user") {
+      // User message — may be our own or from another device
+      // Only add if not already present (we optimistically add our own)
+      const merged = mergeMessagesById(state.messages, [incomingMessage], { preferIncoming: false });
+      if (merged.length > state.messages.length) {
         sessionStateById = {
           ...sessionStateById,
           [currentActiveSessionId]: {
-            session: updatedSession ?? state?.session,
+            ...state,
             messages: merged,
-            loading: false,
-            loaded: true,
-            error: "",
-            hasMore: state?.hasMore ?? true,
-            loadingOlder: false,
-            oldestCursor: state?.oldestCursor,
           },
         };
-        if (updatedSession) {
-          spaceStore.patchSession(spaceId, updatedSession);
-          spaceSessions = (spaceStore.getSessions(spaceId) ?? spaceSessions).map((session) =>
-            session.id === updatedSession.id ? updatedSession : session,
-          );
-          notifySessionsUpdate();
-        }
-        if (!userScrolledUp) scrollToBottomNow();
       }
     }
+  } catch (error) {
+    console.error("[WS] handleWsEvent error:", error);
   }
-  eventProcessing = false;
-  if (eventQueue.length > 0) void processEventQueue();
 }
 
-function connectSessionSSE(sessionId: string) {
-  disconnectSessionSSE(sessionId);
-  clearReconnectTimer(sessionId);
-  if (!shouldKeepSessionSSE(sessionId)) return;
-  const abort = new AbortController();
-  sessionSSEs.set(sessionId, abort);
-  const lastEventId = sessionLastEventIds.get(sessionId);
-  void (async () => {
-    let shouldReconnect = true;
-    try {
-      for await (const packet of streamSessionEvents(sessionId, lastEventId, abort.signal)) {
-        if (packet.id) sessionLastEventIds.set(sessionId, packet.id);
-        sessionReconnectAttempts.set(sessionId, 0);
-        eventQueue.push(packet.event);
-        void processEventQueue();
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        shouldReconnect = false;
-        return;
-      }
-      console.error(`[SSE] Session ${sessionId} stream error:`, error);
-    } finally {
-      sessionSSEs.delete(sessionId);
-      if (shouldReconnect && shouldKeepSessionSSE(sessionId)) {
-        scheduleSessionReconnect(sessionId);
-      }
-    }
-  })();
+/**
+ * Set up WebSocket event listeners for the current active session.
+ * The RealtimeClient is a singleton — we only need to register/unregister handlers.
+ */
+function connectSessionWS(sessionId: string) {
+  if (!shouldHandleWsEvents()) return;
+  const client = getRealtimeClient();
+  if (client.state === "idle") {
+    void client.connect().catch((error) => {
+      console.error("[WS] Failed to connect:", error);
+    });
+  }
+}
+
+/**
+ * Disconnect WebSocket if no active session.
+ * (The singleton stays alive across session switches — no need to fully disconnect.)
+ */
+function disconnectSessionWS() {
+  // No-op: the singleton RealtimeClient stays connected.
+  // Event handlers filter by activeSessionId so no stale events apply.
+}
+
+function disconnectAllWS() {
+  // No-op on disconnect: keep the singleton connected.
+  // The client's own ping/pong and reconnect logic handles network issues.
+  // We only fully disconnect on page unload (handled in onMount cleanup).
 }
 
 function clearStreamingState() {
@@ -883,11 +919,30 @@ async function handleSend() {
 
   try {
     const model = activeSessionModel;
-    const result = await postSessionMessage(sessionId, content, {
-      model: model?.id,
-      provider: model?.provider,
-    });
-    const userMessageId = result?.userMessageId;
+    const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Try WebSocket first; fall back to HTTP if not available
+    try {
+      const wsClient = getRealtimeClient();
+      await Promise.race([
+        wsClient.sendMessage({
+          spaceId: space.id,
+          sessionId,
+          content,
+          clientMessageId,
+        }),
+        new Promise<void>((_, reject) => {
+          setTimeout(() => reject(new Error("WS send timeout")), 5000);
+        }),
+      ]);
+    } catch (wsError) {
+      console.warn("[handleSend] WS send failed, falling back to HTTP:", wsError);
+      await postSessionMessage(sessionId, content, {
+        model: model?.id,
+        provider: model?.provider,
+      });
+    }
+
     input = "";
     imageAttachments = [];
     clearStreamingState();
@@ -895,7 +950,7 @@ async function handleSend() {
     const currentState = sessionStateById[sessionId];
     if (currentState) {
       const optimisticMessage = {
-        id: userMessageId || `optimistic-user-${Date.now()}`,
+        id: `optimistic-user-${Date.now()}`,
         sessionId,
         role: "user" as const,
         content,
@@ -1215,13 +1270,6 @@ function closeFile() {
   void goto(`/spaces/${spaceId}?${params.toString()}`, { replaceState: true, noScroll: true, keepFocus: true });
 }
 
-function sessionForSidebar(session: SessionRecord, state?: SessionViewState) {
-  return {
-    ...session,
-    latestMessageText: session.latestMessageText ?? state?.messages.at(-1)?.text ?? null,
-  } satisfies SessionRecord;
-}
-
 function handleCreateNewSession() {
   if (creatingSession || !space) return;
   creatingSession = true;
@@ -1234,7 +1282,6 @@ function handleCreateNewSession() {
     activeSessionId = newSession.id;
     ensureSessionModelLoaded(newSession.id);
     updateUrlSession(newSession.id);
-    notifySessionsUpdate();
     await loadSessionState(newSession.id, true);
     shouldAutoFollow = true;
     await forceScrollToBottom();
@@ -1250,63 +1297,72 @@ onMount(() => {
   pageVisible = !document.hidden;
   pageOnline = navigator.onLine;
 
+  // Set up WebSocket event listener once — filters by activeSessionId internally
+  const wsClient = getRealtimeClient();
+  const wsEventCleanup = wsClient.on("event", (payload) => {
+    void handleWsEvent(payload);
+  });
+
   const handleVisibility = () => {
     pageVisible = !document.hidden;
-    if (pageVisible && activeSessionId) connectSessionSSE(activeSessionId);
-    if (!pageVisible) disconnectAllSSE();
+    if (pageVisible && activeSessionId) connectSessionWS(activeSessionId);
+    if (!pageVisible) disconnectAllWS();
   };
   const handleOnline = () => {
     pageOnline = true;
-    if (activeSessionId) connectSessionSSE(activeSessionId);
+    if (activeSessionId) connectSessionWS(activeSessionId);
   };
   const handleOffline = () => {
     pageOnline = false;
-    disconnectAllSSE();
+    disconnectAllWS();
   };
 
   window.addEventListener("visibilitychange", handleVisibility);
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
 
-  try {
-    broadcastChannel = new BroadcastChannel(`cohub:space:${spaceId}`);
-  } catch {
-    broadcastChannel = null;
-  }
+  void loadSpace().then(async () => {
+    // If sandbox is not ready yet, poll until it is
+    if (space && space.sandboxStatus !== "ready") {
+      sandboxProvisioning = true;
+      const ready = await pollSandboxReady();
+      if (!ready) {
+        sandboxProvisioning = false;
+        bootstrapping = false;
+        return;
+      }
+      sandboxProvisioning = false;
+      // Refresh space data now that sandbox is ready
+      await loadSpace({ force: true });
+    }
 
-  void loadSpace().finally(() => {
+    // Only load file tree after sandbox is confirmed ready
     void loadFileTree(true);
-    if (urlSessionId) {
-      ensureSessionModelLoaded(urlSessionId);
-      void loadSessionState(urlSessionId).finally(() => {
+
+    const initialSessionId = urlSessionId ?? spaceSessions[0]?.id ?? null;
+    if (initialSessionId) {
+      activeSessionId = initialSessionId;
+      ensureSessionModelLoaded(initialSessionId);
+      void loadSessionState(initialSessionId).finally(() => {
         bootstrapping = false;
       });
       return;
     }
-    if (activeSessionId) {
-      void loadSessionState(activeSessionId).finally(() => {
-        bootstrapping = false;
-      });
-      return;
-    }
+
+    bootstrapping = false;
+  }).catch(() => {
     bootstrapping = false;
   });
 
   return () => {
     pageMounted = false;
-    disconnectAllSSE();
+    wsEventCleanup();
+    void wsClient.disconnect();
     window.removeEventListener("visibilitychange", handleVisibility);
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
-    broadcastChannel?.close();
     rightSidebarResizeCleanup?.();
   };
-});
-
-$effect(() => {
-  if (!space) return;
-  spaceStore.upsertSpace(space);
-  if (!space.userUuid || space.userUuid === "") return;
 });
 
 $effect(() => {
@@ -1380,10 +1436,9 @@ $effect(() => {
   if (!state?.loaded && !state?.loading) {
     void loadSessionState(activeSessionId);
   }
-  const currentSessionId = activeSessionId;
-  connectSessionSSE(currentSessionId);
+  connectSessionWS(activeSessionId);
   return () => {
-    disconnectSessionSSE(currentSessionId);
+    disconnectSessionWS();
   };
 });
 
@@ -1487,11 +1542,11 @@ $effect(() => {
 
 <div class="flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    {#if spaceLoadError}
+    {#if spaceLoadError && !sandboxProvisioning && !sandboxError}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
     {/if}
 
-    {#if createSessionError}
+    {#if createSessionError && !sandboxProvisioning && !sandboxError}
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
     {/if}
 
@@ -1503,7 +1558,65 @@ $effect(() => {
       <div class="m-4 mt-0 rounded-md border border-border-subtle bg-bg-hover p-3 text-[12px] text-text-secondary break-all">{checkpointNotice}</div>
     {/if}
 
-    {#if checkpoints.length > 0}
+    {#if sandboxProvisioning || (sandbox && (sandbox.status === "pending" || sandbox.status === "provisioning"))}
+      <div class="flex-1 flex items-center justify-center sandbox-provision-view">
+        <div class="w-full max-w-md px-6">
+          <div class="text-center space-y-6">
+            <!-- Status indicator -->
+            <div class="flex items-center justify-center gap-3">
+              <div class="sandbox-pulse-ring"></div>
+              <div class="text-[13px] font-mono uppercase tracking-wider text-brand">
+                {sandbox?.status ?? "pending"}
+              </div>
+            </div>
+
+            <!-- Elapsed time -->
+            <div class="text-[11px] font-mono text-text-placeholder tabular-nums">
+              elapsed {formatElapsedTime(sandboxElapsed)}
+            </div>
+
+            <!-- Stage messages -->
+            <div class="space-y-1.5 text-[12px] font-mono">
+              {#if !sandbox || sandbox.status === "pending"}
+                <div class="text-text-tertiary">allocating resources…</div>
+              {:else}
+                <div class="text-text-secondary">starting sandbox environment</div>
+                <div class="text-text-placeholder">pulling image · cloning repo · installing deps</div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      </div>
+    {:else if sandboxError}
+      <div class="flex-1 flex items-center justify-center sandbox-error-view">
+        <div class="w-full max-w-md px-6">
+          <div class="text-center space-y-5">
+            <div class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-error-soft/10 border border-error-soft/20">
+              <AlertCircle class="w-[18px] h-[18px] text-error-soft" />
+            </div>
+            <div>
+              <div class="text-[14px] font-medium text-text-primary">Sandbox error</div>
+              <div class="text-[12px] text-text-tertiary mt-1">The sandbox failed to provision.</div>
+            </div>
+            {#if sandboxError}
+              <div class="rounded-[5px] border border-border-subtle bg-bg-surface p-3 text-[11px] font-mono text-text-secondary text-left break-all max-h-24 overflow-y-auto">
+                {sandboxError}
+              </div>
+            {/if}
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 active:scale-[0.97] transition-all duration-100"
+              onclick={handleRecreateSandbox}
+            >
+              <RefreshCw class="w-3.5 h-3.5" />
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if checkpoints.length > 0 && !sandboxProvisioning && !sandboxError}
       <div class="mx-4 mb-4 mt-0 rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
         <div class="mb-2 flex items-center justify-between gap-3">
           <div class="text-[12px] font-medium text-text-secondary">Checkpoints</div>
@@ -1535,17 +1648,61 @@ $effect(() => {
         </div>
       </div>
     {:else if !activeSessionState}
-      <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
-        <div class="text-[14px]">No session selected</div>
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
-          onclick={handleCreateNewSession}
-          disabled={creatingSession || !space}
-        >
-          <Plus class="w-3.5 h-3.5" />
-          Create a session
-        </button>
+      <div class="flex-1 flex items-center justify-center px-5 py-6 sm:px-8">
+        <div class="w-full max-w-xl rounded-[14px] border border-border-subtle bg-bg-elevated/45 p-5 sm:p-6">
+          <div class="flex items-start gap-4">
+            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-brand/20 bg-brand/8 text-brand">
+              <FolderKanban class="w-5 h-5" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="text-[15px] font-semibold text-text-primary">This space is ready for its first session</h2>
+                {#if space?.sandboxStatus}
+                  <span class="rounded-full border border-border-subtle bg-bg-primary/65 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-placeholder">
+                    {space.sandboxStatus}
+                  </span>
+                {/if}
+              </div>
+              <p class="mt-2 max-w-lg text-[13px] leading-6 text-text-tertiary">
+                Sessions are created on demand now. Start one when you want to chat with the agent, inspect files, or continue work in this space.
+              </p>
+
+              <div class="mt-4 grid gap-2 sm:grid-cols-3">
+                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
+                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">State</div>
+                  <div class="mt-1 text-[12px] text-text-secondary">No active sessions</div>
+                </div>
+                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
+                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Sandbox</div>
+                  <div class="mt-1 text-[12px] text-text-secondary">{space?.sandboxStatus ?? "idle"}</div>
+                </div>
+                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
+                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Next step</div>
+                  <div class="mt-1 text-[12px] text-text-secondary">Create your first session</div>
+                </div>
+              </div>
+
+              <div class="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 items-center gap-2 rounded-[9px] border border-brand/25 bg-brand/10 px-4 py-2.5 text-[13px] font-medium text-brand transition-colors hover:bg-brand/14 disabled:opacity-50"
+                  onclick={handleCreateNewSession}
+                  disabled={creatingSession || !space}
+                >
+                  {#if creatingSession}
+                    <div class="w-3.5 h-3.5 rounded-full border-2 border-brand/20 border-t-brand animate-spin shrink-0"></div>
+                  {:else}
+                    <Plus class="w-3.5 h-3.5" />
+                  {/if}
+                  Create first session
+                </button>
+                <div class="text-[12px] text-text-placeholder">
+                  You can create additional sessions later for parallel threads of work.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
       <div class="flex-1 flex items-center justify-center">
@@ -1554,7 +1711,7 @@ $effect(() => {
           <div class="text-[12px]">Loading messages…</div>
         </div>
       </div>
-    {:else}
+    {:else if !(sandboxProvisioning || sandboxError)}
       {#if activeSessionState.error}
         <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
           {activeSessionState.error}
@@ -1705,5 +1862,68 @@ $effect(() => {
 
   .right-sidebar-resize-handle:hover::after {
     background: var(--border-subtle);
+  }
+
+  /* Sandbox provisioning pulse ring */
+  .sandbox-pulse-ring {
+    position: relative;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--brand, #FF3E00);
+  }
+
+  .sandbox-pulse-ring::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: var(--brand, #FF3E00);
+    opacity: 0;
+    animation: sandboxPulse 2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  }
+
+  @keyframes sandboxPulse {
+    0% {
+      transform: scale(1);
+      opacity: 0.4;
+    }
+    100% {
+      transform: scale(2.5);
+      opacity: 0;
+    }
+  }
+
+  /* Entrance animations for sandbox views */
+  .sandbox-provision-view,
+  .sandbox-error-view {
+    animation: sandboxFadeIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) both;
+  }
+
+  .sandbox-error-view {
+    animation-delay: 0.05s;
+  }
+
+  @keyframes sandboxFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sandbox-pulse-ring::after {
+      animation: none;
+      opacity: 0.2;
+    }
+
+    .sandbox-provision-view,
+    .sandbox-error-view {
+      animation: none;
+    }
   }
 </style>

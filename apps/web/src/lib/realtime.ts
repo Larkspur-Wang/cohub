@@ -1,0 +1,474 @@
+import { PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
+import {
+  wsServerEnvelopeSchema,
+  type ContentBlock,
+  type WsClientEvent,
+  type WsServerEnvelope,
+} from "@cohub/protocol";
+import { getAuthToken } from "$lib/auth";
+
+export type RealtimeEventPayload = {
+  eventType?: string | null;
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  sessionMessageId?: string | null;
+  content?: ContentBlock[];
+  meta?: Record<string, unknown> | null;
+};
+
+export type RealtimeClientOptions = {
+  url?: string;
+  autoReconnect?: boolean;
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
+  pingIntervalMs?: number;
+  pongTimeoutMs?: number;
+  debug?: boolean;
+};
+
+export type RealtimeClientState = "idle" | "connecting" | "open" | "closed";
+
+export type RealtimeClientEvents = {
+  open: { connectionId?: string | null };
+  close: { code: number; reason: string; willReconnect: boolean };
+  error: { error: unknown };
+  event: RealtimeEventPayload;
+  ready: { connectionId: string };
+  auth: { connectionId: string; user: Record<string, unknown> };
+  messageAccepted: { requestId?: string | null; connectionId?: string | null };
+  serverError: { code?: string; message?: string; requestId?: string | null };
+  pong: { requestId?: string | null };
+};
+
+type EventHandler<T> = (payload: T) => void;
+
+type EventMap = {
+  [K in keyof RealtimeClientEvents]: Set<EventHandler<RealtimeClientEvents[K]>>;
+};
+
+const createEventMap = (): EventMap => ({
+  open: new Set(),
+  close: new Set(),
+  error: new Set(),
+  event: new Set(),
+  ready: new Set(),
+  auth: new Set(),
+  messageAccepted: new Set(),
+  serverError: new Set(),
+  pong: new Set(),
+});
+
+const toWebSocketUrl = (input?: string) => {
+  const base = (input?.trim() || PUBLIC_GATEWAY_ORIGIN?.trim() || "").replace(/\/$/, "");
+  if (base) {
+    if (base.startsWith("ws://") || base.startsWith("wss://")) return `${base}/ws`;
+    if (base.startsWith("http://")) return `${base.replace(/^http:/, "ws:")}/ws`;
+    if (base.startsWith("https://")) return `${base.replace(/^https:/, "wss:")}/ws`;
+  }
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws`;
+  }
+  return "ws://localhost:8788/ws";
+};
+
+const normalizeOptions = (options: RealtimeClientOptions = {}) => ({
+  url: toWebSocketUrl(options.url),
+  autoReconnect: options.autoReconnect !== false,
+  reconnectBaseDelayMs: options.reconnectBaseDelayMs ?? 1000,
+  reconnectMaxDelayMs: options.reconnectMaxDelayMs ?? 15000,
+  pingIntervalMs: options.pingIntervalMs ?? 20000,
+  pongTimeoutMs: options.pongTimeoutMs ?? 15000,
+  debug: options.debug === true,
+});
+
+const stableOptionsKey = (options: RealtimeClientOptions = {}) => JSON.stringify(normalizeOptions(options));
+
+class RealtimeAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RealtimeAuthError";
+  }
+}
+
+export class RealtimeClient {
+  private readonly url: string;
+  private readonly autoReconnect: boolean;
+  private readonly reconnectBaseDelayMs: number;
+  private readonly reconnectMaxDelayMs: number;
+  private readonly pingIntervalMs: number;
+  private readonly pongTimeoutMs: number;
+  private readonly debug: boolean;
+
+  private ws: WebSocket | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+  private manuallyClosed = false;
+  private connectPromise: Promise<void> | null = null;
+  private authWaiter: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null = null;
+  private awaitingPong = false;
+  private lastPingRequestId: string | null = null;
+  private pongDeadlineAt = 0;
+
+  public state: RealtimeClientState = "idle";
+  public connectionId: string | null = null;
+
+  private readonly listeners = createEventMap();
+
+  constructor(options: RealtimeClientOptions = {}) {
+    const normalized = normalizeOptions(options);
+    this.url = normalized.url;
+    this.autoReconnect = normalized.autoReconnect;
+    this.reconnectBaseDelayMs = normalized.reconnectBaseDelayMs;
+    this.reconnectMaxDelayMs = normalized.reconnectMaxDelayMs;
+    this.pingIntervalMs = normalized.pingIntervalMs;
+    this.pongTimeoutMs = normalized.pongTimeoutMs;
+    this.debug = normalized.debug;
+  }
+
+  on<K extends keyof RealtimeClientEvents>(type: K, handler: EventHandler<RealtimeClientEvents[K]>) {
+    (this.listeners[type] as Set<EventHandler<RealtimeClientEvents[K]>>).add(handler);
+    return () => this.off(type, handler);
+  }
+
+  off<K extends keyof RealtimeClientEvents>(type: K, handler: EventHandler<RealtimeClientEvents[K]>) {
+    (this.listeners[type] as Set<EventHandler<RealtimeClientEvents[K]>>).delete(handler);
+  }
+
+  private emit<K extends keyof RealtimeClientEvents>(type: K, payload: RealtimeClientEvents[K]) {
+    for (const handler of this.listeners[type]) {
+      handler(payload);
+    }
+  }
+
+  private log(...args: unknown[]) {
+    if (this.debug) console.log("[RealtimeClient]", ...args);
+  }
+
+  async connect() {
+    if (this.connectPromise) return this.connectPromise;
+    if (this.state === "open" && this.ws?.readyState === WebSocket.OPEN) return;
+
+    this.manuallyClosed = false;
+    this.state = "connecting";
+    this.connectPromise = new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(this.url);
+      this.ws = ws;
+      let settled = false;
+
+      const rejectOnce = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        this.connectPromise = null;
+        reject(error);
+      };
+
+      const resolveOnce = () => {
+        if (settled) return;
+        settled = true;
+        this.connectPromise = null;
+        resolve();
+      };
+
+      ws.onopen = async () => {
+        try {
+          this.log("connected", this.url);
+          this.startPingLoop();
+          await this.authenticate();
+          this.state = "open";
+          this.reconnectAttempt = 0;
+          this.emit("open", { connectionId: this.connectionId });
+          resolveOnce();
+        } catch (error) {
+          const authError = error instanceof Error ? error : new Error("authentication failed");
+          rejectOnce(authError);
+          ws.close(4003, authError.message);
+        }
+      };
+
+      ws.onmessage = (event) => {
+        this.handleMessage(event.data);
+      };
+
+      ws.onerror = (error) => {
+        this.emit("error", { error });
+      };
+
+      ws.onclose = (event) => {
+        this.stopPingLoop();
+        const wasConnecting = this.state === "connecting";
+        this.state = "closed";
+        this.ws = null;
+        this.rejectAuthWaiter(new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()));
+        const willReconnect = !this.manuallyClosed && this.autoReconnect;
+        this.emit("close", {
+          code: event.code,
+          reason: event.reason,
+          willReconnect,
+        });
+        if (wasConnecting) {
+          rejectOnce(new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()));
+          return;
+        }
+        if (willReconnect) {
+          void this.scheduleReconnect();
+        }
+      };
+    });
+
+    return this.connectPromise;
+  }
+
+  async disconnect(code = 1000, reason = "manual") {
+    this.manuallyClosed = true;
+    this.clearReconnectTimer();
+    this.stopPingLoop();
+    this.state = "closed";
+    this.rejectAuthWaiter(new Error("disconnected"));
+    this.ws?.close(code, reason);
+    this.ws = null;
+    this.connectPromise = null;
+  }
+
+  async sendMessage(input: {
+    spaceId: string;
+    sessionId: string;
+    text?: string;
+    content?: ContentBlock[];
+    clientMessageId?: string;
+    requestId?: string;
+  }) {
+    await this.ensureOpen();
+    this.send({
+      type: "message.create",
+      requestId: input.requestId,
+      payload: {
+        spaceId: input.spaceId,
+        sessionId: input.sessionId,
+        text: input.text,
+        content: input.content,
+        clientMessageId: input.clientMessageId,
+      },
+    });
+  }
+
+  ack(eventId?: string, requestId?: string) {
+    this.send({
+      type: "ack",
+      requestId,
+      payload: eventId ? { eventId } : undefined,
+    });
+  }
+
+  ping(requestId?: string) {
+    const effectiveRequestId = requestId ?? `ping-${Date.now()}`;
+    this.awaitingPong = true;
+    this.lastPingRequestId = effectiveRequestId;
+    this.pongDeadlineAt = Date.now() + this.pongTimeoutMs;
+    this.send({ type: "ping", requestId: effectiveRequestId, payload: {} });
+  }
+
+  private async ensureOpen() {
+    if (this.state === "open" && this.ws?.readyState === WebSocket.OPEN) return;
+    await this.connect();
+  }
+
+  private async authenticate() {
+    if (this.authWaiter) return this.authWaiter.promise;
+
+    const token = await getAuthToken();
+    if (!token) throw new RealtimeAuthError("authentication token is missing");
+
+    let resolveAuth!: () => void;
+    let rejectAuth!: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveAuth = resolve;
+      rejectAuth = reject;
+    });
+    this.authWaiter = { promise, resolve: resolveAuth, reject: rejectAuth };
+
+    try {
+      this.send({
+        type: "auth",
+        requestId: `auth-${Date.now()}`,
+        payload: { token },
+      });
+      await promise;
+    } finally {
+      this.authWaiter = null;
+    }
+  }
+
+  private resolveAuthWaiter() {
+    this.authWaiter?.resolve();
+  }
+
+  private rejectAuthWaiter(error: Error) {
+    this.authWaiter?.reject(error);
+  }
+
+  private send(message: WsClientEvent) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      throw new Error("realtime websocket is not connected");
+    }
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(message);
+    } catch (error) {
+      throw new Error(`failed to serialize realtime message: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    ws.send(serialized);
+  }
+
+  private handleMessage(raw: unknown) {
+    try {
+      const text = typeof raw === "string" ? raw : String(raw);
+      const parsed = wsServerEnvelopeSchema.safeParse(JSON.parse(text));
+      if (!parsed.success) {
+        this.log("ignored invalid server message", parsed.error.issues);
+        return;
+      }
+      this.routeEnvelope(parsed.data);
+    } catch (error) {
+      this.emit("error", { error });
+    }
+  }
+
+  private routeEnvelope(envelope: WsServerEnvelope) {
+    const payload = envelope.payload;
+
+    switch (envelope.type) {
+      case "ready": {
+        const connectionId = typeof payload.connectionId === "string" ? payload.connectionId : "";
+        if (connectionId) this.connectionId = connectionId;
+        this.emit("ready", { connectionId });
+        return;
+      }
+      case "auth.ok": {
+        const connectionId = typeof payload.connectionId === "string" ? payload.connectionId : this.connectionId ?? "";
+        this.connectionId = connectionId || null;
+        this.resolveAuthWaiter();
+        this.emit("auth", {
+          connectionId,
+          user: (payload.user as Record<string, unknown> | undefined) ?? {},
+        });
+        return;
+      }
+      case "message.accepted": {
+        this.emit("messageAccepted", {
+          requestId: typeof payload.requestId === "string" ? payload.requestId : null,
+          connectionId: typeof payload.connectionId === "string" ? payload.connectionId : null,
+        });
+        return;
+      }
+      case "event": {
+        this.emit("event", {
+          eventType: typeof payload.eventType === "string" ? payload.eventType : null,
+          requestId: typeof payload.requestId === "string" ? payload.requestId : null,
+          spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
+          sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
+          sessionMessageId: typeof payload.sessionMessageId === "string" ? payload.sessionMessageId : null,
+          content: Array.isArray(payload.content) ? (payload.content as ContentBlock[]) : undefined,
+          meta: (payload.meta as Record<string, unknown> | null | undefined) ?? null,
+        });
+        return;
+      }
+      case "error": {
+        const message = typeof payload.message === "string" ? payload.message : "unknown realtime error";
+        this.rejectAuthWaiter(new RealtimeAuthError(message));
+        this.emit("serverError", {
+          code: typeof payload.code === "string" ? payload.code : undefined,
+          message,
+          requestId: typeof payload.requestId === "string" ? payload.requestId : null,
+        });
+        return;
+      }
+      case "pong": {
+        const requestId = typeof payload.requestId === "string" ? payload.requestId : null;
+        if (!requestId || requestId === this.lastPingRequestId) {
+          this.awaitingPong = false;
+          this.lastPingRequestId = null;
+          this.pongDeadlineAt = 0;
+        }
+        this.emit("pong", { requestId });
+        return;
+      }
+      case "ack.ok": {
+        return;
+      }
+      default: {
+        this.log("unhandled realtime envelope", envelope);
+      }
+    }
+  }
+
+  private startPingLoop() {
+    this.stopPingLoop();
+    this.pingTimer = setInterval(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      if (this.awaitingPong && this.pongDeadlineAt > 0 && Date.now() > this.pongDeadlineAt) {
+        this.emit("error", { error: new Error("realtime websocket pong timeout") });
+        this.ws.close(4002, "pong timeout");
+        return;
+      }
+      this.ping();
+    }, this.pingIntervalMs);
+  }
+
+  private stopPingLoop() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.awaitingPong = false;
+    this.lastPingRequestId = null;
+    this.pongDeadlineAt = 0;
+  }
+
+  private clearReconnectTimer() {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private async scheduleReconnect() {
+    this.clearReconnectTimer();
+    const delay = Math.min(
+      this.reconnectBaseDelayMs * 2 ** this.reconnectAttempt,
+      this.reconnectMaxDelayMs,
+    );
+    this.reconnectAttempt += 1;
+    await new Promise<void>((resolve) => {
+      this.reconnectTimer = setTimeout(() => resolve(), delay);
+    });
+    if (this.manuallyClosed) return;
+    await this.connect().catch((error) => {
+      this.emit("error", { error });
+    });
+  }
+}
+
+let sharedRealtimeClient: RealtimeClient | null = null;
+let sharedRealtimeClientOptionsKey: string | null = null;
+
+export const createRealtimeClient = (options?: RealtimeClientOptions) => new RealtimeClient(options);
+
+export const getRealtimeClient = (options?: RealtimeClientOptions) => {
+  const nextKey = stableOptionsKey(options);
+  if (!sharedRealtimeClient) {
+    sharedRealtimeClient = new RealtimeClient(options);
+    sharedRealtimeClientOptionsKey = nextKey;
+    return sharedRealtimeClient;
+  }
+  if (sharedRealtimeClientOptionsKey && sharedRealtimeClientOptionsKey !== nextKey) {
+    console.warn("[RealtimeClient] getRealtimeClient() called with different options after singleton creation. Existing singleton will be reused.");
+  }
+  return sharedRealtimeClient;
+};

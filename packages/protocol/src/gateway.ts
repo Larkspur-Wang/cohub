@@ -1,4 +1,4 @@
-export type ChannelProvider = "web" | "discord" | "feishu" | "telegram" | "slack";
+export type ChannelProvider = "web" | "websocket" | "discord" | "feishu" | "telegram" | "slack";
 
 export function buildSessionSourceChannel(event: GatewayInboundEvent): string {
   const provider = event.provider;

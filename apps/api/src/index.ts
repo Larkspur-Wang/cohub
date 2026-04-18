@@ -53,11 +53,10 @@ import {
 import { db } from "./db/index.js";
 import { userChannels, resourcePermissions, spaceChannels, spaces, userGitAccounts, cronJobs, taskRuns, checkpoints } from "./db/schema-v2.js";
 import { eq, and, inArray, desc, isNull } from "drizzle-orm";
-import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "./channels.js";
+import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, isRedisReady, GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, GATEWAY_LOGS_STREAM, getStreamInfo, checkPendingMessages } from "./redis.js";
 import type { GatewayInboundEvent, TaskScheduleConfig } from "@cohub/protocol";
 import { canRead, canReadForSession, canWrite } from "./permissions.js";
-import { handleInboundEvent } from "./channels.js";
 import * as cronParser from "cron-parser";
 import { createCronJob, disableCronJob, enableCronJob, enqueueTask, removeCronJob, SUPPORTED_TASK_TYPES } from "./tasks.js";
 const { CronExpressionParser } = cronParser;
@@ -148,7 +147,11 @@ const startGatewayInboundListener = async () => {
           if (!payload) continue;
           try {
             const event = JSON.parse(payload) as GatewayInboundEvent;
-            await handleInboundEvent(event);
+            if (event.provider === "websocket") {
+              await handleWebsocketInboundEvent(event);
+            } else {
+              await handleInboundEvent(event);
+            }
             await client.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
           } catch {
             await client.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id).catch(() => undefined);
@@ -463,15 +466,6 @@ app.post("/api/spaces", async (c) => {
     await Promise.all(insertedChannels.map((channel) => syncSpaceChannelConfigCache({ spaceChannelId: channel.id, config: (channel.config as Record<string, unknown> | null) ?? null })));
   }
 
-  const session = await createInitialSpaceSession({
-    spaceId: space.id,
-    sessionId: crypto.randomUUID(),
-    title: null,
-    source: body.source ?? null,
-    externalSessionId: null,
-    meta: { createdBy: "api_space_create", channelBindings: normalizedChannelBindings.length },
-  });
-
   void provisionSpaceInBackground({
     spaceId: space.id,
     userUuid: user.uuid,
@@ -481,7 +475,7 @@ app.post("/api/spaces", async (c) => {
     extraEnv: normalizedExtraEnv,
   }).catch(console.error);
 
-  return c.json({ space, session });
+  return c.json({ space });
 });
 
 app.post("/api/spaces/:id/checkpoints", async (c) => {

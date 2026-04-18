@@ -18,7 +18,8 @@
     "typecheck": "pnpm -r typecheck",
     "format": "biome format --write .",
     "lint:biome": "biome lint .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "ws:client": "tsx scripts/ws-client.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

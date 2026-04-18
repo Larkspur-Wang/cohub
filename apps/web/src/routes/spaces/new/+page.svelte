@@ -120,9 +120,7 @@ async function handleSubmit(event: SubmitEvent) {
 
     window.dispatchEvent(new CustomEvent("cohub:space-created"));
 
-    const sessionId = result.session?.id;
-    const query = sessionId ? `?session=${sessionId}` : "";
-    await goto(`/spaces/${result.space.id}${query}`);
+    await goto(`/spaces/${result.space.id}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create space";
     if (message.includes("channel binding already exists") || message.includes("409")) {

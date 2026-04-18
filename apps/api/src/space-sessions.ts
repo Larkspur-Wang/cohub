@@ -11,7 +11,7 @@ import {
 } from "./db/schema-v2.js";
 import { createStreamingRedisClient, getSpaceInputQueueKey, getSpaceOutputStreamKey, redisCommandClient } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
-import { dispatchOutboundMessage, getBindingsBySessionId, touchSpaceSessionBinding } from "./channels.js";
+import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getBindingsBySessionId, getReadableUserIdsForSpace, touchSpaceSessionBinding } from "./channels.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 
 export class SandboxNotReadyError extends Error {
@@ -266,6 +266,21 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       }).catch(console.error);
     }
   }
+
+  const readableUserIds = await getReadableUserIdsForSpace(session.spaceId).catch(() => [] as string[]);
+  await dispatchRealtimeEventToUsers({
+    userIds: readableUserIds,
+    spaceId: session.spaceId,
+    sessionId: session.id,
+    sessionMessageId: messageNode.id,
+    content: messageNode.content,
+    meta: {
+      eventType: "session.message",
+      sessionMessageRole: messageNode.role,
+      messageKind,
+      anchorUserMessageId: anchorUserMessageId ?? null,
+    },
+  }).catch(console.error);
 
   return messageNode;
 };
