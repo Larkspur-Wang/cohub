@@ -12,6 +12,18 @@ const redisUrlSchema = z
     }
   }, "REDIS_URL must use redis:// or rediss://");
 
+const websocketUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "ws:" || url.protocol === "wss:";
+    } catch {
+      return false;
+    }
+  }, "SANDBOX_WS_URL must use ws:// or wss://");
+
 export const EnvSchema = z.object({
   SPACE_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
@@ -33,8 +45,7 @@ export const EnvSchema = z.object({
   PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
-  SANDBOX_WS_HOST: z.string().default("0.0.0.0"),
-  SANDBOX_WS_PORT: z.coerce.number().int().positive().default(8788),
+  SANDBOX_WS_URL: websocketUrlSchema.default("ws://127.0.0.1:8788/sandbox"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

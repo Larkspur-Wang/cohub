@@ -107,6 +107,22 @@ func (m *Manager) Abort(processID string) error {
 	return nil
 }
 
+func (m *Manager) AbortAll() {
+	m.mu.Lock()
+	processes := make([]*ManagedProcess, 0, len(m.processes))
+	for _, managed := range m.processes {
+		processes = append(processes, managed)
+	}
+	m.mu.Unlock()
+
+	for _, managed := range processes {
+		managed.Cancel()
+		if managed.Cmd.Process != nil {
+			_ = managed.Cmd.Process.Kill()
+		}
+	}
+}
+
 func StreamLines(reader io.Reader, onLine func(string)) error {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {

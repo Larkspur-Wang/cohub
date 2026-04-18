@@ -1,10 +1,11 @@
 # Cohub Sandbox (Go)
 
-内部 sandbox 执行器，通过单一 WebSocket 主动连接 agent。
+内部 sandbox 执行器，对外提供单一 WebSocket server，由 agent 主动连接。
 
 ## 当前已实现
 
 - `sandbox.hello`
+- `sandbox.hello_ack`
 - `sandbox.heartbeat`
 - `workspace.prepare`
 - `fs.read`
@@ -42,26 +43,26 @@ go test ./...
 go build ./...
 ```
 
-### 1. 启动 agent
-
-```bash
-cd apps/agent
-SANDBOX_WS_HOST=0.0.0.0 \
-SANDBOX_WS_PORT=8788 \
-pnpm dev
-```
-
-默认监听：`ws://0.0.0.0:8788/sandbox`
-
-### 2. 启动 sandbox
+### 1. 启动 sandbox
 
 ```bash
 cd apps/sandbox
-SANDBOX_WS_URL=ws://127.0.0.1:8788/sandbox \
+SANDBOX_WS_HOST=0.0.0.0 \
+SANDBOX_WS_PORT=8788 \
 SPACE_ID=00000000-0000-0000-0000-000000000001 \
 SANDBOX_ID=sandbox-dev \
 WORKSPACE_DIR=/tmp/cohub-sandbox-workspace \
 go run .
+```
+
+默认监听：`ws://0.0.0.0:8788/sandbox`
+
+### 2. 启动 agent
+
+```bash
+cd apps/agent
+SANDBOX_WS_URL=ws://127.0.0.1:8788/sandbox \
+pnpm dev
 ```
 
 ## Docker 构建

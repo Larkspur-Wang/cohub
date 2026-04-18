@@ -9,7 +9,8 @@ import (
 )
 
 type Config struct {
-	SandboxWSURL          string
+	SandboxWSHost         string
+	SandboxWSPort         int
 	SpaceID               string
 	SandboxID             string
 	WorkspaceDir          string
@@ -22,9 +23,18 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	wsURL := strings.TrimSpace(os.Getenv("SANDBOX_WS_URL"))
-	if wsURL == "" {
-		return Config{}, fmt.Errorf("SANDBOX_WS_URL is required")
+	wsHost := strings.TrimSpace(os.Getenv("SANDBOX_WS_HOST"))
+	if wsHost == "" {
+		wsHost = "0.0.0.0"
+	}
+
+	wsPort := 8788
+	if value := strings.TrimSpace(os.Getenv("SANDBOX_WS_PORT")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid SANDBOX_WS_PORT: %w", err)
+		}
+		wsPort = parsed
 	}
 
 	spaceID := strings.TrimSpace(os.Getenv("SPACE_ID"))
@@ -63,7 +73,8 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		SandboxWSURL:          wsURL,
+		SandboxWSHost:         wsHost,
+		SandboxWSPort:         wsPort,
 		SpaceID:               spaceID,
 		SandboxID:             sandboxID,
 		WorkspaceDir:          workspaceDir,

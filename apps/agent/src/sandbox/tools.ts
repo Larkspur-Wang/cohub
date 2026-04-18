@@ -18,7 +18,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
-import { type SandboxConnection, waitForSandboxConnection } from "./ws-server.js";
+import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
 
 function toSandboxPath(absolutePath: string) {
   const relativePath = relative(env.SPACE_DIR, absolutePath);

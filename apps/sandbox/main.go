@@ -21,9 +21,9 @@ func main() {
 
 	processManager := process.NewManager(logger)
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
-	client := ws.NewClient(cfg, dispatcher, logger)
+	server := ws.NewServer(cfg, dispatcher, processManager, logger)
 
-	if err := client.Run(); err != nil {
+	if err := server.Run(); err != nil {
 		logger.Error("sandbox exited", slog.String("error", err.Error()))
 		os.Exit(1)
 	}

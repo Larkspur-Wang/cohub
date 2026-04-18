@@ -55,6 +55,10 @@ export type SandboxCapabilities = {
   workspacePrepare: boolean;
   fsRead: boolean;
   fsWrite: boolean;
+  fsStat: boolean;
+  fsLs: boolean;
+  fsFind: boolean;
+  fsGrep: boolean;
   processStart: boolean;
   processAbort: boolean;
 };

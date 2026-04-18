@@ -17,7 +17,7 @@ import {
   reportSandboxStatus,
 } from "./redis.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
-import { startSandboxWsServer, waitForSandboxConnection } from "./sandbox/ws-server.js";
+import { startSandboxWsClient, waitForSandboxConnection } from "./sandbox/ws-client.js";
 import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
 
 type PendingUserMessage = {
@@ -598,8 +598,8 @@ async function main() {
   });
 
   await reportSandboxStatus("provisioning");
-  await startSandboxWsServer();
-  console.log("[Agent] Waiting for sandbox connection...");
+  await startSandboxWsClient();
+  console.log(`[Agent] Waiting for sandbox connection at ${env.SANDBOX_WS_URL} ...`);
   await waitForSandboxConnection();
   console.log("[Agent] Sandbox connection established.");
   await prepareRemoteSandbox();

@@ -33,6 +33,16 @@ type SandboxHello struct {
 	Metadata     *SandboxMetadata    `json:"metadata,omitempty"`
 }
 
+type SandboxHelloAck struct {
+	Version   string `json:"version"`
+	Type      string `json:"type"`
+	SpaceID   string `json:"spaceId"`
+	SandboxID string `json:"sandboxId"`
+	Timestamp int64  `json:"timestamp"`
+	Accepted  bool   `json:"accepted"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 type SandboxHeartbeat struct {
 	Version   string `json:"version"`
 	Type      string `json:"type"`
