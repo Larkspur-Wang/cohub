@@ -23,6 +23,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: git.talesofai.com
   NAMESPACE: ${{ secrets.GITEA_OWNER }}
   IMAGE_NAME: cohub-api
@@ -53,9 +54,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm --filter @cohub/api typecheck
-
-      - name: Build (api)
-        run: pnpm --filter @cohub/api build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

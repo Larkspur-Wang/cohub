@@ -14,6 +14,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: git.talesofai.com
   NAMESPACE: ${{ secrets.GITEA_OWNER }}
   IMAGE_NAME: cohub-sandbox
@@ -45,11 +46,6 @@ jobs:
         run: |
           cd apps/sandbox
           go test ./...
-
-      - name: Go build
-        run: |
-          cd apps/sandbox
-          go build ./...
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
