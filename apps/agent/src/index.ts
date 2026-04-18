@@ -3,6 +3,7 @@ import {
   ModelRegistry,
 } from "@mariozechner/pi-coding-agent";
 import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
+import type { SandboxHeartbeat, SandboxHello } from "@cohub/agent-sandbox-protocol";
 
 import { env, SPACE_OWNER_LEASE_MS } from "./env.js";
 import {
@@ -36,13 +37,52 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 
-
-
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 const ownedSpaceEpochs = new Map<string, number>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
+
+function normalizeSandboxStatus(status: string): "provisioning" | "ready" | "error" {
+  return status === "ready" || status === "busy"
+    ? "ready"
+    : status === "error"
+      ? "error"
+      : "provisioning";
+}
+
+async function syncSandboxHello(spaceId: string, message: SandboxHello) {
+  const normalized = normalizeSandboxStatus(message.metadata?.prepareStatus ?? "preparing");
+  const meta = {
+    sandboxId: message.sandboxId,
+    hostname: message.metadata?.hostname ?? null,
+    imageVersion: message.metadata?.imageVersion ?? null,
+    preparedAt: message.metadata?.startedAt ?? null,
+    prepareStatus: message.metadata?.prepareStatus ?? null,
+    prepareError: message.metadata?.prepareError ?? null,
+  };
+  await reportSandboxStatus(spaceId, normalized, meta).catch(() => undefined);
+  await updateSpaceRuntime({
+    spaceId,
+    status: normalized === "error" ? "error" : "ready",
+    sandboxId: message.sandboxId,
+    error: message.metadata?.prepareError ?? null,
+  }).catch(() => undefined);
+}
+
+async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) {
+  const normalized = normalizeSandboxStatus(message.status);
+  await reportSandboxStatus(spaceId, normalized, {
+    sandboxId: message.sandboxId,
+    lastStatus: message.status,
+  }).catch(() => undefined);
+  await updateSpaceRuntime({
+    spaceId,
+    status: normalized === "error" ? "error" : "ready",
+    sandboxId: message.sandboxId,
+    error: normalized === "error" ? `sandbox heartbeat reported ${message.status}` : null,
+  }).catch(() => undefined);
+}
 
 async function cleanupOwnedSpace(spaceId: string, reason: string) {
   console.warn(`[Agent] Cleaning up owned space ${spaceId}: ${reason}`);
@@ -128,8 +168,6 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   process.exit(exitCode);
 }
 
-
-
 function buildSandboxWsUrl(spaceId: string): string {
   return `ws://sandbox-${spaceId}.${env.SESSIONS_NAMESPACE}.svc.cluster.local:8788/sandbox`;
 }
@@ -139,9 +177,21 @@ async function ensureSandboxWsConnected(spaceId: string) {
     ? LOCAL_SANDBOX_WS_URL
     : buildSandboxWsUrl(spaceId);
 
-  await startSandboxWsClient({ spaceId, wsUrl });
+  await startSandboxWsClient({
+    spaceId,
+    wsUrl,
+    hooks: {
+      onHello: (message) => syncSandboxHello(spaceId, message),
+      onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
+      onDisconnected: ({ reason }) => {
+        void reportSandboxStatus(spaceId, "provisioning", { lastError: reason ?? "sandbox disconnected" }).catch(() => undefined);
+      },
+      onConnectionError: ({ error }) => {
+        void reportSandboxStatus(spaceId, "provisioning", { lastError: error.message }).catch(() => undefined);
+      },
+    },
+  });
   await waitForSandboxConnection(spaceId);
-  await updateSpaceRuntime({ spaceId, status: "ready" }).catch(() => undefined);
 }
 
 function startOwnerRenewLoop() {
@@ -213,6 +263,11 @@ async function main() {
 
         await ensureSandboxWsConnected(inputEntry.spaceId);
 
+        if (inputEntry.action === "warmup_sandbox") {
+          await ack();
+          return;
+        }
+
         if (inputEntry.action === "prompt") {
           const sessionId = inputEntry.sessionId;
           if (!sessionId) {
@@ -271,7 +326,7 @@ async function main() {
           // Decide whether to use prompt or steer based on streaming state
           if (handle.session.isStreaming) {
             console.log(
-              `[Agent] Session ${sessionId} is streaming, using steer for new message`
+              `[Agent] Session ${sessionId} is streaming, using steer for new message`,
             );
             await runWithToolExecutionContext({
               spaceId: inputEntry.spaceId,
@@ -281,7 +336,7 @@ async function main() {
             });
           } else {
             console.log(
-              `[Agent] Session ${sessionId} is idle, using prompt for new message`
+              `[Agent] Session ${sessionId} is idle, using prompt for new message`,
             );
             await runWithToolExecutionContext({
               spaceId: inputEntry.spaceId,

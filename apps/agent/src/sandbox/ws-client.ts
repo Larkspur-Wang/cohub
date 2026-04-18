@@ -6,14 +6,22 @@ import type {
   RpcMethod,
   RpcRequestMap,
   RpcStreamEvent,
+  SandboxHeartbeat,
+  SandboxHello,
 } from "@cohub/agent-sandbox-protocol";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
-import { env } from "../env.js";
 
 type PendingRequest = {
   resolve: (value: never) => void;
   reject: (error: Error) => void;
   onStream?: (event: RpcStreamEvent) => void;
+};
+
+type SandboxStatusHooks = {
+  onHello?: (message: SandboxHello) => void | Promise<void>;
+  onHeartbeat?: (message: SandboxHeartbeat) => void | Promise<void>;
+  onDisconnected?: (input: { spaceId: string; reason?: string }) => void | Promise<void>;
+  onConnectionError?: (input: { spaceId: string; error: Error }) => void | Promise<void>;
 };
 
 type SandboxClientRegistration = {
@@ -22,6 +30,7 @@ type SandboxClientRegistration = {
   started: boolean;
   connection: SandboxConnection | null;
   resolveWaiters: Array<(connection: SandboxConnection) => void>;
+  hooks?: SandboxStatusHooks;
 };
 
 export class SandboxConnection {
@@ -106,10 +115,11 @@ export class SandboxConnection {
 
 const registrations = new Map<string, SandboxClientRegistration>();
 
-function getOrCreateRegistration(spaceId: string, wsUrl: string) {
+function getOrCreateRegistration(spaceId: string, wsUrl: string, hooks?: SandboxStatusHooks) {
   const existing = registrations.get(spaceId);
   if (existing) {
     if (existing.wsUrl !== wsUrl) existing.wsUrl = wsUrl;
+    if (hooks) existing.hooks = hooks;
     return existing;
   }
 
@@ -119,6 +129,7 @@ function getOrCreateRegistration(spaceId: string, wsUrl: string) {
     started: false,
     connection: null,
     resolveWaiters: [],
+    hooks,
   };
   registrations.set(spaceId, created);
   return created;
@@ -161,10 +172,10 @@ export async function waitForSandboxConnection(spaceId: string, timeoutMs = 3000
   });
 }
 
-export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string }) {
+export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string; hooks?: SandboxStatusHooks }) {
   const spaceId = input.spaceId;
   const wsUrl = input.wsUrl;
-  const registration = getOrCreateRegistration(spaceId, wsUrl);
+  const registration = getOrCreateRegistration(spaceId, wsUrl, input.hooks);
   if (registration.started) return;
   registration.started = true;
 
@@ -178,6 +189,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
   const connection = registration.connection;
   setActiveConnection(spaceId, null);
   connection?.dispose(new Error(reason));
+  void registration.hooks?.onDisconnected?.({ spaceId, reason });
 }
 
 export function getSandboxClientConnection(spaceId: string) {
@@ -195,6 +207,9 @@ async function runLoop(registration: SandboxClientRegistration) {
     } catch (error) {
       console.error(`[SandboxWS] Client loop failed for ${registration.spaceId}:`, error);
       attempt += 1;
+      if (error instanceof Error) {
+        void registration.hooks?.onConnectionError?.({ spaceId: registration.spaceId, error });
+      }
     }
 
     if (!registration.started) return;
@@ -258,10 +273,12 @@ async function connectOnce(registration: SandboxClientRegistration) {
             accepted: true,
           });
           helloAccepted = true;
+          void registration.hooks?.onHello?.(message);
           return;
         }
 
         if (message.type === "sandbox.heartbeat") {
+          void registration.hooks?.onHeartbeat?.(message);
           return;
         }
 
@@ -276,6 +293,10 @@ async function connectOnce(registration: SandboxClientRegistration) {
       if (registrations.get(registration.spaceId)?.connection === connection) {
         setActiveConnection(registration.spaceId, null);
       }
+      void registration.hooks?.onDisconnected?.({
+        spaceId: registration.spaceId,
+        reason: reason.toString() || "socket closed",
+      });
       if (!helloAccepted) {
         finishReject(new Error(`Sandbox websocket closed before successful hello: ${reason.toString() || "unknown reason"}`));
         return;
@@ -289,6 +310,10 @@ async function connectOnce(registration: SandboxClientRegistration) {
       if (registrations.get(registration.spaceId)?.connection === connection) {
         setActiveConnection(registration.spaceId, null);
       }
+      void registration.hooks?.onConnectionError?.({
+        spaceId: registration.spaceId,
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       finishReject(error instanceof Error ? error : new Error(String(error)));
     });
   });

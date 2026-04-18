@@ -49,7 +49,16 @@ const AbortInputSchema = z.object({
   expectedEpoch: z.coerce.number().int().positive(),
 });
 
-export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
+const WarmupSandboxInputSchema = z.object({
+  id: z.string().optional(),
+  action: z.literal("warmup_sandbox"),
+  spaceId: z.string().uuid(),
+  timestamp: z.string().optional(),
+  expectedOwnerId: z.string().min(1),
+  expectedEpoch: z.coerce.number().int().positive(),
+});
+
+export const InputSchema = z.union([PromptInputSchema, AbortInputSchema, WarmupSandboxInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
 
 const getSpaceOutputStreamKey = (spaceId: string) => `spaces:${spaceId}:output_stream`;

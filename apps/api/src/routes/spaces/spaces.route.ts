@@ -26,6 +26,8 @@ import { enqueueTask } from "../../tasks.js";
 import { canRead, canReadForSession, canWrite } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
+import { resolveOrClaimSpaceOwner } from "../../agent-ownership.js";
+import { getAgentInstanceInputQueueKey, redisCommandClient } from "../../redis.js";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 
@@ -48,6 +50,21 @@ function getSpaceProvisionParams(
     spaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
     extraEnv,
   };
+}
+
+async function enqueueSandboxWarmup(spaceId: string) {
+  const lease = await resolveOrClaimSpaceOwner(spaceId);
+  await redisCommandClient.rpush(
+    getAgentInstanceInputQueueKey(lease.ownerId),
+    JSON.stringify({
+      action: "warmup_sandbox",
+      id: crypto.randomUUID(),
+      spaceId,
+      timestamp: new Date().toISOString(),
+      expectedOwnerId: lease.ownerId,
+      expectedEpoch: lease.epoch,
+    }),
+  );
 }
 
 // ── GET /api/spaces ──────────────────────────────────────────────────────────
@@ -180,7 +197,9 @@ router.post("/", async (c) => {
 
   void provisionSpaceInBackground(
     getSpaceProvisionParams(user, space, gitAccount, normalizedExtraEnv),
-  ).catch(console.error);
+  )
+    .then(() => enqueueSandboxWarmup(space.id))
+    .catch(console.error);
 
   return c.json({ space });
 });
@@ -198,6 +217,7 @@ router.get("/:id", async (c) => {
   const sandbox = await getSpaceSandboxBySpaceId(space.id);
   return c.json({ ...space, sandboxStatus: sandbox?.status ?? null });
 });
+
 
 // ── Checkpoints ──────────────────────────────────────────────────────────────
 
@@ -274,9 +294,9 @@ router.post("/:id/sandbox/recreate", async (c) => {
   });
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  void provisionSpaceInBackground(getSpaceProvisionParams(user, space, gitAccount)).catch(
-    console.error,
-  );
+  void provisionSpaceInBackground(getSpaceProvisionParams(user, space, gitAccount))
+    .then(() => enqueueSandboxWarmup(space.id))
+    .catch(console.error);
 
   return c.json({ ok: true, message: "Sandbox recreation triggered" });
 });
