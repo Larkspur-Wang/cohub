@@ -61,7 +61,8 @@ go run .
 
 ```bash
 cd apps/agent
-SANDBOX_WS_URL=ws://127.0.0.1:8788/sandbox \
+LOCAL_SANDBOX_SPACE_ID=00000000-0000-0000-0000-000000000001 \
+LOCAL_SANDBOX_WS_URL=ws://127.0.0.1:8788/sandbox \
 pnpm dev
 ```
 

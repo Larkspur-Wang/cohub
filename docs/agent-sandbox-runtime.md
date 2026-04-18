@@ -8,28 +8,29 @@
   - 控制面
   - 运行 `pi-coding-agent`
   - 管理 session / Redis / persistence
-  - 提供 sandbox WebSocket server
-  - 将 tools 调用转发给 sandbox
+  - 作为 WebSocket 客户端主动连接 sandbox
+  - 将 tools 调用通过 WebSocket RPC 转发给 sandbox
 - `apps/sandbox`
   - 执行面
-  - 主动连接 agent 的 sandbox WebSocket server
+  - 提供 WebSocket server 等待 agent 连接
   - 执行 workspace / fs / process primitive
 
 ## 当前 transport 模式
 
 当前系统只保留一种模式：
 
-- `apps/agent` 提供 sandbox WebSocket server
-- `apps/sandbox` 主动连接 agent
-- agent 在 sandbox 连接成功后主动调用 `workspace.prepare`
+- `apps/sandbox` 提供 WebSocket server（默认监听 `0.0.0.0:8788`）
+- `apps/agent` 作为客户端主动连接 sandbox
+- sandbox 连接建立后先发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
+- agent 主动调用 `workspace.prepare`
 - 所有 tools 都通过 WebSocket RPC 转发给 sandbox
 
 ## 关键环境变量
 
 ### Agent
 
-- `SANDBOX_WS_HOST=0.0.0.0`
-- `SANDBOX_WS_PORT=8788`
+- `LOCAL_SANDBOX_SPACE_ID` — 本地调试时指定 sandbox 的 space ID
+- `LOCAL_SANDBOX_WS_URL` — 本地调试时 sandbox 的 WebSocket 地址（如 `ws://127.0.0.1:8788/sandbox`）
 - `SPACE_ID`
 - `REDIS_URL`
 - `SPACE_DIR`
@@ -39,7 +40,8 @@
 
 ### Sandbox
 
-- `SANDBOX_WS_URL=ws://agent-host:8788/sandbox`
+- `SANDBOX_WS_HOST=0.0.0.0`
+- `SANDBOX_WS_PORT=8788`
 - `SPACE_ID`
 - `SANDBOX_ID`
 - `WORKSPACE_DIR`
@@ -51,24 +53,27 @@
 
 ## 本地联调
 
-### 启动 agent
-
-```bash
-cd apps/agent
-SANDBOX_WS_HOST=0.0.0.0 \
-SANDBOX_WS_PORT=8788 \
-pnpm dev
-```
-
-### 启动 sandbox
+### 启动 sandbox（服务端）
 
 ```bash
 cd apps/sandbox
-SANDBOX_WS_URL=ws://127.0.0.1:8788/sandbox \
+SANDBOX_WS_HOST=0.0.0.0 \
+SANDBOX_WS_PORT=8788 \
 SPACE_ID=00000000-0000-0000-0000-000000000001 \
 SANDBOX_ID=sandbox-dev \
 WORKSPACE_DIR=/tmp/cohub-sandbox-workspace \
 go run .
+```
+
+默认监听：`ws://0.0.0.0:8788/sandbox`
+
+### 启动 agent（客户端）
+
+```bash
+cd apps/agent
+LOCAL_SANDBOX_SPACE_ID=00000000-0000-0000-0000-000000000001 \
+LOCAL_SANDBOX_WS_URL=ws://127.0.0.1:8788/sandbox \
+pnpm dev
 ```
 
 ## 当前 remote tools 覆盖面
@@ -83,11 +88,12 @@ go run .
 
 ## 当前状态语义
 
-1. agent 先上报 `provisioning`
-2. 启动 sandbox ws server
-3. 等待 sandbox 主动连接
-4. agent 主动发 `workspace.prepare`
-5. prepare 成功后再上报 `ready`
+1. API 先上报 `provisioning`
+2. 创建 sandbox Pod，sandbox 启动 WS server
+3. agent 作为客户端主动连接 sandbox
+4. sandbox 发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
+5. agent 主动调用 `workspace.prepare`
+6. prepare 成功后再上报 `ready`
 
 ## 当前限制 / 后续事项
 

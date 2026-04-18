@@ -40,7 +40,7 @@
 | `GITEA_BASE_URL` | `https://gitea.cohub.run` | Gitea base URL |
 | `GITEA_TOKEN` | `xxx` | 可选：用于访问私有仓库或提高限额 |
 | `WEB_ORIGIN` | `https://cohub.run` | 用于 CORS 允许来源 |
-| `AGENT_WS_BASE_URL` | `ws://cohub-agent.cohub.svc.cluster.local:8788` | sandbox 连接 agent 的内部 WS 基地址 |
+| `AGENT_WS_BASE_URL` | `http://cohub-agent.cohub.svc.cluster.local:8787` | 内部用，sandbox 回调 API 的基地址 |
 | `SANDBOX_IMAGE` | `git.talesofai.com/.../cohub-sandbox:latest` | sandbox 镜像 |
 | `TOKEN_COOKIE_NAME` | `x_token` | Cookie 名称（默认 `x_token`） |
 | `PORT` | `8787` | 服务端口 |
@@ -77,28 +77,34 @@
 ### 推荐长期形态
 
 - `cohub-agent`：独立 Deployment / Service
-- `cohub-sandbox`：按 space 动态创建的 Pod
-- sandbox 通过 `AGENT_WS_BASE_URL` 主动连接 agent
-- agent 在 sandbox 建连后主动执行 `workspace.prepare`
+- `cohub-sandbox`：按 space 动态创建的 Pod（提供 WS server）
+- agent 作为 WS 客户端主动连接 sandbox
+- sandbox 连接建立后先发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
+- agent 主动执行 `workspace.prepare`
 - `space_sandboxes.status=ready` 由 agent 在 prepare 成功后上报
 
-### 建议的内部地址
+### 连接模型
 
-| 环境 | Agent WS 基地址 |
-| --- | --- |
-| dev | `ws://cohub-agent-dev.cohub-dev.svc.cluster.local:8788` |
-| prod | `ws://cohub-agent.cohub.svc.cluster.local:8788` |
+```
+agent (WS client)  ──connect──>  sandbox pod (WS server)
+```
+
+- sandbox Pod 监听 `SANDBOX_WS_HOST:SANDBOX_WS_PORT`（默认 `0.0.0.0:8788`）
+- agent 通过 K8s 内部地址 `ws://sandbox-{spaceId}.{namespace}.svc.cluster.local:8788/sandbox` 连接
+- 每个 sandbox Pod 配有 headless Service 供 agent 发现
 
 ### Sandbox Pod 约定
 
 - 挂载 `/workspace`
 - 不挂载 `/sessions`
 - 注入：
-  - `SANDBOX_WS_URL=${AGENT_WS_BASE_URL}/sandbox`
+  - `SANDBOX_WS_HOST=0.0.0.0`
+  - `SANDBOX_WS_PORT=8788`
   - `WORKSPACE_DIR=/workspace`
   - `SPACE_REPO_URL`
   - `SPACE_GIT_USERNAME`
   - `SPACE_GIT_EMAIL`
+  - `IMAGE_VERSION`
 
 ---
 

@@ -90,8 +90,8 @@ Turn your result into a proposal and contribute it back into another space.
 - **Language**: TypeScript + Go
 - **Frontend**: SvelteKit
 - **Backend**: Hono
-- **Agent Runtime**: pi-coding-agent
-- **Sandbox Runtime**: Go + WebSocket RPC
+- **Agent Runtime**: pi-coding-agent (WS client, actively connects to sandbox)
+- **Sandbox Runtime**: Go + WebSocket server
 - **Database**: PostgreSQL + Drizzle ORM
 - **Infrastructure**: Kubernetes (ACK)
 - **Package Manager**: pnpm monorepo
@@ -102,14 +102,16 @@ Turn your result into a proposal and contribute it back into another space.
 cohub/
 ├── apps/
 │   ├── api/          # Hono API — orchestration, provisioning, session persistence
-│   ├── agent/        # Agent control service — Pi coding agent + sandbox WS server
-│   ├── sandbox/      # Sandbox executor — Go runtime for workspace / fs / process
+│   ├── agent/        # Agent control service — Pi coding agent, WS client connecting to sandbox
+│   ├── sandbox/      # Sandbox executor — Go WS server for workspace / fs / process
+│   ├── gateway/      # External channel provider gateway (Discord, Telegram, etc.)
 │   ├── web/          # SvelteKit web console
 │   └── worker/       # Task scheduler — cron jobs & async task processing
 ├── deploy/           # Deployment configs (K8s manifests per env)
 ├── docs/             # Architecture, migration, and product model docs
 ├── packages/
-│   └── protocol/     # Shared types & protocols across apps
+│   ├── protocol/            # Shared types & protocols across apps
+│   └── agent-sandbox-protocol/  # Agent-Sandbox WebSocket RPC protocol
 ├── scripts/          # Utility scripts
 └── README.md
 ```
