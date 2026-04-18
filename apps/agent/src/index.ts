@@ -36,19 +36,60 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
+const SANDBOX_DB_STATUS_FLUSH_MS = 30_000;
+
+type NormalizedSandboxStatus = "provisioning" | "ready" | "error";
+type RuntimeSandboxStatus = "idle" | "ready" | "error";
+type SandboxReportCache = {
+  lastDbStatus: NormalizedSandboxStatus | null;
+  lastDbReportedAt: number;
+  lastSandboxId: string | null;
+};
 
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 const ownedSpaceEpochs = new Map<string, number>();
+const sandboxReportCacheBySpace = new Map<string, SandboxReportCache>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
 
-function normalizeSandboxStatus(status: string): "provisioning" | "ready" | "error" {
+function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
     ? "ready"
     : status === "error"
       ? "error"
       : "provisioning";
+}
+
+function toRuntimeSandboxStatus(status: NormalizedSandboxStatus): RuntimeSandboxStatus {
+  return status === "ready" ? "ready" : status === "error" ? "error" : "idle";
+}
+
+function shouldFlushSandboxStatusToDb(input: {
+  spaceId: string;
+  status: NormalizedSandboxStatus;
+  sandboxId?: string | null;
+  force?: boolean;
+}) {
+  if (input.force) return true;
+  const now = Date.now();
+  const cached = sandboxReportCacheBySpace.get(input.spaceId);
+  if (!cached) return true;
+  if (cached.lastDbStatus !== input.status) return true;
+  if ((cached.lastSandboxId ?? null) !== (input.sandboxId ?? null)) return true;
+  return now - cached.lastDbReportedAt >= SANDBOX_DB_STATUS_FLUSH_MS;
+}
+
+function markSandboxDbStatusFlushed(input: {
+  spaceId: string;
+  status: NormalizedSandboxStatus;
+  sandboxId?: string | null;
+}) {
+  sandboxReportCacheBySpace.set(input.spaceId, {
+    lastDbStatus: input.status,
+    lastDbReportedAt: Date.now(),
+    lastSandboxId: input.sandboxId ?? null,
+  });
 }
 
 async function syncSandboxHello(spaceId: string, message: SandboxHello) {
@@ -57,14 +98,16 @@ async function syncSandboxHello(spaceId: string, message: SandboxHello) {
     sandboxId: message.sandboxId,
     hostname: message.metadata?.hostname ?? null,
     imageVersion: message.metadata?.imageVersion ?? null,
-    preparedAt: message.metadata?.startedAt ?? null,
     prepareStatus: message.metadata?.prepareStatus ?? null,
     prepareError: message.metadata?.prepareError ?? null,
   };
-  await reportSandboxStatus(spaceId, normalized, meta).catch(() => undefined);
+  if (shouldFlushSandboxStatusToDb({ spaceId, status: normalized, sandboxId: message.sandboxId, force: true })) {
+    await reportSandboxStatus(spaceId, normalized, meta).catch(() => undefined);
+    markSandboxDbStatusFlushed({ spaceId, status: normalized, sandboxId: message.sandboxId });
+  }
   await updateSpaceRuntime({
     spaceId,
-    status: normalized === "error" ? "error" : "ready",
+    status: toRuntimeSandboxStatus(normalized),
     sandboxId: message.sandboxId,
     error: message.metadata?.prepareError ?? null,
   }).catch(() => undefined);
@@ -72,21 +115,41 @@ async function syncSandboxHello(spaceId: string, message: SandboxHello) {
 
 async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) {
   const normalized = normalizeSandboxStatus(message.status);
-  await reportSandboxStatus(spaceId, normalized, {
-    sandboxId: message.sandboxId,
-    lastStatus: message.status,
-  }).catch(() => undefined);
+  if (shouldFlushSandboxStatusToDb({ spaceId, status: normalized, sandboxId: message.sandboxId })) {
+    await reportSandboxStatus(spaceId, normalized, {
+      sandboxId: message.sandboxId,
+      lastStatus: message.status,
+    }).catch(() => undefined);
+    markSandboxDbStatusFlushed({ spaceId, status: normalized, sandboxId: message.sandboxId });
+  }
   await updateSpaceRuntime({
     spaceId,
-    status: normalized === "error" ? "error" : "ready",
+    status: toRuntimeSandboxStatus(normalized),
     sandboxId: message.sandboxId,
     error: normalized === "error" ? `sandbox heartbeat reported ${message.status}` : null,
+  }).catch(() => undefined);
+}
+
+async function syncSandboxConnectionState(input: {
+  spaceId: string;
+  status: NormalizedSandboxStatus;
+  reason: string;
+}) {
+  if (shouldFlushSandboxStatusToDb({ spaceId: input.spaceId, status: input.status, force: true })) {
+    await reportSandboxStatus(input.spaceId, input.status, { lastError: input.reason }).catch(() => undefined);
+    markSandboxDbStatusFlushed({ spaceId: input.spaceId, status: input.status });
+  }
+  await updateSpaceRuntime({
+    spaceId: input.spaceId,
+    status: toRuntimeSandboxStatus(input.status),
+    error: input.reason,
   }).catch(() => undefined);
 }
 
 async function cleanupOwnedSpace(spaceId: string, reason: string) {
   console.warn(`[Agent] Cleaning up owned space ${spaceId}: ${reason}`);
   ownedSpaceEpochs.delete(spaceId);
+  sandboxReportCacheBySpace.delete(spaceId);
 
   const handlesToDispose = Array.from(sessionHandles.entries()).filter(([key, handle]) => {
     return handle.spaceId === spaceId || key.startsWith(`${spaceId}:`);
@@ -184,10 +247,18 @@ async function ensureSandboxWsConnected(spaceId: string) {
       onHello: (message) => syncSandboxHello(spaceId, message),
       onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
       onDisconnected: ({ reason }) => {
-        void reportSandboxStatus(spaceId, "provisioning", { lastError: reason ?? "sandbox disconnected" }).catch(() => undefined);
+        void syncSandboxConnectionState({
+          spaceId,
+          status: "provisioning",
+          reason: reason ?? "sandbox disconnected",
+        });
       },
       onConnectionError: ({ error }) => {
-        void reportSandboxStatus(spaceId, "provisioning", { lastError: error.message }).catch(() => undefined);
+        void syncSandboxConnectionState({
+          spaceId,
+          status: "provisioning",
+          reason: error.message,
+        });
       },
     },
   });
