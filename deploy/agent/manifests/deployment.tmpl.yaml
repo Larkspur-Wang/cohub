@@ -36,16 +36,13 @@ spec:
                   key: WORKER_SECRET
           {{RESOURCES}}
           volumeMounts:
-            - name: workspace-storage
+            - name: space-storage
               mountPath: /space-storage
               subPath: {{WORKSPACE_SUBPATH}}
-            - name: sessions-storage
+            - name: space-storage
               mountPath: {{SESSIONS_DIR}}
               subPath: {{SESSIONS_SUBPATH}}
       volumes:
-        - name: workspace-storage
-          persistentVolumeClaim:
-            claimName: {{SPACE_STORAGE_PVC}}
-        - name: sessions-storage
+        - name: space-storage
           persistentVolumeClaim:
             claimName: {{SPACE_STORAGE_PVC}}
