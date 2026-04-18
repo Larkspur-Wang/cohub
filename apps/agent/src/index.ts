@@ -1,13 +1,18 @@
 import {
   AuthStorage,
   ModelRegistry,
-  SessionManager,
-  createAgentSession,
-  type AgentSession,
 } from "@mariozechner/pi-coding-agent";
 import type { WorkspacePrepareResult } from "@cohub/agent-sandbox-protocol";
-import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
-import { env } from "./env.js";
+import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
+import { getSandboxConnectionInfo } from "./api.js";
+import { env, SPACE_OWNER_LEASE_MS } from "./env.js";
+import {
+  closeOwnershipRedis,
+  getSpaceOwner,
+  renewSpaceOwner,
+  startAgentInstanceHeartbeatLoop,
+  updateSpaceRuntime,
+} from "./ownership.js";
 import {
   closeRedisConnections,
   extractContentImages,
@@ -17,33 +22,52 @@ import {
   reportSandboxStatus,
 } from "./redis.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
-import { startSandboxWsClient, waitForSandboxConnection } from "./sandbox/ws-client.js";
-import type { ContentBlock, SessionStreamEvent, SessionStreamError } from "@cohub/protocol";
+import {
+  disconnectSandboxWsClient,
+  startSandboxWsClient,
+  waitForSandboxConnection,
+} from "./sandbox/ws-client.js";
+import {
+  getSessionKey,
+  loadOrCreateSessionHandle,
+  type SessionHandle,
+} from "./session.js";
+import { runWithToolExecutionContext } from "./tool-context.js";
 
-type PendingUserMessage = {
-  userMessageId: string;
-  content: ContentBlock[];
-  meta?: Record<string, unknown> | null;
-};
+const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
+const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 
-type SessionHandle = {
-  sessionId: string;
-  session: AgentSession;
-  sessionManager: SessionManager;
-  pendingUserMessages: PendingUserMessage[];
-  currentUserMessageId: string | null;
-  currentUserMessageContent: ContentBlock[] | null;
-  currentUserMessageMeta: Record<string, unknown> | null;
-  persistenceChain: Promise<void>;
-  streamState: {
-    content: ContentBlock[];
-    preferredDisplayMode: "full" | "compact" | "minimal";
-  };
-};
 
 
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
+const ownedSpaceEpochs = new Map<string, number>();
+const preparePromises = new Map<string, Promise<void>>();
+let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
+
+async function cleanupOwnedSpace(spaceId: string, reason: string) {
+  console.warn(`[Agent] Cleaning up owned space ${spaceId}: ${reason}`);
+  ownedSpaceEpochs.delete(spaceId);
+  preparePromises.delete(spaceId);
+
+  const handlesToDispose = Array.from(sessionHandles.entries()).filter(([key, handle]) => {
+    return handle.spaceId === spaceId || key.startsWith(`${spaceId}:`);
+  });
+
+  for (const [key, handle] of handlesToDispose) {
+    try {
+      await handle.persistenceChain.catch(() => undefined);
+      handle.session.dispose();
+    } catch (error) {
+      console.error(`[Agent] Failed to dispose session ${handle.sessionId} during cleanup of ${spaceId}:`, error);
+    } finally {
+      sessionHandles.delete(key);
+    }
+  }
+
+  disconnectSandboxWsClient(spaceId, reason);
+}
 
 async function shutdown(status: "stopped" | "error", exitCode: number) {
   if (isShuttingDown) {
@@ -53,6 +77,11 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   isShuttingDown = true;
 
   try {
+    const spaceIds = new Set<string>([
+      ...ownedSpaceEpochs.keys(),
+      ...Array.from(sessionHandles.values()).map((handle) => handle.spaceId),
+    ]);
+
     for (const handle of sessionHandles.values()) {
       try {
         await handle.persistenceChain.catch((error) => {
@@ -70,14 +99,27 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
       }
     }
     sessionHandles.clear();
+
+    await Promise.allSettled(
+      Array.from(spaceIds).map((spaceId) =>
+        reportSandboxStatus(spaceId, status === "stopped" ? "stopped" : "error"),
+      ),
+    );
   } catch (error) {
     console.error("[Agent] Failed to dispose session handles on shutdown:", error);
   }
 
   try {
-    await reportSandboxStatus(status === "stopped" ? "stopped" : "error");
+    if (ownerRenewTimer) clearInterval(ownerRenewTimer);
+    if (agentHeartbeatTimer) clearInterval(agentHeartbeatTimer);
   } catch (error) {
-    console.error("[Agent] Failed to update sandbox status on shutdown:", error);
+    console.error("[Agent] Failed to clear heartbeat timers:", error);
+  }
+
+  try {
+    await closeOwnershipRedis();
+  } catch (error) {
+    console.error("[Agent] Failed to close ownership Redis connection:", error);
   }
 
   try {
@@ -89,488 +131,85 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   process.exit(exitCode);
 }
 
-async function findSessionFileById(sessionId: string) {
-  const sessions = await SessionManager.list(env.SPACE_DIR, env.SESSIONS_DIR).catch((error) => {
-    console.error(`[Agent] Failed to list sessions for lookup ${sessionId}:`, error);
-    return [];
-  });
 
-  const byId = sessions.find((session) => session.id === sessionId);
-  if (byId) return byId.path;
 
-  const bySuffix = sessions.find((session) => session.path.endsWith(`_${sessionId}.jsonl`));
-  return bySuffix?.path;
-}
-
-function summarizeToolArgs(toolName: string, args: unknown): string {
-  if (!args || typeof args !== "object") return "";
-  const record = args as Record<string, unknown>;
-
-  if (toolName === "bash" && typeof record.command === "string") {
-    return record.command.trim().slice(0, 120);
+async function ensureSandboxReadyForSpace(spaceId: string) {
+  const existing = preparePromises.get(spaceId);
+  if (existing) {
+    await existing;
+    return;
   }
 
-  if (typeof record.path === "string") return record.path;
-  if (typeof record.pattern === "string" && typeof record.path === "string") {
-    return `${record.pattern} in ${record.path}`;
-  }
-  if (typeof record.query === "string") return record.query;
+  const preparePromise = (async () => {
+    const connection = await waitForSandboxConnection(spaceId, 1000).catch(() => null);
+    if (connection) {
+      await updateSpaceRuntime({
+        spaceId,
+        status: "ready",
+        wsUrl: null,
+        sandboxId: connection.sandboxId,
+      }).catch(() => undefined);
+      return;
+    }
 
-  const first = Object.entries(record)
-    .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value))
-    .slice(0, 2)
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(" ");
-  return first.slice(0, 120);
-}
+    await updateSpaceRuntime({ spaceId, status: "connecting" }).catch(() => undefined);
 
-function summarizeThinking(thinking: string): string {
-  const trimmed = thinking.trim();
-  if (!trimmed) return "";
-  return trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 2).join("\n").slice(0, 320);
-}
+    if (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID) {
+      await startSandboxWsClient({ spaceId, wsUrl: LOCAL_SANDBOX_WS_URL });
+      const readyConnection = await waitForSandboxConnection(spaceId);
+      await updateSpaceRuntime({
+        spaceId,
+        status: "preparing",
+        wsUrl: LOCAL_SANDBOX_WS_URL,
+        sandboxId: readyConnection.sandboxId,
+      }).catch(() => undefined);
+      await prepareRemoteSandbox(spaceId);
+      return;
+    }
 
-// ─── SDK content → ContentBlock conversion ───
+    const info = await getSandboxConnectionInfo(spaceId);
+    if (!info?.wsUrl) {
+      await updateSpaceRuntime({ spaceId, status: "error", error: `No sandbox ws url available for space ${spaceId}` }).catch(() => undefined);
+      throw new Error(`No sandbox ws url available for space ${spaceId}`);
+    }
 
-function sdkContentToBlocks(content: unknown, existing: ContentBlock[]): ContentBlock[] {
-  if (!Array.isArray(content)) return [];
-  const blocks: ContentBlock[] = [];
-  for (const item of content) {
-    if (!item || typeof item !== "object") continue;
-    const block = item as Record<string, unknown>;
-    const type = block.type as string | undefined;
+    await startSandboxWsClient({ spaceId, wsUrl: info.wsUrl });
+    const readyConnection = await waitForSandboxConnection(spaceId);
+    await updateSpaceRuntime({
+      spaceId,
+      status: "preparing",
+      wsUrl: info.wsUrl,
+      sandboxId: readyConnection.sandboxId,
+    }).catch(() => undefined);
+    await prepareRemoteSandbox(spaceId);
+  })();
 
-    if (type === "text" && typeof block.text === "string") {
-      blocks.push({ type: "text", text: block.text });
-    } else if (type === "thinking" && typeof block.thinking === "string") {
-      blocks.push({ type: "thinking", thinking: block.thinking });
-    } else if (type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      // Preserve _meta (toolStatus, summary) set by tool_execution_start/end
-      const existingBlock = existing.find(
-        (b) => b.type === "tool_use" && b.id === block.id,
-      ) as Extract<ContentBlock, { type: "tool_use" }> | undefined;
-      blocks.push({
-        type: "tool_use",
-        id: block.id as string,
-        name: block.name as string,
-        input: (block.arguments as Record<string, unknown> | null) ?? {},
-        _meta: existingBlock?._meta,
-      });
-    } else if (type === "image" && typeof block.uri === "string") {
-      blocks.push({
-        type: "image",
-        source: { type: "url", url: block.uri },
-      });
-    } else if (type === "tool_result" && typeof block.tool_use_id === "string") {
-      const existingBlock = existing.find(
-        (b) => b.type === "tool_result" && b.tool_use_id === block.tool_use_id,
-      ) as Extract<ContentBlock, { type: "tool_result" }> | undefined;
-      blocks.push({
-        type: "tool_result",
-        tool_use_id: block.tool_use_id as string,
-        content: typeof block.content === "string" ? block.content : (block.content as string | ContentBlock[] | null) ?? "",
-        is_error: Boolean(block.is_error),
-        _meta: existingBlock?._meta,
-      });
+  preparePromises.set(spaceId, preparePromise);
+  try {
+    await preparePromise;
+  } finally {
+    if (preparePromises.get(spaceId) === preparePromise) {
+      preparePromises.delete(spaceId);
     }
   }
-  return blocks;
 }
 
-function upsertBlock(content: ContentBlock[], block: ContentBlock): ContentBlock[] {
-  const idx = content.findIndex((b) => {
-    if (b.type === "tool_use" && block.type === "tool_use") return b.id === block.id;
-    if (b.type === "tool_result" && block.type === "tool_result") return b.tool_use_id === block.tool_use_id;
-    return false;
-  });
-  if (idx !== -1) {
-    const updated = [...content];
-    updated[idx] = block;
-    return updated;
-  }
-  return [...content, block];
-}
-
-async function emitProviderRenderUpdate(handle: SessionHandle) {
-  const sourceMessageId = handle.currentUserMessageId?.trim() || null;
-  if (!sourceMessageId) return;
-
-  const event: SessionStreamEvent = {
-    type: "stream_update",
-    spaceId: env.SPACE_ID,
-    sessionId: handle.sessionId,
-    content: handle.streamState.content,
-    sourceMessageId,
-    timestamp: Date.now(),
-  };
-
-  await sendOutput(event);
-}
-
-function resetStreamState(handle: SessionHandle) {
-  handle.streamState = {
-    content: [],
-    preferredDisplayMode: handle.streamState.preferredDisplayMode,
-  };
-}
-
-function enqueuePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
-  const next = handle.persistenceChain
-    .catch((error) => {
-      console.error(
-        `[Agent] Previous persistence task failed for session ${handle.sessionId}:`,
-        error,
-      );
-    })
-    .then(task)
-    .catch((error) => {
-      console.error(
-        `[Agent] Persistence task failed (${label}) for session ${handle.sessionId}:`,
-        error,
-      );
-      throw error;
-    });
-
-  handle.persistenceChain = next.catch(() => undefined);
-  return next;
-}
-
-function subscribeSessionEvents(handle: SessionHandle) {
-  handle.session.subscribe((event) => {
-    if (event.type === "message_start") {
-      const message = event.message as unknown as Record<string, unknown>;
-
-      // Dequeue user message from FIFO — SDK guarantees order matches our enqueue order
-      if (message.role === "user") {
-        const pending = handle.pendingUserMessages.shift();
-        if (pending) {
-          handle.currentUserMessageId = pending.userMessageId;
-          handle.currentUserMessageContent = pending.content;
-          handle.currentUserMessageMeta = pending.meta ?? null;
-          console.log(
-            `[Agent] Dequeued user message ${handle.currentUserMessageId} for session ${handle.sessionId}`
-          );
-        } else {
-          console.warn(
-            `[Agent] No pending user message in FIFO for session ${handle.sessionId}`
-          );
-        }
-      }
-
-      if (message.role === "assistant") {
-        resetStreamState(handle);
-        void emitProviderRenderUpdate(handle);
-      }
-    }
-
-    if (event.type === "message_update") {
-      const message = event.message as unknown as Record<string, unknown>;
-      // Convert SDK content blocks, preserving _meta set by tool_execution_start/end
-      const newBlocks = sdkContentToBlocks(message.content, handle.streamState.content);
-      handle.streamState.content = newBlocks;
-      void emitProviderRenderUpdate(handle);
-    }
-
-    // Persist user message to DB on message_end — queued per session so
-    // user/assistant persistence always stays in processing order.
-    if (event.type === "message_end") {
-      const message = event.message as unknown as Record<string, unknown>;
-      if (message.role === "user" && handle.currentUserMessageId && handle.currentUserMessageContent) {
-        const userMessageId = handle.currentUserMessageId;
-        const content = handle.currentUserMessageContent;
-        const meta = handle.currentUserMessageMeta;
-        handle.currentUserMessageContent = null;
-        handle.currentUserMessageMeta = null;
-
-        void enqueuePersistence(handle, `user:${userMessageId}`, async () => {
-          await persistUserMessage({
-            spaceId: env.SPACE_ID,
-            sessionId: handle.sessionId,
-            userMessageId,
-            content,
-            meta,
-          });
-        });
-      }
-    }
-
-    if (event.type === "tool_execution_start") {
-      // Add running status to the tool_use block
-      const existingIdx = handle.streamState.content.findIndex(
-        (b) => b.type === "tool_use" && b.id === event.toolCallId
-      );
-      if (existingIdx !== -1) {
-        const block = handle.streamState.content[existingIdx] as Extract<ContentBlock, { type: "tool_use" }>;
-        if (block.type === "tool_use") {
-          const updated: ContentBlock = {
-            type: "tool_use",
-            id: block.id,
-            name: block.name,
-            input: block.input,
-            _meta: { ...block._meta, toolStatus: "running", summary: summarizeToolArgs(event.toolName, event.args) },
-          };
-          handle.streamState.content = [
-            ...handle.streamState.content.slice(0, existingIdx),
-            updated,
-            ...handle.streamState.content.slice(existingIdx + 1),
-          ];
-        }
-      } else {
-        // Tool use block not yet in content — create one
-        handle.streamState.content = [
-          ...handle.streamState.content,
-          {
-            type: "tool_use",
-            id: event.toolCallId,
-            name: event.toolName,
-            input: (event.args as Record<string, unknown>) ?? {},
-            _meta: { toolStatus: "running", summary: summarizeToolArgs(event.toolName, event.args) },
-          },
-        ];
-      }
-      void emitProviderRenderUpdate(handle);
-    }
-
-    if (event.type === "tool_execution_end") {
-      const status = event.isError ? "failed" : "done";
-      const existingIdx = handle.streamState.content.findIndex(
-        (b) => b.type === "tool_use" && b.id === event.toolCallId
-      );
-
-      // Update tool_use status
-      if (existingIdx !== -1) {
-        const block = handle.streamState.content[existingIdx] as Extract<ContentBlock, { type: "tool_use" }>;
-        if (block.type === "tool_use") {
-          const updated: ContentBlock = {
-            type: "tool_use",
-            id: block.id,
-            name: block.name,
-            input: block.input,
-            _meta: { ...block._meta, toolStatus: status },
-          };
-          handle.streamState.content = [
-            ...handle.streamState.content.slice(0, existingIdx),
-            updated,
-            ...handle.streamState.content.slice(existingIdx + 1),
-          ];
-        }
-      }
-
-      // Add tool_result block
-      const resultContent = event.result ? extractTextFromToolResult(event.result) : "";
-      handle.streamState.content = upsertBlock(handle.streamState.content, {
-        type: "tool_result",
-        tool_use_id: event.toolCallId,
-        content: resultContent || JSON.stringify(event.result ?? null),
-        is_error: event.isError,
-        _meta: { toolStatus: status },
-      });
-
-      void emitProviderRenderUpdate(handle);
-    }
-
-    if (event.type === "turn_end" && handle.currentUserMessageId) {
-      const currentUserMessageId = handle.currentUserMessageId;
-
-      // Inject current model/provider into the assistant message for DB persistence
-      const currentModel = handle.session.agent.state.model;
-      const enrichedMessage = {
-        ...(event.message as unknown as Record<string, unknown>),
-        provider: currentModel.provider,
-        model: currentModel.id,
-      };
-      const enrichedEvent = {
-        ...event,
-        message: enrichedMessage,
-      };
-
-      // Persist to DB (uses local event object, not Redis) through the same
-      // per-session queue used by user messages.
-      void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
-        await persistAssistantMessage({
-          spaceId: env.SPACE_ID,
-          spaceSessionId: handle.sessionId,
-          userMessageId: currentUserMessageId,
-          event: enrichedEvent as Record<string, unknown>,
-        });
-      });
-
-      // Emit final render update with turnEnd flag
-      const finalEvent: SessionStreamEvent = {
-        type: "stream_update",
-        spaceId: env.SPACE_ID,
-        sessionId: handle.sessionId,
-        content: handle.streamState.content,
-        sourceMessageId: currentUserMessageId,
-        timestamp: Date.now(),
-        turnEnd: true,
-        anchorUserMessageId: currentUserMessageId,
-      };
-      void sendOutput(finalEvent);
-
-      // Reset stream state after emitting final event to prevent
-      // content from leaking into the next turn.
-      resetStreamState(handle);
-
-      // Remove matched user message from queue
-      const matchedId = currentUserMessageId;
-      handle.pendingUserMessages = handle.pendingUserMessages.filter(
-        (item) => item.userMessageId !== matchedId,
-      );
-      // NOTE: Don't clear currentUserMessageId here - keep it for subsequent turns
-      // It will be cleared on agent_end
-    }
-
-    if (event.type === "agent_end") {
-      handle.currentUserMessageId = null;
-    }
-
-    if (event.type === "message_end") {
-      void emitProviderRenderUpdate(handle);
-    }
-  });
-}
-
-function extractTextFromToolResult(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (!result || typeof result !== "object") return "";
-  const record = result as Record<string, unknown>;
-  if (typeof record.text === "string") return record.text;
-  if (typeof record.content === "string") return record.content;
-  return "";
-}
-
-async function loadOrCreateSessionHandle(input: {
-  sessionId: string;
-  authStorage: AuthStorage;
-  modelRegistry: ModelRegistry;
-  tools: ReturnType<typeof createSandboxCodingTools>;
-  model?: { provider: string; id: string };
-}) {
-  const existing = sessionHandles.get(input.sessionId);
-  if (existing) return existing;
-
-  const registration = await registerSpaceSession({
-    spaceId: env.SPACE_ID,
-    sessionId: input.sessionId,
-    title: null,
-    externalSessionId: null,
-    meta: null,
-  }).catch((error: unknown) => {
-    console.error(`[Agent] Failed to register session bootstrap for ${input.sessionId}:`, error);
-    return null;
-  });
-
-  const existingSessionFile = await findSessionFileById(input.sessionId);
-
-  let sessionManager: SessionManager;
-  if (existingSessionFile) {
-    console.log(
-      `[Agent] Restoring pi session ${input.sessionId} from ${existingSessionFile}`,
-    );
-    sessionManager = SessionManager.open(existingSessionFile, env.SESSIONS_DIR);
-
-    if (sessionManager.getSessionId() !== input.sessionId) {
-      console.warn(
-        `[Agent] Restored session id mismatch. expected=${input.sessionId}, actual=${sessionManager.getSessionId()}`,
-      );
-    }
-  } else {
-    const forkSourceProtocolMessageId = registration?.bootstrap?.forkSourceProtocolMessageId ?? null;
-    const parentSessionId = ((registration?.session as { parentSessionId?: string | null } | undefined)?.parentSessionId) ?? null;
-    const parentSessionFile = parentSessionId ? await findSessionFileById(parentSessionId) : null;
-
-    if (parentSessionFile && forkSourceProtocolMessageId) {
-      console.log(
-        `[Agent] Forking pi session ${input.sessionId} from parent=${parentSessionId} entry=${forkSourceProtocolMessageId}`,
-      );
-      const parentManager = SessionManager.open(parentSessionFile, env.SESSIONS_DIR);
-      const forkedSessionFile = parentManager.createBranchedSession(forkSourceProtocolMessageId);
-      if (!forkedSessionFile) {
-        throw new Error(`Failed to create branched session file for ${input.sessionId}`);
-      }
-      const forkedManager = SessionManager.open(forkedSessionFile, env.SESSIONS_DIR);
-      const forkedEntries = forkedManager.getEntries();
-      forkedManager.newSession({ id: input.sessionId, parentSession: parentSessionFile });
-      for (const entry of forkedEntries) {
-        if (entry.type === "message") {
-          forkedManager.appendMessage(entry.message as never);
-        } else if (entry.type === "model_change") {
-          forkedManager.appendModelChange(entry.provider, entry.modelId);
-        } else if (entry.type === "thinking_level_change") {
-          forkedManager.appendThinkingLevelChange(entry.thinkingLevel);
-        } else if (entry.type === "compaction") {
-          forkedManager.appendCompaction(entry.summary, entry.firstKeptEntryId, entry.tokensBefore, entry.details, entry.fromHook);
-        } else if (entry.type === "custom") {
-          forkedManager.appendCustomEntry(entry.customType, entry.data);
-        } else if (entry.type === "custom_message") {
-          forkedManager.appendCustomMessageEntry(entry.customType, entry.content, entry.display, entry.details);
-        } else if (entry.type === "session_info") {
-          forkedManager.appendSessionInfo(entry.name ?? "");
-        }
-      }
-      const rewrittenSessionFile = forkedManager.getSessionFile();
-      if (!rewrittenSessionFile) {
-        throw new Error(`Failed to rewrite forked session file for ${input.sessionId}`);
-      }
-      sessionManager = SessionManager.open(rewrittenSessionFile, env.SESSIONS_DIR);
-    } else {
-      console.log(`[Agent] Creating new pi session ${input.sessionId}`);
-      sessionManager = SessionManager.create(env.SPACE_DIR, env.SESSIONS_DIR);
-      sessionManager.newSession({ id: input.sessionId });
-    }
-  }
-
-  // Resolve model: use explicitly requested model, or fall back to registry default
-  let resolvedModel = input.model
-    ? input.modelRegistry.find(input.model.provider, input.model.id)
-    : undefined;
-
-  const { session } = await createAgentSession({
-    cwd: env.SPACE_DIR,
-    authStorage: input.authStorage,
-    modelRegistry: input.modelRegistry,
-    tools: input.tools,
-    sessionManager,
-    ...(resolvedModel ? { model: resolvedModel } : {}),
-  });
-
-  const handle: SessionHandle = {
-    sessionId: input.sessionId,
-    session,
-    sessionManager,
-    pendingUserMessages: [],
-    currentUserMessageId: null,
-    currentUserMessageContent: null,
-    currentUserMessageMeta: null,
-    persistenceChain: Promise.resolve(),
-    streamState: {
-      content: [],
-      preferredDisplayMode: "compact",
-    },
-  };
-
-  subscribeSessionEvents(handle);
-  sessionHandles.set(input.sessionId, handle);
-
-  console.log("[Agent] Agent Session ready:", {
-    sessionId: handle.sessionId,
-    sessionFile: handle.sessionManager.getSessionFile(),
-    restored: Boolean(existingSessionFile),
-  });
-
-  return handle;
-}
-
-async function prepareRemoteSandbox() {
-  const connection = await waitForSandboxConnection();
+async function prepareRemoteSandbox(spaceId: string) {
+  const connection = await waitForSandboxConnection(spaceId);
   const result = await connection.request("workspace.prepare", {}, {
-    spaceId: env.SPACE_ID,
+    spaceId,
     sandboxId: connection.sandboxId,
   }) as WorkspacePrepareResult;
 
   console.log("[Agent] Remote sandbox prepared:", result);
-  await reportSandboxStatus("ready", {
+  await updateSpaceRuntime({
+    spaceId,
+    status: "ready",
+    sandboxId: connection.sandboxId,
+    preparedAt: Date.now(),
+    wsUrl: null,
+  }).catch(() => undefined);
+  await reportSandboxStatus(spaceId, "ready", {
     workspaceDir: result.workspaceDir,
     repoCloned: result.repoCloned,
     configApplied: result.configApplied,
@@ -579,43 +218,75 @@ async function prepareRemoteSandbox() {
   });
 }
 
+function startOwnerRenewLoop() {
+  if (ownerRenewTimer) return;
+  ownerRenewTimer = setInterval(() => {
+    for (const [spaceId, epoch] of ownedSpaceEpochs) {
+      void renewSpaceOwner(spaceId, epoch).then((ok: boolean) => {
+        if (!ok) {
+          void cleanupOwnedSpace(spaceId, `ownership lost at epoch ${epoch}`);
+        }
+      }).catch((error: unknown) => {
+        console.error(`[Agent] Failed to renew ownership for ${spaceId}:`, error);
+      });
+    }
+  }, Math.max(1000, Math.floor(SPACE_OWNER_LEASE_MS / 3)));
+}
+
+async function verifyInputOwnership(inputEntry: { spaceId: string; expectedOwnerId: string; expectedEpoch: number }) {
+  if (inputEntry.expectedOwnerId !== env.AGENT_INSTANCE_ID) return false;
+  const lease = await getSpaceOwner(inputEntry.spaceId);
+  if (!lease) return false;
+  if (lease.ownerId !== env.AGENT_INSTANCE_ID) return false;
+  if (lease.epoch !== inputEntry.expectedEpoch) return false;
+  if (lease.leaseUntil <= Date.now()) return false;
+  ownedSpaceEpochs.set(inputEntry.spaceId, lease.epoch);
+  return true;
+}
+
 async function main() {
-  console.log(`[Agent] Starting for Space: ${env.SPACE_ID}`);
-  console.log(`[Agent] Space directory: ${env.SPACE_DIR}`);
+  console.log(`[Agent] Starting instance: ${env.AGENT_INSTANCE_ID}`);
+  console.log(`[Agent] Workspace root: ${env.WORKSPACE_ROOT}`);
+  console.log(`[Agent] Sessions root: ${env.SESSIONS_DIR}`);
   console.log(`[Agent] Agent version: ${env.AGENT_VERSION || "unknown"}`);
   console.log(`[Agent] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
   console.log("[Agent] Build features:", {
     env: env.ENV,
-    spaceId: env.SPACE_ID,
+    agentInstanceId: env.AGENT_INSTANCE_ID,
+    localSandboxSpaceId: LOCAL_SANDBOX_SPACE_ID,
+    localSandboxWsUrl: LOCAL_SANDBOX_WS_URL,
     agentVersion: env.AGENT_VERSION || null,
     publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
       env.ENV === "prod"
         ? "http://cohub-api.cohub.svc.cluster.local:8787"
         : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
-    sessionOwnershipManagedByAgent: false,
+    sessionOwnershipManagedByAgent: true,
     multiSessionRestore: true,
   });
 
-  await reportSandboxStatus("provisioning");
-  await startSandboxWsClient();
-  console.log(`[Agent] Waiting for sandbox connection at ${env.SANDBOX_WS_URL} ...`);
-  await waitForSandboxConnection();
-  console.log("[Agent] Sandbox connection established.");
-  await prepareRemoteSandbox();
+  agentHeartbeatTimer = startAgentInstanceHeartbeatLoop();
+  startOwnerRenewLoop();
 
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
   const tools = createSandboxCodingTools();
 
-  console.log("[Agent] Space is now ready and listening for input.");
+  console.log("[Agent] Listening for owner-routed input.");
 
-  await listenForInput((inputEntry, ack, reject) => {
+  await listenForInput((inputEntry, _rawMessage, ack, reject) => {
     console.log("[Agent] Received input from Redis:", inputEntry);
 
     // Fire and forget async handler
     (async () => {
       try {
+        const ownershipOk = await verifyInputOwnership(inputEntry);
+        if (!ownershipOk) {
+          throw new Error(`ownership mismatch for space=${inputEntry.spaceId}, expectedOwner=${inputEntry.expectedOwnerId}, instance=${env.AGENT_INSTANCE_ID}, expectedEpoch=${inputEntry.expectedEpoch}`);
+        }
+
+        await ensureSandboxReadyForSpace(inputEntry.spaceId);
+
         if (inputEntry.action === "prompt") {
           const sessionId = inputEntry.sessionId;
           if (!sessionId) {
@@ -630,11 +301,13 @@ async function main() {
             : undefined;
 
           const handle = await loadOrCreateSessionHandle({
+            spaceId: inputEntry.spaceId,
             sessionId,
             authStorage,
             modelRegistry,
             tools,
             model: requestedModelInput,
+            sessionHandles,
           });
 
           // If this is an existing session (handle was reused), switch model before enqueueing
@@ -674,20 +347,30 @@ async function main() {
             console.log(
               `[Agent] Session ${sessionId} is streaming, using steer for new message`
             );
-            await handle.session.steer(text, images);
+            await runWithToolExecutionContext({
+              spaceId: inputEntry.spaceId,
+              sessionId,
+            }, async () => {
+              await handle.session.steer(text, images);
+            });
           } else {
             console.log(
               `[Agent] Session ${sessionId} is idle, using prompt for new message`
             );
-            await handle.session.prompt(text, {
-              images,
+            await runWithToolExecutionContext({
+              spaceId: inputEntry.spaceId,
+              sessionId,
+            }, async () => {
+              await handle.session.prompt(text, {
+                images,
+              });
             });
           }
 
           await ack();
         } else if (inputEntry.action === "abort") {
           if (inputEntry.sessionId) {
-            const handle = sessionHandles.get(inputEntry.sessionId);
+            const handle = sessionHandles.get(getSessionKey(inputEntry.spaceId, inputEntry.sessionId));
             if (!handle) {
               console.warn(
                 `[Agent] Abort requested for unknown session ${inputEntry.sessionId}`,
@@ -709,7 +392,7 @@ async function main() {
         const sessionId = inputEntry.action === "prompt" ? inputEntry.sessionId : null;
         const errEvent: SessionStreamError = {
           type: "error",
-          spaceId: env.SPACE_ID,
+          spaceId: inputEntry.spaceId,
           sessionId,
           error: String(error),
         };

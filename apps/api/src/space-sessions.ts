@@ -9,10 +9,16 @@ import {
   spaceSessions,
   spaces,
 } from "./db/schema-v2.js";
-import { createStreamingRedisClient, getSpaceInputQueueKey, getSpaceOutputStreamKey, redisCommandClient } from "./redis.js";
+import {
+  createStreamingRedisClient,
+  getAgentInstanceInputQueueKey,
+  getSpaceOutputStreamKey,
+  redisCommandClient,
+} from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
 import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getBindingsBySessionId, getReadableUserIdsForSpace, touchSpaceSessionBinding } from "./channels.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
+import { resolveOrClaimSpaceOwner } from "./agent-ownership.js";
 
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
@@ -372,8 +378,10 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
 
+  const lease = await resolveOrClaimSpaceOwner(input.spaceId);
+
   await redisCommandClient.rpush(
-    getSpaceInputQueueKey(input.spaceId),
+    getAgentInstanceInputQueueKey(lease.ownerId),
     JSON.stringify({
       action: "prompt",
       id: randomUUID(),
@@ -383,6 +391,8 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
       content: input.content,
       meta: input.meta ?? null,
       timestamp: new Date().toISOString(),
+      expectedOwnerId: lease.ownerId,
+      expectedEpoch: lease.epoch,
     }),
   );
 };

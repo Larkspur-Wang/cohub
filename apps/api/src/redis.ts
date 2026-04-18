@@ -32,8 +32,8 @@ const redisSpacePrefix = (spaceId: string) => `spaces:${spaceId}`;
 export const getSpaceMetaKey = (spaceId: string) =>
   `${redisSpacePrefix(spaceId)}:meta`;
 
-export const getSpaceInputQueueKey = (spaceId: string) =>
-  `${redisSpacePrefix(spaceId)}:input_queue`;
+export const getAgentInstanceInputQueueKey = (instanceId: string) =>
+  `agent:instance:${instanceId}:input_queue`;
 
 export const getSpaceOutputStreamKey = (spaceId: string) =>
   `${redisSpacePrefix(spaceId)}:output_stream`;

@@ -106,7 +106,6 @@ export const provisionSpaceInBackground = async (input: {
     const pod = renderSandboxPodTemplate({
       SPACE_ID: input.spaceId,
       USER_ID: input.userUuid,
-      AGENT_WS_BASE_URL: config.agentWsBaseUrl,
       ENV: config.env,
       SPACE_REPO_URL: input.spaceRepoUrl,
       SPACE_GIT_USERNAME: input.spaceGitUsername,
@@ -118,7 +117,8 @@ export const provisionSpaceInBackground = async (input: {
     if (pod.spec?.containers?.[0]) {
       pod.spec.containers[0].env = [
         { name: "SPACE_ID", value: input.spaceId },
-        { name: "SANDBOX_WS_URL", value: `${config.agentWsBaseUrl.replace(/\/$/, "")}/sandbox` },
+        { name: "SANDBOX_WS_HOST", value: "0.0.0.0" },
+        { name: "SANDBOX_WS_PORT", value: "8788" },
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "IMAGE_VERSION", value: config.sandboxImage },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
@@ -136,7 +136,6 @@ export const provisionSpaceInBackground = async (input: {
       podName,
       meta: {
         lastProvisionedAt: new Date().toISOString(),
-        agentWsBaseUrl: config.agentWsBaseUrl,
       },
     });
   } catch (error) {

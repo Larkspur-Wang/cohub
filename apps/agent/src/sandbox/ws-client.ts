@@ -16,10 +16,19 @@ type PendingRequest = {
   onStream?: (event: RpcStreamEvent) => void;
 };
 
+type SandboxClientRegistration = {
+  spaceId: string;
+  wsUrl: string;
+  started: boolean;
+  connection: SandboxConnection | null;
+  resolveWaiters: Array<(connection: SandboxConnection) => void>;
+};
+
 export class SandboxConnection {
   private readonly pending = new Map<string, PendingRequest>();
 
   constructor(
+    readonly spaceId: string,
     readonly sandboxId: string,
     private readonly socket: WebSocket,
   ) {}
@@ -95,28 +104,52 @@ export class SandboxConnection {
   }
 }
 
-let activeConnection: SandboxConnection | null = null;
-let resolveWaiters: Array<(connection: SandboxConnection) => void> = [];
-let clientStarted = false;
+const registrations = new Map<string, SandboxClientRegistration>();
 
-function setActiveConnection(connection: SandboxConnection | null) {
-  if (activeConnection && activeConnection !== connection) {
-    activeConnection.dispose(new Error("sandbox connection replaced by a newer connection"));
+function getOrCreateRegistration(spaceId: string, wsUrl: string) {
+  const existing = registrations.get(spaceId);
+  if (existing) {
+    if (existing.wsUrl !== wsUrl) existing.wsUrl = wsUrl;
+    return existing;
   }
-  activeConnection = connection;
+
+  const created: SandboxClientRegistration = {
+    spaceId,
+    wsUrl,
+    started: false,
+    connection: null,
+    resolveWaiters: [],
+  };
+  registrations.set(spaceId, created);
+  return created;
+}
+
+function setActiveConnection(spaceId: string, connection: SandboxConnection | null) {
+  const registration = registrations.get(spaceId);
+  if (!registration) return;
+
+  if (registration.connection && registration.connection !== connection) {
+    registration.connection.dispose(new Error("sandbox connection replaced by a newer connection"));
+  }
+
+  registration.connection = connection;
   if (connection) {
-    for (const resolve of resolveWaiters) resolve(connection);
-    resolveWaiters = [];
+    for (const resolve of registration.resolveWaiters) resolve(connection);
+    registration.resolveWaiters = [];
   }
 }
 
-export async function waitForSandboxConnection(timeoutMs = 30000): Promise<SandboxConnection> {
-  if (activeConnection) return activeConnection;
+export async function waitForSandboxConnection(spaceId: string, timeoutMs = 30000): Promise<SandboxConnection> {
+  const registration = registrations.get(spaceId);
+  if (!registration) {
+    throw new Error(`Sandbox client for ${spaceId} has not been started`);
+  }
+  if (registration.connection) return registration.connection;
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      resolveWaiters = resolveWaiters.filter((item) => item !== onResolve);
-      reject(new Error(`Timed out waiting for sandbox connection after ${timeoutMs}ms`));
+      registration.resolveWaiters = registration.resolveWaiters.filter((item) => item !== onResolve);
+      reject(new Error(`Timed out waiting for sandbox connection for ${spaceId} after ${timeoutMs}ms`));
     }, timeoutMs);
 
     const onResolve = (connection: SandboxConnection) => {
@@ -124,48 +157,73 @@ export async function waitForSandboxConnection(timeoutMs = 30000): Promise<Sandb
       resolve(connection);
     };
 
-    resolveWaiters.push(onResolve);
+    registration.resolveWaiters.push(onResolve);
   });
 }
 
-export async function startSandboxWsClient() {
-  if (clientStarted) return;
-  clientStarted = true;
+export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string }) {
+  const spaceId = input.spaceId;
+  const wsUrl = input.wsUrl;
+  const registration = getOrCreateRegistration(spaceId, wsUrl);
+  if (registration.started) return;
+  registration.started = true;
 
-  void runLoop();
+  void runLoop(registration);
 }
 
-async function runLoop() {
+export function disconnectSandboxWsClient(spaceId: string, reason = "ownership lost") {
+  const registration = registrations.get(spaceId);
+  if (!registration) return;
+  registration.started = false;
+  const connection = registration.connection;
+  setActiveConnection(spaceId, null);
+  connection?.dispose(new Error(reason));
+}
+
+export function getSandboxClientConnection(spaceId: string) {
+  return registrations.get(spaceId)?.connection ?? null;
+}
+
+async function runLoop(registration: SandboxClientRegistration) {
   let attempt = 0;
 
   for (;;) {
+    if (!registration.started) return;
     try {
-      await connectOnce();
+      await connectOnce(registration);
       attempt = 0;
     } catch (error) {
-      console.error("[SandboxWS] Client loop failed:", error);
+      console.error(`[SandboxWS] Client loop failed for ${registration.spaceId}:`, error);
       attempt += 1;
     }
 
+    if (!registration.started) return;
     const delayMs = Math.min(1000 * 2 ** Math.min(attempt, 5), 30000);
     await sleep(delayMs);
   }
 }
 
-async function connectOnce() {
-  await new Promise<void>((resolve) => {
-    const socket = new WebSocket(env.SANDBOX_WS_URL);
+async function connectOnce(registration: SandboxClientRegistration) {
+  await new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(registration.wsUrl);
     let connection: SandboxConnection | null = null;
     let settled = false;
+    let helloAccepted = false;
 
-    const finish = () => {
+    const finishResolve = () => {
       if (settled) return;
       settled = true;
       resolve();
     };
 
+    const finishReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
     socket.on("open", () => {
-      console.log(`[SandboxWS] Connected to ${env.SANDBOX_WS_URL}`);
+      console.log(`[SandboxWS] Connected ${registration.spaceId} to ${registration.wsUrl}`);
     });
 
     socket.on("message", (data: RawData) => {
@@ -174,16 +232,32 @@ async function connectOnce() {
         const message = JSON.parse(raw) as AgentSandboxMessage;
 
         if (message.type === "sandbox.hello") {
-          connection = new SandboxConnection(message.sandboxId, socket);
-          setActiveConnection(connection);
+          if (message.spaceId !== registration.spaceId) {
+            socket.send(JSON.stringify({
+              version: AGENT_SANDBOX_PROTOCOL_VERSION,
+              type: "sandbox.hello_ack",
+              spaceId: registration.spaceId,
+              sandboxId: message.sandboxId,
+              timestamp: Date.now(),
+              accepted: false,
+              reason: `spaceId mismatch: expected ${registration.spaceId}, got ${message.spaceId}`,
+            }));
+            socket.close();
+            finishReject(new Error(`Sandbox hello spaceId mismatch: expected ${registration.spaceId}, got ${message.spaceId}`));
+            return;
+          }
+
+          connection = new SandboxConnection(registration.spaceId, message.sandboxId, socket);
+          setActiveConnection(registration.spaceId, connection);
           connection.send({
             version: AGENT_SANDBOX_PROTOCOL_VERSION,
             type: "sandbox.hello_ack",
-            spaceId: env.SPACE_ID,
+            spaceId: registration.spaceId,
             sandboxId: message.sandboxId,
             timestamp: Date.now(),
             accepted: true,
           });
+          helloAccepted = true;
           return;
         }
 
@@ -193,21 +267,29 @@ async function connectOnce() {
 
         connection?.handleMessage(message);
       } catch (error) {
-        console.error("[SandboxWS] Failed to handle message:", error);
+        console.error(`[SandboxWS] Failed to handle message for ${registration.spaceId}:`, error);
       }
     });
 
-    socket.on("close", () => {
+    socket.on("close", (_code, reason) => {
       connection?.dispose();
-      if (activeConnection === connection) setActiveConnection(null);
-      finish();
+      if (registrations.get(registration.spaceId)?.connection === connection) {
+        setActiveConnection(registration.spaceId, null);
+      }
+      if (!helloAccepted) {
+        finishReject(new Error(`Sandbox websocket closed before successful hello: ${reason.toString() || "unknown reason"}`));
+        return;
+      }
+      finishResolve();
     });
 
     socket.on("error", (error: Error) => {
-      console.error("[SandboxWS] Socket error:", error);
+      console.error(`[SandboxWS] Socket error for ${registration.spaceId}:`, error);
       connection?.dispose(error instanceof Error ? error : new Error(String(error)));
-      if (activeConnection === connection) setActiveConnection(null);
-      finish();
+      if (registrations.get(registration.spaceId)?.connection === connection) {
+        setActiveConnection(registration.spaceId, null);
+      }
+      finishReject(error instanceof Error ? error : new Error(String(error)));
     });
   });
 }

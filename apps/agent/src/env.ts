@@ -12,28 +12,18 @@ const redisUrlSchema = z
     }
   }, "REDIS_URL must use redis:// or rediss://");
 
-const websocketUrlSchema = z
-  .string()
-  .url()
-  .refine((value) => {
-    try {
-      const url = new URL(value);
-      return url.protocol === "ws:" || url.protocol === "wss:";
-    } catch {
-      return false;
-    }
-  }, "SANDBOX_WS_URL must use ws:// or wss://");
+const defaultAgentInstanceId = process.env.HOSTNAME?.trim() || `agent-${process.pid}`;
 
 export const EnvSchema = z.object({
-  SPACE_ID: z.string().uuid().default("00000000-0000-0000-0000-000000000001"),
+  AGENT_INSTANCE_ID: z.string().min(1).default(defaultAgentInstanceId),
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
-  SPACE_DIR: z
+  WORKSPACE_ROOT: z
     .string()
     .min(1)
     .refine((value) => value.startsWith("/"), {
-      message: "SPACE_DIR must be an absolute path",
+      message: "WORKSPACE_ROOT must be an absolute path",
     })
-    .default("/workspace"),
+    .default("/space-storage"),
   SESSIONS_DIR: z
     .string()
     .min(1)
@@ -45,8 +35,10 @@ export const EnvSchema = z.object({
   PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
-  SANDBOX_WS_URL: websocketUrlSchema.default("ws://127.0.0.1:8788/sandbox"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
 export const env = EnvSchema.parse(process.env);
+
+export const AGENT_INSTANCE_HEARTBEAT_MS = 5000;
+export const SPACE_OWNER_LEASE_MS = 15000;

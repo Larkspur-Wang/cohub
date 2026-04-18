@@ -2,18 +2,24 @@ import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock, SpaceSandboxStatus } from "@cohub/protocol";
 import { env } from "./env.js";
+import {
+  getAgentInstanceDeadLetterQueueKey,
+  getAgentInstanceInputQueueKey,
+  getAgentInstanceProcessingQueueKey,
+} from "./ownership.js";
 
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
-const spacePrefix = `spaces:${env.SPACE_ID}`;
-const LIST_KEY_IN = `${spacePrefix}:input_queue`;
-const PROCESSING_KEY = `${spacePrefix}:processing_queue`;
-const DEAD_LETTER_KEY = `${spacePrefix}:dead_letter_queue`;
-const STREAM_KEY_OUT = `${spacePrefix}:output_stream`;
-const META_KEY = `${spacePrefix}:meta`;
+const LIST_KEY_IN = getAgentInstanceInputQueueKey(env.AGENT_INSTANCE_ID);
+const PROCESSING_KEY = getAgentInstanceProcessingQueueKey(env.AGENT_INSTANCE_ID);
+const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID);
+
+const STREAM_MAXLEN = 10000;
+const STREAM_APPROX = "~";
 
 const PromptInputSchema = z.object({
+  id: z.string().optional(),
   action: z.literal("prompt"),
   spaceId: z.string().uuid(),
   sessionId: z.string().uuid(),
@@ -28,20 +34,26 @@ const PromptInputSchema = z.object({
     .passthrough()
     .nullable()
     .optional(),
+  timestamp: z.string().optional(),
+  expectedOwnerId: z.string().min(1),
+  expectedEpoch: z.coerce.number().int().positive(),
 });
 
 const AbortInputSchema = z.object({
+  id: z.string().optional(),
   action: z.literal("abort"),
   spaceId: z.string().uuid(),
   sessionId: z.string().uuid().nullable().optional(),
+  timestamp: z.string().optional(),
+  expectedOwnerId: z.string().min(1),
+  expectedEpoch: z.coerce.number().int().positive(),
 });
 
 export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
 
-/**
- * Extract plain text from a list of ContentBlocks.
- */
+const getSpaceOutputStreamKey = (spaceId: string) => `spaces:${spaceId}:output_stream`;
+
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
     .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text" && "text" in b)
@@ -50,9 +62,6 @@ export function extractContentText(blocks: ContentBlock[]): string {
     .trim();
 }
 
-/**
- * Extract image blocks from ContentBlock[] in the format expected by the SDK.
- */
 export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "image"; data: string; mimeType: string }> {
   const results: Array<{ type: "image"; data: string; mimeType: string }> = [];
   for (const b of blocks) {
@@ -65,13 +74,14 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
 }
 
 export async function reportSandboxStatus(
+  spaceId: string,
   status: SpaceSandboxStatus,
   meta?: Record<string, unknown> | null,
 ) {
   const internalApiBaseUrl = env.ENV === "prod"
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
     : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
-  const url = `${internalApiBaseUrl}/internal/spaces/${env.SPACE_ID}/status`;
+  const url = `${internalApiBaseUrl}/internal/spaces/${spaceId}/status`;
   await fetch(url, {
     method: "POST",
     headers: {
@@ -84,16 +94,11 @@ export async function reportSandboxStatus(
   });
 }
 
-const STREAM_MAXLEN = 10000;
-const STREAM_APPROX = "~";
-
-export async function sendOutput(data: unknown) {
-  try {
-    const payload = typeof data === "string" ? data : JSON.stringify(data);
-    await redis.xadd(STREAM_KEY_OUT, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, "*", "payload", payload);
-  } catch (err) {
+export async function sendOutput(data: { spaceId: string } & Record<string, unknown>) {
+  const payload = JSON.stringify(data);
+  await redis.xadd(getSpaceOutputStreamKey(data.spaceId), "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, "*", "payload", payload).catch((err) => {
     console.error("[Redis] Failed to send output:", err);
-  }
+  });
 }
 
 async function moveToDeadLetterQueue(rawMessage: string, reason: string) {
@@ -110,6 +115,7 @@ async function moveToDeadLetterQueue(rawMessage: string, reason: string) {
 export async function listenForInput(
   handler: (
     input: AgentInput,
+    rawMessage: string,
     ack: () => Promise<void>,
     reject: (reason: string) => Promise<void>,
   ) => void,
@@ -146,8 +152,7 @@ export async function listenForInput(
       };
 
       try {
-        // Fire and forget - handler manages its own ack/reject
-        handler(parsed, ack, reject);
+        handler(parsed, currentRawMessage, ack, reject);
       } catch (syncErr) {
         console.error("[Redis] Sync error in handler:", syncErr);
         await reject(syncErr instanceof Error ? syncErr.message : String(syncErr));

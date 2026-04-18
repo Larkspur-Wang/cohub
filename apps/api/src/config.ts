@@ -9,7 +9,6 @@ export type AppConfig = {
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
   sandboxImage: string;
-  agentWsBaseUrl: string;
   bullmqRedisUrl: string;
   workerSecret: string;
   spaceStorageRoot: string;
@@ -44,8 +43,6 @@ export const config: AppConfig = {
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   sandboxImage:
     process.env.SANDBOX_IMAGE ?? getDefaultSandboxImage(env),
-  agentWsBaseUrl:
-    process.env.AGENT_WS_BASE_URL ?? (env === "prod" ? "ws://cohub-agent.cohub.svc.cluster.local:8788" : "ws://cohub-agent-dev.cohub-dev.svc.cluster.local:8788"),
   bullmqRedisUrl:
     process.env.BULLMQ_REDIS_URL ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
