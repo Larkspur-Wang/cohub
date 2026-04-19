@@ -10,6 +10,7 @@
  *   COHUB_GATEWAY_ORIGIN - 可选，默认由 API_ORIGIN 推导 (api-dev → gateway-dev)
  *   COHUB_GATEWAY_WS     - 可选，默认由 GATEWAY_ORIGIN 推导
  *   SKIP_WS_TEST         - 设为 1 跳过 WebSocket 实时测试
+ *   SKIP_AGENT_TEST      - 设为 1 跳过 Agent 实际回复测试（耗时较长）
  */
 
 // ── 配置 ──────────────────────────────────────────────────────────────────────
@@ -80,6 +81,238 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
   return body;
 }
 
+/**
+ * 通过 SSE 流监听 Space 的 output stream，等待指定事件
+ *
+ * @param spaceId Space ID
+ * @param options
+ * @param options.timeoutMs 超时时间，默认 90s（Agent 回复可能较慢）
+ * @param options.signal 可选的 AbortSignal
+ * @returns 收到的 SSE 事件列表
+ */
+async function waitForSSEEvents(
+  spaceId: string,
+  options?: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<Array<{ id: string; event: string; data: unknown }>> {
+  const events: Array<{ id: string; event: string; data: unknown }> = [];
+  const timeoutMs = options?.timeoutMs ?? 90_000;
+  const url = `${API_ORIGIN}/api/spaces/${spaceId}/stream`;
+  const abortController = new AbortController();
+
+  // 外部 signal 触发时一并 abort
+  options?.signal?.addEventListener("abort", () => abortController.abort(), { once: true });
+
+  const resp = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
+    },
+    signal: abortController.signal,
+  });
+
+  if (!resp.ok) {
+    throw new Error(`SSE connect failed: HTTP ${resp.status}`);
+  }
+
+  const reader = resp.body?.getReader();
+  if (!reader) throw new Error("No response body for SSE");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`SSE timeout after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  const readPromise = (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events from buffer
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // keep incomplete line
+
+      let currentEvent = "";
+      let currentId = "";
+      let currentData = "";
+
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          currentEvent = line.slice(6).trim();
+        } else if (line.startsWith("id:")) {
+          currentId = line.slice(3).trim();
+        } else if (line.startsWith("data:")) {
+          currentData = line.slice(5).trim();
+        } else if (line === "" && currentEvent && currentData) {
+          let parsedData: unknown = currentData;
+          try {
+            parsedData = JSON.parse(currentData);
+          } catch {
+            // keep as string
+          }
+          events.push({ id: currentId, event: currentEvent, data: parsedData });
+          currentEvent = "";
+          currentId = "";
+          currentData = "";
+        }
+      }
+    }
+  })();
+
+  try {
+    await Promise.race([readPromise, timeoutPromise]);
+  } catch (err) {
+    // timeout 或 abort 时返回已收集的事件
+    if (!(err instanceof Error && err.message.startsWith("SSE timeout"))) {
+      throw err;
+    }
+  } finally {
+    abortController.abort();
+  }
+
+  return events;
+}
+
+/**
+ * 通过 HTTP 发消息后，轮询消息列表直到出现 assistant 回复
+ * 对 transient 404 有容忍度（可能因为 session 刚创建还未同步）
+ */
+async function waitForAssistantReply(
+  sessionId: string,
+  options?: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    max404Retries?: number;
+  },
+): Promise<Array<{ id: string; role: string; text: string | null }>> {
+  const timeoutMs = options?.timeoutMs ?? 120_000;
+  const intervalMs = options?.intervalMs ?? 3000;
+  const max404Retries = options?.max404Retries ?? 5;
+  const startedAt = Date.now();
+  let consecutive404s = 0;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const data = await api(`/api/sessions/${sessionId}/messages`) as {
+        messages: Array<{ id: string; role: string; text: string | null }>;
+      };
+      consecutive404s = 0;
+
+      // 检查是否有 assistant 回复（非空文本）
+      const assistantMsgs = data.messages.filter(
+        (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
+      );
+
+      if (assistantMsgs.length > 0) {
+        return data.messages;
+      }
+    } catch (err) {
+      // 对 transient 404 容忍一定次数（可能 session 刚创建还未完全同步）
+      if (err instanceof Error && err.message.includes("HTTP 404")) {
+        consecutive404s++;
+        if (consecutive404s >= max404Retries) {
+          throw new Error(`Session messages endpoint returned 404 for ${consecutive404s} consecutive retries (sessionId=${sessionId})`);
+        }
+        console.log(`      ${C.dim}  轮询消息列表遇到 404 (第 ${consecutive404s}/${max404Retries} 次)，继续重试...${C.reset}`);
+      } else {
+        throw err;
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  throw new Error(`Waiting for assistant reply timed out (${timeoutMs}ms)`);
+}
+
+/**
+ * 通过 WebSocket 发送消息并等待 agent 实时事件
+ */
+async function wsSendAndWaitForAgentReply(
+  params: {
+    spaceId: string;
+    sessionId: string;
+    text: string;
+  },
+  options?: {
+    timeoutMs?: number;
+  },
+): Promise<{
+  accepted: boolean;
+  agentEvents: Array<{ type: string; payload: Record<string, unknown> }>;
+  connectionId: string;
+}> {
+  const timeoutMs = options?.timeoutMs ?? 120_000;
+  const ws = new WebSocket(GATEWAY_WS);
+  const agentEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  let connectionId = "";
+  let authOk = false;
+  let accepted = false;
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.close(1000, "timeout");
+      resolve({ accepted, agentEvents, connectionId });
+    }, timeoutMs);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: "auth",
+        requestId: "e2e-ws-agent",
+        payload: { token: TOKEN },
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      let msg: { type: string; payload: Record<string, unknown> };
+      try {
+        msg = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+
+      if (msg.type === "auth.ok") {
+        authOk = true;
+        connectionId = String(msg.payload.connectionId ?? "");
+        // 发消息
+        ws.send(JSON.stringify({
+          type: "message.create",
+          requestId: "e2e-ws-agent-msg",
+          payload: {
+            spaceId: params.spaceId,
+            sessionId: params.sessionId,
+            text: params.text,
+          },
+        }));
+      }
+
+      if (authOk && msg.type === "message.accepted") {
+        accepted = true;
+      }
+
+      // Agent 回复通过 event 类型的消息推送
+      if (authOk && msg.type === "event" && msg.payload) {
+        agentEvents.push({ type: msg.type, payload: msg.payload });
+      }
+    };
+
+    ws.onclose = () => {
+      clearTimeout(timeout);
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error("WebSocket error occurred"));
+    };
+  });
+}
+
 // ── 测试状态追踪 ──────────────────────────────────────────────────────────────
 
 type TestResult = { name: string; status: "pass" | "fail" | "warn"; detail?: string };
@@ -124,6 +357,9 @@ let createdSessionId: string | null = null;
 /** 用于 FS / 消息测试的 ready sandbox space */
 let readySpaceId: string | null = null;
 let readySessionId: string | null = null;
+/** 用于 Agent 回复测试的 session */
+let agentTestSessionId: string | null = null;
+let agentTestSpaceId: string | null = null;
 
 async function main() {
   console.log(`${C.white}Cohub Dev E2E 全链路验证${C.reset}`);
@@ -703,6 +939,245 @@ async function main() {
 
     ok("全链路数据关联", `sandbox=${sandbox.sandbox?.podName ?? "pending"}, sessions=${sessions.sessions.length}`);
   });
+
+  // ── Phase 13: Agent 实际回复端到端测试 ★ 核心新增 ─────────────────────────
+
+  if (process.env.SKIP_AGENT_TEST !== "1") {
+    section("Phase 13: Agent 实际回复端到端测试 (完整消息往返链路)");
+
+    // 复用 Phase 3 找到的 ready sandbox（新创建的 space sandbox 尚未就绪，
+    // 而 sandbox ready 依赖 agent 首次连接，agent 连接又依赖收到消息 — 循环依赖）
+    agentTestSpaceId = readySpaceId;
+    if (!agentTestSpaceId) {
+      warn("Agent 回复测试", "跳过：没有 ready sandbox，无法触发 Agent");
+    } else {
+      // 验证 ready sandbox 的权限（确保 space.userUuid === 当前用户 uuid）
+      await run("验证 Agent 测试 Space 权限", async () => {
+        const space = await api(`/api/spaces/${agentTestSpaceId}`) as Record<string, unknown>;
+        const me = await api("/api/me") as Record<string, unknown>;
+        assert(space.userUuid === me.uuid, `space owner ${space.userUuid} !== current user ${me.uuid}`);
+        ok("Space 权限验证通过", `owner=${space.userUuid}`);
+      });
+
+      // Agent 连通性预检：发送一条测试消息并快速检查是否被处理
+      // 如果 agent 未连接，跳过后续测试避免长时间超时
+      await run("Agent 连通性预检", async () => {
+        // 创建一个临时 session 用于连通性检查
+        const pingBody = await api(`/api/spaces/${agentTestSpaceId}/sessions`, {
+          method: "POST",
+          body: JSON.stringify({ title: "Agent ping test" }),
+        }) as { ok: boolean; session: Record<string, unknown> };
+        assert(pingBody.session?.id, "session.id should exist");
+        const pingSessionId = pingBody.session.id as string;
+
+        // 发送测试消息
+        const sendBody = await api(`/api/sessions/${pingSessionId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            content: [{ type: "text" as const, text: "ping" }],
+          }),
+        }) as { ok: boolean; userMessageId: string };
+        assert(sendBody.ok === true, "send ok should be true");
+
+        // 等待 15s 看消息是否被处理（agent 如果在线会很快响应）
+        await new Promise((r) => setTimeout(r, 15_000));
+        const msgs = await api(`/api/sessions/${pingSessionId}/messages`) as {
+          messages: Array<{ role: string }>;
+        };
+
+        const hasReply = msgs.messages.some((m) => m.role === "assistant");
+        if (!hasReply) {
+          throw new Error("Agent 未响应 ping 测试，可能未连接 dev 环境。请确认 agent pod 正在运行并已连接到该 space。");
+        }
+        ok("Agent 连通性预检通过", "agent 已连接并正常响应");
+      });
+
+      // 为 Agent 测试创建专用 session（复用已有 ready sandbox，避免新 space 权限不一致问题）
+      await run("为 Agent 测试创建 Session", async () => {
+        const body = await api(`/api/spaces/${agentTestSpaceId}/sessions`, {
+          method: "POST",
+          body: JSON.stringify({ title: "E2E Agent reply test" }),
+        }) as { ok: boolean; session: Record<string, unknown> };
+
+        assert(body.ok === true, "response ok should be true");
+        assert(body.session?.id, "session.id should exist");
+        agentTestSessionId = body.session.id as string;
+        ok("创建 Agent 测试 Session", `id=${agentTestSessionId}, space=${agentTestSpaceId}`);
+      });
+
+      if (agentTestSpaceId && agentTestSessionId) {
+        const targetSpaceId = agentTestSpaceId;
+        const targetSessionId = agentTestSessionId;
+        // 13.1: HTTP 发消息 → 轮询消息列表等待 Agent 回复
+        await run("Agent 回复测试: HTTP 发消息 → 轮询等待回复", async () => {
+          const ts2 = Date.now();
+          const testMsg = `E2E agent reply test ${ts2}. Reply with "E2E-ACK:${ts2}" to confirm.`;
+
+          // 发送消息
+          const sendBody = await api(`/api/sessions/${targetSessionId}/messages`, {
+            method: "POST",
+            body: JSON.stringify({
+              content: [{ type: "text" as const, text: testMsg }],
+            }),
+          }) as { ok: boolean; userMessageId: string };
+
+          assert(sendBody.ok === true, "send ok should be true");
+          assert(sendBody.userMessageId, "userMessageId should exist");
+          console.log(`      ${C.dim}  消息已发送 userMessageId=${sendBody.userMessageId}，等待 Agent 回复...${C.reset}`);
+
+          // 轮询等待回复
+          const messages = await waitForAssistantReply(targetSessionId, {
+            timeoutMs: 120_000,
+            intervalMs: 3000,
+          });
+
+          const assistantMsgs = messages.filter(
+            (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
+          );
+          assert(assistantMsgs.length > 0, "should have at least one assistant reply");
+
+          const latestReply = assistantMsgs[assistantMsgs.length - 1];
+          ok(
+            "HTTP → Agent 回复成功",
+            `assistantMessageId=${latestReply.id}, preview="${latestReply.text?.slice(0, 80)}..."`,
+          );
+        });
+
+        // 13.2: SSE 流式监听 → 等待 Agent 实时推送
+        await run("Agent 回复测试: SSE 实时流监听", async () => {
+          const ts = Date.now();
+          const testMsg = `E2E SSE stream test ${ts}. Reply quickly.`;
+
+          // 发送消息
+          const sendBody2 = await api(`/api/sessions/${targetSessionId}/messages`, {
+            method: "POST",
+            body: JSON.stringify({
+              content: [{ type: "text" as const, text: testMsg }],
+            }),
+          }) as { ok: boolean; userMessageId: string };
+
+          assert(sendBody2.ok === true, "send ok should be true");
+          console.log(`      ${C.dim}  消息已发送，连接 SSE 流等待实时事件...${C.reset}`);
+
+          // 连接 SSE 并等待 Agent 输出事件
+          const events = await waitForSSEEvents(targetSpaceId, {
+            timeoutMs: 120_000,
+          });
+
+          // 查找 message 类型的事件（Agent 的输出事件）
+          const messageEvents = events.filter((e) => e.event === "message");
+          assert(messageEvents.length > 0, `should receive at least one SSE message event, got events: ${events.map((e) => e.event).join(", ")}`);
+
+          ok(
+            "SSE 实时流",
+            `收到 ${messageEvents.length} 个 message 事件, 总事件数=${events.length}`,
+          );
+        });
+
+        // 13.3: WebSocket 发消息 → 等待 Agent 实时事件推送
+        if (process.env.SKIP_WS_TEST !== "1") {
+          await run("Agent 回复测试: WebSocket → 接收 Agent 实时事件", async () => {
+            const ts = Date.now();
+            const testMsg = `E2E WS agent event test ${ts}. Reply quickly.`;
+
+            const result = await wsSendAndWaitForAgentReply({
+              spaceId: targetSpaceId,
+              sessionId: targetSessionId,
+              text: testMsg,
+            }, {
+              timeoutMs: 120_000,
+            });
+
+            assert(result.accepted, "message should be accepted by gateway");
+            assert(result.agentEvents.length > 0, `should receive agent events via WS, got: ${result.agentEvents.length}`);
+
+            const eventTypes = result.agentEvents.map((e) => String(e.payload?.eventType ?? e.type));
+            ok(
+              "WebSocket Agent 事件",
+              `收到 ${result.agentEvents.length} 个事件, types=[${eventTypes.join(", ")}]`,
+            );
+          });
+        }
+
+        // 13.4: 验证回复消息已持久化到 DB
+        await run("Agent 回复持久化验证", async () => {
+          const data = await api(`/api/sessions/${targetSessionId}/messages`) as {
+            messages: Array<{
+              id: string;
+              role: string;
+              text: string | null;
+              sequence: number;
+            }>;
+          };
+
+          const userMsgs = data.messages.filter((m) => m.role === "user");
+          const assistantMsgs = data.messages.filter(
+            (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
+          );
+
+          assert(userMsgs.length > 0, "should have user messages");
+          assert(assistantMsgs.length > 0, "should have assistant replies persisted");
+
+          ok(
+            "回复持久化验证",
+            `user=${userMsgs.length}, assistant=${assistantMsgs.length}, 总消息=${data.messages.length}`,
+          );
+        });
+      }
+    }
+  } else {
+    section("Phase 13: Agent 实际回复端到端测试 (已跳过)");
+    warn("Agent 回复测试", "SKIP_AGENT_TEST=1");
+  }
+
+  // ── Phase 14: 消息内容质量验证 ─────────────────────────────────────────────
+
+  section("Phase 14: 消息内容质量验证");
+
+  const contentCheckSessionId = agentTestSessionId ?? "";
+  if (agentTestSessionId) {
+    await run("消息内容非空检查", async () => {
+      const data = await api(`/api/sessions/${contentCheckSessionId}/messages`) as {
+        messages: Array<{
+          id: string;
+          role: string;
+          text: string | null;
+          content: Array<{ type: string }>;
+        }>;
+      };
+
+      // 验证所有消息都有 content
+      for (const msg of data.messages) {
+        assert(Array.isArray(msg.content) && msg.content.length > 0, `message ${msg.id} should have content`);
+      }
+
+      // 验证 assistant 回复有非空文本
+      const assistantMsgs = data.messages.filter(
+        (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
+      );
+      assert(assistantMsgs.length > 0, "should have assistant replies with text");
+
+      ok("消息内容完整", `total=${data.messages.length}, assistant=${assistantMsgs.length}`);
+    });
+
+    await run("消息序列号连续性", async () => {
+      const data = await api(`/api/sessions/${contentCheckSessionId}/messages`) as {
+        messages: Array<{ id: string; sequence: number }>;
+      };
+
+      const sequences = data.messages.map((m) => m.sequence);
+      for (let i = 1; i < sequences.length; i++) {
+        assert(
+          sequences[i] === sequences[i - 1] + 1,
+          `sequence gap: ${sequences[i - 1]} → ${sequences[i]}`,
+        );
+      }
+
+      ok("消息序列号连续", `range=[${sequences[0]}..${sequences[sequences.length - 1]}]`);
+    });
+  } else {
+    warn("消息内容质量验证", "跳过：没有 agentTestSessionId");
+  }
 
   // ── 汇总报告 ────────────────────────────────────────────────────────────────
 
