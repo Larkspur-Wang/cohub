@@ -1,9 +1,12 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Hono } from "hono";
+import { config } from "../config.js";
 import { redisCommandClient } from "../redis.js";
 
-const MODELS_CATALOG_URL = "https://gitea.cohub.run/global/configs/raw/branch/main/.pi/agent/models.json";
 const MODELS_REDIS_KEY = "configs:models";
 const MODELS_CACHE_TTL_SEC = 30 * 60;
+const MODELS_PATH = join(config.platformConfigRoot, "platform", ".pi", "agent", "models.json");
 
 type ModelCatalogEntry = {
   provider: string;
@@ -24,11 +27,27 @@ async function fetchModelsCatalog(): Promise<ModelCatalogEntry[]> {
         // ignore parse error, fall through to fetch
       }
     }
-    const response = await fetch(MODELS_CATALOG_URL);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch models catalog: ${response.status} ${response.statusText}`);
+
+    let rawText: string;
+    try {
+      rawText = await readFile(MODELS_PATH, "utf-8");
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : undefined;
+      if (code === "ENOENT") {
+        throw new Error("Models catalog file not found");
+      }
+      throw error;
     }
-    const raw = await response.json() as { providers: Record<string, { models?: Array<Record<string, unknown>> }> };
+
+    let raw: { providers: Record<string, { models?: Array<Record<string, unknown>> }> };
+    try {
+      raw = JSON.parse(rawText) as { providers: Record<string, { models?: Array<Record<string, unknown>> }> };
+    } catch {
+      throw new Error("Models catalog file is invalid JSON");
+    }
+
     const entries: ModelCatalogEntry[] = [];
     for (const [provider, providerConfig] of Object.entries(raw.providers ?? {})) {
       for (const model of providerConfig.models ?? []) {
@@ -61,7 +80,7 @@ router.get("/", async (c) => {
     }
     return c.json(grouped);
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Failed to fetch models catalog" }, 502);
+    return c.json({ message: error instanceof Error ? error.message : "Failed to load models catalog" }, 502);
   }
 });
 

@@ -42,6 +42,8 @@ SANDBOX_RUNTIME_IMAGE: "git.talesofai.com/talesofai/cohub-agent:latest"
 SPACE_STORAGE_ROOT: "/space-storage"
 SPACE_STORAGE_PVC: "cohub-spaces-pvc"
 SPACE_STORAGE_SUBPATH: "workspaces/dev"
+PLATFORM_CONFIG_ROOT: "/configs"
+CONFIGS_SUBPATH: "configs/dev"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"

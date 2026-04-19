@@ -1,11 +1,21 @@
 import {
   AuthStorage,
+  DefaultResourceLoader,
   ModelRegistry,
 } from "@mariozechner/pi-coding-agent";
 import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
 import type { SandboxHeartbeat, SandboxHello } from "@cohub/agent-sandbox-protocol";
 
-import { env, SPACE_OWNER_LEASE_MS } from "./env.js";
+import {
+  env,
+  hasPlatformSkillsDir,
+  PLATFORM_AGENT_DIR,
+  PLATFORM_AUTH_PATH,
+  PLATFORM_MODELS_PATH,
+  PLATFORM_ROOT,
+  PLATFORM_SKILLS_DIR,
+  SPACE_OWNER_LEASE_MS,
+} from "./env.js";
 import {
   closeOwnershipRedis,
   getSpaceOwner,
@@ -236,8 +246,8 @@ async function main() {
   console.log(`[Agent] Starting instance: ${env.AGENT_INSTANCE_ID}`);
   console.log(`[Agent] Workspace root: ${env.WORKSPACE_ROOT}`);
   console.log(`[Agent] Sessions root: ${env.SESSIONS_DIR}`);
-  console.log(`[Agent] Agent version: ${env.AGENT_VERSION || "unknown"}`);
-  console.log(`[Agent] Public URL prefix: ${env.PUBLIC_URL_PREFIX || "not set"}`);
+  console.log(`[Agent] Platform config root: ${env.PLATFORM_CONFIG_ROOT}`);
+  console.log(`[Agent] Platform config dir: ${PLATFORM_ROOT}`);
   console.log("[Agent] Build features:", {
     env: env.ENV,
     agentInstanceId: env.AGENT_INSTANCE_ID,
@@ -256,8 +266,18 @@ async function main() {
   agentHeartbeatTimer = startAgentInstanceHeartbeatLoop();
   startOwnerRenewLoop();
 
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
+  const authStorage = AuthStorage.create(PLATFORM_AUTH_PATH);
+  const modelRegistry = ModelRegistry.create(authStorage, PLATFORM_MODELS_PATH);
+  const resourceLoader = new DefaultResourceLoader({
+    agentDir: PLATFORM_AGENT_DIR,
+    additionalSkillPaths: hasPlatformSkillsDir() ? [PLATFORM_SKILLS_DIR] : [],
+  });
+  try {
+    await resourceLoader.reload();
+  } catch (error) {
+    console.error("[Agent] Failed to load platform resources:", error);
+    throw error;
+  }
   const tools = createSandboxCodingTools();
 
   console.log("[Agent] Listening for owner-routed input.");
@@ -292,6 +312,7 @@ async function main() {
             sessionId,
             authStorage,
             modelRegistry,
+            resourceLoader,
             tools,
             model: requestedModelInput,
             sessionHandles,

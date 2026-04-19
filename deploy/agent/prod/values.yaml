@@ -7,7 +7,9 @@ env: prod
 workerSecret: ""
 workspaceRoot: /space-storage
 sessionsDir: /sessions
+platformConfigRoot: /configs
 spaceStoragePvc: cohub-spaces-pvc
 workspaceSubpath: workspaces/prod
 sessionsSubpath: sessions/prod
+configsSubpath: configs/prod
 sessionsNamespace: cohub-sessions

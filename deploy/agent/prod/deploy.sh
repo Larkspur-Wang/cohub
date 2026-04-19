@@ -24,9 +24,11 @@ IMAGE=${OVERRIDE_IMAGE:-$(get_value "image")}
 ENV=$(get_value "env")
 WORKSPACE_ROOT=$(get_value "workspaceRoot")
 SESSIONS_DIR=$(get_value "sessionsDir")
+PLATFORM_CONFIG_ROOT=$(get_value "platformConfigRoot")
 SPACE_STORAGE_PVC=$(get_value "spaceStoragePvc")
 WORKSPACE_SUBPATH=$(get_value "workspaceSubpath")
 SESSIONS_SUBPATH=$(get_value "sessionsSubpath")
+CONFIGS_SUBPATH=$(get_value "configsSubpath")
 SESSIONS_NAMESPACE=$(get_value "sessionsNamespace")
 
 require_value() {
@@ -46,9 +48,11 @@ require_value "image" "$IMAGE"
 require_value "env" "$ENV"
 require_value "workspaceRoot" "$WORKSPACE_ROOT"
 require_value "sessionsDir" "$SESSIONS_DIR"
+require_value "platformConfigRoot" "$PLATFORM_CONFIG_ROOT"
 require_value "spaceStoragePvc" "$SPACE_STORAGE_PVC"
 require_value "workspaceSubpath" "$WORKSPACE_SUBPATH"
 require_value "sessionsSubpath" "$SESSIONS_SUBPATH"
+require_value "configsSubpath" "$CONFIGS_SUBPATH"
 require_value "sessionsNamespace" "$SESSIONS_NAMESPACE"
 
 if [ ! -f "secrets.yaml" ]; then
@@ -78,9 +82,11 @@ sed -i.bak \
   -e "s|{{WORKSPACE_ROOT}}|${WORKSPACE_ROOT}|g" \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
   -e "s|{{SESSIONS_NAMESPACE}}|${SESSIONS_NAMESPACE}|g" \
+  -e "s|{{PLATFORM_CONFIG_ROOT}}|${PLATFORM_CONFIG_ROOT}|g" \
   -e "s|{{SPACE_STORAGE_PVC}}|${SPACE_STORAGE_PVC}|g" \
   -e "s|{{WORKSPACE_SUBPATH}}|${WORKSPACE_SUBPATH}|g" \
   -e "s|{{SESSIONS_SUBPATH}}|${SESSIONS_SUBPATH}|g" \
+  -e "s|{{CONFIGS_SUBPATH}}|${CONFIGS_SUBPATH}|g" \
   rendered/configmap.yaml rendered/deployment.yaml
 
 # Inject resource limits (prod)

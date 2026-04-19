@@ -45,6 +45,9 @@ spec:
             - name: space-storage
               mountPath: {{SESSIONS_DIR}}
               subPath: {{SESSIONS_SUBPATH}}
+            - name: space-storage
+              mountPath: /configs
+              subPath: {{CONFIGS_SUBPATH}}
       volumes:
         - name: space-storage
           persistentVolumeClaim:

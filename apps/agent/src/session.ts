@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import {
   type AuthStorage,
+  type DefaultResourceLoader,
   type ModelRegistry,
   SessionManager,
   createAgentSession,
@@ -414,6 +415,7 @@ export async function loadOrCreateSessionHandle(input: {
   sessionId: string;
   authStorage: AuthStorage;
   modelRegistry: ModelRegistry;
+  resourceLoader: DefaultResourceLoader;
   tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
   sessionHandles: Map<string, SessionHandle>;
@@ -480,6 +482,7 @@ export async function loadOrCreateSessionHandle(input: {
     cwd: spaceWorkspaceDir,
     authStorage: input.authStorage,
     modelRegistry: input.modelRegistry,
+    resourceLoader: input.resourceLoader,
     tools: input.tools,
     sessionManager,
     ...(resolvedModel ? { model: resolvedModel } : {}),

@@ -14,6 +14,7 @@ export type AppConfig = {
   spaceStorageRoot: string;
   spaceStoragePvc: string;
   spaceStorageSubpath: string;
+  platformConfigRoot: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
@@ -48,6 +49,7 @@ export const config: AppConfig = {
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
+  platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
