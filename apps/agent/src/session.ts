@@ -177,6 +177,22 @@ function resetStreamState(handle: SessionHandle) {
   };
 }
 
+function groupByType(blocks: ContentBlock[]) {
+  const result: Record<string, ContentBlock[]> = {
+    text: [],
+    thinking: [],
+    tool_use: [],
+    tool_result: [],
+  };
+  for (const b of blocks) {
+    const arr = result[b.type];
+    if (arr) {
+      arr.push(b);
+    }
+  }
+  return result;
+}
+
 /** Compute the minimal delta between the current full content and the last-sent snapshot. */
 function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[] {
   const delta: ContentBlock[] = [];
@@ -222,19 +238,6 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
   }
 
   return delta;
-}
-
-function groupByType(blocks: ContentBlock[]) {
-  const result: Record<string, ContentBlock[]> = {};
-  for (const b of blocks) {
-    const arr = result[b.type];
-    if (arr) {
-      arr.push(b);
-    } else {
-      result[b.type] = [b];
-    }
-  }
-  return result;
 }
 
 function enqueuePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
