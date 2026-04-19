@@ -51,7 +51,6 @@ export function getSpaceSessionsDir(spaceId: string) {
 }
 
 export async function ensureSpaceDirs(spaceId: string) {
-  await mkdir(getSpaceWorkspaceDir(spaceId), { recursive: true }).catch(() => undefined);
   await mkdir(getSpaceSessionsDir(spaceId), { recursive: true }).catch(() => undefined);
 }
 

@@ -25,6 +25,7 @@ import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "../../ch
 import { enqueueTask } from "../../tasks.js";
 import { canRead, canReadForSession, canWrite } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
+import { ensureSpaceWorkspaceReady } from "../../space-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
@@ -154,6 +155,8 @@ router.post("/", async (c) => {
     .returning();
 
   if (!space) return c.json({ message: "failed to create space" }, 500);
+
+  await ensureSpaceWorkspaceReady(space.id);
 
   if (normalizedChannelBindings.length > 0) {
     const insertedChannels = await db

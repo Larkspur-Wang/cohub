@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants, type Stats } from "node:fs";
-import { access, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { config } from "./config.js";
 import type {
@@ -102,9 +102,25 @@ function ensureStorageConfigured() {
   }
 }
 
-function getSpaceRoot(spaceId: string) {
+function getSpaceBaseDir(spaceId: string) {
   ensureStorageConfigured();
-  return resolve(config.spaceStorageRoot, spaceId, "workspace");
+  return resolve(config.spaceStorageRoot, spaceId);
+}
+
+function getSpaceRoot(spaceId: string) {
+  return resolve(getSpaceBaseDir(spaceId), "workspace");
+}
+
+export async function ensureSpaceWorkspaceReady(spaceId: string) {
+  const spaceBaseDir = getSpaceBaseDir(spaceId);
+  const workspaceDir = getSpaceRoot(spaceId);
+  await mkdir(spaceBaseDir, { recursive: true, mode: 0o775 });
+  await mkdir(workspaceDir, { recursive: true, mode: 0o775 });
+  await Promise.all([
+    chmod(spaceBaseDir, 0o775).catch(() => undefined),
+    chmod(workspaceDir, 0o775).catch(() => undefined),
+  ]);
+  return { spaceBaseDir, workspaceDir };
 }
 
 function assertSafeRelativePath(input: string, options?: { allowEmpty?: boolean }) {
