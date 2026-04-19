@@ -37,6 +37,11 @@ spec:
                 secretKeyRef:
                   name: {{APP_NAME}}-secrets
                   key: WORKER_SECRET
+            - name: LITELLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{APP_NAME}}-secrets
+                  key: LITELLM_API_KEY
           {{RESOURCES}}
           volumeMounts:
             - name: space-storage
