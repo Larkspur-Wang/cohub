@@ -42,6 +42,7 @@ let loadingSessions = $state(false);
 
 let streamingSessionIds = $state<Set<string>>(new Set());
 let sessionPollingTimer: ReturnType<typeof setTimeout> | null = null;
+let pollingSpaceId: string | null = null;
 
 const currentPath = $derived(page.url.pathname);
 const currentSpaceId = $derived.by(() => {
@@ -197,12 +198,14 @@ async function handleLogout() {
   await logtoClient.signOut(`${window.location.origin}/`);
 }
 
-function scheduleSessionPoll() {
+function scheduleSessionPoll(spaceId: string) {
+  pollingSpaceId = spaceId;
   if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
-  if (!currentSpaceId) return;
   sessionPollingTimer = setTimeout(async () => {
-    await loadSessionsForSpace(currentSpaceId, true);
-    scheduleSessionPoll();
+    // Only continue polling if we're still on the same space
+    if (pollingSpaceId !== spaceId) return;
+    await loadSessionsForSpace(spaceId, true);
+    scheduleSessionPoll(spaceId);
   }, SESSION_POLL_INTERVAL_MS);
 }
 
@@ -214,7 +217,7 @@ onMount(() => {
       window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
       window.addEventListener("cohub:space-created", handleSpaceCreated as EventListener);
 
-      scheduleSessionPoll();
+      // Session polling is now handled by the $effect watching currentSpaceId
     })();
   }
 
@@ -249,8 +252,16 @@ $effect(() => {
   const id = currentSpaceId;
   if (id) {
     void loadSessionsForSpace(id, true);
+    scheduleSessionPoll(id);
   }
-  scheduleSessionPoll();
+  return () => {
+    // Clear timer when space changes or component unmounts
+    if (sessionPollingTimer) {
+      clearTimeout(sessionPollingTimer);
+      sessionPollingTimer = null;
+    }
+    pollingSpaceId = null;
+  };
 });
 
 // Close space modal on Escape
