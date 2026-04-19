@@ -1,54 +1,9 @@
 <script lang="ts">
-import { Plus, Trash2, KeyRound, X, Sun, Moon, Monitor, Copy, Check, User } from "lucide-svelte";
-import { getSshKeys, createSshKey, deleteSshKey, type UserSshKey, getMe } from "$lib/api";
+import { Plus, Trash2, KeyRound, X } from "lucide-svelte";
+import { getSshKeys, createSshKey, deleteSshKey, type UserSshKey } from "$lib/api";
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
-import { getTheme, setTheme, type ThemeMode } from "$lib/theme";
-import PageHeader from "$lib/components/PageHeader.svelte";
-
-let theme = $state<ThemeMode>(getTheme());
-
-const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "light", label: "Light", icon: Sun },
-  { value: "system", label: "System", icon: Monitor },
-];
-
-function handleThemeChange(mode: ThemeMode) {
-  theme = mode;
-  setTheme(mode);
-}
-
-// ─── Profile ───
-
-let userUuid = $state("");
-let userNickname = $state("");
-let userAvatar = $state("");
-let uuidCopied = $state(false);
-let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-
-async function loadProfile() {
-  if (!(await ensureAuth())) return;
-  try {
-    const me = await getMe();
-    userUuid = me.uuid ?? "";
-    userNickname = me.nick_name ?? "";
-    userAvatar = me.avatar_url ?? "";
-  } catch {
-    // ignore
-  }
-}
-
-async function copyUuid() {
-  if (!userUuid) return;
-  await navigator.clipboard.writeText(userUuid);
-  uuidCopied = true;
-  if (uuidCopiedTimer) clearTimeout(uuidCopiedTimer);
-  uuidCopiedTimer = setTimeout(() => { uuidCopied = false; }, 2000);
-}
-
-// ─── SSH Keys ───
 
 let keys = $state<UserSshKey[]>([]);
 let isLoading = $state(true);
@@ -110,94 +65,23 @@ async function handleDelete(id: string) {
 }
 
 onMount(() => {
-  loadProfile();
-  loadKeys();
+  void loadKeys();
 });
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
-  <!-- Header -->
-  <PageHeader>
-    {#snippet left()}
-      <span class="text-[13px] lg:text-[11px] font-medium text-text-primary lg:text-text-secondary">Settings</span>
-    {/snippet}
-  </PageHeader>
-
-  <div class="flex-1 p-6 overflow-y-auto max-w-2xl">
-    <!-- Profile Section -->
-    <section class="mb-10">
-      <h2 class="text-[14px] font-semibold text-text-primary mb-1">Profile</h2>
-      <p class="text-[13px] text-text-tertiary mb-4">Your user ID. Share this to be added as a collaborator.</p>
-
-      <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
-        {#if userAvatar}
-          <div class="flex items-center gap-3">
-            <img src={userAvatar} alt="avatar" class="w-9 h-9 rounded-full border border-border-subtle" />
-            <span class="text-[14px] font-medium text-text-primary">{userNickname || 'User'}</span>
-          </div>
-        {:else}
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-full bg-bg-hover-strong border border-border-subtle flex items-center justify-center">
-              <User class="w-4 h-4 text-text-tertiary" />
-            </div>
-            <span class="text-[14px] font-medium text-text-primary">{userNickname || 'User'}</span>
-          </div>
-        {/if}
-
-        <div>
-          <div class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">User UUID</div>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 px-3 py-[6px] rounded-[5px] bg-bg-code border border-border-subtle text-[12px] font-mono text-text-primary truncate select-all">{userUuid}</code>
-            <button
-              type="button"
-              onclick={copyUuid}
-              class="shrink-0 p-2 rounded-[5px] border border-border-subtle bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-              title="Copy UUID"
-            >
-              {#if uuidCopied}
-                <Check class="w-4 h-4 text-success-soft" />
-              {:else}
-                <Copy class="w-4 h-4" />
-              {/if}
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Appearance Section -->
-    <section class="mb-10">
-      <h2 class="text-[14px] font-semibold text-text-primary mb-1">Appearance</h2>
-      <p class="text-[13px] text-text-tertiary mb-4">Choose your preferred theme.</p>
-
-      <div class="flex gap-2">
-        {#each themeOptions as option}
-          <button
-            type="button"
-            class="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] border text-[13px] font-medium transition-colors duration-100 {
-              theme === option.value
-                ? 'border-brand/40 bg-brand-bg text-text-primary'
-                : 'border-border-subtle bg-bg-surface text-text-tertiary hover:text-text-secondary hover:bg-bg-surface-hover'
-            }"
-            onclick={() => handleThemeChange(option.value)}
-          >
-            <option.icon class="w-4 h-4" />
-            {option.label}
-          </button>
-        {/each}
-      </div>
-    </section>
-
-    <!-- SSH Keys Section -->
-    <section>
-      <h2 class="text-[14px] font-semibold text-text-primary mb-1">SSH Keys</h2>
-      <p class="text-[13px] text-text-tertiary mb-4">Add your SSH public keys to enable pushing to your repositories via SSH.</p>
+  <div class="flex-1 p-6 overflow-y-auto">
+    <section class="max-w-xl">
+      <h1 class="text-[18px] font-semibold text-text-primary tracking-tight">SSH Keys</h1>
+      <p class="mt-1 text-[13px] text-text-tertiary">
+        Add your public SSH keys to enable Git push to your spaces.
+      </p>
 
       {#if isAdding}
-        <div class="mb-4 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
+        <div class="mt-6 border border-border-subtle rounded-md bg-bg-surface p-4" in:fade>
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-[13px] font-medium text-text-primary">Add SSH Key</h3>
-            <button onclick={() => isAdding = false} class="text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
+            <button onclick={() => (isAdding = false)} class="text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
               <X class="w-4 h-4" />
             </button>
           </div>
@@ -238,8 +122,8 @@ onMount(() => {
         </div>
       {:else}
         <button
-          onclick={() => isAdding = true}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors mb-4 cursor-pointer"
+          onclick={() => (isAdding = true)}
+          class="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
         >
           <Plus class="w-3.5 h-3.5" />
           Add SSH Key
@@ -253,7 +137,7 @@ onMount(() => {
           Loading SSH keys...
         </div>
       {:else if loadError}
-        <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
+        <div class="mt-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if keys.length === 0}
         <div class="flex flex-col items-center justify-center py-16 text-center">
           <div class="w-11 h-11 rounded-md bg-bg-surface border border-border-subtle flex items-center justify-center mb-3">
@@ -263,7 +147,7 @@ onMount(() => {
           <p class="text-[12px] text-text-placeholder mt-1">Add an SSH key to push to your repositories</p>
         </div>
       {:else}
-        <div class="space-y-2">
+        <div class="mt-6 space-y-2">
           {#each keys as key (key.id)}
             <div class="group flex items-start gap-3 p-3 rounded-[5px] border border-border-subtle bg-bg-surface hover:border-border-primary transition-colors duration-100">
               <div class="w-8 h-8 rounded-[5px] bg-warning-bg border border-warning-soft/30 flex items-center justify-center shrink-0 mt-0.5">

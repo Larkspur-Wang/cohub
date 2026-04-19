@@ -11,10 +11,12 @@ const {
   dragOffsetPx = 0,
   isDragging = false,
   isDrawerVisible = false,
+  mode = "space",
 }: {
   dragOffsetPx?: number;
   isDragging?: boolean;
   isDrawerVisible?: boolean;
+  mode?: "space" | "settings";
 } = $props();
 
 const TRANSITION_CSS = "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)";
@@ -85,7 +87,7 @@ $effect(() => {
   >
     {#if renderContent}
       <div class="h-full border-r border-border-subtle bg-bg-primary">
-        <Sidebar isMobile onClose={closeDrawer} />
+        <Sidebar isMobile mode={mode} onClose={closeDrawer} />
       </div>
     {/if}
   </div>

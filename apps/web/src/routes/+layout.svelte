@@ -22,6 +22,8 @@ const { children } = $props();
 
 const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
+const isHome = $derived(currentPath === "/");
+const sidebarMode = $derived(currentPath.startsWith("/settings") ? "settings" : "space");
 
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);
@@ -291,7 +293,7 @@ onMount(() => {
 });
 </script>
 
-{#if isLogin}
+{#if isLogin || isHome}
   <main class="min-h-screen bg-bg-primary text-text-primary">
     {@render children?.()}
   </main>
@@ -300,7 +302,7 @@ onMount(() => {
     <!-- Desktop sidebar — hidden on mobile -->
     <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarWidth}px`}>
       <div class="min-w-0 flex-1 border-r border-border-subtle">
-        <Sidebar />
+        <Sidebar mode={sidebarMode} />
       </div>
       <button
         type="button"
@@ -326,6 +328,7 @@ onMount(() => {
     dragOffsetPx={dragOffsetPx}
     {isDragging}
     {isDrawerVisible}
+    mode={sidebarMode}
   />
 
   <!-- Global media lightbox -->

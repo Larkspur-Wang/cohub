@@ -91,7 +91,7 @@ async function handleSubmit(e: Event) {
       credentials,
     });
 
-    await goto("/channels");
+    await goto("/settings/channels");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create channel";
     if (message.includes("unauthorized") || message.includes("401")) {
@@ -109,8 +109,8 @@ async function handleSubmit(e: Event) {
   <!-- Header -->
   <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
     <div class="flex items-center gap-3 min-w-0">
-      <a href="/channels" class="text-text-tertiary hover:text-text-primary transition-colors shrink-0"
-        onclick={(e) => { e.preventDefault(); goto("/channels"); }}>
+      <a href="/settings/channels" class="text-text-tertiary hover:text-text-primary transition-colors shrink-0"
+        onclick={(e) => { e.preventDefault(); goto("/settings/channels"); }}>
         <ArrowLeft class="w-4 h-4" />
       </a>
       <div class="w-[1px] h-4 bg-border-subtle shrink-0"></div>
@@ -243,7 +243,7 @@ async function handleSubmit(e: Event) {
             <div class="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onclick={() => goto("/channels")}
+                onclick={() => goto("/settings/channels")}
                 class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
               >
                 Cancel
@@ -390,7 +390,7 @@ async function handleSubmit(e: Event) {
             <div class="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onclick={() => goto("/channels")}
+                onclick={() => goto("/settings/channels")}
                 class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
               >
                 Cancel

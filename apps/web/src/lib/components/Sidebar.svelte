@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, untrack } from "svelte";
+import { onMount } from "svelte";
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
@@ -9,15 +9,26 @@ import {
   Settings,
   LogOut,
   Users,
-  Network,
   FolderKanban,
+  User,
+  Palette,
+  KeyRound,
+  Network,
 } from "lucide-svelte";
 import { getSpaces, getSpaceSessions, createSpaceSession, type SessionRecord, type SpaceRecord } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 
-const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
+const {
+  isMobile = false,
+  onClose,
+  mode = "space",
+}: {
+  isMobile?: boolean;
+  onClose?: () => void;
+  mode?: "space" | "settings";
+} = $props();
 
 const SESSION_POLL_INTERVAL_MS = 15_000;
 
@@ -43,6 +54,18 @@ const currentSpaceId = $derived.by(() => {
 const currentSpace = $derived(
   currentSpaceId ? spaces.find((s) => s.id === currentSpaceId) ?? null : null,
 );
+
+const settingsTabs = [
+  { id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
+  { id: "appearance", label: "Appearance", icon: Palette, href: "/settings/appearance" },
+  { id: "ssh-keys", label: "SSH Keys", icon: KeyRound, href: "/settings/ssh-keys" },
+  { id: "channels", label: "Channels", icon: Network, href: "/settings/channels" },
+];
+
+const activeSettingsTab = $derived.by(() => {
+  const tab = settingsTabs.find((tab) => currentPath.startsWith(tab.href));
+  return tab?.id ?? null;
+});
 
 function sourceBadge(source: string | null): string {
   if (!source || source === "web") return "";
@@ -184,14 +207,16 @@ function scheduleSessionPoll() {
 }
 
 onMount(() => {
-  void (async () => {
-    await loadSpaces(true);
+  if (mode === "space") {
+    void (async () => {
+      await loadSpaces(true);
 
-    window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
-    window.addEventListener("cohub:space-created", handleSpaceCreated as EventListener);
+      window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
+      window.addEventListener("cohub:space-created", handleSpaceCreated as EventListener);
 
-    scheduleSessionPoll();
-  })();
+      scheduleSessionPoll();
+    })();
+  }
 
   function handleSpaceCreated() {
     void loadSpaces(true);
@@ -199,10 +224,10 @@ onMount(() => {
 
   function handleClickOutside(e: MouseEvent) {
     const target = e.target as HTMLElement;
-    if (!target.closest('[data-user-menu]')) {
+    if (!target.closest("[data-user-menu]")) {
       showUserMenu = false;
     }
-    if (!target.closest('[data-space-switcher]')) {
+    if (!target.closest("[data-space-switcher]")) {
       showSpaceModal = false;
     }
   }
@@ -211,18 +236,19 @@ onMount(() => {
   return () => {
     if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
     document.removeEventListener("click", handleClickOutside);
-    window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
-    window.removeEventListener("cohub:space-created", handleSpaceCreated as EventListener);
+    if (mode === "space") {
+      window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
+      window.removeEventListener("cohub:space-created", handleSpaceCreated as EventListener);
+    }
   };
 });
 
 // Re-poll sessions when currentSpaceId changes
 $effect(() => {
+  if (mode !== "space") return;
   const id = currentSpaceId;
   if (id) {
-    untrack(() => {
-      void loadSessionsForSpace(id, true);
-    });
+    void loadSessionsForSpace(id, true);
   }
   scheduleSessionPoll();
 });
@@ -251,93 +277,114 @@ $effect(() => {
     </a>
   </div>
 
-  <!-- Space Switcher -->
-  <div class="px-2 py-1.5 shrink-0 border-b border-border-subtle">
-    <button
-      type="button"
-      data-space-switcher
-      class="w-full flex items-center gap-2 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
-      onclick={() => { showSpaceModal = !showSpaceModal; void loadSpaces(true); }}
-    >
-      {#if currentSpace}
-        <span class="w-5 h-5 rounded-[4px] flex items-center justify-center shrink-0 {statusColorClass(displayStatus(currentSpace))}">
-          <FolderKanban class="w-3 h-3 text-white" />
-        </span>
-        <span class="flex-1 text-[13px] text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
-      {:else}
-        <span class="w-5 h-5 rounded-[4px] bg-bg-hover-strong flex items-center justify-center shrink-0">
-          <FolderKanban class="w-3 h-3 text-text-tertiary" />
-        </span>
-        <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
-      {/if}
-      <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
-    </button>
-  </div>
-
-  <!-- Sessions Section -->
-  <div class="flex flex-col min-h-0 flex-1">
-    <div class="h-8 flex items-center justify-between px-2 shrink-0">
-      <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
-        Sessions
-      </span>
-      {#if currentSpace}
-        <button
-          type="button"
-          class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
-          onclick={async () => {
-            if (!currentSpaceId) return;
-            try {
-              const result = await createSpaceSession(currentSpaceId, { source: "web" });
-              await handleNavigateToSession(result.session.id);
-            } catch (error) {
-              console.error("[sidebar] Failed to create session:", error);
-              loadError = error instanceof Error ? error.message : "Failed to create session";
-            }
-          }}
-          title="New session"
-        >
-          <Plus class="w-3.5 h-3.5" />
-        </button>
-      {/if}
+  {#if mode === "space"}
+    <!-- Space Switcher -->
+    <div class="px-2 py-1.5 shrink-0 border-b border-border-subtle">
+      <button
+        type="button"
+        data-space-switcher
+        class="w-full flex items-center gap-2 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
+        onclick={() => { showSpaceModal = !showSpaceModal; void loadSpaces(true); }}
+      >
+        {#if currentSpace}
+          <span class="w-5 h-5 rounded-[4px] flex items-center justify-center shrink-0 {statusColorClass(displayStatus(currentSpace))}">
+            <FolderKanban class="w-3 h-3 text-white" />
+          </span>
+          <span class="flex-1 text-[13px] text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
+        {:else}
+          <span class="w-5 h-5 rounded-[4px] bg-bg-hover-strong flex items-center justify-center shrink-0">
+            <FolderKanban class="w-3 h-3 text-text-tertiary" />
+          </span>
+          <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
+        {/if}
+        <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
+      </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
-      {#if !currentSpace}
-        <div class="px-3 py-6 text-[12px] text-text-placeholder text-center">
-          Select a space to view sessions
-        </div>
-      {:else if loadingSessions && sessions.length === 0}
-        <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
-          <Loader2 class="w-3 h-3 animate-spin" />
-          Loading...
-        </div>
-      {:else if sessions.length === 0}
-        <div class="px-3 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
-      {:else}
-        {#each sessions as session, index (session.id)}
-          {@const isActive = page.url.searchParams.get("session") === session.id}
-          <a
-            href="/spaces/{currentSpaceId}?session={session.id}"
-            class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-            onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
-            title={sourceTooltip(session.source) || undefined}
+    <!-- Sessions Section -->
+    <div class="flex flex-col min-h-0 flex-1">
+      <div class="h-8 flex items-center justify-between px-2 shrink-0">
+        <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
+          Sessions
+        </span>
+        {#if currentSpace}
+          <button
+            type="button"
+            class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
+            onclick={async () => {
+              if (!currentSpaceId) return;
+              try {
+                const result = await createSpaceSession(currentSpaceId, { source: "web" });
+                await handleNavigateToSession(result.session.id);
+              } catch (error) {
+                console.error("[sidebar] Failed to create session:", error);
+                loadError = error instanceof Error ? error.message : "Failed to create session";
+              }
+            }}
+            title="New session"
           >
-            <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-            {#if sourceBadge(session.source)}
-              <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                {sourceBadge(session.source)}
-              </span>
-            {/if}
-            {#if sessionIsStreaming(session)}
-              <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-            {:else if unreadTracker.isUnread(session)}
-              <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-            {/if}
-          </a>
-        {/each}
-      {/if}
+            <Plus class="w-3.5 h-3.5" />
+          </button>
+        {/if}
+      </div>
+
+      <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
+        {#if !currentSpace}
+          <div class="px-3 py-6 text-[12px] text-text-placeholder text-center">
+            Select a space to view sessions
+          </div>
+        {:else if loadingSessions && sessions.length === 0}
+          <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
+            <Loader2 class="w-3 h-3 animate-spin" />
+            Loading...
+          </div>
+        {:else if sessions.length === 0}
+          <div class="px-3 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
+        {:else}
+          {#each sessions as session, index (session.id)}
+            {@const isActive = page.url.searchParams.get("session") === session.id}
+            <a
+              href="/spaces/{currentSpaceId}?session={session.id}"
+              class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+              onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+              title={sourceTooltip(session.source) || undefined}
+            >
+              <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+              {#if sourceBadge(session.source)}
+                <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                  {sourceBadge(session.source)}
+                </span>
+              {/if}
+              {#if sessionIsStreaming(session)}
+                <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+              {:else if unreadTracker.isUnread(session)}
+                <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+              {/if}
+            </a>
+          {/each}
+        {/if}
+      </div>
     </div>
-  </div>
+  {:else}
+    <!-- Settings Navigation -->
+    <nav class="flex-1 overflow-y-auto px-2 py-2 space-y-[2px]">
+      {#each settingsTabs as tab (tab.id)}
+        {@const isActive = activeSettingsTab === tab.id}
+        <a
+          href={tab.href}
+          class="flex items-center gap-2.5 px-2.5 py-2 rounded-[5px] text-[13px] transition-colors duration-100 cursor-pointer {
+            isActive
+              ? 'bg-bg-active text-text-primary font-medium'
+              : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'
+          }"
+          onclick={(e) => { e.preventDefault(); handleNavigate(tab.href); }}
+        >
+          <tab.icon class="w-[15px] h-[15px] shrink-0" />
+          <span>{tab.label}</span>
+        </a>
+      {/each}
+    </nav>
+  {/if}
 
   <!-- User Menu -->
   <div class="border-t border-border-subtle p-1.5 shrink-0 relative">
@@ -346,22 +393,25 @@ $effect(() => {
         data-user-menu
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
-        <a
-          href="/channels"
-          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/channels'); }}
-        >
-          <Network class="w-3.5 h-3.5" />
-          <span>Channels</span>
-        </a>
-        <a
-          href="/settings"
-          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings'); }}
-        >
-          <Settings class="w-3.5 h-3.5" />
-          <span>Settings</span>
-        </a>
+        {#if mode === "space"}
+          <a
+            href="/settings"
+            class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+            onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings'); }}
+          >
+            <Settings class="w-3.5 h-3.5" />
+            <span>Settings</span>
+          </a>
+        {:else}
+          <a
+            href="/"
+            class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+            onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}
+          >
+            <FolderKanban class="w-3.5 h-3.5" />
+            <span>Spaces</span>
+          </a>
+        {/if}
         <button
           class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors duration-100"
           onclick={() => { showUserMenu = false; void handleLogout(); }}
@@ -390,27 +440,32 @@ $effect(() => {
         {/if}
       </div>
       <div class="flex-1 min-w-0 text-left">
-        <p class="text-[12px] text-text-secondary truncate">{authStore.claims?.name ?? 'Guest'}</p>
+        <p class="text-[12px] text-text-secondary truncate">{authStore.claims?.name ?? "Guest"}</p>
       </div>
-      <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {showUserMenu ? 'rotate-180' : ''}" />
+      <ChevronDown class={'w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 ' + (showUserMenu ? 'rotate-180' : '')} />
     </button>
   </div>
 
   <!-- Space Switcher Modal -->
   {#if showSpaceModal}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center">
+    <div
+      role="button"
+      tabindex="0"
+      class="fixed inset-0 z-[100] flex items-center justify-center"
+      onclick={() => { showSpaceModal = false; }}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { showSpaceModal = false; } }}
+    >
       <!-- Backdrop -->
-      <button
-        type="button"
-        class="absolute inset-0 bg-black/60"
-        style="backdrop-filter: blur(4px);"
-        onclick={() => { showSpaceModal = false; }}
-        aria-label="Close space switcher"
-      ></button>
+      <div class="absolute inset-0 bg-black/60" style="backdrop-filter: blur(4px);"></div>
 
       <!-- Modal Panel -->
       <div
+        role="dialog"
+        aria-label="Switch Space"
+        tabindex="-1"
         class="relative w-[340px] max-w-[calc(100vw-2rem)] max-h-[70vh] bg-bg-primary border border-border-subtle rounded-lg shadow-2xl overflow-hidden flex flex-col"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}
       >
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
@@ -486,7 +541,7 @@ $effect(() => {
           <button
             type="button"
             class="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-brand hover:bg-bg-hover transition-colors duration-100"
-            onclick={() => { showSpaceModal = false; handleNavigate('/spaces/new'); }}
+            onclick={() => { showSpaceModal = false; handleNavigate("/spaces/new"); }}
           >
             <Plus class="w-3.5 h-3.5" />
             <span>New Space</span>
