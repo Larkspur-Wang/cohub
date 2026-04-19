@@ -721,3 +721,76 @@ export const recreateSpaceSandbox = async (spaceId: string) => {
 		method: "POST",
 	}) as Promise<{ ok: true; message: string }>;
 };
+
+// ─── Permission Management ──────────────────────────────
+
+export type ResourcePermission = {
+	id: string;
+	resourceType: "space" | "session";
+	resourceId: string;
+	granteeUuid: string | null;
+	level: ResourcePermissionLevel;
+	createdBy: string;
+	createdAt: string;
+};
+
+export const createSpacePermission = async (
+	spaceId: string,
+	level: ResourcePermissionLevel,
+) =>
+	apiFetch(`/api/spaces/${spaceId}/permissions`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ level }),
+	}) as Promise<ResourcePermission>;
+
+export const deleteSpacePermission = async (spaceId: string) =>
+	apiFetch(`/api/spaces/${spaceId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+
+export const listSpacePermissions = async (spaceId: string) =>
+	apiFetch(`/api/spaces/${spaceId}/permissions`) as Promise<ResourcePermission[]>;
+
+export const createSessionPermission = async (
+	sessionId: string,
+	level: ResourcePermissionLevel,
+) =>
+	apiFetch(`/api/sessions/${sessionId}/permissions`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ level }),
+	}) as Promise<ResourcePermission>;
+
+export const deleteSessionPermission = async (sessionId: string) =>
+	apiFetch(`/api/sessions/${sessionId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+
+// ─── Collaborator Management ──────────────────────────────
+
+export const addSpaceCollaborator = async (
+	spaceId: string,
+	granteeUuid: string,
+	level: ResourcePermissionLevel,
+) =>
+	apiFetch(`/api/spaces/${spaceId}/collaborators`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ granteeUuid, level }),
+	}) as Promise<ResourcePermission>;
+
+export const listSpaceCollaborators = async (spaceId: string) =>
+	apiFetch(`/api/spaces/${spaceId}/collaborators`) as Promise<ResourcePermission[]>;
+
+export const updateSpaceCollaborator = async (
+	spaceId: string,
+	granteeUuid: string,
+	level: ResourcePermissionLevel,
+) =>
+	apiFetch(`/api/spaces/${spaceId}/collaborators/${granteeUuid}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ level }),
+	}) as Promise<ResourcePermission>;
+
+export const removeSpaceCollaborator = async (spaceId: string, granteeUuid: string) =>
+	apiFetch(`/api/spaces/${spaceId}/collaborators/${granteeUuid}`, {
+		method: "DELETE",
+	}) as Promise<{ ok: true }>;

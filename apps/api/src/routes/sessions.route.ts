@@ -1,5 +1,8 @@
-import type { ContentBlock } from "@cohub/protocol";
+import type { ContentBlock, ResourcePermissionLevel } from "@cohub/protocol";
 import { Hono } from "hono";
+import { and, eq, isNull } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { resourcePermissions } from "../db/schema-v2.js";
 import { canReadForSession, canWrite } from "../permissions.js";
 import { useAuth, requireValidId } from "../lib/middleware.js";
 import {
@@ -120,6 +123,77 @@ router.post("/:id/messages", async (c) => {
   }
 
   return c.json({ ok: true, userMessageId });
+});
+
+// ── Session Permission Management ────────────────────────────────────────────
+
+/**
+ * POST /api/sessions/:id/permissions
+ * Set public permission level for a session (granteeUuid = NULL).
+ * Only the space owner can modify.
+ */
+router.post("/:id/permissions", async (c) => {
+  const user = useAuth(c);
+  const rawSessionId = c.req.param("id");
+  if (!rawSessionId || !requireValidId(rawSessionId)) return c.json({ message: "session not found" }, 404);
+  const sessionId = rawSessionId;
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+
+  // Only space owner can set session permissions
+  const space = await getSpaceById(session.spaceId);
+  if (!space || space.userUuid !== user.uuid) return c.json({ message: "not found" }, 404);
+
+  const body = await c.req.json<{ level: ResourcePermissionLevel }>().catch(() => null);
+  if (!body || (body.level !== "read" && body.level !== "write" && body.level !== "private")) {
+    return c.json({ message: "level must be 'read', 'write', or 'private'" }, 400);
+  }
+
+  const [perm] = await db
+    .insert(resourcePermissions)
+    .values({
+      resourceType: "session",
+      resourceId: sessionId,
+      granteeUuid: null,
+      level: body.level,
+      createdBy: user.uuid,
+    })
+    .onConflictDoUpdate({
+      target: [resourcePermissions.resourceType, resourcePermissions.resourceId, resourcePermissions.granteeUuid],
+      set: { level: body.level },
+    })
+    .returning();
+
+  return c.json(perm);
+});
+
+/**
+ * DELETE /api/sessions/:id/permissions
+ * Delete only the session public permission record (granteeUuid = NULL).
+ */
+router.delete("/:id/permissions", async (c) => {
+  const user = useAuth(c);
+  const rawSessionId = c.req.param("id");
+  if (!rawSessionId || !requireValidId(rawSessionId)) return c.json({ message: "session not found" }, 404);
+  const sessionId = rawSessionId;
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+
+  // Only space owner can delete session permissions
+  const space = await getSpaceById(session.spaceId);
+  if (!space || space.userUuid !== user.uuid) return c.json({ message: "not found" }, 404);
+
+  await db
+    .delete(resourcePermissions)
+    .where(and(
+      eq(resourcePermissions.resourceType, "session"),
+      eq(resourcePermissions.resourceId, sessionId),
+      isNull(resourcePermissions.granteeUuid),
+    ));
+
+  return c.json({ ok: true });
 });
 
 export default router;

@@ -11,10 +11,14 @@ import type { spaces } from "../db/schema-v2.js";
 
 // ── ID validation ────────────────────────────────────────────────────────────
 
+/** Standard UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Short UUID (no hyphens): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx */
+const SHORT_UUID_REGEX = /^[0-9a-f]{32}$/i;
+
 export const requireValidId = (value: string | null | undefined) =>
-  Boolean(value && UUID_REGEX.test(value));
+  Boolean(value && (UUID_REGEX.test(value) || SHORT_UUID_REGEX.test(value)));
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 
