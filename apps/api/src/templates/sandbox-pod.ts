@@ -34,6 +34,11 @@ export const SANDBOX_POD_TEMPLATE = {
   spec: {
     restartPolicy: "Never",
     imagePullSecrets: [{ name: "gitea-registry" }],
+    securityContext: {
+      runAsUser: 1000,
+      runAsGroup: 1000,
+      fsGroup: 1000,
+    },
     containers: [
       {
         name: "sandbox",

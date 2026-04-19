@@ -17,6 +17,9 @@ spec:
         app.kubernetes.io/name: __APP_NAME__
     spec:
 __IMAGE_PULL_SECRETS_BLOCK__
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
       containers:
         - name: __APP_NAME__
           image: __IMAGE_REPOSITORY__:__IMAGE_TAG__

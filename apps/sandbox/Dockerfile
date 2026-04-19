@@ -44,4 +44,6 @@ COPY --from=builder /out/cohub-sandbox /usr/local/bin/cohub-sandbox
 
 RUN mkdir -p "$WORKSPACE_DIR"
 
+USER node
+
 CMD ["cohub-sandbox"]
