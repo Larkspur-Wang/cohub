@@ -19,7 +19,6 @@ type Client struct {
 
 type Payload struct {
 	Status    string                 `json:"status"`
-	PodIP     string                 `json:"podIp"`
 	PodName   string                 `json:"podName,omitempty"`
 	SandboxID string                 `json:"sandboxId,omitempty"`
 	Meta      map[string]interface{} `json:"meta,omitempty"`
@@ -39,9 +38,6 @@ func (c *Client) Report(payload Payload) error {
 	if baseURL == "" {
 		return fmt.Errorf("INTERNAL_API_BASE_URL is required")
 	}
-	if strings.TrimSpace(payload.PodIP) == "" {
-		payload.PodIP = c.cfg.PodIP
-	}
 	if strings.TrimSpace(payload.PodName) == "" {
 		payload.PodName = c.cfg.PodName
 	}
@@ -60,6 +56,9 @@ func (c *Client) Report(payload Payload) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.cfg.SandboxReportToken) != "" {
+		req.Header.Set("x-sandbox-report-token", c.cfg.SandboxReportToken)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

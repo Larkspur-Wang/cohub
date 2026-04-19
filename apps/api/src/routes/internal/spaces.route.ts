@@ -16,15 +16,12 @@ import {
   updateSpaceStatus,
   SandboxNotReadyError,
 } from "../../space-sessions.js";
-import {
-  getSandboxPodByIp,
-  getSpaceSandboxBySpaceId,
-  updateSpaceSandbox,
-} from "../../space-sandboxes.js";
+import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
+import { isSandboxReportTokenValid } from "../../crypto.js";
 import {
   ensureInternalRequest,
   getRequestRemoteAddress,
-  normalizeIpAddress,
+  isPrivateNetworkAddress,
   requireValidId,
 } from "../../lib/middleware.js";
 
@@ -37,7 +34,6 @@ const ALLOWED_SANDBOX_META_KEYS = new Set([
   "lastProvisionedAt",
   "lastStatus",
   "lastError",
-  "podIp",
   "podName",
   "hostname",
   "imageVersion",
@@ -102,6 +98,9 @@ router.post("/:id/status", async (c) => {
 
 // POST /internal/spaces/:id/sandbox-report
 router.post("/:id/sandbox-report", async (c) => {
+  const remoteAddress = getRequestRemoteAddress(c);
+  if (!isPrivateNetworkAddress(remoteAddress)) return c.json({ message: "forbidden" }, 403);
+
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   const space = await getSpaceById(spaceId);
@@ -110,37 +109,28 @@ router.post("/:id/sandbox-report", async (c) => {
   const body = await c
     .req.json<{
       status?: string;
-      podIp?: string;
       podName?: string;
       sandboxId?: string;
       meta?: Record<string, unknown> | null;
     }>()
     .catch(() => null);
   if (!body?.status) return c.json({ message: "status is required" }, 400);
-  if (!body?.podIp?.trim()) return c.json({ message: "podIp is required" }, 400);
 
-  const reportedPodIp = normalizeIpAddress(body.podIp);
-  const remoteAddress = normalizeIpAddress(getRequestRemoteAddress(c));
-  if (!reportedPodIp) return c.json({ message: "podIp is required" }, 400);
-  if (!remoteAddress || remoteAddress !== reportedPodIp) {
-    return c.json({ message: "forbidden" }, 403);
-  }
+  const sandboxReportToken = c.req.header("x-sandbox-report-token")?.trim();
+  if (!sandboxReportToken) return c.json({ message: "forbidden" }, 403);
 
-  const pod = await getSandboxPodByIp(reportedPodIp).catch(() => null);
-  if (!pod) return c.json({ message: "forbidden" }, 403);
-  if (pod.metadata?.labels?.app !== "agent-sandbox") return c.json({ message: "forbidden" }, 403);
-  if (pod.metadata?.labels?.["space-id"] !== spaceId) return c.json({ message: "forbidden" }, 403);
-  if (body.podName?.trim() && pod.metadata?.name !== body.podName.trim()) {
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+  const sandboxMeta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
+  const expectedTokenHash = typeof sandboxMeta?.reportTokenHash === "string" ? sandboxMeta.reportTokenHash : null;
+  if (!sandbox || !expectedTokenHash || !isSandboxReportTokenValid(sandboxReportToken, expectedTokenHash)) {
     return c.json({ message: "forbidden" }, 403);
   }
 
   const safeMeta = sanitizeSandboxMeta({
     ...(body.meta ?? {}),
-    podIp: reportedPodIp,
-    podName: body.podName?.trim() || pod.metadata?.name || null,
+    podName: body.podName?.trim() || sandbox.podName || null,
     sandboxId: body.sandboxId?.trim() || null,
   });
-  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
 
   await updateSpaceSandbox({
     spaceId,
@@ -150,16 +140,17 @@ router.post("/:id/sandbox-report", async (c) => {
         : body.status === "error"
           ? "error"
           : "provisioning",
-    podName: body.podName?.trim() || pod.metadata?.name || `sandbox-${spaceId}`,
+    podName: body.podName?.trim() || sandbox.podName || `sandbox-${spaceId}`,
     lastHeartbeatAt: new Date(),
     meta: {
-      ...((sandbox?.meta as Record<string, unknown> | null) ?? {}),
+      ...(sandboxMeta ?? {}),
       ...(safeMeta ?? {}),
     },
   });
 
   return c.json({ ok: true });
 });
+
 
 // GET /internal/spaces/:id/sandbox
 router.get("/:id/sandbox", async (c) => {

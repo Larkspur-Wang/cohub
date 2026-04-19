@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { config } from "./config.js";
 
@@ -28,3 +28,16 @@ export const decryptSecret = (payload: string) => {
   ]);
   return decrypted.toString("utf8");
 };
+
+export const createSandboxReportToken = () => randomBytes(32).toString("base64url");
+
+export const hashSandboxReportToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+export const isSandboxReportTokenValid = (providedToken: string, expectedTokenHash: string) => {
+  const providedHash = hashSandboxReportToken(providedToken);
+  const provided = Buffer.from(providedHash, "utf8");
+  const expected = Buffer.from(expectedTokenHash, "utf8");
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(provided, expected);
+};
+

@@ -59,7 +59,6 @@ func main() {
 		Status:    "provisioning",
 		SandboxID: cfg.SandboxID,
 		Meta: map[string]interface{}{
-			"podIp":         cfg.PodIP,
 			"podName":       cfg.PodName,
 			"hostname":      hostname,
 			"imageVersion":  cfg.ImageVersion,
@@ -80,7 +79,6 @@ func main() {
 				Status:    "error",
 				SandboxID: cfg.SandboxID,
 				Meta: map[string]interface{}{
-					"podIp":         cfg.PodIP,
 					"podName":       cfg.PodName,
 					"hostname":      hostname,
 					"imageVersion":  cfg.ImageVersion,
@@ -100,7 +98,6 @@ func main() {
 				Status:    "ready",
 				SandboxID: cfg.SandboxID,
 				Meta: map[string]interface{}{
-					"podIp":         cfg.PodIP,
 					"podName":       cfg.PodName,
 					"hostname":      hostname,
 					"imageVersion":  cfg.ImageVersion,

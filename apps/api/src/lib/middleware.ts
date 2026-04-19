@@ -52,11 +52,26 @@ export const getRequestRemoteAddress = (c: Context) => {
   return info.remote.address || null;
 };
 
-export const normalizeIpAddress = (value: string | null | undefined) => {
+export const isPrivateNetworkAddress = (value: string | null | undefined) => {
   const trimmed = value?.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("::ffff:")) return trimmed.slice(7);
-  return trimmed;
+  if (!trimmed) return false;
+
+  const normalized = trimmed.startsWith("::ffff:") ? trimmed.slice(7) : trimmed;
+  if (normalized === "127.0.0.1" || normalized === "::1") return true;
+  if (normalized.startsWith("10.")) return true;
+  if (normalized.startsWith("192.168.")) return true;
+
+  const ipv4Match = normalized.match(/^172\.(\d{1,3})\./);
+  if (ipv4Match) {
+    const secondOctet = Number.parseInt(ipv4Match[1] ?? "", 10);
+    if (secondOctet >= 16 && secondOctet <= 31) return true;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("fe80:")) return true;
+
+  return false;
 };
 
 export const ensureInternalRequest = (c: Context) => {

@@ -376,9 +376,7 @@ export const forkSpaceSession = async (input: { spaceId: string; parentSessionId
 
 export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
-  const sandboxMeta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
-  const podIp = typeof sandboxMeta?.podIp === "string" ? sandboxMeta.podIp.trim() : "";
-  if (!sandbox || sandbox.status !== "ready" || !podIp) throw new SandboxNotReadyError();
+  if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
 
   const lease = await resolveOrClaimSpaceOwner(input.spaceId);
 
@@ -461,11 +459,16 @@ export const updateSpaceStatus = async (spaceId: string, status: string) => {
               ? "error"
               : "pending";
 
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
   await updateSpaceSandbox({
     spaceId,
     status: normalizedStatus,
     podName: normalizedStatus === "terminated" ? null : `sandbox-${spaceId}`,
     lastHeartbeatAt: normalizedStatus === "ready" || normalizedStatus === "provisioning" ? new Date() : undefined,
-    meta: { lastStatus: status },
+    meta: {
+      ...((sandbox?.meta as Record<string, unknown> | null) ?? {}),
+      lastStatus: status,
+    },
   });
 };
+

@@ -4,6 +4,7 @@ import { spaceSandboxes } from "./db/schema-v2.js";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
+import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
 import type { SpaceSandboxStatus } from "@cohub/protocol";
 import type { V1Pod } from "@kubernetes/client-node";
 
@@ -77,29 +78,22 @@ export const updateSpaceSandbox = async (input: {
   return sandbox ?? null;
 };
 
-export const getSandboxPodByIp = async (podIp: string) => {
-  const pods = await k8sCoreApi.listNamespacedPod({
-    namespace: sessionsNamespace,
-    fieldSelector: `status.podIP=${podIp}`,
-  });
-  return pods.items[0] ?? null;
-};
-
 const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
   try {
     await k8sCoreApi.createNamespacedPod({
       namespace: sessionsNamespace,
       body: pod,
     });
+    return { podName: `sandbox-${spaceId}`, created: true };
   } catch (error: unknown) {
     const statusCode = (error as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
-      return { podName: `sandbox-${spaceId}` };
+      return { podName: `sandbox-${spaceId}`, created: false };
     }
     throw error;
   }
-  return { podName: `sandbox-${spaceId}` };
 };
+
 
 export const provisionSpaceInBackground = async (input: {
   spaceId: string;
@@ -110,13 +104,21 @@ export const provisionSpaceInBackground = async (input: {
   extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   const podName = `sandbox-${input.spaceId}`;
+  const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+  const existingMeta = (existingSandbox?.meta as Record<string, unknown> | null) ?? {};
+  const reportToken = createSandboxReportToken();
+  const reportTokenHash = hashSandboxReportToken(reportToken);
+  const reportTokenIssuedAt = new Date().toISOString();
 
   try {
     await ensureSpaceSandbox({
       spaceId: input.spaceId,
       status: "provisioning",
       podName,
-      meta: { provisioningStartedAt: new Date().toISOString() },
+      meta: {
+        ...existingMeta,
+        provisioningStartedAt: new Date().toISOString(),
+      },
     });
 
     const pod = renderSandboxPodTemplate({
@@ -144,13 +146,10 @@ export const provisionSpaceInBackground = async (input: {
               ? "http://cohub-api.cohub.svc.cluster.local:8787"
               : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
         },
+        { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },
         { name: "SPACE_GIT_EMAIL", value: input.spaceGitEmail ?? "" },
-        {
-          name: "POD_IP",
-          valueFrom: { fieldRef: { fieldPath: "status.podIP" } },
-        },
         {
           name: "POD_NAME",
           valueFrom: { fieldRef: { fieldPath: "metadata.name" } },
@@ -163,13 +162,20 @@ export const provisionSpaceInBackground = async (input: {
       ];
     }
 
-    await tryCreatePod(input.spaceId, pod);
+    const { created } = await tryCreatePod(input.spaceId, pod);
 
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "provisioning",
       podName,
       meta: {
+        ...existingMeta,
+        ...(created
+          ? {
+              reportTokenHash,
+              reportTokenIssuedAt,
+            }
+          : {}),
         lastProvisionedAt: new Date().toISOString(),
       },
     });
@@ -178,7 +184,13 @@ export const provisionSpaceInBackground = async (input: {
       spaceId: input.spaceId,
       status: "error",
       podName,
-      meta: { lastError: error instanceof Error ? error.message : String(error) },
+      meta: {
+        ...existingMeta,
+        ...(existingSandbox ? {} : { reportTokenHash, reportTokenIssuedAt }),
+        lastError: error instanceof Error ? error.message : String(error),
+      },
     }).catch(() => undefined);
   }
 };
+
+
