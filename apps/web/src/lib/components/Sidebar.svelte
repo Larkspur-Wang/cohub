@@ -13,7 +13,6 @@ import {
   Clock,
   Network,
   FolderKanban,
-  Sparkles,
 } from "lucide-svelte";
 import { getSpaces, getSpaceSessions, type SessionRecord, type SpaceRecord } from "$lib/api";
 import { logtoClient } from "$lib/auth";
@@ -86,6 +85,28 @@ function sourceBadge(source: string | null): string {
 
 function sourceTooltip(source: string | null): string {
   return source ?? "";
+}
+
+function displayStatus(space: SpaceRecord) {
+  return space.status ?? "unknown";
+}
+
+function statusColorClass(status: string): string {
+  switch (status) {
+    case "running":
+      return "bg-status-running";
+    case "starting":
+      return "bg-status-starting";
+    case "error":
+    case "failed":
+      return "bg-status-error";
+    case "hibernated":
+      return "bg-status-hibernated";
+    case "hibernating":
+      return "bg-status-hibernating";
+    default:
+      return "bg-status-unknown";
+  }
 }
 
 function toggleSpace(spaceId: string) {
@@ -311,6 +332,14 @@ onMount(() => {
 
   <nav class="px-1.5 py-2 space-y-[2px] shrink-0 border-b border-border-subtle">
     <a
+      href="/spaces"
+      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/spaces') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+      onclick={(e) => { e.preventDefault(); handleNavigate('/spaces'); }}
+    >
+      <FolderKanban class="w-[15px] h-[15px] shrink-0" />
+      <span>Spaces</span>
+    </a>
+    <a
       href="/channels"
       class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/channels') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
       onclick={(e) => { e.preventDefault(); handleNavigate('/channels'); }}
@@ -328,15 +357,15 @@ onMount(() => {
     </a>
   </nav>
 
+  <!-- Spaces Section -->
   <div class="flex flex-col min-h-0 flex-1">
-    <div class="flex items-center justify-between gap-2 px-2 py-2.5 shrink-0 border-b border-border-subtle/80 bg-bg-primary/70 backdrop-blur-sm">
-      <div class="min-w-0">
-        <div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-placeholder select-none">Spaces</div>
-        <div class="text-[11px] text-text-tertiary mt-0.5">Cloud workspaces and sessions</div>
-      </div>
+    <div class="h-8 flex items-center justify-between px-2 shrink-0">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
+        Spaces
+      </span>
       <button
         type="button"
-        class="inline-flex items-center justify-center w-7 h-7 rounded-[6px] border border-border-subtle bg-bg-elevated text-text-tertiary hover:text-text-primary hover:border-brand/25 hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
+        class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
         onclick={() => handleNavigate('/spaces/new')}
         title="Create space"
       >
@@ -344,36 +373,29 @@ onMount(() => {
       </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-1.5 py-2 space-y-[4px]">
+    <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
       {#if isLoading}
-        <div class="mx-1 rounded-[8px] border border-border-subtle bg-bg-elevated/55 px-3 py-3 text-[12px] text-text-tertiary flex items-center justify-center gap-2">
+        <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
           <Loader2 class="w-3 h-3 animate-spin" />
-          <span>Loading spaces…</span>
+          Loading...
         </div>
       {:else if loadError}
-        <div class="mx-1 rounded-[8px] border border-error-soft/30 bg-error-bg px-3 py-3 text-[12px] text-error-soft">
-          {loadError}
-        </div>
+        <div class="px-3 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
       {:else if spaces.length === 0}
-        <div class="mx-1 rounded-[10px] border border-dashed border-border-subtle bg-bg-elevated/35 px-3 py-4 text-center">
-          <div class="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-[8px] border border-border-subtle bg-bg-elevated text-brand">
-            <FolderKanban class="w-4 h-4" />
-          </div>
-          <div class="text-[12px] font-medium text-text-secondary">No spaces yet</div>
-          <div class="mt-1 text-[11px] leading-5 text-text-placeholder">Create a space to provision a sandbox and start new sessions when you are ready.</div>
-        </div>
+        <div class="px-3 py-4 text-[12px] text-text-tertiary text-center">No spaces</div>
       {:else}
         {#each spaces as space (space.id)}
           {@const isExpanded = expandedSpaces.has(space.id)}
           {@const isActive = isSpaceActive(space.id)}
+          {@const status = displayStatus(space)}
           {@const sessions = getSessions(space.id)}
-          {@const loadingSessions = loadingSessionsBySpace[space.id] ?? false}
 
-          <div class="space-y-1.5">
+          <div>
+            <!-- Space Row -->
             <div
               role="button"
               tabindex="0"
-              class="group relative flex items-center gap-2 rounded-[8px] border px-2 py-2 transition-all duration-100 cursor-pointer {isActive ? 'border-brand/30 bg-brand/6 text-text-primary shadow-[inset_0_1px_0_rgba(255,62,0,0.08)]' : 'border-transparent text-text-secondary hover:border-border-subtle hover:bg-bg-hover/80 hover:text-text-primary'}"
+              class="group relative flex items-center gap-1.5 pl-[6px] pr-2 py-1.5 rounded-r-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
               onclick={() => { void handleToggleSpace(space.id, isExpanded); }}
               onkeydown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -382,71 +404,54 @@ onMount(() => {
                 }
               }}
             >
-              <span class="absolute left-0 top-[7px] bottom-[7px] w-[3px] rounded-r-full {isActive ? 'bg-brand' : 'bg-transparent group-hover:bg-border-subtle'}"></span>
-              <span class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary group-hover:text-text-secondary transition-colors">
+              <!-- Status color bar (brand color when active, status color otherwise) -->
+              <span class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full {isActive ? 'bg-brand' : statusColorClass(status)}"></span>
+              <span
+                class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary group-hover:text-text-secondary transition-colors"
+              >
                 {#if isExpanded}
                   <ChevronDown class="w-3 h-3" />
                 {:else}
                   <ChevronRight class="w-3 h-3" />
                 {/if}
               </span>
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-[13px] font-medium leading-tight">{space.name || space.title || space.id.slice(0, 12)}</div>
-                <div class="mt-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-text-placeholder">
-                  <span>{space.sandboxStatus ?? 'idle'}</span>
-                  {#if sessions.length > 0}
-                    <span class="text-text-placeholder/60">•</span>
-                    <span>{sessions.length} session{sessions.length > 1 ? 's' : ''}</span>
-                  {/if}
-                </div>
-              </div>
+              <span class="truncate flex-1 text-[13.5px] leading-tight">{space.name || space.title || space.id.slice(0, 12)}</span>
               {#if space.userUuid !== authStore.userUuid}
-                <Users class="w-3.5 h-3.5 shrink-0 text-text-tertiary" />
+                <Users class="w-3 h-3 shrink-0 text-text-tertiary" />
               {/if}
             </div>
 
+            <!-- Sessions (when expanded) -->
             {#if isExpanded}
-              <div class="ml-[18px] rounded-[8px] border border-border-subtle/70 bg-bg-elevated/35 px-2 py-2">
-                {#if loadingSessions && sessions.length === 0}
-                  <div class="px-1 py-1.5 text-[11px] text-text-placeholder italic flex items-center gap-1.5">
+              <div class="ml-[14px] pl-2.5 border-l border-border-subtle space-y-0.5 py-0.5">
+                {#if loadingSessionsBySpace[space.id] && sessions.length === 0}
+                  <div class="px-2 py-1 text-[12px] text-text-placeholder italic flex items-center gap-1.5">
                     <Loader2 class="w-3 h-3 animate-spin" />
-                    Loading sessions…
+                    Loading...
                   </div>
                 {:else if sessions.length === 0}
-                  <div class="rounded-[7px] border border-dashed border-border-subtle/80 bg-bg-primary/45 px-2.5 py-2.5">
-                    <div class="flex items-start gap-2">
-                      <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-brand/8 text-brand">
-                        <Sparkles class="w-3.5 h-3.5" />
-                      </div>
-                      <div class="min-w-0">
-                        <div class="text-[11px] font-medium text-text-secondary">No sessions yet</div>
-                        <div class="mt-1 text-[11px] leading-5 text-text-placeholder">Open the space to create the first session when the sandbox is ready.</div>
-                      </div>
-                    </div>
-                  </div>
+                  <div class="px-2 py-1 text-[12px] text-text-placeholder italic">No sessions</div>
                 {:else}
-                  <div class="space-y-1">
-                    {#each sessions as session, index (session.id)}
-                      <a
-                        href="/spaces/{space.id}?session={session.id}"
-                        class="flex items-center gap-1.5 rounded-[6px] px-2 py-1.5 text-[12px] transition-colors duration-100 {isSessionActive(session.id) ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-                        onclick={(e) => { e.preventDefault(); handleNavigateToSession(space.id, session.id); }}
-                        title={sourceTooltip(session.source) || undefined}
-                      >
-                        <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-                        {#if sourceBadge(session.source)}
-                          <span class="shrink-0 rounded-[4px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium uppercase tracking-[0.08em] leading-none text-text-tertiary">
-                            {sourceBadge(session.source)}
-                          </span>
-                        {/if}
-                        {#if sessionIsStreaming(session)}
-                          <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                        {:else if unreadTracker.isUnread(session)}
-                          <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-                        {/if}
-                      </a>
-                    {/each}
-                  </div>
+                  {#each sessions as session, index (session.id)}
+                    <a
+                      href="/spaces/{space.id}?session={session.id}"
+                      class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      onclick={(e) => { e.preventDefault(); handleNavigateToSession(space.id, session.id); }}
+                      title={sourceTooltip(session.source) || undefined}
+                    >
+                      <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+                      {#if sourceBadge(session.source)}
+                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                          {sourceBadge(session.source)}
+                        </span>
+                      {/if}
+                      {#if sessionIsStreaming(session)}
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                      {:else if unreadTracker.isUnread(session)}
+                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                      {/if}
+                    </a>
+                  {/each}
                 {/if}
               </div>
             {/if}
@@ -491,15 +496,16 @@ onMount(() => {
           <img src={authStore.claims.picture} alt="avatar" class="w-full h-full object-cover" />
         {:else}
           <svg viewBox="0 0 32 32" class="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="32" height="32" fill="#2A2A2A" />
-            <circle cx="16" cy="12" r="5" fill="#666" />
-            <path d="M8 26c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="#666" />
+            <rect width="32" height="32" rx="16" fill="#e5e7eb" />
+            <circle cx="16" cy="12" r="5" fill="#9ca3af" />
+            <ellipse cx="16" cy="26" rx="9" ry="7" fill="#9ca3af" />
           </svg>
         {/if}
       </div>
-      <div class="min-w-0 flex-1 text-left">
+      <div class="flex-1 min-w-0 text-left">
         <p class="text-[12px] text-text-secondary truncate">{authStore.claims?.name ?? 'Guest'}</p>
       </div>
+      <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {showUserMenu ? 'rotate-180' : ''}" />
     </button>
   </div>
 </aside>
