@@ -13,7 +13,6 @@ import {
   type DrawerGestureDirection,
   type DrawerGesturePhase,
 } from "$lib/gestures/drawer-swipe";
-import { getResolvedTheme } from "$lib/theme";
 import { onMount } from "svelte";
 import { LEFT_SIDEBAR_MAX, LEFT_SIDEBAR_MIN, uiState } from "$lib/stores/ui.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
@@ -23,7 +22,6 @@ const { children } = $props();
 
 const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
-const resolvedTheme = $derived(getResolvedTheme());
 
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);

@@ -4,36 +4,32 @@ import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
   Plus,
-  ChevronRight,
   ChevronDown,
   Loader2,
   Settings,
   LogOut,
   Users,
-  Clock,
   Network,
   FolderKanban,
 } from "lucide-svelte";
-import { getSpaces, getSpaceSessions, type SessionRecord, type SpaceRecord } from "$lib/api";
+import { getSpaces, getSpaceSessions, createSpaceSession, type SessionRecord, type SpaceRecord } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 
 const { isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void } = $props();
 
-const SPACE_POLL_INTERVAL_MS = 15_000;
 const SESSION_POLL_INTERVAL_MS = 15_000;
 
-let expandedSpaces = $state<Set<string>>(new Set());
 let isLoading = $state(true);
 let loadError = $state("");
 let showUserMenu = $state(false);
+let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
-let sessionsBySpace = $state<Record<string, SessionRecord[]>>({});
-let loadingSessionsBySpace = $state<Record<string, boolean>>({});
+let sessions = $state<SessionRecord[]>([]);
+let loadingSessions = $state(false);
 
 let streamingSessionIds = $state<Set<string>>(new Set());
-let spacePollingTimer: ReturnType<typeof setTimeout> | null = null;
 let sessionPollingTimer: ReturnType<typeof setTimeout> | null = null;
 
 const currentPath = $derived(page.url.pathname);
@@ -44,38 +40,9 @@ const currentSpaceId = $derived.by(() => {
   return id;
 });
 
-$effect(() => {
-  const id = currentSpaceId;
-  untrack(() => {
-    if (id && !expandedSpaces.has(id)) {
-      expandedSpaces = new Set(expandedSpaces).add(id);
-      void loadSessions(id, true);
-    }
-  });
-});
-
-$effect(() => {
-  void expandedSpaces.size;
-  rescheduleSessionPoll();
-});
-
-function isNavItemActive(href: string) {
-  if (href === "/") return currentPath === "/";
-  return currentPath.startsWith(href);
-}
-
-function isSpaceActive(spaceId: string) {
-  return currentSpaceId === spaceId;
-}
-
-function isSessionActive(sessionId: string) {
-  const sessionIdParam = page.url.searchParams.get("session");
-  return sessionIdParam === sessionId;
-}
-
-function getSessions(spaceId: string) {
-  return sessionsBySpace[spaceId] ?? [];
-}
+const currentSpace = $derived(
+  currentSpaceId ? spaces.find((s) => s.id === currentSpaceId) ?? null : null,
+);
 
 function sourceBadge(source: string | null): string {
   if (!source || source === "web") return "";
@@ -109,16 +76,6 @@ function statusColorClass(status: string): string {
   }
 }
 
-function toggleSpace(spaceId: string) {
-  const next = new Set(expandedSpaces);
-  if (next.has(spaceId)) {
-    next.delete(spaceId);
-  } else {
-    next.add(spaceId);
-  }
-  expandedSpaces = next;
-}
-
 async function loadSpaces(force = false) {
   if (!(await logtoClient.isAuthenticated())) {
     isLoading = false;
@@ -133,19 +90,7 @@ async function loadSpaces(force = false) {
   }
 
   try {
-    const nextSpaces = await getSpaces();
-    const validIds = new Set(nextSpaces.map((space) => space.id));
-    const nextSessionsBySpace: Record<string, SessionRecord[]> = {};
-    const nextLoadingBySpace: Record<string, boolean> = {};
-    for (const [spaceId, sessions] of Object.entries(sessionsBySpace)) {
-      if (validIds.has(spaceId)) nextSessionsBySpace[spaceId] = sessions;
-    }
-    for (const [spaceId, loading] of Object.entries(loadingSessionsBySpace)) {
-      if (validIds.has(spaceId)) nextLoadingBySpace[spaceId] = loading;
-    }
-    spaces = nextSpaces;
-    sessionsBySpace = nextSessionsBySpace;
-    loadingSessionsBySpace = nextLoadingBySpace;
+    spaces = await getSpaces();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load spaces";
     if (message.includes("unauthorized") || message.includes("401")) {
@@ -158,24 +103,19 @@ async function loadSpaces(force = false) {
   }
 }
 
-async function loadSessions(spaceId: string, force = false) {
-  if (!force && loadingSessionsBySpace[spaceId]) return;
-  const shouldShowLoading = (sessionsBySpace[spaceId]?.length ?? 0) === 0;
+async function loadSessionsForSpace(spaceId: string, force = false) {
+  if (!force && loadingSessions) return;
+  const shouldShowLoading = sessions.length === 0;
   if (shouldShowLoading) {
-    loadingSessionsBySpace = { ...loadingSessionsBySpace, [spaceId]: true };
+    loadingSessions = true;
   }
   try {
     const result = await getSpaceSessions(spaceId);
-    sessionsBySpace = {
-      ...sessionsBySpace,
-      [spaceId]: result.sessions ?? [],
-    };
+    sessions = result.sessions ?? [];
   } catch (error) {
     console.warn("[sidebar] Failed to load sessions", { spaceId, error });
   } finally {
-    if (loadingSessionsBySpace[spaceId]) {
-      loadingSessionsBySpace = { ...loadingSessionsBySpace, [spaceId]: false };
-    }
+    loadingSessions = false;
   }
 }
 
@@ -201,32 +141,19 @@ async function handleNavigate(href: string) {
   await goto(href);
 }
 
-async function handleToggleSpace(spaceId: string, isExpanded: boolean) {
-  if (isExpanded) {
-    toggleSpace(spaceId);
-    return;
-  }
-
-  toggleSpace(spaceId);
-  void loadSessions(spaceId, true);
-
-  if (!isMobile) {
-    await handleNavigateToSpace(spaceId);
-  }
-}
-
 async function handleNavigateToSpace(spaceId: string) {
+  showSpaceModal = false;
   onClose?.();
   await goto(`/spaces/${spaceId}`);
 }
 
-async function handleNavigateToSession(spaceId: string, sessionId: string) {
+async function handleNavigateToSession(sessionId: string) {
   onClose?.();
-  const session = getSessions(spaceId).find((s) => s.id === sessionId);
+  const session = sessions.find((s) => s.id === sessionId);
   if (session?.lastMessageId) {
     unreadTracker.markViewed(sessionId, session.lastMessageId);
   }
-  await goto(`/spaces/${spaceId}?session=${sessionId}`);
+  await goto(`/spaces/${currentSpaceId}?session=${sessionId}`);
 }
 
 function sessionIsStreaming(session: SessionRecord): boolean {
@@ -247,55 +174,23 @@ async function handleLogout() {
   await logtoClient.signOut(`${window.location.origin}/`);
 }
 
-function scheduleSpacePoll() {
-  if (spacePollingTimer) clearTimeout(spacePollingTimer);
-  spacePollingTimer = setTimeout(async () => {
-    await loadSpaces();
-    scheduleSpacePoll();
-  }, SPACE_POLL_INTERVAL_MS);
-}
-
 function scheduleSessionPoll() {
   if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
-  const targets = [...expandedSpaces].filter((id) => spaces.some((space) => space.id === id));
-  if (targets.length === 0) return;
+  if (!currentSpaceId) return;
   sessionPollingTimer = setTimeout(async () => {
-    for (const spaceId of targets) {
-      await loadSessions(spaceId, true);
-    }
+    await loadSessionsForSpace(currentSpaceId, true);
     scheduleSessionPoll();
   }, SESSION_POLL_INTERVAL_MS);
 }
 
-function rescheduleSessionPoll() {
-  scheduleSessionPoll();
-}
-
 onMount(() => {
   void (async () => {
-    const authenticated = await logtoClient.isAuthenticated();
-    if (authenticated) {
-      await authStore.ensureLoaded();
-    }
-
     await loadSpaces(true);
-
-    if (currentSpaceId) {
-      expandedSpaces = new Set(expandedSpaces).add(currentSpaceId);
-      void loadSessions(currentSpaceId, true);
-    }
 
     window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
     window.addEventListener("cohub:space-created", handleSpaceCreated as EventListener);
 
-    scheduleSpacePoll();
-    rescheduleSessionPoll();
-
-    if (!currentSpaceId && spaces.length > 0) {
-      const firstSpace = spaces[0];
-      expandedSpaces = new Set(expandedSpaces).add(firstSpace.id);
-      void loadSessions(firstSpace.id, true);
-    }
+    scheduleSessionPoll();
   })();
 
   function handleSpaceCreated() {
@@ -307,20 +202,46 @@ onMount(() => {
     if (!target.closest('[data-user-menu]')) {
       showUserMenu = false;
     }
+    if (!target.closest('[data-space-switcher]')) {
+      showSpaceModal = false;
+    }
   }
   document.addEventListener("click", handleClickOutside);
 
   return () => {
-    if (spacePollingTimer) clearTimeout(spacePollingTimer);
     if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
     document.removeEventListener("click", handleClickOutside);
     window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
     window.removeEventListener("cohub:space-created", handleSpaceCreated as EventListener);
   };
 });
+
+// Re-poll sessions when currentSpaceId changes
+$effect(() => {
+  const id = currentSpaceId;
+  if (id) {
+    untrack(() => {
+      void loadSessionsForSpace(id, true);
+    });
+  }
+  scheduleSessionPoll();
+});
+
+// Close space modal on Escape
+$effect(() => {
+  if (!showSpaceModal) return;
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      showSpaceModal = false;
+    }
+  }
+  window.addEventListener("keydown", handleKeydown);
+  return () => window.removeEventListener("keydown", handleKeydown);
+});
 </script>
 
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
+  <!-- Brand Header -->
   <div class="h-[48px] flex items-center px-3 border-b border-border-subtle shrink-0">
     <a href="/" class="flex items-center gap-2 group" aria-label="Cohub">
       <div class="w-7 h-7 bg-[#FF3E00] rounded-[6px] flex items-center justify-center font-bold text-[11px] text-white group-hover:bg-brand-hover transition-colors">
@@ -330,143 +251,109 @@ onMount(() => {
     </a>
   </div>
 
-  <nav class="px-1.5 py-2 space-y-[2px] shrink-0 border-b border-border-subtle">
-    <a
-      href="/spaces"
-      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/spaces') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/spaces'); }}
+  <!-- Space Switcher -->
+  <div class="px-2 py-1.5 shrink-0 border-b border-border-subtle">
+    <button
+      type="button"
+      data-space-switcher
+      class="w-full flex items-center gap-2 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
+      onclick={() => { showSpaceModal = !showSpaceModal; void loadSpaces(true); }}
     >
-      <FolderKanban class="w-[15px] h-[15px] shrink-0" />
-      <span>Spaces</span>
-    </a>
-    <a
-      href="/channels"
-      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/channels') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/channels'); }}
-    >
-      <Network class="w-[15px] h-[15px] shrink-0" />
-      <span>Channels</span>
-    </a>
-    <a
-      href="/jobs"
-      class="flex items-center gap-2 px-2 py-[6px] rounded-[5px] text-[13px] transition-colors duration-100 {isNavItemActive('/jobs') ? 'bg-bg-active text-text-primary font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-      onclick={(e) => { e.preventDefault(); handleNavigate('/jobs'); }}
-    >
-      <Clock class="w-[15px] h-[15px] shrink-0" />
-      <span>Jobs</span>
-    </a>
-  </nav>
+      {#if currentSpace}
+        <span class="w-5 h-5 rounded-[4px] flex items-center justify-center shrink-0 {statusColorClass(displayStatus(currentSpace))}">
+          <FolderKanban class="w-3 h-3 text-white" />
+        </span>
+        <span class="flex-1 text-[13px] text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
+      {:else}
+        <span class="w-5 h-5 rounded-[4px] bg-bg-hover-strong flex items-center justify-center shrink-0">
+          <FolderKanban class="w-3 h-3 text-text-tertiary" />
+        </span>
+        <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
+      {/if}
+      <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
+    </button>
+  </div>
 
-  <!-- Spaces Section -->
+  <!-- Sessions Section -->
   <div class="flex flex-col min-h-0 flex-1">
     <div class="h-8 flex items-center justify-between px-2 shrink-0">
       <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
-        Spaces
+        Sessions
       </span>
-      <button
-        type="button"
-        class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
-        onclick={() => handleNavigate('/spaces/new')}
-        title="Create space"
-      >
-        <Plus class="w-3.5 h-3.5" />
-      </button>
+      {#if currentSpace}
+        <button
+          type="button"
+          class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
+          onclick={async () => {
+            if (!currentSpaceId) return;
+            try {
+              const result = await createSpaceSession(currentSpaceId, { source: "web" });
+              await handleNavigateToSession(result.session.id);
+            } catch (error) {
+              console.error("[sidebar] Failed to create session:", error);
+              loadError = error instanceof Error ? error.message : "Failed to create session";
+            }
+          }}
+          title="New session"
+        >
+          <Plus class="w-3.5 h-3.5" />
+        </button>
+      {/if}
     </div>
 
     <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
-      {#if isLoading}
+      {#if !currentSpace}
+        <div class="px-3 py-6 text-[12px] text-text-placeholder text-center">
+          Select a space to view sessions
+        </div>
+      {:else if loadingSessions && sessions.length === 0}
         <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
           <Loader2 class="w-3 h-3 animate-spin" />
           Loading...
         </div>
-      {:else if loadError}
-        <div class="px-3 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
-      {:else if spaces.length === 0}
-        <div class="px-3 py-4 text-[12px] text-text-tertiary text-center">No spaces</div>
+      {:else if sessions.length === 0}
+        <div class="px-3 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
       {:else}
-        {#each spaces as space (space.id)}
-          {@const isExpanded = expandedSpaces.has(space.id)}
-          {@const isActive = isSpaceActive(space.id)}
-          {@const status = displayStatus(space)}
-          {@const sessions = getSessions(space.id)}
-
-          <div>
-            <!-- Space Row -->
-            <div
-              role="button"
-              tabindex="0"
-              class="group relative flex items-center gap-1.5 pl-[6px] pr-2 py-1.5 rounded-r-[5px] cursor-pointer transition-colors duration-100 {isActive ? 'text-text-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}"
-              onclick={() => { void handleToggleSpace(space.id, isExpanded); }}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  void handleToggleSpace(space.id, isExpanded);
-                }
-              }}
-            >
-              <!-- Status color bar (brand color when active, status color otherwise) -->
-              <span class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full {isActive ? 'bg-brand' : statusColorClass(status)}"></span>
-              <span
-                class="flex items-center justify-center w-4 h-4 shrink-0 text-text-tertiary group-hover:text-text-secondary transition-colors"
-              >
-                {#if isExpanded}
-                  <ChevronDown class="w-3 h-3" />
-                {:else}
-                  <ChevronRight class="w-3 h-3" />
-                {/if}
+        {#each sessions as session, index (session.id)}
+          {@const isActive = page.url.searchParams.get("session") === session.id}
+          <a
+            href="/spaces/{currentSpaceId}?session={session.id}"
+            class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+            onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+            title={sourceTooltip(session.source) || undefined}
+          >
+            <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+            {#if sourceBadge(session.source)}
+              <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                {sourceBadge(session.source)}
               </span>
-              <span class="truncate flex-1 text-[13.5px] leading-tight">{space.name || space.title || space.id.slice(0, 12)}</span>
-              {#if space.userUuid !== authStore.userUuid}
-                <Users class="w-3 h-3 shrink-0 text-text-tertiary" />
-              {/if}
-            </div>
-
-            <!-- Sessions (when expanded) -->
-            {#if isExpanded}
-              <div class="ml-[14px] pl-2.5 border-l border-border-subtle space-y-0.5 py-0.5">
-                {#if loadingSessionsBySpace[space.id] && sessions.length === 0}
-                  <div class="px-2 py-1 text-[12px] text-text-placeholder italic flex items-center gap-1.5">
-                    <Loader2 class="w-3 h-3 animate-spin" />
-                    Loading...
-                  </div>
-                {:else if sessions.length === 0}
-                  <div class="px-2 py-1 text-[12px] text-text-placeholder italic">No sessions</div>
-                {:else}
-                  {#each sessions as session, index (session.id)}
-                    <a
-                      href="/spaces/{space.id}?session={session.id}"
-                      class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isSessionActive(session.id) ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                      onclick={(e) => { e.preventDefault(); handleNavigateToSession(space.id, session.id); }}
-                      title={sourceTooltip(session.source) || undefined}
-                    >
-                      <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-                      {#if sourceBadge(session.source)}
-                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                          {sourceBadge(session.source)}
-                        </span>
-                      {/if}
-                      {#if sessionIsStreaming(session)}
-                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                      {:else if unreadTracker.isUnread(session)}
-                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-                      {/if}
-                    </a>
-                  {/each}
-                {/if}
-              </div>
             {/if}
-          </div>
+            {#if sessionIsStreaming(session)}
+              <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+            {:else if unreadTracker.isUnread(session)}
+              <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+            {/if}
+          </a>
         {/each}
       {/if}
     </div>
   </div>
 
+  <!-- User Menu -->
   <div class="border-t border-border-subtle p-1.5 shrink-0 relative">
     {#if showUserMenu}
       <div
         data-user-menu
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
+        <a
+          href="/channels"
+          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/channels'); }}
+        >
+          <Network class="w-3.5 h-3.5" />
+          <span>Channels</span>
+        </a>
         <a
           href="/settings"
           class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
@@ -508,4 +395,104 @@ onMount(() => {
       <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {showUserMenu ? 'rotate-180' : ''}" />
     </button>
   </div>
+
+  <!-- Space Switcher Modal -->
+  {#if showSpaceModal}
+    <div class="fixed inset-0 z-[100] flex items-center justify-center">
+      <!-- Backdrop -->
+      <button
+        type="button"
+        class="absolute inset-0 bg-black/60"
+        style="backdrop-filter: blur(4px);"
+        onclick={() => { showSpaceModal = false; }}
+        aria-label="Close space switcher"
+      ></button>
+
+      <!-- Modal Panel -->
+      <div
+        class="relative w-[340px] max-w-[calc(100vw-2rem)] max-h-[70vh] bg-bg-primary border border-border-subtle rounded-lg shadow-2xl overflow-hidden flex flex-col"
+      >
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+          <h2 class="text-[13px] font-semibold text-text-primary">Switch Space</h2>
+          <button
+            type="button"
+            class="p-1 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            onclick={() => { showSpaceModal = false; }}
+            aria-label="Close"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Space List -->
+        <div class="flex-1 overflow-y-auto py-1">
+          {#if isLoading}
+            <div class="px-4 py-6 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
+              <Loader2 class="w-3 h-3 animate-spin" />
+              Loading...
+            </div>
+          {:else if loadError}
+            <div class="px-4 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
+          {:else if spaces.length === 0}
+            <div class="px-4 py-6 text-center">
+              <p class="text-[13px] text-text-tertiary">No spaces yet</p>
+              <p class="text-[11px] text-text-placeholder mt-1">Create your first space to get started</p>
+            </div>
+          {:else}
+            {#each spaces as space (space.id)}
+              {@const isActive = currentSpaceId === space.id}
+              {@const status = displayStatus(space)}
+              <button
+                type="button"
+                class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
+                onclick={() => { void handleNavigateToSpace(space.id); }}
+              >
+                <!-- Status indicator -->
+                <span class="relative shrink-0">
+                  <span class="w-7 h-7 rounded-[5px] flex items-center justify-center {isActive ? 'bg-brand' : 'bg-bg-hover-strong'}">
+                    <FolderKanban class="w-3.5 h-3.5 {isActive ? 'text-white' : 'text-text-tertiary'}" />
+                  </span>
+                  <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-bg-primary {statusColorClass(status)}"></span>
+                </span>
+
+                <!-- Name & meta -->
+                <div class="flex-1 min-w-0">
+                  <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
+                    {space.name || space.title || space.id.slice(0, 12)}
+                  </div>
+                  {#if space.userUuid !== authStore.userUuid}
+                    <div class="flex items-center gap-1 mt-0.5">
+                      <Users class="w-2.5 h-2.5 text-text-placeholder" />
+                      <span class="text-[10px] text-text-placeholder">Shared</span>
+                    </div>
+                  {/if}
+                </div>
+
+                <!-- Active indicator -->
+                {#if isActive}
+                  <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
+                {/if}
+              </button>
+            {/each}
+          {/if}
+        </div>
+
+        <!-- Footer: New Space -->
+        <div class="border-t border-border-subtle shrink-0">
+          <button
+            type="button"
+            class="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-brand hover:bg-bg-hover transition-colors duration-100"
+            onclick={() => { showSpaceModal = false; handleNavigate('/spaces/new'); }}
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>New Space</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </aside>
