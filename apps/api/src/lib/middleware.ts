@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthUserProfile } from "../auth.js";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
@@ -45,6 +46,11 @@ export const useAuth = (c: Context): AuthUser => {
 };
 
 // ── Internal request validation ──────────────────────────────────────────────
+
+export const getRequestRemoteAddress = (c: Context) => {
+  const info = getConnInfo(c);
+  return info.remote.address || null;
+};
 
 export const ensureInternalRequest = (c: Context) => {
   const secret = c.req.header("x-worker-secret");

@@ -3,9 +3,9 @@ import { db } from "./db/index.js";
 import { spaceSandboxes } from "./db/schema-v2.js";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
-import { renderSandboxPodTemplate, renderSandboxServiceTemplate } from "./sandbox-template.js";
+import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import type { SpaceSandboxStatus } from "@cohub/protocol";
-import type { V1Pod, V1Service } from "@kubernetes/client-node";
+import type { V1Pod } from "@kubernetes/client-node";
 
 export const getSpaceSandboxBySpaceId = async (spaceId: string) => {
   const [sandbox] = await db
@@ -77,6 +77,14 @@ export const updateSpaceSandbox = async (input: {
   return sandbox ?? null;
 };
 
+export const getSandboxPodByIp = async (podIp: string) => {
+  const pods = await k8sCoreApi.listNamespacedPod({
+    namespace: sessionsNamespace,
+    fieldSelector: `status.podIP=${podIp}`,
+  });
+  return pods.items[0] ?? null;
+};
+
 const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
   try {
     await k8sCoreApi.createNamespacedPod({
@@ -86,28 +94,11 @@ const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
   } catch (error: unknown) {
     const statusCode = (error as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
-      // Ignore conflict if pod already exists
       return { podName: `sandbox-${spaceId}` };
     }
     throw error;
   }
   return { podName: `sandbox-${spaceId}` };
-};
-
-const tryCreateService = async (spaceId: string, service: V1Service) => {
-  try {
-    await k8sCoreApi.createNamespacedService({
-      namespace: sessionsNamespace,
-      body: service,
-    });
-  } catch (error: unknown) {
-    const statusCode = (error as { statusCode?: number }).statusCode;
-    if (statusCode === 409) {
-      // Ignore conflict if service already exists
-      return;
-    }
-    throw error;
-  }
 };
 
 export const provisionSpaceInBackground = async (input: {
@@ -146,15 +137,31 @@ export const provisionSpaceInBackground = async (input: {
         { name: "SANDBOX_WS_PORT", value: "8788" },
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "IMAGE_VERSION", value: config.sandboxImage },
+        {
+          name: "INTERNAL_API_BASE_URL",
+          value:
+            config.env === "prod"
+              ? "http://cohub-api.cohub.svc.cluster.local:8787"
+              : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
+        },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },
         { name: "SPACE_GIT_EMAIL", value: input.spaceGitEmail ?? "" },
+        {
+          name: "POD_IP",
+          valueFrom: { fieldRef: { fieldPath: "status.podIP" } },
+        },
+        {
+          name: "POD_NAME",
+          valueFrom: { fieldRef: { fieldPath: "metadata.name" } },
+        },
+        {
+          name: "POD_NAMESPACE",
+          valueFrom: { fieldRef: { fieldPath: "metadata.namespace" } },
+        },
         ...(input.extraEnv ?? []),
       ];
     }
-
-    const service = renderSandboxServiceTemplate({ SPACE_ID: input.spaceId }) as V1Service;
-    await tryCreateService(input.spaceId, service);
 
     await tryCreatePod(input.spaceId, pod);
 

@@ -1,6 +1,6 @@
 import { Redis } from "ioredis";
 import { z } from "zod";
-import type { ContentBlock, SpaceSandboxStatus } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol";
 import { env } from "./env.js";
 import {
   getAgentInstanceDeadLetterQueueKey,
@@ -49,16 +49,7 @@ const AbortInputSchema = z.object({
   expectedEpoch: z.coerce.number().int().positive(),
 });
 
-const WarmupSandboxInputSchema = z.object({
-  id: z.string().optional(),
-  action: z.literal("warmup_sandbox"),
-  spaceId: z.string().uuid(),
-  timestamp: z.string().optional(),
-  expectedOwnerId: z.string().min(1),
-  expectedEpoch: z.coerce.number().int().positive(),
-});
-
-export const InputSchema = z.union([PromptInputSchema, AbortInputSchema, WarmupSandboxInputSchema]);
+export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
 
 const getSpaceOutputStreamKey = (spaceId: string) => `spaces:${spaceId}:output_stream`;
@@ -80,27 +71,6 @@ export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "ima
     results.push({ type: "image", data: img.source.data, mimeType: img.source.media_type });
   }
   return results;
-}
-
-export async function reportSandboxStatus(
-  spaceId: string,
-  status: SpaceSandboxStatus,
-  meta?: Record<string, unknown> | null,
-) {
-  const internalApiBaseUrl = env.ENV === "prod"
-    ? "http://cohub-api.cohub.svc.cluster.local:8787"
-    : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
-  const url = `${internalApiBaseUrl}/internal/spaces/${spaceId}/status`;
-  await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
-    },
-    body: JSON.stringify({ status, meta: meta ?? null }),
-  }).catch((err) => {
-    console.error("[Redis] Failed to report sandbox status via internal API:", err);
-  });
 }
 
 export async function sendOutput(data: { spaceId: string } & Record<string, unknown>) {

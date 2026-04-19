@@ -376,7 +376,9 @@ export const forkSpaceSession = async (input: { spaceId: string; parentSessionId
 
 export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
-  if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
+  const sandboxMeta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
+  const podIp = typeof sandboxMeta?.podIp === "string" ? sandboxMeta.podIp.trim() : "";
+  if (!sandbox || sandbox.status !== "ready" || !podIp) throw new SandboxNotReadyError();
 
   const lease = await resolveOrClaimSpaceOwner(input.spaceId);
 

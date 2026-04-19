@@ -13,6 +13,7 @@ const INTERNAL_API_BASE_URL =
     ? "http://cohub-api.cohub.svc.cluster.local:8787"
     : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787";
 
+
 const internalHeaders = () => ({
   "content-type": "application/json",
   ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
@@ -228,6 +229,27 @@ export async function registerSpaceSession(input: RegisterSessionInput) {
     session: { id: string };
     bootstrap?: {
       forkSourceProtocolMessageId: string | null;
+    } | null;
+  } | null>;
+}
+
+export async function getSpaceSandbox(input: { spaceId: string }) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sandbox`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: internalHeaders(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Get space sandbox failed ${response.status}: ${text}`);
+  }
+
+  return response.json().catch(() => null) as Promise<{
+    sandbox: {
+      status: string;
+      podName?: string | null;
+      meta?: Record<string, unknown> | null;
     } | null;
   } | null>;
 }

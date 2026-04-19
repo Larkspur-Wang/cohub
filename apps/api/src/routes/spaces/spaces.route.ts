@@ -26,8 +26,6 @@ import { enqueueTask } from "../../tasks.js";
 import { canRead, canReadForSession, canWrite } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
-import { resolveOrClaimSpaceOwner } from "../../agent-ownership.js";
-import { getAgentInstanceInputQueueKey, redisCommandClient } from "../../redis.js";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 
@@ -51,23 +49,6 @@ function getSpaceProvisionParams(
     extraEnv,
   };
 }
-
-async function enqueueSandboxWarmup(spaceId: string) {
-  const lease = await resolveOrClaimSpaceOwner(spaceId);
-  await redisCommandClient.rpush(
-    getAgentInstanceInputQueueKey(lease.ownerId),
-    JSON.stringify({
-      action: "warmup_sandbox",
-      id: crypto.randomUUID(),
-      spaceId,
-      timestamp: new Date().toISOString(),
-      expectedOwnerId: lease.ownerId,
-      expectedEpoch: lease.epoch,
-    }),
-  );
-}
-
-// ── GET /api/spaces ──────────────────────────────────────────────────────────
 
 router.get("/", async (c) => {
   const user = useAuth(c);
@@ -197,9 +178,7 @@ router.post("/", async (c) => {
 
   void provisionSpaceInBackground(
     getSpaceProvisionParams(user, space, gitAccount, normalizedExtraEnv),
-  )
-    .then(() => enqueueSandboxWarmup(space.id))
-    .catch(console.error);
+  ).catch(console.error);
 
   return c.json({ space });
 });
@@ -283,7 +262,6 @@ router.post("/:id/sandbox/recreate", async (c) => {
   if (existingSandbox?.podName) {
     await Promise.allSettled([
       k8sCoreApi.deleteNamespacedPod({ name: podName, namespace: sessionsNamespace }),
-      k8sCoreApi.deleteNamespacedService({ name: podName, namespace: sessionsNamespace }),
     ]);
   }
 
@@ -295,7 +273,6 @@ router.post("/:id/sandbox/recreate", async (c) => {
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
   void provisionSpaceInBackground(getSpaceProvisionParams(user, space, gitAccount))
-    .then(() => enqueueSandboxWarmup(space.id))
     .catch(console.error);
 
   return c.json({ ok: true, message: "Sandbox recreation triggered" });

@@ -19,8 +19,8 @@ import {
   extractContentText,
   listenForInput,
   sendOutput,
-  reportSandboxStatus,
 } from "./redis.js";
+import { getSpaceSandbox } from "./api.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
   disconnectSandboxWsClient,
@@ -36,20 +36,13 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
-const SANDBOX_DB_STATUS_FLUSH_MS = 30_000;
 
 type NormalizedSandboxStatus = "provisioning" | "ready" | "error";
 type RuntimeSandboxStatus = "idle" | "ready" | "error";
-type SandboxReportCache = {
-  lastDbStatus: NormalizedSandboxStatus | null;
-  lastDbReportedAt: number;
-  lastSandboxId: string | null;
-};
 
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
 const ownedSpaceEpochs = new Map<string, number>();
-const sandboxReportCacheBySpace = new Map<string, SandboxReportCache>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -65,46 +58,8 @@ function toRuntimeSandboxStatus(status: NormalizedSandboxStatus): RuntimeSandbox
   return status === "ready" ? "ready" : status === "error" ? "error" : "idle";
 }
 
-function shouldFlushSandboxStatusToDb(input: {
-  spaceId: string;
-  status: NormalizedSandboxStatus;
-  sandboxId?: string | null;
-  force?: boolean;
-}) {
-  if (input.force) return true;
-  const now = Date.now();
-  const cached = sandboxReportCacheBySpace.get(input.spaceId);
-  if (!cached) return true;
-  if (cached.lastDbStatus !== input.status) return true;
-  if ((cached.lastSandboxId ?? null) !== (input.sandboxId ?? null)) return true;
-  return now - cached.lastDbReportedAt >= SANDBOX_DB_STATUS_FLUSH_MS;
-}
-
-function markSandboxDbStatusFlushed(input: {
-  spaceId: string;
-  status: NormalizedSandboxStatus;
-  sandboxId?: string | null;
-}) {
-  sandboxReportCacheBySpace.set(input.spaceId, {
-    lastDbStatus: input.status,
-    lastDbReportedAt: Date.now(),
-    lastSandboxId: input.sandboxId ?? null,
-  });
-}
-
 async function syncSandboxHello(spaceId: string, message: SandboxHello) {
   const normalized = normalizeSandboxStatus(message.metadata?.prepareStatus ?? "preparing");
-  const meta = {
-    sandboxId: message.sandboxId,
-    hostname: message.metadata?.hostname ?? null,
-    imageVersion: message.metadata?.imageVersion ?? null,
-    prepareStatus: message.metadata?.prepareStatus ?? null,
-    prepareError: message.metadata?.prepareError ?? null,
-  };
-  if (shouldFlushSandboxStatusToDb({ spaceId, status: normalized, sandboxId: message.sandboxId, force: true })) {
-    await reportSandboxStatus(spaceId, normalized, meta).catch(() => undefined);
-    markSandboxDbStatusFlushed({ spaceId, status: normalized, sandboxId: message.sandboxId });
-  }
   await updateSpaceRuntime({
     spaceId,
     status: toRuntimeSandboxStatus(normalized),
@@ -115,13 +70,6 @@ async function syncSandboxHello(spaceId: string, message: SandboxHello) {
 
 async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) {
   const normalized = normalizeSandboxStatus(message.status);
-  if (shouldFlushSandboxStatusToDb({ spaceId, status: normalized, sandboxId: message.sandboxId })) {
-    await reportSandboxStatus(spaceId, normalized, {
-      sandboxId: message.sandboxId,
-      lastStatus: message.status,
-    }).catch(() => undefined);
-    markSandboxDbStatusFlushed({ spaceId, status: normalized, sandboxId: message.sandboxId });
-  }
   await updateSpaceRuntime({
     spaceId,
     status: toRuntimeSandboxStatus(normalized),
@@ -135,10 +83,6 @@ async function syncSandboxConnectionState(input: {
   status: NormalizedSandboxStatus;
   reason: string;
 }) {
-  if (shouldFlushSandboxStatusToDb({ spaceId: input.spaceId, status: input.status, force: true })) {
-    await reportSandboxStatus(input.spaceId, input.status, { lastError: input.reason }).catch(() => undefined);
-    markSandboxDbStatusFlushed({ spaceId: input.spaceId, status: input.status });
-  }
   await updateSpaceRuntime({
     spaceId: input.spaceId,
     status: toRuntimeSandboxStatus(input.status),
@@ -149,7 +93,6 @@ async function syncSandboxConnectionState(input: {
 async function cleanupOwnedSpace(spaceId: string, reason: string) {
   console.warn(`[Agent] Cleaning up owned space ${spaceId}: ${reason}`);
   ownedSpaceEpochs.delete(spaceId);
-  sandboxReportCacheBySpace.delete(spaceId);
 
   const handlesToDispose = Array.from(sessionHandles.entries()).filter(([key, handle]) => {
     return handle.spaceId === spaceId || key.startsWith(`${spaceId}:`);
@@ -169,7 +112,7 @@ async function cleanupOwnedSpace(spaceId: string, reason: string) {
   disconnectSandboxWsClient(spaceId, reason);
 }
 
-async function shutdown(status: "stopped" | "error", exitCode: number) {
+async function shutdown(exitCode: number) {
   if (isShuttingDown) {
     process.exit(exitCode);
   }
@@ -177,11 +120,6 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   isShuttingDown = true;
 
   try {
-    const spaceIds = new Set<string>([
-      ...ownedSpaceEpochs.keys(),
-      ...Array.from(sessionHandles.values()).map((handle) => handle.spaceId),
-    ]);
-
     for (const handle of sessionHandles.values()) {
       try {
         await handle.persistenceChain.catch((error) => {
@@ -199,12 +137,6 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
       }
     }
     sessionHandles.clear();
-
-    await Promise.allSettled(
-      Array.from(spaceIds).map((spaceId) =>
-        reportSandboxStatus(spaceId, status === "stopped" ? "stopped" : "error"),
-      ),
-    );
   } catch (error) {
     console.error("[Agent] Failed to dispose session handles on shutdown:", error);
   }
@@ -231,14 +163,23 @@ async function shutdown(status: "stopped" | "error", exitCode: number) {
   process.exit(exitCode);
 }
 
-function buildSandboxWsUrl(spaceId: string): string {
-  return `ws://sandbox-${spaceId}.${env.SESSIONS_NAMESPACE}.svc.cluster.local:8788/sandbox`;
+async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
+  if (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID) {
+    return LOCAL_SANDBOX_WS_URL;
+  }
+
+  const response = await getSpaceSandbox({ spaceId });
+  const sandbox = response?.sandbox;
+  const meta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
+  const podIp = typeof meta?.podIp === "string" ? meta.podIp.trim() : "";
+  if (!podIp) {
+    throw new Error(`sandbox endpoint unavailable for ${spaceId}`);
+  }
+  return `ws://${podIp}:8788/sandbox`;
 }
 
 async function ensureSandboxWsConnected(spaceId: string) {
-  const wsUrl = (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID)
-    ? LOCAL_SANDBOX_WS_URL
-    : buildSandboxWsUrl(spaceId);
+  const wsUrl = await resolveSandboxWsUrl(spaceId);
 
   await startSandboxWsClient({
     spaceId,
@@ -324,7 +265,6 @@ async function main() {
   await listenForInput((inputEntry, _rawMessage, ack, reject) => {
     console.log("[Agent] Received input from Redis:", inputEntry);
 
-    // Fire and forget async handler
     (async () => {
       try {
         const ownershipOk = await verifyInputOwnership(inputEntry);
@@ -332,14 +272,9 @@ async function main() {
           throw new Error(`ownership mismatch for space=${inputEntry.spaceId}, expectedOwner=${inputEntry.expectedOwnerId}, instance=${env.AGENT_INSTANCE_ID}, expectedEpoch=${inputEntry.expectedEpoch}`);
         }
 
-        await ensureSandboxWsConnected(inputEntry.spaceId);
-
-        if (inputEntry.action === "warmup_sandbox") {
-          await ack();
-          return;
-        }
-
         if (inputEntry.action === "prompt") {
+          await ensureSandboxWsConnected(inputEntry.spaceId);
+
           const sessionId = inputEntry.sessionId;
           if (!sessionId) {
             throw new Error("sessionId is required for prompt inputs");
@@ -362,7 +297,6 @@ async function main() {
             sessionHandles,
           });
 
-          // If this is an existing session (handle was reused), switch model before enqueueing
           const currentModel = handle.session.agent.state.model;
           if (requestedProvider && requestedModel && currentModel) {
             if (!(currentModel.provider === requestedProvider && currentModel.id === requestedModel)) {
@@ -380,7 +314,6 @@ async function main() {
             }
           }
 
-          // Input now carries ContentBlock[] — extract text + images for SDK
           const content = inputEntry.content as ContentBlock[];
           const userMessageId = inputEntry.userMessageId;
           if (userMessageId) {
@@ -394,7 +327,6 @@ async function main() {
           const text = extractContentText(content);
           const images = extractContentImages(content);
 
-          // Decide whether to use prompt or steer based on streaming state
           if (handle.session.isStreaming) {
             console.log(
               `[Agent] Session ${sessionId} is streaming, using steer for new message`,
@@ -457,15 +389,15 @@ async function main() {
 
 process.on("SIGTERM", () => {
   console.log("[Agent] SIGTERM received. Shutting down.");
-  void shutdown("stopped", 0);
+  void shutdown(0);
 });
 
 process.on("SIGINT", () => {
   console.log("[Agent] SIGINT received. Shutting down.");
-  void shutdown("stopped", 0);
+  void shutdown(0);
 });
 
 main().catch(async (err) => {
   console.error("[Agent] Fatal error:", err);
-  await shutdown("error", 1);
+  await shutdown(1);
 });
