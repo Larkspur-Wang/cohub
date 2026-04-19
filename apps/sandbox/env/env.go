@@ -22,6 +22,7 @@ type Config struct {
 	SpaceGitEmail         string
 	PodName               string
 	PodNamespace          string
+	PodIP                 string
 	InternalAPIBaseURL    string
 	SandboxReportToken    string
 }
@@ -90,6 +91,7 @@ func Load() (Config, error) {
 		SpaceGitEmail:         strings.TrimSpace(os.Getenv("SPACE_GIT_EMAIL")),
 		PodName:               strings.TrimSpace(os.Getenv("POD_NAME")),
 		PodNamespace:          strings.TrimSpace(os.Getenv("POD_NAMESPACE")),
+		PodIP:                 strings.TrimSpace(os.Getenv("POD_IP")),
 		InternalAPIBaseURL:    strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
 		SandboxReportToken:    strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
 	}, nil

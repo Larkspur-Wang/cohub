@@ -35,6 +35,7 @@ const ALLOWED_SANDBOX_META_KEYS = new Set([
   "lastStatus",
   "lastError",
   "podName",
+  "podIp",
   "hostname",
   "imageVersion",
   "prepareStatus",

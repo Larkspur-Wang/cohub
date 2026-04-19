@@ -99,6 +99,7 @@ func main() {
 				SandboxID: cfg.SandboxID,
 				Meta: map[string]interface{}{
 					"podName":       cfg.PodName,
+					"podIp":         cfg.PodIP,
 					"hostname":      hostname,
 					"imageVersion":  cfg.ImageVersion,
 					"prepareStatus": "ready",
