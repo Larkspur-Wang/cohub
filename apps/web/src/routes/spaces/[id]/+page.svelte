@@ -1702,61 +1702,17 @@ $effect(() => {
         </div>
       </div>
     {:else if !activeSessionState}
-      <div class="flex-1 flex items-center justify-center px-5 py-6 sm:px-8">
-        <div class="w-full max-w-xl rounded-[14px] border border-border-subtle bg-bg-elevated/45 p-5 sm:p-6">
-          <div class="flex items-start gap-4">
-            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-brand/20 bg-brand/8 text-brand">
-              <FolderKanban class="w-5 h-5" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <h2 class="text-[15px] font-semibold text-text-primary">This space is ready for its first session</h2>
-                {#if space?.sandboxStatus}
-                  <span class="rounded-full border border-border-subtle bg-bg-primary/65 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-placeholder">
-                    {space.sandboxStatus}
-                  </span>
-                {/if}
-              </div>
-              <p class="mt-2 max-w-lg text-[13px] leading-6 text-text-tertiary">
-                Sessions are created on demand now. Start one when you want to chat with the agent, inspect files, or continue work in this space.
-              </p>
-
-              <div class="mt-4 grid gap-2 sm:grid-cols-3">
-                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
-                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">State</div>
-                  <div class="mt-1 text-[12px] text-text-secondary">No active sessions</div>
-                </div>
-                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
-                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Sandbox</div>
-                  <div class="mt-1 text-[12px] text-text-secondary">{space?.sandboxStatus ?? "idle"}</div>
-                </div>
-                <div class="rounded-[10px] border border-border-subtle/80 bg-bg-primary/45 px-3 py-3">
-                  <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Next step</div>
-                  <div class="mt-1 text-[12px] text-text-secondary">Create your first session</div>
-                </div>
-              </div>
-
-              <div class="mt-5 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  class="inline-flex min-h-11 items-center gap-2 rounded-[9px] border border-brand/25 bg-brand/10 px-4 py-2.5 text-[13px] font-medium text-brand transition-colors hover:bg-brand/14 disabled:opacity-50"
-                  onclick={handleCreateNewSession}
-                  disabled={creatingSession || !space}
-                >
-                  {#if creatingSession}
-                    <div class="w-3.5 h-3.5 rounded-full border-2 border-brand/20 border-t-brand animate-spin shrink-0"></div>
-                  {:else}
-                    <Plus class="w-3.5 h-3.5" />
-                  {/if}
-                  Create first session
-                </button>
-                <div class="text-[12px] text-text-placeholder">
-                  You can create additional sessions later for parallel threads of work.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
+        <div class="text-[14px]">No session selected</div>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
+          onclick={() => handleCreateNewSession()}
+          disabled={creatingSession || !space}
+        >
+          <Plus class="w-3.5 h-3.5" />
+          Create a session
+        </button>
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
       <div class="flex-1 flex items-center justify-center">
