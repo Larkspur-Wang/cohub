@@ -52,6 +52,13 @@ export const getRequestRemoteAddress = (c: Context) => {
   return info.remote.address || null;
 };
 
+export const normalizeIpAddress = (value: string | null | undefined) => {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("::ffff:")) return trimmed.slice(7);
+  return trimmed;
+};
+
 export const ensureInternalRequest = (c: Context) => {
   const secret = c.req.header("x-worker-secret");
   const expectedSecret = config.workerSecret;

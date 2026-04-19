@@ -24,6 +24,7 @@ import {
 import {
   ensureInternalRequest,
   getRequestRemoteAddress,
+  normalizeIpAddress,
   requireValidId,
 } from "../../lib/middleware.js";
 
@@ -118,12 +119,14 @@ router.post("/:id/sandbox-report", async (c) => {
   if (!body?.status) return c.json({ message: "status is required" }, 400);
   if (!body?.podIp?.trim()) return c.json({ message: "podIp is required" }, 400);
 
-  const remoteAddress = getRequestRemoteAddress(c);
-  if (!remoteAddress || remoteAddress !== body.podIp.trim()) {
+  const reportedPodIp = normalizeIpAddress(body.podIp);
+  const remoteAddress = normalizeIpAddress(getRequestRemoteAddress(c));
+  if (!reportedPodIp) return c.json({ message: "podIp is required" }, 400);
+  if (!remoteAddress || remoteAddress !== reportedPodIp) {
     return c.json({ message: "forbidden" }, 403);
   }
 
-  const pod = await getSandboxPodByIp(body.podIp.trim()).catch(() => null);
+  const pod = await getSandboxPodByIp(reportedPodIp).catch(() => null);
   if (!pod) return c.json({ message: "forbidden" }, 403);
   if (pod.metadata?.labels?.app !== "agent-sandbox") return c.json({ message: "forbidden" }, 403);
   if (pod.metadata?.labels?.["space-id"] !== spaceId) return c.json({ message: "forbidden" }, 403);
@@ -133,7 +136,7 @@ router.post("/:id/sandbox-report", async (c) => {
 
   const safeMeta = sanitizeSandboxMeta({
     ...(body.meta ?? {}),
-    podIp: body.podIp.trim(),
+    podIp: reportedPodIp,
     podName: body.podName?.trim() || pod.metadata?.name || null,
     sandboxId: body.sandboxId?.trim() || null,
   });
