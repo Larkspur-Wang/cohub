@@ -33,25 +33,32 @@ async function runMigrate() {
       )
     `;
 
-    // 检查是否已经跑过 V2 migration
-    const migrationRows = await client`SELECT COUNT(*) FROM drizzle.__drizzle_migrations` as postgres.Row[];
-    const migrationCount = Number(migrationRows[0]?.count);
-    if (migrationCount > 0) {
-      console.log("[Migration] V2 migrations already applied, skipping.");
-      return;
-    }
-
-    // v2 schema 可能残留（之前迁移失败），先清理，避免 drizzle SQL 中裸 CREATE SCHEMA 报错
+    // 检查 v2 schema 状态
     const schemaRows = await client`
+      SELECT EXISTS(
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'v2'
+      )
+    ` as postgres.Row[];
+    const hasTables = schemaRows[0]?.exists as boolean;
+
+    // 检查 v2 schema 本身是否存在
+    const schemaExistsRows = await client`
       SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'v2')
     ` as postgres.Row[];
-    const schemaExists = schemaRows[0]?.exists as boolean;
-    if (schemaExists) {
-      console.log("[Migration] v2 schema exists but not recorded, cleaning up...");
+    const schemaExists = schemaExistsRows[0]?.exists as boolean;
+
+    if (schemaExists && !hasTables) {
+      // 残留的空 schema（之前迁移失败），清理掉让 drizzle 重建
+      console.log("[Migration] v2 schema exists but has no tables (stale), cleaning up...");
       await client`DROP SCHEMA v2 CASCADE`;
+    } else if (schemaExists && hasTables) {
+      console.log("[Migration] v2 schema exists with tables, assuming migration already done.");
     }
 
-    // 执行 migration（SQL 文件中包含 CREATE SCHEMA "v2"，此时 schema 不存在，会成功）
+    // 执行 migration
+    // drizzle 会自动比对 __drizzle_migrations 中的 hash，只执行未跑过的 SQL
+    // SQL 文件中的 CREATE SCHEMA "v2" 在 schema 不存在时会成功
     await migrate(db, { migrationsFolder: "./drizzle/v2" });
     console.log("[Migration] V2 migrations completed successfully.");
   } catch (error) {
