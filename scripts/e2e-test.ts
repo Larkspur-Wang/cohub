@@ -945,9 +945,31 @@ async function main() {
   if (process.env.SKIP_AGENT_TEST !== "1") {
     section("Phase 13: Agent 实际回复端到端测试 (完整消息往返链路)");
 
-    // 复用 Phase 3 找到的 ready sandbox（新创建的 space sandbox 尚未就绪，
-    // 而 sandbox ready 依赖 agent 首次连接，agent 连接又依赖收到消息 — 循环依赖）
+    // 优先复用 Phase 3 找到的 ready sandbox
     agentTestSpaceId = readySpaceId;
+
+    // 如果没有 ready sandbox，尝试等待 Phase 4 创建的新 space 的 sandbox 就绪
+    if (!agentTestSpaceId && createdSpaceId) {
+      await run("等待新 Space 的 Sandbox 就绪 (用于 Agent 测试)", async () => {
+        const maxRetries = 24;
+        for (let i = 0; i < maxRetries; i++) {
+          const sandbox = await api(`/api/spaces/${createdSpaceId}/sandbox`) as {
+            sandbox: { podName: string | null; status: string } | null;
+          };
+          if (sandbox.sandbox?.status === "ready") {
+            agentTestSpaceId = createdSpaceId;
+            ok("Sandbox 就绪", `spaceId=${createdSpaceId}, podName=${sandbox.sandbox.podName}`);
+            return;
+          }
+          if (i === 0) {
+            console.log(`      ${C.dim}  等待 sandbox 就绪 (当前状态: ${sandbox.sandbox?.status ?? "null"})...${C.reset}`);
+          }
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+        warn("Sandbox 就绪", "超时 120s，新 space sandbox 尚未就绪");
+      });
+    }
+
     if (!agentTestSpaceId) {
       warn("Agent 回复测试", "跳过：没有 ready sandbox，无法触发 Agent");
     } else {
