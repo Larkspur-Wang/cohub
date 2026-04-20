@@ -24,6 +24,12 @@ import {
 
 assertConfig();
 
+// ── 工具函数 ──────────────────────────────────────────────────────────────────
+
+function assert(cond: unknown, msg: string): asserts cond {
+  if (!cond) throw new Error(msg);
+}
+
 const { ok, fail, warn, run, summary } = createTestRunner();
 
 let testSpaceId: string | null = null;
