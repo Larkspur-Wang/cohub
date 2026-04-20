@@ -2073,7 +2073,6 @@ $effect(() => {
           bind:this={chatTimelineRef}
           bindListEl={listEl}
           timeline={timeline}
-          topInsetClass="pt-[calc(4rem+env(safe-area-inset-bottom))] sm:pt-[4rem]"
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
