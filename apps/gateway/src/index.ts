@@ -227,6 +227,7 @@ const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestI
       requestId: requestId ?? null,
       spaceId,
       sessionId,
+      clientMessageId,
     },
   };
 

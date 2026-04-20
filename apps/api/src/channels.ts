@@ -225,6 +225,7 @@ export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
       meta: {
         requestId: requestId || null,
         connectionId: connectionId || null,
+        clientMessageId: typeof event.meta?.clientMessageId === "string" ? event.meta.clientMessageId : null,
       },
     },
   });
