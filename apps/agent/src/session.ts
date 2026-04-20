@@ -41,6 +41,8 @@ export type SessionHandle = {
     preferredDisplayMode: "full" | "compact" | "minimal";
     /** Snapshot of the content sent in the last stream_update, used for delta computation. */
     lastSent?: ContentBlock[];
+    pendingFlush?: boolean;
+    flushPromise?: Promise<void> | null;
   };
 };
 
@@ -145,23 +147,36 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
 
-  const full = handle.streamState.content;
-  const last = handle.streamState.lastSent ?? [];
-  const delta = computeDelta(full, last);
+  if (handle.streamState.flushPromise) {
+    handle.streamState.pendingFlush = true;
+    return;
+  }
 
-  // Update the snapshot before awaiting network I/O so overlapping stream
-  // updates don't diff against a stale lastSent value and emit duplicated
-  // leading text like "thethe user".
-  handle.streamState.lastSent = structuredClone(full);
+  const flush = async () => {
+    const full = handle.streamState.content;
+    const last = handle.streamState.lastSent ?? [];
+    const delta = computeDelta(full, last);
 
-  await sendOutput({
-    type: "stream_update",
-    spaceId: handle.spaceId,
-    sessionId: handle.sessionId,
-    content: delta,
-    sourceMessageId,
-    timestamp: Date.now(),
-  });
+    handle.streamState.lastSent = structuredClone(full);
+    handle.streamState.pendingFlush = false;
+
+    await sendOutput({
+      type: "stream_update",
+      spaceId: handle.spaceId,
+      sessionId: handle.sessionId,
+      content: delta,
+      sourceMessageId,
+      timestamp: Date.now(),
+    });
+
+    handle.streamState.flushPromise = null;
+    if (handle.streamState.pendingFlush) {
+      void emitProviderRenderUpdate(handle);
+    }
+  };
+
+  handle.streamState.flushPromise = flush();
+  await handle.streamState.flushPromise;
 }
 
 function resetStreamState(handle: SessionHandle) {
@@ -169,6 +184,8 @@ function resetStreamState(handle: SessionHandle) {
     content: [],
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
     lastSent: [],
+    pendingFlush: false,
+    flushPromise: null,
   };
 }
 
@@ -527,7 +544,13 @@ export async function loadOrCreateSessionHandle(input: {
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
     persistenceChain: Promise.resolve(),
-    streamState: { content: [], preferredDisplayMode: "compact", lastSent: [] },
+    streamState: {
+      content: [],
+      preferredDisplayMode: "compact",
+      lastSent: [],
+      pendingFlush: false,
+      flushPromise: null,
+    },
   };
 
   subscribeSessionEvents(handle);

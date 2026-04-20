@@ -1161,19 +1161,18 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			if (clientMessageId) {
 				sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
 				sessionPendingStore.reconcilePersisted(currentActiveSessionId, [incomingMessage]);
-			} else {
-				const merged = mergeMessagesById(state.messages, [incomingMessage], {
-					preferIncoming: false,
-				});
-				if (merged.length > state.messages.length) {
-					sessionStateById = {
-						...sessionStateById,
-						[currentActiveSessionId]: {
-							...state,
-							messages: merged,
-						},
-					};
-				}
+			}
+			const merged = mergeMessagesById(state.messages, [incomingMessage], {
+				preferIncoming: true,
+			});
+			if (merged.length > state.messages.length || clientMessageId) {
+				sessionStateById = {
+					...sessionStateById,
+					[currentActiveSessionId]: {
+						...state,
+						messages: merged,
+					},
+				};
 			}
 		}
 	} catch (error) {
