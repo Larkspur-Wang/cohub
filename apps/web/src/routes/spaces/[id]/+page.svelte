@@ -36,6 +36,7 @@ import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFilePane from "$lib/components/SpaceFilePane.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
+import { buildStreamingPreviewBlocks, mergeRenderableMessages } from "$lib/session-render";
 import {
 	type ChatMessage,
 	type TimelineItem,
@@ -43,10 +44,7 @@ import {
 } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { messageCache } from "$lib/stores/message-cache";
-import {
-	sessionPendingStore,
-	type PendingSessionMessage,
-} from "$lib/stores/session-pending.svelte";
+import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 
 import { getRealtimeClient } from "$lib/realtime";
@@ -213,13 +211,15 @@ const activeSessionModel = $derived.by(() => {
 const activePendingMessages = $derived.by(() =>
 	activeSessionId ? sessionPendingStore.pendingBySessionId[activeSessionId] ?? [] : [],
 );
+const activeRenderableMessages = $derived.by(() => {
+	const state = activeSessionState;
+	if (!state) return [] as MessageRecord[];
+	return mergeRenderableMessages(state.messages, activePendingMessages);
+});
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
-	const renderedMessages = mergeRenderableMessages(
-		state.messages,
-		activePendingMessages,
-	);
+	const renderedMessages = activeRenderableMessages;
 	// Filter out error messages from display. They're persisted in DB for debugging
 	// and analytics, but should not appear in the chat timeline by default.
 	const items: TimelineItem[] = toChatMessages(renderedMessages)
@@ -280,25 +280,16 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
 			for (const item of currentItems) groupedHistory.push(item);
 			if (streamingContentBlocks.length > 0) {
-				let accText = "";
-				let accThinking = "";
 				const draftTruncated =
 					activeSessionId
 						? (streamingDraftTruncatedStartBySessionId[activeSessionId] ?? false)
 						: false;
-				const baseSequence = renderedMessages.at(-1)?.sequence ?? 0;
-				const flushStreamingMessage = () => {
-					const trimmedText = accText.trim();
-					const trimmedThinking = accThinking.trim();
-					if (!trimmedText && !trimmedThinking) return;
-					const blocks: ContentBlock[] = [];
-					if (trimmedThinking)
-						blocks.push({ type: "thinking", thinking: trimmedThinking });
-					if (trimmedText)
-						blocks.push({
-							type: "text",
-							text: draftTruncated ? `…${trimmedText}` : trimmedText,
-						});
+				const blocks = buildStreamingPreviewBlocks(streamingContentBlocks, {
+					truncatedStart: draftTruncated,
+				});
+				if (blocks.length > 0) {
+					const trimmedText =
+						blocks.find((block) => block.type === "text")?.text?.trim() ?? "";
 					groupedHistory.push({
 						id: `assistant-streaming-${groupedHistory.length}`,
 						kind: "message",
@@ -307,20 +298,10 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 							role: "assistant",
 							content: blocks as never,
 							text: trimmedText,
-							sequence: baseSequence + 1,
+							sequence: (renderedMessages.at(-1)?.sequence ?? 0) + 1,
 						},
 					});
-					accText = "";
-					accThinking = "";
-				};
-				for (const block of streamingContentBlocks) {
-					if (block.type === "thinking") {
-						accThinking += (accThinking ? "\n" : "") + block.thinking;
-					} else if (block.type === "text") {
-						accText += (accText ? "\n\n" : "") + block.text;
-					}
 				}
-				flushStreamingMessage();
 			}
 			return groupIntermediateMessages(groupedHistory);
 		}
@@ -443,65 +424,9 @@ function mergeMessagesById(
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
 }
 
-function getPendingMessages(sessionId: string | null): PendingSessionMessage[] {
+function getPendingMessages(sessionId: string | null) {
 	if (!sessionId) return [];
 	return sessionPendingStore.list(sessionId);
-}
-
-function buildPendingMessage(
-	sessionId: string,
-	pending: PendingSessionMessage,
-	fallbackSequence: number,
-): MessageRecord {
-	const pendingStatus = pending.status;
-	const pendingText =
-		pendingStatus === "failed" ? `${pending.text}\n\n（发送失败）` : pending.text;
-	return {
-		id: `pending-${pending.clientMessageId}`,
-		sessionId,
-		role: "user",
-		content: pending.content,
-		text: pendingText,
-		sequence: fallbackSequence,
-		provider: null,
-		model: null,
-		stopReason: null,
-		errorMessage:
-			pending.status === "failed"
-				? pending.error ?? "Failed to send message"
-				: null,
-		usageInput: null,
-		usageOutput: null,
-		costTotal: null,
-		meta: {
-			messageKind: "user_pending",
-			clientMessageId: pending.clientMessageId,
-			pendingStatus: pending.status,
-		},
-		createdAt: pending.createdAt,
-	};
-}
-
-function mergeRenderableMessages(
-	persisted: MessageRecord[],
-	pending: PendingSessionMessage[],
-): MessageRecord[] {
-	const persistedClientMessageIds = new Set(
-		persisted
-			.map((message) => {
-				const clientMessageId = (message.meta as Record<string, unknown> | null | undefined)
-					?.clientMessageId;
-				return typeof clientMessageId === "string" && clientMessageId.trim()
-					? clientMessageId.trim()
-					: null;
-			})
-			.filter((value): value is string => Boolean(value)),
-	);
-	let nextSequence = (persisted.at(-1)?.sequence ?? 0) + 1;
-	const pendingMessages = pending
-		.filter((message) => !persistedClientMessageIds.has(message.clientMessageId))
-		.map((message) => buildPendingMessage(message.sessionId, message, nextSequence++));
-	return mergeMessagesById(persisted, pendingMessages, { preferIncoming: false });
 }
 
 function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
@@ -1163,9 +1088,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 		} else if (messageKind === "assistant_error") {
 			// Error messages are persisted in DB for debugging, but not shown in UI.
 			// Clear streaming state without merging the error into visible messages.
-			streamingAssistantText = "";
-			streamingThinking = "";
-			streamingContentBlocks = [];
+			clearStreamingState(currentActiveSessionId);
 			streamStatus = "error";
 			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
 			streamingSessionId = null;
@@ -1186,9 +1109,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			}
 		} else if (messageKind === "assistant_final") {
 			// Final message — clear streaming state, then reconcile from DB.
-			streamingAssistantText = "";
-			streamingThinking = "";
-			streamingContentBlocks = [];
+			clearStreamingState(currentActiveSessionId);
 			streamStatus = "done";
 			streamingDraftTruncatedStartBySessionId = {
 				...streamingDraftTruncatedStartBySessionId,
@@ -1288,14 +1209,14 @@ function disconnectAllWS() {
 	// We only fully disconnect on page unload (handled in onMount cleanup).
 }
 
-function clearStreamingState() {
+function clearStreamingState(sessionId: string | null = activeSessionId) {
 	streamingAssistantText = "";
 	streamingThinking = "";
 	streamingContentBlocks = [];
-	if (activeSessionId) {
+	if (sessionId) {
 		streamingDraftTruncatedStartBySessionId = {
 			...streamingDraftTruncatedStartBySessionId,
-			[activeSessionId]: false,
+			[sessionId]: false,
 		};
 	}
 	if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
@@ -1847,8 +1768,8 @@ onMount(() => {
 
 $effect(() => {
 	if (urlSessionId && urlSessionId !== activeSessionId) {
+		clearStreamingState(activeSessionId);
 		activeSessionId = urlSessionId;
-		clearStreamingState();
 		ensureSessionModelLoaded(urlSessionId);
 		shouldAutoFollow = true;
 		const state = sessionStateById[urlSessionId];
