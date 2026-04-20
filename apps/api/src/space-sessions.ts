@@ -283,6 +283,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       sessionMessageRole: messageNode.role,
       messageKind,
       anchorUserMessageId: anchorUserMessageId ?? null,
+      clientMessageId: ((messageNode.meta as Record<string, unknown> | null)?.clientMessageId as string | undefined) ?? null,
     },
   }).catch(console.error);
 

@@ -149,6 +149,11 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   const last = handle.streamState.lastSent ?? [];
   const delta = computeDelta(full, last);
 
+  // Update the snapshot before awaiting network I/O so overlapping stream
+  // updates don't diff against a stale lastSent value and emit duplicated
+  // leading text like "thethe user".
+  handle.streamState.lastSent = structuredClone(full);
+
   await sendOutput({
     type: "stream_update",
     spaceId: handle.spaceId,
@@ -157,9 +162,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     sourceMessageId,
     timestamp: Date.now(),
   });
-
-  // Snapshot for next diff
-  handle.streamState.lastSent = structuredClone(full);
 }
 
 function resetStreamState(handle: SessionHandle) {
