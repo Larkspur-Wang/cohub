@@ -2,82 +2,99 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import {
-  createSpaceCheckpoint,
-  createSpaceSession,
-  createSpaceFsDir,
-  deleteSpaceFsNode,
-  extractSessionRenderState,
-  getModels,
-  getSessionMessagesPaginated,
-  getSpace,
-  getSpaceCheckpoints,
-  getSpaceFsFile,
-  getSpaceFsTree,
-  getSpaceSandbox,
-  getSpaceSessions,
-  getTaskRun,
-  moveSpaceFsNode,
-  postSessionMessage,
-  putSpaceFsFile,
-  recreateSpaceSandbox,
-  triggerSpaceFsDownload,
-  type CheckpointRecord,
-  type SandboxRecord,
-  type SessionRecord,
-  type SpaceFsEntry,
-  type SpaceFsFileResponse,
-  type SpaceRecord,
-  type TaskRunRecord,
+	type CheckpointRecord,
+	type SandboxRecord,
+	type SessionRecord,
+	type SpaceFsEntry,
+	type SpaceFsFileResponse,
+	type SpaceRecord,
+	type TaskRunRecord,
+	createSpaceCheckpoint,
+	createSpaceFsDir,
+	createSpaceSession,
+	deleteSpaceFsNode,
+	extractSessionRenderState,
+	getModels,
+	getSessionMessagesPaginated,
+	getSpace,
+	getSpaceCheckpoints,
+	getSpaceFsFile,
+	getSpaceFsTree,
+	getSpaceSandbox,
+	getSpaceSessions,
+	getTaskRun,
+	moveSpaceFsNode,
+	postSessionMessage,
+	putSpaceFsFile,
+	recreateSpaceSandbox,
+	triggerSpaceFsDownload,
 } from "$lib/api";
+import ChatTimeline from "$lib/components/ChatTimeline.svelte";
+import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
+import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFilePane from "$lib/components/SpaceFilePane.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
-import ChatTimeline from "$lib/components/ChatTimeline.svelte";
-import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
-import ModelSelector from "$lib/components/ModelSelector.svelte";
+import {
+	type ChatMessage,
+	type TimelineItem,
+	toChatMessages,
+} from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
-import { type ChatMessage, type TimelineItem, toChatMessages } from "$lib/session-tree";
 import { messageCache } from "$lib/stores/message-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 
-import { uiState, RIGHT_SIDEBAR_MAX, RIGHT_SIDEBAR_MIN } from "$lib/stores/ui.svelte";
-import type { ContentBlock, MessageRecord } from "@cohub/protocol";
 import { getRealtimeClient } from "$lib/realtime";
 import type { RealtimeEventPayload } from "$lib/realtime";
-import { AlertCircle, ArrowDown, FolderKanban, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Terminal } from "lucide-svelte";
+import {
+	RIGHT_SIDEBAR_MAX,
+	RIGHT_SIDEBAR_MIN,
+	uiState,
+} from "$lib/stores/ui.svelte";
+import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import {
+	AlertCircle,
+	ArrowDown,
+	FolderKanban,
+	PanelRightClose,
+	PanelRightOpen,
+	Plus,
+	RefreshCw,
+	Terminal,
+} from "lucide-svelte";
 import { onMount, tick } from "svelte";
 
 type Props = {
-  data: {
-    spaceId: string;
-  };
+	data: {
+		spaceId: string;
+	};
 };
 
 type ComposerImageAttachment = {
-  id: string;
-  name: string;
-  mediaType: string;
-  data: string;
-  previewUrl: string;
-  size: number;
+	id: string;
+	name: string;
+	mediaType: string;
+	data: string;
+	previewUrl: string;
+	size: number;
 };
 
 type SelectedModel = {
-  provider: string;
-  id: string;
-  name?: string;
+	provider: string;
+	id: string;
+	name?: string;
 };
 
 type SessionViewState = {
-  session: SessionRecord;
-  messages: MessageRecord[];
-  loading: boolean;
-  loaded: boolean;
-  error: string;
-  hasMore: boolean;
-  loadingOlder: boolean;
-  oldestCursor: number | undefined;
+	session: SessionRecord;
+	messages: MessageRecord[];
+	loading: boolean;
+	loaded: boolean;
+	error: string;
+	hasMore: boolean;
+	loadingOlder: boolean;
+	oldestCursor: number | undefined;
 };
 
 const MAX_IMAGE_EDGE = 2160;
@@ -90,6 +107,9 @@ const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
 const urlSessionId = $derived(page.url.searchParams.get("session"));
 const urlFilePath = $derived(page.url.searchParams.get("file"));
+const isRightDrawerVisible = $derived(
+	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
+);
 
 let space = $state<SpaceRecord | null>(null);
 let spaceSessions = $state<SessionRecord[]>([]);
@@ -104,7 +124,11 @@ let streamError = $state("");
 let streamingAssistantText = $state("");
 let streamingThinking = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
-let modelsCatalog = $state<Array<{ provider: string; id: string; model: Record<string, unknown> }> | null>(null);
+let modelsCatalog = $state<Array<{
+	provider: string;
+	id: string;
+	model: Record<string, unknown>;
+}> | null>(null);
 let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
@@ -133,7 +157,10 @@ let autoScrollGuard = $state(false);
 let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
-let chatTimelineRef = $state<{ preparePrepend: () => void; finalizePrepend: () => void } | null>(null);
+let chatTimelineRef = $state<{
+	preparePrepend: () => void;
+	finalizePrepend: () => void;
+} | null>(null);
 let streamingSessionId: string | null = null;
 let checkpointSaving = $state(false);
 let checkpointNotice = $state("");
@@ -150,594 +177,697 @@ let titleClickCount = $state(0);
 let titleClickTimer: ReturnType<typeof setTimeout> | null = null;
 
 function handleTitleClick() {
-  titleClickCount++;
-  if (titleClickTimer) clearTimeout(titleClickTimer);
-  if (titleClickCount >= 4) {
-    titleClickCount = 0;
-    void goto(`/spaces/${spaceId}/debug`);
-    return;
-  }
-  titleClickTimer = setTimeout(() => {
-    titleClickCount = 0;
-  }, 600);
+	titleClickCount++;
+	if (titleClickTimer) clearTimeout(titleClickTimer);
+	if (titleClickCount >= 4) {
+		titleClickCount = 0;
+		void goto(`/spaces/${spaceId}/debug`);
+		return;
+	}
+	titleClickTimer = setTimeout(() => {
+		titleClickCount = 0;
+	}, 600);
 }
 
-const activeSessionState = $derived(activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null);
+const activeSessionState = $derived(
+	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
+);
 const firstCatalogModel = $derived(
-  modelsCatalog && modelsCatalog.length > 0
-    ? {
-        provider: modelsCatalog[0].provider,
-        id: modelsCatalog[0].id,
-        name: modelsCatalog[0].model.name as string | undefined,
-      }
-    : null,
+	modelsCatalog && modelsCatalog.length > 0
+		? {
+				provider: modelsCatalog[0].provider,
+				id: modelsCatalog[0].id,
+				name: modelsCatalog[0].model.name as string | undefined,
+			}
+		: null,
 );
 const activeSessionModel = $derived.by(() => {
-  if (!activeSessionId) return null;
-  return sessionModelById[activeSessionId] ?? firstCatalogModel;
+	if (!activeSessionId) return null;
+	return sessionModelById[activeSessionId] ?? firstCatalogModel;
 });
 const timeline = $derived.by<TimelineItem[]>(() => {
-  const state = activeSessionState;
-  if (!state) return [];
-  // Filter out error messages from display. They're persisted in DB for debugging
-  // and analytics, but should not appear in the chat timeline by default.
-  const items: TimelineItem[] = toChatMessages(state.messages)
-    .filter((message) => message.meta?.messageKind !== "assistant_error")
-    .map((message) => ({
-      id: message.id,
-      kind: "message",
-      message,
-    }));
+	const state = activeSessionState;
+	if (!state) return [];
+	// Filter out error messages from display. They're persisted in DB for debugging
+	// and analytics, but should not appear in the chat timeline by default.
+	const items: TimelineItem[] = toChatMessages(state.messages)
+		.filter((message) => message.meta?.messageKind !== "assistant_error")
+		.map((message) => ({
+			id: message.id,
+			kind: "message",
+			message,
+		}));
 
-  const lastUserIndex = (() => {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const item = items[i];
-      if (item.kind === "message" && item.message.role === "user") return i;
-    }
-    return -1;
-  })();
+	const lastUserIndex = (() => {
+		for (let i = items.length - 1; i >= 0; i--) {
+			const item = items[i];
+			if (item.kind === "message" && item.message.role === "user") return i;
+		}
+		return -1;
+	})();
 
-  function isIntermediate(message: ChatMessage) {
-    if (message.meta?.messageKind === "assistant_intermediate") return true;
-    return message.content?.some((block) => block.type === "tool_use") ?? false;
-  }
+	function isIntermediate(message: ChatMessage) {
+		if (message.meta?.messageKind === "assistant_intermediate") return true;
+		return message.content?.some((block) => block.type === "tool_use") ?? false;
+	}
 
-  function groupIntermediateMessages(parts: TimelineItem[]) {
-    const result: TimelineItem[] = [];
-    let buffer: ChatMessage[] = [];
-    const flush = () => {
-      if (buffer.length === 0) return;
-      result.push({ id: `process-${buffer.map((message) => message.id).join("|")}`, kind: "process", messages: [...buffer] });
-      buffer = [];
-    };
-    for (const item of parts) {
-      if (item.kind !== "message") {
-        flush();
-        result.push(item);
-        continue;
-      }
-      const message = item.message;
-      if (message.role !== "assistant" || !isIntermediate(message)) {
-        flush();
-        result.push(item);
-      } else {
-        buffer.push(message);
-      }
-    }
-    flush();
-    return result;
-  }
+	function groupIntermediateMessages(parts: TimelineItem[]) {
+		const result: TimelineItem[] = [];
+		let buffer: ChatMessage[] = [];
+		const flush = () => {
+			if (buffer.length === 0) return;
+			result.push({
+				id: `process-${buffer.map((message) => message.id).join("|")}`,
+				kind: "process",
+				messages: [...buffer],
+			});
+			buffer = [];
+		};
+		for (const item of parts) {
+			if (item.kind !== "message") {
+				flush();
+				result.push(item);
+				continue;
+			}
+			const message = item.message;
+			if (message.role !== "assistant" || !isIntermediate(message)) {
+				flush();
+				result.push(item);
+			} else {
+				buffer.push(message);
+			}
+		}
+		flush();
+		return result;
+	}
 
-  if (lastUserIndex >= 0) {
-    const historyItems = items.slice(0, lastUserIndex + 1);
-    const groupedHistory = groupIntermediateMessages(historyItems);
-    const currentItems = items.slice(lastUserIndex + 1);
-    if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
-      for (const item of currentItems) groupedHistory.push(item);
-      if (streamingContentBlocks.length > 0) {
-        let accText = "";
-        let accThinking = "";
-        const baseSequence = state.messages.at(-1)?.sequence ?? 0;
-        const flushStreamingMessage = () => {
-          const trimmedText = accText.trim();
-          const trimmedThinking = accThinking.trim();
-          if (!trimmedText && !trimmedThinking) return;
-          const blocks: ContentBlock[] = [];
-          if (trimmedThinking) blocks.push({ type: "thinking", thinking: trimmedThinking });
-          if (trimmedText) blocks.push({ type: "text", text: trimmedText });
-          groupedHistory.push({
-            id: `assistant-streaming-${groupedHistory.length}`,
-            kind: "message",
-            message: {
-              id: "assistant-streaming",
-              role: "assistant",
-              content: blocks as never,
-              text: trimmedText,
-              sequence: baseSequence + 1,
-            },
-          });
-          accText = "";
-          accThinking = "";
-        };
-        for (const block of streamingContentBlocks) {
-          if (block.type === "thinking") {
-            accThinking += (accThinking ? "\n" : "") + block.thinking;
-          } else if (block.type === "text") {
-            accText += (accText ? "\n\n" : "") + block.text;
-          }
-        }
-        flushStreamingMessage();
-      }
-      return groupIntermediateMessages(groupedHistory);
-    }
-    return groupIntermediateMessages([...groupedHistory, ...currentItems]);
-  }
+	if (lastUserIndex >= 0) {
+		const historyItems = items.slice(0, lastUserIndex + 1);
+		const groupedHistory = groupIntermediateMessages(historyItems);
+		const currentItems = items.slice(lastUserIndex + 1);
+		if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
+			for (const item of currentItems) groupedHistory.push(item);
+			if (streamingContentBlocks.length > 0) {
+				let accText = "";
+				let accThinking = "";
+				const baseSequence = state.messages.at(-1)?.sequence ?? 0;
+				const flushStreamingMessage = () => {
+					const trimmedText = accText.trim();
+					const trimmedThinking = accThinking.trim();
+					if (!trimmedText && !trimmedThinking) return;
+					const blocks: ContentBlock[] = [];
+					if (trimmedThinking)
+						blocks.push({ type: "thinking", thinking: trimmedThinking });
+					if (trimmedText) blocks.push({ type: "text", text: trimmedText });
+					groupedHistory.push({
+						id: `assistant-streaming-${groupedHistory.length}`,
+						kind: "message",
+						message: {
+							id: "assistant-streaming",
+							role: "assistant",
+							content: blocks as never,
+							text: trimmedText,
+							sequence: baseSequence + 1,
+						},
+					});
+					accText = "";
+					accThinking = "";
+				};
+				for (const block of streamingContentBlocks) {
+					if (block.type === "thinking") {
+						accThinking += (accThinking ? "\n" : "") + block.thinking;
+					} else if (block.type === "text") {
+						accText += (accText ? "\n\n" : "") + block.text;
+					}
+				}
+				flushStreamingMessage();
+			}
+			return groupIntermediateMessages(groupedHistory);
+		}
+		return groupIntermediateMessages([...groupedHistory, ...currentItems]);
+	}
 
-  return items;
+	return items;
 });
 
 function getSessionModelKey(sessionId: string) {
-  return `cohub:model:${sessionId}`;
+	return `cohub:model:${sessionId}`;
 }
 
 function loadSessionModel(sessionId: string): SelectedModel | null {
-  try {
-    const raw = localStorage.getItem(getSessionModelKey(sessionId));
-    return raw ? (JSON.parse(raw) as SelectedModel) : null;
-  } catch {
-    return null;
-  }
+	try {
+		const raw = localStorage.getItem(getSessionModelKey(sessionId));
+		return raw ? (JSON.parse(raw) as SelectedModel) : null;
+	} catch {
+		return null;
+	}
 }
 
 function saveSessionModel(sessionId: string, model: SelectedModel | null) {
-  if (!model) {
-    localStorage.removeItem(getSessionModelKey(sessionId));
-  } else {
-    localStorage.setItem(getSessionModelKey(sessionId), JSON.stringify(model));
-  }
+	if (!model) {
+		localStorage.removeItem(getSessionModelKey(sessionId));
+	} else {
+		localStorage.setItem(getSessionModelKey(sessionId), JSON.stringify(model));
+	}
 }
 
 function ensureSessionModelLoaded(sessionId: string) {
-  if (sessionModelById[sessionId]) return;
-  sessionModelById = {
-    ...sessionModelById,
-    [sessionId]: loadSessionModel(sessionId),
-  };
+	if (sessionModelById[sessionId]) return;
+	sessionModelById = {
+		...sessionModelById,
+		[sessionId]: loadSessionModel(sessionId),
+	};
 }
 
 async function loadModelsCatalog() {
-  if (modelsCatalog) return;
-  try {
-    const catalog = await getModels();
-    const items: Array<{ provider: string; id: string; model: Record<string, unknown> }> = [];
-    for (const entries of Object.values(catalog)) {
-      for (const entry of entries) items.push(entry);
-    }
-    modelsCatalog = items;
-  } catch (error) {
-    console.error("Failed to load models catalog:", error);
-  }
+	if (modelsCatalog) return;
+	try {
+		const catalog = await getModels();
+		const items: Array<{
+			provider: string;
+			id: string;
+			model: Record<string, unknown>;
+		}> = [];
+		for (const entries of Object.values(catalog)) {
+			for (const entry of entries) items.push(entry);
+		}
+		modelsCatalog = items;
+	} catch (error) {
+		console.error("Failed to load models catalog:", error);
+	}
 }
 
 function handleModelSelect(model: { provider: string; id: string }) {
-  if (!activeSessionId) return;
-  const catalogItem = modelsCatalog?.find((item) => item.provider === model.provider && item.id === model.id);
-  const selected = {
-    provider: model.provider,
-    id: model.id,
-    name: catalogItem?.model.name as string | undefined,
-  } satisfies SelectedModel;
-  sessionModelById = {
-    ...sessionModelById,
-    [activeSessionId]: selected,
-  };
-  saveSessionModel(activeSessionId, selected);
-  showModelSelector = false;
+	if (!activeSessionId) return;
+	const catalogItem = modelsCatalog?.find(
+		(item) => item.provider === model.provider && item.id === model.id,
+	);
+	const selected = {
+		provider: model.provider,
+		id: model.id,
+		name: catalogItem?.model.name as string | undefined,
+	} satisfies SelectedModel;
+	sessionModelById = {
+		...sessionModelById,
+		[activeSessionId]: selected,
+	};
+	saveSessionModel(activeSessionId, selected);
+	showModelSelector = false;
 }
 
 function updateUrlSession(sessionId: string | null) {
-  const params = new URLSearchParams(page.url.searchParams);
-  if (sessionId) params.set("session", sessionId);
-  else params.delete("session");
-  if (urlFilePath) params.set("file", urlFilePath);
-  void goto(`/spaces/${spaceId}?${params.toString()}`, { replaceState: true, keepFocus: true, noScroll: true });
+	const params = new URLSearchParams(page.url.searchParams);
+	if (sessionId) params.set("session", sessionId);
+	else params.delete("session");
+	if (urlFilePath) params.set("file", urlFilePath);
+	void goto(`/spaces/${spaceId}?${params.toString()}`, {
+		replaceState: true,
+		keepFocus: true,
+		noScroll: true,
+	});
 }
 
 function scheduleResetScrollTarget() {
-  if (resetScrollTargetTimer) clearTimeout(resetScrollTargetTimer);
-  resetScrollTargetTimer = setTimeout(() => {
-    scrollTargetSessionId = null;
-  }, 0);
+	if (resetScrollTargetTimer) clearTimeout(resetScrollTargetTimer);
+	resetScrollTargetTimer = setTimeout(() => {
+		scrollTargetSessionId = null;
+	}, 0);
 }
 
 function notifyStreamingStatus(sessionId: string, isStreaming: boolean) {
-  window.dispatchEvent(new CustomEvent("cohub:streaming-status", { detail: { spaceId, sessionId, isStreaming } }));
+	window.dispatchEvent(
+		new CustomEvent("cohub:streaming-status", {
+			detail: { spaceId, sessionId, isStreaming },
+		}),
+	);
 }
 
-function mergeMessagesById(existing: MessageRecord[], incoming: MessageRecord[], options?: { preferIncoming?: boolean }) {
-  const preferIncoming = options?.preferIncoming ?? true;
-  const byId = new Map(existing.map((message) => [message.id, message]));
-  for (const message of incoming) {
-    const current = byId.get(message.id);
-    if (!current) {
-      byId.set(message.id, message);
-      continue;
-    }
-    byId.set(message.id, preferIncoming ? { ...current, ...message } : { ...message, ...current });
-  }
-  return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+function mergeMessagesById(
+	existing: MessageRecord[],
+	incoming: MessageRecord[],
+	options?: { preferIncoming?: boolean },
+) {
+	const preferIncoming = options?.preferIncoming ?? true;
+	const byId = new Map(existing.map((message) => [message.id, message]));
+	for (const message of incoming) {
+		const current = byId.get(message.id);
+		if (!current) {
+			byId.set(message.id, message);
+			continue;
+		}
+		byId.set(
+			message.id,
+			preferIncoming ? { ...current, ...message } : { ...message, ...current },
+		);
+	}
+	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
 }
 
 function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
-  return { ...entry, children: [], isOpen: false, isLoaded: false, isLoading: false };
+	return {
+		...entry,
+		children: [],
+		isOpen: false,
+		isLoaded: false,
+		isLoading: false,
+	};
 }
 
-function replaceNodeChildren(nodes: SpaceFsNode[], nodePath: string, children: SpaceFsNode[]): SpaceFsNode[] {
-  return nodes.map((node) => {
-    if (node.path === nodePath) return { ...node, children, isLoaded: true, isLoading: false, isOpen: true };
-    if (node.children.length > 0) return { ...node, children: replaceNodeChildren(node.children, nodePath, children) };
-    return node;
-  });
+function replaceNodeChildren(
+	nodes: SpaceFsNode[],
+	nodePath: string,
+	children: SpaceFsNode[],
+): SpaceFsNode[] {
+	return nodes.map((node) => {
+		if (node.path === nodePath)
+			return {
+				...node,
+				children,
+				isLoaded: true,
+				isLoading: false,
+				isOpen: true,
+			};
+		if (node.children.length > 0)
+			return {
+				...node,
+				children: replaceNodeChildren(node.children, nodePath, children),
+			};
+		return node;
+	});
 }
 
-function updateNodeState(nodes: SpaceFsNode[], nodePath: string, updater: (node: SpaceFsNode) => SpaceFsNode): SpaceFsNode[] {
-  return nodes.map((node) => {
-    if (node.path === nodePath) return updater(node);
-    if (node.children.length > 0) return { ...node, children: updateNodeState(node.children, nodePath, updater) };
-    return node;
-  });
+function updateNodeState(
+	nodes: SpaceFsNode[],
+	nodePath: string,
+	updater: (node: SpaceFsNode) => SpaceFsNode,
+): SpaceFsNode[] {
+	return nodes.map((node) => {
+		if (node.path === nodePath) return updater(node);
+		if (node.children.length > 0)
+			return {
+				...node,
+				children: updateNodeState(node.children, nodePath, updater),
+			};
+		return node;
+	});
 }
 
 function seedSessions(sessions: SessionRecord[]) {
-  const sorted = [...sessions].sort((a, b) => {
-    const aTime = new Date(a.updatedAt ?? a.createdAt).getTime();
-    const bTime = new Date(b.updatedAt ?? b.createdAt).getTime();
-    return bTime - aTime;
-  });
-  spaceSessions = sorted;
-  for (const session of sorted) {
-    const existing = sessionStateById[session.id];
-    sessionStateById = {
-      ...sessionStateById,
-      [session.id]: {
-        session,
-        messages: existing?.messages ?? [],
-        loading: existing?.loading ?? false,
-        loaded: existing?.loaded ?? false,
-        error: existing?.error ?? "",
-        hasMore: existing?.hasMore ?? true,
-        loadingOlder: existing?.loadingOlder ?? false,
-        oldestCursor: existing?.oldestCursor,
-      },
-    };
-  }
+	const sorted = [...sessions].sort((a, b) => {
+		const aTime = new Date(a.updatedAt ?? a.createdAt).getTime();
+		const bTime = new Date(b.updatedAt ?? b.createdAt).getTime();
+		return bTime - aTime;
+	});
+	spaceSessions = sorted;
+	for (const session of sorted) {
+		const existing = sessionStateById[session.id];
+		sessionStateById = {
+			...sessionStateById,
+			[session.id]: {
+				session,
+				messages: existing?.messages ?? [],
+				loading: existing?.loading ?? false,
+				loaded: existing?.loaded ?? false,
+				error: existing?.error ?? "",
+				hasMore: existing?.hasMore ?? true,
+				loadingOlder: existing?.loadingOlder ?? false,
+				oldestCursor: existing?.oldestCursor,
+			},
+		};
+	}
 }
 
 async function loadSpace(options?: { force?: boolean }) {
-  spaceLoadError = "";
+	spaceLoadError = "";
 
-  const tasks: Array<Promise<void>> = [];
-  tasks.push((async () => {
-    try {
-      space = await getSpace(spaceId);
-    } catch (error) {
-      spaceLoadError = error instanceof Error ? error.message : "Failed to load space";
-    }
-  })());
+	const tasks: Array<Promise<void>> = [];
+	tasks.push(
+		(async () => {
+			try {
+				space = await getSpace(spaceId);
+			} catch (error) {
+				spaceLoadError =
+					error instanceof Error ? error.message : "Failed to load space";
+			}
+		})(),
+	);
 
-  tasks.push((async () => {
-    try {
-      const result = await getSpaceSessions(spaceId);
-      seedSessions(result.sessions ?? []);
-    } catch (error) {
-      if (!spaceLoadError) {
-        spaceLoadError = error instanceof Error ? error.message : "Failed to load sessions";
-      }
-    }
-  })());
+	tasks.push(
+		(async () => {
+			try {
+				const result = await getSpaceSessions(spaceId);
+				seedSessions(result.sessions ?? []);
+			} catch (error) {
+				if (!spaceLoadError) {
+					spaceLoadError =
+						error instanceof Error ? error.message : "Failed to load sessions";
+				}
+			}
+		})(),
+	);
 
-  tasks.push((async () => {
-    try {
-      checkpoints = (await getSpaceCheckpoints(spaceId)).checkpoints;
-    } catch {
-      // Non-blocking
-    }
-  })());
+	tasks.push(
+		(async () => {
+			try {
+				checkpoints = (await getSpaceCheckpoints(spaceId)).checkpoints;
+			} catch {
+				// Non-blocking
+			}
+		})(),
+	);
 
-  await Promise.all(tasks);
+	await Promise.all(tasks);
 }
 
 async function pollSandboxReady() {
-  const startedAt = Date.now();
-  const TIMEOUT = 120_000;
-  sandboxElapsed = 0;
+	const startedAt = Date.now();
+	const TIMEOUT = 120_000;
+	sandboxElapsed = 0;
 
-  const elapsedTimer = setInterval(() => {
-    sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
-  }, 1000);
+	const elapsedTimer = setInterval(() => {
+		sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
+	}, 1000);
 
-  try {
-    while (Date.now() - startedAt < TIMEOUT) {
-      try {
-        const result = await getSpaceSandbox(spaceId);
-        sandbox = result.sandbox;
+	try {
+		while (Date.now() - startedAt < TIMEOUT) {
+			try {
+				const result = await getSpaceSandbox(spaceId);
+				sandbox = result.sandbox;
 
-        if (result.sandbox?.status === "ready") {
-          return true;
-        }
-        if (result.sandbox?.status === "error") {
-          sandboxError = (result.sandbox.meta?.lastError as string) ?? "Sandbox provision failed";
-          return false;
-        }
-      } catch {
-        // Network error, retry
-      }
+				if (result.sandbox?.status === "ready") {
+					return true;
+				}
+				if (result.sandbox?.status === "error") {
+					sandboxError =
+						(result.sandbox.meta?.lastError as string) ??
+						"Sandbox provision failed";
+					return false;
+				}
+			} catch {
+				// Network error, retry
+			}
 
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+		}
 
-    sandboxError = "Sandbox provision timed out";
-    return false;
-  } finally {
-    clearInterval(elapsedTimer);
-  }
+		sandboxError = "Sandbox provision timed out";
+		return false;
+	} finally {
+		clearInterval(elapsedTimer);
+	}
 }
 
 function formatElapsedTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
+	const m = Math.floor(seconds / 60);
+	const s = seconds % 60;
+	return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
 async function handleRecreateSandbox() {
-  if (!space) return;
-  sandboxError = null;
-  sandboxProvisioning = true;
+	if (!space) return;
+	sandboxError = null;
+	sandboxProvisioning = true;
 
-  try {
-    await recreateSpaceSandbox(spaceId);
-    const ready = await pollSandboxReady();
-    if (!ready) {
-      sandboxProvisioning = false;
-      return;
-    }
+	try {
+		await recreateSpaceSandbox(spaceId);
+		const ready = await pollSandboxReady();
+		if (!ready) {
+			sandboxProvisioning = false;
+			return;
+		}
 
-    await loadSpace({ force: true });
-    void loadFileTree(true);
-    bootstrapping = false;
-  } catch (error) {
-    sandboxError = error instanceof Error ? error.message : "Failed to recreate sandbox";
-  } finally {
-    sandboxProvisioning = false;
-  }
+		await loadSpace({ force: true });
+		void loadFileTree(true);
+		bootstrapping = false;
+	} catch (error) {
+		sandboxError =
+			error instanceof Error ? error.message : "Failed to recreate sandbox";
+	} finally {
+		sandboxProvisioning = false;
+	}
 }
 
 async function pollCheckpointJob(jobId: string) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 90_000) {
-    try {
-      const { run } = await getTaskRun(jobId);
-      latestCheckpointJob = run;
-      if (run.status === "completed") return run;
-      if (run.status === "failed") throw new Error(run.errorMessage || "Checkpoint job failed");
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("404")) {
-        throw error;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-  }
-  throw new Error("Checkpoint job timed out");
+	const startedAt = Date.now();
+	while (Date.now() - startedAt < 90_000) {
+		try {
+			const { run } = await getTaskRun(jobId);
+			latestCheckpointJob = run;
+			if (run.status === "completed") return run;
+			if (run.status === "failed")
+				throw new Error(run.errorMessage || "Checkpoint job failed");
+		} catch (error) {
+			if (!(error instanceof Error) || !error.message.includes("404")) {
+				throw error;
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+	}
+	throw new Error("Checkpoint job timed out");
 }
 
 async function handleSaveCheckpoint() {
-  if (!space || checkpointSaving) return;
-  checkpointError = "";
-  checkpointNotice = "";
+	if (!space || checkpointSaving) return;
+	checkpointError = "";
+	checkpointNotice = "";
 
-  const input = typeof window !== "undefined"
-    ? window.prompt("Checkpoint description (optional)", "")
-    : "";
-  if (input === null) return;
+	const input =
+		typeof window !== "undefined"
+			? window.prompt("Checkpoint description (optional)", "")
+			: "";
+	if (input === null) return;
 
-  checkpointSaving = true;
-  try {
-    const { jobId } = await createSpaceCheckpoint(space.id, input.trim() || null);
-    checkpointNotice = "Saving checkpoint…";
-    const run = await pollCheckpointJob(jobId);
-    latestCheckpointJob = run;
-    checkpoints = (await getSpaceCheckpoints(space.id)).checkpoints;
-    checkpointNotice = "Checkpoint saved.";
-    await loadSpace({ force: true });
-  } catch (error) {
-    checkpointError = error instanceof Error ? error.message : "Failed to save checkpoint";
-  } finally {
-    checkpointSaving = false;
-  }
+	checkpointSaving = true;
+	try {
+		const { jobId } = await createSpaceCheckpoint(
+			space.id,
+			input.trim() || null,
+		);
+		checkpointNotice = "Saving checkpoint…";
+		const run = await pollCheckpointJob(jobId);
+		latestCheckpointJob = run;
+		checkpoints = (await getSpaceCheckpoints(space.id)).checkpoints;
+		checkpointNotice = "Checkpoint saved.";
+		await loadSpace({ force: true });
+	} catch (error) {
+		checkpointError =
+			error instanceof Error ? error.message : "Failed to save checkpoint";
+	} finally {
+		checkpointSaving = false;
+	}
 }
 
 async function loadSessionState(sessionId: string, force = false) {
-  const existing = sessionStateById[sessionId];
-  if (loadingSessionIds[sessionId] && !force) return;
-  if (existing?.loaded && !force) return;
+	const existing = sessionStateById[sessionId];
+	if (loadingSessionIds[sessionId] && !force) return;
+	if (existing?.loaded && !force) return;
 
-  const cached = await messageCache.get(sessionId);
-  if (cached && cached.messages.length > 0 && !force) {
-    sessionStateById = {
-      ...sessionStateById,
-      [sessionId]: {
-        session: existing?.session,
-        messages: cached.messages,
-        loading: false,
-        loaded: true,
-        error: "",
-        hasMore: cached.hasMore,
-        loadingOlder: false,
-        oldestCursor: cached.oldestSeq != null ? cached.oldestSeq : undefined,
-      },
-    };
-    void syncSessionNewer(sessionId, cached);
-    suppressScrollSaveSessionIds.add(sessionId);
-    scrollTargetSessionId = sessionId;
-    scheduleResetScrollTarget();
-    return;
-  }
+	const cached = await messageCache.get(sessionId);
+	if (cached && cached.messages.length > 0 && !force) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: existing?.session,
+				messages: cached.messages,
+				loading: false,
+				loaded: true,
+				error: "",
+				hasMore: cached.hasMore,
+				loadingOlder: false,
+				oldestCursor: cached.oldestSeq != null ? cached.oldestSeq : undefined,
+			},
+		};
+		void syncSessionNewer(sessionId, cached);
+		suppressScrollSaveSessionIds.add(sessionId);
+		scrollTargetSessionId = sessionId;
+		scheduleResetScrollTarget();
+		return;
+	}
 
-  loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
-  sessionStateById = {
-    ...sessionStateById,
-    [sessionId]: {
-      session: existing?.session,
-      messages: existing?.messages ?? [],
-      loading: true,
-      loaded: existing?.loaded ?? false,
-      error: existing?.error ?? "",
-      hasMore: existing?.hasMore ?? true,
-      loadingOlder: false,
-      oldestCursor: existing?.oldestCursor,
-    },
-  };
+	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
+	sessionStateById = {
+		...sessionStateById,
+		[sessionId]: {
+			session: existing?.session,
+			messages: existing?.messages ?? [],
+			loading: true,
+			loaded: existing?.loaded ?? false,
+			error: existing?.error ?? "",
+			hasMore: existing?.hasMore ?? true,
+			loadingOlder: false,
+			oldestCursor: existing?.oldestCursor,
+		},
+	};
 
-  try {
-    const response = await getSessionMessagesPaginated(sessionId, { limit: 30 });
-    await messageCache.set({
-      sessionId,
-      messages: response.messages,
-      hasMore: response.hasMore,
-      oldestSeq: response.messages[0]?.sequence ?? null,
-      newestSeq: response.messages.at(-1)?.sequence ?? null,
-      cachedAt: Date.now(),
-    });
-    void messageCache.evict();
-    sessionStateById = {
-      ...sessionStateById,
-      [sessionId]: {
-        session: response.session,
-        messages: response.messages,
-        loading: false,
-        loaded: true,
-        error: "",
-        hasMore: response.hasMore,
-        loadingOlder: false,
-        oldestCursor: response.hasMore && response.messages.length > 0 ? response.messages[0].sequence : undefined,
-      },
-    };
-    suppressScrollSaveSessionIds.add(sessionId);
-    scrollTargetSessionId = sessionId;
-    scheduleResetScrollTarget();
-  } catch (error) {
-    sessionStateById = {
-      ...sessionStateById,
-      [sessionId]: {
-        session: existing?.session,
-        messages: existing?.messages ?? [],
-        loading: false,
-        loaded: true,
-        error: error instanceof Error ? error.message : "Failed to load session",
-        hasMore: existing?.hasMore ?? true,
-        loadingOlder: false,
-        oldestCursor: existing?.oldestCursor,
-      },
-    };
-  } finally {
-    loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
-  }
+	try {
+		const response = await getSessionMessagesPaginated(sessionId, {
+			limit: 30,
+		});
+		await messageCache.set({
+			sessionId,
+			messages: response.messages,
+			hasMore: response.hasMore,
+			oldestSeq: response.messages[0]?.sequence ?? null,
+			newestSeq: response.messages.at(-1)?.sequence ?? null,
+			cachedAt: Date.now(),
+		});
+		void messageCache.evict();
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: response.session,
+				messages: response.messages,
+				loading: false,
+				loaded: true,
+				error: "",
+				hasMore: response.hasMore,
+				loadingOlder: false,
+				oldestCursor:
+					response.hasMore && response.messages.length > 0
+						? response.messages[0].sequence
+						: undefined,
+			},
+		};
+		suppressScrollSaveSessionIds.add(sessionId);
+		scrollTargetSessionId = sessionId;
+		scheduleResetScrollTarget();
+	} catch (error) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: existing?.session,
+				messages: existing?.messages ?? [],
+				loading: false,
+				loaded: true,
+				error:
+					error instanceof Error ? error.message : "Failed to load session",
+				hasMore: existing?.hasMore ?? true,
+				loadingOlder: false,
+				oldestCursor: existing?.oldestCursor,
+			},
+		};
+	} finally {
+		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
+	}
 }
 
-async function syncSessionNewer(sessionId: string, cached: Awaited<ReturnType<typeof messageCache.get>>) {
-  if (!cached || cached.messages.length === 0 || cached.newestSeq == null) return;
-  try {
-    const response = await getSessionMessagesPaginated(sessionId, {
-      cursor: cached.newestSeq,
-      direction: "newer",
-      limit: 100,
-    });
-    if (response.messages.length > 0) {
-      await messageCache.append(sessionId, response.messages);
-      const state = sessionStateById[sessionId];
-      if (state) {
-        sessionStateById = {
-          ...sessionStateById,
-          [sessionId]: {
-            ...state,
-            session: response.session ?? state.session,
-            messages: mergeMessagesById(state.messages, response.messages, { preferIncoming: true }),
-          },
-        };
-      }
-    }
-  } catch (error) {
-    console.warn("[syncSessionNewer] Failed to sync newer messages:", error);
-  }
+async function syncSessionNewer(
+	sessionId: string,
+	cached: Awaited<ReturnType<typeof messageCache.get>>,
+) {
+	if (!cached || cached.messages.length === 0 || cached.newestSeq == null)
+		return;
+	try {
+		const response = await getSessionMessagesPaginated(sessionId, {
+			cursor: cached.newestSeq,
+			direction: "newer",
+			limit: 100,
+		});
+		if (response.messages.length > 0) {
+			await messageCache.append(sessionId, response.messages);
+			const state = sessionStateById[sessionId];
+			if (state) {
+				sessionStateById = {
+					...sessionStateById,
+					[sessionId]: {
+						...state,
+						session: response.session ?? state.session,
+						messages: mergeMessagesById(state.messages, response.messages, {
+							preferIncoming: true,
+						}),
+					},
+				};
+			}
+		}
+	} catch (error) {
+		console.warn("[syncSessionNewer] Failed to sync newer messages:", error);
+	}
 }
 
 async function loadOlderMessages(sessionId: string) {
-  const state = sessionStateById[sessionId];
-  if (!state || !state.hasMore || state.loadingOlder) return;
-  chatTimelineRef?.preparePrepend();
-  sessionStateById = {
-    ...sessionStateById,
-    [sessionId]: {
-      ...state,
-      loadingOlder: true,
-    },
-  };
-  try {
-    const response = await getSessionMessagesPaginated(sessionId, {
-      cursor: state.oldestCursor,
-      direction: "older",
-      limit: 30,
-    });
-    if (response.messages.length > 0) {
-      await messageCache.prepend(sessionId, response.messages, response.hasMore);
-      const merged = mergeMessagesById(state.messages, response.messages, { preferIncoming: false });
-      sessionStateById = {
-        ...sessionStateById,
-        [sessionId]: {
-          ...state,
-          messages: merged,
-          hasMore: response.hasMore,
-          loadingOlder: false,
-          oldestCursor: response.hasMore && merged.length > 0 ? merged[0].sequence : undefined,
-        },
-      };
-      await tick();
-      chatTimelineRef?.finalizePrepend();
-    } else {
-      sessionStateById = {
-        ...sessionStateById,
-        [sessionId]: {
-          ...state,
-          hasMore: false,
-          loadingOlder: false,
-        },
-      };
-    }
-  } catch (error) {
-    sessionStateById = {
-      ...sessionStateById,
-      [sessionId]: {
-        ...state,
-        loadingOlder: false,
-        error: error instanceof Error ? error.message : "Failed to load older messages",
-      },
-    };
-  }
+	const state = sessionStateById[sessionId];
+	if (!state || !state.hasMore || state.loadingOlder) return;
+	chatTimelineRef?.preparePrepend();
+	sessionStateById = {
+		...sessionStateById,
+		[sessionId]: {
+			...state,
+			loadingOlder: true,
+		},
+	};
+	try {
+		const response = await getSessionMessagesPaginated(sessionId, {
+			cursor: state.oldestCursor,
+			direction: "older",
+			limit: 30,
+		});
+		if (response.messages.length > 0) {
+			await messageCache.prepend(
+				sessionId,
+				response.messages,
+				response.hasMore,
+			);
+			const merged = mergeMessagesById(state.messages, response.messages, {
+				preferIncoming: false,
+			});
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...state,
+					messages: merged,
+					hasMore: response.hasMore,
+					loadingOlder: false,
+					oldestCursor:
+						response.hasMore && merged.length > 0
+							? merged[0].sequence
+							: undefined,
+				},
+			};
+			await tick();
+			chatTimelineRef?.finalizePrepend();
+		} else {
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...state,
+					hasMore: false,
+					loadingOlder: false,
+				},
+			};
+		}
+	} catch (error) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...state,
+				loadingOlder: false,
+				error:
+					error instanceof Error
+						? error.message
+						: "Failed to load older messages",
+			},
+		};
+	}
 }
 
 function handleFirstVisible(index: number) {
-  if (!activeSessionId) return;
-  const state = sessionStateById[activeSessionId];
-  if (!state || !state.hasMore || state.loadingOlder) return;
-  if (index <= PRELOAD_THRESHOLD && !preloadingSessionIds.has(activeSessionId)) {
-    const sessionId = activeSessionId;
-    preloadingSessionIds.add(sessionId);
-    void loadOlderMessages(sessionId).finally(() => preloadingSessionIds.delete(sessionId));
-  }
+	if (!activeSessionId) return;
+	const state = sessionStateById[activeSessionId];
+	if (!state || !state.hasMore || state.loadingOlder) return;
+	if (
+		index <= PRELOAD_THRESHOLD &&
+		!preloadingSessionIds.has(activeSessionId)
+	) {
+		const sessionId = activeSessionId;
+		preloadingSessionIds.add(sessionId);
+		void loadOlderMessages(sessionId).finally(() =>
+			preloadingSessionIds.delete(sessionId),
+		);
+	}
 }
 
 function shouldHandleWsEvents(): boolean {
-  return pageMounted && pageVisible && pageOnline;
+	return pageMounted && pageVisible && pageOnline;
 }
 
 /**
@@ -748,74 +878,84 @@ function shouldHandleWsEvents(): boolean {
  * tool_use/tool_result blocks are upserted by id/tool_use_id.
  */
 function cloneContentBlock(block: ContentBlock): ContentBlock {
-  if (block.type === "text") return { ...block };
-  if (block.type === "thinking") return { ...block };
-  if (block.type === "image") {
-    return {
-      ...block,
-      source: { ...block.source },
-    };
-  }
-  if (block.type === "tool_use") {
-    return {
-      ...block,
-      input: { ...block.input },
-    };
-  }
-  if (block.type === "tool_result") {
-    return {
-      ...block,
-      content: Array.isArray(block.content)
-        ? block.content.map((item) =>
-            typeof item === "object" && item !== null && "type" in item
-              ? cloneContentBlock(item as ContentBlock)
-              : item,
-          )
-        : block.content,
-    };
-  }
-  return { ...block };
+	if (block.type === "text") return { ...block };
+	if (block.type === "thinking") return { ...block };
+	if (block.type === "image") {
+		return {
+			...block,
+			source: { ...block.source },
+		};
+	}
+	if (block.type === "tool_use") {
+		return {
+			...block,
+			input: { ...block.input },
+		};
+	}
+	if (block.type === "tool_result") {
+		return {
+			...block,
+			content: Array.isArray(block.content)
+				? block.content.map((item) =>
+						typeof item === "object" && item !== null && "type" in item
+							? cloneContentBlock(item as ContentBlock)
+							: item,
+					)
+				: block.content,
+		};
+	}
+	return { ...block };
 }
 
-function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): ContentBlock[] {
-  if (delta.length === 0) return existing;
+function mergeDeltaBlocks(
+	existing: ContentBlock[],
+	delta: ContentBlock[],
+): ContentBlock[] {
+	if (delta.length === 0) return existing;
 
-  const result = existing.map((block) => cloneContentBlock(block));
-  // Track ordinal position per append-only type, matching backend computeDelta
-  const ordinal = { text: 0, thinking: 0 };
+	const result = existing.map((block) => cloneContentBlock(block));
+	// Track ordinal position per append-only type, matching backend computeDelta
+	const ordinal = { text: 0, thinking: 0 };
 
-  for (const block of delta) {
-    if (block.type === "text") {
-      const idx = ordinal.text++;
-      const existingTexts = result.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text");
-      const target = existingTexts[idx];
-      if (target) {
-        target.text += block.text;
-      } else {
-        result.push(cloneContentBlock(block));
-      }
-    } else if (block.type === "thinking") {
-      const idx = ordinal.thinking++;
-      const existingThinkings = result.filter((b): b is Extract<ContentBlock, { type: "thinking" }> => b.type === "thinking");
-      const target = existingThinkings[idx];
-      if (target) {
-        target.thinking += block.thinking;
-      } else {
-        result.push(cloneContentBlock(block));
-      }
-    } else {
-      const idKey = block.type === "tool_use" ? "id" : "tool_use_id";
-      const idx = result.findIndex(
-        (b) => (b as Record<string, unknown>)[idKey] === (block as Record<string, unknown>)[idKey],
-      );
-      if (idx !== -1) {
-        Object.assign(result[idx], cloneContentBlock(block));
-      } else {
-        result.push(cloneContentBlock(block));
-      }
-    }
-  }
-  return result;
+	for (const block of delta) {
+		if (block.type === "text") {
+			const idx = ordinal.text++;
+			const existingTexts = result.filter(
+				(b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+			);
+			const target = existingTexts[idx];
+			if (target) {
+				target.text += block.text;
+			} else {
+				result.push(cloneContentBlock(block));
+			}
+		} else if (block.type === "thinking") {
+			const idx = ordinal.thinking++;
+			const existingThinkings = result.filter(
+				(b): b is Extract<ContentBlock, { type: "thinking" }> =>
+					b.type === "thinking",
+			);
+			const target = existingThinkings[idx];
+			if (target) {
+				target.thinking += block.thinking;
+			} else {
+				result.push(cloneContentBlock(block));
+			}
+		} else {
+			const idKey = block.type === "tool_use" ? "id" : "tool_use_id";
+			const idx = result.findIndex(
+				(b) =>
+					(b as Record<string, unknown>)[idKey] ===
+					(block as Record<string, unknown>)[idKey],
+			);
+			if (idx !== -1) {
+				Object.assign(result[idx], cloneContentBlock(block));
+			} else {
+				result.push(cloneContentBlock(block));
+			}
+		}
+	}
+	return result;
 }
 
 /**
@@ -823,144 +963,153 @@ function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): Cont
  * Called whenever the server persists a new message in the current session.
  */
 async function handleWsEvent(payload: RealtimeEventPayload) {
-  try {
-    const currentActiveSessionId = activeSessionId;
-    if (!currentActiveSessionId) return;
-    if (payload.sessionId !== currentActiveSessionId) return;
+	try {
+		const currentActiveSessionId = activeSessionId;
+		if (!currentActiveSessionId) return;
+		if (payload.sessionId !== currentActiveSessionId) return;
 
-    const eventType = payload.eventType ?? payload.meta?.eventType;
-    if (eventType !== "session.message") return;
+		const eventType = payload.eventType ?? payload.meta?.eventType;
+		if (eventType !== "session.message") return;
 
-    const state = sessionStateById[currentActiveSessionId];
-    if (!state) return;
+		const state = sessionStateById[currentActiveSessionId];
+		if (!state) return;
 
-    const messageKind = payload.meta?.messageKind as string | undefined;
-    const content = payload.content;
-    // Empty delta means no new content to merge; early return is safe.
-    // This also guards against malformed events with missing content.
-    if (!content || content.length === 0) return;
+		const messageKind = payload.meta?.messageKind as string | undefined;
+		const content = payload.content;
+		// Empty delta means no new content to merge; early return is safe.
+		// This also guards against malformed events with missing content.
+		if (!content || content.length === 0) return;
 
-    const sessionMessageId = payload.sessionMessageId;
-    const isIntermediate = messageKind === "assistant_intermediate";
-    if (!sessionMessageId && !isIntermediate) return;
+		const sessionMessageId = payload.sessionMessageId;
+		const isIntermediate = messageKind === "assistant_intermediate";
+		if (!sessionMessageId && !isIntermediate) return;
 
-    const messageRole = payload.meta?.sessionMessageRole as string | undefined;
-    const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
+		const messageRole = payload.meta?.sessionMessageRole as string | undefined;
+		const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
 
-    const incomingMessage: MessageRecord = {
-      id: sessionMessageId ?? `stream-${currentActiveSessionId}`,
-      sessionId: currentActiveSessionId,
-      role: (messageRole ?? "assistant") as "user" | "assistant",
-      content: content as MessageRecord["content"],
-      text: content.find((b) => b.type === "text")?.text ?? "",
-      sequence,
-      provider: null,
-      model: null,
-      stopReason: null,
-      errorMessage: null,
-      usageInput: null,
-      usageOutput: null,
-      costTotal: null,
-      meta: { messageKind },
-      createdAt: new Date().toISOString(),
-    };
+		const incomingMessage: MessageRecord = {
+			id: sessionMessageId ?? `stream-${currentActiveSessionId}`,
+			sessionId: currentActiveSessionId,
+			role: (messageRole ?? "assistant") as "user" | "assistant",
+			content: content as MessageRecord["content"],
+			text: content.find((b) => b.type === "text")?.text ?? "",
+			sequence,
+			provider: null,
+			model: null,
+			stopReason: null,
+			errorMessage: null,
+			usageInput: null,
+			usageOutput: null,
+			costTotal: null,
+			meta: { messageKind },
+			createdAt: new Date().toISOString(),
+		};
 
-    // Deduplicate: skip if we already have this message
-    if (state.messages.some((m) => m.id === sessionMessageId)) return;
+		// Deduplicate: skip if we already have this message
+		if (state.messages.some((m) => m.id === sessionMessageId)) return;
 
-    if (messageKind === "assistant_intermediate") {
-      const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content as ContentBlock[]);
-      const { thinking, answer } = extractSessionRenderState(mergedContent);
-      streamingThinking = thinking;
-      streamingAssistantText = answer;
-      streamingContentBlocks = mergedContent;
-      if (content.length > 0) {
-        if (streamingSessionId !== currentActiveSessionId) {
-          streamingSessionId = currentActiveSessionId;
-          notifyStreamingStatus(currentActiveSessionId, true);
-        }
-        await tick();
-        if (!userScrolledUp) scrollToBottomNow();
-      }
-    } else if (messageKind === "assistant_error") {
-      // Error messages are persisted in DB for debugging, but not shown in UI.
-      // Clear streaming state without merging the error into visible messages.
-      streamingAssistantText = "";
-      streamingThinking = "";
-      streamingContentBlocks = [];
-      streamStatus = "error";
-      if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-      streamingSessionId = null;
+		if (messageKind === "assistant_intermediate") {
+			const mergedContent = mergeDeltaBlocks(
+				streamingContentBlocks,
+				content as ContentBlock[],
+			);
+			const { thinking, answer } = extractSessionRenderState(mergedContent);
+			streamingThinking = thinking;
+			streamingAssistantText = answer;
+			streamingContentBlocks = mergedContent;
+			if (content.length > 0) {
+				if (streamingSessionId !== currentActiveSessionId) {
+					streamingSessionId = currentActiveSessionId;
+					notifyStreamingStatus(currentActiveSessionId, true);
+				}
+				await tick();
+				if (!userScrolledUp) scrollToBottomNow();
+			}
+		} else if (messageKind === "assistant_error") {
+			// Error messages are persisted in DB for debugging, but not shown in UI.
+			// Clear streaming state without merging the error into visible messages.
+			streamingAssistantText = "";
+			streamingThinking = "";
+			streamingContentBlocks = [];
+			streamStatus = "error";
+			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+			streamingSessionId = null;
 
-      // Update session list (lastMessageId, updatedAt) even for errors so the
-      // sidebar reflects the latest activity.
-      const updatedSession = state.session;
-      if (updatedSession) {
-        const refreshedSession: SessionRecord = {
-          ...updatedSession,
-          lastMessageId: sessionMessageId ?? null,
-          updatedAt: new Date().toISOString(),
-        };
-        spaceSessions = spaceSessions.map((s): SessionRecord =>
-          s.id === updatedSession.id ? refreshedSession : s,
-        );
-      }
-    } else if (messageKind === "assistant_final") {
-      // Final message — clear streaming state and merge into messages
-      streamingAssistantText = "";
-      streamingThinking = "";
-      streamingContentBlocks = [];
-      streamStatus = "done";
-      if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-      streamingSessionId = null;
+			// Update session list (lastMessageId, updatedAt) even for errors so the
+			// sidebar reflects the latest activity.
+			const updatedSession = state.session;
+			if (updatedSession) {
+				const refreshedSession: SessionRecord = {
+					...updatedSession,
+					lastMessageId: sessionMessageId ?? null,
+					updatedAt: new Date().toISOString(),
+				};
+				spaceSessions = spaceSessions.map(
+					(s): SessionRecord =>
+						s.id === updatedSession.id ? refreshedSession : s,
+				);
+			}
+		} else if (messageKind === "assistant_final") {
+			// Final message — clear streaming state and merge into messages
+			streamingAssistantText = "";
+			streamingThinking = "";
+			streamingContentBlocks = [];
+			streamStatus = "done";
+			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+			streamingSessionId = null;
 
-      const merged = mergeMessagesById(state.messages, [incomingMessage], { preferIncoming: true });
-      sessionStateById = {
-        ...sessionStateById,
-        [currentActiveSessionId]: {
-          ...state,
-          messages: merged,
-          loading: false,
-          loaded: true,
-          error: "",
-          hasMore: state.hasMore ?? true,
-          loadingOlder: false,
-          oldestCursor: state.oldestCursor,
-        },
-      };
+			const merged = mergeMessagesById(state.messages, [incomingMessage], {
+				preferIncoming: true,
+			});
+			sessionStateById = {
+				...sessionStateById,
+				[currentActiveSessionId]: {
+					...state,
+					messages: merged,
+					loading: false,
+					loaded: true,
+					error: "",
+					hasMore: state.hasMore ?? true,
+					loadingOlder: false,
+					oldestCursor: state.oldestCursor,
+				},
+			};
 
-      await messageCache.append(currentActiveSessionId, [incomingMessage]);
+			await messageCache.append(currentActiveSessionId, [incomingMessage]);
 
-      // Update session list (lastMessageId, updatedAt)
-      const updatedSession = state.session;
-      if (updatedSession) {
-        const refreshedSession: SessionRecord = {
-          ...updatedSession,
-          lastMessageId: sessionMessageId ?? null,
-          updatedAt: new Date().toISOString(),
-        };
-        spaceSessions = spaceSessions.map((s): SessionRecord =>
-          s.id === updatedSession.id ? refreshedSession : s,
-        );
-      }
-      if (!userScrolledUp) scrollToBottomNow();
-    } else if (messageKind === "user") {
-      // User message — may be our own or from another device
-      // Only add if not already present (we optimistically add our own)
-      const merged = mergeMessagesById(state.messages, [incomingMessage], { preferIncoming: false });
-      if (merged.length > state.messages.length) {
-        sessionStateById = {
-          ...sessionStateById,
-          [currentActiveSessionId]: {
-            ...state,
-            messages: merged,
-          },
-        };
-      }
-    }
-  } catch (error) {
-    console.error("[WS] handleWsEvent error:", error);
-  }
+			// Update session list (lastMessageId, updatedAt)
+			const updatedSession = state.session;
+			if (updatedSession) {
+				const refreshedSession: SessionRecord = {
+					...updatedSession,
+					lastMessageId: sessionMessageId ?? null,
+					updatedAt: new Date().toISOString(),
+				};
+				spaceSessions = spaceSessions.map(
+					(s): SessionRecord =>
+						s.id === updatedSession.id ? refreshedSession : s,
+				);
+			}
+			if (!userScrolledUp) scrollToBottomNow();
+		} else if (messageKind === "user") {
+			// User message — may be our own or from another device
+			// Only add if not already present (we optimistically add our own)
+			const merged = mergeMessagesById(state.messages, [incomingMessage], {
+				preferIncoming: false,
+			});
+			if (merged.length > state.messages.length) {
+				sessionStateById = {
+					...sessionStateById,
+					[currentActiveSessionId]: {
+						...state,
+						messages: merged,
+					},
+				};
+			}
+		}
+	} catch (error) {
+		console.error("[WS] handleWsEvent error:", error);
+	}
 }
 
 /**
@@ -968,13 +1117,13 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
  * The RealtimeClient is a singleton — we only need to register/unregister handlers.
  */
 function connectSessionWS(sessionId: string) {
-  if (!shouldHandleWsEvents()) return;
-  const client = getRealtimeClient();
-  if (client.state === "idle") {
-    void client.connect().catch((error) => {
-      console.error("[WS] Failed to connect:", error);
-    });
-  }
+	if (!shouldHandleWsEvents()) return;
+	const client = getRealtimeClient();
+	if (client.state === "idle") {
+		void client.connect().catch((error) => {
+			console.error("[WS] Failed to connect:", error);
+		});
+	}
 }
 
 /**
@@ -982,601 +1131,683 @@ function connectSessionWS(sessionId: string) {
  * (The singleton stays alive across session switches — no need to fully disconnect.)
  */
 function disconnectSessionWS() {
-  // No-op: the singleton RealtimeClient stays connected.
-  // Event handlers filter by activeSessionId so no stale events apply.
+	// No-op: the singleton RealtimeClient stays connected.
+	// Event handlers filter by activeSessionId so no stale events apply.
 }
 
 function disconnectAllWS() {
-  // No-op on disconnect: keep the singleton connected.
-  // The client's own ping/pong and reconnect logic handles network issues.
-  // We only fully disconnect on page unload (handled in onMount cleanup).
+	// No-op on disconnect: keep the singleton connected.
+	// The client's own ping/pong and reconnect logic handles network issues.
+	// We only fully disconnect on page unload (handled in onMount cleanup).
 }
 
 function clearStreamingState() {
-  streamingAssistantText = "";
-  streamingThinking = "";
-  streamingContentBlocks = [];
-  if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-  streamingSessionId = null;
+	streamingAssistantText = "";
+	streamingThinking = "";
+	streamingContentBlocks = [];
+	if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+	streamingSessionId = null;
 }
 
 async function handleSend() {
-  if (!activeSessionState || (!input.trim() && imageAttachments.length === 0) || sending || !space) return;
-  sending = true;
-  streamError = "";
-  streamStatus = "streaming";
+	if (
+		!activeSessionState ||
+		(!input.trim() && imageAttachments.length === 0) ||
+		sending ||
+		!space
+	)
+		return;
+	sending = true;
+	streamError = "";
+	streamStatus = "streaming";
 
-  const text = input.trim();
-  const attachmentBlocks: ContentBlock[] = imageAttachments.map((attachment) => ({
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: attachment.mediaType,
-      data: attachment.data,
-    },
-    _meta: {
-      filename: attachment.name,
-      size: attachment.size,
-    },
-  }));
-  const content: ContentBlock[] = [
-    ...attachmentBlocks,
-    ...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
-  ];
-  const sessionId = activeSessionState.session.id;
+	const text = input.trim();
+	const attachmentBlocks: ContentBlock[] = imageAttachments.map(
+		(attachment) => ({
+			type: "image",
+			source: {
+				type: "base64",
+				media_type: attachment.mediaType,
+				data: attachment.data,
+			},
+			_meta: {
+				filename: attachment.name,
+				size: attachment.size,
+			},
+		}),
+	);
+	const content: ContentBlock[] = [
+		...attachmentBlocks,
+		...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
+	];
+	const sessionId = activeSessionState.session.id;
 
-  try {
-    const model = activeSessionModel;
-    const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	try {
+		const model = activeSessionModel;
+		const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // Try WebSocket first; fall back to HTTP if not available
-    try {
-      const wsClient = getRealtimeClient();
-      await Promise.race([
-        wsClient.sendMessage({
-          spaceId: space.id,
-          sessionId,
-          content,
-          clientMessageId,
-        }),
-        new Promise<void>((_, reject) => {
-          setTimeout(() => reject(new Error("WS send timeout")), 5000);
-        }),
-      ]);
-    } catch (wsError) {
-      console.warn("[handleSend] WS send failed, falling back to HTTP:", wsError);
-      await postSessionMessage(sessionId, content, {
-        model: model?.id,
-        provider: model?.provider,
-      });
-    }
+		// Try WebSocket first; fall back to HTTP if not available
+		try {
+			const wsClient = getRealtimeClient();
+			await Promise.race([
+				wsClient.sendMessage({
+					spaceId: space.id,
+					sessionId,
+					content,
+					clientMessageId,
+				}),
+				new Promise<void>((_, reject) => {
+					setTimeout(() => reject(new Error("WS send timeout")), 5000);
+				}),
+			]);
+		} catch (wsError) {
+			console.warn(
+				"[handleSend] WS send failed, falling back to HTTP:",
+				wsError,
+			);
+			await postSessionMessage(sessionId, content, {
+				model: model?.id,
+				provider: model?.provider,
+			});
+		}
 
-    input = "";
-    imageAttachments = [];
-    clearStreamingState();
+		input = "";
+		imageAttachments = [];
+		clearStreamingState();
 
-    const currentState = sessionStateById[sessionId];
-    if (currentState) {
-      const optimisticMessage = {
-        id: `optimistic-user-${Date.now()}`,
-        sessionId,
-        role: "user" as const,
-        content,
-        text,
-        sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
-        provider: null,
-        model: null,
-        stopReason: null,
-        errorMessage: null,
-        usageInput: null,
-        usageOutput: null,
-        costTotal: null,
-        meta: null,
-        createdAt: new Date().toISOString(),
-      } satisfies MessageRecord;
-      sessionStateById = {
-        ...sessionStateById,
-        [sessionId]: {
-          ...currentState,
-          messages: [...currentState.messages, optimisticMessage],
-        },
-      };
-      await messageCache.append(sessionId, [optimisticMessage]);
-    }
-  } catch (error) {
-    streamError = error instanceof Error ? error.message : "Failed to send message";
-    streamStatus = "error";
-    clearStreamingState();
-    await loadSessionState(sessionId, true).catch(() => undefined);
-  } finally {
-    sending = false;
-  }
+		const currentState = sessionStateById[sessionId];
+		if (currentState) {
+			const optimisticMessage = {
+				id: `optimistic-user-${Date.now()}`,
+				sessionId,
+				role: "user" as const,
+				content,
+				text,
+				sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				usageInput: null,
+				usageOutput: null,
+				costTotal: null,
+				meta: null,
+				createdAt: new Date().toISOString(),
+			} satisfies MessageRecord;
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...currentState,
+					messages: [...currentState.messages, optimisticMessage],
+				},
+			};
+			await messageCache.append(sessionId, [optimisticMessage]);
+		}
+	} catch (error) {
+		streamError =
+			error instanceof Error ? error.message : "Failed to send message";
+		streamStatus = "error";
+		clearStreamingState();
+		await loadSessionState(sessionId, true).catch(() => undefined);
+	} finally {
+		sending = false;
+	}
 }
 
 function scrollToBottomNow() {
-  if (!listEl) return;
-  autoScrollGuard = true;
-  listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
-  requestAnimationFrame(() => {
-    autoScrollGuard = false;
-  });
+	if (!listEl) return;
+	autoScrollGuard = true;
+	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
+	requestAnimationFrame(() => {
+		autoScrollGuard = false;
+	});
 }
 
 async function forceScrollToBottom() {
-  await tick();
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      scrollToBottomNow();
-      resolve();
-    });
-  });
+	await tick();
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame(() => {
+			scrollToBottomNow();
+			resolve();
+		});
+	});
 }
 
 function updateAutoFollow() {
-  if (!listEl) return;
-  const threshold = 80;
-  const distanceFromBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
-  if (!autoScrollGuard && distanceFromBottom > threshold) {
-    userScrolledUp = true;
-  }
-  shouldAutoFollow = distanceFromBottom <= threshold;
-  if (shouldAutoFollow) userScrolledUp = false;
-  showScrollToBottom = userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
+	if (!listEl) return;
+	const threshold = 80;
+	const distanceFromBottom =
+		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+	if (!autoScrollGuard && distanceFromBottom > threshold) {
+		userScrolledUp = true;
+	}
+	shouldAutoFollow = distanceFromBottom <= threshold;
+	if (shouldAutoFollow) userScrolledUp = false;
+	showScrollToBottom =
+		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
 
 async function fileToDataUrl(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result ?? ""));
+		reader.onerror = () =>
+			reject(reader.error ?? new Error("Failed to read file"));
+		reader.readAsDataURL(file);
+	});
 }
 
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Failed to decode image"));
-    };
-    image.src = objectUrl;
-  });
+	return new Promise((resolve, reject) => {
+		const objectUrl = URL.createObjectURL(file);
+		const image = new Image();
+		image.onload = () => {
+			URL.revokeObjectURL(objectUrl);
+			resolve(image);
+		};
+		image.onerror = () => {
+			URL.revokeObjectURL(objectUrl);
+			reject(new Error("Failed to decode image"));
+		};
+		image.src = objectUrl;
+	});
 }
 
-async function canvasToWebpBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error("Failed to encode image"));
-    }, "image/webp", quality);
-  });
+async function canvasToWebpBlob(
+	canvas: HTMLCanvasElement,
+	quality: number,
+): Promise<Blob> {
+	return new Promise((resolve, reject) => {
+		canvas.toBlob(
+			(blob) => {
+				if (blob) resolve(blob);
+				else reject(new Error("Failed to encode image"));
+			},
+			"image/webp",
+			quality,
+		);
+	});
 }
 
 async function compressImageFile(file: File) {
-  const image = await loadImageElement(file);
-  const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
-  const scale = longestEdge > MAX_IMAGE_EDGE ? MAX_IMAGE_EDGE / longestEdge : 1;
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas is not supported");
-  context.drawImage(image, 0, 0, width, height);
+	const image = await loadImageElement(file);
+	const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
+	const scale = longestEdge > MAX_IMAGE_EDGE ? MAX_IMAGE_EDGE / longestEdge : 1;
+	const width = Math.max(1, Math.round(image.naturalWidth * scale));
+	const height = Math.max(1, Math.round(image.naturalHeight * scale));
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+	const context = canvas.getContext("2d");
+	if (!context) throw new Error("Canvas is not supported");
+	context.drawImage(image, 0, 0, width, height);
 
-  let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
-  for (const quality of WEBP_QUALITIES.slice(1)) {
-    if (blob.size <= MAX_IMAGE_BYTES) break;
-    blob = await canvasToWebpBlob(canvas, quality);
-  }
-  if (blob.size > MAX_IMAGE_BYTES) throw new Error("Image is too large after compression");
-  const dataUrl = await fileToDataUrl(blob);
-  return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
+	let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
+	for (const quality of WEBP_QUALITIES.slice(1)) {
+		if (blob.size <= MAX_IMAGE_BYTES) break;
+		blob = await canvasToWebpBlob(canvas, quality);
+	}
+	if (blob.size > MAX_IMAGE_BYTES)
+		throw new Error("Image is too large after compression");
+	const dataUrl = await fileToDataUrl(blob);
+	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
 
 async function handlePickImages(files: FileList | File[] | null) {
-  if (!files) return;
-  const validFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
-  if (validFiles.length === 0) return;
-  try {
-    const nextAttachments = await Promise.all(
-      validFiles.map(async (file) => {
-        const compressed = await compressImageFile(file);
-        const [, base64 = ""] = compressed.dataUrl.split(",");
-        const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
-        return {
-          id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
-          name: `${webpName}.webp`,
-          mediaType: compressed.mediaType,
-          data: base64,
-          previewUrl: compressed.dataUrl,
-          size: compressed.size,
-        } satisfies ComposerImageAttachment;
-      }),
-    );
-    imageAttachments = [...imageAttachments, ...nextAttachments];
-  } catch (error) {
-    streamError = error instanceof Error ? error.message : "Failed to read image";
-  }
+	if (!files) return;
+	const validFiles = Array.from(files).filter((file) =>
+		file.type.startsWith("image/"),
+	);
+	if (validFiles.length === 0) return;
+	try {
+		const nextAttachments = await Promise.all(
+			validFiles.map(async (file) => {
+				const compressed = await compressImageFile(file);
+				const [, base64 = ""] = compressed.dataUrl.split(",");
+				const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
+				return {
+					id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+					name: `${webpName}.webp`,
+					mediaType: compressed.mediaType,
+					data: base64,
+					previewUrl: compressed.dataUrl,
+					size: compressed.size,
+				} satisfies ComposerImageAttachment;
+			}),
+		);
+		imageAttachments = [...imageAttachments, ...nextAttachments];
+	} catch (error) {
+		streamError =
+			error instanceof Error ? error.message : "Failed to read image";
+	}
 }
 
 function handleRemoveAttachment(id: string) {
-  imageAttachments = imageAttachments.filter((attachment) => attachment.id !== id);
+	imageAttachments = imageAttachments.filter(
+		(attachment) => attachment.id !== id,
+	);
 }
 
 function beginRightSidebarResize(event: PointerEvent) {
-  event.preventDefault();
-  if (window.innerWidth < 1280 || uiState.rightSidebarCollapsed) return;
-  rightSidebarResizeCleanup?.();
-  const startX = event.clientX;
-  const startWidth = uiState.rightSidebarWidth;
-  const minMainWidth = 720;
-  const onPointerMove = (moveEvent: PointerEvent) => {
-    const delta = startX - moveEvent.clientX;
-    const viewportLimit = window.innerWidth - minMainWidth;
-    const nextWidth = Math.min(RIGHT_SIDEBAR_MAX, Math.max(RIGHT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)));
-    uiState.setRightSidebarWidth(nextWidth);
-  };
-  const stop = () => {
-    document.body.classList.remove("sidebar-resizing");
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", stop);
-    window.removeEventListener("pointercancel", stop);
-    if (rightSidebarResizeCleanup === stop) rightSidebarResizeCleanup = null;
-  };
-  rightSidebarResizeCleanup = stop;
-  document.body.classList.add("sidebar-resizing");
-  window.addEventListener("pointermove", onPointerMove);
-  window.addEventListener("pointerup", stop);
-  window.addEventListener("pointercancel", stop);
+	event.preventDefault();
+	if (window.innerWidth < 1024 || uiState.rightSidebarCollapsed) return;
+	rightSidebarResizeCleanup?.();
+	const startX = event.clientX;
+	const startWidth = uiState.rightSidebarWidth;
+	const minMainWidth = 720;
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		const delta = startX - moveEvent.clientX;
+		const viewportLimit = window.innerWidth - minMainWidth;
+		const nextWidth = Math.min(
+			RIGHT_SIDEBAR_MAX,
+			Math.max(RIGHT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
+		);
+		uiState.setRightSidebarWidth(nextWidth);
+	};
+	const stop = () => {
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (rightSidebarResizeCleanup === stop) rightSidebarResizeCleanup = null;
+	};
+	rightSidebarResizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
 }
 
 async function loadFileTree(force = false) {
-  if (fileTreeLoading && !force) return;
-  fileTreeLoading = true;
-  fileTreeError = null;
-  try {
-    const tree = await getSpaceFsTree(spaceId, "");
-    fileTree = tree.entries.map(makeFsNode);
-  } catch (error) {
-    fileTreeError = error instanceof Error ? error.message : "Failed to load files";
-  } finally {
-    fileTreeLoading = false;
-  }
+	if (fileTreeLoading && !force) return;
+	fileTreeLoading = true;
+	fileTreeError = null;
+	try {
+		const tree = await getSpaceFsTree(spaceId, "");
+		fileTree = tree.entries.map(makeFsNode);
+	} catch (error) {
+		fileTreeError =
+			error instanceof Error ? error.message : "Failed to load files";
+	} finally {
+		fileTreeLoading = false;
+	}
 }
 
 async function expandDirectory(node: SpaceFsNode) {
-  if (node.type !== "dir") return;
-  if (node.isOpen) {
-    fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isOpen: false }));
-    return;
-  }
-  if (node.isLoaded) {
-    fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isOpen: true }));
-    return;
-  }
-  fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isLoading: true, isOpen: true }));
-  try {
-    const tree = await getSpaceFsTree(spaceId, node.path);
-    fileTree = replaceNodeChildren(fileTree, node.path, tree.entries.map(makeFsNode));
-  } catch (error) {
-    fileTree = updateNodeState(fileTree, node.path, (item) => ({ ...item, isLoading: false }));
-    fileTreeError = error instanceof Error ? error.message : "Failed to load directory";
-  }
+	if (node.type !== "dir") return;
+	if (node.isOpen) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({
+			...item,
+			isOpen: false,
+		}));
+		return;
+	}
+	if (node.isLoaded) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({
+			...item,
+			isOpen: true,
+		}));
+		return;
+	}
+	fileTree = updateNodeState(fileTree, node.path, (item) => ({
+		...item,
+		isLoading: true,
+		isOpen: true,
+	}));
+	try {
+		const tree = await getSpaceFsTree(spaceId, node.path);
+		fileTree = replaceNodeChildren(
+			fileTree,
+			node.path,
+			tree.entries.map(makeFsNode),
+		);
+	} catch (error) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({
+			...item,
+			isLoading: false,
+		}));
+		fileTreeError =
+			error instanceof Error ? error.message : "Failed to load directory";
+	}
 }
 
 async function openSpaceFile(path: string) {
-  const params = new URLSearchParams(page.url.searchParams);
-  params.set("file", path);
-  void goto(`/spaces/${spaceId}?${params.toString()}`, { replaceState: true, noScroll: true, keepFocus: true });
+	const params = new URLSearchParams(page.url.searchParams);
+	params.set("file", path);
+	void goto(`/spaces/${spaceId}?${params.toString()}`, {
+		replaceState: true,
+		noScroll: true,
+		keepFocus: true,
+	});
 }
 
 async function refreshFileTree() {
-  await loadFileTree(true);
+	await loadFileTree(true);
 }
 
 async function openFileFromUrl(path: string) {
-  openFileLoading = true;
-  openFileError = null;
-  openFileTooLarge = false;
-  try {
-    const file = await getSpaceFsFile(spaceId, path);
-    openFile = file;
-    openFileDraft = file.kind === "text" ? file.content : "";
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to open file";
-    if (message.includes("413") || message.includes("too large")) {
-      openFileTooLarge = true;
-      openFile = null;
-      openFileDraft = "";
-      openFileError = null;
-    } else {
-      openFileError = message;
-    }
-  } finally {
-    openFileLoading = false;
-  }
+	openFileLoading = true;
+	openFileError = null;
+	openFileTooLarge = false;
+	try {
+		const file = await getSpaceFsFile(spaceId, path);
+		openFile = file;
+		openFileDraft = file.kind === "text" ? file.content : "";
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to open file";
+		if (message.includes("413") || message.includes("too large")) {
+			openFileTooLarge = true;
+			openFile = null;
+			openFileDraft = "";
+			openFileError = null;
+		} else {
+			openFileError = message;
+		}
+	} finally {
+		openFileLoading = false;
+	}
 }
 
 async function saveOpenFile() {
-  if (!openFile || openFile.kind !== "text") return;
-  openFileSaving = true;
-  openFileError = null;
-  try {
-    await putSpaceFsFile(spaceId, { path: openFile.path, content: openFileDraft, encoding: "utf-8" });
-    openFile = { ...openFile, content: openFileDraft, size: new Blob([openFileDraft]).size };
-    await loadFileTree(true);
-  } catch (error) {
-    openFileError = error instanceof Error ? error.message : "Failed to save file";
-  } finally {
-    openFileSaving = false;
-  }
+	if (!openFile || openFile.kind !== "text") return;
+	openFileSaving = true;
+	openFileError = null;
+	try {
+		await putSpaceFsFile(spaceId, {
+			path: openFile.path,
+			content: openFileDraft,
+			encoding: "utf-8",
+		});
+		openFile = {
+			...openFile,
+			content: openFileDraft,
+			size: new Blob([openFileDraft]).size,
+		};
+		await loadFileTree(true);
+	} catch (error) {
+		openFileError =
+			error instanceof Error ? error.message : "Failed to save file";
+	} finally {
+		openFileSaving = false;
+	}
 }
 
 async function handleCreateFile(parentPath: string) {
-  const name = prompt("New file name");
-  if (!name?.trim()) return;
-  const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-  try {
-    await putSpaceFsFile(spaceId, { path, content: "", encoding: "utf-8" });
-    await loadFileTree(true);
-    await openSpaceFile(path);
-  } catch (error) {
-    fileTreeError = error instanceof Error ? error.message : "Failed to create file";
-  }
+	const name = prompt("New file name");
+	if (!name?.trim()) return;
+	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+	try {
+		await putSpaceFsFile(spaceId, { path, content: "", encoding: "utf-8" });
+		await loadFileTree(true);
+		await openSpaceFile(path);
+	} catch (error) {
+		fileTreeError =
+			error instanceof Error ? error.message : "Failed to create file";
+	}
 }
 
 async function handleCreateDir(parentPath: string) {
-  const name = prompt("New folder name");
-  if (!name?.trim()) return;
-  const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-  try {
-    await createSpaceFsDir(spaceId, path);
-    await loadFileTree(true);
-  } catch (error) {
-    fileTreeError = error instanceof Error ? error.message : "Failed to create folder";
-  }
+	const name = prompt("New folder name");
+	if (!name?.trim()) return;
+	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+	try {
+		await createSpaceFsDir(spaceId, path);
+		await loadFileTree(true);
+	} catch (error) {
+		fileTreeError =
+			error instanceof Error ? error.message : "Failed to create folder";
+	}
 }
 
 async function handleRenameNode(node: SpaceFsNode) {
-  const nextName = prompt("Rename", node.name);
-  if (!nextName?.trim() || nextName.trim() === node.name) return;
-  const parent = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : "";
-  const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
-  try {
-    await moveSpaceFsNode(spaceId, { fromPath: node.path, toPath });
-    await loadFileTree(true);
-    if (openFile?.path === node.path) {
-      await openSpaceFile(toPath);
-    }
-  } catch (error) {
-    fileTreeError = error instanceof Error ? error.message : "Failed to rename";
-  }
+	const nextName = prompt("Rename", node.name);
+	if (!nextName?.trim() || nextName.trim() === node.name) return;
+	const parent = node.path.includes("/")
+		? node.path.slice(0, node.path.lastIndexOf("/"))
+		: "";
+	const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
+	try {
+		await moveSpaceFsNode(spaceId, { fromPath: node.path, toPath });
+		await loadFileTree(true);
+		if (openFile?.path === node.path) {
+			await openSpaceFile(toPath);
+		}
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
+	}
 }
 
 async function handleDeleteNode(node: SpaceFsNode) {
-  if (!confirm(`Delete ${node.name}?`)) return;
-  try {
-    await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
-    await loadFileTree(true);
-    if (openFile?.path === node.path) closeFile();
-  } catch (error) {
-    fileTreeError = error instanceof Error ? error.message : "Failed to delete";
-  }
+	if (!confirm(`Delete ${node.name}?`)) return;
+	try {
+		await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
+		await loadFileTree(true);
+		if (openFile?.path === node.path) closeFile();
+	} catch (error) {
+		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
+	}
 }
 
 function closeFile() {
-  const params = new URLSearchParams(page.url.searchParams);
-  params.delete("file");
-  void goto(`/spaces/${spaceId}?${params.toString()}`, { replaceState: true, noScroll: true, keepFocus: true });
+	const params = new URLSearchParams(page.url.searchParams);
+	params.delete("file");
+	void goto(`/spaces/${spaceId}?${params.toString()}`, {
+		replaceState: true,
+		noScroll: true,
+		keepFocus: true,
+	});
 }
 
 function handleCreateNewSession() {
-  if (creatingSession || !space) return;
-  creatingSession = true;
-  createSessionError = "";
-  const createSpaceId = space.id;
-  void createSpaceSession(createSpaceId, { source: "web" }).then(async (result) => {
-    const newSession = result.session;
-    const nextSessions = [newSession, ...spaceSessions.filter((session) => session.id !== newSession.id)];
-    seedSessions(nextSessions);
-    activeSessionId = newSession.id;
-    ensureSessionModelLoaded(newSession.id);
-    updateUrlSession(newSession.id);
-    await loadSessionState(newSession.id, true);
-    shouldAutoFollow = true;
-    await forceScrollToBottom();
-  }).catch((error) => {
-    createSessionError = error instanceof Error ? error.message : "Failed to create session";
-  }).finally(() => {
-    creatingSession = false;
-  });
+	if (creatingSession || !space) return;
+	creatingSession = true;
+	createSessionError = "";
+	const createSpaceId = space.id;
+	void createSpaceSession(createSpaceId, { source: "web" })
+		.then(async (result) => {
+			const newSession = result.session;
+			const nextSessions = [
+				newSession,
+				...spaceSessions.filter((session) => session.id !== newSession.id),
+			];
+			seedSessions(nextSessions);
+			activeSessionId = newSession.id;
+			ensureSessionModelLoaded(newSession.id);
+			updateUrlSession(newSession.id);
+			await loadSessionState(newSession.id, true);
+			shouldAutoFollow = true;
+			await forceScrollToBottom();
+		})
+		.catch((error) => {
+			createSessionError =
+				error instanceof Error ? error.message : "Failed to create session";
+		})
+		.finally(() => {
+			creatingSession = false;
+		});
 }
 
 onMount(() => {
-  pageMounted = true;
-  pageVisible = !document.hidden;
-  pageOnline = navigator.onLine;
+	pageMounted = true;
+	pageVisible = !document.hidden;
+	pageOnline = navigator.onLine;
 
-  // Set up WebSocket event listener once — filters by activeSessionId internally
-  const wsClient = getRealtimeClient();
-  const wsEventCleanup = wsClient.on("event", (payload) => {
-    void handleWsEvent(payload);
-  });
+	// Set up WebSocket event listener once — filters by activeSessionId internally
+	const wsClient = getRealtimeClient();
+	const wsEventCleanup = wsClient.on("event", (payload) => {
+		void handleWsEvent(payload);
+	});
 
-  const handleVisibility = () => {
-    pageVisible = !document.hidden;
-    if (pageVisible && activeSessionId) connectSessionWS(activeSessionId);
-    if (!pageVisible) disconnectAllWS();
-  };
-  const handleOnline = () => {
-    pageOnline = true;
-    if (activeSessionId) connectSessionWS(activeSessionId);
-  };
-  const handleOffline = () => {
-    pageOnline = false;
-    disconnectAllWS();
-  };
+	const handleVisibility = () => {
+		pageVisible = !document.hidden;
+		if (pageVisible && activeSessionId) connectSessionWS(activeSessionId);
+		if (!pageVisible) disconnectAllWS();
+	};
+	const handleOnline = () => {
+		pageOnline = true;
+		if (activeSessionId) connectSessionWS(activeSessionId);
+	};
+	const handleOffline = () => {
+		pageOnline = false;
+		disconnectAllWS();
+	};
 
-  window.addEventListener("visibilitychange", handleVisibility);
-  window.addEventListener("online", handleOnline);
-  window.addEventListener("offline", handleOffline);
+	window.addEventListener("visibilitychange", handleVisibility);
+	window.addEventListener("online", handleOnline);
+	window.addEventListener("offline", handleOffline);
 
-  void loadSpace().then(async () => {
-    // If sandbox is not ready yet, poll until it is
-    if (space && space.sandboxStatus !== "ready") {
-      sandboxProvisioning = true;
-      const ready = await pollSandboxReady();
-      if (!ready) {
-        sandboxProvisioning = false;
-        bootstrapping = false;
-        return;
-      }
-      sandboxProvisioning = false;
-      // Refresh space data now that sandbox is ready
-      await loadSpace({ force: true });
-    }
+	void loadSpace()
+		.then(async () => {
+			// If sandbox is not ready yet, poll until it is
+			if (space && space.sandboxStatus !== "ready") {
+				sandboxProvisioning = true;
+				const ready = await pollSandboxReady();
+				if (!ready) {
+					sandboxProvisioning = false;
+					bootstrapping = false;
+					return;
+				}
+				sandboxProvisioning = false;
+				// Refresh space data now that sandbox is ready
+				await loadSpace({ force: true });
+			}
 
-    // Only load file tree after sandbox is confirmed ready
-    void loadFileTree(true);
+			// Only load file tree after sandbox is confirmed ready
+			void loadFileTree(true);
 
-    const initialSessionId = urlSessionId ?? spaceSessions[0]?.id ?? null;
-    if (initialSessionId) {
-      activeSessionId = initialSessionId;
-      ensureSessionModelLoaded(initialSessionId);
-      void loadSessionState(initialSessionId).finally(() => {
-        bootstrapping = false;
-      });
-      return;
-    }
+			const initialSessionId = urlSessionId ?? spaceSessions[0]?.id ?? null;
+			if (initialSessionId) {
+				activeSessionId = initialSessionId;
+				ensureSessionModelLoaded(initialSessionId);
+				void loadSessionState(initialSessionId).finally(() => {
+					bootstrapping = false;
+				});
+				return;
+			}
 
-    bootstrapping = false;
-  }).catch(() => {
-    bootstrapping = false;
-  });
+			bootstrapping = false;
+		})
+		.catch(() => {
+			bootstrapping = false;
+		});
 
-  return () => {
-    pageMounted = false;
-    wsEventCleanup();
-    void wsClient.disconnect();
-    window.removeEventListener("visibilitychange", handleVisibility);
-    window.removeEventListener("online", handleOnline);
-    window.removeEventListener("offline", handleOffline);
-    rightSidebarResizeCleanup?.();
-  };
+	return () => {
+		pageMounted = false;
+		wsEventCleanup();
+		void wsClient.disconnect();
+		window.removeEventListener("visibilitychange", handleVisibility);
+		window.removeEventListener("online", handleOnline);
+		window.removeEventListener("offline", handleOffline);
+		rightSidebarResizeCleanup?.();
+	};
 });
 
 $effect(() => {
-  if (urlSessionId && urlSessionId !== activeSessionId) {
-    activeSessionId = urlSessionId;
-    ensureSessionModelLoaded(urlSessionId);
-    shouldAutoFollow = true;
-    const state = sessionStateById[urlSessionId];
-    if (state?.session?.lastMessageId) unreadTracker.markViewed(urlSessionId, state.session.lastMessageId);
-    suppressScrollSaveSessionIds.add(urlSessionId);
-    scrollTargetSessionId = urlSessionId;
-    scheduleResetScrollTarget();
-  }
+	if (urlSessionId && urlSessionId !== activeSessionId) {
+		activeSessionId = urlSessionId;
+		ensureSessionModelLoaded(urlSessionId);
+		shouldAutoFollow = true;
+		const state = sessionStateById[urlSessionId];
+		if (state?.session?.lastMessageId)
+			unreadTracker.markViewed(urlSessionId, state.session.lastMessageId);
+		suppressScrollSaveSessionIds.add(urlSessionId);
+		scrollTargetSessionId = urlSessionId;
+		scheduleResetScrollTarget();
+	}
 });
 
 $effect(() => {
-  const el = listEl;
-  if (!el) return;
-  const container = el as HTMLDivElement;
-  function handleScrollTrack() {
-    if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
-      scrollPosBySession.set(activeSessionId, container.scrollTop);
-    }
-  }
-  container.addEventListener("scroll", handleScrollTrack, { passive: true });
-  return () => container.removeEventListener("scroll", handleScrollTrack);
+	const el = listEl;
+	if (!el) return;
+	const container = el as HTMLDivElement;
+	function handleScrollTrack() {
+		if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
+			scrollPosBySession.set(activeSessionId, container.scrollTop);
+		}
+	}
+	container.addEventListener("scroll", handleScrollTrack, { passive: true });
+	return () => container.removeEventListener("scroll", handleScrollTrack);
 });
 
 $effect(() => {
-  if (!listEl) return;
-  const targetId = scrollTargetSessionId;
-  if (!targetId) return;
-  const state = sessionStateById[targetId];
-  if (!state?.loaded) return;
+	if (!listEl) return;
+	const targetId = scrollTargetSessionId;
+	if (!targetId) return;
+	const state = sessionStateById[targetId];
+	if (!state?.loaded) return;
 
-  const isFirstVisit = !visitedSessions.has(targetId);
-  if (isFirstVisit) {
-    visitedSessions.add(targetId);
-  }
+	const isFirstVisit = !visitedSessions.has(targetId);
+	if (isFirstVisit) {
+		visitedSessions.add(targetId);
+	}
 
-  const savedPos = scrollPosBySession.get(targetId);
-  const shouldScrollToBottom = isFirstVisit || savedPos == null;
-  const doScroll = (retries = shouldScrollToBottom ? 6 : 2) => {
-    requestAnimationFrame(() => {
-      if (!listEl) {
-        suppressScrollSaveSessionIds.delete(targetId);
-        return;
-      }
-      if (shouldScrollToBottom) {
-        scrollToBottomNow();
-        shouldAutoFollow = true;
-        userScrolledUp = false;
-      } else {
-        listEl.scrollTop = savedPos;
-      }
-      if (retries > 0) {
-        doScroll(retries - 1);
-        return;
-      }
-      suppressScrollSaveSessionIds.delete(targetId);
-      scrollPosBySession.set(targetId, listEl.scrollTop);
-      updateAutoFollow();
-    });
-  };
-  void tick().then(() => doScroll());
+	const savedPos = scrollPosBySession.get(targetId);
+	const shouldScrollToBottom = isFirstVisit || savedPos == null;
+	const doScroll = (retries = shouldScrollToBottom ? 6 : 2) => {
+		requestAnimationFrame(() => {
+			if (!listEl) {
+				suppressScrollSaveSessionIds.delete(targetId);
+				return;
+			}
+			if (shouldScrollToBottom) {
+				scrollToBottomNow();
+				shouldAutoFollow = true;
+				userScrolledUp = false;
+			} else {
+				listEl.scrollTop = savedPos;
+			}
+			if (retries > 0) {
+				doScroll(retries - 1);
+				return;
+			}
+			suppressScrollSaveSessionIds.delete(targetId);
+			scrollPosBySession.set(targetId, listEl.scrollTop);
+			updateAutoFollow();
+		});
+	};
+	void tick().then(() => doScroll());
 });
 
 $effect(() => {
-  if (!activeSessionId) return;
-  const state = sessionStateById[activeSessionId];
-  if (!state?.loaded && !state?.loading) {
-    void loadSessionState(activeSessionId);
-  }
-  connectSessionWS(activeSessionId);
-  return () => {
-    disconnectSessionWS();
-  };
+	if (!activeSessionId) return;
+	const state = sessionStateById[activeSessionId];
+	if (!state?.loaded && !state?.loading) {
+		void loadSessionState(activeSessionId);
+	}
+	connectSessionWS(activeSessionId);
+	return () => {
+		disconnectSessionWS();
+	};
 });
 
 $effect(() => {
-  if (!urlFilePath) {
-    openFile = null;
-    openFileDraft = "";
-    openFileError = null;
-    openFileTooLarge = false;
-    return;
-  }
-  void openFileFromUrl(urlFilePath);
+	if (!urlFilePath) {
+		openFile = null;
+		openFileDraft = "";
+		openFileError = null;
+		openFileTooLarge = false;
+		return;
+	}
+	void openFileFromUrl(urlFilePath);
 });
 
 $effect(() => {
-  if (!listEl || !activeSessionId) return;
-  requestAnimationFrame(() => updateAutoFollow());
+	if (!listEl || !activeSessionId) return;
+	requestAnimationFrame(() => updateAutoFollow());
 });
 
 $effect(() => {
-  const state = activeSessionState;
-  if (!state) return;
-  if (userScrolledUp) return;
-  state.messages.length;
-  requestAnimationFrame(() => {
-    if (listEl && !userScrolledUp) {
-      scrollToBottomNow();
-      updateAutoFollow();
-    }
-  });
+	const state = activeSessionState;
+	if (!state) return;
+	if (userScrolledUp) return;
+	state.messages.length;
+	requestAnimationFrame(() => {
+		if (listEl && !userScrolledUp) {
+			scrollToBottomNow();
+			updateAutoFollow();
+		}
+	});
 });
 </script>
 
@@ -1628,7 +1859,7 @@ $effect(() => {
         type="button"
         class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
         onclick={() => {
-          if (window.innerWidth < 1280) {
+          if (window.innerWidth < 1024) {
             uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
             return;
           }
@@ -1822,12 +2053,33 @@ $effect(() => {
           }}
         />
       </div>
+
+      {#if urlFilePath}
+        <div class="h-[45vh] min-h-[200px] max-h-[480px] shrink-0 border-t border-border-subtle">
+          <SpaceFilePane
+            file={openFile}
+            draftContent={openFileDraft}
+            dirty={Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content)}
+            loading={openFileLoading}
+            saving={openFileSaving}
+            error={openFileError}
+            onInput={(value) => openFileDraft = value}
+            onSave={saveOpenFile}
+            onClose={closeFile}
+            onDownload={() => openFile && triggerSpaceFsDownload(spaceId, openFile.path)}
+          >
+            {#if openFileTooLarge}
+              <div class="px-4 py-3 text-[12px] text-text-tertiary">This file is too large to preview. Download it instead.</div>
+            {/if}
+          </SpaceFilePane>
+        </div>
+      {/if}
     {/if}
   </div>
 
   {#if !uiState.rightSidebarCollapsed}
-    <div class="hidden shrink-0 xl:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
-      <div class="w-[320px] shrink-0 relative border-r border-border-subtle">
+    <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
+      <div class="w-full relative">
         <SpaceFileSidebar
           nodes={fileTree}
           selectedPath={urlFilePath ?? ""}
@@ -1850,28 +2102,14 @@ $effect(() => {
           onpointerdown={beginRightSidebarResize}
         ></button>
       </div>
-      <div class="min-w-0 flex-1">
-        <SpaceFilePane
-          file={openFile}
-          draftContent={openFileDraft}
-          dirty={Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content)}
-          loading={openFileLoading}
-          saving={openFileSaving}
-          error={openFileError}
-          onInput={(value) => openFileDraft = value}
-          onSave={saveOpenFile}
-          onClose={closeFile}
-          onDownload={() => openFile && triggerSpaceFsDownload(spaceId, openFile.path)}
-        >
-          {#if openFileTooLarge}
-            <div class="px-4 py-3 text-[12px] text-text-tertiary">This file is too large to preview. Download it instead.</div>
-          {/if}
-        </SpaceFilePane>
-      </div>
     </div>
   {/if}
 
-  <MobileRightDrawer dragOffsetPx={uiState.mobileRightDrawerOpen ? 320 : 0} isDragging={false} isDrawerVisible={uiState.mobileRightDrawerOpen}>
+  <MobileRightDrawer
+    dragOffsetPx={uiState.rightDragOffsetPx}
+    isDragging={uiState.rightIsDragging}
+    isDrawerVisible={isRightDrawerVisible}
+  >
     <SpaceFileSidebar
       nodes={fileTree}
       selectedPath={urlFilePath ?? ""}

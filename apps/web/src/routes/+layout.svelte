@@ -1,33 +1,44 @@
 <script lang="ts">
 import "../app.css";
 import { page } from "$app/state";
-import Sidebar from "$lib/components/Sidebar.svelte";
-import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
-import {
-  MOBILE_DRAWER_WIDTH_PX,
-  getDrawerOffsetFromDrag,
-  resolveDrawerGestureDirection,
-  shouldKeepDrawerOpen,
-  shouldOpenDrawer,
-  shouldStartDrawerGesture,
-  type DrawerGestureDirection,
-  type DrawerGesturePhase,
-} from "$lib/gestures/drawer-swipe";
-import { onMount } from "svelte";
-import { LEFT_SIDEBAR_MAX, LEFT_SIDEBAR_MIN, uiState } from "$lib/stores/ui.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
+import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
+import Sidebar from "$lib/components/Sidebar.svelte";
+import {
+	type DrawerGestureDirection,
+	type DrawerGesturePhase,
+	MOBILE_DRAWER_WIDTH_PX,
+	getDrawerOffsetFromDrag,
+	getRightDrawerOffsetFromDrag,
+	resolveDrawerGestureDirection,
+	shouldKeepDrawerOpen,
+	shouldKeepRightDrawerOpen,
+	shouldOpenDrawer,
+	shouldOpenRightDrawer,
+	shouldStartDrawerGesture,
+	shouldStartRightDrawerGesture,
+} from "$lib/gestures/drawer-swipe";
 import { authStore } from "$lib/stores/auth.svelte";
+import {
+	LEFT_SIDEBAR_MAX,
+	LEFT_SIDEBAR_MIN,
+	uiState,
+} from "$lib/stores/ui.svelte";
+import { onMount } from "svelte";
 
 const { children } = $props();
 
 const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
 const isHome = $derived(currentPath === "/");
-const sidebarMode = $derived(currentPath.startsWith("/settings") ? "settings" : "space");
+const sidebarMode = $derived(
+	currentPath.startsWith("/settings") ? "settings" : "space",
+);
 
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);
 let activeTouchId = $state<number | null>(null);
+let activeGestureType = $state<"left" | "right" | null>(null);
 let pointerStartX = $state(0);
 let pointerStartY = $state(0);
 let lastPointerX = $state(0);
@@ -38,258 +49,343 @@ let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
 
 const isDrawerVisible = $derived(
-  isDragging || gesturePhase === "settling" || uiState.mobileDrawerOpen,
+	isDragging || gesturePhase === "settling" || uiState.mobileDrawerOpen,
+);
+const isRightDrawerVisible = $derived(
+	uiState.rightIsDragging ||
+		gesturePhase === "settling" ||
+		uiState.mobileRightDrawerOpen,
 );
 
 function resetGestureState() {
-  gesturePhase = "idle";
-  gestureDirection = null;
-  activeTouchId = null;
-  pointerStartX = 0;
-  pointerStartY = 0;
-  lastPointerX = 0;
-  lastPointerTime = 0;
-  dragOffsetPx = 0;
-  velocityX = 0;
-  isDragging = false;
+	gesturePhase = "idle";
+	gestureDirection = null;
+	activeTouchId = null;
+	activeGestureType = null;
+	pointerStartX = 0;
+	pointerStartY = 0;
+	lastPointerX = 0;
+	lastPointerTime = 0;
+	dragOffsetPx = 0;
+	uiState.rightDragOffsetPx = 0;
+	uiState.rightIsDragging = false;
+	velocityX = 0;
+	isDragging = false;
 }
 
 function beginSettling(open: boolean) {
-  gesturePhase = "settling";
-  uiState.mobileDrawerOpen = open;
-  isDragging = false;
-  activeTouchId = null;
-  gestureDirection = null;
-  velocityX = 0;
-  lastPointerTime = 0;
-  lastPointerX = 0;
-  pointerStartX = 0;
-  pointerStartY = 0;
+	gesturePhase = "settling";
+	if (activeGestureType === "right") {
+		uiState.mobileRightDrawerOpen = open;
+	} else {
+		uiState.mobileDrawerOpen = open;
+	}
+	isDragging = false;
+	uiState.rightIsDragging = false;
+	activeTouchId = null;
+	activeGestureType = null;
+	gestureDirection = null;
+	velocityX = 0;
+	lastPointerTime = 0;
+	lastPointerX = 0;
+	pointerStartX = 0;
+	pointerStartY = 0;
 }
 
 function findTrackedTouch(touches: TouchList) {
-  if (activeTouchId === null) return null;
-  for (const touch of Array.from(touches)) {
-    if (touch.identifier === activeTouchId) return touch;
-  }
-  return null;
+	if (activeTouchId === null) return null;
+	for (const touch of Array.from(touches)) {
+		if (touch.identifier === activeTouchId) return touch;
+	}
+	return null;
 }
 
 function handleTouchStart(e: TouchEvent) {
-  if (window.innerWidth >= 1024 || activeTouchId !== null) return;
-  const touch = e.changedTouches[0];
-  if (!touch) return;
+	if (window.innerWidth >= 1024 || activeTouchId !== null) return;
+	const touch = e.changedTouches[0];
+	if (!touch) return;
 
-  if (
-    !shouldStartDrawerGesture({
-      isOpen: uiState.mobileDrawerOpen,
-      target: e.target,
-      viewportWidth: window.innerWidth,
-      touchStartX: touch.clientX,
-      otherDrawerOpen: uiState.mobileRightDrawerOpen,
-    })
-  ) {
-    return;
-  }
+	// Try right drawer first (right edge), then left drawer
+	if (
+		shouldStartRightDrawerGesture({
+			isOpen: uiState.mobileRightDrawerOpen,
+			target: e.target,
+			viewportWidth: window.innerWidth,
+			touchStartX: touch.clientX,
+			otherDrawerOpen: uiState.mobileDrawerOpen,
+		})
+	) {
+		activeTouchId = touch.identifier;
+		activeGestureType = "right";
+		gesturePhase = "tracking";
+		gestureDirection = null;
+		pointerStartX = touch.clientX;
+		pointerStartY = touch.clientY;
+		lastPointerX = touch.clientX;
+		lastPointerTime = e.timeStamp;
+		uiState.rightDragOffsetPx = uiState.mobileRightDrawerOpen
+			? MOBILE_DRAWER_WIDTH_PX
+			: 0;
+		uiState.rightIsDragging = false;
+		velocityX = 0;
+		isDragging = false;
+		return;
+	}
 
-  activeTouchId = touch.identifier;
-  gesturePhase = "tracking";
-  gestureDirection = null;
-  pointerStartX = touch.clientX;
-  pointerStartY = touch.clientY;
-  lastPointerX = touch.clientX;
-  lastPointerTime = e.timeStamp;
-  dragOffsetPx = uiState.mobileDrawerOpen ? MOBILE_DRAWER_WIDTH_PX : 0;
-  velocityX = 0;
-  isDragging = false;
+	if (
+		!shouldStartDrawerGesture({
+			isOpen: uiState.mobileDrawerOpen,
+			target: e.target,
+			viewportWidth: window.innerWidth,
+			touchStartX: touch.clientX,
+			otherDrawerOpen: uiState.mobileRightDrawerOpen,
+		})
+	) {
+		return;
+	}
+
+	activeTouchId = touch.identifier;
+	activeGestureType = "left";
+	gesturePhase = "tracking";
+	gestureDirection = null;
+	pointerStartX = touch.clientX;
+	pointerStartY = touch.clientY;
+	lastPointerX = touch.clientX;
+	lastPointerTime = e.timeStamp;
+	dragOffsetPx = uiState.mobileDrawerOpen ? MOBILE_DRAWER_WIDTH_PX : 0;
+	velocityX = 0;
+	isDragging = false;
 }
 
 function handleTouchMove(e: TouchEvent) {
-  const touch = findTrackedTouch(e.touches);
-  if (!touch) return;
+	const touch = findTrackedTouch(e.touches);
+	if (!touch) return;
 
-  const dx = touch.clientX - pointerStartX;
-  const dy = touch.clientY - pointerStartY;
-  const absDx = Math.abs(dx);
-  const absDy = Math.abs(dy);
+	const dx = touch.clientX - pointerStartX;
+	const dy = touch.clientY - pointerStartY;
+	const absDx = Math.abs(dx);
+	const absDy = Math.abs(dy);
 
-  if (gestureDirection === null) {
-    const resolvedDirection = resolveDrawerGestureDirection({ absDx, absDy });
-    if (resolvedDirection === null) {
-      return;
-    }
-    if (resolvedDirection === "vertical") {
-      resetGestureState();
-      return;
-    }
-    gestureDirection = resolvedDirection;
-  }
+	if (gestureDirection === null) {
+		const resolvedDirection = resolveDrawerGestureDirection({ absDx, absDy });
+		if (resolvedDirection === null) {
+			return;
+		}
+		if (resolvedDirection === "vertical") {
+			resetGestureState();
+			return;
+		}
+		gestureDirection = resolvedDirection;
+	}
 
-  const deltaTime = Math.max(e.timeStamp - lastPointerTime, 1);
-  velocityX = (touch.clientX - lastPointerX) / deltaTime;
-  lastPointerX = touch.clientX;
-  lastPointerTime = e.timeStamp;
+	const deltaTime = Math.max(e.timeStamp - lastPointerTime, 1);
+	velocityX = (touch.clientX - lastPointerX) / deltaTime;
+	lastPointerX = touch.clientX;
+	lastPointerTime = e.timeStamp;
 
-  const nextOffsetPx = getDrawerOffsetFromDrag({
-    isOpen: uiState.mobileDrawerOpen,
-    deltaX: dx,
-  });
+	if (activeGestureType === "right") {
+		const nextOffsetPx = getRightDrawerOffsetFromDrag({
+			isOpen: uiState.mobileRightDrawerOpen,
+			deltaX: dx,
+		});
 
-  if (!uiState.mobileDrawerOpen && nextOffsetPx <= 0) {
-    return;
-  }
-  if (uiState.mobileDrawerOpen && nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX && dx >= 0) {
-    return;
-  }
+		if (!uiState.mobileRightDrawerOpen && nextOffsetPx <= 0) return;
+		if (
+			uiState.mobileRightDrawerOpen &&
+			nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX &&
+			dx <= 0
+		)
+			return;
 
-  isDragging = true;
-  dragOffsetPx = nextOffsetPx;
-  gesturePhase = uiState.mobileDrawerOpen ? "dragging-close" : "dragging-open";
+		isDragging = true;
+		uiState.rightIsDragging = true;
+		uiState.rightDragOffsetPx = nextOffsetPx;
+		gesturePhase = uiState.mobileRightDrawerOpen
+			? "dragging-close"
+			: "dragging-open";
+	} else {
+		const nextOffsetPx = getDrawerOffsetFromDrag({
+			isOpen: uiState.mobileDrawerOpen,
+			deltaX: dx,
+		});
 
-  if (e.cancelable) {
-    e.preventDefault();
-  }
+		if (!uiState.mobileDrawerOpen && nextOffsetPx <= 0) return;
+		if (
+			uiState.mobileDrawerOpen &&
+			nextOffsetPx >= MOBILE_DRAWER_WIDTH_PX &&
+			dx >= 0
+		)
+			return;
+
+		isDragging = true;
+		dragOffsetPx = nextOffsetPx;
+		gesturePhase = uiState.mobileDrawerOpen
+			? "dragging-close"
+			: "dragging-open";
+	}
+
+	if (e.cancelable) {
+		e.preventDefault();
+	}
 }
 
 function finalizeGesture() {
-  if (!isDragging) {
-    resetGestureState();
-    return;
-  }
+	if (!isDragging) {
+		resetGestureState();
+		return;
+	}
 
-  const shouldOpen = uiState.mobileDrawerOpen
-    ? shouldKeepDrawerOpen({ offsetPx: dragOffsetPx, velocityX })
-    : shouldOpenDrawer({ offsetPx: dragOffsetPx, velocityX });
+	let shouldOpen: boolean;
+	if (activeGestureType === "right") {
+		shouldOpen = uiState.mobileRightDrawerOpen
+			? shouldKeepRightDrawerOpen({
+					offsetPx: uiState.rightDragOffsetPx,
+					velocityX,
+				})
+			: shouldOpenRightDrawer({
+					offsetPx: uiState.rightDragOffsetPx,
+					velocityX,
+				});
+	} else {
+		shouldOpen = uiState.mobileDrawerOpen
+			? shouldKeepDrawerOpen({ offsetPx: dragOffsetPx, velocityX })
+			: shouldOpenDrawer({ offsetPx: dragOffsetPx, velocityX });
+	}
 
-  beginSettling(shouldOpen);
+	beginSettling(shouldOpen);
 }
 
 function handleTouchEnd(e: TouchEvent) {
-  const touch = findTrackedTouch(e.changedTouches);
-  if (!touch) return;
-  finalizeGesture();
+	const touch = findTrackedTouch(e.changedTouches);
+	if (!touch) return;
+	finalizeGesture();
 }
 
 function handleTouchCancel(e: TouchEvent) {
-  const touch = findTrackedTouch(e.changedTouches);
-  if (!touch) return;
-  finalizeGesture();
+	const touch = findTrackedTouch(e.changedTouches);
+	if (!touch) return;
+	finalizeGesture();
 }
 
 function beginLeftSidebarResize(event: PointerEvent) {
-  if (window.innerWidth < 1024) return;
-  event.preventDefault();
+	if (window.innerWidth < 1024) return;
+	event.preventDefault();
 
-  leftSidebarResizeCleanup?.();
+	leftSidebarResizeCleanup?.();
 
-  const startX = event.clientX;
-  const startWidth = uiState.leftSidebarWidth;
-  const minMainWidth = 640;
+	const startX = event.clientX;
+	const startWidth = uiState.leftSidebarWidth;
+	const minMainWidth = 640;
 
-  const onPointerMove = (moveEvent: PointerEvent) => {
-    const delta = moveEvent.clientX - startX;
-    const viewportLimit = window.innerWidth - minMainWidth;
-    const nextWidth = Math.min(
-      LEFT_SIDEBAR_MAX,
-      Math.max(LEFT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
-    );
-    uiState.setLeftSidebarWidth(nextWidth);
-  };
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		const delta = moveEvent.clientX - startX;
+		const viewportLimit = window.innerWidth - minMainWidth;
+		const nextWidth = Math.min(
+			LEFT_SIDEBAR_MAX,
+			Math.max(LEFT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
+		);
+		uiState.setLeftSidebarWidth(nextWidth);
+	};
 
-  const stop = () => {
-    document.body.classList.remove("sidebar-resizing");
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", stop);
-    window.removeEventListener("pointercancel", stop);
-    if (leftSidebarResizeCleanup === stop) {
-      leftSidebarResizeCleanup = null;
-    }
-  };
+	const stop = () => {
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (leftSidebarResizeCleanup === stop) {
+			leftSidebarResizeCleanup = null;
+		}
+	};
 
-  leftSidebarResizeCleanup = stop;
-  document.body.classList.add("sidebar-resizing");
-  window.addEventListener("pointermove", onPointerMove);
-  window.addEventListener("pointerup", stop);
-  window.addEventListener("pointercancel", stop);
+	leftSidebarResizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
 }
 
 // Close drawer on Escape
 $effect(() => {
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && uiState.mobileDrawerOpen) {
-      uiState.mobileDrawerOpen = false;
-    }
-  }
-  window.addEventListener("keydown", handleKeydown);
-  return () => window.removeEventListener("keydown", handleKeydown);
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === "Escape") {
+			if (uiState.mobileDrawerOpen) uiState.mobileDrawerOpen = false;
+			if (uiState.mobileRightDrawerOpen) uiState.mobileRightDrawerOpen = false;
+		}
+	}
+	window.addEventListener("keydown", handleKeydown);
+	return () => window.removeEventListener("keydown", handleKeydown);
 });
 
 $effect(() => {
-  function onTouchStart(e: TouchEvent) {
-    handleTouchStart(e);
-  }
-  function onTouchMove(e: TouchEvent) {
-    handleTouchMove(e);
-  }
-  function onTouchEnd(e: TouchEvent) {
-    handleTouchEnd(e);
-  }
-  function onTouchCancel(e: TouchEvent) {
-    handleTouchCancel(e);
-  }
+	function onTouchStart(e: TouchEvent) {
+		handleTouchStart(e);
+	}
+	function onTouchMove(e: TouchEvent) {
+		handleTouchMove(e);
+	}
+	function onTouchEnd(e: TouchEvent) {
+		handleTouchEnd(e);
+	}
+	function onTouchCancel(e: TouchEvent) {
+		handleTouchCancel(e);
+	}
 
-  document.addEventListener("touchstart", onTouchStart, { passive: true });
-  document.addEventListener("touchmove", onTouchMove, { passive: false });
-  document.addEventListener("touchend", onTouchEnd, { passive: true });
-  document.addEventListener("touchcancel", onTouchCancel, { passive: true });
+	document.addEventListener("touchstart", onTouchStart, { passive: true });
+	document.addEventListener("touchmove", onTouchMove, { passive: false });
+	document.addEventListener("touchend", onTouchEnd, { passive: true });
+	document.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
-  return () => {
-    document.removeEventListener("touchstart", onTouchStart);
-    document.removeEventListener("touchmove", onTouchMove);
-    document.removeEventListener("touchend", onTouchEnd);
-    document.removeEventListener("touchcancel", onTouchCancel);
-  };
+	return () => {
+		document.removeEventListener("touchstart", onTouchStart);
+		document.removeEventListener("touchmove", onTouchMove);
+		document.removeEventListener("touchend", onTouchEnd);
+		document.removeEventListener("touchcancel", onTouchCancel);
+	};
 });
 
 $effect(() => {
-  if (gesturePhase !== "settling") return;
+	if (gesturePhase !== "settling") return;
 
-  const timer = window.setTimeout(() => {
-    if (gesturePhase === "settling") {
-      gesturePhase = "idle";
-      if (!uiState.mobileDrawerOpen) {
-        dragOffsetPx = 0;
-      }
-    }
-  }, 220);
+	const timer = window.setTimeout(() => {
+		if (gesturePhase === "settling") {
+			gesturePhase = "idle";
+			if (!uiState.mobileRightDrawerOpen) uiState.rightDragOffsetPx = 0;
+			if (!uiState.mobileDrawerOpen) dragOffsetPx = 0;
+		}
+	}, 220);
 
-  return () => window.clearTimeout(timer);
+	return () => window.clearTimeout(timer);
 });
 
 // Lock body scroll when drawer is open
 $effect(() => {
-  if (uiState.mobileDrawerOpen || isDragging) {
-    document.body.classList.add("drawer-open");
-  } else {
-    document.body.classList.remove("drawer-open");
-  }
+	if (
+		uiState.mobileDrawerOpen ||
+		uiState.mobileRightDrawerOpen ||
+		isDragging ||
+		uiState.rightIsDragging
+	) {
+		document.body.classList.add("drawer-open");
+	} else {
+		document.body.classList.remove("drawer-open");
+	}
 });
 
 onMount(() => {
-  uiState.loadLayoutPrefs();
-  void authStore.ensureLoaded();
+	uiState.loadLayoutPrefs();
+	void authStore.ensureLoaded();
 
-  // Register PWA Service Worker (conservative update: closes all tabs to activate)
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      void navigator.serviceWorker.register("/sw.js");
-    });
-  }
+	// Register PWA Service Worker (conservative update: closes all tabs to activate)
+	if ("serviceWorker" in navigator) {
+		window.addEventListener("load", () => {
+			void navigator.serviceWorker.register("/sw.js");
+		});
+	}
 
-  return () => {
-    leftSidebarResizeCleanup?.();
-    document.body.classList.remove("sidebar-resizing");
-  };
+	return () => {
+		leftSidebarResizeCleanup?.();
+		document.body.classList.remove("sidebar-resizing");
+	};
 });
 </script>
 
@@ -323,7 +419,7 @@ onMount(() => {
     </main>
   </div>
 
-  <!-- Mobile drawer — outside flex container to avoid stacking context issues -->
+  <!-- Mobile left drawer — outside flex container to avoid stacking context issues -->
   <MobileSidebarDrawer
     dragOffsetPx={dragOffsetPx}
     {isDragging}

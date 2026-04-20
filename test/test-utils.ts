@@ -388,17 +388,37 @@ interface MetricsSnapshot {
   pods: PodMetrics[];
 }
 
+/** 各服务对应的 K8s label selector
+ *
+ * Agent 使用 `app=xxx` (自定)，其他使用 `app.kubernetes.io/name=xxx` (Helm 标准)
+ */
+const SERVICE_LABELS: Record<string, string> = {
+  agent: "app=cohub-agent-dev",
+  api: "app.kubernetes.io/name=cohub-api-dev",
+  gateway: "app.kubernetes.io/name=cohub-gateway-dev",
+  worker: "app.kubernetes.io/name=cohub-worker-dev",
+};
+
+/** 从 K8s pod name 中标准化为服务名 (e.g. cohub-agent-dev-97bc74c78-gs52h → agent) */
+function normalizePodName(podName: string): string {
+  for (const [svc, label] of Object.entries(SERVICE_LABELS)) {
+    const labelValue = label.split("=")[1];
+    if (podName.startsWith(labelValue)) return svc;
+  }
+  return podName;
+}
+
 /** 采集 pod 指标 (使用 label selector) */
 async function collectPodMetricsByLabel(label: string, namespace: string): Promise<PodMetrics[]> {
   try {
     const { stdout } = await execAsync(
-      `KUBECONFIG=${config.kubeconfig} kubectl top pods -n ${namespace} -l ${label} --no-headers 2>/dev/null`,
+      `KUBECONFIG=${config.kubeconfig} kubectl top pods -n ${namespace} -l "${label}" --no-headers 2>/dev/null`,
     );
     const metrics: PodMetrics[] = [];
     for (const line of stdout.trim().split("\n")) {
       if (!line.trim()) continue;
       const parts = line.trim().split(/\s+/);
-      const name = parts[0] ?? "";
+      const rawName = parts[0] ?? "";
       const cpuStr = parts[1] ?? "0m";
       const memStr = parts[2] ?? "0Mi";
 
@@ -412,7 +432,7 @@ async function collectPodMetricsByLabel(label: string, namespace: string): Promi
       else if (memStr.endsWith("Ki")) mem = Math.round(Number.parseFloat(memStr) / 1024);
       else mem = Math.round(Number.parseFloat(memStr) / (1024 * 1024));
 
-      metrics.push({ name, cpu, mem });
+      metrics.push({ name: rawName, cpu, mem });
     }
     return metrics;
   } catch {
@@ -421,12 +441,14 @@ async function collectPodMetricsByLabel(label: string, namespace: string): Promi
 }
 
 async function collectAllMetrics(): Promise<PodMetrics[]> {
-  const [agentPods, apiPods, gatewayPods, workerPods] = await Promise.all([
-    collectPodMetricsByLabel("app=cohub-agent", config.namespace),
-    collectPodMetricsByLabel("app=cohub-api", config.namespace),
-    collectPodMetricsByLabel("app=cohub-gateway", config.namespace),
-    collectPodMetricsByLabel("app=cohub-worker", config.namespace),
-  ]);
+  const entries = Object.entries(SERVICE_LABELS);
+  const allPods = await Promise.all(
+    entries.map(([svc, label]) =>
+      collectPodMetricsByLabel(label, config.namespace).then((pods) =>
+        pods.map((p) => ({ ...p, name: svc })),
+      ),
+    ),
+  );
 
   // sandbox pods (独立 namespace)
   let sandboxPods: PodMetrics[] = [];
@@ -447,13 +469,7 @@ async function collectAllMetrics(): Promise<PodMetrics[]> {
     }
   } catch { /* ignore */ }
 
-  return [
-    ...agentPods.map((p) => ({ ...p, name: "agent" })),
-    ...apiPods.map((p) => ({ ...p, name: "api" })),
-    ...gatewayPods.map((p) => ({ ...p, name: "gateway" })),
-    ...workerPods.map((p) => ({ ...p, name: "worker" })),
-    ...sandboxPods,
-  ];
+  return [...allPods.flat(), ...sandboxPods];
 }
 
 /**
@@ -487,6 +503,7 @@ export function createK8sMonitor(intervalMs = 1500) {
     section("📊 K8s 资源监控报告");
 
     const podNames = ["agent", "api", "gateway", "worker"];
+    // K8s resource limits (dev 环境实际配置)
     const limits: Record<string, { cpu: number; mem: number }> = {
       agent: { cpu: 1000, mem: 1024 },
       api: { cpu: 500, mem: 512 },
