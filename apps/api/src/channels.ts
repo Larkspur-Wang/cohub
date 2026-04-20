@@ -5,8 +5,13 @@ import { buildSessionSourceChannel } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, resourcePermissions, spaces, spaceSessions } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
-import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
-import { executeSessionInteraction } from "./session-interactions.js";
+import { forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
+import {
+  executeSessionInteraction,
+  extractInboundText,
+  resolveSessionInteractionForInboundEvent,
+  type ResolvedInboundInteraction,
+} from "./session-interactions.js";
 
 const bindingLocks = new Map<string, Promise<unknown>>();
 
@@ -132,30 +137,92 @@ export async function getReadableUserIdsForSpace(spaceId: string) {
   return Array.from(userIds);
 }
 
-export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
+type DirectWebsocketInboundContext = {
+  token: string;
+  userId: string;
+  spaceId: string;
+  sessionId: string;
+  connectionId: string;
+  requestId: string;
+  clientMessageId: string | null;
+};
+
+function resolveDirectWebsocketInboundContext(event: GatewayInboundEvent): DirectWebsocketInboundContext | null {
   const token = typeof event.meta?.authToken === "string" ? event.meta.authToken.trim() : "";
   const userId = typeof event.meta?.userId === "string" ? event.meta.userId.trim() : event.sender.id;
   const spaceId = typeof event.meta?.spaceId === "string" ? event.meta.spaceId.trim() : "";
-  const sessionId = typeof event.meta?.sessionId === "string" ? event.meta.sessionId.trim() : event.conversation?.id?.trim() || event.externalChatId;
+  const sessionId = typeof event.meta?.sessionId === "string"
+    ? event.meta.sessionId.trim()
+    : event.conversation?.id?.trim() || event.externalChatId;
   const connectionId = typeof event.meta?.connectionId === "string" ? event.meta.connectionId.trim() : "";
   const requestId = typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "";
+  const clientMessageId = typeof event.meta?.clientMessageId === "string" && event.meta.clientMessageId.trim()
+    ? event.meta.clientMessageId.trim()
+    : null;
 
-  if (!spaceId || !sessionId || !userId || !token) {
+  if (!spaceId || !sessionId || !userId || !token) return null;
+  return { token, userId, spaceId, sessionId, connectionId, requestId, clientMessageId };
+}
+
+async function buildDirectWebsocketInteraction(event: GatewayInboundEvent): Promise<ResolvedInboundInteraction | null> {
+  const context = resolveDirectWebsocketInboundContext(event);
+  if (!context) return null;
+
+  const existingInboundRef = context.clientMessageId
+    ? await getProviderMessageRef({
+        provider: event.provider,
+        externalConversationId: context.sessionId,
+        externalMessageId: context.clientMessageId,
+        direction: "inbound",
+      })
+    : null;
+  if (existingInboundRef) return null;
+
+  return {
+    spaceId: context.spaceId,
+    sessionId: context.sessionId,
+    inputText: extractInboundText(event),
+    content: event.content,
+    source: "channel:websocket",
+    interactionId: event.eventId,
+    actorUserId: context.userId,
+    inboundRef: {
+      provider: event.provider,
+      spaceChannelId: context.sessionId,
+      externalConversationId: context.sessionId,
+      externalMessageId: event.externalMessageId,
+      externalAuthorId: context.userId,
+      externalAuthorName: event.sender.name ?? null,
+      meta: {
+        requestId: context.requestId || null,
+        connectionId: context.connectionId || null,
+        clientMessageId: context.clientMessageId,
+      },
+    },
+  };
+}
+
+export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
+  const context = resolveDirectWebsocketInboundContext(event);
+
+  if (!context) {
     await dispatchRealtimeEventToUsers({
-      userIds: userId ? [userId] : [],
-      spaceId: spaceId || null,
-      sessionId: sessionId || null,
+      userIds: typeof event.meta?.userId === "string" && event.meta.userId.trim() ? [event.meta.userId.trim()] : [],
+      spaceId: (typeof event.meta?.spaceId === "string" ? event.meta.spaceId.trim() : "") || null,
+      sessionId: (typeof event.meta?.sessionId === "string" ? event.meta.sessionId.trim() : event.conversation?.id?.trim() || event.externalChatId) || null,
       content: [],
       meta: {
         eventType: "error",
         code: "BAD_REQUEST",
         message: "invalid websocket message context",
-        requestId: requestId || null,
-        targetConnectionId: connectionId || null,
+        requestId: (typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "") || null,
+        targetConnectionId: (typeof event.meta?.connectionId === "string" ? event.meta.connectionId.trim() : "") || null,
       },
     });
     return;
   }
+
+  const { userId, spaceId, sessionId, connectionId, requestId } = context;
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   const [session] = await db.select().from(spaceSessions).where(eq(spaceSessions.id, sessionId)).limit(1);
@@ -206,29 +273,9 @@ export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
     return;
   }
 
-  const textBlock = event.content.find((block): block is { type: "text"; text: string } => block.type === "text");
-  await executeSessionInteraction({
-    spaceId,
-    sessionId,
-    inputText: textBlock?.text || "",
-    content: event.content,
-    source: "channel:websocket",
-    interactionId: event.eventId,
-    actorUserId: userId,
-    inboundRef: {
-      provider: event.provider,
-      spaceChannelId: sessionId,
-      externalConversationId: sessionId,
-      externalMessageId: event.externalMessageId,
-      externalAuthorId: userId,
-      externalAuthorName: event.sender.name ?? null,
-      meta: {
-        requestId: requestId || null,
-        connectionId: connectionId || null,
-        clientMessageId: typeof event.meta?.clientMessageId === "string" ? event.meta.clientMessageId : null,
-      },
-    },
-  });
+  const interaction = await buildDirectWebsocketInteraction(event);
+  if (!interaction) return;
+  await executeSessionInteraction(interaction);
 }
 
 export async function getBindingBySpaceChannelAndKey(input: { spaceChannelId: string; bindingKey: string }) {
@@ -488,32 +535,24 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
 }
 
 export async function handleInboundEvent(event: GatewayInboundEvent) {
-  const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, event.channelId)).limit(1);
-  if (!spaceChannel) return;
-  const conversationId = event.conversation?.id?.trim() || event.externalChatId;
-  const existingInboundRef = await getProviderMessageRef({ provider: event.provider, externalConversationId: conversationId, externalMessageId: event.externalMessageId, direction: "inbound" });
-  if (existingInboundRef) return;
-  const bindingKey = event.bindingKey?.trim() || `${event.provider}:conversation:${conversationId}`;
-  const binding = await resolveOrCreateSessionBindingForEvent({ spaceId: spaceChannel.spaceId, spaceChannelId: spaceChannel.id, provider: event.provider, externalChatId: event.externalChatId, bindingKey, event });
-  if (event.eventType === "conversation_create") return;
-  const textBlock = event.content.find((block): block is { type: "text"; text: string } => block.type === "text");
-  const text = textBlock?.text || "";
+  const resolved = await resolveSessionInteractionForInboundEvent(event);
+  if (!resolved || event.eventType === "conversation_create") return;
   await executeSessionInteraction({
-    spaceId: spaceChannel.spaceId,
-    sessionId: binding.spaceSessionId,
-    inputText: text,
+    spaceId: resolved.spaceId,
+    sessionId: resolved.sessionId,
+    inputText: extractInboundText(event),
     content: event.content,
     source: `channel:${event.provider}`,
     interactionId: event.eventId,
     actorUserId: event.sender.id,
     inboundRef: {
       provider: event.provider,
-      spaceChannelId: spaceChannel.id,
-      externalConversationId: conversationId,
+      spaceChannelId: resolved.spaceChannelId,
+      externalConversationId: resolved.conversationId,
       externalMessageId: event.externalMessageId,
       externalAuthorId: event.sender.id,
       externalAuthorName: event.sender.name ?? null,
-      meta: { bindingKey },
+      meta: { bindingKey: resolved.bindingKey },
     },
   });
 }
