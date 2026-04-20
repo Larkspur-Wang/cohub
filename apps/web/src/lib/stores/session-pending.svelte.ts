@@ -16,7 +16,7 @@ export type PendingSessionMessage = {
 type PendingStore = Record<string, PendingSessionMessage[]>;
 
 class SessionPendingStore {
-  private pendingBySessionId = $state<PendingStore>({});
+  pendingBySessionId = $state<PendingStore>({});
 
   list(sessionId: string): PendingSessionMessage[] {
     return this.pendingBySessionId[sessionId] ?? [];

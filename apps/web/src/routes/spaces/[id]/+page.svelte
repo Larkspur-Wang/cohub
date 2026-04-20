@@ -210,11 +210,16 @@ const activeSessionModel = $derived.by(() => {
 	if (!activeSessionId) return null;
 	return sessionModelById[activeSessionId] ?? firstCatalogModel;
 });
+const activePendingMessages = $derived.by(() =>
+	activeSessionId ? sessionPendingStore.pendingBySessionId[activeSessionId] ?? [] : [],
+);
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
-	const pendingMessages = getPendingMessages(state.session?.id ?? null);
-	const renderedMessages = mergeRenderableMessages(state.messages, pendingMessages);
+	const renderedMessages = mergeRenderableMessages(
+		state.messages,
+		activePendingMessages,
+	);
 	// Filter out error messages from display. They're persisted in DB for debugging
 	// and analytics, but should not appear in the chat timeline by default.
 	const items: TimelineItem[] = toChatMessages(renderedMessages)
@@ -448,12 +453,15 @@ function buildPendingMessage(
 	pending: PendingSessionMessage,
 	fallbackSequence: number,
 ): MessageRecord {
+	const pendingStatus = pending.status;
+	const pendingText =
+		pendingStatus === "failed" ? `${pending.text}\n\n（发送失败）` : pending.text;
 	return {
 		id: `pending-${pending.clientMessageId}`,
 		sessionId,
 		role: "user",
 		content: pending.content,
-		text: pending.text,
+		text: pendingText,
 		sequence: fallbackSequence,
 		provider: null,
 		model: null,
@@ -478,8 +486,21 @@ function mergeRenderableMessages(
 	persisted: MessageRecord[],
 	pending: PendingSessionMessage[],
 ): MessageRecord[] {
+	const persistedClientMessageIds = new Set(
+		persisted
+			.map((message) => {
+				const clientMessageId = (message.meta as Record<string, unknown> | null | undefined)
+					?.clientMessageId;
+				return typeof clientMessageId === "string" && clientMessageId.trim()
+					? clientMessageId.trim()
+					: null;
+			})
+			.filter((value): value is string => Boolean(value)),
+	);
 	let nextSequence = (persisted.at(-1)?.sequence ?? 0) + 1;
-	const pendingMessages = pending.map((message) => buildPendingMessage(message.sessionId, message, nextSequence++));
+	const pendingMessages = pending
+		.filter((message) => !persistedClientMessageIds.has(message.clientMessageId))
+		.map((message) => buildPendingMessage(message.sessionId, message, nextSequence++));
 	return mergeMessagesById(persisted, pendingMessages, { preferIncoming: false });
 }
 
