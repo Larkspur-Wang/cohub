@@ -1862,7 +1862,7 @@ $effect(() => {
 <PageHeader>
   {#snippet left()}
     <div class="flex items-center gap-1.5 min-w-0">
-      {#if activeSessionState}
+      {#if activeSessionState?.session}
         <span
           class="text-[13px] text-text-primary truncate max-w-[35%] cursor-default select-none"
           onclick={handleTitleClick}
