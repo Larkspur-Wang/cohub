@@ -15,7 +15,7 @@ const LIST_KEY_IN = getAgentInstanceInputQueueKey(env.AGENT_INSTANCE_ID);
 const PROCESSING_KEY = getAgentInstanceProcessingQueueKey(env.AGENT_INSTANCE_ID);
 const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID);
 
-const STREAM_MAXLEN = 10000;
+const STREAM_MAXLEN = 2000;
 const STREAM_APPROX = "~";
 
 const PromptInputSchema = z.object({

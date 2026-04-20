@@ -2,7 +2,7 @@ appName: cohub-agent
 namespace: cohub
 serviceName: cohub-agent
 port: 8788
-image: git.talesofai.com/talesofai/cohub-agent:v20260325
+image: git.talesofai.com/talesofai/cohub-agent:v0.6.0
 env: prod
 workerSecret: ""
 workspaceRoot: /space-storage

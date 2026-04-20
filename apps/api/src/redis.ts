@@ -3,7 +3,7 @@ import { config } from "./config.js";
 
 export type RedisStreamEntry = [string, string[]];
 
-export const STREAM_MAXLEN = 10000;
+export const STREAM_MAXLEN = 2000;
 export const STREAM_APPROX = "~";
 
 export const redisCommandClient = new Redis(config.redisUrl);

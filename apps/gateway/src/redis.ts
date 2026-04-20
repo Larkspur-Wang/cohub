@@ -30,7 +30,7 @@ redisCommandClient.on("reconnecting", () => {
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
-export const STREAM_MAXLEN = 10000;
+export const STREAM_MAXLEN = 2000;
 export const STREAM_APPROX = "~";
 
 export const xaddWithMaxlen = async (
