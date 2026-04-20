@@ -19,7 +19,12 @@
     "format": "biome format --write .",
     "lint:biome": "biome lint .",
     "prepare": "husky",
-    "ws:client": "tsx scripts/ws-client.ts"
+    "ws:client": "tsx scripts/ws-client.ts",
+    "test:e2e": "tsx test/e2e-test.ts",
+    "test:concurrency": "tsx test/e2e-concurrency-test.ts",
+    "test:stress": "tsx test/e2e-stress-test.ts",
+    "test:load": "tsx test/e2e-load-test.ts",
+    "test:all": "pnpm test:e2e && pnpm test:stress && pnpm test:concurrency"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

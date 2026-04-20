@@ -2,353 +2,35 @@
 /**
  * Cohub Dev 环境端到端全链路验证脚本
  *
- * 用法: COHUB_TOKEN=<your-token> pnpm e2e:test
+ * 用法: pnpm test:e2e
  *
  * 环境变量:
- *   COHUB_TOKEN          - 必须，用于鉴权的 Bearer token
+ *   COHUB_TOKEN / TOKEN  - 必须，用于鉴权的 Bearer token
  *   COHUB_API_ORIGIN     - 可选，默认 https://api-dev.cohub.run
- *   COHUB_GATEWAY_ORIGIN - 可选，默认由 API_ORIGIN 推导 (api-dev → gateway-dev)
+ *   COHUB_GATEWAY_ORIGIN - 可选，默认由 API_ORIGIN 推导
  *   COHUB_GATEWAY_WS     - 可选，默认由 GATEWAY_ORIGIN 推导
  *   SKIP_WS_TEST         - 设为 1 跳过 WebSocket 实时测试
  *   SKIP_AGENT_TEST      - 设为 1 跳过 Agent 实际回复测试（耗时较长）
  */
 
-// ── 配置 ──────────────────────────────────────────────────────────────────────
+import {
+  assertConfig, config, api, createTestRunner,
+  waitForAssistantReply, wsSendAndWaitForAgentReply, summarizeEvents,
+  createSession, sendMessage, findReadySpace, cleanupTestResources,
+  C, PASS, FAIL, WARN, SEC, TIMEOUTS,
+} from "./test-utils.js";
 
-const API_ORIGIN = process.env.COHUB_API_ORIGIN ?? "https://api-dev.cohub.run";
-const GATEWAY_ORIGIN = process.env.COHUB_GATEWAY_ORIGIN ?? API_ORIGIN.replace("api-dev", "gateway-dev");
-const GATEWAY_WS = process.env.COHUB_GATEWAY_WS ?? `${GATEWAY_ORIGIN.replace("https://", "wss://")}/ws`;
-const TOKEN = process.env.COHUB_TOKEN ?? "";
-
-if (!TOKEN) {
-  console.error("❌ 错误: 请设置 COHUB_TOKEN 环境变量");
-  process.exit(1);
-}
+assertConfig();
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
-
-const C = {
-  reset: "\x1b[0m",
-  dim: "\x1b[2m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[36m",
-  magenta: "\x1b[35m",
-  white: "\x1b[1m",
-};
-
-const PASS = `${C.green}✅ PASS${C.reset}`;
-const FAIL = `${C.red}❌ FAIL${C.reset}`;
-const WARN = `${C.yellow}⚠️ WARN${C.reset}`;
-const STEP = `${C.blue}▶${C.reset}`;
-const SEC = `${C.magenta}━━━${C.reset}`;
-
-function section(title: string) {
-  console.log(`\n${SEC} ${C.white}${title}${C.reset} ${SEC}`);
-}
-
-function step(name: string) {
-  console.log(`  ${STEP} ${name}`);
-}
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-async function api(path: string, init?: RequestInit): Promise<unknown> {
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${TOKEN}`);
-  if (!headers.has("Content-Type") && init?.body) {
-    headers.set("Content-Type", "application/json");
-  }
+// ── 测试运行器 ────────────────────────────────────────────────────────────────
 
-  const url = path.startsWith("http") ? path : `${API_ORIGIN}${path}`;
-  const resp = await fetch(url, { ...init, headers });
-  const text = await resp.text();
-  let body: unknown = null;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    body = text;
-  }
-
-  if (!resp.ok) {
-    throw new Error(
-      `HTTP ${resp.status} ${path}\n  Response: ${typeof body === "string" ? body : JSON.stringify(body, null, 2)}`,
-    );
-  }
-  return body;
-}
-
-/**
- * 通过 SSE 流监听 Space 的 output stream，等待指定事件
- *
- * @param spaceId Space ID
- * @param options
- * @param options.timeoutMs 超时时间，默认 90s（Agent 回复可能较慢）
- * @param options.signal 可选的 AbortSignal
- * @returns 收到的 SSE 事件列表
- */
-async function waitForSSEEvents(
-  spaceId: string,
-  options?: {
-    timeoutMs?: number;
-    signal?: AbortSignal;
-  },
-): Promise<Array<{ id: string; event: string; data: unknown }>> {
-  const events: Array<{ id: string; event: string; data: unknown }> = [];
-  const timeoutMs = options?.timeoutMs ?? 90_000;
-  const url = `${API_ORIGIN}/api/spaces/${spaceId}/stream`;
-  const abortController = new AbortController();
-
-  // 外部 signal 触发时一并 abort
-  options?.signal?.addEventListener("abort", () => abortController.abort(), { once: true });
-
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      Accept: "text/event-stream",
-      "Cache-Control": "no-cache",
-    },
-    signal: abortController.signal,
-  });
-
-  if (!resp.ok) {
-    throw new Error(`SSE connect failed: HTTP ${resp.status}`);
-  }
-
-  const reader = resp.body?.getReader();
-  if (!reader) throw new Error("No response body for SSE");
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`SSE timeout after ${timeoutMs}ms`)), timeoutMs);
-  });
-
-  const readPromise = (async () => {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      // Parse SSE events from buffer
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? ""; // keep incomplete line
-
-      let currentEvent = "";
-      let currentId = "";
-      let currentData = "";
-
-      for (const line of lines) {
-        if (line.startsWith("event:")) {
-          currentEvent = line.slice(6).trim();
-        } else if (line.startsWith("id:")) {
-          currentId = line.slice(3).trim();
-        } else if (line.startsWith("data:")) {
-          currentData = line.slice(5).trim();
-        } else if (line === "" && currentEvent && currentData) {
-          let parsedData: unknown = currentData;
-          try {
-            parsedData = JSON.parse(currentData);
-          } catch {
-            // keep as string
-          }
-          events.push({ id: currentId, event: currentEvent, data: parsedData });
-          currentEvent = "";
-          currentId = "";
-          currentData = "";
-        }
-      }
-    }
-  })();
-
-  try {
-    await Promise.race([readPromise, timeoutPromise]);
-  } catch (err) {
-    // timeout 或 abort 时返回已收集的事件
-    if (!(err instanceof Error && err.message.startsWith("SSE timeout"))) {
-      throw err;
-    }
-  } finally {
-    abortController.abort();
-  }
-
-  return events;
-}
-
-/**
- * 通过 HTTP 发消息后，轮询消息列表直到出现 assistant 回复
- * 对 transient 404 有容忍度（可能因为 session 刚创建还未同步）
- */
-async function waitForAssistantReply(
-  sessionId: string,
-  options?: {
-    timeoutMs?: number;
-    intervalMs?: number;
-    max404Retries?: number;
-  },
-): Promise<Array<{ id: string; role: string; text: string | null }>> {
-  const timeoutMs = options?.timeoutMs ?? 120_000;
-  const intervalMs = options?.intervalMs ?? 3000;
-  const max404Retries = options?.max404Retries ?? 5;
-  const startedAt = Date.now();
-  let consecutive404s = 0;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const data = await api(`/api/sessions/${sessionId}/messages`) as {
-        messages: Array<{ id: string; role: string; text: string | null }>;
-      };
-      consecutive404s = 0;
-
-      // 检查是否有 assistant 回复（非空文本）
-      const assistantMsgs = data.messages.filter(
-        (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
-      );
-
-      if (assistantMsgs.length > 0) {
-        return data.messages;
-      }
-    } catch (err) {
-      // 对 transient 404 容忍一定次数（可能 session 刚创建还未完全同步）
-      if (err instanceof Error && err.message.includes("HTTP 404")) {
-        consecutive404s++;
-        if (consecutive404s >= max404Retries) {
-          throw new Error(`Session messages endpoint returned 404 for ${consecutive404s} consecutive retries (sessionId=${sessionId})`);
-        }
-        console.log(`      ${C.dim}  轮询消息列表遇到 404 (第 ${consecutive404s}/${max404Retries} 次)，继续重试...${C.reset}`);
-      } else {
-        throw err;
-      }
-    }
-
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-
-  throw new Error(`Waiting for assistant reply timed out (${timeoutMs}ms)`);
-}
-
-/**
- * 通过 WebSocket 发送消息并等待 agent 实时事件
- */
-async function wsSendAndWaitForAgentReply(
-  params: {
-    spaceId: string;
-    sessionId: string;
-    text: string;
-  },
-  options?: {
-    timeoutMs?: number;
-  },
-): Promise<{
-  accepted: boolean;
-  agentEvents: Array<{ type: string; payload: Record<string, unknown> }>;
-  connectionId: string;
-}> {
-  const timeoutMs = options?.timeoutMs ?? 120_000;
-  const ws = new WebSocket(GATEWAY_WS);
-  const agentEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
-  let connectionId = "";
-  let authOk = false;
-  let accepted = false;
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close(1000, "timeout");
-      resolve({ accepted, agentEvents, connectionId });
-    }, timeoutMs);
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: "auth",
-        requestId: "e2e-ws-agent",
-        payload: { token: TOKEN },
-      }));
-    };
-
-    ws.onmessage = (event) => {
-      let msg: { type: string; payload: Record<string, unknown> };
-      try {
-        msg = JSON.parse(String(event.data));
-      } catch {
-        return;
-      }
-
-      if (msg.type === "auth.ok") {
-        authOk = true;
-        connectionId = String(msg.payload.connectionId ?? "");
-        // 发消息
-        ws.send(JSON.stringify({
-          type: "message.create",
-          requestId: "e2e-ws-agent-msg",
-          payload: {
-            spaceId: params.spaceId,
-            sessionId: params.sessionId,
-            text: params.text,
-          },
-        }));
-      }
-
-      if (authOk && msg.type === "message.accepted") {
-        accepted = true;
-      }
-
-      // Agent 回复通过 event 类型的消息推送
-      if (authOk && msg.type === "event" && msg.payload) {
-        agentEvents.push({ type: msg.type, payload: msg.payload });
-      }
-    };
-
-    ws.onclose = () => {
-      clearTimeout(timeout);
-    };
-
-    ws.onerror = () => {
-      clearTimeout(timeout);
-      reject(new Error("WebSocket error occurred"));
-    };
-  });
-}
-
-// ── 测试状态追踪 ──────────────────────────────────────────────────────────────
-
-type TestResult = { name: string; status: "pass" | "fail" | "warn"; detail?: string };
-const results: TestResult[] = [];
-const completedTests = new Set<string>();
-
-function ok(name: string, detail?: string) {
-  results.push({ name, status: "pass", detail });
-  console.log(`    ${PASS} ${name}${detail ? ` ${C.dim}${detail}${C.reset}` : ""}`);
-}
-
-function fail(name: string, detail?: string) {
-  // 如果同一个测试已被标记（内部子检查 ok 过），替换最后一条结果
-  if (results.length && results[results.length - 1].name === name) {
-    results[results.length - 1] = { name, status: "fail", detail };
-  } else {
-    results.push({ name, status: "fail", detail });
-  }
-  console.log(`    ${FAIL} ${name}${detail ? ` ${C.dim}${detail}${C.reset}` : ""}`);
-}
-
-function warn(name: string, detail?: string) {
-  results.push({ name, status: "warn", detail });
-  console.log(`    ${WARN} ${name}${detail ? ` ${C.dim}${detail}${C.reset}` : ""}`);
-}
-
-async function run(name: string, fn: () => Promise<void>) {
-  step(name);
-  try {
-    await fn();
-  } catch (err) {
-    fail(name, err instanceof Error ? err.message : String(err));
-  } finally {
-    completedTests.add(name);
-  }
-}
+const { ok, fail, warn, run, summary } = createTestRunner();
 
 // ── 测试用例 ──────────────────────────────────────────────────────────────────
 
@@ -360,16 +42,24 @@ let readySessionId: string | null = null;
 /** 用于 Agent 回复测试的 session */
 let agentTestSessionId: string | null = null;
 let agentTestSpaceId: string | null = null;
+/** 记录创建的所有 session ID，用于清理 */
+const createdSessionIds: string[] = [];
+
+async function trackSession(spaceId: string, title: string): Promise<string> {
+  const sid = await createSession(spaceId, title);
+  createdSessionIds.push(sid);
+  return sid;
+}
 
 async function main() {
   console.log(`${C.white}Cohub Dev E2E 全链路验证${C.reset}`);
-  console.log(`${C.dim}API: ${API_ORIGIN}${C.reset}`);
-  console.log(`${C.dim}Gateway WS: ${GATEWAY_WS}${C.reset}`);
+  console.log(`${C.dim}API: ${config.apiOrigin}${C.reset}`);
+  console.log(`${C.dim}Gateway WS: ${config.gatewayWs}${C.reset}`);
   console.log(`${C.dim}时间: ${new Date().toISOString()}${C.reset}`);
 
   // ── Phase 1: 基础设施健康检查 ─────────────────────────────────────────────
 
-  section("Phase 1: 基础设施健康检查");
+  console.log(`\n${SEC} ${C.white}Phase 1: 基础设施健康检查${C.reset} ${SEC}`);
 
   await run("API /healthz", async () => {
     const data = await api("/healthz") as Record<string, unknown>;
@@ -385,13 +75,13 @@ async function main() {
   });
 
   await run("Gateway /healthz", async () => {
-    const data = await api(`${GATEWAY_ORIGIN}/healthz`) as Record<string, unknown>;
+    const data = await api(`${config.gatewayOrigin}/healthz`) as Record<string, unknown>;
     assert(data.ok === true, "gateway healthz.ok should be true");
     ok("Gateway /healthz");
   });
 
   await run("Gateway /readyz", async () => {
-    const data = await api(`${GATEWAY_ORIGIN}/readyz`) as Record<string, unknown>;
+    const data = await api(`${config.gatewayOrigin}/readyz`) as Record<string, unknown>;
     assert((data as Record<string, unknown>).ready === true, "gateway readyz.ready should be true");
     const checks = data as Record<string, Record<string, boolean>>;
     if (checks.checks) {
@@ -404,7 +94,7 @@ async function main() {
 
   // ── Phase 2: 鉴权 & 用户信息 ──────────────────────────────────────────────
 
-  section("Phase 2: 鉴权 & 用户信息");
+  console.log(`\n${SEC} ${C.white}Phase 2: 鉴权 & 用户信息${C.reset} ${SEC}`);
 
   await run("GET /api/me", async () => {
     const user = await api("/api/me") as Record<string, unknown>;
@@ -423,7 +113,7 @@ async function main() {
 
   // ── Phase 3: Space 列表 & 已有 Space 检查 ──────────────────────────────────
 
-  section("Phase 3: Space 列表 & 已有 Space 检查");
+  console.log(`\n${SEC} ${C.white}Phase 3: Space 列表 & 已有 Space 检查${C.reset} ${SEC}`);
 
   let existingSpaces: Array<Record<string, unknown>> = [];
 
@@ -434,13 +124,12 @@ async function main() {
     ok("GET /api/spaces", `count=${spaces.length}`);
   });
 
-  // 找一个 sandbox 状态为 ready 的已有 Space，用于后续 FS / 消息测试
-  for (const sp of existingSpaces) {
-    if (sp.sandboxStatus === "ready") {
-      readySpaceId = sp.id as string;
-      ok("找到 ready sandbox", `spaceId=${readySpaceId}, name=${sp.name}`);
-      break;
-    }
+  // 找一个 sandbox 状态为 ready 的已有 Space
+  const foundReady = await findReadySpace();
+  if (foundReady) {
+    const sp = existingSpaces.find((s) => s.id === foundReady);
+    readySpaceId = foundReady;
+    ok("找到 ready sandbox", `spaceId=${readySpaceId}, name=${sp?.name}`);
   }
 
   // 检查已有 sandbox 状态 (取前 2 个)
@@ -454,7 +143,7 @@ async function main() {
 
   // ── Phase 4: Space 创建链路 ────────────────────────────────────────────────
 
-  section("Phase 4: Space 创建链路 (Web → API → Gitea → K8s)");
+  console.log(`\n${SEC} ${C.white}Phase 4: Space 创建链路 (Web → API → Gitea → K8s)${C.reset} ${SEC}`);
 
   await run("POST /api/spaces (创建 Space)", async () => {
     const ts = Date.now();
@@ -479,7 +168,7 @@ async function main() {
     ok("验证 Space 存在");
   });
 
-  // Sandbox pod 创建验证 (缩短轮询，sandbox 就绪依赖首次消息触发 agent 连接)
+  // Sandbox pod 创建验证
   await run("Sandbox Pod 创建验证", async () => {
     assert(createdSpaceId, "createdSpaceId should be set");
     const maxRetries = 12;
@@ -506,25 +195,17 @@ async function main() {
   });
 
   await run("Sandbox 状态说明", async () => {
-    // sandbox 状态从 provisioning → ready 需要 agent 连接并执行 workspace.prepare
-    // agent 只在收到消息时才会建立连接，这是设计行为
     ok("Sandbox 状态流转", "provisioning → ready 依赖首次消息触发 agent 连接 (设计行为)");
   });
 
   // ── Phase 5: Session 创建链路 ──────────────────────────────────────────────
 
-  section("Phase 5: Session 创建链路 (Web → API → DB)");
+  console.log(`\n${SEC} ${C.white}Phase 5: Session 创建链路 (Web → API → DB)${C.reset} ${SEC}`);
 
   await run("POST /api/spaces/:id/sessions (创建 Session)", async () => {
     assert(createdSpaceId, "createdSpaceId should be set");
-    const body = await api(`/api/spaces/${createdSpaceId}/sessions`, {
-      method: "POST",
-      body: JSON.stringify({ title: "E2E test session" }),
-    }) as { ok: boolean; session: Record<string, unknown> };
-
-    assert(body.ok === true, "response ok should be true");
-    assert(body.session?.id, "session.id should exist");
-    createdSessionId = body.session.id as string;
+    const sid = await trackSession(createdSpaceId, "E2E test session");
+    createdSessionId = sid;
     ok("创建 Session", `id=${createdSessionId}`);
   });
 
@@ -542,9 +223,8 @@ async function main() {
 
   // ── Phase 6: 文件工作台链路 ────────────────────────────────────────────────
 
-  section("Phase 6: 文件工作台链路 (Web → API → Sandbox FS)");
+  console.log(`\n${SEC} ${C.white}Phase 6: 文件工作台链路 (Web → API → Sandbox FS)${C.reset} ${SEC}`);
 
-  // 优先用 ready sandbox，如果没有则用新 space (可能失败)
   const fsSpaceId = readySpaceId ?? createdSpaceId;
   const fsLabel = readySpaceId ? "ready sandbox" : "新 space (sandbox 可能未就绪)";
 
@@ -615,7 +295,7 @@ async function main() {
 
   // ── Phase 7: Checkpoint 保存链路 ───────────────────────────────────────────
 
-  section("Phase 7: Checkpoint 保存链路 (Web → API → Worker → Gitea → DB)");
+  console.log(`\n${SEC} ${C.white}Phase 7: Checkpoint 保存链路 (Web → API → Worker → Gitea → DB)${C.reset} ${SEC}`);
 
   await run("POST /api/spaces/:id/checkpoints (触发 Save Checkpoint)", async () => {
     const cpSpaceId = readySpaceId ?? createdSpaceId;
@@ -634,7 +314,6 @@ async function main() {
     const jobId = body.jobId;
     ok("触发 Checkpoint", `jobId=${jobId}`);
 
-    // 轮询任务状态
     console.log(`      ${C.dim}  轮询任务状态...${C.reset}`);
     const maxRetries = 20;
     for (let i = 0; i < maxRetries; i++) {
@@ -669,11 +348,11 @@ async function main() {
 
   // ── Phase 8: Gateway WebSocket 实时链路 ────────────────────────────────────
 
-  if (process.env.SKIP_WS_TEST !== "1") {
-    section("Phase 8: Gateway WebSocket 实时链路");
+  if (!config.skipWsTest) {
+    console.log(`\n${SEC} ${C.white}Phase 8: Gateway WebSocket 实时链路${C.reset} ${SEC}`);
 
     await run("Gateway WebSocket 连接 & 鉴权", async () => {
-      const ws = new WebSocket(GATEWAY_WS);
+      const ws = new WebSocket(config.gatewayWs);
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error("WebSocket connect timeout 10s")), 10_000);
@@ -683,7 +362,7 @@ async function main() {
           ws.send(JSON.stringify({
             type: "auth",
             requestId: "e2e-auth",
-            payload: { token: TOKEN },
+            payload: { token: config.token },
           }));
         };
 
@@ -695,7 +374,7 @@ async function main() {
           try {
             msg = JSON.parse(String(event.data));
           } catch {
-            return; // 忽略非 JSON 消息（如 heartbeat 文本帧）
+            return;
           }
 
           if (msg.type === "auth.ok") {
@@ -737,7 +416,7 @@ async function main() {
         return;
       }
 
-      const ws = new WebSocket(GATEWAY_WS);
+      const ws = new WebSocket(config.gatewayWs);
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -749,7 +428,7 @@ async function main() {
           ws.send(JSON.stringify({
             type: "auth",
             requestId: "e2e-auth2",
-            payload: { token: TOKEN },
+            payload: { token: config.token },
           }));
         };
 
@@ -760,7 +439,7 @@ async function main() {
           try {
             msg = JSON.parse(String(event.data));
           } catch {
-            return; // 忽略非 JSON 消息
+            return;
           }
 
           if (msg.type === "auth.ok") {
@@ -794,37 +473,28 @@ async function main() {
       });
     });
   } else {
-    section("Phase 8: Gateway WebSocket 实时链路 (已跳过)");
+    console.log(`\n${SEC} ${C.white}Phase 8: Gateway WebSocket 实时链路 (已跳过)${C.reset} ${SEC}`);
     warn("WebSocket 测试", "SKIP_WS_TEST=1");
   }
 
   // ── Phase 9: Session 消息链路 (HTTP API) ──────────────────────────────────
 
-  section("Phase 9: Session 消息链路 (HTTP API 发送)");
+  console.log(`\n${SEC} ${C.white}Phase 9: Session 消息链路 (HTTP API 发送)${C.reset} ${SEC}`);
 
-  // 使用 ready sandbox 的 session 来做 HTTP 消息测试
   const httpSessionId = readySessionId ?? createdSessionId;
   if (httpSessionId) {
-    const httpSpaceId = readySpaceId ?? createdSpaceId;
     const httpLabel = readySpaceId ? "ready sandbox" : "新 space";
 
     if (readySpaceId) {
-      // 有 ready sandbox，先为该 space 创建一个 session
       await run("POST /api/spaces/:id/sessions (为 ready sandbox 创建 Session)", async () => {
-        const body = await api(`/api/spaces/${readySpaceId}/sessions`, {
-          method: "POST",
-          body: JSON.stringify({ title: "E2E HTTP message test" }),
-        }) as { ok: boolean; session: Record<string, unknown> };
-
-        assert(body.ok === true, "response ok should be true");
-        readySessionId = body.session.id as string;
+        const sid = await trackSession(readySpaceId, "E2E HTTP message test");
+        readySessionId = sid;
         ok("创建 Session (ready sandbox)", `id=${readySessionId}`);
       });
     }
 
     await run("POST /api/sessions/:id/messages (HTTP 发送消息)", async () => {
       const actualSessionId = readySessionId ?? httpSessionId;
-      const actualSpaceId = readySpaceId ?? httpSpaceId;
       const body = await api(`/api/sessions/${actualSessionId}/messages`, {
         method: "POST",
         body: JSON.stringify({
@@ -851,7 +521,7 @@ async function main() {
 
   // ── Phase 10: Channels 链路 ────────────────────────────────────────────────
 
-  section("Phase 10: Channels 链路");
+  console.log(`\n${SEC} ${C.white}Phase 10: Channels 链路${C.reset} ${SEC}`);
 
   await run("GET /api/channels", async () => {
     const channels = await api("/api/channels") as Array<Record<string, unknown>>;
@@ -869,13 +539,12 @@ async function main() {
 
   // ── Phase 11: 端到端整合验证 ────────────────────────────────────────────────
 
-  section("Phase 11: 端到端整合验证");
+  console.log(`\n${SEC} ${C.white}Phase 11: 端到端整合验证${C.reset} ${SEC}`);
 
   await run("创建 Space → 创建 Session → 关联验证 (完整链路)", async () => {
     assert(createdSpaceId, "createdSpaceId should be set");
     assert(createdSessionId, "createdSessionId should be set");
 
-    // 验证 Space 和 Session 的关联关系
     const sessionData = await api(`/api/sessions/${createdSessionId}`) as {
       space: { id: string };
       session: { id: string; spaceId: string };
@@ -888,13 +557,12 @@ async function main() {
 
   // ── Phase 12: 全链路数据流完整性验证 ────────────────────────────────────────
 
-  section("Phase 12: 全链路数据流完整性验证");
+  console.log(`\n${SEC} ${C.white}Phase 12: 全链路数据流完整性验证${C.reset} ${SEC}`);
 
   await run("Space 数据完整性", async () => {
     assert(createdSpaceId, "createdSpaceId should be set");
     const space = await api(`/api/spaces/${createdSpaceId}`) as Record<string, unknown>;
 
-    // 验证关键字段
     assert(space.id === createdSpaceId, "id should match");
     assert(typeof space.name === "string", "name should be string");
     assert(typeof space.userUuid === "string", "userUuid should be string");
@@ -921,7 +589,6 @@ async function main() {
   await run("全链路数据流向: Space → Session → Sandbox", async () => {
     assert(createdSpaceId, "createdSpaceId should be set");
 
-    const space = await api(`/api/spaces/${createdSpaceId}`) as Record<string, unknown>;
     const sandbox = await api(`/api/spaces/${createdSpaceId}/sandbox`) as {
       sandbox: { spaceId: string; podName: string | null; status: string } | null;
     };
@@ -929,26 +596,23 @@ async function main() {
       sessions: Array<{ spaceId: string }>;
     };
 
-    // 验证 Space → Sandbox 关联
     if (sandbox.sandbox) {
       assert(sandbox.sandbox.spaceId === createdSpaceId, "sandbox.spaceId should match space");
     }
 
-    // 验证 Space → Session 关联
     assert(sessions.sessions.every((s) => s.spaceId === createdSpaceId), "all sessions should belong to space");
 
     ok("全链路数据关联", `sandbox=${sandbox.sandbox?.podName ?? "pending"}, sessions=${sessions.sessions.length}`);
   });
 
-  // ── Phase 13: Agent 实际回复端到端测试 ★ 核心新增 ─────────────────────────
+  // ── Phase 13: Agent 实际回复端到端测试 ─────────────────────────────────────
 
-  if (process.env.SKIP_AGENT_TEST !== "1") {
-    section("Phase 13: Agent 实际回复端到端测试 (完整消息往返链路)");
+  if (!config.skipAgentTest) {
+    console.log(`\n${SEC} ${C.white}Phase 13: Agent 实际回复端到端测试 (完整消息往返链路)${C.reset} ${SEC}`);
 
-    // 优先复用 Phase 3 找到的 ready sandbox
     agentTestSpaceId = readySpaceId;
 
-    // 如果没有 ready sandbox，尝试等待 Phase 4 创建的新 space 的 sandbox 就绪
+    // 如果没有 ready sandbox，尝试等待新 space 的 sandbox 就绪
     if (!agentTestSpaceId && createdSpaceId) {
       await run("等待新 Space 的 Sandbox 就绪 (用于 Agent 测试)", async () => {
         const maxRetries = 24;
@@ -973,7 +637,6 @@ async function main() {
     if (!agentTestSpaceId) {
       warn("Agent 回复测试", "跳过：没有 ready sandbox，无法触发 Agent");
     } else {
-      // 验证 ready sandbox 的权限（确保 space.userUuid === 当前用户 uuid）
       await run("验证 Agent 测试 Space 权限", async () => {
         const space = await api(`/api/spaces/${agentTestSpaceId}`) as Record<string, unknown>;
         const me = await api("/api/me") as Record<string, unknown>;
@@ -981,61 +644,38 @@ async function main() {
         ok("Space 权限验证通过", `owner=${space.userUuid}`);
       });
 
-      // Agent 连通性预检：发送一条测试消息并快速检查是否被处理
-      // 如果 agent 未连接，跳过后续测试避免长时间超时
+      // Agent 连通性预检 — 改为轮询等待而非固定 15s
       await run("Agent 连通性预检", async () => {
-        // 创建一个临时 session 用于连通性检查
-        const pingBody = await api(`/api/spaces/${agentTestSpaceId}/sessions`, {
-          method: "POST",
-          body: JSON.stringify({ title: "Agent ping test" }),
-        }) as { ok: boolean; session: Record<string, unknown> };
-        assert(pingBody.session?.id, "session.id should exist");
-        const pingSessionId = pingBody.session.id as string;
+        const pingSid = await trackSession(agentTestSpaceId, "Agent ping test");
+        await sendMessage(pingSid, "ping");
 
-        // 发送测试消息
-        const sendBody = await api(`/api/sessions/${pingSessionId}/messages`, {
-          method: "POST",
-          body: JSON.stringify({
-            content: [{ type: "text" as const, text: "ping" }],
-          }),
-        }) as { ok: boolean; userMessageId: string };
-        assert(sendBody.ok === true, "send ok should be true");
+        // 轮询等待回复，最多 30s
+        const pingOk = await waitForAssistantReply(pingSid, {
+          timeoutMs: 30_000,
+          intervalMs: 2000,
+        }).then(() => true).catch(() => false);
 
-        // 等待 15s 看消息是否被处理（agent 如果在线会很快响应）
-        await new Promise((r) => setTimeout(r, 15_000));
-        const msgs = await api(`/api/sessions/${pingSessionId}/messages`) as {
-          messages: Array<{ role: string }>;
-        };
-
-        const hasReply = msgs.messages.some((m) => m.role === "assistant");
-        if (!hasReply) {
+        if (!pingOk) {
           throw new Error("Agent 未响应 ping 测试，可能未连接 dev 环境。请确认 agent pod 正在运行并已连接到该 space。");
         }
         ok("Agent 连通性预检通过", "agent 已连接并正常响应");
       });
 
-      // 为 Agent 测试创建专用 session（复用已有 ready sandbox，避免新 space 权限不一致问题）
       await run("为 Agent 测试创建 Session", async () => {
-        const body = await api(`/api/spaces/${agentTestSpaceId}/sessions`, {
-          method: "POST",
-          body: JSON.stringify({ title: "E2E Agent reply test" }),
-        }) as { ok: boolean; session: Record<string, unknown> };
-
-        assert(body.ok === true, "response ok should be true");
-        assert(body.session?.id, "session.id should exist");
-        agentTestSessionId = body.session.id as string;
+        const sid = await trackSession(agentTestSpaceId, "E2E Agent reply test");
+        agentTestSessionId = sid;
         ok("创建 Agent 测试 Session", `id=${agentTestSessionId}, space=${agentTestSpaceId}`);
       });
 
       if (agentTestSpaceId && agentTestSessionId) {
         const targetSpaceId = agentTestSpaceId;
         const targetSessionId = agentTestSessionId;
-        // 13.1: HTTP 发消息 → 轮询消息列表等待 Agent 回复
+
+        // 13.1: HTTP 发消息 → 轮询等待回复
         await run("Agent 回复测试: HTTP 发消息 → 轮询等待回复", async () => {
           const ts2 = Date.now();
           const testMsg = `E2E agent reply test ${ts2}. Reply with "E2E-ACK:${ts2}" to confirm.`;
 
-          // 发送消息
           const sendBody = await api(`/api/sessions/${targetSessionId}/messages`, {
             method: "POST",
             body: JSON.stringify({
@@ -1047,11 +687,7 @@ async function main() {
           assert(sendBody.userMessageId, "userMessageId should exist");
           console.log(`      ${C.dim}  消息已发送 userMessageId=${sendBody.userMessageId}，等待 Agent 回复...${C.reset}`);
 
-          // 轮询等待回复
-          const messages = await waitForAssistantReply(targetSessionId, {
-            timeoutMs: 120_000,
-            intervalMs: 3000,
-          });
+          const messages = await waitForAssistantReply(targetSessionId, { timeoutMs: TIMEOUTS.ASSISTANT_REPLY });
 
           const assistantMsgs = messages.filter(
             (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
@@ -1065,39 +701,8 @@ async function main() {
           );
         });
 
-        // 13.2: SSE 流式监听 → 等待 Agent 实时推送
-        await run("Agent 回复测试: SSE 实时流监听", async () => {
-          const ts = Date.now();
-          const testMsg = `E2E SSE stream test ${ts}. Reply quickly.`;
-
-          // 发送消息
-          const sendBody2 = await api(`/api/sessions/${targetSessionId}/messages`, {
-            method: "POST",
-            body: JSON.stringify({
-              content: [{ type: "text" as const, text: testMsg }],
-            }),
-          }) as { ok: boolean; userMessageId: string };
-
-          assert(sendBody2.ok === true, "send ok should be true");
-          console.log(`      ${C.dim}  消息已发送，连接 SSE 流等待实时事件...${C.reset}`);
-
-          // 连接 SSE 并等待 Agent 输出事件
-          const events = await waitForSSEEvents(targetSpaceId, {
-            timeoutMs: 120_000,
-          });
-
-          // 查找 message 类型的事件（Agent 的输出事件）
-          const messageEvents = events.filter((e) => e.event === "message");
-          assert(messageEvents.length > 0, `should receive at least one SSE message event, got events: ${events.map((e) => e.event).join(", ")}`);
-
-          ok(
-            "SSE 实时流",
-            `收到 ${messageEvents.length} 个 message 事件, 总事件数=${events.length}`,
-          );
-        });
-
-        // 13.3: WebSocket 发消息 → 等待 Agent 实时事件推送
-        if (process.env.SKIP_WS_TEST !== "1") {
+        // 13.2: WebSocket 发消息 → 接收 Agent 实时事件
+        if (!config.skipWsTest) {
           await run("Agent 回复测试: WebSocket → 接收 Agent 实时事件", async () => {
             const ts = Date.now();
             const testMsg = `E2E WS agent event test ${ts}. Reply quickly.`;
@@ -1106,22 +711,18 @@ async function main() {
               spaceId: targetSpaceId,
               sessionId: targetSessionId,
               text: testMsg,
-            }, {
-              timeoutMs: 120_000,
-            });
+            }, { timeoutMs: TIMEOUTS.WS_AGENT_REPLY });
 
             assert(result.accepted, "message should be accepted by gateway");
-            assert(result.agentEvents.length > 0, `should receive agent events via WS, got: ${result.agentEvents.length}`);
+            assert(result.agentEvents.length > 0, "should receive agent events via WS");
 
-            const eventTypes = result.agentEvents.map((e) => String(e.payload?.eventType ?? e.type));
-            ok(
-              "WebSocket Agent 事件",
-              `收到 ${result.agentEvents.length} 个事件, types=[${eventTypes.join(", ")}]`,
-            );
+            // 使用采样 + 统计，避免输出爆炸
+            const eventSummary = summarizeEvents(result.agentEvents);
+            ok("WebSocket Agent 事件", `收到 ${result.agentEvents.length} 个事件: ${eventSummary}`);
           });
         }
 
-        // 13.4: 验证回复消息已持久化到 DB
+        // 13.3: 验证回复消息已持久化
         await run("Agent 回复持久化验证", async () => {
           const data = await api(`/api/sessions/${targetSessionId}/messages`) as {
             messages: Array<{
@@ -1140,21 +741,18 @@ async function main() {
           assert(userMsgs.length > 0, "should have user messages");
           assert(assistantMsgs.length > 0, "should have assistant replies persisted");
 
-          ok(
-            "回复持久化验证",
-            `user=${userMsgs.length}, assistant=${assistantMsgs.length}, 总消息=${data.messages.length}`,
-          );
+          ok("回复持久化验证", `user=${userMsgs.length}, assistant=${assistantMsgs.length}, 总消息=${data.messages.length}`);
         });
       }
     }
   } else {
-    section("Phase 13: Agent 实际回复端到端测试 (已跳过)");
+    console.log(`\n${SEC} ${C.white}Phase 13: Agent 实际回复端到端测试 (已跳过)${C.reset} ${SEC}`);
     warn("Agent 回复测试", "SKIP_AGENT_TEST=1");
   }
 
   // ── Phase 14: 消息内容质量验证 ─────────────────────────────────────────────
 
-  section("Phase 14: 消息内容质量验证");
+  console.log(`\n${SEC} ${C.white}Phase 14: 消息内容质量验证${C.reset} ${SEC}`);
 
   const contentCheckSessionId = agentTestSessionId ?? "";
   if (agentTestSessionId) {
@@ -1168,12 +766,10 @@ async function main() {
         }>;
       };
 
-      // 验证所有消息都有 content
       for (const msg of data.messages) {
         assert(Array.isArray(msg.content) && msg.content.length > 0, `message ${msg.id} should have content`);
       }
 
-      // 验证 assistant 回复有非空文本
       const assistantMsgs = data.messages.filter(
         (m) => m.role === "assistant" && m.text && m.text.trim().length > 0,
       );
@@ -1203,31 +799,10 @@ async function main() {
 
   // ── 汇总报告 ────────────────────────────────────────────────────────────────
 
-  section("汇总报告");
+  const { failCount } = summary();
 
-  const passCount = results.filter((r) => r.status === "pass").length;
-  const failCount = results.filter((r) => r.status === "fail").length;
-  const warnCount = results.filter((r) => r.status === "warn").length;
-  const totalCount = results.length;
-
-  console.log(`  ${C.white}总计: ${totalCount} 项${C.reset}`);
-  console.log(`  ${C.green}通过: ${passCount}${C.reset}  ${C.red}失败: ${failCount}${C.reset}  ${C.yellow}警告: ${warnCount}${C.reset}`);
-
-  if (failCount > 0) {
-    console.log(`\n  ${C.red}失败详情:${C.reset}`);
-    for (const r of results.filter((r) => r.status === "fail")) {
-      console.log(`    ${FAIL} ${r.name}: ${r.detail ?? "no detail"}`);
-    }
-  }
-
-  if (warnCount > 0) {
-    console.log(`\n  ${C.yellow}警告详情:${C.reset}`);
-    for (const r of results.filter((r) => r.status === "warn")) {
-      console.log(`    ${WARN} ${r.name}: ${r.detail ?? "no detail"}`);
-    }
-  }
-
-  console.log("");
+  // 清理测试资源
+  await cleanupTestResources(createdSpaceId, createdSessionIds);
 
   if (failCount > 0) {
     process.exit(1);
