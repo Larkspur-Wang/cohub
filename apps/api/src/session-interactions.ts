@@ -74,6 +74,7 @@ export const executeSessionInteraction = async (input: ResolvedInboundInteractio
     userMessageId,
     content: input.content,
     meta: {
+      ...(input.inboundRef?.meta ?? {}),
       source: input.source,
       interactionId: input.interactionId,
       actorUserId: input.actorUserId ?? null,
