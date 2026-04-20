@@ -49,7 +49,7 @@ import { unreadTracker } from "$lib/stores/session-state.svelte";
 
 import { getRealtimeClient } from "$lib/realtime";
 import type { RealtimeEventPayload } from "$lib/realtime";
-import { createSessionPermission, deleteSessionPermission, listSpacePermissions } from "$lib/api";
+import { createSessionPermission, deleteSessionPermission, listSpacePermissions, createSpacePermission, deleteSpacePermission, addSpaceCollaborator, updateSpaceCollaborator, removeSpaceCollaborator, listSpaceCollaborators, type ResourcePermission } from "$lib/api";
 import {
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
@@ -61,12 +61,15 @@ import {
 	ArrowDown,
 	Check,
 	Copy,
+	Eye,
 	FolderKanban,
 	Globe,
+	Hash,
 	Loader2,
 	Lock,
 	PanelRightClose,
 	PanelRightOpen,
+	Pencil,
 	Plus,
 	RefreshCw,
 	Settings,
@@ -197,7 +200,25 @@ let shareCopied = $state(false);
 let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let shareModalError = $state("");
 let shareModalSaving = $state(false);
-let sharedSessionIds = $state<Set<string>>(new Set());
+
+// Space-level permissions
+let spacePerms = $state<ResourcePermission[]>([]);
+let spacePublicRead = $state(false);
+let savingSpacePerm = $state(false);
+
+// Session-level permissions
+let sessionPerms = $state<ResourcePermission[]>([]);
+
+// Session title cache for settings panel
+let sessionTitleById = $state<Map<string, string>>(new Map());
+
+// Collaborators
+let spaceCollaborators = $state<ResourcePermission[]>([]);
+let loadingCollaborators = $state(false);
+let addingCollaboratorUuid = $state("");
+let addingCollaboratorLevel = $state<"read" | "write">("write");
+let savingCollaborator = $state(false);
+let addingCollaboratorError = $state("");
 
 function getSessionTitle(session: SessionRecord): string {
   const candidates = [session.title, session.latestMessageText];
@@ -209,21 +230,98 @@ function getSessionTitle(session: SessionRecord): string {
 }
 
 function hasSessionPermission(sessionId: string): boolean {
-  return sharedSessionIds.has(sessionId);
+  return sessionPerms.some((p) => p.resourceId === sessionId && p.level === "read");
 }
 
 async function loadSpacePermissions() {
   try {
     const perms = await listSpacePermissions(spaceId);
-    const ids = new Set<string>();
-    for (const perm of perms) {
-      if (perm.resourceType === "session" && perm.level === "read" && perm.granteeUuid === null) {
-        ids.add(perm.resourceId);
-      }
+    spacePerms = perms;
+    spacePublicRead = perms.some(
+      (p) => p.resourceType === "space" && p.level === "read" && p.granteeUuid === null,
+    );
+    sessionPerms = perms.filter(
+      (p) => p.resourceType === "session" && p.granteeUuid === null,
+    );
+    // Cache session titles from existing session data
+    const titleMap = new Map<string, string>();
+    for (const perm of sessionPerms) {
+      const sess = spaceSessions.find((s) => s.id === perm.resourceId);
+      if (sess) titleMap.set(perm.resourceId, getSessionTitle(sess));
     }
-    sharedSessionIds = ids;
+    sessionTitleById = titleMap;
   } catch {
     // Non-blocking
+  }
+}
+
+async function toggleSpacePublicRead(checked: boolean) {
+  savingSpacePerm = true;
+  try {
+    if (checked) {
+      await createSpacePermission(spaceId, "read");
+    } else {
+      await deleteSpacePermission(spaceId);
+    }
+    await loadSpacePermissions();
+  } catch {
+    // Silently fail
+  } finally {
+    savingSpacePerm = false;
+  }
+}
+
+async function removeSessionPermission(sessionId: string) {
+  try {
+    await deleteSessionPermission(sessionId);
+    await loadSpacePermissions();
+  } catch {
+    // Silently fail
+  }
+}
+
+// Collaborator management
+async function loadCollaborators() {
+  loadingCollaborators = true;
+  try {
+    spaceCollaborators = await listSpaceCollaborators(spaceId);
+  } catch {
+    // Non-blocking
+  } finally {
+    loadingCollaborators = false;
+  }
+}
+
+async function handleAddCollaborator() {
+  if (!addingCollaboratorUuid.trim()) return;
+  savingCollaborator = true;
+  addingCollaboratorError = "";
+  try {
+    await addSpaceCollaborator(spaceId, addingCollaboratorUuid.trim(), addingCollaboratorLevel);
+    addingCollaboratorUuid = "";
+    await loadCollaborators();
+  } catch (error) {
+    addingCollaboratorError = error instanceof Error ? error.message : "Failed to add collaborator";
+  } finally {
+    savingCollaborator = false;
+  }
+}
+
+async function handleUpdateCollaboratorLevel(granteeUuid: string, level: "read" | "write") {
+  try {
+    await updateSpaceCollaborator(spaceId, granteeUuid, level);
+    await loadCollaborators();
+  } catch {
+    // Silently fail
+  }
+}
+
+async function handleRemoveCollaborator(granteeUuid: string) {
+  try {
+    await removeSpaceCollaborator(spaceId, granteeUuid);
+    await loadCollaborators();
+  } catch {
+    // Silently fail
   }
 }
 
@@ -563,6 +661,16 @@ async function loadSpace(options?: { force?: boolean }) {
 		(async () => {
 			try {
 				await loadSpacePermissions();
+			} catch {
+				// Non-blocking
+			}
+		})(),
+	);
+
+	tasks.push(
+		(async () => {
+			try {
+				await loadCollaborators();
 			} catch {
 				// Non-blocking
 			}
@@ -2181,36 +2289,198 @@ $effect(() => {
     />
   </MobileRightDrawer>
 
-  <!-- Settings Overlay -->
+  <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->
   <SettingsOverlay open={showSettings} onClose={() => { showSettings = false; }}>
-    <div class="px-4 py-3 space-y-4">
-      <div>
-        <h3 class="text-[13px] font-medium text-text-primary mb-2">Space</h3>
-        <dl class="space-y-1.5 text-[12px]">
-          <div class="flex gap-3">
-            <dt class="w-16 shrink-0 text-text-tertiary">Name</dt>
-            <dd class="text-text-primary truncate">{space?.name ?? space?.title ?? "—"}</dd>
+    <div class="p-4 space-y-6">
+      <!-- Sharing section -->
+      <section class="space-y-3">
+        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
+          <span>Sharing</span>
+        </div>
+
+        <!-- Space-level toggle -->
+        <label class="flex items-start gap-3 cursor-pointer group p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
+          <div class="relative shrink-0 mt-0.5">
+            <input
+              type="checkbox"
+              checked={spacePublicRead}
+              onchange={(event) => { void toggleSpacePublicRead((event.currentTarget as HTMLInputElement).checked); }}
+              disabled={savingSpacePerm}
+              class="sr-only peer"
+            />
+            <div class="w-8 h-[18px] rounded-full bg-bg-hover-strong peer-checked:bg-brand transition-colors duration-150"></div>
+            <div class="absolute left-0.5 top-0.5 w-[13px] h-[13px] rounded-full bg-text-tertiary peer-checked:bg-white peer-checked:left-[15px] transition-all duration-150"></div>
           </div>
-          <div class="flex gap-3">
-            <dt class="w-16 shrink-0 text-text-tertiary">ID</dt>
-            <dd class="text-text-primary font-mono truncate">{spaceId}</dd>
+          <div class="flex flex-col min-w-0">
+            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors font-medium">Public read</span>
+            <span class="text-[11px] text-text-placeholder">Anyone with the link can view all sessions</span>
           </div>
-          <div class="flex gap-3">
-            <dt class="w-16 shrink-0 text-text-tertiary">Status</dt>
-            <dd class="text-text-primary">{space?.status ?? "unknown"}</dd>
+        </label>
+
+        <div class="w-full h-px bg-border-subtle"></div>
+
+        <!-- Session-level permissions -->
+        <div class="space-y-1">
+          <div class="text-[11px] text-text-placeholder px-2">Session access</div>
+          {#each sessionPerms as perm (perm.id)}
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group">
+              {#if perm.level === 'write'}
+                <Share2 class="w-3.5 h-3.5 text-brand shrink-0" />
+              {:else if perm.level === 'private'}
+                <Lock class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+              {:else}
+                <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
+              {/if}
+              <span class="text-[12.5px] text-text-secondary truncate flex-1">
+                {sessionTitleById.get(perm.resourceId) || 'Session ' + perm.resourceId.slice(0, 8)}
+              </span>
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  class="p-1 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                  onclick={() => {
+                    const url = `${window.location.origin}/spaces/${spaceId}?session=${perm.resourceId}`;
+                    void navigator.clipboard.writeText(url);
+                    shareCopied = true;
+                    if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+                    shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+                  }}
+                  title="Copy link"
+                >
+                  <Copy class="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                  onclick={() => { void removeSessionPermission(perm.resourceId); }}
+                  title="Remove access"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          {:else}
+            <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No shared sessions</div>
+          {/each}
+        </div>
+
+        <div class="w-full h-px bg-border-subtle"></div>
+      </section>
+
+      <!-- Collaborators section -->
+      <section class="space-y-3">
+        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
+          <span>Collaborators</span>
+          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{spaceCollaborators.length}</span>
+        </div>
+
+        <!-- Add collaborator form -->
+        <div class="space-y-2">
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={addingCollaboratorUuid}
+              placeholder="Paste user UUID"
+              class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddCollaborator(); } }}
+            />
+            <select
+              bind:value={addingCollaboratorLevel}
+              class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
+            >
+              <option value="write">Write</option>
+              <option value="read">Read</option>
+            </select>
+            <button
+              type="button"
+              onclick={() => { void handleAddCollaborator(); }}
+              disabled={savingCollaborator || !addingCollaboratorUuid.trim()}
+              class="px-2.5 py-[5px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {savingCollaborator ? '...' : 'Add'}
+            </button>
           </div>
-        </dl>
-      </div>
-      <div class="border-t border-border-subtle pt-3">
-        <button
-          type="button"
-          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-[5px] text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          onclick={() => { showSettings = false; void goto(`/spaces/${spaceId}/debug`); }}
-        >
-          <Terminal class="w-3.5 h-3.5" />
-          <span>Debug Info</span>
-        </button>
-      </div>
+          {#if addingCollaboratorError}
+            <div class="text-[11px] text-error-soft break-all">{addingCollaboratorError}</div>
+          {/if}
+        </div>
+
+        <!-- Collaborators list -->
+        {#if loadingCollaborators}
+          <div class="flex items-center justify-center py-4 text-[12px] text-text-tertiary">
+            <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
+            Loading...
+          </div>
+        {:else if spaceCollaborators.length === 0}
+          <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No collaborators</div>
+        {:else}
+          <div class="space-y-1">
+            {#each spaceCollaborators as collab (collab.granteeUuid)}
+              <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group hover:bg-bg-hover transition-colors">
+                {#if collab.level === 'write'}
+                  <Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
+                {:else}
+                  <Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+                {/if}
+                <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{collab.granteeUuid}</code>
+                <select
+                  value={collab.level}
+                  onchange={(event) => { void handleUpdateCollaboratorLevel(collab.granteeUuid!, (event.currentTarget as HTMLSelectElement).value as "read" | "write"); }}
+                  class="px-1.5 py-0.5 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none"
+                >
+                  <option value="write">Write</option>
+                  <option value="read">Read</option>
+                </select>
+                <button
+                  type="button"
+                  class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                  onclick={() => { void handleRemoveCollaborator(collab.granteeUuid!); }}
+                  title="Remove collaborator"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="w-full h-px bg-border-subtle"></div>
+      </section>
+
+      <!-- Channels section -->
+      <section class="space-y-3">
+        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
+          <span>Channels</span>
+          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{space?.channels?.length ?? 0}</span>
+        </div>
+
+        {#if !space?.channels || space.channels.length === 0}
+          <div class="rounded-md border border-border-subtle bg-bg-hover p-3 text-[13px] text-text-tertiary">No channels bound.</div>
+        {:else}
+          <div class="space-y-3">
+            {#each space.channels as channel (channel.id)}
+              <div class="border border-border-subtle rounded-[5px] bg-bg-surface overflow-hidden">
+                <div class="px-3 py-2 border-b border-border-subtle bg-bg-header-alt flex items-center gap-2">
+                  <Hash class="w-3 h-3 text-text-tertiary" />
+                  <span class="text-[12px] font-medium text-text-primary truncate">{channel.name || channel.provider}</span>
+                </div>
+                <div class="p-3">
+                  {#if channel.provider === "discord"}
+                    <div class="space-y-2 text-[12px] text-text-tertiary">
+                      <div class="flex items-center gap-2">
+                        <span class="text-text-secondary">Status:</span>
+                        <span class="capitalize">{channel.status}</span>
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="text-[13px] text-text-tertiary">No configuration available.</div>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
     </div>
   </SettingsOverlay>
 
@@ -2237,7 +2507,7 @@ $effect(() => {
               <button
                 type="button"
                 class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
-                onclick={() => { void deleteSessionPermission(shareModalSessionId!).then((ok) => { if (ok.ok) { showShareModal = false; void loadSpacePermissions(); } }); }}
+                onclick={() => { void removeSessionPermission(shareModalSessionId!); showShareModal = false; }}
                 disabled={shareModalSaving}
               >
                 <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
