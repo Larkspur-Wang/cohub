@@ -60,8 +60,8 @@ export const SANDBOX_POD_TEMPLATE = {
           },
           {
             name: "space-storage",
-            mountPath: "/configs",
-            subPath: config.env === "prod" ? "configs/prod" : "configs/dev",
+            mountPath: "/configs/platform/.agents",
+            subPath: `${config.env === "prod" ? "configs/prod" : "configs/dev"}/platform/.agents`,
             readOnly: true,
           },
           {
