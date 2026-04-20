@@ -5,7 +5,6 @@ import { goto } from "$app/navigation";
 import {
   Plus,
   ChevronDown,
-  ChevronRight,
   Loader2,
   Settings,
   LogOut,
@@ -16,6 +15,7 @@ import {
   KeyRound,
   Network,
   Save,
+  LayoutDashboard,
 } from "lucide-svelte";
 import { getSpaces, getSpaceSessions, createSpaceSession, createSpaceCheckpoint, getTaskRun, type SessionRecord, type SpaceRecord } from "$lib/api";
 import { logtoClient } from "$lib/auth";
@@ -143,7 +143,14 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
   }
   try {
     const result = await getSpaceSessions(spaceId);
-    sessions = result.sessions ?? [];
+    const rawSessions = result.sessions ?? [];
+    // Deduplicate by id to guard against race conditions from concurrent loads
+    const seen = new Set<string>();
+    sessions = rawSessions.filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
   } catch (error) {
     console.warn("[sidebar] Failed to load sessions", { spaceId, error });
   } finally {
@@ -351,7 +358,7 @@ $effect(() => {
           onclick={() => { void handleNavigate(`/spaces/${currentSpaceId}`); }}
           title="Space details"
         >
-          <ChevronRight class="w-3.5 h-3.5 shrink-0" />
+          <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
           <span class="text-[12px] font-medium">Space Details</span>
         </button>
         <button
