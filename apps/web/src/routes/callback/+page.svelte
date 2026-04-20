@@ -25,7 +25,7 @@ onMount(async () => {
 });
 </script>
 
-<div class="flex-1 flex items-center justify-center">
+<div class="flex-1 flex items-center justify-center min-h-100dvh">
   {#if error}
     <div class="text-center">
       <p class="text-sm text-error-soft">{error}</p>
