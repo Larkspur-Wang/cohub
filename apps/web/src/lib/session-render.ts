@@ -74,6 +74,9 @@ function buildPendingMessage(
 ): MessageRecord {
   const pendingText =
     pending.status === "failed" ? `${pending.text}\n\n（发送失败）` : pending.text;
+  const stableSequence = typeof pending.sequenceHint === "number"
+    ? pending.sequenceHint
+    : fallbackSequence;
 
   return {
     id: `pending-${pending.clientMessageId}`,
@@ -81,7 +84,7 @@ function buildPendingMessage(
     role: "user",
     content: pending.content,
     text: pendingText,
-    sequence: fallbackSequence,
+    sequence: stableSequence,
     provider: null,
     model: null,
     stopReason: null,

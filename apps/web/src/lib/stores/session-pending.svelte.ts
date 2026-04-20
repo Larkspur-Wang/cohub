@@ -11,6 +11,7 @@ export type PendingSessionMessage = {
   createdAt: string;
   status: PendingMessageStatus;
   error?: string | null;
+  sequenceHint?: number | null;
 };
 
 type PendingStore = Record<string, PendingSessionMessage[]>;

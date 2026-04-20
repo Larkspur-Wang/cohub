@@ -284,6 +284,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       messageKind,
       anchorUserMessageId: anchorUserMessageId ?? null,
       clientMessageId: ((messageNode.meta as Record<string, unknown> | null)?.clientMessageId as string | undefined) ?? null,
+      sequence,
     },
   }).catch(console.error);
 

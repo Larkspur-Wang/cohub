@@ -963,7 +963,10 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 
 		const messageRole = payload.meta?.sessionMessageRole as string | undefined;
 		const rawMeta = (payload.meta ?? {}) as Record<string, unknown>;
-		const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
+		const sequence =
+			typeof rawMeta.sequence === "number"
+				? rawMeta.sequence
+				: (state.messages.at(-1)?.sequence ?? 0) + 1;
 
 		const incomingMessage: MessageRecord = {
 			id: sessionMessageId ?? `stream-${currentActiveSessionId}`,
@@ -1210,6 +1213,7 @@ async function handleSend() {
 			createdAt: new Date().toISOString(),
 			status: "sending",
 			error: null,
+			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
 		});
 
 		// Try WebSocket first; fall back to HTTP if not available
