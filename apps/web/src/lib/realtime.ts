@@ -1,21 +1,13 @@
 import { PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
 import {
-  wsServerEnvelopeSchema,
+  realtimeEnvelopeSchema,
   type ContentBlock,
+  type RealtimeEnvelope,
   type WsClientEvent,
-  type WsServerEnvelope,
 } from "@cohub/protocol";
 import { getAuthToken } from "$lib/auth";
 
-export type RealtimeEventPayload = {
-  eventType?: string | null;
-  requestId?: string | null;
-  spaceId?: string | null;
-  sessionId?: string | null;
-  sessionMessageId?: string | null;
-  content?: ContentBlock[];
-  meta?: Record<string, unknown> | null;
-};
+export type RealtimeEventPayload = RealtimeEnvelope;
 
 export type RealtimeClientOptions = {
   url?: string;
@@ -36,8 +28,8 @@ export type RealtimeClientEvents = {
   event: RealtimeEventPayload;
   ready: { connectionId: string };
   auth: { connectionId: string; user: Record<string, unknown> };
-  messageAccepted: { requestId?: string | null; connectionId?: string | null };
-  serverError: { code?: string; message?: string; requestId?: string | null };
+  messageAccepted: { requestId?: string | null; clientMessageId?: string | null; sessionId?: string | null; spaceId?: string | null };
+  serverError: { code?: string; message?: string; requestId?: string | null; sessionId?: string | null; spaceId?: string | null; clientMessageId?: string | null };
   pong: { requestId?: string | null };
 };
 
@@ -239,19 +231,17 @@ export class RealtimeClient {
   async sendMessage(input: {
     spaceId: string;
     sessionId: string;
-    text?: string;
-    content?: ContentBlock[];
+    content: ContentBlock[];
     clientMessageId?: string;
     requestId?: string;
   }) {
     await this.ensureOpen();
     this.send({
-      type: "message.create",
+      type: "session.message.create",
       requestId: input.requestId,
       payload: {
         spaceId: input.spaceId,
         sessionId: input.sessionId,
-        text: input.text,
         content: input.content,
         clientMessageId: input.clientMessageId,
       },
@@ -330,7 +320,7 @@ export class RealtimeClient {
   private handleMessage(raw: unknown) {
     try {
       const text = typeof raw === "string" ? raw : String(raw);
-      const parsed = wsServerEnvelopeSchema.safeParse(JSON.parse(text));
+      const parsed = realtimeEnvelopeSchema.safeParse(JSON.parse(text));
       if (!parsed.success) {
         this.log("ignored invalid server message", parsed.error.issues);
         return;
@@ -341,17 +331,17 @@ export class RealtimeClient {
     }
   }
 
-  private routeEnvelope(envelope: WsServerEnvelope) {
+  private routeEnvelope(envelope: RealtimeEnvelope) {
     const payload = envelope.payload;
 
     switch (envelope.type) {
-      case "ready": {
+      case "system.ready": {
         const connectionId = typeof payload.connectionId === "string" ? payload.connectionId : "";
         if (connectionId) this.connectionId = connectionId;
         this.emit("ready", { connectionId });
         return;
       }
-      case "auth.ok": {
+      case "system.auth.ok": {
         const connectionId = typeof payload.connectionId === "string" ? payload.connectionId : this.connectionId ?? "";
         this.connectionId = connectionId || null;
         this.resolveAuthWaiter();
@@ -361,37 +351,31 @@ export class RealtimeClient {
         });
         return;
       }
-      case "message.accepted": {
+      case "session.request.accepted": {
         this.emit("messageAccepted", {
-          requestId: typeof payload.requestId === "string" ? payload.requestId : null,
-          connectionId: typeof payload.connectionId === "string" ? payload.connectionId : null,
+          requestId: envelope.requestId ?? null,
+          clientMessageId: typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
+          sessionId: envelope.sessionId ?? null,
+          spaceId: envelope.spaceId ?? null,
         });
         return;
       }
-      case "event": {
-        this.emit("event", {
-          eventType: typeof payload.eventType === "string" ? payload.eventType : null,
-          requestId: typeof payload.requestId === "string" ? payload.requestId : null,
-          spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
-          sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
-          sessionMessageId: typeof payload.sessionMessageId === "string" ? payload.sessionMessageId : null,
-          content: Array.isArray(payload.content) ? (payload.content as ContentBlock[]) : undefined,
-          meta: (payload.meta as Record<string, unknown> | null | undefined) ?? null,
-        });
-        return;
-      }
-      case "error": {
+      case "session.request.error":
+      case "system.request.error": {
         const message = typeof payload.message === "string" ? payload.message : "unknown realtime error";
         this.rejectAuthWaiter(new RealtimeAuthError(message));
         this.emit("serverError", {
           code: typeof payload.code === "string" ? payload.code : undefined,
           message,
-          requestId: typeof payload.requestId === "string" ? payload.requestId : null,
+          requestId: envelope.requestId ?? null,
+          sessionId: envelope.sessionId ?? null,
+          spaceId: envelope.spaceId ?? null,
+          clientMessageId: typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
         });
         return;
       }
-      case "pong": {
-        const requestId = typeof payload.requestId === "string" ? payload.requestId : null;
+      case "system.pong": {
+        const requestId = envelope.requestId ?? null;
         if (!requestId || requestId === this.lastPingRequestId) {
           this.awaitingPong = false;
           this.lastPingRequestId = null;
@@ -400,11 +384,12 @@ export class RealtimeClient {
         this.emit("pong", { requestId });
         return;
       }
-      case "ack.ok": {
+      case "system.ack.ok": {
         return;
       }
       default: {
-        this.log("unhandled realtime envelope", envelope);
+        this.emit("event", envelope);
+        return;
       }
     }
   }

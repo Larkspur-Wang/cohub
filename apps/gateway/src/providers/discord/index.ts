@@ -4,6 +4,7 @@ import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, Discord
 import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
+import { buildDiscordDeliveryPlan } from "../../session-output-planner.js";
 
 const buildDiscordBindingKey = (message: Message) => {
   return `discord:conversation:${message.channelId}`;
@@ -540,13 +541,15 @@ export class DiscordProvider implements GatewayProvider {
         return { success: false as const, error: `Channel is not text-based: ${cmd.externalChatId}` };
       }
 
-      const { text, imageUris } = await buildDiscordOutboundPayload(this.channelId, cmd);
-      const files = imageUris;
+      const channelConfig = await getSpaceChannelConfig<DiscordChannelConfig>(this.channelId);
+      const plan = cmd.deliveryPlan?.adapter === "discord"
+        ? cmd.deliveryPlan
+        : await buildDiscordDeliveryPlan(cmd, channelConfig);
+      const files = plan.files;
       const textChannel = channel as TextBasedChannel;
-      const renderMode = String(cmd.meta?.renderMode ?? "message");
-      const hasRenderableContent = Boolean(text.trim()) || files.length > 0;
+      const hasRenderableContent = Boolean(plan.primaryText.trim()) || files.length > 0;
 
-      if (renderMode === "rich_status" && !hasRenderableContent) {
+      if (plan.mode === "upsert" && !hasRenderableContent) {
         console.log(`[Discord:${this.channelId}] Skipping empty rich_status update`, {
           commandId: cmd.commandId,
           sessionMessageId: cmd.sessionMessageId ?? "none",
@@ -554,46 +557,35 @@ export class DiscordProvider implements GatewayProvider {
         return { success: true as const };
       }
 
-      const turnAnchorMessageId = typeof cmd.meta?.turnAnchorMessageId === "string"
-        ? cmd.meta.turnAnchorMessageId.trim()
-        : "";
+      const turnAnchorMessageId = plan.turnAnchorMessageId?.trim() || "";
       const cachedTurnMessageId = turnAnchorMessageId
         ? await getTurnMessageExternalRef(this.channelId, turnAnchorMessageId).catch(() => null)
         : null;
-      const editTargetMessageId = typeof cmd.meta?.editExternalMessageId === "string" && cmd.meta.editExternalMessageId.trim().length > 0
-        ? cmd.meta.editExternalMessageId
+      const editTargetMessageId = plan.preferredEditExternalMessageId?.trim().length
+        ? plan.preferredEditExternalMessageId
         : (cachedTurnMessageId ?? undefined);
 
-      const isPrimaryDisplay = renderMode === "rich_status"
-        || cmd.meta?.source === "session_persist"
-        || cmd.meta?.source === "session_persist_broadcast";
-      const isFinalAssistant = cmd.meta?.source === "session_persist" && cmd.meta?.sessionMessageRole === "assistant";
-      const messageChunks = isFinalAssistant
-        ? splitDiscordMessage(text, 1900)
-        : [truncate(text || "", 1900)].filter((item) => item.trim().length > 0);
-      const primaryContent = messageChunks[0] ?? "";
-
-      if (!primaryContent && files.length === 0) {
+      if (!plan.primaryText && files.length === 0) {
         console.log(`[Discord:${this.channelId}] Skipping empty outbound message`, {
           commandId: cmd.commandId,
-          renderMode,
+          renderMode: plan.mode,
           source: typeof cmd.meta?.source === "string" ? cmd.meta.source : "unknown",
           sessionMessageId: cmd.sessionMessageId ?? "none",
         });
         return { success: true as const };
       }
 
-      if (editTargetMessageId && "messages" in textChannel && primaryContent) {
+      if (editTargetMessageId && "messages" in textChannel && plan.primaryText) {
         const target = await textChannel.messages.fetch(editTargetMessageId).catch(() => null);
         if (target) {
-          await target.edit({ content: primaryContent });
+          await target.edit({ content: plan.primaryText });
           if (turnAnchorMessageId) {
             await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch(console.error);
           }
 
-          if (isFinalAssistant) {
+          if (plan.continuationChunks.length > 0) {
             let previousMessageId = target.id;
-            for (const chunk of messageChunks.slice(1)) {
+            for (const chunk of plan.continuationChunks) {
               const continuationOptions: MessageCreateOptions = {
                 content: chunk,
                 files: [],
@@ -614,9 +606,9 @@ export class DiscordProvider implements GatewayProvider {
         return { success: false as const, error: "Channel does not support sending messages" };
       }
 
-      const messageOptions: MessageCreateOptions = { content: primaryContent, files };
-      if (cmd.replyToExternalMessageId) {
-        messageOptions.reply = { messageReference: cmd.replyToExternalMessageId };
+      const messageOptions: MessageCreateOptions = { content: plan.primaryText, files };
+      if (plan.replyToExternalMessageId) {
+        messageOptions.reply = { messageReference: plan.replyToExternalMessageId };
       }
 
       const sendableChannel = textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>;
@@ -626,7 +618,7 @@ export class DiscordProvider implements GatewayProvider {
       }
 
       let previousMessageId = sentMsg.id;
-      for (const chunk of messageChunks.slice(1)) {
+      for (const chunk of plan.continuationChunks) {
         const continuationOptions: MessageCreateOptions = {
           content: chunk,
           files: [],

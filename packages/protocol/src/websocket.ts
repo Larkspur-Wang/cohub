@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MessageRecord } from "./session-ingestion.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
 
@@ -51,17 +52,13 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     payload: z.object({ token: z.string().min(1) }),
   }),
   z.object({
-    type: z.literal("message.create"),
+    type: z.literal("session.message.create"),
     requestId: z.string().optional(),
     payload: z.object({
       spaceId: z.string().uuid(),
       sessionId: z.string().uuid(),
       clientMessageId: z.string().optional(),
-      text: z.string().optional(),
-      content: z.array(contentBlockSchema).optional(),
-    }).refine((value) => Boolean(value.text?.trim()) || (value.content?.length ?? 0) > 0, {
-      message: "text or content is required",
-      path: ["content"],
+      content: z.array(contentBlockSchema).min(1),
     }),
   }),
   z.object({
@@ -78,12 +75,180 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const wsServerEnvelopeSchema = z.object({
+export const realtimeEnvelopeSchema = z.object({
   id: z.string(),
-  type: z.enum(["ready", "auth.ok", "message.accepted", "event", "error", "pong", "ack.ok"]),
   timestamp: z.number(),
+  domain: z.enum(["system", "session", "space"]),
+  type: z.string(),
+  requestId: z.string().nullable().optional(),
+  spaceId: z.string().nullable().optional(),
+  sessionId: z.string().nullable().optional(),
   payload: z.record(z.string(), z.unknown()),
 });
 
+export type RealtimeEnvelope = z.infer<typeof realtimeEnvelopeSchema>;
+export type RealtimeEnvelopeBase = RealtimeEnvelope;
+export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
+
+export type SystemReadyEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.ready";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: {
+    connectionId: string;
+  };
+};
+
+export type SystemAuthOkEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.auth.ok";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: {
+    connectionId: string;
+    user: Record<string, unknown>;
+  };
+};
+
+export type SystemRequestErrorEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.request.error";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: {
+    code: string;
+    message: string;
+  };
+};
+
+export type SystemPongEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.pong";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: Record<string, never>;
+};
+
+export type SystemAckOkEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.ack.ok";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: Record<string, never>;
+};
+
+export type SessionRequestAcceptedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.request.accepted";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    clientMessageId?: string | null;
+  };
+};
+
+export type SessionRequestErrorEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.request.error";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: {
+    code: string;
+    message: string;
+    clientMessageId?: string | null;
+  };
+};
+
+export type SessionTurnProgressEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.progress";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    anchorUserMessageId: string | null;
+    content: Array<z.infer<typeof contentBlockSchema>>;
+  };
+};
+
+export type SessionTurnFinalEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.final";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    sessionMessageId: string | null;
+    anchorUserMessageId: string | null;
+    content: Array<z.infer<typeof contentBlockSchema>>;
+  };
+};
+
+export type SessionTurnErrorEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.error";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    anchorUserMessageId: string | null;
+    error: string;
+  };
+};
+
+export type SessionMessagePersistedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.message.persisted";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    message: MessageRecord;
+  };
+};
+
+export type RealtimeServerEvent =
+  | SystemReadyEvent
+  | SystemAuthOkEvent
+  | SystemRequestErrorEvent
+  | SystemPongEvent
+  | SystemAckOkEvent
+  | SessionRequestAcceptedEvent
+  | SessionRequestErrorEvent
+  | SessionTurnProgressEvent
+  | SessionTurnFinalEvent
+  | SessionTurnErrorEvent
+  | SessionMessagePersistedEvent;
+
 export type WsClientEvent = z.infer<typeof wsClientEventSchema>;
-export type WsServerEnvelope = z.infer<typeof wsServerEnvelopeSchema>;
+export type WsServerEnvelope = RealtimeEnvelope;

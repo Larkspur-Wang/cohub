@@ -4,6 +4,7 @@ import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, FeishuC
 import type { GatewayProvider } from "../base.js";
 import { publishInboundEvent, publishConversationCreateEvent } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
+import { buildFeishuDeliveryPlan } from "../../session-output-planner.js";
 import {
   detectIdType,
   resolveReceiveIdType,
@@ -279,52 +280,22 @@ export class FeishuProvider implements GatewayProvider {
 
     try {
       const config = await getSpaceChannelConfig<FeishuChannelConfig>(this.channelId);
-      const isFinalMessage = cmd.meta?.source === "session_persist";
-      // Per-command renderMode override; falls back to channel config, then default "post"
-      const renderMode = (cmd.meta?.renderMode ?? config?.outbound?.renderMode ?? "post") as "card" | "post";
+      const plan = cmd.deliveryPlan?.adapter === "feishu"
+        ? cmd.deliveryPlan
+        : await buildFeishuDeliveryPlan(cmd, config);
+      const msgType = plan.msgType;
+      const content = plan.content;
+      const imageKeys = plan.imageKeys;
 
-      let msgType: string;
-      let content: string;
-      let imageKeys: string[] = [];
-
-      if (renderMode === "card") {
-        msgType = "interactive";
-        const card = this.buildCard(cmd, {
-          isFinal: isFinalMessage,
-          showThinking: config?.outbound?.showThinking ?? false,
-          showToolCalls: config?.outbound?.showToolCalls ?? false,
-        });
-        content = JSON.stringify(card);
-        imageKeys = this.extractImageKeys(cmd.content);
-      } else {
-        msgType = "post";
-        const text = this.buildPostText(cmd, {
-          isFinal: isFinalMessage,
-          showThinking: config?.outbound?.showThinking ?? false,
-          showToolCalls: config?.outbound?.showToolCalls ?? false,
-        });
-        if (!text.trim()) {
-          console.log(`[Feishu:${this.channelId}] Skipping empty outbound message`);
-          return { success: true };
-        }
-        content = JSON.stringify({
-          zh_cn: {
-            content: [[{ tag: "md", text }]],
-          },
-        });
-      }
-
-      // Determine if we should edit/update an existing message
-      const editExternalMessageId = (cmd.meta?.editExternalMessageId as string)?.trim();
-      const turnAnchorMessageId = (cmd.meta?.turnAnchorMessageId as string)?.trim();
+      const editExternalMessageId = plan.preferredEditExternalMessageId?.trim();
+      const turnAnchorMessageId = plan.turnAnchorMessageId?.trim();
       const cachedMessageId = turnAnchorMessageId
         ? await getTurnMessageExternalRef(this.channelId, turnAnchorMessageId).catch(() => null)
         : null;
       const targetMessageId = editExternalMessageId || cachedMessageId;
 
-      // --- Update path: patch card or update post ---
       if (targetMessageId) {
-        if (renderMode === "card") {
+        if (plan.renderMode === "card") {
           await this.client.im.message.patch({
             path: { message_id: targetMessageId },
             data: { content },
@@ -332,7 +303,6 @@ export class FeishuProvider implements GatewayProvider {
           console.log(`[Feishu:${this.channelId}] ✓ Card patched: ${targetMessageId}`);
           return { success: true, externalMessageId: targetMessageId };
         }
-        // Post mode: update existing message
         await this.client.im.message.update({
           path: { message_id: targetMessageId },
           data: { content, msg_type: "post" },
@@ -341,14 +311,12 @@ export class FeishuProvider implements GatewayProvider {
         return { success: true, externalMessageId: targetMessageId };
       }
 
-      // --- Create new message ---
       const receiveIdType = resolveReceiveIdType(cmd.externalChatId);
 
-      // Reply path
-      if (cmd.replyToExternalMessageId) {
+      if (plan.replyToExternalMessageId) {
         const threadId = cmd.meta?.threadId as string | undefined;
         const replyResult = await this.client.im.message.reply({
-          path: { message_id: cmd.replyToExternalMessageId },
+          path: { message_id: plan.replyToExternalMessageId },
           data: {
             content,
             msg_type: msgType,
@@ -363,7 +331,6 @@ export class FeishuProvider implements GatewayProvider {
         return { success: true, externalMessageId: messageId };
       }
 
-      // Create path
       const createResult = await this.client.im.message.create({
         params: { receive_id_type: receiveIdType as "chat_id" | "open_id" | "user_id" },
         data: {

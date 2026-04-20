@@ -10,13 +10,12 @@ import {
   ensureConsumerGroup,
   GATEWAY_INBOUND_STREAM,
   AGENT_SESSION_UPDATES_STREAM,
-  GATEWAY_WS_BROADCAST_CHANNEL,
   INBOUND_CONSUMER_GROUP,
   SESSION_UPDATES_CONSUMER_GROUP,
-  redisCommandClient,
 } from "./redis.js";
-import { handleInboundEvent, handleWebsocketInboundEvent, getReadableUserIdsForSpace } from "./channels.js";
-import type { GatewayInboundEvent, SessionStreamError, SessionStreamEvent, ContentBlock } from "@cohub/protocol";
+import { handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
+import type { GatewayInboundEvent, SessionStreamError, SessionStreamEvent } from "@cohub/protocol";
+import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
 import router from "./routes/index.js";
 
 // ── Gateway inbound listener (background task) ───────────────────────────────
@@ -26,26 +25,6 @@ const INBOUND_BATCH_SIZE = 10;
 const INBOUND_BLOCK_MS = 5000;
 const SESSION_UPDATES_BATCH_SIZE = 50;
 const SESSION_UPDATES_BLOCK_MS = 5000;
-
-type SessionUpdatesBroadcastPayload = {
-  eventType: "session.message";
-  spaceId: string;
-  sessionId: string;
-  sessionMessageId: null;
-  content: ContentBlock[];
-  meta: {
-    eventType: "session.message";
-    sessionMessageRole: "assistant";
-    messageKind: "assistant_intermediate" | "assistant_error";
-    delta?: true;
-    turnEnd?: boolean;
-    sourceMessageId?: string | null;
-    anchorUserMessageId?: string | null;
-    streamEventId: string;
-    targetUserIds: string[];
-    errorMessage?: string;
-  };
-};
 
 const initInboundConsumerGroup = async () => {
   await ensureConsumerGroup(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, "0");
@@ -127,52 +106,9 @@ const startSessionUpdatesBridge = async () => {
             continue;
           }
 
-          let targetUserIds: string[];
           try {
-            targetUserIds = await getReadableUserIdsForSpace(event.spaceId);
-          } catch (error) {
-            console.error("[API] Failed to resolve readable users for session update event:", error);
-            continue;
-          }
-
-          try {
-            if (targetUserIds.length > 0) {
-              const broadcast: SessionUpdatesBroadcastPayload = event.type === "stream_update"
-                ? {
-                    eventType: "session.message",
-                    spaceId: event.spaceId,
-                    sessionId: event.sessionId,
-                    sessionMessageId: null,
-                    content: event.content,
-                    meta: {
-                      eventType: "session.message",
-                      sessionMessageRole: "assistant",
-                      messageKind: "assistant_intermediate",
-                      delta: true,
-                      turnEnd: event.turnEnd === true,
-                      sourceMessageId: event.sourceMessageId,
-                      anchorUserMessageId: event.anchorUserMessageId ?? null,
-                      streamEventId: id,
-                      targetUserIds,
-                    },
-                  }
-                : {
-                    eventType: "session.message",
-                    spaceId: event.spaceId,
-                    sessionId: event.sessionId ?? "unknown",
-                    sessionMessageId: null,
-                    content: [{ type: "text", text: event.error }],
-                    meta: {
-                      eventType: "session.message",
-                      sessionMessageRole: "assistant",
-                      messageKind: "assistant_error",
-                      streamEventId: id,
-                      targetUserIds,
-                      errorMessage: event.error,
-                    },
-                  };
-              await redisCommandClient.publish(GATEWAY_WS_BROADCAST_CHANNEL, JSON.stringify(broadcast));
-            }
+            const outputs = await buildSessionOutputsForStreamEvent(event);
+            await dispatchSessionOutputs(outputs);
             await client.xack(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, id);
           } catch (error) {
             console.error("[API] Failed to bridge agent session update event:", error);

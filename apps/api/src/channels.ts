@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol";
+import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand, RealtimeServerEvent } from "@cohub/protocol";
 import { buildSessionSourceChannel } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, resourcePermissions, spaces, spaceSessions } from "./db/schema-v2.js";
@@ -99,27 +99,16 @@ export async function dispatchOutboundMessage(input: {
   await xaddWithMaxlen(redisCommandClient, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
 }
 
-export async function dispatchRealtimeEventToUsers(input: {
-  userIds: string[];
-  spaceId?: string | null;
-  sessionId?: string | null;
-  sessionMessageId?: string | null;
-  content: ContentBlock[];
-  meta?: Record<string, unknown> | null;
-}) {
-  const targetUserIds = Array.from(new Set(input.userIds.map((value) => value.trim()).filter(Boolean)));
-  if (targetUserIds.length === 0) return;
+export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & { payload: RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null } }) {
+  const targetUserIds = Array.from(new Set((input.payload.targetUserIds ?? []).map((value) => value.trim()).filter(Boolean)));
+  if (targetUserIds.length === 0 && !input.payload.targetConnectionId) return;
 
   await redisCommandClient.publish(
     GATEWAY_WS_BROADCAST_CHANNEL,
     JSON.stringify({
-      eventType: (input.meta?.eventType as string | undefined) ?? "session.message",
-      spaceId: input.spaceId?.trim() || null,
-      sessionId: input.sessionId?.trim() || null,
-      sessionMessageId: input.sessionMessageId?.trim() || null,
-      content: input.content,
-      meta: {
-        ...(input.meta ?? {}),
+      ...input,
+      payload: {
+        ...input.payload,
         targetUserIds,
       },
     }),
@@ -207,16 +196,18 @@ export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
 
   if (!context) {
     await dispatchRealtimeEventToUsers({
-      userIds: typeof event.meta?.userId === "string" && event.meta.userId.trim() ? [event.meta.userId.trim()] : [],
+      id: randomUUID(),
+      timestamp: Date.now(),
+      domain: "system",
+      type: "system.request.error",
+      requestId: (typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "") || null,
       spaceId: (typeof event.meta?.spaceId === "string" ? event.meta.spaceId.trim() : "") || null,
       sessionId: (typeof event.meta?.sessionId === "string" ? event.meta.sessionId.trim() : event.conversation?.id?.trim() || event.externalChatId) || null,
-      content: [],
-      meta: {
-        eventType: "error",
+      payload: {
         code: "BAD_REQUEST",
         message: "invalid websocket message context",
-        requestId: (typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "") || null,
         targetConnectionId: (typeof event.meta?.connectionId === "string" ? event.meta.connectionId.trim() : "") || null,
+        targetUserIds: typeof event.meta?.userId === "string" && event.meta.userId.trim() ? [event.meta.userId.trim()] : [],
       },
     });
     return;
@@ -228,16 +219,18 @@ export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
   const [session] = await db.select().from(spaceSessions).where(eq(spaceSessions.id, sessionId)).limit(1);
   if (!space || !session || session.spaceId !== spaceId) {
     await dispatchRealtimeEventToUsers({
-      userIds: [userId],
+      id: randomUUID(),
+      timestamp: Date.now(),
+      domain: "session",
+      type: "session.request.error",
+      requestId: requestId || null,
       spaceId,
       sessionId,
-      content: [],
-      meta: {
-        eventType: "error",
+      payload: {
         code: "NOT_FOUND",
         message: "space or session not found",
-        requestId: requestId || null,
         targetConnectionId: connectionId || null,
+        targetUserIds: [userId],
       },
     });
     return;
@@ -258,16 +251,18 @@ export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
 
   if (!canUserWrite) {
     await dispatchRealtimeEventToUsers({
-      userIds: [userId],
+      id: randomUUID(),
+      timestamp: Date.now(),
+      domain: "session",
+      type: "session.request.error",
+      requestId: requestId || null,
       spaceId,
       sessionId,
-      content: [],
-      meta: {
-        eventType: "error",
+      payload: {
         code: "FORBIDDEN",
         message: "no write permission for session",
-        requestId: requestId || null,
         targetConnectionId: connectionId || null,
+        targetUserIds: [userId],
       },
     });
     return;

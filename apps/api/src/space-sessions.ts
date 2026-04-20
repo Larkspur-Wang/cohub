@@ -5,7 +5,6 @@ import { db } from "./db/index.js";
 import {
   providerMessageRefs,
   sessionMessages,
-  spaceChannels,
   spaceSessions,
   spaces,
 } from "./db/schema-v2.js";
@@ -14,9 +13,9 @@ import {
   redisCommandClient,
 } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
-import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getBindingsBySessionId, getReadableUserIdsForSpace, touchSpaceSessionBinding } from "./channels.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
+import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs } from "./session-output.js";
 
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
@@ -234,59 +233,18 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
 
   await updateSessionAfterAppend(input.sessionId, messageNode);
 
-  if (!shouldDispatchToProvider) return messageNode;
-
-  const bindings = await getBindingsBySessionId(session.id);
-  if (bindings.length > 0) {
-    for (const binding of bindings) {
-      await touchSpaceSessionBinding(binding.id).catch(console.error);
-      await dispatchOutboundMessage({
-        spaceChannelId: binding.spaceChannelId,
-        spaceId: session.spaceId,
-        spaceSessionId: session.id,
-        sessionMessageId: messageNode.id,
-        provider: binding.provider,
-        externalChatId: binding.externalChatId,
-        content: messageNode.content,
-        meta: {
-          bindingKey: binding.bindingKey,
-          sessionMessageRole: messageNode.role,
-          editExternalMessageId: null,
-          turnAnchorMessageId: anchorUserMessageId ?? messageNode.id,
-        },
-      }).catch(console.error);
-    }
-  } else {
-    const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, session.spaceId));
-    for (const channel of channels) {
-      await dispatchOutboundMessage({
-        spaceChannelId: channel.id,
-        spaceId: session.spaceId,
-        spaceSessionId: session.id,
-        sessionMessageId: messageNode.id,
-        content: messageNode.content,
-        replyToExternalMessageId: undefined,
-        meta: { sessionMessageRole: messageNode.role },
-      }).catch(console.error);
-    }
-  }
-
-  const readableUserIds = await getReadableUserIdsForSpace(session.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
-    userIds: readableUserIds,
+  const realtimeMessage = {
+    ...messageNode,
+    role: messageNode.role as "user" | "assistant" | "system",
+    meta: (messageNode.meta as Record<string, unknown> | null) ?? null,
+    createdAt: messageNode.createdAt instanceof Date ? messageNode.createdAt.toISOString() : new Date().toISOString(),
+  };
+  const outputs = await buildSessionOutputsForPersistedMessage({
     spaceId: session.spaceId,
     sessionId: session.id,
-    sessionMessageId: messageNode.id,
-    content: messageNode.content,
-    meta: {
-      eventType: "session.message",
-      sessionMessageRole: messageNode.role,
-      messageKind,
-      anchorUserMessageId: anchorUserMessageId ?? null,
-      clientMessageId: ((messageNode.meta as Record<string, unknown> | null)?.clientMessageId as string | undefined) ?? null,
-      sequence,
-    },
-  }).catch(console.error);
+    message: realtimeMessage,
+  });
+  await dispatchSessionOutputs(outputs).catch(console.error);
 
   return messageNode;
 };

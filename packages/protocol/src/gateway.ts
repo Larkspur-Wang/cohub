@@ -107,6 +107,67 @@ export interface GatewayInboundEvent {
   meta?: Record<string, unknown> | null;
 }
 
+export interface GatewaySessionOutputBase {
+  type: "session.turn.progress" | "session.turn.final" | "session.turn.error" | "session.message.persisted";
+  spaceId: string;
+  sessionId: string;
+}
+
+export interface GatewaySessionTurnProgressOutput extends GatewaySessionOutputBase {
+  type: "session.turn.progress";
+  anchorUserMessageId: string | null;
+  content: import("./session-ingestion.js").ContentBlock[];
+}
+
+export interface GatewaySessionTurnFinalOutput extends GatewaySessionOutputBase {
+  type: "session.turn.final";
+  sessionMessageId: string | null;
+  anchorUserMessageId: string | null;
+  content: import("./session-ingestion.js").ContentBlock[];
+}
+
+export interface GatewaySessionTurnErrorOutput extends GatewaySessionOutputBase {
+  type: "session.turn.error";
+  anchorUserMessageId: string | null;
+  error: string;
+}
+
+export interface GatewaySessionMessagePersistedOutput extends GatewaySessionOutputBase {
+  type: "session.message.persisted";
+  message: import("./session-ingestion.js").MessageRecord;
+}
+
+export type GatewaySessionOutput =
+  | GatewaySessionTurnProgressOutput
+  | GatewaySessionTurnFinalOutput
+  | GatewaySessionTurnErrorOutput
+  | GatewaySessionMessagePersistedOutput;
+
+export interface DiscordDeliveryPlan {
+  adapter: "discord";
+  mode: "send" | "upsert";
+  primaryText: string;
+  continuationChunks: string[];
+  files: string[];
+  replyToExternalMessageId?: string;
+  turnAnchorMessageId?: string | null;
+  preferredEditExternalMessageId?: string | null;
+}
+
+export interface FeishuDeliveryPlan {
+  adapter: "feishu";
+  mode: "create_or_update";
+  renderMode: "card" | "post";
+  msgType: "interactive" | "post";
+  content: string;
+  imageKeys: string[];
+  replyToExternalMessageId?: string;
+  turnAnchorMessageId?: string | null;
+  preferredEditExternalMessageId?: string | null;
+}
+
+export type GatewayDeliveryPlan = DiscordDeliveryPlan | FeishuDeliveryPlan;
+
 export interface GatewayOutboundCommand {
   commandId: string;
   timestamp: number;
@@ -121,7 +182,8 @@ export interface GatewayOutboundCommand {
   spaceId?: string;
   spaceSessionId?: string;
   sessionMessageId?: string;
-  meta?: Record<string, unknown> | null;
+  deliveryPlan?: GatewayDeliveryPlan | null;
+  meta?: (Record<string, unknown> & { sessionOutput?: GatewaySessionOutput | null }) | null;
 }
 
 export interface GatewayControlCommand {

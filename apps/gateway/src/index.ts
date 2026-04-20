@@ -4,8 +4,14 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import type { GatewayInboundEvent, GatewayOutboundCommand, WsClientEvent } from "@cohub/protocol";
-import { wsClientEventSchema } from "@cohub/protocol";
+import type {
+  GatewayInboundEvent,
+  GatewayOutboundCommand,
+  RealtimeEnvelope,
+  RealtimeServerEvent,
+  WsClientEvent,
+} from "@cohub/protocol";
+import { realtimeEnvelopeSchema, wsClientEventSchema } from "@cohub/protocol";
 import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
 import { gatewayConfig } from "./config.js";
@@ -25,16 +31,11 @@ type WsConnectionContext = {
   token?: string;
 };
 
-type GatewayWsBroadcastPayload = {
-  eventType?: string | null;
-  spaceId?: string | null;
-  sessionId?: string | null;
-  sessionMessageId?: string | null;
-  content?: unknown;
-  meta?: {
+type GatewayWsBroadcastPayload = RealtimeServerEvent & {
+  payload: RealtimeServerEvent["payload"] & {
     targetUserIds?: string[];
-    [key: string]: unknown;
-  } | null;
+    targetConnectionId?: string | null;
+  };
 };
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
@@ -100,12 +101,34 @@ const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
   }
 };
 
-const sendWsEnvelope = (socket: WebSocket, type: string, payload: Record<string, unknown>) => {
-  socket.send(JSON.stringify({ id: randomUUID(), type, timestamp: Date.now(), payload }));
+const sendWsEnvelope = (socket: WebSocket, envelope: RealtimeEnvelope) => {
+  socket.send(JSON.stringify(envelope));
 };
 
-const sendWsError = (socket: WebSocket, code: string, message: string, requestId?: string) => {
-  sendWsEnvelope(socket, "error", { code, message, requestId: requestId ?? null });
+const buildRealtimeEnvelope = (input: Omit<RealtimeEnvelope, "id" | "timestamp">): RealtimeEnvelope => ({
+  id: randomUUID(),
+  timestamp: Date.now(),
+  ...input,
+});
+
+const sendWsError = (
+  socket: WebSocket,
+  code: string,
+  message: string,
+  requestId?: string,
+  options?: { spaceId?: string | null; sessionId?: string | null; clientMessageId?: string | null },
+) => {
+  const isSessionScoped = Boolean(options?.sessionId);
+  sendWsEnvelope(socket, buildRealtimeEnvelope({
+    domain: isSessionScoped ? "session" : "system",
+    type: isSessionScoped ? "session.request.error" : "system.request.error",
+    requestId: requestId ?? null,
+    spaceId: options?.spaceId ?? null,
+    sessionId: options?.sessionId ?? null,
+    payload: isSessionScoped
+      ? { code, message, clientMessageId: options?.clientMessageId ?? null }
+      : { code, message },
+  }));
 };
 
 const parseWsJson = (value: string) => {
@@ -147,8 +170,8 @@ class WsClientInputError extends Error {
 }
 
 function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
-  const targetUserIds = Array.isArray(payload.meta?.targetUserIds)
-    ? payload.meta.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+  const targetUserIds = Array.isArray(payload.payload?.targetUserIds)
+    ? payload.payload.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     : [];
   for (const userId of targetUserIds) {
     const connectionIds = wsConnectionsByUserId.get(userId);
@@ -156,7 +179,11 @@ function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
     for (const connectionId of connectionIds) {
       const socket = wsSockets.get(connectionId);
       if (!socket) continue;
-      sendWsEnvelope(socket, "event", payload as unknown as Record<string, unknown>);
+      const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = payload.payload ?? {};
+      sendWsEnvelope(socket, {
+        ...payload,
+        payload: cleanPayload,
+      } as RealtimeEnvelope);
     }
   }
 }
@@ -171,8 +198,12 @@ async function startSpaceOutputSubscriber() {
   client.on("message", (channel, message) => {
     if (channel !== GATEWAY_WS_BROADCAST_CHANNEL) return;
     try {
-      const payload = JSON.parse(message) as GatewayWsBroadcastPayload;
-      fanOutBroadcastToLocalSockets(payload);
+      const parsed = realtimeEnvelopeSchema.safeParse(JSON.parse(message));
+      if (!parsed.success) {
+        console.error("[Gateway] Invalid WS broadcast payload:", parsed.error.issues);
+        return;
+      }
+      fanOutBroadcastToLocalSockets(parsed.data as GatewayWsBroadcastPayload);
     } catch (error) {
       console.error("[Gateway] Failed to handle WS broadcast payload:", error);
     }
@@ -189,9 +220,7 @@ const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestI
     : randomUUID();
   const content = Array.isArray(payload.content)
     ? payload.content as GatewayInboundEvent["content"]
-    : typeof payload.text === "string" && payload.text.trim()
-      ? [{ type: "text", text: payload.text.trim() } as const]
-      : [];
+    : [];
 
   if (!spaceId || !sessionId) throw new WsClientInputError("spaceId and sessionId are required");
   if (content.length === 0) throw new WsClientInputError("content is required");
@@ -260,24 +289,30 @@ async function main() {
       const targetUserIds = Array.isArray(cmd.meta?.targetUserIds)
         ? (cmd.meta.targetUserIds as unknown[]).filter((value): value is string => typeof value === "string" && value.trim().length > 0)
         : [];
-      const eventType = typeof cmd.meta?.eventType === "string" ? cmd.meta.eventType : "event";
-      const messageType = eventType === "error" ? "error" : "event";
       const payload = {
-        eventType,
+        ...(cmd.meta?.payload && typeof cmd.meta.payload === "object" ? cmd.meta.payload as Record<string, unknown> : {}),
+        targetUserIds,
+        targetConnectionId: targetConnectionId || null,
+      };
+      const domain = cmd.meta?.domain === "system" || cmd.meta?.domain === "space" || cmd.meta?.domain === "session"
+        ? cmd.meta.domain
+        : "session";
+      const envelope = buildRealtimeEnvelope({
+        domain,
+        type: typeof cmd.meta?.type === "string" ? cmd.meta.type : "session.message.persisted",
         requestId: typeof cmd.meta?.requestId === "string" ? cmd.meta.requestId : null,
         spaceId: cmd.spaceId ?? null,
         sessionId: cmd.spaceSessionId ?? null,
-        sessionMessageId: cmd.sessionMessageId ?? null,
-        content: cmd.content,
-        meta: cmd.meta ?? null,
-      };
+        payload,
+      });
 
       if (targetConnectionId) {
         const socket = wsSockets.get(targetConnectionId);
         if (!socket) {
           return { success: true, externalMessageId: targetConnectionId, error: "offline" };
         }
-        sendWsEnvelope(socket, messageType, payload);
+        const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = envelope.payload as Record<string, unknown>;
+        sendWsEnvelope(socket, { ...envelope, payload: cleanPayload });
         return { success: true, externalMessageId: targetConnectionId };
       }
 
@@ -288,7 +323,8 @@ async function main() {
         for (const connectionId of connectionIds) {
           const socket = wsSockets.get(connectionId);
           if (!socket) continue;
-          sendWsEnvelope(socket, messageType, payload);
+          const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = envelope.payload as Record<string, unknown>;
+          sendWsEnvelope(socket, { ...envelope, payload: cleanPayload });
           delivered += 1;
         }
       }
@@ -336,7 +372,11 @@ async function main() {
     const ctx: WsConnectionContext = { connectionId };
     wsConnections.set(connectionId, ctx);
     wsSockets.set(connectionId, socket);
-    sendWsEnvelope(socket, "ready", { connectionId });
+    sendWsEnvelope(socket, buildRealtimeEnvelope({
+      domain: "system",
+      type: "system.ready",
+      payload: { connectionId },
+    }));
 
     socket.on("message", async (data: RawData) => {
       try {
@@ -357,7 +397,12 @@ async function main() {
 
         if (message.type === "ping") {
           await touchWsConnection(ctx);
-          sendWsEnvelope(socket, "pong", { requestId: requestId ?? null });
+          sendWsEnvelope(socket, buildRealtimeEnvelope({
+            domain: "system",
+            type: "system.pong",
+            requestId: requestId ?? null,
+            payload: {},
+          }));
           return;
         }
 
@@ -377,7 +422,12 @@ async function main() {
           ctx.token = token;
           addUserConnection(result.user.uuid, connectionId);
           await persistWsConnection(ctx);
-          sendWsEnvelope(socket, "auth.ok", { requestId: requestId ?? null, connectionId, user: result.user });
+          sendWsEnvelope(socket, buildRealtimeEnvelope({
+            domain: "system",
+            type: "system.auth.ok",
+            requestId: requestId ?? null,
+            payload: { connectionId, user: result.user },
+          }));
           return;
         }
 
@@ -388,14 +438,28 @@ async function main() {
 
         await touchWsConnection(ctx);
 
-        if (message.type === "message.create") {
+        if (message.type === "session.message.create") {
           await publishWebsocketInboundMessage(ctx, requestId, message.payload ?? {});
-          sendWsEnvelope(socket, "message.accepted", { requestId: requestId ?? null, connectionId });
+          sendWsEnvelope(socket, buildRealtimeEnvelope({
+            domain: "session",
+            type: "session.request.accepted",
+            requestId: requestId ?? null,
+            spaceId: typeof message.payload?.spaceId === "string" ? message.payload.spaceId : null,
+            sessionId: typeof message.payload?.sessionId === "string" ? message.payload.sessionId : null,
+            payload: {
+              clientMessageId: typeof message.payload?.clientMessageId === "string" ? message.payload.clientMessageId : null,
+            },
+          }));
           return;
         }
 
         if (message.type === "ack") {
-          sendWsEnvelope(socket, "ack.ok", { requestId: requestId ?? null });
+          sendWsEnvelope(socket, buildRealtimeEnvelope({
+            domain: "system",
+            type: "system.ack.ok",
+            requestId: requestId ?? null,
+            payload: {},
+          }));
           return;
         }
 
