@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -43,6 +44,8 @@ func (d *Dispatcher) Handle(request protocol.RPCRequest) interface{} {
 		return d.handleFSRead(request)
 	case "fs.write":
 		return d.handleFSWrite(request)
+	case "fs.stat":
+		return d.handleFSStat(request)
 	case "fs.ls":
 		return d.handleFSLs(request)
 	case "fs.find":
@@ -152,6 +155,34 @@ func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
 	return d.response(request, map[string]interface{}{
 		"path":         params.Path,
 		"bytesWritten": len([]byte(params.Content)),
+	})
+}
+
+type fsStatParams struct {
+	Path string `json:"path"`
+}
+
+func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
+	var params fsStatParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+	}
+
+	fullPath := filepath.Join(d.cfg.WorkspaceDir, params.Path)
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return d.response(request, map[string]interface{}{
+				"exists":      false,
+				"isDirectory": false,
+			})
+		}
+		return d.errorResponse(request, "IO_ERROR", err.Error())
+	}
+
+	return d.response(request, map[string]interface{}{
+		"exists":      true,
+		"isDirectory": info.IsDir(),
 	})
 }
 

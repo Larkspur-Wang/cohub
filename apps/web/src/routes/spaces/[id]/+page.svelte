@@ -179,11 +179,15 @@ const activeSessionModel = $derived.by(() => {
 const timeline = $derived.by<TimelineItem[]>(() => {
   const state = activeSessionState;
   if (!state) return [];
-  const items: TimelineItem[] = toChatMessages(state.messages).map((message) => ({
-    id: message.id,
-    kind: "message",
-    message,
-  }));
+  // Filter out error messages from display. They're persisted in DB for debugging
+  // and analytics, but should not appear in the chat timeline by default.
+  const items: TimelineItem[] = toChatMessages(state.messages)
+    .filter((message) => message.meta?.messageKind !== "assistant_error")
+    .map((message) => ({
+      id: message.id,
+      kind: "message",
+      message,
+    }));
 
   const lastUserIndex = (() => {
     for (let i = items.length - 1; i >= 0; i--) {
@@ -878,12 +882,35 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
         await tick();
         if (!userScrolledUp) scrollToBottomNow();
       }
-    } else if (messageKind === "assistant_final" || messageKind === "assistant_error") {
+    } else if (messageKind === "assistant_error") {
+      // Error messages are persisted in DB for debugging, but not shown in UI.
+      // Clear streaming state without merging the error into visible messages.
+      streamingAssistantText = "";
+      streamingThinking = "";
+      streamingContentBlocks = [];
+      streamStatus = "error";
+      if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+      streamingSessionId = null;
+
+      // Update session list (lastMessageId, updatedAt) even for errors so the
+      // sidebar reflects the latest activity.
+      const updatedSession = state.session;
+      if (updatedSession) {
+        const refreshedSession: SessionRecord = {
+          ...updatedSession,
+          lastMessageId: sessionMessageId ?? null,
+          updatedAt: new Date().toISOString(),
+        };
+        spaceSessions = spaceSessions.map((s): SessionRecord =>
+          s.id === updatedSession.id ? refreshedSession : s,
+        );
+      }
+    } else if (messageKind === "assistant_final") {
       // Final message — clear streaming state and merge into messages
       streamingAssistantText = "";
       streamingThinking = "";
       streamingContentBlocks = [];
-      streamStatus = messageKind === "assistant_error" ? "error" : "done";
+      streamStatus = "done";
       if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
       streamingSessionId = null;
 
