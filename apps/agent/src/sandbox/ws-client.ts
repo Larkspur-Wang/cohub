@@ -16,6 +16,8 @@ type PendingRequest = {
   resolve: (value: never) => void;
   reject: (error: Error) => void;
   onStream?: (event: RpcStreamEvent) => void;
+  keepUntilStreamEnd?: boolean;
+  responseDelivered?: boolean;
 };
 
 type SandboxStatusHooks = {
@@ -65,6 +67,8 @@ export class SandboxConnection {
         resolve,
         reject,
         onStream: options.onStream,
+        keepUntilStreamEnd: Boolean(options.onStream),
+        responseDelivered: false,
       });
 
       this.send({
@@ -95,9 +99,12 @@ export class SandboxConnection {
     if (message.type === "rpc.response") {
       const pending = this.pending.get(message.requestId);
       if (!pending) return;
-      this.pending.delete(message.requestId);
       console.log(`[SandboxWS] rpc:response spaceId=${this.spaceId} method=${pending.method} requestId=${message.requestId.slice(0, 8)}`);
       pending.resolve(message.result as never);
+      pending.responseDelivered = true;
+      if (!pending.keepUntilStreamEnd) {
+        this.pending.delete(message.requestId);
+      }
       return;
     }
 
