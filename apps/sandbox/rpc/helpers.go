@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cohub/apps/sandbox/env"
 )
 
 func ensureParentDir(path string) error {
@@ -37,4 +39,35 @@ func joinLines(lines []string) string {
 
 func nowMS() int64 {
 	return time.Now().UnixMilli()
+}
+
+type resolvedSandboxPath struct {
+	path string
+}
+
+func resolveSandboxPath(cfg env.Config, rawPath string, cwd string) (resolvedSandboxPath, error) {
+	base := strings.TrimSpace(cwd)
+	if base == "" {
+		base = cfg.WorkspaceDir
+	}
+
+	candidate := strings.TrimSpace(rawPath)
+	if candidate == "" || candidate == "." {
+		candidate = base
+	}
+
+	var cleaned string
+	if filepath.IsAbs(candidate) {
+		cleaned = filepath.Clean(candidate)
+	} else {
+		cleaned = filepath.Clean(filepath.Join(base, candidate))
+	}
+
+	return resolvedSandboxPath{path: cleaned}, nil
+}
+
+func isReadOnlyPath(cfg env.Config, path string) bool {
+	root := filepath.Clean(cfg.PlatformAgentsDir)
+	candidate := filepath.Clean(path)
+	return candidate == root || strings.HasPrefix(candidate, root+string(filepath.Separator))
 }

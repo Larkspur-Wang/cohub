@@ -63,29 +63,34 @@ func (d *Dispatcher) Handle(request protocol.RPCRequest) interface{} {
 
 type fsReadParams struct {
 	Path   string `json:"path"`
+	CWD    string `json:"cwd"`
 	Offset int    `json:"offset"`
 	Limit  int    `json:"limit"`
 }
 
 type fsWriteParams struct {
 	Path    string `json:"path"`
+	CWD     string `json:"cwd"`
 	Content string `json:"content"`
 }
 
 type fsLsParams struct {
 	Path  string `json:"path"`
+	CWD   string `json:"cwd"`
 	Limit int    `json:"limit"`
 }
 
 type fsFindParams struct {
 	Pattern string `json:"pattern"`
 	Path    string `json:"path"`
+	CWD     string `json:"cwd"`
 	Limit   int    `json:"limit"`
 }
 
 type fsGrepParams struct {
 	Pattern    string `json:"pattern"`
 	Path       string `json:"path"`
+	CWD        string `json:"cwd"`
 	Glob       string `json:"glob"`
 	IgnoreCase bool   `json:"ignoreCase"`
 	Literal    bool   `json:"literal"`
@@ -103,15 +108,30 @@ type processAbortParams struct {
 	ProcessID string `json:"processId"`
 }
 
+func (d *Dispatcher) resolvePathForRequest(request protocol.RPCRequest, rawPath string, cwd string) (resolvedSandboxPath, interface{}, bool) {
+	resolved, err := resolveSandboxPath(d.cfg, rawPath, cwd)
+	if err != nil {
+		return resolvedSandboxPath{}, d.errorResponse(request, "INVALID_PATH", err.Error()), false
+	}
+	return resolved, nil, true
+}
+
 func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 	var params fsReadParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
-	fullPath := filepath.Join(d.cfg.WorkspaceDir, params.Path)
-	content, err := osReadFile(fullPath)
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
+	}
+
+	content, err := osReadFile(resolved.path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return d.errorResponse(request, "NOT_FOUND", err.Error())
+		}
 		return d.errorResponse(request, "IO_ERROR", err.Error())
 	}
 
@@ -133,7 +153,7 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 	}
 
 	return d.response(request, map[string]interface{}{
-		"path":    params.Path,
+		"path":    resolved.path,
 		"content": joinLines(lines[start:end]),
 	})
 }
@@ -144,22 +164,33 @@ func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
-	fullPath := filepath.Join(d.cfg.WorkspaceDir, params.Path)
-	if err := ensureParentDir(fullPath); err != nil {
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
+	}
+	if isReadOnlyPath(d.cfg, resolved.path) {
+		return d.errorResponse(request, "READ_ONLY_FILESYSTEM", fmt.Sprintf("path is read-only: %s", resolved.path))
+	}
+	if info, err := os.Stat(resolved.path); err == nil && info.IsDir() {
+		return d.errorResponse(request, "NOT_DIRECTORY", fmt.Sprintf("cannot write to a directory: %s", resolved.path))
+	}
+
+	if err := ensureParentDir(resolved.path); err != nil {
 		return d.errorResponse(request, "IO_ERROR", err.Error())
 	}
-	if err := osWriteFile(fullPath, []byte(params.Content)); err != nil {
+	if err := osWriteFile(resolved.path, []byte(params.Content)); err != nil {
 		return d.errorResponse(request, "IO_ERROR", err.Error())
 	}
 
 	return d.response(request, map[string]interface{}{
-		"path":         params.Path,
+		"path":         resolved.path,
 		"bytesWritten": len([]byte(params.Content)),
 	})
 }
 
 type fsStatParams struct {
 	Path string `json:"path"`
+	CWD  string `json:"cwd"`
 }
 
 func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
@@ -168,11 +199,16 @@ func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
-	fullPath := filepath.Join(d.cfg.WorkspaceDir, params.Path)
-	info, err := os.Stat(fullPath)
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
+	}
+
+	info, err := os.Stat(resolved.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return d.response(request, map[string]interface{}{
+				"path":        resolved.path,
 				"exists":      false,
 				"isDirectory": false,
 			})
@@ -181,6 +217,7 @@ func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
 	}
 
 	return d.response(request, map[string]interface{}{
+		"path":        resolved.path,
 		"exists":      true,
 		"isDirectory": info.IsDir(),
 	})
@@ -192,12 +229,23 @@ func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
-	targetPath := d.cfg.WorkspaceDir
-	if strings.TrimSpace(params.Path) != "" && params.Path != "." {
-		targetPath = filepath.Join(d.cfg.WorkspaceDir, params.Path)
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
 	}
 
-	entries, err := osReadDir(targetPath)
+	info, err := os.Stat(resolved.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return d.errorResponse(request, "NOT_FOUND", err.Error())
+		}
+		return d.errorResponse(request, "IO_ERROR", err.Error())
+	}
+	if !info.IsDir() {
+		return d.errorResponse(request, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
+	}
+
+	entries, err := osReadDir(resolved.path)
 	if err != nil {
 		return d.errorResponse(request, "IO_ERROR", err.Error())
 	}
@@ -224,6 +272,7 @@ func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
 	}
 
 	return d.response(request, map[string]interface{}{
+		"path":      resolved.path,
 		"entries":   results,
 		"truncated": truncated,
 	})
@@ -235,18 +284,22 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
-	searchPath := d.cfg.WorkspaceDir
-	if strings.TrimSpace(params.Path) != "" && params.Path != "." {
-		searchPath = filepath.Clean(params.Path)
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
 	}
+
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 1000
 	}
 
-	cmd := exec.Command("fd", params.Pattern, searchPath)
+	cmd := exec.Command("fd", params.Pattern, resolved.path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if exec.ErrNotFound != nil && strings.Contains(err.Error(), exec.ErrNotFound.Error()) {
+			return d.errorResponse(request, "INTERNAL_ERROR", "fd is not installed in sandbox")
+		}
 		stderr := strings.TrimSpace(string(output))
 		if stderr == "" {
 			stderr = err.Error()
@@ -259,7 +312,12 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 		if line == "" {
 			continue
 		}
-		matches = append(matches, line)
+		relativePath, relErr := filepath.Rel(resolved.path, line)
+		if relErr != nil {
+			matches = append(matches, line)
+		} else {
+			matches = append(matches, filepath.ToSlash(relativePath))
+		}
 	}
 	truncated := len(matches) > limit
 	if truncated {
@@ -267,6 +325,7 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 	}
 
 	return d.response(request, map[string]interface{}{
+		"path":      resolved.path,
 		"matches":   matches,
 		"truncated": truncated,
 	})
@@ -278,10 +337,11 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
-	searchPath := d.cfg.WorkspaceDir
-	if strings.TrimSpace(params.Path) != "" && params.Path != "." {
-		searchPath = filepath.Clean(params.Path)
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
 	}
+
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 100
@@ -300,11 +360,14 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 	if strings.TrimSpace(params.Glob) != "" {
 		args = append(args, "--glob", params.Glob)
 	}
-	args = append(args, params.Pattern, searchPath)
+	args = append(args, params.Pattern, resolved.path)
 
 	cmd := exec.Command("rg", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if exec.ErrNotFound != nil && strings.Contains(err.Error(), exec.ErrNotFound.Error()) {
+			return d.errorResponse(request, "INTERNAL_ERROR", "rg is not installed in sandbox")
+		}
 		stderr := strings.TrimSpace(string(output))
 		if stderr == "" {
 			stderr = err.Error()
@@ -327,6 +390,7 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 	}
 
 	return d.response(request, map[string]interface{}{
+		"path":      resolved.path,
 		"lines":     lines,
 		"truncated": truncated,
 	})
@@ -343,17 +407,28 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{}
 		cmdSummary = cmdSummary[:80]
 	}
 
-	cwd := d.cfg.WorkspaceDir
-	if params.CWD != "" {
-		cwd = filepath.Join(d.cfg.WorkspaceDir, params.CWD)
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.CWD, d.cfg.WorkspaceDir)
+	if !ok {
+		return errResponse
 	}
 
-	processID, stdout, stderr, exitCh, err := d.processManager.Start(params.Command, cwd, params.TimeoutSecs)
+	info, err := os.Stat(resolved.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return d.errorResponse(request, "NOT_FOUND", err.Error())
+		}
+		return d.errorResponse(request, "IO_ERROR", err.Error())
+	}
+	if !info.IsDir() {
+		return d.errorResponse(request, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
+	}
+
+	processID, stdout, stderr, exitCh, err := d.processManager.Start(params.Command, resolved.path, params.TimeoutSecs)
 	if err != nil {
 		d.logger.Error("process:start failed", slog.String("cmd", cmdSummary), slog.String("error", err.Error()))
 		return d.errorResponse(request, "PROCESS_SPAWN_FAILED", err.Error())
 	}
-	d.logger.Info("process:start", slog.String("processId", processID), slog.String("cmd", cmdSummary))
+	d.logger.Info("process:start", slog.String("processId", processID), slog.String("cmd", cmdSummary), slog.String("cwd", resolved.path))
 
 	_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "started", ProcessID: processID})
 

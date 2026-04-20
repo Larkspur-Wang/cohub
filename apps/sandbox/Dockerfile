@@ -14,6 +14,7 @@ FROM node:24-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV WORKSPACE_DIR=/workspace
+ENV PLATFORM_AGENTS_DIR=/configs/platform/.agents
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git wget jq ca-certificates openssh-client \

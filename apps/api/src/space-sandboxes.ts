@@ -138,6 +138,7 @@ export const provisionSpaceInBackground = async (input: {
         { name: "SANDBOX_WS_HOST", value: "0.0.0.0" },
         { name: "SANDBOX_WS_PORT", value: "8788" },
         { name: "WORKSPACE_DIR", value: "/workspace" },
+        { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
         { name: "IMAGE_VERSION", value: config.sandboxImage },
         {
           name: "INTERNAL_API_BASE_URL",

@@ -16,7 +16,7 @@
 
 - sandbox 启动 ws server
 - agent 根据 ownership 和 spaceId 动态发现并主动连接 sandbox
-- agent 主动调用 `workspace.prepare`
+- agent 主动调用 sandbox 准备流程
 - 所有 tools 都通过 ws rpc 转发给对应 space 的 sandbox
 
 ```bash
@@ -68,6 +68,7 @@ Agent 通过 Redis 与其他服务通信：
 - sandbox
   - mountPath: `/workspace`
   - subPath: `{SPACE_STORAGE_SUBPATH}/{spaceId}/workspace`
+  - 另挂只读技能目录：`/configs/platform/.agents`
 - api
   - mountPath: `/space-storage`
   - `SPACE_STORAGE_ROOT=/space-storage/{SPACE_STORAGE_SUBPATH}`

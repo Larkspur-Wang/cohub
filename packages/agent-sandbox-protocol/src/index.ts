@@ -27,6 +27,10 @@ export const RPC_ERROR_CODES = [
   "BAD_REQUEST",
   "UNSUPPORTED_METHOD",
   "NOT_FOUND",
+  "NOT_DIRECTORY",
+  "INVALID_PATH",
+  "ACCESS_DENIED",
+  "READ_ONLY_FILESYSTEM",
   "TIMEOUT",
   "PROCESS_SPAWN_FAILED",
   "PROCESS_ABORT_FAILED",
@@ -61,9 +65,21 @@ export type SandboxCapabilities = {
   processAbort: boolean;
 };
 
+export type SandboxFilesystemRoot = {
+  path: string;
+  writable: boolean;
+  label?: string;
+};
+
 export type SandboxHello = BaseMessage & {
   type: "sandbox.hello";
   capabilities: SandboxCapabilities;
+  filesystem?: {
+    roots: SandboxFilesystemRoot[];
+    defaultCwd: string;
+    mode?: "host-like";
+    notes?: string[];
+  };
   metadata?: {
     podName?: string;
     hostname?: string;
@@ -87,6 +103,7 @@ export type SandboxHeartbeat = BaseMessage & {
 
 export type FsReadParams = {
   path: string;
+  cwd?: string;
   offset?: number;
   limit?: number;
 };
@@ -98,6 +115,7 @@ export type FsReadResult = {
 
 export type FsWriteParams = {
   path: string;
+  cwd?: string;
   content: string;
 };
 
@@ -108,19 +126,23 @@ export type FsWriteResult = {
 
 export type FsStatParams = {
   path?: string;
+  cwd?: string;
 };
 
 export type FsStatResult = {
+  path?: string;
   exists: boolean;
   isDirectory: boolean;
 };
 
 export type FsLsParams = {
   path?: string;
+  cwd?: string;
   limit?: number;
 };
 
 export type FsLsResult = {
+  path: string;
   entries: string[];
   truncated?: boolean;
 };
@@ -128,10 +150,12 @@ export type FsLsResult = {
 export type FsFindParams = {
   pattern: string;
   path?: string;
+  cwd?: string;
   limit?: number;
 };
 
 export type FsFindResult = {
+  path: string;
   matches: string[];
   truncated?: boolean;
 };
@@ -139,6 +163,7 @@ export type FsFindResult = {
 export type FsGrepParams = {
   pattern: string;
   path?: string;
+  cwd?: string;
   glob?: string;
   ignoreCase?: boolean;
   literal?: boolean;
@@ -147,6 +172,7 @@ export type FsGrepParams = {
 };
 
 export type FsGrepResult = {
+  path: string;
   lines: string[];
   truncated?: boolean;
 };

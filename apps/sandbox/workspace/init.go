@@ -10,9 +10,10 @@ import (
 )
 
 type PrepareSummary struct {
-	WorkspaceDir  string
-	RepoCloned    bool
-	ConfigApplied bool
+	WorkspaceDir      string
+	PlatformAgentsDir string
+	RepoCloned        bool
+	ConfigApplied     bool
 }
 
 func Prepare(cfg env.Config) (PrepareSummary, error) {
@@ -53,9 +54,10 @@ func Prepare(cfg env.Config) (PrepareSummary, error) {
 	}
 
 	return PrepareSummary{
-		WorkspaceDir:  cfg.WorkspaceDir,
-		RepoCloned:    repoCloned,
-		ConfigApplied: false,
+		WorkspaceDir:      cfg.WorkspaceDir,
+		PlatformAgentsDir: cfg.PlatformAgentsDir,
+		RepoCloned:        repoCloned,
+		ConfigApplied:     false,
 	}, nil
 }
 

@@ -8,12 +8,19 @@ import (
 	"strings"
 )
 
+type FilesystemRoot struct {
+	Path     string
+	Writable bool
+	Label    string
+}
+
 type Config struct {
 	SandboxWSHost         string
 	SandboxWSPort         int
 	SpaceID               string
 	SandboxID             string
 	WorkspaceDir          string
+	PlatformAgentsDir     string
 	HeartbeatIntervalSecs int
 	ImageVersion          string
 	GlobalConfigRepo      string
@@ -54,6 +61,12 @@ func Load() (Config, error) {
 	}
 	workspaceDir = filepath.Clean(workspaceDir)
 
+	platformAgentsDir := strings.TrimSpace(os.Getenv("PLATFORM_AGENTS_DIR"))
+	if platformAgentsDir == "" {
+		platformAgentsDir = "/configs/platform/.agents"
+	}
+	platformAgentsDir = filepath.Clean(platformAgentsDir)
+
 	heartbeatIntervalSecs := 5
 	if value := strings.TrimSpace(os.Getenv("HEARTBEAT_INTERVAL_SECS")); value != "" {
 		parsed, err := strconv.Atoi(value)
@@ -84,6 +97,7 @@ func Load() (Config, error) {
 		SpaceID:               spaceID,
 		SandboxID:             sandboxID,
 		WorkspaceDir:          workspaceDir,
+		PlatformAgentsDir:     platformAgentsDir,
 		HeartbeatIntervalSecs: heartbeatIntervalSecs,
 		ImageVersion:          imageVersion,
 		GlobalConfigRepo:      globalConfigRepo,
@@ -97,4 +111,12 @@ func Load() (Config, error) {
 		SandboxReportToken:    strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
 		PublicURLPrefix:       strings.TrimSpace(os.Getenv("PUBLIC_URL_PREFIX")),
 	}, nil
+}
+
+func (c Config) FilesystemRoots() []FilesystemRoot {
+	return []FilesystemRoot{
+		{Path: c.WorkspaceDir, Writable: true, Label: "cwd"},
+		{Path: c.PlatformAgentsDir, Writable: false, Label: "platform-skills"},
+		{Path: "/tmp", Writable: true, Label: "tmp"},
+	}
 }

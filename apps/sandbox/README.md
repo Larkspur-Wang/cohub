@@ -7,7 +7,7 @@
 - `sandbox.hello`
 - `sandbox.hello_ack`
 - `sandbox.heartbeat`
-- `workspace.prepare`
+- 通用 sandbox filesystem prepare
 - `fs.read`
 - `fs.write`
 - `fs.stat`
@@ -16,6 +16,30 @@
 - `fs.grep`
 - `process.start`
 - `process.abort`
+
+## 目录语义
+
+- `/workspace`
+  - 项目工作目录
+  - 可读写
+  - 默认 `cwd`
+- `/configs/platform/.agents`
+  - 只读技能目录
+  - 用于暴露 SKILL.md、references、scripts、assets
+- 其他 sandbox 本地路径
+  - 如 `/tmp`
+  - 按真实机器语义访问
+- hello 中返回的 `filesystem.roots`
+  - 仅用于说明已知挂载与推荐目录
+  - 不是访问白名单
+
+RPC 中的 `path` / `cwd` 语义与 pi tools 保持一致：
+
+- 支持相对路径与绝对路径
+- 相对路径相对当前 `cwd` 解析
+- 未显式提供 `cwd` 时，默认使用 `/workspace`
+- sandbox 不做白名单 roots 限制
+- 仅对 `/configs/platform/.agents` 施加只读保护
 
 ## 目录结构
 
@@ -52,6 +76,7 @@ SANDBOX_WS_PORT=8788 \
 SPACE_ID=00000000-0000-0000-0000-000000000001 \
 SANDBOX_ID=sandbox-dev \
 WORKSPACE_DIR=/tmp/cohub-sandbox-workspace \
+PLATFORM_AGENTS_DIR=/configs/platform/.agents \
 go run .
 ```
 

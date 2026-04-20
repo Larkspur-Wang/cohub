@@ -232,6 +232,19 @@ func (s *Server) sendHello(session *connectionSession) error {
 			ProcessStart: true,
 			ProcessAbort: true,
 		},
+		Filesystem: &protocol.SandboxFilesystem{
+			DefaultCwd: s.cfg.WorkspaceDir,
+			Mode:       "host-like",
+			Notes: []string{
+				"sandbox paths follow host-like semantics; cwd defaults to /workspace",
+				"/configs/platform/.agents is mounted read-only for platform skills",
+			},
+			Roots: []protocol.SandboxFilesystemRoot{
+				{Path: s.cfg.WorkspaceDir, Writable: true, Label: "cwd"},
+				{Path: s.cfg.PlatformAgentsDir, Writable: false, Label: "platform-skills"},
+				{Path: "/tmp", Writable: true, Label: "tmp"},
+			},
+		},
 		Metadata: &protocol.SandboxMetadata{
 			Hostname:      hostname,
 			ImageVersion:  s.cfg.ImageVersion,

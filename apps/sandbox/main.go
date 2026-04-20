@@ -91,6 +91,7 @@ func main() {
 		} else {
 			logger.Info("workspace prepared",
 				slog.String("workspaceDir", summary.WorkspaceDir),
+				slog.String("platformAgentsDir", summary.PlatformAgentsDir),
 				slog.Bool("repoCloned", summary.RepoCloned),
 			)
 			state.Set("ready", nil)
@@ -98,15 +99,16 @@ func main() {
 				Status:    "ready",
 				SandboxID: cfg.SandboxID,
 				Meta: map[string]interface{}{
-					"podName":       cfg.PodName,
-					"podIp":         cfg.PodIP,
-					"hostname":      hostname,
-					"imageVersion":  cfg.ImageVersion,
-					"prepareStatus": "ready",
-					"preparedAt":    time.Now().UTC().Format(time.RFC3339),
-					"workspaceDir":  summary.WorkspaceDir,
-					"repoCloned":    summary.RepoCloned,
-					"configApplied": summary.ConfigApplied,
+					"podName":          cfg.PodName,
+					"podIp":            cfg.PodIP,
+					"hostname":         hostname,
+					"imageVersion":     cfg.ImageVersion,
+					"prepareStatus":    "ready",
+					"preparedAt":       time.Now().UTC().Format(time.RFC3339),
+					"workspaceDir":     summary.WorkspaceDir,
+					"platformAgentsDir": summary.PlatformAgentsDir,
+					"repoCloned":       summary.RepoCloned,
+					"configApplied":    summary.ConfigApplied,
 				},
 			}); reportErr != nil {
 				logger.Warn("failed to report sandbox ready", slog.String("error", reportErr.Error()))

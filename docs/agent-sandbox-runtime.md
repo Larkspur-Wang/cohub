@@ -13,7 +13,7 @@
 - `apps/sandbox`
   - 执行面
   - 提供 WebSocket server 等待 agent 连接
-  - 执行 workspace / fs / process primitive
+  - 执行通用 sandbox filesystem / process primitive
 
 ## 当前 transport 模式
 
@@ -22,8 +22,31 @@
 - `apps/sandbox` 提供 WebSocket server（默认监听 `0.0.0.0:8788`）
 - `apps/agent` 作为客户端主动连接 sandbox
 - sandbox 连接建立后先发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
-- agent 主动调用 `workspace.prepare`
 - 所有 tools 都通过 WebSocket RPC 转发给 sandbox
+
+## 当前 sandbox filesystem 语义
+
+- `/workspace`
+  - 项目工作目录
+  - 可读写
+  - 默认 `cwd`
+- `/configs/platform/.agents`
+  - 平台技能与引用资源目录
+  - 只读
+- 其他 sandbox 本地路径
+  - 如 `/tmp`
+  - 可按真实机器语义访问
+- hello 中返回的 `filesystem.roots`
+  - 仅用于说明已知挂载与推荐目录
+  - 不是访问白名单
+
+RPC 中的 `path` / `cwd` 语义与 pi tools 保持一致：
+
+- 支持相对路径与绝对路径
+- 相对路径相对当前 `cwd` 解析
+- 未显式提供 `cwd` 时，默认使用 `/workspace`
+- sandbox 不做白名单 roots 限制，按真实机器语义处理路径
+- 仅对 `/configs/platform/.agents` 施加只读保护
 
 ## 关键环境变量
 
@@ -45,6 +68,7 @@
 - `SPACE_ID`
 - `SANDBOX_ID`
 - `WORKSPACE_DIR`
+- `PLATFORM_AGENTS_DIR=/configs/platform/.agents`
 - `HEARTBEAT_INTERVAL_SECS`
 - `SPACE_REPO_URL`
 - `SPACE_GIT_USERNAME`
@@ -62,6 +86,7 @@ SANDBOX_WS_PORT=8788 \
 SPACE_ID=00000000-0000-0000-0000-000000000001 \
 SANDBOX_ID=sandbox-dev \
 WORKSPACE_DIR=/tmp/cohub-sandbox-workspace \
+PLATFORM_AGENTS_DIR=/configs/platform/.agents \
 go run .
 ```
 
@@ -92,7 +117,7 @@ pnpm dev
 2. 创建 sandbox Pod，sandbox 启动 WS server
 3. agent 作为客户端主动连接 sandbox
 4. sandbox 发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
-5. agent 主动调用 `workspace.prepare`
+5. sandbox 自身完成 prepare 后上报 filesystem 描述与 ready 状态
 6. prepare 成功后再上报 `ready`
 
 ## 当前限制 / 后续事项

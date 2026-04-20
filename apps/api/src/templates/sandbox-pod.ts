@@ -59,6 +59,12 @@ export const SANDBOX_POD_TEMPLATE = {
             subPath: "${SPACE_STORAGE_SUBPATH}/${SPACE_ID}/workspace",
           },
           {
+            name: "space-storage",
+            mountPath: "/configs",
+            subPath: config.env === "prod" ? "configs/prod" : "configs/dev",
+            readOnly: true,
+          },
+          {
             name: "public-storage",
             mountPath: "/public",
             subPath:

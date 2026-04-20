@@ -4,6 +4,19 @@ import "encoding/json"
 
 const Version = "1"
 
+type SandboxFilesystemRoot struct {
+	Path     string `json:"path"`
+	Writable bool   `json:"writable"`
+	Label    string `json:"label,omitempty"`
+}
+
+type SandboxFilesystem struct {
+	Roots      []SandboxFilesystemRoot `json:"roots"`
+	DefaultCwd string                  `json:"defaultCwd"`
+	Mode       string                  `json:"mode,omitempty"`
+	Notes      []string                `json:"notes,omitempty"`
+}
+
 type SandboxCapabilities struct {
 	FSRead       bool `json:"fsRead"`
 	FSWrite      bool `json:"fsWrite"`
@@ -25,13 +38,14 @@ type SandboxMetadata struct {
 }
 
 type SandboxHello struct {
-	Version      string              `json:"version"`
-	Type         string              `json:"type"`
-	SpaceID      string              `json:"spaceId"`
-	SandboxID    string              `json:"sandboxId"`
-	Timestamp    int64               `json:"timestamp"`
-	Capabilities SandboxCapabilities `json:"capabilities"`
-	Metadata     *SandboxMetadata    `json:"metadata,omitempty"`
+	Version      string               `json:"version"`
+	Type         string               `json:"type"`
+	SpaceID      string               `json:"spaceId"`
+	SandboxID    string               `json:"sandboxId"`
+	Timestamp    int64                `json:"timestamp"`
+	Capabilities SandboxCapabilities  `json:"capabilities"`
+	Filesystem   *SandboxFilesystem   `json:"filesystem,omitempty"`
+	Metadata     *SandboxMetadata     `json:"metadata,omitempty"`
 }
 
 type SandboxHelloAck struct {

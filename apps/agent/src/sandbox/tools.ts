@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import {
   createBashTool,
   createEditTool,
@@ -17,9 +17,12 @@ import {
   type WriteOperations,
 } from "@mariozechner/pi-coding-agent";
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
-import { env } from "../env.js";
+import { env, PLATFORM_AGENTS_DIR, PLATFORM_ROOT } from "../env.js";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
 import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
+
+const SANDBOX_WORKSPACE_ROOT = "/workspace";
+const SANDBOX_PLATFORM_AGENTS_ROOT = "/configs/platform/.agents";
 
 function getCurrentSpaceId() {
   const ctx = getCurrentToolExecutionContext();
@@ -33,10 +36,51 @@ function getSpaceWorkspaceDir(spaceId: string) {
   return join(env.WORKSPACE_ROOT, spaceId, "workspace");
 }
 
-function toSandboxPath(absolutePath: string) {
-  const relativePath = relative(getSpaceWorkspaceDir(getCurrentSpaceId()), absolutePath);
-  if (!relativePath || relativePath === "") return ".";
-  return relativePath;
+function toPosixPath(value: string) {
+  return value.replace(/\\/g, "/");
+}
+
+function mapLocalAbsolutePathToSandboxPath(absolutePath: string) {
+  const normalized = toPosixPath(absolutePath);
+  const workspaceRoot = toPosixPath(getSpaceWorkspaceDir(getCurrentSpaceId()));
+  const platformAgentsRoot = toPosixPath(PLATFORM_AGENTS_DIR);
+  const platformRoot = toPosixPath(PLATFORM_ROOT);
+
+  if (normalized === workspaceRoot) {
+    return SANDBOX_WORKSPACE_ROOT;
+  }
+  if (normalized.startsWith(`${workspaceRoot}/`)) {
+    const relativePath = normalized.slice(workspaceRoot.length + 1);
+    return `${SANDBOX_WORKSPACE_ROOT}/${relativePath}`;
+  }
+
+  if (normalized === platformAgentsRoot) {
+    return SANDBOX_PLATFORM_AGENTS_ROOT;
+  }
+  if (normalized.startsWith(`${platformAgentsRoot}/`)) {
+    const relativePath = normalized.slice(platformAgentsRoot.length + 1);
+    return `${SANDBOX_PLATFORM_AGENTS_ROOT}/${relativePath}`;
+  }
+
+  if (normalized === platformRoot || normalized.startsWith(`${platformRoot}/`)) {
+    throw new Error(`Platform path is not tool-visible in sandbox: ${absolutePath}`);
+  }
+
+  if (normalized.startsWith("/")) {
+    return normalized;
+  }
+
+  throw new Error(`Unable to map non-absolute path into sandbox: ${absolutePath}`);
+}
+
+function mapSandboxInputPath(path: string | undefined) {
+  // grep path comes directly from model input and should follow sandbox path semantics:
+  // relative paths resolve from the tool cwd (/workspace by default), while absolute
+  // paths are interpreted inside the sandbox as-is.
+  if (!path || path.trim() === "") return ".";
+  if (path === ".") return ".";
+  if (path.startsWith("/")) return path;
+  return path;
 }
 
 async function getCurrentConnection() {
@@ -59,14 +103,14 @@ function createRemoteReadOperations(): ReadOperations {
   return {
     async readFile(absolutePath) {
       const connection = await getCurrentConnection();
-      const path = toSandboxPath(absolutePath);
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
       console.log(`[Tool:read] path=${path}`);
       const result = await rpc(connection, "fs.read", { path });
       return Buffer.from(result.content, "utf8");
     },
     async access(absolutePath) {
       const connection = await getCurrentConnection();
-      await rpc(connection, "fs.read", { path: toSandboxPath(absolutePath), offset: 1, limit: 1 });
+      await rpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath), offset: 1, limit: 1 });
     },
   };
 }
@@ -74,7 +118,7 @@ function createRemoteReadOperations(): ReadOperations {
 function createRemoteWriteOperations(): WriteOperations {
   return {
     async writeFile(absolutePath, content) {
-      const path = toSandboxPath(absolutePath);
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
       console.log(`[Tool:write] path=${path} bytes=${content.length}`);
       const connection = await getCurrentConnection();
       await rpc(connection, "fs.write", { path, content });
@@ -115,7 +159,8 @@ function createRemoteBashOperations(): BashOperations {
         void (async () => {
           try {
             const connection = await getCurrentConnection();
-            console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${toSandboxPath(cwd)}`);
+            const sandboxCwd = mapLocalAbsolutePathToSandboxPath(cwd);
+            console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);
 
             const cleanupAbort = () => {
               signal?.removeEventListener("abort", onAbort);
@@ -137,7 +182,7 @@ function createRemoteBashOperations(): BashOperations {
               {
                 command,
                 timeoutSecs: timeout,
-                cwd: toSandboxPath(cwd),
+                cwd: sandboxCwd,
               },
               {
                 requestId: randomUUID(),
@@ -179,18 +224,18 @@ function createRemoteLsOperations(): LsOperations {
   return {
     async exists(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.stat", { path: toSandboxPath(absolutePath) });
+      const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
       return result.exists;
     },
     async stat(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.stat", { path: toSandboxPath(absolutePath) });
+      const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
       return {
         isDirectory: () => result.isDirectory,
       };
     },
     async readdir(absolutePath) {
-      const path = toSandboxPath(absolutePath);
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
       console.log(`[Tool:ls] path=${path}`);
       const connection = await getCurrentConnection();
       const result = await rpc(connection, "fs.ls", { path });
@@ -203,11 +248,11 @@ function createRemoteFindOperations(): FindOperations {
   return {
     async exists(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.stat", { path: toSandboxPath(absolutePath) });
+      const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
       return result.exists;
     },
     async glob(pattern, cwd, options) {
-      const path = toSandboxPath(cwd);
+      const path = mapLocalAbsolutePathToSandboxPath(cwd);
       console.log(`[Tool:find] pattern=${pattern} path=${path}`);
       const connection = await getCurrentConnection();
       const result = await rpc(connection, "fs.find", {
@@ -225,12 +270,12 @@ function createRemoteGrepTool() {
     operations: {
       async isDirectory(absolutePath: string) {
         const connection = await getCurrentConnection();
-        const result = await rpc(connection, "fs.stat", { path: toSandboxPath(absolutePath) });
+        const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
         return result.isDirectory;
       },
       async readFile(absolutePath: string) {
         const connection = await getCurrentConnection();
-        const result = await rpc(connection, "fs.read", { path: toSandboxPath(absolutePath) });
+        const result = await rpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
         return result.content;
       },
     },
@@ -246,7 +291,7 @@ export function createSandboxCodingTools() {
     const connection = await getCurrentConnection();
     const result = await rpc(connection, "fs.grep", {
       pattern: input.pattern,
-      path: input.path,
+      path: mapSandboxInputPath(input.path),
       glob: input.glob,
       ignoreCase: input.ignoreCase,
       literal: input.literal,
