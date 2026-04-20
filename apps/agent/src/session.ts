@@ -267,6 +267,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
   handle.session.subscribe((event) => {
     if (event.type === "message_start") {
       const message = event.message as unknown as Record<string, unknown>;
+      console.log(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
       if (message.role === "user") {
         const pending = handle.pendingUserMessages.shift();
         if (pending) {
@@ -279,6 +280,10 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         resetStreamState(handle);
         void emitProviderRenderUpdate(handle);
       }
+    }
+
+    if (event.type === "agent_start") {
+      console.log(`[Session] agent:start sessionId=${handle.sessionId}`);
     }
 
     if (event.type === "message_update") {
@@ -310,6 +315,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "tool_execution_start") {
+      console.log(`[Session] tool:start tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)}`);
       const existingIdx = handle.streamState.content.findIndex(
         (b) => b.type === "tool_use" && b.id === event.toolCallId,
       );
@@ -342,6 +348,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "tool_execution_end") {
+      console.log(`[Session] tool:end tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)} error=${event.isError}`);
       const status = event.isError ? "failed" : "done";
       const existingIdx = handle.streamState.content.findIndex(
         (b) => b.type === "tool_use" && b.id === event.toolCallId,
@@ -373,6 +380,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
+      const toolCount = (event as unknown as { toolResults?: unknown[] }).toolResults?.length ?? 0;
+      console.log(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
       const currentUserMessageId = handle.currentUserMessageId;
       const currentModel = handle.session.agent.state.model;
       const enrichedMessage = {
@@ -407,6 +416,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "agent_end") {
+      console.log(`[Session] agent:end sessionId=${handle.sessionId}`);
       handle.currentUserMessageId = null;
     }
   });

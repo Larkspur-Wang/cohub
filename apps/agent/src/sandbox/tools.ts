@@ -59,7 +59,9 @@ function createRemoteReadOperations(): ReadOperations {
   return {
     async readFile(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.read", { path: toSandboxPath(absolutePath) });
+      const path = toSandboxPath(absolutePath);
+      console.log(`[Tool:read] path=${path}`);
+      const result = await rpc(connection, "fs.read", { path });
       return Buffer.from(result.content, "utf8");
     },
     async access(absolutePath) {
@@ -72,8 +74,10 @@ function createRemoteReadOperations(): ReadOperations {
 function createRemoteWriteOperations(): WriteOperations {
   return {
     async writeFile(absolutePath, content) {
+      const path = toSandboxPath(absolutePath);
+      console.log(`[Tool:write] path=${path} bytes=${content.length}`);
       const connection = await getCurrentConnection();
-      await rpc(connection, "fs.write", { path: toSandboxPath(absolutePath), content });
+      await rpc(connection, "fs.write", { path, content });
     },
     async mkdir(_dir) {
       // sandbox fs.write already creates parent directories recursively
@@ -100,6 +104,7 @@ function createRemoteBashOperations(): BashOperations {
         let processId: string | null = null;
         let settled = false;
         let aborting = false;
+        const cmdSummary = command.trim().slice(0, 80);
 
         const finish = (fn: () => void) => {
           if (settled) return;
@@ -110,6 +115,7 @@ function createRemoteBashOperations(): BashOperations {
         void (async () => {
           try {
             const connection = await getCurrentConnection();
+            console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${toSandboxPath(cwd)}`);
 
             const cleanupAbort = () => {
               signal?.removeEventListener("abort", onAbort);
@@ -153,12 +159,14 @@ function createRemoteBashOperations(): BashOperations {
 
                   if (event.type === "exit") {
                     cleanupAbort();
+                    console.log(`[Tool:bash] exit code=${event.exitCode} cmd="${cmdSummary}"`);
                     finish(() => resolve({ exitCode: event.exitCode ?? null }));
                   }
                 },
               },
             );
           } catch (error) {
+            console.error(`[Tool:bash] error cmd="${cmdSummary}"`, error);
             finish(() => reject(error));
           }
         })();
@@ -182,8 +190,10 @@ function createRemoteLsOperations(): LsOperations {
       };
     },
     async readdir(absolutePath) {
+      const path = toSandboxPath(absolutePath);
+      console.log(`[Tool:ls] path=${path}`);
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.ls", { path: toSandboxPath(absolutePath) });
+      const result = await rpc(connection, "fs.ls", { path });
       return result.entries.map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
     },
   };
@@ -197,10 +207,12 @@ function createRemoteFindOperations(): FindOperations {
       return result.exists;
     },
     async glob(pattern, cwd, options) {
+      const path = toSandboxPath(cwd);
+      console.log(`[Tool:find] pattern=${pattern} path=${path}`);
       const connection = await getCurrentConnection();
       const result = await rpc(connection, "fs.find", {
         pattern,
-        path: toSandboxPath(cwd),
+        path,
         limit: options.limit,
       });
       return result.matches;
@@ -230,6 +242,7 @@ export function createSandboxCodingTools() {
   const toolCwd = env.WORKSPACE_ROOT;
   const grepTool = createRemoteGrepTool();
   grepTool.execute = async (_toolCallId, input) => {
+    console.log(`[Tool:grep] pattern=${input.pattern} path=${input.path}`);
     const connection = await getCurrentConnection();
     const result = await rpc(connection, "fs.grep", {
       pattern: input.pattern,

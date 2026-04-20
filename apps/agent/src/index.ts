@@ -355,7 +355,9 @@ async function main() {
               spaceId: inputEntry.spaceId,
               sessionId,
             }, async () => {
+              console.log(`[Agent] steer:start sessionId=${sessionId}`);
               await handle.session.steer(text, images);
+              console.log(`[Agent] steer:end sessionId=${sessionId}`);
             });
           } else {
             console.log(
@@ -365,12 +367,15 @@ async function main() {
               spaceId: inputEntry.spaceId,
               sessionId,
             }, async () => {
+              console.log(`[Agent] prompt:start sessionId=${sessionId}`);
               await handle.session.prompt(text, {
                 images,
               });
+              console.log(`[Agent] prompt:end sessionId=${sessionId}`);
             });
           }
 
+          console.log(`[Agent] ack input sessionId=${sessionId}`);
           await ack();
         } else if (inputEntry.action === "abort") {
           if (inputEntry.sessionId) {

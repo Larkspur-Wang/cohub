@@ -12,6 +12,7 @@ import type {
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 
 type PendingRequest = {
+  method: string;
   resolve: (value: never) => void;
   reject: (error: Error) => void;
   onStream?: (event: RpcStreamEvent) => void;
@@ -57,8 +58,10 @@ export class SandboxConnection {
     },
   ): Promise<RpcRequestMap[M]["result"]> {
     const requestId = options.requestId ?? randomUUID();
+    console.log(`[SandboxWS] rpc:request spaceId=${this.spaceId} method=${method} requestId=${requestId.slice(0, 8)}`);
     return new Promise((resolve, reject) => {
       this.pending.set(requestId, {
+        method,
         resolve,
         reject,
         onStream: options.onStream,
@@ -93,6 +96,7 @@ export class SandboxConnection {
       const pending = this.pending.get(message.requestId);
       if (!pending) return;
       this.pending.delete(message.requestId);
+      console.log(`[SandboxWS] rpc:response spaceId=${this.spaceId} method=${pending.method} requestId=${message.requestId.slice(0, 8)}`);
       pending.resolve(message.result as never);
       return;
     }
@@ -101,11 +105,16 @@ export class SandboxConnection {
       const pending = this.pending.get(message.requestId);
       if (!pending) return;
       this.pending.delete(message.requestId);
+      console.error(`[SandboxWS] rpc:error spaceId=${this.spaceId} method=${pending.method} requestId=${message.requestId.slice(0, 8)} error=${message.error.message}`);
       pending.reject(new Error(message.error.message));
     }
   }
 
   dispose(error?: Error) {
+    const count = this.pending.size;
+    if (count > 0) {
+      console.warn(`[SandboxWS] dispose with ${count} pending requests spaceId=${this.spaceId}`);
+    }
     for (const [requestId, pending] of this.pending) {
       pending.reject(error ?? new Error("sandbox connection closed"));
       this.pending.delete(requestId);
@@ -189,6 +198,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
   const connection = registration.connection;
   setActiveConnection(spaceId, null);
   connection?.dispose(new Error(reason));
+  console.log(`[SandboxWS] disconnect spaceId=${spaceId} reason=${reason}`);
   void registration.hooks?.onDisconnected?.({ spaceId, reason });
 }
 
@@ -293,6 +303,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
       if (registrations.get(registration.spaceId)?.connection === connection) {
         setActiveConnection(registration.spaceId, null);
       }
+      console.log(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reason.toString() || "unknown"}`);
       void registration.hooks?.onDisconnected?.({
         spaceId: registration.spaceId,
         reason: reason.toString() || "socket closed",
