@@ -1879,7 +1879,7 @@ $effect(() => {
   {/snippet}
 </PageHeader>
 
-<div class="flex-1 min-h-0 flex bg-bg-content">
+<div class="relative flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if spaceLoadError && !sandboxProvisioning && !sandboxError}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
@@ -2053,29 +2053,30 @@ $effect(() => {
           }}
         />
       </div>
-
-      {#if urlFilePath}
-        <div class="h-[45vh] min-h-[200px] max-h-[480px] shrink-0 border-t border-border-subtle">
-          <SpaceFilePane
-            file={openFile}
-            draftContent={openFileDraft}
-            dirty={Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content)}
-            loading={openFileLoading}
-            saving={openFileSaving}
-            error={openFileError}
-            onInput={(value) => openFileDraft = value}
-            onSave={saveOpenFile}
-            onClose={closeFile}
-            onDownload={() => openFile && triggerSpaceFsDownload(spaceId, openFile.path)}
-          >
-            {#if openFileTooLarge}
-              <div class="px-4 py-3 text-[12px] text-text-tertiary">This file is too large to preview. Download it instead.</div>
-            {/if}
-          </SpaceFilePane>
-        </div>
-      {/if}
     {/if}
   </div>
+
+  <!-- File viewer overlay — floats above main content on screens without right sidebar -->
+  {#if urlFilePath}
+    <div class="lg:hidden absolute inset-0 z-30 flex flex-col bg-bg-content">
+      <SpaceFilePane
+        file={openFile}
+        draftContent={openFileDraft}
+        dirty={Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content)}
+        loading={openFileLoading}
+        saving={openFileSaving}
+        error={openFileError}
+        onInput={(value) => openFileDraft = value}
+        onSave={saveOpenFile}
+        onClose={closeFile}
+        onDownload={() => openFile && triggerSpaceFsDownload(spaceId, openFile.path)}
+      >
+        {#if openFileTooLarge}
+          <div class="px-4 py-3 text-[12px] text-text-tertiary">This file is too large to preview. Download it instead.</div>
+        {/if}
+      </SpaceFilePane>
+    </div>
+  {/if}
 
   {#if !uiState.rightSidebarCollapsed}
     <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
