@@ -490,6 +490,18 @@ export async function loadOrCreateSessionHandle(input: {
     ...(resolvedModel ? { model: resolvedModel } : {}),
   });
 
+  const sandboxBaseTools = Object.fromEntries(
+    input.tools.map((tool) => [tool.name, tool] as const),
+  ) as Record<string, unknown>;
+
+  const sessionWithOverrides = session as unknown as {
+    _baseToolsOverride?: Record<string, unknown>;
+    reload: () => Promise<void>;
+  };
+
+  sessionWithOverrides._baseToolsOverride = sandboxBaseTools;
+  await sessionWithOverrides.reload();
+
   const handle: SessionHandle = {
     spaceId: input.spaceId,
     sessionKey,
