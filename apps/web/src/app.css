@@ -13,6 +13,7 @@
 /* --- Dark Theme (default) --- */
 :root,
 [data-theme="dark"] {
+	color-scheme: dark;
 	/* Neutral scale — cool-tinted for tech feel (hue ~250)
 	   Rebalanced for dark mode: text needs higher lightness to be readable
 	   on dark backgrounds; surfaces need wider spacing between steps. */
@@ -39,6 +40,9 @@
 	--brand-500: oklch(55% 0.22 30);
 	--brand-600: oklch(45% 0.2 30);
 	--brand-700: oklch(35% 0.16 30);
+	--brand-800: oklch(28% 0.1 30);
+	--brand-900: oklch(22% 0.06 30);
+	--brand-bg: var(--brand-900);	/* selected-state background */
 
 	/* Semantic colors — desaturated slightly for dark mode, 400=indicator dot */
 	--success-400: oklch(78% 0.12 160);
@@ -97,6 +101,7 @@
 
 /* --- Light Theme --- */
 [data-theme="light"] {
+	color-scheme: light;
 	/* Neutral scale — warm-tinted */
 	--neutral-0: oklch(8% 0.003 250);
 	--neutral-5: oklch(18% 0.005 250);
@@ -121,6 +126,9 @@
 	--brand-500: oklch(52% 0.2 30);
 	--brand-600: oklch(45% 0.18 30);
 	--brand-700: oklch(38% 0.15 30);
+	--brand-800: oklch(30% 0.1 30);
+	--brand-900: oklch(25% 0.1 30);
+	--brand-bg: oklch(94% 0.03 30);	/* selected-state background */
 
 	/* Semantic colors — adjusted for light bg */
 	--success-400: oklch(45% 0.12 160);
@@ -213,7 +221,7 @@
 	--color-brand: var(--brand-400);
 	--color-brand-hover: var(--brand-500);
 	--color-brand-soft: var(--brand-700);
-	--color-brand-bg: var(--brand-900);
+	--color-brand-bg: var(--brand-bg);
 
 	/* Semantic */
 	--color-success: var(--success-500);
