@@ -8,15 +8,15 @@ import { assertRequiredConfig } from "./config.js";
 import {
   createBlockingRedisClient,
   ensureConsumerGroup,
-  isRedisReady,
   GATEWAY_INBOUND_STREAM,
-  GATEWAY_LOGS_STREAM,
+  AGENT_SESSION_UPDATES_STREAM,
+  GATEWAY_WS_BROADCAST_CHANNEL,
   INBOUND_CONSUMER_GROUP,
-  getStreamInfo,
-  checkPendingMessages,
+  SESSION_UPDATES_CONSUMER_GROUP,
+  redisCommandClient,
 } from "./redis.js";
-import { handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
-import type { GatewayInboundEvent } from "@cohub/protocol";
+import { handleInboundEvent, handleWebsocketInboundEvent, getReadableUserIdsForSpace } from "./channels.js";
+import type { GatewayInboundEvent, SessionStreamError, SessionStreamEvent, ContentBlock } from "@cohub/protocol";
 import router from "./routes/index.js";
 
 // ── Gateway inbound listener (background task) ───────────────────────────────
@@ -24,6 +24,28 @@ import router from "./routes/index.js";
 const CONSUMER_NAME = `api-${process.env.POD_NAME || process.env.HOSTNAME || Math.random().toString(36).slice(2, 8)}`;
 const INBOUND_BATCH_SIZE = 10;
 const INBOUND_BLOCK_MS = 5000;
+const SESSION_UPDATES_BATCH_SIZE = 50;
+const SESSION_UPDATES_BLOCK_MS = 5000;
+
+type SessionUpdatesBroadcastPayload = {
+  eventType: "session.message";
+  spaceId: string;
+  sessionId: string;
+  sessionMessageId: null;
+  content: ContentBlock[];
+  meta: {
+    eventType: "session.message";
+    sessionMessageRole: "assistant";
+    messageKind: "assistant_intermediate" | "assistant_error";
+    delta?: true;
+    turnEnd?: boolean;
+    sourceMessageId?: string | null;
+    anchorUserMessageId?: string | null;
+    streamEventId: string;
+    targetUserIds: string[];
+    errorMessage?: string;
+  };
+};
 
 const initInboundConsumerGroup = async () => {
   await ensureConsumerGroup(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, "0");
@@ -72,7 +94,100 @@ const startGatewayInboundListener = async () => {
   }
 };
 
+const startSessionUpdatesBridge = async () => {
+  await ensureConsumerGroup(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, "0");
+  const client = createBlockingRedisClient();
+  await client.connect();
+  while (true) {
+    try {
+      const entries = await client.xreadgroup(
+        "GROUP",
+        SESSION_UPDATES_CONSUMER_GROUP,
+        CONSUMER_NAME,
+        "COUNT",
+        SESSION_UPDATES_BATCH_SIZE,
+        "BLOCK",
+        SESSION_UPDATES_BLOCK_MS,
+        "STREAMS",
+        AGENT_SESSION_UPDATES_STREAM,
+        ">",
+      );
+      if (!entries || entries.length === 0) continue;
+      for (const [, messages] of entries as Array<[string, Array<[string, string[]]>]>) {
+        for (const [id, fields] of messages) {
+          const payloadIndex = fields.findIndex((field) => field === "payload");
+          const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
+          if (!payload) {
+            await client.xack(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, id).catch(() => undefined);
+            continue;
+          }
+          const event = JSON.parse(payload) as SessionStreamEvent | SessionStreamError;
+          if (event.type !== "stream_update" && event.type !== "error") {
+            await client.xack(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, id);
+            continue;
+          }
+
+          let targetUserIds: string[];
+          try {
+            targetUserIds = await getReadableUserIdsForSpace(event.spaceId);
+          } catch (error) {
+            console.error("[API] Failed to resolve readable users for session update event:", error);
+            continue;
+          }
+
+          try {
+            if (targetUserIds.length > 0) {
+              const broadcast: SessionUpdatesBroadcastPayload = event.type === "stream_update"
+                ? {
+                    eventType: "session.message",
+                    spaceId: event.spaceId,
+                    sessionId: event.sessionId,
+                    sessionMessageId: null,
+                    content: event.content,
+                    meta: {
+                      eventType: "session.message",
+                      sessionMessageRole: "assistant",
+                      messageKind: "assistant_intermediate",
+                      delta: true,
+                      turnEnd: event.turnEnd === true,
+                      sourceMessageId: event.sourceMessageId,
+                      anchorUserMessageId: event.anchorUserMessageId ?? null,
+                      streamEventId: id,
+                      targetUserIds,
+                    },
+                  }
+                : {
+                    eventType: "session.message",
+                    spaceId: event.spaceId,
+                    sessionId: event.sessionId ?? "unknown",
+                    sessionMessageId: null,
+                    content: [{ type: "text", text: event.error }],
+                    meta: {
+                      eventType: "session.message",
+                      sessionMessageRole: "assistant",
+                      messageKind: "assistant_error",
+                      streamEventId: id,
+                      targetUserIds,
+                      errorMessage: event.error,
+                    },
+                  };
+              await redisCommandClient.publish(GATEWAY_WS_BROADCAST_CHANNEL, JSON.stringify(broadcast));
+            }
+            await client.xack(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, id);
+          } catch (error) {
+            console.error("[API] Failed to bridge agent session update event:", error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[API] Agent session updates bridge error:", error);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+};
+
 startGatewayInboundListener().catch(console.error);
+startSessionUpdatesBridge().catch(console.error);
 
 // ── Hono app ─────────────────────────────────────────────────────────────────
 

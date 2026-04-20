@@ -162,7 +162,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     content: delta,
     sourceMessageId,
     timestamp: Date.now(),
-    delta: true,
   });
 
   // Snapshot for next diff

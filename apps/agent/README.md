@@ -38,14 +38,14 @@ pnpm start
 
 ## Redis 流控机制
 
-Agent 通过 Redis 与 API 服务通信：
+Agent 通过 Redis 与其他服务通信：
 - ownership：`agent:space_owner:{spaceId}`
 - runtime：`agent:space_runtime:{spaceId}`
 - agent instance heartbeat：`agent:instance:{instanceId}`
 - 输入队列：`agent:instance:{instanceId}:input_queue`
 - 处理中队列：`agent:instance:{instanceId}:processing_queue`
 - 死信队列：`agent:instance:{instanceId}:dead_letter_queue`
-- 输出流：`spaces:{spaceId}:output_stream`
+- 流式会话更新总线：`stream:agent:session_updates`
 
 ## 存储挂载约定
 

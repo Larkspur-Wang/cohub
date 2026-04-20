@@ -1,3 +1,3 @@
 // Responses API has been removed.
 // Sessions now work via simple POST /sessions/:id/messages.
-// Live updates are streamed via /api/spaces/:id/stream.
+// Frontend live updates are delivered via Gateway WebSocket.

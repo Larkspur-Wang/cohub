@@ -94,14 +94,12 @@ export type SessionStreamEvent = {
   type: "stream_update";
   spaceId: string;
   sessionId: string;
+  /** `content` always contains delta blocks to be merged into the current streaming state. */
   content: ContentBlock[];
   sourceMessageId: string | null;
   timestamp: number;
   turnEnd?: boolean;
   anchorUserMessageId?: string | null;
-  /** When `true`, `content` is a delta to be merged into the current streaming state.
-   *  Missing (or `false`) means `content` is the full snapshot. */
-  delta?: true;
 };
 
 export type SessionStreamError = {

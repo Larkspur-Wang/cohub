@@ -834,11 +834,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
     if (state.messages.some((m) => m.id === sessionMessageId)) return;
 
     if (messageKind === "assistant_intermediate") {
-      // Show intermediate state (thinking, tool_use, etc.)
-      const isDelta = payload.meta?.delta === true;
-      const mergedContent = isDelta
-        ? mergeDeltaBlocks(streamingContentBlocks, content as ContentBlock[])
-        : (content as ContentBlock[]);
+      const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content as ContentBlock[]);
       const { thinking, answer } = extractSessionRenderState(mergedContent);
       streamingThinking = thinking;
       streamingAssistantText = answer;

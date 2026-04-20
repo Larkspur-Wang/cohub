@@ -10,9 +10,7 @@ import {
   spaces,
 } from "./db/schema-v2.js";
 import {
-  createStreamingRedisClient,
   getAgentInstanceInputQueueKey,
-  getSpaceOutputStreamKey,
   redisCommandClient,
 } from "./redis.js";
 import type { RedisStreamEntry } from "./redis.js";
@@ -395,42 +393,6 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
       expectedEpoch: lease.epoch,
     }),
   );
-};
-
-export const readSpaceOutputStream = async (input: { spaceId: string; lastEventId?: string; blockMs?: number; signal?: AbortSignal }) => {
-  const streamKey = getSpaceOutputStreamKey(input.spaceId);
-  const startId = input.lastEventId?.trim() || "$";
-  const blockMs = input.blockMs ?? 15000;
-  const client = createStreamingRedisClient();
-  await client.connect().catch(() => undefined);
-  let currentId = startId;
-
-  const close = async () => {
-    await client.quit().catch(async () => {
-      await client.disconnect();
-    });
-  };
-
-  const iterator = (async function* () {
-    try {
-      while (!input.signal?.aborted) {
-        const response = await client.xread("BLOCK", blockMs, "STREAMS", streamKey, currentId);
-        if (!response) continue;
-        for (const [, entries] of response as Array<[string, RedisStreamEntry[]]>) {
-          for (const [id, fields] of entries) {
-            currentId = id;
-            const payloadIndex = fields.findIndex((field) => field === "payload");
-            const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
-            yield { id, payload };
-          }
-        }
-      }
-    } finally {
-      await close();
-    }
-  })();
-
-  return iterator;
 };
 
 export const waitForSpaceReady = async (spaceId: string, timeoutMs = 30000) => {

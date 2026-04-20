@@ -4,7 +4,7 @@ import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent,
 import { buildSessionSourceChannel } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, resourcePermissions, spaces, spaceSessions } from "./db/schema-v2.js";
-import { GATEWAY_OUTBOUND_STREAM, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import { executeSessionInteraction } from "./session-interactions.js";
 
@@ -105,26 +105,20 @@ export async function dispatchRealtimeEventToUsers(input: {
   const targetUserIds = Array.from(new Set(input.userIds.map((value) => value.trim()).filter(Boolean)));
   if (targetUserIds.length === 0) return;
 
-  const fallbackId = `ws-${randomUUID()}`;
-  const channelId = input.sessionId?.trim() || input.spaceId?.trim() || fallbackId;
-
-  const command: GatewayOutboundCommand = {
-    commandId: randomUUID(),
-    timestamp: Date.now(),
-    channelId,
-    provider: "websocket",
-    externalChatId: channelId,
-    content: input.content,
-    spaceId: input.spaceId?.trim() || undefined,
-    spaceSessionId: input.sessionId?.trim() || undefined,
-    sessionMessageId: input.sessionMessageId?.trim() || undefined,
-    meta: {
-      ...(input.meta ?? {}),
-      targetUserIds,
-    },
-  };
-
-  await xaddWithMaxlen(redisCommandClient, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
+  await redisCommandClient.publish(
+    GATEWAY_WS_BROADCAST_CHANNEL,
+    JSON.stringify({
+      eventType: (input.meta?.eventType as string | undefined) ?? "session.message",
+      spaceId: input.spaceId?.trim() || null,
+      sessionId: input.sessionId?.trim() || null,
+      sessionMessageId: input.sessionMessageId?.trim() || null,
+      content: input.content,
+      meta: {
+        ...(input.meta ?? {}),
+        targetUserIds,
+      },
+    }),
+  );
 }
 
 export async function getReadableUserIdsForSpace(spaceId: string) {

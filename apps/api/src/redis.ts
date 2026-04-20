@@ -13,11 +13,6 @@ export const createBlockingRedisClient = () => {
   return client;
 };
 
-export const createStreamingRedisClient = () => {
-  const client = redisCommandClient.duplicate({ lazyConnect: true });
-  return client;
-};
-
 export const isRedisReady = async () => {
   try {
     const pong = await redisCommandClient.ping();
@@ -35,14 +30,14 @@ export const getSpaceMetaKey = (spaceId: string) =>
 export const getAgentInstanceInputQueueKey = (instanceId: string) =>
   `agent:instance:${instanceId}:input_queue`;
 
-export const getSpaceOutputStreamKey = (spaceId: string) =>
-  `${redisSpacePrefix(spaceId)}:output_stream`;
-
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
+export const GATEWAY_WS_BROADCAST_CHANNEL = "gateway:ws:broadcast:agent_session_updates";
+export const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
 
 export const INBOUND_CONSUMER_GROUP = "api-inbound-consumers";
+export const SESSION_UPDATES_CONSUMER_GROUP = "api-session-updates-consumers";
 export const LOG_CONSUMER_GROUP = "api-loggers";
 
 export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: (string | number)[]) => {

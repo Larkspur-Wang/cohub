@@ -30,6 +30,7 @@ redisCommandClient.on("reconnecting", () => {
 export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
+export const GATEWAY_WS_BROADCAST_CHANNEL = "gateway:ws:broadcast:agent_session_updates";
 export const STREAM_MAXLEN = 2000;
 export const STREAM_APPROX = "~";
 
@@ -39,14 +40,49 @@ export const xaddWithMaxlen = async (
   ...args: (string | number)[]
 ) => client.xadd(streamKey, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, ...args);
 
-export const getSpaceOutputStreamKey = (spaceId: string) => `spaces:${spaceId}:output_stream`;
+export const createBlockingRedisClient = () => {
+  const client = redisCommandClient.duplicate({ lazyConnect: true });
 
-const getSpaceChannelConfigKey = (spaceChannelId: string) => `gateway:space_channel_config:${spaceChannelId}`;
-const getTurnMessageRefKey = (spaceChannelId: string, turnAnchorMessageId: string) =>
-  `gateway:turn_message_ref:${spaceChannelId}:${turnAnchorMessageId}`;
-const spaceChannelConfigCache = new Map<string, { expiresAt: number; value: ChannelConfig | null }>();
-const SPACE_CHANNEL_CONFIG_TTL_MS = 3000;
-const TURN_MESSAGE_REF_TTL_SECONDS = 60 * 30;
+  client.on("connect", () => {
+    console.log("[Redis] Blocking client connected successfully");
+  });
+
+  client.on("error", (err) => {
+    console.error("[Redis] Blocking client error:", err);
+  });
+
+  client.on("close", () => {
+    console.warn("[Redis] Blocking client closed");
+  });
+
+  client.on("reconnecting", () => {
+    console.log("[Redis] Blocking client reconnecting...");
+  });
+
+  return client;
+};
+
+export const createPubSubRedisClient = () => {
+  const client = redisCommandClient.duplicate({ lazyConnect: true });
+
+  client.on("connect", () => {
+    console.log("[Redis] PubSub client connected successfully");
+  });
+
+  client.on("error", (err) => {
+    console.error("[Redis] PubSub client error:", err);
+  });
+
+  client.on("close", () => {
+    console.warn("[Redis] PubSub client closed");
+  });
+
+  client.on("reconnecting", () => {
+    console.log("[Redis] PubSub client reconnecting...");
+  });
+
+  return client;
+};
 
 export const getSpaceChannelConfig = async <TConfig extends ChannelConfig = ChannelConfig>(
   spaceChannelId: string,
@@ -95,24 +131,9 @@ export const setTurnMessageExternalRef = async (
   );
 };
 
-export const createBlockingRedisClient = () => {
-  const client = redisCommandClient.duplicate({ lazyConnect: true });
-
-  client.on("connect", () => {
-    console.log("[Redis] Blocking client connected successfully");
-  });
-
-  client.on("error", (err) => {
-    console.error("[Redis] Blocking client error:", err);
-  });
-
-  client.on("close", () => {
-    console.warn("[Redis] Blocking client closed");
-  });
-
-  client.on("reconnecting", () => {
-    console.log("[Redis] Blocking client reconnecting...");
-  });
-
-  return client;
-};
+const getSpaceChannelConfigKey = (spaceChannelId: string) => `gateway:space_channel_config:${spaceChannelId}`;
+const getTurnMessageRefKey = (spaceChannelId: string, turnAnchorMessageId: string) =>
+  `gateway:turn_message_ref:${spaceChannelId}:${turnAnchorMessageId}`;
+const spaceChannelConfigCache = new Map<string, { expiresAt: number; value: ChannelConfig | null }>();
+const SPACE_CHANNEL_CONFIG_TTL_MS = 3000;
+const TURN_MESSAGE_REF_TTL_SECONDS = 60 * 30;

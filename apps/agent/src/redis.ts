@@ -1,6 +1,6 @@
 import { Redis } from "ioredis";
 import { z } from "zod";
-import type { ContentBlock } from "@cohub/protocol";
+import type { ContentBlock, SessionStreamError, SessionStreamEvent } from "@cohub/protocol";
 import { env } from "./env.js";
 import {
   getAgentInstanceDeadLetterQueueKey,
@@ -17,6 +17,26 @@ const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID
 
 const STREAM_MAXLEN = 2000;
 const STREAM_APPROX = "~";
+const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
+
+export function extractContentText(blocks: ContentBlock[]): string {
+  return blocks
+    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text" && "text" in b)
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
+
+export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "image"; data: string; mimeType: string }> {
+  const results: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  for (const b of blocks) {
+    if (b.type !== "image") continue;
+    const img = b as { type: "image"; source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string } };
+    if (img.source.type !== "base64") continue;
+    results.push({ type: "image", data: img.source.data, mimeType: img.source.media_type });
+  }
+  return results;
+}
 
 const PromptInputSchema = z.object({
   id: z.string().optional(),
@@ -52,30 +72,52 @@ const AbortInputSchema = z.object({
 export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
 
-const getSpaceOutputStreamKey = (spaceId: string) => `spaces:${spaceId}:output_stream`;
+const sendOutputSchema = z.union([
+  z.object({
+    type: z.literal("stream_update"),
+    spaceId: z.string().uuid(),
+    sessionId: z.string().uuid(),
+    content: z.array(z.unknown()),
+    sourceMessageId: z.string().uuid().nullable(),
+    timestamp: z.number(),
+    turnEnd: z.boolean().optional(),
+    anchorUserMessageId: z.string().uuid().nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("error"),
+    spaceId: z.string().uuid(),
+    sessionId: z.string().uuid().nullable(),
+    error: z.string(),
+  }),
+]);
 
-export function extractContentText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text" && "text" in b)
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
-}
-
-export function extractContentImages(blocks: ContentBlock[]): Array<{ type: "image"; data: string; mimeType: string }> {
-  const results: Array<{ type: "image"; data: string; mimeType: string }> = [];
-  for (const b of blocks) {
-    if (b.type !== "image") continue;
-    const img = b as { type: "image"; source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string } };
-    if (img.source.type !== "base64") continue;
-    results.push({ type: "image", data: img.source.data, mimeType: img.source.media_type });
+export async function sendOutput(data: SessionStreamEvent | SessionStreamError) {
+  const parsed = sendOutputSchema.safeParse(data);
+  if (!parsed.success) {
+    console.error("[Redis] Invalid session output event:", parsed.error.issues);
+    return;
   }
-  return results;
-}
 
-export async function sendOutput(data: { spaceId: string } & Record<string, unknown>) {
-  const payload = JSON.stringify(data);
-  await redis.xadd(getSpaceOutputStreamKey(data.spaceId), "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, "*", "payload", payload).catch((err) => {
+  if (parsed.data.type === "error" && !parsed.data.sessionId) {
+    console.warn("[Redis] Skipping session error output without sessionId");
+    return;
+  }
+
+  const sessionId = parsed.data.sessionId ?? "";
+  const payload = JSON.stringify(parsed.data);
+  await redis.xadd(
+    AGENT_SESSION_UPDATES_STREAM,
+    "MAXLEN",
+    STREAM_APPROX,
+    STREAM_MAXLEN,
+    "*",
+    "spaceId",
+    parsed.data.spaceId,
+    "sessionId",
+    sessionId,
+    "payload",
+    payload,
+  ).catch((err) => {
     console.error("[Redis] Failed to send output:", err);
   });
 }

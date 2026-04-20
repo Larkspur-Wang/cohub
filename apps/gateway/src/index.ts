@@ -10,13 +10,31 @@ import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
-import { createBlockingRedisClient, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+import {
+  createBlockingRedisClient,
+  createPubSubRedisClient,
+  redisCommandClient,
+  xaddWithMaxlen,
+  GATEWAY_WS_BROADCAST_CHANNEL,
+} from "./redis.js";
 
 type WsConnectionContext = {
   connectionId: string;
   userId?: string;
   userName?: string;
   token?: string;
+};
+
+type GatewayWsBroadcastPayload = {
+  eventType?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  sessionMessageId?: string | null;
+  content?: unknown;
+  meta?: {
+    targetUserIds?: string[];
+    [key: string]: unknown;
+  } | null;
 };
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
@@ -128,6 +146,39 @@ class WsClientInputError extends Error {
   }
 }
 
+function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
+  const targetUserIds = Array.isArray(payload.meta?.targetUserIds)
+    ? payload.meta.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  for (const userId of targetUserIds) {
+    const connectionIds = wsConnectionsByUserId.get(userId);
+    if (!connectionIds) continue;
+    for (const connectionId of connectionIds) {
+      const socket = wsSockets.get(connectionId);
+      if (!socket) continue;
+      sendWsEnvelope(socket, "event", payload as unknown as Record<string, unknown>);
+    }
+  }
+}
+
+async function startSpaceOutputSubscriber() {
+  const client = createPubSubRedisClient();
+  if (client.status === "wait") {
+    await client.connect();
+  }
+
+  await client.subscribe(GATEWAY_WS_BROADCAST_CHANNEL);
+  client.on("message", (channel, message) => {
+    if (channel !== GATEWAY_WS_BROADCAST_CHANNEL) return;
+    try {
+      const payload = JSON.parse(message) as GatewayWsBroadcastPayload;
+      fanOutBroadcastToLocalSockets(payload);
+    } catch (error) {
+      console.error("[Gateway] Failed to handle WS broadcast payload:", error);
+    }
+  });
+}
+
 const buildWebsocketBindingKey = (spaceId: string, sessionId: string) => `websocket:space:${spaceId}:session:${sessionId}`;
 
 const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestId: string | undefined, payload: Record<string, unknown>) => {
@@ -187,6 +238,7 @@ async function main() {
 
   await initOutboundConsumerGroup();
   startWsConnectionSweeper();
+  await startSpaceOutputSubscriber();
 
   const manager = new GatewayManager();
   await manager.start();
