@@ -1,22 +1,20 @@
 import type { MessageRecord } from "@cohub/protocol";
 
 const DB_NAME = "cohub_messages";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "session_messages";
 
-// Max total messages across all sessions (oldest by last access are evicted)
 const MAX_TOTAL_MESSAGES = 5000;
 
-type CacheEntry = {
+export type MessageCacheEntry = {
   sessionId: string;
   messages: MessageRecord[];
   hasMore: boolean;
   oldestSeq: number | null;
   newestSeq: number | null;
   cachedAt: number;
+  lastDbAlignedAt: number;
 };
-
-export type MessageCacheEntry = CacheEntry;
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -48,11 +46,16 @@ async function tx<T>(
   return result;
 }
 
+function mergeBySequence(messages: MessageRecord[]): MessageRecord[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+}
+
 export class MessageCache {
-  async get(sessionId: string): Promise<CacheEntry | null> {
+  async get(sessionId: string): Promise<MessageCacheEntry | null> {
     try {
       return await tx("readonly", (store) => {
-        return new Promise<CacheEntry | null>((resolve, reject) => {
+        return new Promise<MessageCacheEntry | null>((resolve, reject) => {
           const request = store.get(sessionId);
           request.onsuccess = () => resolve(request.result ?? null);
           request.onerror = () => reject(request.error);
@@ -63,92 +66,67 @@ export class MessageCache {
     }
   }
 
-  async set(entry: CacheEntry): Promise<void> {
+  async replaceAuthoritativeSnapshot(entry: {
+    sessionId: string;
+    messages: MessageRecord[];
+    hasMore: boolean;
+  }): Promise<void> {
     try {
+      const merged = mergeBySequence(entry.messages);
       await tx("readwrite", (store) => {
         return new Promise<void>((resolve, reject) => {
-          const request = store.put(entry);
+          const request = store.put({
+            sessionId: entry.sessionId,
+            messages: merged,
+            hasMore: entry.hasMore,
+            oldestSeq: merged[0]?.sequence ?? null,
+            newestSeq: merged.at(-1)?.sequence ?? null,
+            cachedAt: Date.now(),
+            lastDbAlignedAt: Date.now(),
+          } satisfies MessageCacheEntry);
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error);
         });
       });
     } catch {
-      // Storage full or unavailable — silently ignore
+      // ignore
     }
   }
 
-  /** Prepend older messages to an existing cache entry */
-  async prepend(
+  async mergeAuthoritativeOlderPage(
     sessionId: string,
     olderMessages: MessageRecord[],
     hasMore: boolean,
   ): Promise<boolean> {
     const existing = await this.get(sessionId);
     if (!existing) return false;
-    if (olderMessages.length === 0) {
-      // No new messages — just update hasMore flag
-      await this.set({
-        ...existing,
-        hasMore,
-        cachedAt: Date.now(),
-      });
-      return true;
-    }
-
-    // Deduplicate: only keep messages not already in cache
-    const existingIds = new Set(existing.messages.map((m) => m.id));
-    const deduped = olderMessages.filter((m) => !existingIds.has(m.id));
-
-    const merged = [...deduped, ...existing.messages];
-    // Sort by sequence to guarantee order (handles overlapping cursor ranges)
-    merged.sort((a, b) => a.sequence - b.sequence);
-
-    await this.set({
+    const merged = mergeBySequence([...olderMessages, ...existing.messages]);
+    await this.replaceAuthoritativeSnapshot({
       sessionId,
       messages: merged,
       hasMore,
-      oldestSeq: merged[0]?.sequence ?? existing.oldestSeq,
-      newestSeq: merged.at(-1)?.sequence ?? existing.newestSeq,
-      cachedAt: Date.now(),
     });
     return true;
   }
 
-  /** Append newer messages (e.g. from streaming sync) */
-  async append(
+  async mergeAuthoritativeNewerPage(
     sessionId: string,
     newerMessages: MessageRecord[],
   ): Promise<void> {
     const existing = await this.get(sessionId);
     if (!existing) {
-      // First time: just store them
-      await this.set({
+      await this.replaceAuthoritativeSnapshot({
         sessionId,
         messages: newerMessages,
         hasMore: true,
-        oldestSeq: newerMessages[0]?.sequence ?? null,
-        newestSeq: newerMessages.at(-1)?.sequence ?? null,
-        cachedAt: Date.now(),
       });
       return;
     }
-
-    // Deduplicate: only add messages not already in cache
-    const existingIds = new Set(existing.messages.map((m) => m.id));
-    const deduped = newerMessages.filter((m) => !existingIds.has(m.id));
-    if (deduped.length === 0) return;
-
-    const merged = [...existing.messages, ...deduped];
-    // Sort by sequence to guarantee order
-    merged.sort((a, b) => a.sequence - b.sequence);
-
-    await this.set({
+    const merged = mergeBySequence([...existing.messages, ...newerMessages]);
+    await this.replaceAuthoritativeSnapshot({
       sessionId,
       messages: merged,
       hasMore: existing.hasMore,
-      oldestSeq: merged[0]?.sequence ?? existing.oldestSeq,
-      newestSeq: merged.at(-1)?.sequence ?? existing.newestSeq,
-      cachedAt: Date.now(),
     });
   }
 
@@ -166,35 +144,45 @@ export class MessageCache {
     }
   }
 
-  /** Evict oldest sessions when exceeding total message budget */
   async evict(): Promise<void> {
     try {
       const entries = await tx("readonly", (store) => {
-        return new Promise<CacheEntry[]>((resolve, reject) => {
+        return new Promise<MessageCacheEntry[]>((resolve, reject) => {
           const request = store.getAll();
           request.onsuccess = () => resolve(request.result ?? []);
           request.onerror = () => reject(request.error);
         });
       });
 
-      const totalMessages = entries.reduce(
-        (sum, e) => sum + e.messages.length,
-        0,
-      );
+      const totalMessages = entries.reduce((sum, entry) => sum + entry.messages.length, 0);
       if (totalMessages <= MAX_TOTAL_MESSAGES) return;
 
-      // Sort by cachedAt ascending (oldest first)
       entries.sort((a, b) => a.cachedAt - b.cachedAt);
-
-      let removed = 0;
       await tx("readwrite", (store) => {
         return new Promise<void>((resolve, reject) => {
-          for (const entry of entries) {
-            if (totalMessages - removed <= MAX_TOTAL_MESSAGES) break;
-            store.delete(entry.sessionId);
-            removed += entry.messages.length;
-          }
-          resolve();
+          let removedMessages = 0;
+          let index = 0;
+
+          const run = () => {
+            if (index >= entries.length || totalMessages - removedMessages <= MAX_TOTAL_MESSAGES) {
+              resolve();
+              return;
+            }
+
+            const entry = entries[index];
+            index += 1;
+            if (!entry) {
+              run();
+              return;
+            }
+
+            removedMessages += entry.messages.length;
+            const request = store.delete(entry.sessionId);
+            request.onsuccess = () => run();
+            request.onerror = () => reject(request.error);
+          };
+
+          run();
         });
       });
     } catch {

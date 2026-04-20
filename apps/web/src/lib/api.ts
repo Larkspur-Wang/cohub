@@ -269,7 +269,7 @@ const DEDUP_WINDOW_MS = 2000;
 export const postSessionMessage = async (
 	sessionId: string,
 	content: ContentBlock[],
-	options?: { model?: string; provider?: string },
+	options?: { model?: string; provider?: string; clientMessageId?: string },
 ) => {
 	const signature = JSON.stringify({ sessionId, content, options });
 
@@ -294,6 +294,7 @@ export const postSessionMessage = async (
 			content,
 			model: options?.model,
 			provider: options?.provider,
+			clientMessageId: options?.clientMessageId,
 		}),
 	}) as Promise<{ ok: true; userMessageId: string }>;
 };

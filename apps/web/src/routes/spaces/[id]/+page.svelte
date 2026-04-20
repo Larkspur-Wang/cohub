@@ -43,6 +43,10 @@ import {
 } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { messageCache } from "$lib/stores/message-cache";
+import {
+	sessionPendingStore,
+	type PendingSessionMessage,
+} from "$lib/stores/session-pending.svelte";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 
 import { getRealtimeClient } from "$lib/realtime";
@@ -124,6 +128,7 @@ let streamError = $state("");
 let streamingAssistantText = $state("");
 let streamingThinking = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
+let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>({});
 let modelsCatalog = $state<Array<{
 	provider: string;
 	id: string;
@@ -208,9 +213,11 @@ const activeSessionModel = $derived.by(() => {
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
+	const pendingMessages = getPendingMessages(state.session?.id ?? null);
+	const renderedMessages = mergeRenderableMessages(state.messages, pendingMessages);
 	// Filter out error messages from display. They're persisted in DB for debugging
 	// and analytics, but should not appear in the chat timeline by default.
-	const items: TimelineItem[] = toChatMessages(state.messages)
+	const items: TimelineItem[] = toChatMessages(renderedMessages)
 		.filter((message) => message.meta?.messageKind !== "assistant_error")
 		.map((message) => ({
 			id: message.id,
@@ -270,7 +277,11 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 			if (streamingContentBlocks.length > 0) {
 				let accText = "";
 				let accThinking = "";
-				const baseSequence = state.messages.at(-1)?.sequence ?? 0;
+				const draftTruncated =
+					activeSessionId
+						? (streamingDraftTruncatedStartBySessionId[activeSessionId] ?? false)
+						: false;
+				const baseSequence = renderedMessages.at(-1)?.sequence ?? 0;
 				const flushStreamingMessage = () => {
 					const trimmedText = accText.trim();
 					const trimmedThinking = accThinking.trim();
@@ -278,7 +289,11 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 					const blocks: ContentBlock[] = [];
 					if (trimmedThinking)
 						blocks.push({ type: "thinking", thinking: trimmedThinking });
-					if (trimmedText) blocks.push({ type: "text", text: trimmedText });
+					if (trimmedText)
+						blocks.push({
+							type: "text",
+							text: draftTruncated ? `…${trimmedText}` : trimmedText,
+						});
 					groupedHistory.push({
 						id: `assistant-streaming-${groupedHistory.length}`,
 						kind: "message",
@@ -421,6 +436,51 @@ function mergeMessagesById(
 		);
 	}
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+}
+
+function getPendingMessages(sessionId: string | null): PendingSessionMessage[] {
+	if (!sessionId) return [];
+	return sessionPendingStore.list(sessionId);
+}
+
+function buildPendingMessage(
+	sessionId: string,
+	pending: PendingSessionMessage,
+	fallbackSequence: number,
+): MessageRecord {
+	return {
+		id: `pending-${pending.clientMessageId}`,
+		sessionId,
+		role: "user",
+		content: pending.content,
+		text: pending.text,
+		sequence: fallbackSequence,
+		provider: null,
+		model: null,
+		stopReason: null,
+		errorMessage:
+			pending.status === "failed"
+				? pending.error ?? "Failed to send message"
+				: null,
+		usageInput: null,
+		usageOutput: null,
+		costTotal: null,
+		meta: {
+			messageKind: "user_pending",
+			clientMessageId: pending.clientMessageId,
+			pendingStatus: pending.status,
+		},
+		createdAt: pending.createdAt,
+	};
+}
+
+function mergeRenderableMessages(
+	persisted: MessageRecord[],
+	pending: PendingSessionMessage[],
+): MessageRecord[] {
+	let nextSequence = (persisted.at(-1)?.sequence ?? 0) + 1;
+	const pendingMessages = pending.map((message) => buildPendingMessage(message.sessionId, message, nextSequence++));
+	return mergeMessagesById(persisted, pendingMessages, { preferIncoming: false });
 }
 
 function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
@@ -664,6 +724,7 @@ async function loadSessionState(sessionId: string, force = false) {
 
 	const cached = await messageCache.get(sessionId);
 	if (cached && cached.messages.length > 0 && !force) {
+		sessionPendingStore.reconcilePersisted(sessionId, cached.messages);
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
@@ -703,13 +764,11 @@ async function loadSessionState(sessionId: string, force = false) {
 		const response = await getSessionMessagesPaginated(sessionId, {
 			limit: 30,
 		});
-		await messageCache.set({
+		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
+		await messageCache.replaceAuthoritativeSnapshot({
 			sessionId,
 			messages: response.messages,
 			hasMore: response.hasMore,
-			oldestSeq: response.messages[0]?.sequence ?? null,
-			newestSeq: response.messages.at(-1)?.sequence ?? null,
-			cachedAt: Date.now(),
 		});
 		void messageCache.evict();
 		sessionStateById = {
@@ -764,7 +823,11 @@ async function syncSessionNewer(
 			limit: 100,
 		});
 		if (response.messages.length > 0) {
-			await messageCache.append(sessionId, response.messages);
+			await messageCache.mergeAuthoritativeNewerPage(
+				sessionId,
+				response.messages,
+			);
+			sessionPendingStore.reconcilePersisted(sessionId, response.messages);
 			const state = sessionStateById[sessionId];
 			if (state) {
 				sessionStateById = {
@@ -802,7 +865,7 @@ async function loadOlderMessages(sessionId: string) {
 			limit: 30,
 		});
 		if (response.messages.length > 0) {
-			await messageCache.prepend(
+			await messageCache.mergeAuthoritativeOlderPage(
 				sessionId,
 				response.messages,
 				response.hasMore,
@@ -958,6 +1021,46 @@ function mergeDeltaBlocks(
 	return result;
 }
 
+async function reconcileSessionTail(sessionId: string) {
+	const state = sessionStateById[sessionId];
+	if (!state?.session) return;
+	try {
+		const response = await getSessionMessagesPaginated(sessionId, { limit: 30 });
+		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
+		await messageCache.replaceAuthoritativeSnapshot({
+			sessionId,
+			messages: response.messages,
+			hasMore: response.hasMore,
+		});
+		const existingOlder = state.messages.filter(
+			(message) => response.messages.every((incoming) => incoming.id !== message.id),
+		);
+		const merged = mergeMessagesById(existingOlder, response.messages, {
+			preferIncoming: true,
+		});
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...state,
+				session: response.session ?? state.session,
+				messages: merged,
+				hasMore: response.hasMore,
+				loading: false,
+				loaded: true,
+				error: "",
+				loadingOlder: false,
+				oldestCursor:
+					response.hasMore && merged.length > 0
+						? merged[0].sequence
+						: undefined,
+			},
+		};
+		void messageCache.evict();
+	} catch (error) {
+		console.warn("[reconcileSessionTail] Failed to reconcile session tail:", error);
+	}
+}
+
 /**
  * Handle a real-time event from the WebSocket gateway.
  * Called whenever the server persists a new message in the current session.
@@ -985,6 +1088,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 		if (!sessionMessageId && !isIntermediate) return;
 
 		const messageRole = payload.meta?.sessionMessageRole as string | undefined;
+		const rawMeta = (payload.meta ?? {}) as Record<string, unknown>;
 		const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
 
 		const incomingMessage: MessageRecord = {
@@ -1001,7 +1105,10 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			usageInput: null,
 			usageOutput: null,
 			costTotal: null,
-			meta: { messageKind },
+			meta: {
+				messageKind,
+				...(rawMeta.clientMessageId ? { clientMessageId: rawMeta.clientMessageId } : {}),
+			},
 			createdAt: new Date().toISOString(),
 		};
 
@@ -1009,6 +1116,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 		if (state.messages.some((m) => m.id === sessionMessageId)) return;
 
 		if (messageKind === "assistant_intermediate") {
+			const hadContentBefore = streamingContentBlocks.length > 0;
 			const mergedContent = mergeDeltaBlocks(
 				streamingContentBlocks,
 				content as ContentBlock[],
@@ -1017,6 +1125,12 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			streamingThinking = thinking;
 			streamingAssistantText = answer;
 			streamingContentBlocks = mergedContent;
+			if (!hadContentBefore && state.messages.length > 0) {
+				streamingDraftTruncatedStartBySessionId = {
+					...streamingDraftTruncatedStartBySessionId,
+					[currentActiveSessionId]: true,
+				};
+			}
 			if (content.length > 0) {
 				if (streamingSessionId !== currentActiveSessionId) {
 					streamingSessionId = currentActiveSessionId;
@@ -1050,11 +1164,15 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 				);
 			}
 		} else if (messageKind === "assistant_final") {
-			// Final message — clear streaming state and merge into messages
+			// Final message — clear streaming state, then reconcile from DB.
 			streamingAssistantText = "";
 			streamingThinking = "";
 			streamingContentBlocks = [];
 			streamStatus = "done";
+			streamingDraftTruncatedStartBySessionId = {
+				...streamingDraftTruncatedStartBySessionId,
+				[currentActiveSessionId]: false,
+			};
 			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
 			streamingSessionId = null;
 
@@ -1075,7 +1193,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 				},
 			};
 
-			await messageCache.append(currentActiveSessionId, [incomingMessage]);
+			void reconcileSessionTail(currentActiveSessionId);
 
 			// Update session list (lastMessageId, updatedAt)
 			const updatedSession = state.session;
@@ -1092,8 +1210,16 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			}
 			if (!userScrolledUp) scrollToBottomNow();
 		} else if (messageKind === "user") {
-			// User message — may be our own or from another device
-			// Only add if not already present (we optimistically add our own)
+			const clientMessageId =
+				typeof payload.meta?.clientMessageId === "string"
+					? payload.meta.clientMessageId
+					: typeof incomingMessage.meta?.clientMessageId === "string"
+						? (incomingMessage.meta.clientMessageId as string)
+						: null;
+			if (clientMessageId) {
+				sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
+			}
+			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [incomingMessage]);
 			const merged = mergeMessagesById(state.messages, [incomingMessage], {
 				preferIncoming: false,
 			});
@@ -1145,6 +1271,12 @@ function clearStreamingState() {
 	streamingAssistantText = "";
 	streamingThinking = "";
 	streamingContentBlocks = [];
+	if (activeSessionId) {
+		streamingDraftTruncatedStartBySessionId = {
+			...streamingDraftTruncatedStartBySessionId,
+			[activeSessionId]: false,
+		};
+	}
 	if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
 	streamingSessionId = null;
 }
@@ -1181,10 +1313,20 @@ async function handleSend() {
 		...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
 	];
 	const sessionId = activeSessionState.session.id;
+	const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 	try {
 		const model = activeSessionModel;
-		const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		sessionPendingStore.upsert({
+			clientMessageId,
+			sessionId,
+			role: "user",
+			content,
+			text,
+			createdAt: new Date().toISOString(),
+			status: "sending",
+			error: null,
+		});
 
 		// Try WebSocket first; fall back to HTTP if not available
 		try {
@@ -1208,45 +1350,24 @@ async function handleSend() {
 			await postSessionMessage(sessionId, content, {
 				model: model?.id,
 				provider: model?.provider,
+				clientMessageId,
 			});
 		}
 
+		sessionPendingStore.markStatus(sessionId, clientMessageId, "sent_unconfirmed");
 		input = "";
 		imageAttachments = [];
 		clearStreamingState();
-
-		const currentState = sessionStateById[sessionId];
-		if (currentState) {
-			const optimisticMessage = {
-				id: `optimistic-user-${Date.now()}`,
-				sessionId,
-				role: "user" as const,
-				content,
-				text,
-				sequence: (currentState.messages.at(-1)?.sequence ?? 0) + 1,
-				provider: null,
-				model: null,
-				stopReason: null,
-				errorMessage: null,
-				usageInput: null,
-				usageOutput: null,
-				costTotal: null,
-				meta: null,
-				createdAt: new Date().toISOString(),
-			} satisfies MessageRecord;
-			sessionStateById = {
-				...sessionStateById,
-				[sessionId]: {
-					...currentState,
-					messages: [...currentState.messages, optimisticMessage],
-				},
-			};
-			await messageCache.append(sessionId, [optimisticMessage]);
-		}
 	} catch (error) {
 		streamError =
 			error instanceof Error ? error.message : "Failed to send message";
 		streamStatus = "error";
+		sessionPendingStore.markStatus(
+			sessionId,
+			clientMessageId,
+			"failed",
+			streamError,
+		);
 		clearStreamingState();
 		await loadSessionState(sessionId, true).catch(() => undefined);
 	} finally {
@@ -1706,6 +1827,7 @@ onMount(() => {
 $effect(() => {
 	if (urlSessionId && urlSessionId !== activeSessionId) {
 		activeSessionId = urlSessionId;
+		clearStreamingState();
 		ensureSessionModelLoaded(urlSessionId);
 		shouldAutoFollow = true;
 		const state = sessionStateById[urlSessionId];

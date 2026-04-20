@@ -277,6 +277,7 @@ export async function persistUserMessage(input: {
       meta: {
         ...(input.meta ?? {}),
         messageId: input.userMessageId,
+        clientMessageId: typeof input.meta?.clientMessageId === "string" ? input.meta.clientMessageId : null,
       },
       provider: null,
       model: null,
