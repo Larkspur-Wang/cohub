@@ -985,6 +985,9 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			meta: {
 				messageKind,
 				...(rawMeta.clientMessageId ? { clientMessageId: rawMeta.clientMessageId } : {}),
+				...(typeof rawMeta.anchorUserMessageId === "string"
+					? { anchorUserMessageId: rawMeta.anchorUserMessageId }
+					: {}),
 			},
 			createdAt: new Date().toISOString(),
 		};
