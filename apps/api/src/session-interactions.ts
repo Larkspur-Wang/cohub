@@ -1,5 +1,9 @@
+import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock, GatewayInboundEvent } from "@cohub/protocol";
+import { buildSessionSourceChannel } from "@cohub/protocol";
+import { db } from "./db/index.js";
+import { spaceChannels } from "./db/schema-v2.js";
 import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import {
   buildDefaultBindingMeta,
@@ -11,12 +15,18 @@ import {
   touchSpaceSessionBinding,
   updateSpaceSessionBindingMeta,
 } from "./channels.js";
-import { buildSessionSourceChannel } from "@cohub/protocol";
-import { spaceChannels } from "./db/schema-v2.js";
-import { db } from "./db/index.js";
-import { eq } from "drizzle-orm";
 
-export const executeSessionInteraction = async (input: {
+export type SessionInteractionInboundRef = {
+  provider: string;
+  spaceChannelId: string;
+  externalConversationId: string;
+  externalMessageId: string;
+  externalAuthorId?: string | null;
+  externalAuthorName?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
+export type ResolvedInboundInteraction = {
   spaceId: string;
   sessionId: string;
   inputText: string;
@@ -24,16 +34,17 @@ export const executeSessionInteraction = async (input: {
   source: string;
   interactionId: string;
   actorUserId?: string | null;
-  inboundRef?: {
-    provider: string;
-    spaceChannelId: string;
-    externalConversationId: string;
-    externalMessageId: string;
-    externalAuthorId?: string | null;
-    externalAuthorName?: string | null;
-    meta?: Record<string, unknown> | null;
-  } | null;
-}) => {
+  inboundRef?: SessionInteractionInboundRef | null;
+};
+
+export const extractInboundText = (event: GatewayInboundEvent) => {
+  const textBlock = event.content.find(
+    (block): block is { type: "text"; text: string } => block.type === "text",
+  );
+  return textBlock?.text || "";
+};
+
+export const executeSessionInteraction = async (input: ResolvedInboundInteraction) => {
   const userMessageId = randomUUID();
 
   if (input.inboundRef) {
@@ -145,10 +156,15 @@ export const resolveSessionInteractionForInboundEvent = async (event: GatewayInb
         lifecycle: {
           sourceEventType: event.eventType ?? "message_create",
           precreated: existingLifecycle?.precreated === true || event.eventType === "conversation_create",
-          createdVia: (typeof existingLifecycle?.createdVia === "string" ? existingLifecycle.createdVia : undefined) ?? (event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
+          createdVia:
+            (typeof existingLifecycle?.createdVia === "string" ? existingLifecycle.createdVia : undefined) ??
+            (event.eventType === "conversation_create" ? "conversation_create" : "message_create"),
           lastEventAt: new Date(event.timestamp).toISOString(),
           lastEventId: event.eventId,
-          lastMaterializedBy: event.eventType === "conversation_create" ? "conversation_create" : (typeof existingLifecycle?.lastMaterializedBy === "string" ? existingLifecycle.lastMaterializedBy : "message_create"),
+          lastMaterializedBy:
+            event.eventType === "conversation_create"
+              ? "conversation_create"
+              : (typeof existingLifecycle?.lastMaterializedBy === "string" ? existingLifecycle.lastMaterializedBy : "message_create"),
         },
       },
     }).catch(console.error);
