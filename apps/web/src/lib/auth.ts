@@ -60,9 +60,11 @@ export const clearAuthToken = () => {
 export const ensureAuth = async (options?: { redirectPath?: string }) => {
   const isAuthenticated = await logtoClient.isAuthenticated();
   if (!isAuthenticated) {
-    // const searchParams = new URLSearchParams();
-    // searchParams.set("redirect_path", options?.redirectPath ?? "");
-    // const callback = `${window.location.origin}/callback?${searchParams.toString()}`;
+    logtoClient.adapter.generateState = () => {
+      const searchParams = new URLSearchParams();
+      searchParams.set("redirect_path", options?.redirectPath ?? "");
+      return searchParams.toString();
+    };
     await logtoClient.signIn({
       redirectUri: `${window.location.origin}/callback`,
     });
