@@ -1,7 +1,73 @@
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
 import type { PendingSessionMessage } from "$lib/stores/session-pending.svelte";
+import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 
-export function buildPendingMessage(
+function getClientMessageId(meta: Record<string, unknown> | null | undefined) {
+  const clientMessageId = meta?.clientMessageId;
+  return typeof clientMessageId === "string" && clientMessageId.trim()
+    ? clientMessageId.trim()
+    : null;
+}
+
+function getAnchorUserMessageId(meta: Record<string, unknown> | null | undefined) {
+  const anchorUserMessageId = meta?.anchorUserMessageId;
+  return typeof anchorUserMessageId === "string" && anchorUserMessageId.trim()
+    ? anchorUserMessageId.trim()
+    : null;
+}
+
+export function getPersistedRenderKey(message: MessageRecord): string {
+  const meta = message.meta as Record<string, unknown> | null | undefined;
+  const clientMessageId = getClientMessageId(meta);
+  const anchorUserMessageId = getAnchorUserMessageId(meta);
+  const messageKind = typeof meta?.messageKind === "string" ? meta.messageKind : null;
+
+  if (message.role === "user" && clientMessageId) {
+    return `user:${clientMessageId}`;
+  }
+
+  if (message.role === "assistant" && messageKind === "assistant_final" && anchorUserMessageId) {
+    return `assistant-final:${anchorUserMessageId}`;
+  }
+
+  return `persisted:${message.id}`;
+}
+
+export function getStreamingRenderKey(anchorUserMessageId: string | null, sessionId: string) {
+  return anchorUserMessageId?.trim()
+    ? `assistant-final:${anchorUserMessageId.trim()}`
+    : `assistant-streaming:${sessionId}`;
+}
+
+function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
+  const msgMeta = message.meta as Record<string, unknown> | null | undefined;
+  return {
+    id: renderKey,
+    role: message.role,
+    content: message.content,
+    text: message.text ?? "",
+    sequence: message.sequence,
+    blocks: [...(message.content ?? [])],
+    authorUuid: (msgMeta?.authorUuid as string | undefined) ?? null,
+    authorName: (msgMeta?.authorName as string | undefined) ?? null,
+    authorAvatar: (msgMeta?.authorAvatar as string | undefined) ?? null,
+    meta:
+      message.role === "assistant"
+        ? {
+            messageKind: msgMeta?.messageKind as string | null,
+            model: message.model,
+            provider: message.provider,
+            usageInput: message.usageInput,
+            usageOutput: message.usageOutput,
+            costTotal: message.costTotal,
+          }
+        : {
+            messageKind: msgMeta?.messageKind as string | null,
+          },
+  } satisfies ChatMessage;
+}
+
+function buildPendingMessage(
   sessionId: string,
   pending: PendingSessionMessage,
   fallbackSequence: number,
@@ -35,22 +101,23 @@ export function buildPendingMessage(
   };
 }
 
-export function mergeRenderableMessages(
+export function buildRenderableChatMessages(
   persisted: MessageRecord[],
   pending: PendingSessionMessage[],
-): MessageRecord[] {
-  const byId = new Map(persisted.map((message) => [message.id, message]));
+): ChatMessage[] {
+  const entries = new Map<string, ChatMessage>();
   const persistedClientMessageIds = new Set(
     persisted
-      .map((message) => {
-        const clientMessageId =
-          (message.meta as Record<string, unknown> | null | undefined)?.clientMessageId;
-        return typeof clientMessageId === "string" && clientMessageId.trim()
-          ? clientMessageId.trim()
-          : null;
-      })
+      .map((message) =>
+        getClientMessageId(message.meta as Record<string, unknown> | null | undefined),
+      )
       .filter((value): value is string => Boolean(value)),
   );
+
+  for (const message of persisted) {
+    const renderKey = getPersistedRenderKey(message);
+    entries.set(renderKey, toChatMessage(message, renderKey));
+  }
 
   let nextSequence = (persisted.at(-1)?.sequence ?? 0) + 1;
   for (const pendingMessage of pending) {
@@ -60,10 +127,11 @@ export function mergeRenderableMessages(
       pendingMessage,
       nextSequence++,
     );
-    byId.set(renderable.id, renderable);
+    const renderKey = `user:${pendingMessage.clientMessageId}`;
+    entries.set(renderKey, toChatMessage(renderable, renderKey));
   }
 
-  return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+  return Array.from(entries.values()).sort((a, b) => a.sequence - b.sequence);
 }
 
 export function buildStreamingPreviewBlocks(
@@ -94,4 +162,99 @@ export function buildStreamingPreviewBlocks(
     });
   }
   return blocks;
+}
+
+function isIntermediate(message: ChatMessage) {
+  if (message.meta?.messageKind === "assistant_intermediate") return true;
+  return message.content?.some((block) => block.type === "tool_use") ?? false;
+}
+
+function groupIntermediateMessages(parts: TimelineItem[]) {
+  const result: TimelineItem[] = [];
+  let buffer: ChatMessage[] = [];
+  const flush = () => {
+    if (buffer.length === 0) return;
+    result.push({
+      id: `process-${buffer.map((message) => message.id).join("|")}`,
+      kind: "process",
+      messages: [...buffer],
+    });
+    buffer = [];
+  };
+
+  for (const item of parts) {
+    if (item.kind !== "message") {
+      flush();
+      result.push(item);
+      continue;
+    }
+    const message = item.message;
+    if (message.role !== "assistant" || !isIntermediate(message)) {
+      flush();
+      result.push(item);
+    } else {
+      buffer.push(message);
+    }
+  }
+
+  flush();
+  return result;
+}
+
+export function buildTimelineItems(input: {
+  messages: ChatMessage[];
+  streaming?: {
+    sessionId: string;
+    anchorUserMessageId?: string | null;
+    contentBlocks: ContentBlock[];
+    truncatedStart?: boolean;
+  } | null;
+}): TimelineItem[] {
+  const items: TimelineItem[] = input.messages
+    .filter((message) => message.meta?.messageKind !== "assistant_error")
+    .map((message) => ({ id: message.id, kind: "message", message }));
+
+  const lastUserIndex = (() => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item?.kind === "message" && item.message.role === "user") return index;
+    }
+    return -1;
+  })();
+
+  if (lastUserIndex < 0) return items;
+
+  const historyItems = items.slice(0, lastUserIndex + 1);
+  const groupedHistory = groupIntermediateMessages(historyItems);
+  const currentItems = items.slice(lastUserIndex + 1);
+
+  for (const item of currentItems) groupedHistory.push(item);
+
+  const streamingBlocks = input.streaming?.contentBlocks ?? [];
+  if (streamingBlocks.length > 0) {
+    const previewBlocks = buildStreamingPreviewBlocks(streamingBlocks, {
+      truncatedStart: input.streaming?.truncatedStart,
+    });
+    if (previewBlocks.length > 0) {
+      const previewText =
+        previewBlocks.find((block) => block.type === "text")?.text?.trim() ?? "";
+      const renderKey = getStreamingRenderKey(
+        input.streaming?.anchorUserMessageId ?? null,
+        input.streaming?.sessionId ?? "active",
+      );
+      groupedHistory.push({
+        id: renderKey,
+        kind: "message",
+        message: {
+          id: renderKey,
+          role: "assistant",
+          content: previewBlocks,
+          text: previewText,
+          sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
+        },
+      });
+    }
+  }
+
+  return groupIntermediateMessages(groupedHistory);
 }

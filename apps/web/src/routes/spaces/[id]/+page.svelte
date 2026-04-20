@@ -36,12 +36,11 @@ import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFilePane from "$lib/components/SpaceFilePane.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
-import { buildStreamingPreviewBlocks, mergeRenderableMessages } from "$lib/session-render";
 import {
-	type ChatMessage,
-	type TimelineItem,
-	toChatMessages,
-} from "$lib/session-tree";
+	buildRenderableChatMessages,
+	buildTimelineItems,
+} from "$lib/session-render";
+import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { messageCache } from "$lib/stores/message-cache";
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
@@ -127,6 +126,7 @@ let streamingAssistantText = $state("");
 let streamingThinking = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
 let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>({});
+let streamingDraftAnchorUserMessageIdBySessionId = $state<Record<string, string | null>>({});
 let modelsCatalog = $state<Array<{
 	provider: string;
 	id: string;
@@ -213,102 +213,30 @@ const activePendingMessages = $derived.by(() =>
 );
 const activeRenderableMessages = $derived.by(() => {
 	const state = activeSessionState;
-	if (!state) return [] as MessageRecord[];
-	return mergeRenderableMessages(state.messages, activePendingMessages);
+	if (!state) return [] as ChatMessage[];
+	return buildRenderableChatMessages(state.messages, activePendingMessages);
 });
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
-	const renderedMessages = activeRenderableMessages;
-	// Filter out error messages from display. They're persisted in DB for debugging
-	// and analytics, but should not appear in the chat timeline by default.
-	const items: TimelineItem[] = toChatMessages(renderedMessages)
-		.filter((message) => message.meta?.messageKind !== "assistant_error")
-		.map((message) => ({
-			id: message.id,
-			kind: "message",
-			message,
-		}));
-
-	const lastUserIndex = (() => {
-		for (let i = items.length - 1; i >= 0; i--) {
-			const item = items[i];
-			if (item.kind === "message" && item.message.role === "user") return i;
-		}
-		return -1;
-	})();
-
-	function isIntermediate(message: ChatMessage) {
-		if (message.meta?.messageKind === "assistant_intermediate") return true;
-		return message.content?.some((block) => block.type === "tool_use") ?? false;
-	}
-
-	function groupIntermediateMessages(parts: TimelineItem[]) {
-		const result: TimelineItem[] = [];
-		let buffer: ChatMessage[] = [];
-		const flush = () => {
-			if (buffer.length === 0) return;
-			result.push({
-				id: `process-${buffer.map((message) => message.id).join("|")}`,
-				kind: "process",
-				messages: [...buffer],
-			});
-			buffer = [];
-		};
-		for (const item of parts) {
-			if (item.kind !== "message") {
-				flush();
-				result.push(item);
-				continue;
-			}
-			const message = item.message;
-			if (message.role !== "assistant" || !isIntermediate(message)) {
-				flush();
-				result.push(item);
-			} else {
-				buffer.push(message);
-			}
-		}
-		flush();
-		return result;
-	}
-
-	if (lastUserIndex >= 0) {
-		const historyItems = items.slice(0, lastUserIndex + 1);
-		const groupedHistory = groupIntermediateMessages(historyItems);
-		const currentItems = items.slice(lastUserIndex + 1);
-		if (streamStatus === "streaming" || streamingContentBlocks.length > 0) {
-			for (const item of currentItems) groupedHistory.push(item);
-			if (streamingContentBlocks.length > 0) {
-				const draftTruncated =
-					activeSessionId
-						? (streamingDraftTruncatedStartBySessionId[activeSessionId] ?? false)
-						: false;
-				const blocks = buildStreamingPreviewBlocks(streamingContentBlocks, {
-					truncatedStart: draftTruncated,
-				});
-				if (blocks.length > 0) {
-					const trimmedText =
-						blocks.find((block) => block.type === "text")?.text?.trim() ?? "";
-					groupedHistory.push({
-						id: `assistant-streaming-${groupedHistory.length}`,
-						kind: "message",
-						message: {
-							id: "assistant-streaming",
-							role: "assistant",
-							content: blocks as never,
-							text: trimmedText,
-							sequence: (renderedMessages.at(-1)?.sequence ?? 0) + 1,
-						},
-					});
+	return buildTimelineItems({
+		messages: activeRenderableMessages,
+		streaming:
+			streamStatus === "streaming" || streamingContentBlocks.length > 0
+				? {
+					sessionId: activeSessionId ?? "active",
+					anchorUserMessageId:
+						activeSessionId
+							? (streamingDraftAnchorUserMessageIdBySessionId[activeSessionId] ?? null)
+							: null,
+					contentBlocks: streamingContentBlocks,
+					truncatedStart:
+						activeSessionId
+							? (streamingDraftTruncatedStartBySessionId[activeSessionId] ?? false)
+							: false,
 				}
-			}
-			return groupIntermediateMessages(groupedHistory);
-		}
-		return groupIntermediateMessages([...groupedHistory, ...currentItems]);
-	}
-
-	return items;
+				: null,
+	});
 });
 
 function getSessionModelKey(sessionId: string) {
@@ -1062,7 +990,11 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 		if (state.messages.some((m) => m.id === sessionMessageId)) return;
 
 		if (messageKind === "assistant_intermediate") {
-			const hadContentBefore = streamingContentBlocks.length > 0;
+				const streamingAnchorUserMessageId =
+					typeof payload.meta?.anchorUserMessageId === "string"
+						? payload.meta.anchorUserMessageId
+						: null;
+				const hadContentBefore = streamingContentBlocks.length > 0;
 			const mergedContent = mergeDeltaBlocks(
 				streamingContentBlocks,
 				content as ContentBlock[],
@@ -1071,6 +1003,12 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			streamingThinking = thinking;
 			streamingAssistantText = answer;
 			streamingContentBlocks = mergedContent;
+			if (streamingAnchorUserMessageId) {
+				streamingDraftAnchorUserMessageIdBySessionId = {
+					...streamingDraftAnchorUserMessageIdBySessionId,
+					[currentActiveSessionId]: streamingAnchorUserMessageId,
+				};
+			}
 			if (!hadContentBefore && state.messages.length > 0) {
 				streamingDraftTruncatedStartBySessionId = {
 					...streamingDraftTruncatedStartBySessionId,
@@ -1217,6 +1155,10 @@ function clearStreamingState(sessionId: string | null = activeSessionId) {
 		streamingDraftTruncatedStartBySessionId = {
 			...streamingDraftTruncatedStartBySessionId,
 			[sessionId]: false,
+		};
+		streamingDraftAnchorUserMessageIdBySessionId = {
+			...streamingDraftAnchorUserMessageIdBySessionId,
+			[sessionId]: null,
 		};
 	}
 	if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
