@@ -14,12 +14,13 @@ import {
   PLATFORM_MODELS_PATH,
   PLATFORM_ROOT,
   PLATFORM_SKILLS_DIR,
-  SPACE_OWNER_LEASE_MS,
 } from "./env.js";
 import {
   closeOwnershipRedis,
-  getSpaceOwner,
-  renewSpaceOwner,
+  getSessionOwner,
+  releaseSessionOwner,
+  renewSessionOwner,
+  SESSION_OWNER_LEASE_MS,
   startAgentInstanceHeartbeatLoop,
   updateSpaceRuntime,
 } from "./ownership.js";
@@ -52,9 +53,9 @@ type RuntimeSandboxStatus = "idle" | "ready" | "error";
 
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
-const ownedSpaceEpochs = new Map<string, number>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
+const SESSION_IDLE_EVICTION_MS = 5 * 60 * 1000;
 
 function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
@@ -100,26 +101,43 @@ async function syncSandboxConnectionState(input: {
   }).catch(() => undefined);
 }
 
-async function cleanupOwnedSpace(spaceId: string, reason: string) {
-  console.warn(`[Agent] Cleaning up owned space ${spaceId}: ${reason}`);
-  ownedSpaceEpochs.delete(spaceId);
+async function disposeSessionHandle(handle: SessionHandle, reason: string) {
+  const current = sessionHandles.get(handle.sessionKey);
+  if (current !== handle) return;
 
-  const handlesToDispose = Array.from(sessionHandles.entries()).filter(([key, handle]) => {
-    return handle.spaceId === spaceId || key.startsWith(`${spaceId}:`);
-  });
-
-  for (const [key, handle] of handlesToDispose) {
-    try {
-      await handle.persistenceChain.catch(() => undefined);
-      handle.session.dispose();
-    } catch (error) {
-      console.error(`[Agent] Failed to dispose session ${handle.sessionId} during cleanup of ${spaceId}:`, error);
-    } finally {
-      sessionHandles.delete(key);
-    }
+  if (handle.idleTimer) {
+    clearTimeout(handle.idleTimer);
+    handle.idleTimer = null;
   }
 
-  disconnectSandboxWsClient(spaceId, reason);
+  console.warn(`[Agent] Disposing session ${handle.sessionId}: ${reason}`);
+  try {
+    await handle.persistenceChain.catch(() => undefined);
+    handle.session.dispose();
+  } catch (error) {
+    console.error(`[Agent] Failed to dispose session ${handle.sessionId}:`, error);
+  } finally {
+    sessionHandles.delete(handle.sessionKey);
+  }
+
+  try {
+    await releaseSessionOwner(handle.spaceId, handle.sessionId, handle.ownerEpoch);
+  } catch (error) {
+    console.error(`[Agent] Failed to release session owner ${handle.sessionId}:`, error);
+  }
+
+  if (!Array.from(sessionHandles.values()).some((item) => item.spaceId === handle.spaceId)) {
+    disconnectSandboxWsClient(handle.spaceId, `no active sessions for space ${handle.spaceId}`);
+  }
+}
+
+function scheduleSessionIdleEviction(handle: SessionHandle) {
+  handle.lastActiveAt = Date.now();
+  if (handle.idleTimer) clearTimeout(handle.idleTimer);
+  console.log(`[Session] idle:scheduled sessionId=${handle.sessionId} in=${SESSION_IDLE_EVICTION_MS}ms`);
+  handle.idleTimer = setTimeout(() => {
+    void disposeSessionHandle(handle, "idle eviction");
+  }, SESSION_IDLE_EVICTION_MS);
 }
 
 async function shutdown(exitCode: number) {
@@ -132,13 +150,7 @@ async function shutdown(exitCode: number) {
   try {
     for (const handle of sessionHandles.values()) {
       try {
-        await handle.persistenceChain.catch((error) => {
-          console.error(
-            `[Agent] Failed while draining persistence chain for ${handle.sessionId}:`,
-            error,
-          );
-        });
-        handle.session.dispose();
+        await disposeSessionHandle(handle, "shutdown");
       } catch (error) {
         console.error(
           `[Agent] Failed to dispose session ${handle.sessionId}:`,
@@ -198,11 +210,13 @@ async function ensureSandboxWsConnected(spaceId: string) {
       onHello: (message) => syncSandboxHello(spaceId, message),
       onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
       onDisconnected: ({ reason }) => {
-        void syncSandboxConnectionState({
-          spaceId,
-          status: "provisioning",
-          reason: reason ?? "sandbox disconnected",
-        });
+        if (Array.from(sessionHandles.values()).some((handle) => handle.spaceId === spaceId)) {
+          void syncSandboxConnectionState({
+            spaceId,
+            status: "provisioning",
+            reason: reason ?? "sandbox disconnected",
+          });
+        }
       },
       onConnectionError: ({ error }) => {
         void syncSandboxConnectionState({
@@ -219,26 +233,26 @@ async function ensureSandboxWsConnected(spaceId: string) {
 function startOwnerRenewLoop() {
   if (ownerRenewTimer) return;
   ownerRenewTimer = setInterval(() => {
-    for (const [spaceId, epoch] of ownedSpaceEpochs) {
-      void renewSpaceOwner(spaceId, epoch).then((ok: boolean) => {
+    for (const handle of sessionHandles.values()) {
+      void renewSessionOwner(handle.spaceId, handle.sessionId, handle.ownerEpoch).then((ok: boolean) => {
         if (!ok) {
-          void cleanupOwnedSpace(spaceId, `ownership lost at epoch ${epoch}`);
+          void disposeSessionHandle(handle, `session ownership lost at epoch ${handle.ownerEpoch}`);
         }
       }).catch((error: unknown) => {
-        console.error(`[Agent] Failed to renew ownership for ${spaceId}:`, error);
+        console.error(`[Agent] Failed to renew session ownership for ${handle.sessionId}:`, error);
       });
     }
-  }, Math.max(1000, Math.floor(SPACE_OWNER_LEASE_MS / 3)));
+  }, Math.max(1000, Math.floor(SESSION_OWNER_LEASE_MS / 4)));
 }
 
-async function verifyInputOwnership(inputEntry: { spaceId: string; expectedOwnerId: string; expectedEpoch: number }) {
+async function verifyInputOwnership(inputEntry: { spaceId: string; sessionId?: string | null; expectedOwnerId: string; expectedEpoch: number }) {
+  if (!inputEntry.sessionId) return false;
   if (inputEntry.expectedOwnerId !== env.AGENT_INSTANCE_ID) return false;
-  const lease = await getSpaceOwner(inputEntry.spaceId);
+  const lease = await getSessionOwner(inputEntry.spaceId, inputEntry.sessionId);
   if (!lease) return false;
   if (lease.ownerId !== env.AGENT_INSTANCE_ID) return false;
   if (lease.epoch !== inputEntry.expectedEpoch) return false;
   if (lease.leaseUntil <= Date.now()) return false;
-  ownedSpaceEpochs.set(inputEntry.spaceId, lease.epoch);
   return true;
 }
 
@@ -286,9 +300,13 @@ async function main() {
 
     (async () => {
       try {
+        if (!inputEntry.sessionId) {
+          throw new Error("sessionId is required for session-owned input");
+        }
+
         const ownershipOk = await verifyInputOwnership(inputEntry);
         if (!ownershipOk) {
-          throw new Error(`ownership mismatch for space=${inputEntry.spaceId}, expectedOwner=${inputEntry.expectedOwnerId}, instance=${env.AGENT_INSTANCE_ID}, expectedEpoch=${inputEntry.expectedEpoch}`);
+          throw new Error(`ownership mismatch for session=${inputEntry.sessionId}, expectedOwner=${inputEntry.expectedOwnerId}, instance=${env.AGENT_INSTANCE_ID}, expectedEpoch=${inputEntry.expectedEpoch}`);
         }
 
         if (inputEntry.action === "prompt") {
@@ -316,6 +334,19 @@ async function main() {
             model: requestedModelInput,
             sessionHandles,
           });
+
+          handle.ownerEpoch = inputEntry.expectedEpoch;
+          handle.lastActiveAt = Date.now();
+          if (handle.idleTimer) {
+            clearTimeout(handle.idleTimer);
+            handle.idleTimer = null;
+          }
+
+          if (!handle.onIdle) {
+            handle.onIdle = (idleHandle) => {
+              scheduleSessionIdleEviction(idleHandle);
+            };
+          }
 
           const currentModel = handle.session.agent.state.model;
           if (requestedProvider && requestedModel && currentModel) {
@@ -377,6 +408,10 @@ async function main() {
 
           console.log(`[Agent] ack input sessionId=${sessionId}`);
           await ack();
+          handle.lastActiveAt = Date.now();
+          if (!handle.session.isStreaming) {
+            scheduleSessionIdleEviction(handle);
+          }
         } else if (inputEntry.action === "abort") {
           if (inputEntry.sessionId) {
             const handle = sessionHandles.get(getSessionKey(inputEntry.spaceId, inputEntry.sessionId));
@@ -386,6 +421,8 @@ async function main() {
               );
             } else {
               await handle.session.abort();
+              handle.lastActiveAt = Date.now();
+              scheduleSessionIdleEviction(handle);
             }
           } else {
             await Promise.all(

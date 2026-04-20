@@ -307,6 +307,11 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{}
 		return d.errorResponse(request, "BAD_REQUEST", err.Error())
 	}
 
+	cmdSummary := strings.TrimSpace(params.Command)
+	if len(cmdSummary) > 80 {
+		cmdSummary = cmdSummary[:80]
+	}
+
 	cwd := d.cfg.WorkspaceDir
 	if params.CWD != "" {
 		cwd = filepath.Join(d.cfg.WorkspaceDir, params.CWD)
@@ -314,8 +319,10 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{}
 
 	processID, stdout, stderr, exitCh, err := d.processManager.Start(params.Command, cwd, params.TimeoutSecs)
 	if err != nil {
+		d.logger.Error("process:start failed", slog.String("cmd", cmdSummary), slog.String("error", err.Error()))
 		return d.errorResponse(request, "PROCESS_SPAWN_FAILED", err.Error())
 	}
+	d.logger.Info("process:start", slog.String("processId", processID), slog.String("cmd", cmdSummary))
 
 	_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "started", ProcessID: processID})
 
@@ -331,6 +338,11 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{}
 	}()
 	go func() {
 		exitCode := <-exitCh
+		codeStr := "unknown"
+		if exitCode != nil {
+			codeStr = fmt.Sprintf("%d", *exitCode)
+		}
+		d.logger.Info("process:exit", slog.String("processId", processID), slog.String("exitCode", codeStr), slog.String("cmd", cmdSummary))
 		_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "exit", ExitCode: exitCode})
 	}()
 
@@ -346,8 +358,10 @@ func (d *Dispatcher) handleProcessAbort(request protocol.RPCRequest) interface{}
 	}
 
 	if err := d.processManager.Abort(params.ProcessID); err != nil {
+		d.logger.Warn("process:abort failed", slog.String("processId", params.ProcessID), slog.String("error", err.Error()))
 		return d.errorResponse(request, "PROCESS_ABORT_FAILED", err.Error())
 	}
+	d.logger.Info("process:abort", slog.String("processId", params.ProcessID))
 
 	return d.response(request, map[string]interface{}{
 		"processId": params.ProcessID,

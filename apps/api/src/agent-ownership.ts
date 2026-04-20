@@ -10,8 +10,9 @@ export type AgentInstanceRecord = {
   version?: string;
 };
 
-export type SpaceOwnerLease = {
+export type SessionOwnerLease = {
   spaceId: string;
+  sessionId: string;
   ownerId: string;
   leaseUntil: number;
   epoch: number;
@@ -20,10 +21,10 @@ export type SpaceOwnerLease = {
 };
 
 const DEFAULT_OWNER_ID = process.env.DEFAULT_AGENT_INSTANCE_ID ?? process.env.HOSTNAME?.trim() ?? "agent-default";
-const SPACE_OWNER_LEASE_MS = Number(process.env.SPACE_OWNER_LEASE_MS ?? 15000);
+const SESSION_OWNER_LEASE_MS = Number(process.env.SESSION_OWNER_LEASE_MS ?? 20000);
 
-export function getSpaceOwnerKey(spaceId: string) {
-  return `agent:space_owner:${spaceId}`;
+export function getSessionOwnerKey(spaceId: string, sessionId: string) {
+  return `agent:session_owner:${spaceId}:${sessionId}`;
 }
 
 export function getAgentInstanceKey(instanceId: string) {
@@ -50,30 +51,30 @@ export async function listActiveAgentInstances(): Promise<AgentInstanceRecord[]>
     .sort((a, b) => a.instanceId.localeCompare(b.instanceId));
 }
 
-function chooseOwnerInstance(instances: AgentInstanceRecord[], spaceId: string) {
+function chooseOwnerInstance(instances: AgentInstanceRecord[], keySeed: string) {
   if (instances.length === 0) return DEFAULT_OWNER_ID;
   let hash = 0;
-  for (let i = 0; i < spaceId.length; i++) {
-    hash = ((hash << 5) - hash + spaceId.charCodeAt(i)) | 0;
+  for (let i = 0; i < keySeed.length; i++) {
+    hash = ((hash << 5) - hash + keySeed.charCodeAt(i)) | 0;
   }
   const idx = Math.abs(hash) % instances.length;
   return instances[idx]?.instanceId ?? DEFAULT_OWNER_ID;
 }
 
-export async function getSpaceOwner(spaceId: string): Promise<SpaceOwnerLease | null> {
-  const raw = await redisCommandClient.get(getSpaceOwnerKey(spaceId));
+export async function getSessionOwner(spaceId: string, sessionId: string): Promise<SessionOwnerLease | null> {
+  const raw = await redisCommandClient.get(getSessionOwnerKey(spaceId, sessionId));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as SpaceOwnerLease;
+    return JSON.parse(raw) as SessionOwnerLease;
   } catch {
     return null;
   }
 }
 
-export async function claimSpaceOwner(spaceId: string, ownerId = DEFAULT_OWNER_ID): Promise<SpaceOwnerLease> {
-  const key = getSpaceOwnerKey(spaceId);
+export async function claimSessionOwner(spaceId: string, sessionId: string, ownerId = DEFAULT_OWNER_ID): Promise<SessionOwnerLease> {
+  const key = getSessionOwnerKey(spaceId, sessionId);
   const now = Date.now();
-  const leaseUntil = now + SPACE_OWNER_LEASE_MS;
+  const leaseUntil = now + SESSION_OWNER_LEASE_MS;
 
   const result = await redisCommandClient.eval(
     `
@@ -86,6 +87,7 @@ local raw = redis.call('GET', key)
 if not raw then
   local payload = cjson.encode({
     spaceId = ARGV[4],
+    sessionId = ARGV[5],
     ownerId = ownerId,
     leaseUntil = leaseUntil,
     epoch = 1,
@@ -120,16 +122,17 @@ return raw
     String(now),
     String(leaseUntil),
     spaceId,
+    sessionId,
   );
 
-  return JSON.parse(String(result)) as SpaceOwnerLease;
+  return JSON.parse(String(result)) as SessionOwnerLease;
 }
 
-export async function resolveOrClaimSpaceOwner(spaceId: string, ownerId?: string): Promise<SpaceOwnerLease> {
-  const existing = await getSpaceOwner(spaceId);
+export async function resolveOrClaimSessionOwner(spaceId: string, sessionId: string, ownerId?: string): Promise<SessionOwnerLease> {
+  const existing = await getSessionOwner(spaceId, sessionId);
   const now = Date.now();
   if (existing && existing.leaseUntil > now) return existing;
 
-  const resolvedOwnerId = ownerId ?? chooseOwnerInstance(await listActiveAgentInstances(), spaceId);
-  return claimSpaceOwner(spaceId, resolvedOwnerId);
+  const resolvedOwnerId = ownerId ?? chooseOwnerInstance(await listActiveAgentInstances(), `${spaceId}:${sessionId}`);
+  return claimSessionOwner(spaceId, sessionId, resolvedOwnerId);
 }

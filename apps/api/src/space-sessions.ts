@@ -16,7 +16,7 @@ import {
 import type { RedisStreamEntry } from "./redis.js";
 import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getBindingsBySessionId, getReadableUserIdsForSpace, touchSpaceSessionBinding } from "./channels.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
-import { resolveOrClaimSpaceOwner } from "./agent-ownership.js";
+import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
 
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
@@ -376,7 +376,7 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
 
-  const lease = await resolveOrClaimSpaceOwner(input.spaceId);
+  const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
 
   await redisCommandClient.rpush(
     getAgentInstanceInputQueueKey(lease.ownerId),

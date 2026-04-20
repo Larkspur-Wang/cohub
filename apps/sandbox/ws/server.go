@@ -137,6 +137,7 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 				s.logger.Warn("failed to parse rpc.request", slog.String("error", err.Error()))
 				continue
 			}
+			s.logger.Debug("rpc:request received", slog.String("method", request.Method), slog.String("requestId", request.RequestID))
 			go s.handleRPCRequest(session, request)
 		default:
 			s.logger.Warn("unknown incoming message type", slog.String("type", envelope.Type))
@@ -193,6 +194,13 @@ func (s *Server) handleRPCRequest(session *connectionSession, request protocol.R
 	if err != nil {
 		s.logger.Warn("failed to marshal rpc response", slog.String("error", err.Error()))
 		return
+	}
+
+	switch response.(type) {
+	case protocol.RPCError:
+		s.logger.Warn("rpc:error", slog.String("method", request.Method), slog.String("requestId", request.RequestID))
+	default:
+		s.logger.Debug("rpc:response", slog.String("method", request.Method), slog.String("requestId", request.RequestID))
 	}
 
 	if err := enqueuePayload(session, payload); err != nil {

@@ -1,3 +1,4 @@
+import { existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import {
@@ -26,6 +27,10 @@ export type SessionHandle = {
   sessionId: string;
   session: AgentSession;
   sessionManager: SessionManager;
+  ownerEpoch: number;
+  lastActiveAt: number;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  onIdle?: ((handle: SessionHandle) => void) | null;
   pendingUserMessages: PendingUserMessage[];
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
@@ -51,23 +56,12 @@ export function getSpaceSessionsDir(spaceId: string) {
   return join(env.SESSIONS_DIR, "spaces", spaceId);
 }
 
-export async function ensureSpaceDirs(spaceId: string) {
-  await mkdir(getSpaceSessionsDir(spaceId), { recursive: true }).catch(() => undefined);
+export function getSessionFilePath(spaceId: string, sessionId: string) {
+  return join(getSpaceSessionsDir(spaceId), `${sessionId}.jsonl`);
 }
 
-export async function findSessionFileById(spaceId: string, sessionId: string) {
-  const spaceWorkspaceDir = getSpaceWorkspaceDir(spaceId);
-  const spaceSessionsDir = getSpaceSessionsDir(spaceId);
-  const sessions = await SessionManager.list(spaceWorkspaceDir, spaceSessionsDir).catch((error) => {
-    console.error(`[Agent] Failed to list sessions for lookup ${spaceId}/${sessionId}:`, error);
-    return [];
-  });
-
-  const byId = sessions.find((session) => session.id === sessionId);
-  if (byId) return byId.path;
-
-  const bySuffix = sessions.find((session) => session.path.endsWith(`_${sessionId}.jsonl`));
-  return bySuffix?.path;
+export async function ensureSpaceDirs(spaceId: string) {
+  await mkdir(getSpaceSessionsDir(spaceId), { recursive: true }).catch(() => undefined);
 }
 
 function summarizeToolArgs(toolName: string, args: unknown): string {
@@ -418,6 +412,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     if (event.type === "agent_end") {
       console.log(`[Session] agent:end sessionId=${handle.sessionId}`);
       handle.currentUserMessageId = null;
+      handle.onIdle?.(handle);
     }
   });
 }
@@ -434,7 +429,10 @@ export async function loadOrCreateSessionHandle(input: {
 }) {
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
   const existing = input.sessionHandles.get(sessionKey);
-  if (existing) return existing;
+  if (existing) {
+    console.log(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
+    return existing;
+  }
 
   await ensureSpaceDirs(input.spaceId);
 
@@ -449,19 +447,20 @@ export async function loadOrCreateSessionHandle(input: {
     return null;
   });
 
-  const existingSessionFile = await findSessionFileById(input.spaceId, input.sessionId);
+  const existingSessionFile = getSessionFilePath(input.spaceId, input.sessionId);
   const spaceWorkspaceDir = getSpaceWorkspaceDir(input.spaceId);
   const spaceSessionsDir = getSpaceSessionsDir(input.spaceId);
 
   let sessionManager: SessionManager;
-  if (existingSessionFile) {
+  if (existsSync(existingSessionFile)) {
+    console.log(`[Session] restore sessionId=${input.sessionId} spaceId=${input.spaceId}`);
     sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
   } else {
     const forkSourceProtocolMessageId = registration?.bootstrap?.forkSourceProtocolMessageId ?? null;
     const parentSessionId = ((registration?.session as { parentSessionId?: string | null } | undefined)?.parentSessionId) ?? null;
-    const parentSessionFile = parentSessionId ? await findSessionFileById(input.spaceId, parentSessionId) : null;
+    const parentSessionFile = parentSessionId ? getSessionFilePath(input.spaceId, parentSessionId) : null;
 
-    if (parentSessionFile && forkSourceProtocolMessageId) {
+    if (parentSessionFile && existsSync(parentSessionFile) && forkSourceProtocolMessageId) {
       const parentManager = SessionManager.open(parentSessionFile, spaceSessionsDir);
       const forkedSessionFile = parentManager.createBranchedSession(forkSourceProtocolMessageId);
       if (!forkedSessionFile) throw new Error(`Failed to create branched session file for ${input.sessionId}`);
@@ -477,11 +476,10 @@ export async function loadOrCreateSessionHandle(input: {
         else if (entry.type === "custom_message") forkedManager.appendCustomMessageEntry(entry.customType, entry.content, entry.display, entry.details);
         else if (entry.type === "session_info") forkedManager.appendSessionInfo(entry.name ?? "");
       }
-      const rewrittenSessionFile = forkedManager.getSessionFile();
-      if (!rewrittenSessionFile) throw new Error(`Failed to rewrite forked session file for ${input.sessionId}`);
-      sessionManager = SessionManager.open(rewrittenSessionFile, spaceSessionsDir);
+      renameSync(forkedSessionFile, existingSessionFile);
+      sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
     } else {
-      sessionManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
+      sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
       sessionManager.newSession({ id: input.sessionId });
     }
   }
@@ -518,6 +516,10 @@ export async function loadOrCreateSessionHandle(input: {
     sessionId: input.sessionId,
     session,
     sessionManager,
+    ownerEpoch: 0,
+    lastActiveAt: Date.now(),
+    idleTimer: null,
+    onIdle: null,
     pendingUserMessages: [],
     currentUserMessageId: null,
     currentUserMessageContent: null,
@@ -528,5 +530,6 @@ export async function loadOrCreateSessionHandle(input: {
 
   subscribeSessionEvents(handle);
   input.sessionHandles.set(sessionKey, handle);
+  console.log(`[Session] ready sessionId=${input.sessionId} spaceId=${input.spaceId}`);
   return handle;
 }
