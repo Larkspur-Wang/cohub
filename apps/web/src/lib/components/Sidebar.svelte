@@ -5,6 +5,7 @@ import { goto } from "$app/navigation";
 import {
   Plus,
   ChevronDown,
+  ChevronRight,
   Loader2,
   Settings,
   LogOut,
@@ -14,8 +15,9 @@ import {
   Palette,
   KeyRound,
   Network,
+  Save,
 } from "lucide-svelte";
-import { getSpaces, getSpaceSessions, createSpaceSession, type SessionRecord, type SpaceRecord } from "$lib/api";
+import { getSpaces, getSpaceSessions, createSpaceSession, createSpaceCheckpoint, getTaskRun, type SessionRecord, type SpaceRecord } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -37,6 +39,16 @@ let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
 let loadingSessions = $state(false);
+let sessionsCollapsed = $state(false);
+let checkpointSaving = $state(false);
+let checkpointNotice = $state("");
+let checkpointError = $state("");
+let creatingSession = $state(false);
+let createSessionError = $state("");
+
+const activeSession = $derived(
+  sessions.find((s) => page.url.searchParams.get("session") === s.id) ?? null,
+);
 
 let streamingSessionIds = $state<Set<string>>(new Set());
 
@@ -176,6 +188,53 @@ async function handleNavigateToSession(sessionId: string) {
   await goto(`/spaces/${currentSpaceId}?session=${sessionId}`);
 }
 
+async function handleSaveCheckpoint() {
+  if (!currentSpaceId || checkpointSaving) return;
+  checkpointError = "";
+  checkpointNotice = "";
+  const description = typeof window !== "undefined" ? window.prompt("Checkpoint description (optional)", "") : null;
+  if (description === null) return;
+
+  checkpointSaving = true;
+  try {
+    const { jobId } = await createSpaceCheckpoint(currentSpaceId, description.trim() || null);
+    checkpointNotice = "Saving checkpoint…";
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 90_000) {
+      const { run } = await getTaskRun(jobId);
+      if (run.status === "completed") {
+        checkpointNotice = "Checkpoint saved.";
+        window.dispatchEvent(new CustomEvent("cohub:checkpoints-updated", { detail: { spaceId: currentSpaceId } }));
+        return;
+      }
+      if (run.status === "failed") {
+        throw new Error((run.errorMessage as string) || "Checkpoint job failed");
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    throw new Error("Checkpoint job timed out");
+  } catch (error) {
+    checkpointError = error instanceof Error ? error.message : "Failed to save checkpoint";
+  } finally {
+    checkpointSaving = false;
+  }
+}
+
+async function handleCreateNewSession() {
+  if (!currentSpaceId || creatingSession) return;
+  creatingSession = true;
+  createSessionError = "";
+  try {
+    const result = await createSpaceSession(currentSpaceId, { source: "web" });
+    await loadSessionsForSpace(currentSpaceId, true);
+    await handleNavigateToSession(result.session.id);
+  } catch (error) {
+    createSessionError = error instanceof Error ? error.message : "Failed to create session";
+  } finally {
+    creatingSession = false;
+  }
+}
+
 function sessionIsStreaming(session: SessionRecord): boolean {
   return isStreaming(session, streamingSessionIds);
 }
@@ -266,62 +325,114 @@ $effect(() => {
   </div>
 
   {#if mode === "space"}
-    <!-- Space Switcher -->
-    <div class="px-2 py-1.5 shrink-0 border-b border-border-subtle">
+    <!-- Space Switcher (Discord-style) -->
+    <div class="px-2 py-1 shrink-0 border-b border-border-subtle">
       <button
         type="button"
         data-space-switcher
-        class="w-full flex items-center gap-2 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
+        class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
         onclick={() => { showSpaceModal = !showSpaceModal; void loadSpaces(true); }}
       >
         {#if currentSpace}
-          <span class="w-5 h-5 rounded-[4px] flex items-center justify-center shrink-0 {statusColorClass(displayStatus(currentSpace))}">
-            <FolderKanban class="w-3 h-3 text-white" />
-          </span>
-          <span class="flex-1 text-[13px] text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
+          <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
         {:else}
-          <span class="w-5 h-5 rounded-[4px] bg-bg-hover-strong flex items-center justify-center shrink-0">
-            <FolderKanban class="w-3 h-3 text-text-tertiary" />
-          </span>
           <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
         {/if}
         <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
       </button>
     </div>
 
-    <!-- Sessions Section -->
+    <!-- Action Buttons -->
+    {#if currentSpace}
+      <div class="px-2 py-1.5 shrink-0 space-y-[2px] border-b border-border-subtle">
+        <button
+          type="button"
+          class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          onclick={() => { void handleNavigate(`/spaces/${currentSpaceId}`); }}
+          title="Space details"
+        >
+          <ChevronRight class="w-3.5 h-3.5 shrink-0" />
+          <span class="text-[12px] font-medium">Space Details</span>
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          onclick={handleSaveCheckpoint}
+          disabled={checkpointSaving}
+          title="Save checkpoint"
+        >
+          {#if checkpointSaving}
+            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
+          {:else}
+            <Save class="w-3.5 h-3.5 shrink-0" />
+          {/if}
+          <span class="text-[12px] font-medium">Save Checkpoint</span>
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          onclick={() => { void handleCreateNewSession(); }}
+          disabled={creatingSession}
+          title="New session"
+        >
+          {#if creatingSession}
+            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
+          {:else}
+            <Plus class="w-3.5 h-3.5 shrink-0" />
+          {/if}
+          <span class="text-[12px] font-medium">New Session</span>
+        </button>
+        {#if checkpointNotice}
+          <div class="px-2 py-1 text-[11px] text-text-secondary">{checkpointNotice}</div>
+        {/if}
+        {#if checkpointError}
+          <div class="px-2 py-1 text-[11px] text-error-soft">{checkpointError}</div>
+        {/if}
+        {#if createSessionError}
+          <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Sessions Section (collapsible) -->
     <div class="flex flex-col min-h-0 flex-1">
-      <div class="h-8 flex items-center justify-between px-2 shrink-0">
+      <button
+        type="button"
+        class="h-8 flex items-center gap-1 px-2 shrink-0 hover:bg-bg-hover transition-colors duration-100"
+        onclick={() => { sessionsCollapsed = !sessionsCollapsed; }}
+        title={sessionsCollapsed ? "Expand sessions" : "Collapse sessions"}
+      >
+        <ChevronDown class="w-3 h-3 text-text-placeholder shrink-0 transition-transform duration-150 {sessionsCollapsed ? '' : 'rotate-180'}" />
         <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
           Sessions
         </span>
-        {#if currentSpace}
-          <button
-            type="button"
-            class="flex items-center justify-center w-5 h-5 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
-            onclick={async () => {
-              if (!currentSpaceId) return;
-              try {
-                const result = await createSpaceSession(currentSpaceId, { source: "web" });
-                await loadSessionsForSpace(currentSpaceId, true);
-                await handleNavigateToSession(result.session.id);
-              } catch (error) {
-                console.error("[sidebar] Failed to create session:", error);
-                loadError = error instanceof Error ? error.message : "Failed to create session";
-              }
-            }}
-            title="New session"
-          >
-            <Plus class="w-3.5 h-3.5" />
-          </button>
-        {/if}
-      </div>
+      </button>
 
       <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
         {#if !currentSpace}
           <div class="px-3 py-6 text-[12px] text-text-placeholder text-center">
             Select a space to view sessions
           </div>
+        {:else if sessionsCollapsed && activeSession}
+          {@const isActive = page.url.searchParams.get("session") === activeSession.id}
+          <a
+            href="/spaces/{currentSpaceId}?session={activeSession.id}"
+            class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+            onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
+            title={sourceTooltip(activeSession.source) || undefined}
+          >
+            <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
+            {#if sourceBadge(activeSession.source)}
+              <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                {sourceBadge(activeSession.source)}
+              </span>
+            {/if}
+            {#if sessionIsStreaming(activeSession)}
+              <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+            {:else if unreadTracker.isUnread(activeSession)}
+              <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+            {/if}
+          </a>
         {:else if loadingSessions && sessions.length === 0}
           <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
             <Loader2 class="w-3 h-3 animate-spin" />
@@ -355,7 +466,6 @@ $effect(() => {
       </div>
     </div>
   {:else}
-    <!-- Settings Navigation -->
     <nav class="flex-1 overflow-y-auto px-2 py-2 space-y-[2px]">
       {#each settingsTabs as tab (tab.id)}
         {@const isActive = activeSettingsTab === tab.id}
@@ -495,13 +605,8 @@ $effect(() => {
                 class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
                 onclick={() => { void handleNavigateToSpace(space.id); }}
               >
-                <!-- Status indicator -->
-                <span class="relative shrink-0">
-                  <span class="w-7 h-7 rounded-[5px] flex items-center justify-center {isActive ? 'bg-brand' : 'bg-bg-hover-strong'}">
-                    <FolderKanban class="w-3.5 h-3.5 {isActive ? 'text-white' : 'text-text-tertiary'}" />
-                  </span>
-                  <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-bg-primary {statusColorClass(status)}"></span>
-                </span>
+                <!-- Status dot -->
+                <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
 
                 <!-- Name & meta -->
                 <div class="flex-1 min-w-0">

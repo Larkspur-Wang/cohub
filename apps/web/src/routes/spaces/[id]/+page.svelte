@@ -34,6 +34,7 @@ import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
+import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import SpaceFilePane from "$lib/components/SpaceFilePane.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import {
@@ -48,6 +49,7 @@ import { unreadTracker } from "$lib/stores/session-state.svelte";
 
 import { getRealtimeClient } from "$lib/realtime";
 import type { RealtimeEventPayload } from "$lib/realtime";
+import { createSessionPermission, deleteSessionPermission, listSpacePermissions } from "$lib/api";
 import {
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
@@ -57,12 +59,20 @@ import type { ContentBlock, MessageRecord } from "@cohub/protocol";
 import {
 	AlertCircle,
 	ArrowDown,
+	Check,
+	Copy,
 	FolderKanban,
+	Globe,
+	Loader2,
+	Lock,
 	PanelRightClose,
 	PanelRightOpen,
 	Plus,
 	RefreshCw,
+	Settings,
+	Share2,
 	Terminal,
+	X,
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 
@@ -178,6 +188,85 @@ let scrollTargetSessionId = $state<string | null>(null);
 let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
 let titleClickCount = $state(0);
 let titleClickTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ─── Settings & Share ───
+let showSettings = $state(false);
+let showShareModal = $state(false);
+let shareModalSessionId = $state<string | null>(null);
+let shareCopied = $state(false);
+let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let shareModalError = $state("");
+let shareModalSaving = $state(false);
+let sharedSessionIds = $state<Set<string>>(new Set());
+
+function getSessionTitle(session: SessionRecord): string {
+  const candidates = [session.title, session.latestMessageText];
+  for (const candidate of candidates) {
+    const normalized = candidate?.replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim();
+    if (normalized) return normalized.slice(0, 36);
+  }
+  return "New session";
+}
+
+function hasSessionPermission(sessionId: string): boolean {
+  return sharedSessionIds.has(sessionId);
+}
+
+async function loadSpacePermissions() {
+  try {
+    const perms = await listSpacePermissions(spaceId);
+    const ids = new Set<string>();
+    for (const perm of perms) {
+      if (perm.resourceType === "session" && perm.level === "read" && perm.granteeUuid === null) {
+        ids.add(perm.resourceId);
+      }
+    }
+    sharedSessionIds = ids;
+  } catch {
+    // Non-blocking
+  }
+}
+
+function openShareModal(sessionId: string) {
+  shareModalSessionId = sessionId;
+  showShareModal = true;
+  shareCopied = false;
+  shareModalError = "";
+}
+
+async function shareAndCopyLink() {
+  if (!shareModalSessionId) return;
+  shareModalError = "";
+  shareModalSaving = true;
+  try {
+    await createSessionPermission(shareModalSessionId, "read");
+    const url = `${window.location.origin}/spaces/${spaceId}?session=${shareModalSessionId}`;
+    await navigator.clipboard.writeText(url);
+    shareCopied = true;
+    if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+    shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+    await loadSpacePermissions();
+  } catch (error) {
+    shareModalError = error instanceof Error ? error.message : "Failed to share session";
+  } finally {
+    shareModalSaving = false;
+  }
+}
+
+async function makeSessionPrivate() {
+  if (!shareModalSessionId) return;
+  shareModalError = "";
+  shareModalSaving = true;
+  try {
+    await deleteSessionPermission(shareModalSessionId);
+    await loadSpacePermissions();
+    showShareModal = false;
+  } catch (error) {
+    shareModalError = error instanceof Error ? error.message : "Failed to make session private";
+  } finally {
+    shareModalSaving = false;
+  }
+}
 
 function handleTitleClick() {
 	titleClickCount++;
@@ -464,6 +553,16 @@ async function loadSpace(options?: { force?: boolean }) {
 		(async () => {
 			try {
 				checkpoints = (await getSpaceCheckpoints(spaceId)).checkpoints;
+			} catch {
+				// Non-blocking
+			}
+		})(),
+	);
+
+	tasks.push(
+		(async () => {
+			try {
+				await loadSpacePermissions();
 			} catch {
 				// Non-blocking
 			}
@@ -945,66 +1044,20 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 		if (!currentActiveSessionId) return;
 		if (payload.sessionId !== currentActiveSessionId) return;
 
-		const eventType = payload.eventType ?? payload.meta?.eventType;
-		if (eventType !== "session.message") return;
-
 		const state = sessionStateById[currentActiveSessionId];
 		if (!state) return;
 
-		const messageKind = payload.meta?.messageKind as string | undefined;
-		const content = payload.content;
-		// Empty delta means no new content to merge; early return is safe.
-		// This also guards against malformed events with missing content.
-		if (!content || content.length === 0) return;
-
-		const sessionMessageId = payload.sessionMessageId;
-		const isIntermediate = messageKind === "assistant_intermediate";
-		if (!sessionMessageId && !isIntermediate) return;
-
-		const messageRole = payload.meta?.sessionMessageRole as string | undefined;
-		const rawMeta = (payload.meta ?? {}) as Record<string, unknown>;
-		const sequence =
-			typeof rawMeta.sequence === "number"
-				? rawMeta.sequence
-				: (state.messages.at(-1)?.sequence ?? 0) + 1;
-
-		const incomingMessage: MessageRecord = {
-			id: sessionMessageId ?? `stream-${currentActiveSessionId}`,
-			sessionId: currentActiveSessionId,
-			role: (messageRole ?? "assistant") as "user" | "assistant",
-			content: content as MessageRecord["content"],
-			text: content.find((b) => b.type === "text")?.text ?? "",
-			sequence,
-			provider: null,
-			model: null,
-			stopReason: null,
-			errorMessage: null,
-			usageInput: null,
-			usageOutput: null,
-			costTotal: null,
-			meta: {
-				messageKind,
-				...(rawMeta.clientMessageId ? { clientMessageId: rawMeta.clientMessageId } : {}),
-				...(typeof rawMeta.anchorUserMessageId === "string"
-					? { anchorUserMessageId: rawMeta.anchorUserMessageId }
-					: {}),
-			},
-			createdAt: new Date().toISOString(),
-		};
-
-		// Deduplicate: skip if we already have this message
-		if (state.messages.some((m) => m.id === sessionMessageId)) return;
-
-		if (messageKind === "assistant_intermediate") {
-				const streamingAnchorUserMessageId =
-					typeof payload.meta?.anchorUserMessageId === "string"
-						? payload.meta.anchorUserMessageId
-						: null;
-				const hadContentBefore = streamingContentBlocks.length > 0;
-			const mergedContent = mergeDeltaBlocks(
-				streamingContentBlocks,
-				content as ContentBlock[],
-			);
+		if (payload.type === "session.turn.progress") {
+			const content = Array.isArray(payload.payload.content)
+				? (payload.payload.content as ContentBlock[])
+				: [];
+			if (content.length === 0) return;
+			const streamingAnchorUserMessageId =
+				typeof payload.payload.anchorUserMessageId === "string"
+					? payload.payload.anchorUserMessageId
+					: null;
+			const hadContentBefore = streamingContentBlocks.length > 0;
+			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
 			const { thinking, answer } = extractSessionRenderState(mergedContent);
 			streamingThinking = thinking;
 			streamingAssistantText = answer;
@@ -1021,38 +1074,24 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 					[currentActiveSessionId]: true,
 				};
 			}
-			if (content.length > 0) {
-				if (streamingSessionId !== currentActiveSessionId) {
-					streamingSessionId = currentActiveSessionId;
-					notifyStreamingStatus(currentActiveSessionId, true);
-				}
-				await tick();
-				if (!userScrolledUp) scrollToBottomNow();
+			if (streamingSessionId !== currentActiveSessionId) {
+				streamingSessionId = currentActiveSessionId;
+				notifyStreamingStatus(currentActiveSessionId, true);
 			}
-		} else if (messageKind === "assistant_error") {
-			// Error messages are persisted in DB for debugging, but not shown in UI.
-			// Clear streaming state without merging the error into visible messages.
+			await tick();
+			if (!userScrolledUp) scrollToBottomNow();
+			return;
+		}
+
+		if (payload.type === "session.turn.error") {
 			clearStreamingState(currentActiveSessionId);
 			streamStatus = "error";
 			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
 			streamingSessionId = null;
+			return;
+		}
 
-			// Update session list (lastMessageId, updatedAt) even for errors so the
-			// sidebar reflects the latest activity.
-			const updatedSession = state.session;
-			if (updatedSession) {
-				const refreshedSession: SessionRecord = {
-					...updatedSession,
-					lastMessageId: sessionMessageId ?? null,
-					updatedAt: new Date().toISOString(),
-				};
-				spaceSessions = spaceSessions.map(
-					(s): SessionRecord =>
-						s.id === updatedSession.id ? refreshedSession : s,
-				);
-			}
-		} else if (messageKind === "assistant_final") {
-			// Final message — clear streaming state, then reconcile from DB.
+		if (payload.type === "session.turn.final") {
 			clearStreamingState(currentActiveSessionId);
 			streamStatus = "done";
 			streamingDraftTruncatedStartBySessionId = {
@@ -1061,63 +1100,46 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			};
 			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
 			streamingSessionId = null;
-
-			const merged = mergeMessagesById(state.messages, [incomingMessage], {
-				preferIncoming: true,
-			});
-			sessionStateById = {
-				...sessionStateById,
-				[currentActiveSessionId]: {
-					...state,
-					messages: merged,
-					loading: false,
-					loaded: true,
-					error: "",
-					hasMore: state.hasMore ?? true,
-					loadingOlder: false,
-					oldestCursor: state.oldestCursor,
-				},
-			};
-
 			void reconcileSessionTail(currentActiveSessionId);
-
-			// Update session list (lastMessageId, updatedAt)
-			const updatedSession = state.session;
-			if (updatedSession) {
-				const refreshedSession: SessionRecord = {
-					...updatedSession,
-					lastMessageId: sessionMessageId ?? null,
-					updatedAt: new Date().toISOString(),
-				};
-				spaceSessions = spaceSessions.map(
-					(s): SessionRecord =>
-						s.id === updatedSession.id ? refreshedSession : s,
-				);
-			}
 			if (!userScrolledUp) scrollToBottomNow();
-		} else if (messageKind === "user") {
-			const clientMessageId =
-				typeof payload.meta?.clientMessageId === "string"
-					? payload.meta.clientMessageId
-					: typeof incomingMessage.meta?.clientMessageId === "string"
-						? (incomingMessage.meta.clientMessageId as string)
-						: null;
-			if (clientMessageId) {
-				sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
-				sessionPendingStore.reconcilePersisted(currentActiveSessionId, [incomingMessage]);
-			}
-			const merged = mergeMessagesById(state.messages, [incomingMessage], {
-				preferIncoming: true,
-			});
-			if (merged.length > state.messages.length || clientMessageId) {
-				sessionStateById = {
-					...sessionStateById,
-					[currentActiveSessionId]: {
-						...state,
-						messages: merged,
-					},
-				};
-			}
+			return;
+		}
+
+		if (payload.type !== "session.message.persisted") return;
+		const message = payload.payload.message as MessageRecord | undefined;
+		if (!message) return;
+		if (state.messages.some((m) => m.id === message.id)) return;
+
+		const clientMessageId =
+			typeof message.meta?.clientMessageId === "string"
+				? (message.meta.clientMessageId as string)
+				: null;
+		if (message.role === "user" && clientMessageId) {
+			sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
+			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
+		}
+
+		const merged = mergeMessagesById(state.messages, [message], {
+			preferIncoming: true,
+		});
+		sessionStateById = {
+			...sessionStateById,
+			[currentActiveSessionId]: {
+				...state,
+				messages: merged,
+			},
+		};
+
+		const updatedSession = state.session;
+		if (updatedSession) {
+			const refreshedSession: SessionRecord = {
+				...updatedSession,
+				lastMessageId: message.id ?? null,
+				updatedAt: new Date().toISOString(),
+			};
+			spaceSessions = spaceSessions.map((s): SessionRecord =>
+				s.id === updatedSession.id ? refreshedSession : s,
+			);
 		}
 	} catch (error) {
 		console.error("[WS] handleWsEvent error:", error);
@@ -1645,6 +1667,18 @@ onMount(() => {
 	pageVisible = !document.hidden;
 	pageOnline = navigator.onLine;
 
+	// Preload models catalog so model selector is ready immediately
+	void loadModelsCatalog();
+
+	// Listen for checkpoint updates from sidebar
+	function handleCheckpointsUpdated(e: Event) {
+		const custom = e as CustomEvent;
+		if (custom.detail?.spaceId === spaceId) {
+			void loadSpace({ force: true });
+		}
+	}
+	window.addEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
+
 	// Set up WebSocket event listener once — filters by activeSessionId internally
 	const wsClient = getRealtimeClient();
 	const wsEventCleanup = wsClient.on("event", (payload) => {
@@ -1711,6 +1745,7 @@ onMount(() => {
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
+		window.removeEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
 		rightSidebarResizeCleanup?.();
 	};
 });
@@ -1826,47 +1861,54 @@ $effect(() => {
 
 <PageHeader>
   {#snippet left()}
-    <div class="flex items-center gap-2 min-w-0">
-      <Terminal class="w-3.5 h-3.5 text-text-tertiary shrink-0 hidden sm:block" />
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <span
-        class="text-[13px] text-text-primary truncate cursor-default select-none"
-        onclick={handleTitleClick}
-      >{space?.name || space?.title || space?.id || spaceId}</span>
+    <div class="flex items-center gap-1.5 min-w-0">
+      {#if activeSessionState}
+        <span
+          class="text-[13px] text-text-primary truncate max-w-[35%] cursor-default select-none"
+          onclick={handleTitleClick}
+          title="Space details"
+        >{space?.name || space?.title || spaceId}</span>
+        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
+        <span class="text-[13px] text-text-secondary truncate">{getSessionTitle(activeSessionState.session)}</span>
+      {:else}
+        <span
+          class="text-[13px] text-text-primary truncate cursor-default select-none"
+          onclick={handleTitleClick}
+        >{space?.name || space?.title || spaceId}</span>
+      {/if}
     </div>
   {/snippet}
   {#snippet right()}
+    <!-- Session Share -->
+    {#if activeSessionId}
+      {@const isPublic = hasSessionPermission(activeSessionId)}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] transition-colors duration-100 {isPublic ? 'text-success-soft hover:text-success hover:bg-success-bg' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+        onclick={() => { openShareModal(activeSessionId!); }}
+        title={isPublic ? 'Session is public' : 'Share session'}
+      >
+        {#if isPublic}
+          <Globe class="w-4 h-4 shrink-0" />
+          <span class="hidden lg:inline text-[13px] font-medium">Shared</span>
+        {:else}
+          <Share2 class="w-4 h-4 shrink-0" />
+          <span class="hidden lg:inline text-[13px] font-medium">Share</span>
+        {/if}
+      </button>
+    {/if}
+
+    <!-- Settings -->
     <button
       type="button"
-      class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-      onclick={handleSaveCheckpoint}
-      disabled={checkpointSaving || !space}
-      title="Save checkpoint"
+      class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+      onclick={() => { showSettings = true; }}
+      title="Settings"
     >
-      {#if checkpointSaving}
-        <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin shrink-0"></div>
-      {:else}
-        <FolderKanban class="w-4 h-4 shrink-0" />
-      {/if}
-      <span class="hidden lg:inline text-[13px] font-medium">Save checkpoint</span>
+      <Settings class="w-4 h-4 shrink-0" />
     </button>
 
-    <button
-      type="button"
-      class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-      onclick={handleCreateNewSession}
-      disabled={creatingSession || !space}
-      title="New session"
-    >
-      {#if creatingSession}
-        <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin shrink-0"></div>
-      {:else}
-        <Plus class="w-4 h-4 shrink-0" />
-      {/if}
-      <span class="hidden lg:inline text-[13px] font-medium">New session</span>
-    </button>
-
+    <!-- Toggle right sidebar -->
     <div class="relative">
       <button
         type="button"
@@ -2139,6 +2181,130 @@ $effect(() => {
       canWrite={true}
     />
   </MobileRightDrawer>
+
+  <!-- Settings Overlay -->
+  <SettingsOverlay open={showSettings} onClose={() => { showSettings = false; }}>
+    <div class="px-4 py-3 space-y-4">
+      <div>
+        <h3 class="text-[13px] font-medium text-text-primary mb-2">Space</h3>
+        <dl class="space-y-1.5 text-[12px]">
+          <div class="flex gap-3">
+            <dt class="w-16 shrink-0 text-text-tertiary">Name</dt>
+            <dd class="text-text-primary truncate">{space?.name ?? space?.title ?? "—"}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-16 shrink-0 text-text-tertiary">ID</dt>
+            <dd class="text-text-primary font-mono truncate">{spaceId}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-16 shrink-0 text-text-tertiary">Status</dt>
+            <dd class="text-text-primary">{space?.status ?? "unknown"}</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="border-t border-border-subtle pt-3">
+        <button
+          type="button"
+          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-[5px] text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          onclick={() => { showSettings = false; void goto(`/spaces/${spaceId}/debug`); }}
+        >
+          <Terminal class="w-3.5 h-3.5" />
+          <span>Debug Info</span>
+        </button>
+      </div>
+    </div>
+  </SettingsOverlay>
+
+  <!-- Share Modal -->
+  {#if showShareModal && shareModalSessionId}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        class="absolute inset-0 bg-black/40"
+        aria-label="Close share dialog"
+        onclick={() => { showShareModal = false; }}
+      ></button>
+      <div class="relative w-full max-w-[380px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl overflow-hidden">
+        <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none">
+          <span>{hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'}</span>
+          <button type="button" class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors" onclick={() => { showShareModal = false; }}>
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div class="p-4 space-y-4">
+          {#if hasSessionPermission(shareModalSessionId!)}
+            <p class="text-[13px] text-text-secondary leading-relaxed">Anyone with the link can view this session. Choose how to manage access:</p>
+            <div class="space-y-2">
+              <button
+                type="button"
+                class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
+                onclick={() => { void deleteSessionPermission(shareModalSessionId!).then((ok) => { if (ok.ok) { showShareModal = false; void loadSpacePermissions(); } }); }}
+                disabled={shareModalSaving}
+              >
+                <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
+                <div class="min-w-0">
+                  <div class="text-[13px] text-text-primary font-medium">Remove permission</div>
+                  <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Delete this session's access rule.</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
+                onclick={() => { void makeSessionPrivate(); }}
+                disabled={shareModalSaving}
+              >
+                <Lock class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
+                <div class="min-w-0">
+                  <div class="text-[13px] text-text-primary font-medium">Make private</div>
+                  <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Block all external access.</div>
+                </div>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] text-[13px] text-text-secondary hover:text-text-primary border border-border-subtle hover:bg-bg-hover transition-colors disabled:opacity-50"
+              onclick={() => {
+                const url = `${window.location.origin}/spaces/${spaceId}?session=${shareModalSessionId}`;
+                void navigator.clipboard.writeText(url);
+                shareCopied = true;
+                if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+                shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+              }}
+              disabled={shareModalSaving}
+            >
+              {#if shareCopied}
+                <Check class="w-3.5 h-3.5 text-status-success" />
+                Copied
+              {:else}
+                <Copy class="w-3.5 h-3.5" />
+                Copy link
+              {/if}
+            </button>
+          {:else}
+            <p class="text-[13px] text-text-secondary leading-relaxed">This session will become publicly accessible. Anyone with the link can view the conversation.</p>
+            <button
+              type="button"
+              class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] bg-bg-primary hover:bg-bg-hover-strong border border-border-subtle text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
+              onclick={() => { void shareAndCopyLink(); }}
+              disabled={shareModalSaving}
+            >
+              {#if shareModalSaving}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                Sharing…
+              {:else}
+                <Share2 class="w-3.5 h-3.5" />
+                Share &amp; copy link
+              {/if}
+            </button>
+          {/if}
+
+          {#if shareModalError}
+            <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <ModelSelector
     open={showModelSelector}
