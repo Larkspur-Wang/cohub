@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
@@ -29,8 +29,6 @@ const {
   onClose?: () => void;
   mode?: "space" | "settings";
 } = $props();
-
-const SESSION_POLL_INTERVAL_MS = 15_000;
 
 let isLoading = $state(true);
 let loadError = $state("");
@@ -234,7 +232,12 @@ $effect(() => {
   if (mode !== "space") return;
   const id = currentSpaceId;
   if (id) {
-    void loadSessionsForSpace(id, true);
+    // Use untrack to prevent the effect from tracking reactive reads
+    // inside loadSessionsForSpace (e.g. sessions.length), which would
+    // cause an infinite loop when sessions is written after the API call.
+    untrack(() => {
+      void loadSessionsForSpace(id, true);
+    });
   }
 });
 
