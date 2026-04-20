@@ -743,10 +743,40 @@ function shouldHandleWsEvents(): boolean {
  * blocks of the same type exist (e.g. text → tool_use → text).
  * tool_use/tool_result blocks are upserted by id/tool_use_id.
  */
+function cloneContentBlock(block: ContentBlock): ContentBlock {
+  if (block.type === "text") return { ...block };
+  if (block.type === "thinking") return { ...block };
+  if (block.type === "image") {
+    return {
+      ...block,
+      source: { ...block.source },
+    };
+  }
+  if (block.type === "tool_use") {
+    return {
+      ...block,
+      input: { ...block.input },
+    };
+  }
+  if (block.type === "tool_result") {
+    return {
+      ...block,
+      content: Array.isArray(block.content)
+        ? block.content.map((item) =>
+            typeof item === "object" && item !== null && "type" in item
+              ? cloneContentBlock(item as ContentBlock)
+              : item,
+          )
+        : block.content,
+    };
+  }
+  return { ...block };
+}
+
 function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): ContentBlock[] {
   if (delta.length === 0) return existing;
 
-  const result = structuredClone(existing);
+  const result = existing.map((block) => cloneContentBlock(block));
   // Track ordinal position per append-only type, matching backend computeDelta
   const ordinal = { text: 0, thinking: 0 };
 
@@ -758,7 +788,7 @@ function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): Cont
       if (target) {
         target.text += block.text;
       } else {
-        result.push(block);
+        result.push(cloneContentBlock(block));
       }
     } else if (block.type === "thinking") {
       const idx = ordinal.thinking++;
@@ -767,7 +797,7 @@ function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): Cont
       if (target) {
         target.thinking += block.thinking;
       } else {
-        result.push(block);
+        result.push(cloneContentBlock(block));
       }
     } else {
       const idKey = block.type === "tool_use" ? "id" : "tool_use_id";
@@ -775,9 +805,9 @@ function mergeDeltaBlocks(existing: ContentBlock[], delta: ContentBlock[]): Cont
         (b) => (b as Record<string, unknown>)[idKey] === (block as Record<string, unknown>)[idKey],
       );
       if (idx !== -1) {
-        Object.assign(result[idx], block);
+        Object.assign(result[idx], cloneContentBlock(block));
       } else {
-        result.push(block);
+        result.push(cloneContentBlock(block));
       }
     }
   }
@@ -807,13 +837,14 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
     if (!content || content.length === 0) return;
 
     const sessionMessageId = payload.sessionMessageId;
-    if (!sessionMessageId) return;
+    const isIntermediate = messageKind === "assistant_intermediate";
+    if (!sessionMessageId && !isIntermediate) return;
 
     const messageRole = payload.meta?.sessionMessageRole as string | undefined;
     const sequence = (state.messages.at(-1)?.sequence ?? 0) + 1;
 
     const incomingMessage: MessageRecord = {
-      id: sessionMessageId,
+      id: sessionMessageId ?? `stream-${currentActiveSessionId}`,
       sessionId: currentActiveSessionId,
       role: (messageRole ?? "assistant") as "user" | "assistant",
       content: content as MessageRecord["content"],
@@ -876,12 +907,12 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
       // Update session list (lastMessageId, updatedAt)
       const updatedSession = state.session;
       if (updatedSession) {
-        const refreshedSession = {
+        const refreshedSession: SessionRecord = {
           ...updatedSession,
-          lastMessageId: sessionMessageId,
+          lastMessageId: sessionMessageId ?? null,
           updatedAt: new Date().toISOString(),
         };
-        spaceSessions = spaceSessions.map((s) =>
+        spaceSessions = spaceSessions.map((s): SessionRecord =>
           s.id === updatedSession.id ? refreshedSession : s,
         );
       }
