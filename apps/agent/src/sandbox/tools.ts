@@ -266,7 +266,7 @@ function createRemoteFindOperations(): FindOperations {
 }
 
 function createRemoteGrepTool() {
-  return createGrepTool(env.WORKSPACE_ROOT, {
+  return createGrepTool(SANDBOX_WORKSPACE_ROOT, {
     operations: {
       async isDirectory(absolutePath: string) {
         const connection = await getCurrentConnection();
@@ -284,7 +284,7 @@ function createRemoteGrepTool() {
 }
 
 export function createSandboxCodingTools() {
-  const toolCwd = env.WORKSPACE_ROOT;
+  const toolCwd = SANDBOX_WORKSPACE_ROOT;
   const grepTool = createRemoteGrepTool();
   grepTool.execute = async (_toolCallId, input) => {
     console.log(`[Tool:grep] pattern=${input.pattern} path=${input.path}`);
