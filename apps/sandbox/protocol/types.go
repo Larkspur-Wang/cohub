@@ -38,14 +38,14 @@ type SandboxMetadata struct {
 }
 
 type SandboxHello struct {
-	Version      string               `json:"version"`
-	Type         string               `json:"type"`
-	SpaceID      string               `json:"spaceId"`
-	SandboxID    string               `json:"sandboxId"`
-	Timestamp    int64                `json:"timestamp"`
-	Capabilities SandboxCapabilities  `json:"capabilities"`
-	Filesystem   *SandboxFilesystem   `json:"filesystem,omitempty"`
-	Metadata     *SandboxMetadata     `json:"metadata,omitempty"`
+	Version      string              `json:"version"`
+	Type         string              `json:"type"`
+	SpaceID      string              `json:"spaceId"`
+	SandboxID    string              `json:"sandboxId"`
+	Timestamp    int64               `json:"timestamp"`
+	Capabilities SandboxCapabilities `json:"capabilities"`
+	Filesystem   *SandboxFilesystem  `json:"filesystem,omitempty"`
+	Metadata     *SandboxMetadata    `json:"metadata,omitempty"`
 }
 
 type SandboxHelloAck struct {
