@@ -150,8 +150,8 @@ export const provisionSpaceInBackground = async (input: {
           name: "PUBLIC_URL_PREFIX",
           value:
             config.env === "prod"
-              ? `https://public.cohub.run/r/${input.spaceId}`
-              : `https://public.cohub.run/dev/r/${input.spaceId}`,
+              ? `https://public.cohub.run/s/${input.spaceId}`
+              : `https://public.cohub.run/dev/s/${input.spaceId}`,
         },
         { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },

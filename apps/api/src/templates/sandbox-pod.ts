@@ -63,8 +63,8 @@ export const SANDBOX_POD_TEMPLATE = {
             mountPath: "/public",
             subPath:
               config.env === "prod"
-                ? "r/${SPACE_ID}"
-                : "dev/r/${SPACE_ID}",
+                ? "s/${SPACE_ID}"
+                : "dev/s/${SPACE_ID}",
           },
         ],
       },
