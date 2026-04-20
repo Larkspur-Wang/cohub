@@ -41,7 +41,6 @@ export const EnvSchema = z.object({
     })
     .default("/configs"),
   ENV: z.enum(["dev", "prod"]).default("dev"),
-  PUBLIC_URL_PREFIX: z.string().optional(),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
   SESSIONS_NAMESPACE: z.string().min(1),

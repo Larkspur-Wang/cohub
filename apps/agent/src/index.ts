@@ -254,7 +254,6 @@ async function main() {
     localSandboxSpaceId: LOCAL_SANDBOX_SPACE_ID,
     localSandboxWsUrl: LOCAL_SANDBOX_WS_URL,
     agentVersion: env.AGENT_VERSION || null,
-    publicUrlPrefix: env.PUBLIC_URL_PREFIX || null,
     internalApiBaseUrl:
       env.ENV === "prod"
         ? "http://cohub-api.cohub.svc.cluster.local:8787"

@@ -25,6 +25,7 @@ type Config struct {
 	PodIP                 string
 	InternalAPIBaseURL    string
 	SandboxReportToken    string
+	PublicURLPrefix       string
 }
 
 func Load() (Config, error) {
@@ -94,5 +95,6 @@ func Load() (Config, error) {
 		PodIP:                 strings.TrimSpace(os.Getenv("POD_IP")),
 		InternalAPIBaseURL:    strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
 		SandboxReportToken:    strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
+		PublicURLPrefix:       strings.TrimSpace(os.Getenv("PUBLIC_URL_PREFIX")),
 	}, nil
 }

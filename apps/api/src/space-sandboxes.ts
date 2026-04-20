@@ -146,6 +146,13 @@ export const provisionSpaceInBackground = async (input: {
               ? "http://cohub-api.cohub.svc.cluster.local:8787"
               : "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787",
         },
+        {
+          name: "PUBLIC_URL_PREFIX",
+          value:
+            config.env === "prod"
+              ? `https://public.cohub.run/r/${input.spaceId}`
+              : `https://public.cohub.run/dev/r/${input.spaceId}`,
+        },
         { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },
