@@ -4,6 +4,10 @@ import { getSshKeys, createSshKey, deleteSshKey, type UserSshKey } from "$lib/ap
 import { fade } from "svelte/transition";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { page } from "$app/state";
+
+const currentPath = $derived(page.url.pathname);
+const currentSearch = $derived(page.url.search);
 
 let keys = $state<UserSshKey[]>([]);
 let isLoading = $state(true);
@@ -16,7 +20,7 @@ let formTitle = $state("");
 let formKey = $state("");
 
 async function loadKeys() {
-  if (!(await ensureAuth())) return;
+  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
   isLoading = true;
   loadError = "";
   try {

@@ -3,6 +3,10 @@ import { User, Copy, Check } from "lucide-svelte";
 import { getMe } from "$lib/api";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { page } from "$app/state";
+
+const currentPath = $derived(page.url.pathname);
+const currentSearch = $derived(page.url.search);
 
 let userUuid = $state("");
 let userNickname = $state("");
@@ -12,7 +16,7 @@ let loadError = $state("");
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadProfile() {
-  if (!(await ensureAuth())) return;
+  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
   try {
     const me = await getMe();
     userUuid = me.uuid ?? "";

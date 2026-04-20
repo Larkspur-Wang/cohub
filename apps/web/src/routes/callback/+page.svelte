@@ -6,10 +6,18 @@ let error = $state("");
 
 onMount(async () => {
 	try {
-		// Exchange the authorization code from the URL for tokens.
-		await logtoClient.handleSignInCallback(window.location.href);
-		// Full page redirect to ensure all components, styles, and state are freshly initialized
-		window.location.replace("/");
+    const searchParams = new URLSearchParams(window.location.search);
+    const redirectPath = searchParams.get("redirect_path") ?? "/";
+    // Exchange the authorization code from the URL for tokens.
+    await logtoClient.handleSignInCallback(window.location.href);
+    // Full page redirect to ensure all components, styles, and state are freshly initialized
+
+    const redirectUri = new URL(redirectPath, window.location.origin);
+    if (redirectUri.origin !== window.location.origin) {
+      window.location.replace("/");
+      return;
+    }
+    window.location.replace(redirectUri.toString());
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Authentication failed";
 	}

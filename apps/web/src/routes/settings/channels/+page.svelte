@@ -3,6 +3,10 @@ import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte
 import { deleteChannel, getChannels, type Channel } from "$lib/api";
 import { onMount } from "svelte";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { page } from "$app/state";
+
+const currentPath = $derived(page.url.pathname);
+const currentSearch = $derived(page.url.search);
 
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
@@ -21,7 +25,7 @@ const providerDotColor: Record<string, string> = {
 };
 
 async function loadChannels() {
-  if (!(await ensureAuth())) return;
+  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
   isLoading = true;
   loadError = "";
   try {

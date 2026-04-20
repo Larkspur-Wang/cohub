@@ -4,6 +4,10 @@ import { onMount } from "svelte";
 import { ArrowLeft, MessageSquare, Webhook, Copy, ExternalLink, Check, Loader2, ChevronDown } from "lucide-svelte";
 import { createChannel } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { page } from "$app/state";
+
+const currentPath = $derived(page.url.pathname);
+const currentSearch = $derived(page.url.search);
 
 type Provider = "discord" | "feishu" | "web";
 type Step = "select" | "form";
@@ -66,7 +70,7 @@ async function handleSubmit(e: Event) {
     }
   }
 
-  if (!(await ensureAuth())) return;
+  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
 
   isSubmitting = true;
   submitError = "";

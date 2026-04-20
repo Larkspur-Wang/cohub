@@ -57,13 +57,17 @@ export const clearAuthToken = () => {
   localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 };
 
-export const ensureAuth = async (redirectPath?: string) => {
+export const ensureAuth = async (options?: {
+  redirectPath?: string;
+}) => {
   const isAuthenticated = await logtoClient.isAuthenticated();
   if (!isAuthenticated) {
-    const callback = redirectPath
-      ? `${window.location.origin}${redirectPath}`
-      : `${window.location.origin}/callback`;
-    await logtoClient.signIn(callback);
+    const searchParams = new URLSearchParams();
+    searchParams.set("redirect_path", options?.redirectPath ?? "");
+    const callback = `${window.location.origin}/callback?${searchParams.toString()}`;
+    await logtoClient.signIn({
+      redirectUri: callback,
+    });
   }
   return isAuthenticated;
 };

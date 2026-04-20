@@ -12,6 +12,10 @@ import {
   type SpaceEnvInput,
 } from "$lib/api";
 import { ensureAuth } from "$lib/auth";
+import { page } from "$app/state";
+
+const currentPath = $derived(page.url.pathname);
+const currentSearch = $derived(page.url.search);
 
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
@@ -36,7 +40,7 @@ const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
 };
 
 async function loadPage() {
-  if (!(await ensureAuth())) return;
+  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
   isLoading = true;
   loadError = "";
 
