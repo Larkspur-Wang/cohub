@@ -89,19 +89,19 @@ router.get("/runs", async (c) => {
   return c.json({ runs });
 });
 
-router.get("/runs/:jobId", async (c) => {
+router.get("/runs/:taskId", async (c) => {
   const user = useAuth(c);
 
-  const jobId = c.req.param("jobId");
-  if (!jobId?.trim()) return c.json({ message: "job not found" }, 404);
+  const taskId = c.req.param("taskId");
+  if (!taskId?.trim()) return c.json({ message: "task run not found" }, 404);
 
   const [run] = await db
     .select()
     .from(taskRuns)
-    .where(and(eq(taskRuns.userUuid, user.uuid), eq(taskRuns.jobId, jobId)))
+    .where(and(eq(taskRuns.userUuid, user.uuid), eq(taskRuns.id, taskId)))
     .limit(1);
 
-  if (!run) return c.json({ message: "job not found" }, 404);
+  if (!run) return c.json({ message: "task run not found" }, 404);
   return c.json({ run });
 });
 
