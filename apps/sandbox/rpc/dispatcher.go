@@ -334,7 +334,7 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 		args = append(args, "--glob")
 	case "fixed-strings":
 		args = append(args, "--fixed-strings")
-	// "regex" is fd default, no flag needed.
+		// "regex" is fd default, no flag needed.
 	}
 
 	if params.Hidden {
