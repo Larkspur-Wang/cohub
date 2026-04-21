@@ -1456,9 +1456,7 @@ async function handleSend() {
 function scrollToBottomNow() {
 	if (!listEl) return;
 	autoScrollGuard = true;
-	// In flex-col-reverse, DOM start = visual bottom, so scrollTop = 0
-	// pins the view to the latest messages.
-	listEl.scrollTop = 0;
+	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
 	requestAnimationFrame(() => {
 		autoScrollGuard = false;
 	});
@@ -1476,13 +1474,13 @@ async function forceScrollToBottom() {
 
 function updateAutoFollow() {
 	if (!listEl) return;
-	// In flex-col-reverse, scrollTop = 0 means visual bottom (latest messages).
-	// A larger scrollTop means the user scrolled up toward older messages.
 	const threshold = 80;
-	if (!autoScrollGuard && listEl.scrollTop > threshold) {
+	const distanceFromBottom =
+		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+	if (!autoScrollGuard && distanceFromBottom > threshold) {
 		userScrolledUp = true;
 	}
-	shouldAutoFollow = listEl.scrollTop <= threshold;
+	shouldAutoFollow = distanceFromBottom <= threshold;
 	if (shouldAutoFollow) userScrolledUp = false;
 	showScrollToBottom =
 		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
