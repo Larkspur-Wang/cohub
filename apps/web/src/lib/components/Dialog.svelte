@@ -42,7 +42,7 @@ const SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
   >
     <!-- Backdrop -->
     <div
-      class="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+      class="absolute inset-0 bg-black/60"
       onclick={onClose}
       aria-hidden="true"
     ></div>

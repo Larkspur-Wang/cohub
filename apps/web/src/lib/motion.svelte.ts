@@ -4,9 +4,9 @@
 // ─── Durations ───────────────────────────────────────────────────────
 export const DURATION_FAST = 150;   // micro-interactions, feedback
 export const DURATION_MODAL_IN = 300;  // modal/drawer open
-export const DURATION_MODAL_OUT = 220; // modal/drawer close (~75% of in)
+export const DURATION_MODAL_OUT = 150; // modal/drawer close — fast, snappy
 export const DURATION_DRAWER_IN = 300;
-export const DURATION_DRAWER_OUT = 220;
+export const DURATION_DRAWER_OUT = 150;
 
 // ─── Easing curves (CSS cubic-bezier) ────────────────────────────────
 // Expo out — snappy entrance, natural deceleration

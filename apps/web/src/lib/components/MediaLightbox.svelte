@@ -113,7 +113,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 
 {#if mediaLightbox.open && mediaLightbox.current}
 	<div
-		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-sm"
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85"
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeyDown}
 		ontouchstart={onTouchStart}

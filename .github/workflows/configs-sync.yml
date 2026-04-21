@@ -1,0 +1,207 @@
+name: Configs Sync to PVC
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target environment(s) to sync'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+          - both
+
+permissions:
+  contents: read
+
+jobs:
+  sync-dev:
+    if: ${{ github.event.inputs.target == 'dev' || github.event.inputs.target == 'both' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > ~/.kube/config
+
+      - name: Create git-sync pod
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: configs-sync-${{ github.run_id }}
+            namespace: cohub-dev
+          spec:
+            containers:
+              - name: git
+                image: alpine/git
+                command: ["sh", "-c"]
+                args:
+                  - |
+                    set -e
+                    cd /configs/platform
+                    git config --global --add safe.directory /configs/platform
+
+                    # Configure HTTPS credentials
+                    git config credential.helper '!f() { echo "username=${GITEA_USERNAME}"; echo "password=${GITEA_PAT}"; }; f'
+
+                    echo "=== Before pull ==="
+                    git log --oneline -3 || true
+
+                    echo ""
+                    echo "=== Pulling ==="
+                    git pull origin main
+
+                    echo ""
+                    echo "=== After pull ==="
+                    git log --oneline -3 || true
+
+                    echo ""
+                    echo "=== Cleaning macOS resource forks ==="
+                    find . -name "._*" -type f -delete
+                    echo "Cleaned."
+                env:
+                  - name: GITEA_USERNAME
+                    value: "${{ secrets.GITEA_USERNAME }}"
+                  - name: GITEA_PAT
+                    value: "${{ secrets.GITEA_PAT }}"
+                volumeMounts:
+                  - name: config-vol
+                    mountPath: /configs
+                    subPath: configs/dev
+            volumes:
+              - name: config-vol
+                persistentVolumeClaim:
+                  claimName: cohub-spaces-pvc
+            restartPolicy: Never
+          EOF
+
+      - name: Wait for completion
+        run: |
+          if kubectl wait --for=condition=ready pod/configs-sync-${{ github.run_id }} \
+            -n cohub-dev --timeout=60s; then
+            kubectl wait --for=condition=ready pod/configs-sync-${{ github.run_id }} \
+              -n cohub-dev --timeout=60s
+            kubectl logs pod/configs-sync-${{ github.run_id }} -n cohub-dev --follow
+          else
+            echo "Pod failed to start, showing events:"
+            kubectl describe pod configs-sync-${{ github.run_id }} -n cohub-dev
+            exit 1
+          fi
+
+      - name: Verify result
+        run: |
+          EXIT_CODE=$(kubectl get pod configs-sync-${{ github.run_id }} -n cohub-dev \
+            -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}' || echo "unknown")
+          echo "Pod exit code: $EXIT_CODE"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Sync failed!"
+            kubectl logs pod/configs-sync-${{ github.run_id }} -n cohub-dev --tail=100
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kubectl delete pod configs-sync-${{ github.run_id }} -n cohub-dev --ignore-not-found 2>/dev/null || true
+
+  sync-prod:
+    if: ${{ github.event.inputs.target == 'prod' || github.event.inputs.target == 'both' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
+
+      - name: Create git-sync pod
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: configs-sync-${{ github.run_id }}
+            namespace: cohub
+          spec:
+            containers:
+              - name: git
+                image: alpine/git
+                command: ["sh", "-c"]
+                args:
+                  - |
+                    set -e
+                    cd /configs/platform
+                    git config --global --add safe.directory /configs/platform
+
+                    # Configure HTTPS credentials
+                    git config credential.helper '!f() { echo "username=${GITEA_USERNAME}"; echo "password=${GITEA_PAT}"; }; f'
+
+                    echo "=== Before pull ==="
+                    git log --oneline -3 || true
+
+                    echo ""
+                    echo "=== Pulling ==="
+                    git pull origin main
+
+                    echo ""
+                    echo "=== After pull ==="
+                    git log --oneline -3 || true
+
+                    echo ""
+                    echo "=== Cleaning macOS resource forks ==="
+                    find . -name "._*" -type f -delete
+                    echo "Cleaned."
+                env:
+                  - name: GITEA_USERNAME
+                    value: "${{ secrets.GITEA_USERNAME }}"
+                  - name: GITEA_PAT
+                    value: "${{ secrets.GITEA_PAT }}"
+                volumeMounts:
+                  - name: config-vol
+                    mountPath: /configs
+                    subPath: configs/prod
+            volumes:
+              - name: config-vol
+                persistentVolumeClaim:
+                  claimName: cohub-spaces-pvc
+            restartPolicy: Never
+          EOF
+
+      - name: Wait for completion
+        run: |
+          if kubectl wait --for=condition=ready pod/configs-sync-${{ github.run_id }} \
+            -n cohub --timeout=60s; then
+            kubectl logs pod/configs-sync-${{ github.run_id }} -n cohub --follow
+          else
+            echo "Pod failed to start, showing events:"
+            kubectl describe pod configs-sync-${{ github.run_id }} -n cohub
+            exit 1
+          fi
+
+      - name: Verify result
+        run: |
+          EXIT_CODE=$(kubectl get pod configs-sync-${{ github.run_id }} -n cohub \
+            -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}' || echo "unknown")
+          echo "Pod exit code: $EXIT_CODE"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Sync failed!"
+            kubectl logs pod/configs-sync-${{ github.run_id }} -n cohub --tail=100
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kubectl delete pod configs-sync-${{ github.run_id }} -n cohub --ignore-not-found 2>/dev/null || true
