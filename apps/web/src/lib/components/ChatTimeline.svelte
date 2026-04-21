@@ -23,24 +23,12 @@ let {
 	loadingOlder = false,
 }: Props = $props();
 
-// column-reverse: reverse the DOM order so newest messages are at the DOM start
-// (visual bottom). This lets CSS scroll anchoring automatically keep the view
-// pinned to the bottom as new content arrives — no manual scrollTop math needed.
-//
-// Performance: reversal is O(n) but for chat lists (typically <1000 items) it's
-// <0.1ms. The keyed {#each} diff only touches items that actually changed.
-const reversedTimeline = $derived([...timeline].reverse());
-
 // Track all observed elements for re-observation.
-// We store the _original_ timeline index so onFirstVisible receives the same
-// semantics as before (0 = oldest message at visual top).
 let observedNodes = new Map<HTMLElement, number>();
 let observer: IntersectionObserver | null = null;
 
-// With column-reverse, new messages are added at the DOM START (visual bottom)
-// where scroll anchoring works well. However, old messages loaded via pagination
-// are added at the DOM END (visual top) — the far end of the scroll container
-// — so scroll anchoring does NOT help. We need manual scroll compensation.
+// Scroll-up pagination: old messages are prepended to DOM top.
+// We save/restore scrollTop to prevent the view from jumping.
 let prevScrollHeight = $state(0);
 
 export function preparePrepend() {
@@ -116,9 +104,9 @@ $effect(() => {
 	bind:this={bindListEl}
 	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
 >
-	<div class={`mx-auto max-w-4xl flex flex-col-reverse [&>*]:mt-2 pt-[5.5rem] pb-6`}>
-		{#each reversedTimeline as item, idx (item.id)}
-			{@const originalIdx = timeline.length - 1 - idx}
+	<div class={`mx-auto max-w-4xl flex flex-col [&>*]:mt-2 pt-6 pb-[5.5rem]`}>
+		{#each timeline as item, idx (item.id)}
+			{@const originalIdx = idx}
 			<div
 				data-idx={originalIdx}
 				data-kind={item.kind}
@@ -143,24 +131,8 @@ $effect(() => {
 </div>
 
 <style>
-	/* In column-reverse the DOM order is newest→oldest (bottom→top visually).
-	 * The + selector matches DOM-next-sibling = visually-above.
-	 * Remove top margin from items that sit directly above certain types.
+	/* Uniform spacing between items via gap on the parent flex container.
+	 * The previous column-reverse + :has() approach was fragile and hard to
+	 * reason about — a single gap value is cleaner and predictable.
 	 */
-	/* Tool card immediately below a message (message is DOM-next = visually above tool) */
-	:global([data-kind="tool"]:has(+ [data-kind="message"])) {
-		margin-top: 0 !important;
-	}
-	/* Tool card immediately below another tool */
-	:global([data-kind="tool"]:has(+ [data-kind="tool"])) {
-		margin-top: 0 !important;
-	}
-	/* Process card immediately below a message */
-	:global([data-kind="process"]:has(+ [data-kind="message"])) {
-		margin-top: 0 !important;
-	}
-	/* Message immediately below a process card */
-	:global([data-kind="message"]:has(+ [data-kind="process"])) {
-		margin-top: 0 !important;
-	}
 </style>
