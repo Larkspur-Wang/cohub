@@ -236,6 +236,26 @@ router.get("/:id/checkpoints", async (c) => {
   return c.json({ checkpoints: rows });
 });
 
+router.get("/:id/checkpoints/:checkpointId", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  const checkpointId = c.req.param("checkpointId");
+  if (!requireValidId(spaceId) || !requireValidId(checkpointId)) {
+    return c.json({ message: "checkpoint not found" }, 404);
+  }
+  if (!(await canRead(user, spaceId))) return c.json({ message: "not found" }, 404);
+
+  const [checkpoint] = await db
+    .select()
+    .from(checkpoints)
+    .where(and(eq(checkpoints.id, checkpointId), eq(checkpoints.spaceId, spaceId)))
+    .limit(1);
+
+  if (!checkpoint) return c.json({ message: "checkpoint not found" }, 404);
+
+  return c.json({ checkpoint });
+});
+
 // ── Sandbox ──────────────────────────────────────────────────────────────────
 
 router.get("/:id/sandbox", async (c) => {

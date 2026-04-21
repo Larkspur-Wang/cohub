@@ -2,14 +2,11 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import {
-	type CheckpointRecord,
 	type SandboxRecord,
 	type SessionRecord,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceRecord,
-	type TaskRunRecord,
-	createSpaceCheckpoint,
 	createSpaceFsDir,
 	createSpaceSession,
 	deleteSpaceFsNode,
@@ -17,12 +14,10 @@ import {
 	getModels,
 	getSessionMessagesPaginated,
 	getSpace,
-	getSpaceCheckpoints,
 	getSpaceFsFile,
 	getSpaceFsTree,
 	getSpaceSandbox,
 	getSpaceSessions,
-	getTaskRun,
 	moveSpaceFsNode,
 	postSessionMessage,
 	putSpaceFsFile,
@@ -226,11 +221,6 @@ let chatTimelineRef = $state<{
 	finalizePrepend: () => void;
 } | null>(null);
 let streamingSessionId: string | null = null;
-let checkpointSaving = $state(false);
-let checkpointNotice = $state("");
-let checkpointError = $state("");
-let checkpoints = $state<CheckpointRecord[]>([]);
-let latestCheckpointJob = $state<TaskRunRecord | null>(null);
 let preloadingSessionIds = new Set<string>();
 let visitedSessions = $state.raw(new Set<string>());
 let scrollPosBySession = $state.raw(new Map<string, number>());
@@ -698,16 +688,6 @@ async function loadSpace(options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				checkpoints = (await getSpaceCheckpoints(spaceId)).checkpoints;
-			} catch {
-				// Non-blocking
-			}
-		})(),
-	);
-
-	tasks.push(
-		(async () => {
-			try {
 				await loadSpacePermissions();
 			} catch {
 				// Non-blocking
@@ -793,56 +773,6 @@ async function handleRecreateSandbox() {
 			error instanceof Error ? error.message : "Failed to recreate sandbox";
 	} finally {
 		sandboxProvisioning = false;
-	}
-}
-
-async function pollCheckpointJob(jobId: string) {
-	const startedAt = Date.now();
-	while (Date.now() - startedAt < 90_000) {
-		try {
-			const { run } = await getTaskRun(jobId);
-			latestCheckpointJob = run;
-			if (run.status === "completed") return run;
-			if (run.status === "failed")
-				throw new Error(run.errorMessage || "Checkpoint job failed");
-		} catch (error) {
-			if (!(error instanceof Error) || !error.message.includes("404")) {
-				throw error;
-			}
-		}
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-	}
-	throw new Error("Checkpoint job timed out");
-}
-
-async function handleSaveCheckpoint() {
-	if (!space || checkpointSaving) return;
-	checkpointError = "";
-	checkpointNotice = "";
-
-	const input =
-		typeof window !== "undefined"
-			? window.prompt("Checkpoint description (optional)", "")
-			: "";
-	if (input === null) return;
-
-	checkpointSaving = true;
-	try {
-		const { jobId } = await createSpaceCheckpoint(
-			space.id,
-			input.trim() || null,
-		);
-		checkpointNotice = "Saving checkpoint…";
-		const run = await pollCheckpointJob(jobId);
-		latestCheckpointJob = run;
-		checkpoints = (await getSpaceCheckpoints(space.id)).checkpoints;
-		checkpointNotice = "Checkpoint saved.";
-		await loadSpace({ force: true });
-	} catch (error) {
-		checkpointError =
-			error instanceof Error ? error.message : "Failed to save checkpoint";
-	} finally {
-		checkpointSaving = false;
 	}
 }
 
@@ -1843,15 +1773,6 @@ onMount(() => {
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
 
-	// Listen for checkpoint updates from sidebar
-	function handleCheckpointsUpdated(e: Event) {
-		const custom = e as CustomEvent;
-		if (custom.detail?.spaceId === spaceId) {
-			void loadSpace({ force: true });
-		}
-	}
-	window.addEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
-
 	// Set up WebSocket event listener once — filters by activeSessionId internally
 	const wsClient = getRealtimeClient();
 	const wsEventCleanup = wsClient.on("event", (payload) => {
@@ -1919,7 +1840,6 @@ onMount(() => {
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
-		window.removeEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
 		window.removeEventListener("keydown", handleFileKeyboardSave);
 		rightSidebarResizeCleanup?.();
 	};
@@ -2318,14 +2238,6 @@ $effect(() => {
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
     {/if}
 
-    {#if checkpointError}
-      <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointError}</div>
-    {/if}
-
-    {#if checkpointNotice}
-      <div class="m-4 mt-0 rounded-md border border-border-subtle bg-bg-hover p-3 text-[12px] text-text-secondary break-all">{checkpointNotice}</div>
-    {/if}
-
     {#if sandboxProvisioning || (sandbox && (sandbox.status === "pending" || sandbox.status === "provisioning"))}
       <div class="flex-1 flex items-center justify-center sandbox-provision-view">
         <div class="w-full max-w-md px-6">
@@ -2380,30 +2292,6 @@ $effect(() => {
               Retry
             </button>
           </div>
-        </div>
-      </div>
-    {/if}
-
-    {#if checkpoints.length > 0 && !sandboxProvisioning && !sandboxError}
-      <div class="mx-4 mb-4 mt-0 rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-        <div class="mb-2 flex items-center justify-between gap-3">
-          <div class="text-[12px] font-medium text-text-secondary">Checkpoints</div>
-          <div class="text-[11px] text-text-tertiary">{checkpoints.length} total</div>
-        </div>
-        <div class="space-y-2">
-          {#each checkpoints.slice(0, 5) as checkpoint}
-            <div class="flex items-start justify-between gap-3 rounded-[6px] border border-border-subtle/70 bg-bg-content/70 px-2.5 py-2">
-              <div class="min-w-0">
-                <div class="truncate text-[12px] text-text-primary">{checkpoint.description}</div>
-                <div class="mt-0.5 text-[11px] text-text-tertiary font-mono">
-                  {checkpoint.commitHash.slice(0, 12)}
-                </div>
-              </div>
-              <div class="shrink-0 text-[11px] text-text-tertiary">
-                {new Date(checkpoint.createdAt).toLocaleString()}
-              </div>
-            </div>
-          {/each}
         </div>
       </div>
     {/if}
