@@ -14,9 +14,9 @@ type FilesystemRoot struct {
 }
 
 const (
-	DefaultSandboxWSHost  = "0.0.0.0"
-	DefaultSandboxWSPort  = 8788
-	DefaultHeartbeatSecs  = 5
+	DefaultSandboxWSHost = "0.0.0.0"
+	DefaultSandboxWSPort = 8788
+	DefaultHeartbeatSecs = 5
 )
 
 type Config struct {

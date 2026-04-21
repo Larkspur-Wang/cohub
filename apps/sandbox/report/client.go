@@ -13,8 +13,8 @@ import (
 )
 
 type Client struct {
-	cfg      env.Config
-	hostname string
+	cfg        env.Config
+	hostname   string
 	httpClient *http.Client
 }
 
