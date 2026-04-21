@@ -487,8 +487,14 @@ export async function loadOrCreateSessionHandle(input: {
       renameSync(forkedSessionFile, existingSessionFile);
       sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
     } else {
-      sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
-      sessionManager.newSession({ id: input.sessionId });
+      const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
+      tmpManager.newSession({ id: input.sessionId });
+      const actualSessionFile = tmpManager.getSessionFile();
+      if (actualSessionFile && actualSessionFile !== existingSessionFile) {
+        renameSync(actualSessionFile, existingSessionFile);
+        tmpManager.setSessionFile(existingSessionFile);
+      }
+      sessionManager = tmpManager;
     }
   }
 
