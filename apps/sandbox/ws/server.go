@@ -112,6 +112,9 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to send sandbox.hello", slog.String("error", err.Error()))
 		return
 	}
+	if err := s.sendHeartbeat(session); err != nil {
+		s.logger.Warn("failed to send initial sandbox.heartbeat", slog.String("error", err.Error()))
+	}
 
 	for {
 		_, data, err := conn.Read(ctx)
@@ -218,7 +221,6 @@ func (s *Server) handleRPCRequest(session *connectionSession, request protocol.R
 
 func (s *Server) sendHello(session *connectionSession) error {
 	hostname, _ := os.Hostname()
-	prepareStatus, prepareErr := s.prepareState.Get()
 	payload, err := json.Marshal(protocol.SandboxHello{
 		Version:   protocol.Version,
 		Type:      "sandbox.hello",
@@ -249,12 +251,26 @@ func (s *Server) sendHello(session *connectionSession) error {
 			},
 		},
 		Metadata: &protocol.SandboxMetadata{
-			Hostname:      hostname,
-			ImageVersion:  s.cfg.ImageVersion,
-			StartedAt:     time.Now().Format(time.RFC3339),
-			PrepareStatus: prepareStatus,
-			PrepareError:  prepareErr,
+			Hostname:     hostname,
+			ImageVersion: s.cfg.ImageVersion,
+			StartedAt:    time.Now().Format(time.RFC3339),
 		},
+	})
+	if err != nil {
+		return err
+	}
+	return enqueuePayload(session, payload)
+}
+
+func (s *Server) sendHeartbeat(session *connectionSession) error {
+	prepareStatus, _ := s.prepareState.Get()
+	payload, err := json.Marshal(protocol.SandboxHeartbeat{
+		Version:   protocol.Version,
+		Type:      "sandbox.heartbeat",
+		SpaceID:   s.cfg.SpaceID,
+		SandboxID: s.hostname,
+		Timestamp: time.Now().UnixMilli(),
+		Status:    prepareStatus,
 	})
 	if err != nil {
 		return err
@@ -271,20 +287,7 @@ func (s *Server) heartbeatLoop(session *connectionSession) {
 		case <-session.ctx.Done():
 			return
 		case <-ticker.C:
-			prepareStatus, _ := s.prepareState.Get()
-			payload, err := json.Marshal(protocol.SandboxHeartbeat{
-				Version:   protocol.Version,
-				Type:      "sandbox.heartbeat",
-				SpaceID:   s.cfg.SpaceID,
-				SandboxID: s.hostname,
-				Timestamp: time.Now().UnixMilli(),
-				Status:    prepareStatus,
-			})
-			if err != nil {
-				s.logger.Warn("failed to marshal heartbeat", slog.String("error", err.Error()))
-				continue
-			}
-			if err := enqueuePayload(session, payload); err != nil {
+			if err := s.sendHeartbeat(session); err != nil {
 				s.logger.Warn("failed to enqueue heartbeat", slog.String("error", err.Error()))
 				return
 			}

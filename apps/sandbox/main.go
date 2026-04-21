@@ -56,11 +56,10 @@ func main() {
 	server := ws.NewServer(cfg, dispatcher, processManager, state, hostname, logger)
 
 	initialMeta := map[string]interface{}{
-		"hostname":      hostname,
-		"imageVersion":  cfg.ImageVersion,
-		"prepareStatus": "preparing",
-		"startedAt":     startedAt,
-		"podIp":         cfg.PodIP,
+		"hostname":     hostname,
+		"imageVersion": cfg.ImageVersion,
+		"startedAt":    startedAt,
+		"podIp":        cfg.PodIP,
 	}
 	if err := reporter.Report(report.Payload{
 		Status: "provisioning",
@@ -69,7 +68,7 @@ func main() {
 		logger.Warn("failed to report sandbox provisioning", slog.String("error", err.Error()))
 	}
 
-	// Run workspace prepare in background (parallel with WS server)
+	// Ensure workspace mount exists in background while WS server starts.
 	go func() {
 		summary, err := workspace.Prepare(cfg)
 		if err != nil {
@@ -78,20 +77,18 @@ func main() {
 			if reportErr := reporter.Report(report.Payload{
 				Status: "error",
 				Meta: map[string]interface{}{
-					"hostname":      hostname,
-					"imageVersion":  cfg.ImageVersion,
-					"prepareStatus": "error",
-					"prepareError":  err.Error(),
-					"podIp":         cfg.PodIP,
+					"hostname":     hostname,
+					"imageVersion": cfg.ImageVersion,
+					"lastError":    err.Error(),
+					"podIp":        cfg.PodIP,
 				},
 			}); reportErr != nil {
 				logger.Warn("failed to report sandbox error", slog.String("error", reportErr.Error()))
 			}
 		} else {
-			logger.Info("workspace prepared",
+			logger.Info("workspace mount ready",
 				slog.String("workspaceDir", summary.WorkspaceDir),
 				slog.String("platformAgentsDir", summary.PlatformAgentsDir),
-				slog.Bool("repoCloned", summary.RepoCloned),
 			)
 			state.Set("ready", nil)
 			if reportErr := reporter.Report(report.Payload{
@@ -99,12 +96,8 @@ func main() {
 				Meta: map[string]interface{}{
 					"hostname":          hostname,
 					"imageVersion":      cfg.ImageVersion,
-					"prepareStatus":     "ready",
-					"preparedAt":        time.Now().UTC().Format(time.RFC3339),
 					"workspaceDir":      summary.WorkspaceDir,
 					"platformAgentsDir": summary.PlatformAgentsDir,
-					"repoCloned":        summary.RepoCloned,
-					"configApplied":     summary.ConfigApplied,
 					"podIp":             cfg.PodIP,
 				},
 			}); reportErr != nil {

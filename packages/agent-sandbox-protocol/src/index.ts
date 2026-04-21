@@ -85,8 +85,6 @@ export type SandboxHello = BaseMessage & {
     hostname?: string;
     imageVersion?: string;
     startedAt?: string;
-    prepareStatus?: string;
-    prepareError?: string;
   };
 };
 

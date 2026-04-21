@@ -29,11 +29,9 @@ type SandboxCapabilities struct {
 }
 
 type SandboxMetadata struct {
-	Hostname      string `json:"hostname,omitempty"`
-	ImageVersion  string `json:"imageVersion,omitempty"`
-	StartedAt     string `json:"startedAt,omitempty"`
-	PrepareStatus string `json:"prepareStatus,omitempty"`
-	PrepareError  string `json:"prepareError,omitempty"`
+	Hostname     string `json:"hostname,omitempty"`
+	ImageVersion string `json:"imageVersion,omitempty"`
+	StartedAt    string `json:"startedAt,omitempty"`
 }
 
 type SandboxHello struct {

@@ -14,6 +14,7 @@ LIMIT_CPU: "1"
 LIMIT_MEMORY: "512Mi"
 
 INTERNAL_API_BASE_URL: "http://cohub-api:8787"
+GITEA_BASE_URL: "https://gitea.cohub.run"
 SPACE_STORAGE_ROOT: "/space-storage"
 SPACE_STORAGE_PVC: "cohub-spaces-pvc"
 SPACE_STORAGE_SUBPATH: "workspaces/prod"

@@ -11,7 +11,6 @@ import { requireAuth, useAuth, requireValidId, buildSpaceListItem, buildStorageR
 import { k8sCoreApi } from "../../k8s.js";
 import { sessionsNamespace, config } from "../../config.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
-import { createRepository } from "../../gitea.js";
 import { getSpaceSandboxBySpaceId, provisionSpaceInBackground, updateSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
@@ -25,7 +24,6 @@ import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "../../ch
 import { enqueueTask } from "../../tasks.js";
 import { canRead, canReadForSession, canWrite } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
-import { ensureSpaceWorkspaceReady } from "../../space-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
@@ -37,14 +35,12 @@ const router = new Hono();
 function getSpaceProvisionParams(
   user: AuthUser,
   space: typeof spaces.$inferSelect,
-  gitAccount: GitAccount,
+  _gitAccount: GitAccount,
   extraEnv?: Array<{ name: string; value: string }>,
 ) {
-  const storageRepoName = buildStorageRepoName(space.id);
   return {
     spaceId: space.id,
     userUuid: user.uuid,
-    spaceRepoUrl: `https://${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
     extraEnv,
   };
 }
@@ -77,6 +73,10 @@ router.post("/", async (c) => {
       meta?: Record<string, unknown>;
       extraEnv?: Array<{ name: string; value: string }>;
       channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
+      bootstrapSource?:
+        | { type: "blank" }
+        | { type: "public_git_repo"; repoUrl?: string; ref?: string | null }
+        | { type: "checkpoint"; checkpointId?: string };
     }>()
     .catch(() => ({}))) as {
     name?: string;
@@ -87,6 +87,10 @@ router.post("/", async (c) => {
     meta?: Record<string, unknown>;
     extraEnv?: Array<{ name: string; value: string }>;
     channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
+    bootstrapSource?:
+      | { type: "blank" }
+      | { type: "public_git_repo"; repoUrl?: string; ref?: string | null }
+      | { type: "checkpoint"; checkpointId?: string };
   };
 
   const name = body.name?.trim();
@@ -98,15 +102,6 @@ router.post("/", async (c) => {
     .where(and(eq(spaces.userUuid, user.uuid), eq(spaces.name, name)))
     .limit(1);
   if (existingSpace.length > 0) return c.json({ message: "space already exists" }, 409);
-
-  const spaceId = crypto.randomUUID();
-  const storageRepoName = buildStorageRepoName(spaceId);
-
-  const gitAccount = await ensureUserGitAccount(user.uuid);
-  const repo = await createRepository(gitAccount.giteaAccessToken, storageRepoName, true).catch(
-    (error) => error as Error,
-  );
-  if (repo instanceof Error) return c.json({ message: repo.message }, 500);
 
   const normalizedExtraEnv = normalizeSpaceEnv(body.extraEnv);
   validateSpaceEnv(normalizedExtraEnv);
@@ -132,8 +127,45 @@ router.post("/", async (c) => {
         .from(spaceChannels)
         .where(inArray(spaceChannels.channelId, normalizedChannelBindings.map((binding) => binding.channelId)))
     : [];
-  if (occupiedChannels.length > 0)
+  if (occupiedChannels.length > 0) {
     return c.json({ message: "channel binding already exists for this channel" }, 409);
+  }
+
+  let normalizedBootstrapSource:
+    | { type: "blank" }
+    | { type: "public_git_repo"; repoUrl: string; ref: string | null }
+    | { type: "checkpoint"; checkpointId: string };
+  try {
+    normalizedBootstrapSource = (() => {
+      const source = body.bootstrapSource;
+      if (!source || source.type === "blank") return { type: "blank" } as const;
+      if (source.type === "public_git_repo") {
+        const repoUrl = source.repoUrl?.trim();
+        if (!repoUrl) throw new Error("repoUrl is required");
+        return { type: "public_git_repo", repoUrl, ref: source.ref?.trim() || null } as const;
+      }
+      if (source.type === "checkpoint") {
+        const checkpointId = source.checkpointId?.trim();
+        if (!checkpointId || !requireValidId(checkpointId)) throw new Error("checkpointId is required");
+        return { type: "checkpoint", checkpointId } as const;
+      }
+      return { type: "blank" } as const;
+    })();
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+
+  if (normalizedBootstrapSource.type === "checkpoint") {
+    const [checkpoint] = await db
+      .select({ id: checkpoints.id })
+      .from(checkpoints)
+      .where(eq(checkpoints.id, normalizedBootstrapSource.checkpointId))
+      .limit(1);
+    if (!checkpoint) return c.json({ message: "checkpoint not found" }, 404);
+  }
+
+  const spaceId = crypto.randomUUID();
+  const storageRepoName = buildStorageRepoName(spaceId);
 
   const [space] = await db
     .insert(spaces)
@@ -143,18 +175,25 @@ router.post("/", async (c) => {
       name,
       description: body.description ?? null,
       storageRepoName,
-      baseCheckpointId: null,
+      baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
       headCheckpointId: null,
       meta: {
         ...(body.meta ?? {}),
         extraEnv: normalizedExtraEnv,
+        bootstrap: {
+          status: "pending",
+          stage: null,
+          jobId: null,
+          errorMessage: null,
+          source: normalizedBootstrapSource,
+          startedAt: null,
+          finishedAt: null,
+        },
       },
     })
     .returning();
 
   if (!space) return c.json({ message: "failed to create space" }, 500);
-
-  await ensureSpaceWorkspaceReady(space.id);
 
   if (normalizedChannelBindings.length > 0) {
     const insertedChannels = await db
@@ -177,11 +216,81 @@ router.post("/", async (c) => {
     );
   }
 
+  const gitAccount = await ensureUserGitAccount(user.uuid);
   void provisionSpaceInBackground(
     getSpaceProvisionParams(user, space, gitAccount, normalizedExtraEnv),
   ).catch(console.error);
 
-  return c.json({ space });
+  const job = await enqueueTask({
+    type: "create_space",
+    spaceId: space.id,
+    userId: user.uuid,
+    data: {
+      source: normalizedBootstrapSource,
+    },
+  }).catch(async (error) => {
+    const nextMeta = {
+      ...((space.meta as Record<string, unknown> | null) ?? {}),
+      bootstrap: {
+        status: "failed",
+        stage: null,
+        jobId: null,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        source: normalizedBootstrapSource,
+        startedAt: null,
+        finishedAt: new Date().toISOString(),
+      },
+    };
+    await db
+      .update(spaces)
+      .set({ meta: nextMeta, updatedAt: new Date() })
+      .where(eq(spaces.id, space.id));
+    throw error;
+  });
+  const jobId = String(job.id ?? "");
+  if (!jobId) {
+    await db
+      .update(spaces)
+      .set({
+        meta: {
+          ...((space.meta as Record<string, unknown> | null) ?? {}),
+          bootstrap: {
+            status: "failed",
+            stage: null,
+            jobId: null,
+            errorMessage: "failed to allocate create_space job id",
+            source: normalizedBootstrapSource,
+            startedAt: null,
+            finishedAt: new Date().toISOString(),
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(spaces.id, space.id));
+    return c.json({ message: "failed to create bootstrap job" }, 500);
+  }
+
+  const [spaceWithJob] = await db
+    .update(spaces)
+    .set({
+      meta: {
+        ...((space.meta as Record<string, unknown> | null) ?? {}),
+        bootstrap: {
+          status: "pending",
+          stage: null,
+          jobId,
+          errorMessage: null,
+          source: normalizedBootstrapSource,
+          startedAt: null,
+          finishedAt: null,
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(spaces.id, space.id))
+    .returning();
+
+  return c.json({ space: spaceWithJob ?? space, jobId });
 });
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────

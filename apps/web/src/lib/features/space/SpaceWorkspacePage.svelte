@@ -221,6 +221,8 @@ $effect(() => {
 let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
+let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let statusRefreshInFlight = false;
 let creatingSession = $state(false);
 let createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
@@ -229,6 +231,8 @@ let sandbox = $state<SandboxRecord | null>(null);
 let sandboxProvisioning = $state(false);
 let sandboxError = $state<string | null>(null);
 let sandboxElapsed = $state(0);
+let spaceStatusNotice = $state("");
+let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
 let autoScrollGuard = $state(false);
@@ -506,6 +510,50 @@ function handleTitleClick() {
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
 );
+const bootstrapMeta = $derived.by(() => {
+	const raw = space?.meta;
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const bootstrap = (raw as Record<string, unknown>).bootstrap;
+	if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) return null;
+	return bootstrap as Record<string, unknown>;
+});
+const bootstrapStatus = $derived.by<"pending" | "running" | "ready" | "failed" | null>(() => {
+	const value = bootstrapMeta?.status;
+	return value === "pending" || value === "running" || value === "ready" || value === "failed"
+		? value
+		: null;
+});
+const bootstrapStage = $derived.by<string | null>(() => {
+	const value = bootstrapMeta?.stage;
+	return typeof value === "string" && value.trim().length > 0 ? value : null;
+});
+const bootstrapErrorMessage = $derived.by<string | null>(() => {
+	const value = bootstrapMeta?.errorMessage;
+	return typeof value === "string" && value.trim().length > 0 ? value : null;
+});
+const bootstrapSourceLabel = $derived.by(() => {
+	const source = bootstrapMeta?.source;
+	if (!source || typeof source !== "object" || Array.isArray(source)) return "Blank";
+	const type = (source as Record<string, unknown>).type;
+	if (type === "public_git_repo") return "Public Git Repo";
+	if (type === "checkpoint") return "Checkpoint";
+	return "Blank";
+});
+const sandboxStatusTone = $derived.by(() => {
+	if (sandboxError || space?.sandboxStatus === "error" || sandbox?.status === "error") {
+		return "text-error-soft border-error-soft/20 bg-error-soft/8";
+	}
+	if (space?.sandboxStatus === "ready" || sandbox?.status === "ready") {
+		return "text-success-soft border-success-soft/20 bg-success-soft/8";
+	}
+	return "text-text-secondary border-border-subtle bg-bg-surface";
+});
+const bootstrapStatusTone = $derived.by(() => {
+	if (bootstrapStatus === "failed") return "text-error-soft border-error-soft/20 bg-error-soft/8";
+	if (bootstrapStatus === "ready") return "text-success-soft border-success-soft/20 bg-success-soft/8";
+	return "text-text-secondary border-border-subtle bg-bg-surface";
+});
+const canCreateSession = $derived(Boolean(space && !creatingSession && (space.sandboxStatus === "ready" || sandbox?.status === "ready")));
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
 		? {
@@ -802,6 +850,73 @@ async function loadSpace(options?: { force?: boolean }) {
 	await Promise.all(tasks);
 }
 
+function showSpaceStatusNotice(message: string) {
+	spaceStatusNotice = message;
+	if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
+	spaceStatusNoticeTimer = setTimeout(() => {
+		spaceStatusNotice = "";
+		spaceStatusNoticeTimer = null;
+	}, 2800);
+}
+
+function getStatusRefreshIntervalMs() {
+	const sandboxState = sandbox?.status ?? space?.sandboxStatus ?? null;
+	if (!pageVisible || !pageOnline) return null;
+	if (sandboxProvisioning || sandboxState === "pending" || sandboxState === "provisioning") {
+		return 1500;
+	}
+	if (bootstrapStatus === "pending" || bootstrapStatus === "running") {
+		return 4000;
+	}
+	if (sandboxState === "error" || bootstrapStatus === "failed") {
+		return 15000;
+	}
+	return null;
+}
+
+async function refreshSpaceStatus() {
+	if (statusRefreshInFlight) return;
+	statusRefreshInFlight = true;
+	try {
+		const [nextSpaceResult, nextSandboxResult] = await Promise.allSettled([
+			getSpace(spaceId),
+			getSpaceSandbox(spaceId),
+		]);
+
+		if (nextSpaceResult.status === "fulfilled") {
+			const previousBootstrapStatus = bootstrapStatus;
+			space = nextSpaceResult.value;
+			const nextBootstrap = (() => {
+				const raw = nextSpaceResult.value.meta;
+				if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+				const bootstrap = (raw as Record<string, unknown>).bootstrap;
+				if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) return null;
+				const status = (bootstrap as Record<string, unknown>).status;
+				return typeof status === "string" ? status : null;
+			})();
+			if (previousBootstrapStatus !== "ready" && nextBootstrap === "ready") {
+				showSpaceStatusNotice("Workspace prepared");
+			}
+		}
+		if (nextSandboxResult.status === "fulfilled") {
+			const previousSandboxStatus = sandbox?.status ?? space?.sandboxStatus ?? null;
+			sandbox = nextSandboxResult.value.sandbox;
+			if (nextSandboxResult.value.sandbox?.status === "error") {
+				sandboxError =
+					(nextSandboxResult.value.sandbox.meta?.lastError as string) ??
+					"Sandbox provision failed";
+			} else if (nextSandboxResult.value.sandbox?.status === "ready") {
+				sandboxError = null;
+				if (previousSandboxStatus !== "ready") {
+					showSpaceStatusNotice("Environment ready");
+				}
+			}
+		}
+	} finally {
+		statusRefreshInFlight = false;
+	}
+}
+
 async function pollSandboxReady() {
 	const startedAt = Date.now();
 	const TIMEOUT = 120_000;
@@ -844,6 +959,24 @@ function formatElapsedTime(seconds: number): string {
 	const m = Math.floor(seconds / 60);
 	const s = seconds % 60;
 	return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
+}
+
+function formatBootstrapStage(stage: string | null) {
+	if (!stage) return "Waiting";
+	if (stage === "prepare") return "Preparing workspace";
+	if (stage === "import") return "Importing repository";
+	if (stage === "checkpoint_restore") return "Restoring checkpoint";
+	if (stage === "push") return "Pushing initial state";
+	if (stage === "finalize") return "Finalizing";
+	return stage.replace(/_/g, " ");
+}
+
+function formatBootstrapStatus(status: string | null) {
+	if (!status) return "Pending";
+	if (status === "running") return "Running";
+	if (status === "ready") return "Ready";
+	if (status === "failed") return "Failed";
+	return "Pending";
 }
 
 async function handleRecreateSandbox() {
@@ -1827,7 +1960,7 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 }
 
 function handleCreateNewSession() {
-	if (creatingSession || !space) return;
+	if (!canCreateSession || !space) return;
 	creatingSession = true;
 	createSessionError = "";
 	const createSpaceId = space.id;
@@ -1855,6 +1988,19 @@ function handleCreateNewSession() {
 		});
 }
 
+function scheduleStatusRefresh() {
+	if (statusRefreshTimer) {
+		clearTimeout(statusRefreshTimer);
+		statusRefreshTimer = null;
+	}
+	const intervalMs = getStatusRefreshIntervalMs();
+	if (!intervalMs || !pageMounted) return;
+	statusRefreshTimer = setTimeout(async () => {
+		await refreshSpaceStatus().catch(() => undefined);
+		scheduleStatusRefresh();
+	}, intervalMs);
+}
+
 onMount(() => {
 	pageMounted = true;
 	pageVisible = !document.hidden;
@@ -1873,20 +2019,24 @@ onMount(() => {
 		pageVisible = !document.hidden;
 		if (pageVisible && activeSessionId) connectSessionWS(activeSessionId);
 		if (!pageVisible) disconnectAllWS();
+		scheduleStatusRefresh();
 	};
 	const handleOnline = () => {
 		pageOnline = true;
 		if (activeSessionId) connectSessionWS(activeSessionId);
+		scheduleStatusRefresh();
 	};
 	const handleOffline = () => {
 		pageOnline = false;
 		disconnectAllWS();
+		scheduleStatusRefresh();
 	};
 
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
 	window.addEventListener("keydown", handleFileKeyboardSave);
+	scheduleStatusRefresh();
 
 	void loadSpace()
 		.then(async () => {
@@ -1925,6 +2075,8 @@ onMount(() => {
 
 	return () => {
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
+		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
+		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		pageMounted = false;
 		wsEventCleanup();
 		void wsClient.disconnect();
@@ -2553,7 +2705,175 @@ $effect(() => {
       <div class="flex-1 flex items-center justify-center">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
           <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
-          <div class="text-[12px]">Loading messages…</div>
+          <div class="text-[12px]">Loading space…</div>
+        </div>
+      </div>
+    {:else if !activeSessionState && routeView === "space"}
+      <div class="flex-1 overflow-y-auto px-4 py-6">
+        <div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
+          {#if spaceStatusNotice}
+            <div class="inline-flex items-center gap-2 self-start rounded-full border border-success-soft/20 bg-success-soft/8 px-3 py-1.5 text-[12px] text-success-soft">
+              <Check class="w-3.5 h-3.5" />
+              <span>{spaceStatusNotice}</span>
+            </div>
+          {/if}
+          <div class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0 space-y-2">
+                <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
+                <div>
+                  <h1 class="truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
+                  {#if space?.description}
+                    <p class="mt-1 text-[13px] leading-6 text-text-secondary">{space.description}</p>
+                  {/if}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                onclick={() => handleCreateNewSession()}
+                disabled={!canCreateSession}
+              >
+                {#if creatingSession}
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  Creating…
+                {:else}
+                  <Plus class="w-3.5 h-3.5" />
+                  New session
+                {/if}
+              </button>
+            </div>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-2">
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sandbox</div>
+                  <div class="mt-1 text-[15px] font-medium text-text-primary">Environment status</div>
+                </div>
+                <div class={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${sandboxStatusTone}`}>
+                  {(sandbox?.status ?? space?.sandboxStatus ?? "pending").replace(/_/g, " ")}
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-2 text-[13px] text-text-secondary">
+                {#if sandboxError}
+                  <p>The sandbox failed to provision.</p>
+                  <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3 text-[12px] font-mono text-error-soft break-all">
+                    {sandboxError}
+                  </div>
+                {:else if sandbox?.status === "ready" || space?.sandboxStatus === "ready"}
+                  <p>The sandbox is ready. You can start a new session now.</p>
+                {:else}
+                  <p>The sandbox is still provisioning. New sessions become available as soon as the environment is ready.</p>
+                  <div class="text-[12px] font-mono text-text-placeholder">
+                    {#if sandboxProvisioning || sandbox?.status === "pending" || sandbox?.status === "provisioning" || space?.sandboxStatus === "pending" || space?.sandboxStatus === "provisioning"}
+                      refreshing every ~1.5s
+                    {:else if space?.sandboxStatus === "error"}
+                      refreshing every ~15s
+                    {:else}
+                      refresh paused
+                    {/if}
+                  </div>
+                  {#if sandboxProvisioning}
+                    <div class="text-[12px] font-mono text-text-placeholder">elapsed {formatElapsedTime(sandboxElapsed)}</div>
+                  {/if}
+                {/if}
+              </div>
+
+              {#if sandboxError}
+                <div class="mt-4">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-[6px] border border-[#FF3E00]/20 bg-[#FF3E00]/10 px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-[#FF3E00]/15"
+                    onclick={handleRecreateSandbox}
+                  >
+                    <RefreshCw class="w-3.5 h-3.5" />
+                    Retry sandbox
+                  </button>
+                </div>
+              {/if}
+            </section>
+
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Workspace</div>
+                  <div class="mt-1 text-[15px] font-medium text-text-primary">Initialization status</div>
+                </div>
+                <div class={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${bootstrapStatusTone}`}>
+                  {formatBootstrapStatus(bootstrapStatus)}
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-2 text-[13px] text-text-secondary">
+                <p>Source: <span class="text-text-primary">{bootstrapSourceLabel}</span></p>
+                <p>Stage: <span class="text-text-primary">{formatBootstrapStage(bootstrapStage)}</span></p>
+                {#if bootstrapStatus === "ready"}
+                  <p>The initial workspace content has been prepared.</p>
+                {:else if bootstrapStatus === "failed"}
+                  <p>Workspace initialization failed. Existing sandbox state is unaffected.</p>
+                {:else}
+                  <p>Workspace initialization is running independently from sandbox provisioning.</p>
+                  <div class="text-[12px] font-mono text-text-placeholder">
+                    {#if bootstrapStatus === "pending" || bootstrapStatus === "running"}
+                      refreshing every ~4s
+                    {:else if bootstrapStatus === "failed"}
+                      refreshing every ~15s
+                    {:else}
+                      refresh paused
+                    {/if}
+                  </div>
+                {/if}
+                {#if bootstrapErrorMessage}
+                  <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3 text-[12px] font-mono text-error-soft break-all">
+                    {bootstrapErrorMessage}
+                  </div>
+                {/if}
+              </div>
+            </section>
+          </div>
+
+          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sessions</div>
+                <div class="mt-1 text-[15px] font-medium text-text-primary">Ready when environment is ready</div>
+              </div>
+              <div class="text-[12px] text-text-tertiary">{spaceSessions.length} existing</div>
+            </div>
+
+            <div class="mt-4 text-[13px] text-text-secondary">
+              {#if canCreateSession}
+                <p>You can create a new session immediately.</p>
+              {:else}
+                <p>Waiting for sandbox readiness before enabling new sessions.</p>
+              {/if}
+            </div>
+
+            {#if spaceSessions.length > 0}
+              <div class="mt-4 space-y-2 border-t border-border-subtle pt-4">
+                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Recent sessions</div>
+                <div class="space-y-2">
+                  {#each spaceSessions.slice(0, 5) as session (session.id)}
+                    <button
+                      type="button"
+                      class="flex w-full items-center justify-between rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-left transition-colors hover:bg-bg-hover"
+                      onclick={() => goto(buildSpaceSessionRoute(spaceId, session.id))}
+                    >
+                      <div class="min-w-0">
+                        <div class="truncate text-[13px] text-text-primary">{getSessionTitle(session)}</div>
+                        <div class="mt-0.5 text-[11px] text-text-placeholder">Updated {formatCheckpointTimestamp(session.updatedAt ?? session.createdAt)}</div>
+                      </div>
+                      <ArrowDown class="w-3.5 h-3.5 shrink-0 rotate-[-90deg] text-text-tertiary" />
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </section>
         </div>
       </div>
     {:else if !activeSessionState}
@@ -2563,7 +2883,7 @@ $effect(() => {
           type="button"
           class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
           onclick={() => handleCreateNewSession()}
-          disabled={creatingSession || !space}
+          disabled={!canCreateSession}
         >
           <Plus class="w-3.5 h-3.5" />
           Create a session

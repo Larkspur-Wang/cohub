@@ -98,7 +98,6 @@ const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
 export const provisionSpaceInBackground = async (input: {
   spaceId: string;
   userUuid: string;
-  spaceRepoUrl?: string;
   extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   const podName = `sandbox-${input.spaceId}`;
@@ -123,7 +122,6 @@ export const provisionSpaceInBackground = async (input: {
       SPACE_ID: input.spaceId,
       USER_ID: input.userUuid,
       ENV: config.env,
-      SPACE_REPO_URL: input.spaceRepoUrl,
       SPACE_STORAGE_PVC: config.spaceStoragePvc,
       SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
     }) as V1Pod;
@@ -149,7 +147,6 @@ export const provisionSpaceInBackground = async (input: {
               : `https://public.cohub.run/dev/s/${input.spaceId}`,
         },
         { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
-        { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
         ...(input.extraEnv ?? []),
       ];
     }

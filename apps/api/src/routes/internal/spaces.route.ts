@@ -27,9 +27,6 @@ import {
 
 const ALLOWED_SANDBOX_META_KEYS = new Set([
   "workspaceDir",
-  "repoCloned",
-  "configApplied",
-  "preparedAt",
   "sandboxId",
   "lastProvisionedAt",
   "lastStatus",
@@ -38,8 +35,6 @@ const ALLOWED_SANDBOX_META_KEYS = new Set([
   "podIp",
   "hostname",
   "imageVersion",
-  "prepareStatus",
-  "prepareError",
   "startedAt",
 ]);
 

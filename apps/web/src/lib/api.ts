@@ -98,6 +98,16 @@ export type SpaceRecord = {
 	}[];
 };
 
+export type SpaceBootstrapSource =
+	| { type: "blank" }
+	| { type: "public_git_repo"; repoUrl?: string; ref?: string | null }
+	| { type: "checkpoint"; checkpointId: string };
+
+export type SpaceCreateResponse = {
+	space: SpaceRecord;
+	jobId: string;
+};
+
 /** Web-extended space record with live status and channels */
 export type SpaceListItem = SpaceRecord;
 
@@ -316,10 +326,6 @@ export type Channel = {
 	} | null;
 };
 
-export type SpaceCreateResponse = {
-	space: SpaceRecord;
-};
-
 export type SpaceEnvInput = {
 	name: string;
 	value: string;
@@ -341,6 +347,7 @@ export const createSpace = async (input?: {
 	source?: string;
 	extraEnv?: SpaceEnvInput[];
 	channelBindings?: SpaceChannelBindingInput[];
+	bootstrapSource?: SpaceBootstrapSource;
 }) => {
 	return apiFetch("/api/spaces", {
 		method: "POST",

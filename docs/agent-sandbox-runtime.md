@@ -70,9 +70,6 @@ RPC 中的 `path` / `cwd` 语义与 pi tools 保持一致：
 - `WORKSPACE_DIR`
 - `PLATFORM_AGENTS_DIR=/configs/platform/.agents`
 - `HEARTBEAT_INTERVAL_SECS`
-- `SPACE_REPO_URL`
-- `SPACE_GIT_USERNAME`
-- `SPACE_GIT_EMAIL`
 - `IMAGE_VERSION`
 
 ## 本地联调
@@ -117,8 +114,8 @@ pnpm dev
 2. 创建 sandbox Pod，sandbox 启动 WS server
 3. agent 作为客户端主动连接 sandbox
 4. sandbox 发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
-5. sandbox 自身完成 prepare 后上报 filesystem 描述与 ready 状态
-6. prepare 成功后再上报 `ready`
+5. sandbox 进入 heartbeat；workspace 内容初始化由 worker 独立完成
+6. sandbox ready 与 workspace bootstrap ready 分别建模，不再耦合
 
 ## 当前限制 / 后续事项
 

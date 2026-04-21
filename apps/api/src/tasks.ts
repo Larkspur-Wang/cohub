@@ -11,7 +11,7 @@ const connection = { url: config.bullmqRedisUrl };
 
 export const taskQueue = new Queue(QUEUE_NAME, { connection });
 
-export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint"]);
+export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space"]);
 
 export const enqueueTask = async (
   payload: TaskPayload,

@@ -7,7 +7,7 @@
 - `sandbox.hello`
 - `sandbox.hello_ack`
 - `sandbox.heartbeat`
-- 通用 sandbox filesystem prepare
+- workspace mount readiness check
 - `fs.read`
 - `fs.write`
 - `fs.stat`
@@ -16,6 +16,9 @@
 - `fs.grep`
 - `process.start`
 - `process.abort`
+
+sandbox 只保证工作目录挂载可用，不再负责 clone repo 或初始化 workspace 内容。
+这些内容初始化流程统一由 worker 完成，再通过共享 PVC 暴露给 sandbox。
 
 ## 目录语义
 

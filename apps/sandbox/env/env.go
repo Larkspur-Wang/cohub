@@ -24,7 +24,6 @@ type Config struct {
 	WorkspaceDir       string
 	PlatformAgentsDir  string
 	ImageVersion       string
-	SpaceRepoURL       string
 	InternalAPIBaseURL string
 	SandboxReportToken string
 	PublicURLPrefix    string
@@ -59,7 +58,6 @@ func Load() (Config, error) {
 		WorkspaceDir:       workspaceDir,
 		PlatformAgentsDir:  platformAgentsDir,
 		ImageVersion:       imageVersion,
-		SpaceRepoURL:       strings.TrimSpace(os.Getenv("SPACE_REPO_URL")),
 		InternalAPIBaseURL: strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
 		SandboxReportToken: strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
 		PublicURLPrefix:    strings.TrimSpace(os.Getenv("PUBLIC_URL_PREFIX")),

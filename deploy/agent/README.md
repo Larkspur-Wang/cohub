@@ -11,8 +11,7 @@
 - 基于 ownership 处理 owner-routed 输入
 - 主动发现并连接各个 sandbox 的 WebSocket server
 - 将 tool 调用通过 ws rpc 转发给对应 space 的 sandbox
-- 在 sandbox 可用后调用 sandbox 准备流程
-- 在 prepare 成功后上报 `space_sandboxes.status=ready`
+- 跟踪 sandbox 连接状态，并上报 `space_sandboxes.status`
 
 ## 运行模型
 
@@ -82,6 +81,6 @@ PVC 内推荐目录布局：
 
 这样设计后：
 
-- sandbox 挂自己的 `/workspace`，并额外挂载只读 `/configs/platform/.agents`
-- agent / api / worker 都按环境挂载共享 PVC 的对应环境子树
-- workspace 与 sessions 仍在同一个 PVC 中，但路径分区清晰，不混用
+- sandbox 只挂自己的 `/workspace`，不再承担 workspace clone / bootstrap 初始化职责
+- workspace 初始化统一由 worker 完成，再通过共享 PVC 暴露给 sandbox
+- sandbox 与 sessions 仍在同一个 PVC 中，但路径分区清晰，不混用

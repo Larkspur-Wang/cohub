@@ -28,6 +28,10 @@ let description = $state("");
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<SpaceEnvInput[]>([]);
 let channelConfigById = $state<Record<string, ChannelConfig>>({});
+let selectedBootstrapType = $state<"blank" | "public_git_repo" | "checkpoint">("blank");
+let publicRepoUrl = $state("");
+let publicRepoRef = $state("");
+let checkpointId = $state("");
 
 const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
   if (channel.provider === "discord") {
@@ -120,6 +124,19 @@ async function handleSubmit(event: SubmitEvent) {
       source: "web",
       extraEnv: normalizedExtraEnv,
       channelBindings,
+      bootstrapSource:
+        selectedBootstrapType === "public_git_repo"
+          ? {
+              type: "public_git_repo",
+              repoUrl: publicRepoUrl.trim(),
+              ref: publicRepoRef.trim() || null,
+            }
+          : selectedBootstrapType === "checkpoint"
+            ? {
+                type: "checkpoint",
+                checkpointId: checkpointId.trim(),
+              }
+            : { type: "blank" },
     });
 
     window.dispatchEvent(new CustomEvent("cohub:space-created"));
@@ -162,7 +179,7 @@ async function handleSubmit(event: SubmitEvent) {
         <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
           <div>
             <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Space</div>
-            <p class="text-[13px] text-text-tertiary mt-1">Create a new space. A session will be prepared automatically.</p>
+            <p class="text-[13px] text-text-tertiary mt-1">Create a new space. Sandbox provisioning and content bootstrap will run independently.</p>
           </div>
 
           <div>
@@ -187,8 +204,51 @@ async function handleSubmit(event: SubmitEvent) {
               class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
             ></textarea>
           </div>
+          <div class="space-y-2">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1.5">Bootstrap Source</div>
+              <div class="grid gap-2 sm:grid-cols-3">
+                <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
+                  <input type="radio" bind:group={selectedBootstrapType} value="blank" />
+                  <span>Blank</span>
+                </label>
+                <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
+                  <input type="radio" bind:group={selectedBootstrapType} value="public_git_repo" />
+                  <span>Public Git Repo</span>
+                </label>
+                <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
+                  <input type="radio" bind:group={selectedBootstrapType} value="checkpoint" />
+                  <span>Checkpoint</span>
+                </label>
+              </div>
+            </div>
 
-
+            {#if selectedBootstrapType === "public_git_repo"}
+              <div class="grid gap-2 sm:grid-cols-2">
+                <input
+                  bind:value={publicRepoUrl}
+                  type="url"
+                  placeholder="https://github.com/org/repo.git"
+                  class="sm:col-span-2 w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                  required
+                />
+                <input
+                  bind:value={publicRepoRef}
+                  type="text"
+                  placeholder="Optional ref (branch / tag / commit)"
+                  class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors sm:col-span-2"
+                />
+              </div>
+            {:else if selectedBootstrapType === "checkpoint"}
+              <input
+                bind:value={checkpointId}
+                type="text"
+                placeholder="Checkpoint ID"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                required
+              />
+            {/if}
+          </div>
         </div>
 
         <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol";
@@ -6,54 +5,7 @@ import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { checkpoints, spaces, userGitAccounts } from "../db-schema.js";
 import { decryptSecret } from "../crypto.js";
-import { config } from "../config.js";
-
-const runGitWithOutput = async (args: string[], cwd: string) => {
-  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn("git", args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-        return;
-      }
-      reject(new Error(stderr.trim() || `git ${args[0]} exited with non-zero status ${code}`));
-    });
-  });
-};
-
-const runGit = async (args: string[], cwd: string) => {
-  await runGitWithOutput(args, cwd);
-};
-
-const getSpaceWorkspaceDir = (spaceId: string) => `${config.spaceStorageRoot}/${spaceId}/workspace`;
-
-const buildAuthenticatedRemoteUrl = (input: {
-  username: string;
-  accessToken: string;
-  repoName: string;
-}) => {
-  const base = new URL("https://gitea.cohub.run");
-  base.username = input.username;
-  base.password = input.accessToken;
-  base.pathname = `/${input.username}/${input.repoName}.git`;
-  return base.toString();
-};
+import { buildAuthenticatedRemoteUrl, getSpaceWorkspaceDir, runGit, runGitWithOutput } from "../git.js";
 
 const buildCommitMessage = (description?: string | null) => {
   const trimmed = description?.trim();

@@ -70,12 +70,11 @@ function toRuntimeSandboxStatus(status: NormalizedSandboxStatus): RuntimeSandbox
 }
 
 async function syncSandboxHello(spaceId: string, message: SandboxHello) {
-  const normalized = normalizeSandboxStatus(message.metadata?.prepareStatus ?? "preparing");
   await updateSpaceRuntime({
     spaceId,
-    status: toRuntimeSandboxStatus(normalized),
+    status: "idle",
     sandboxId: message.sandboxId,
-    error: message.metadata?.prepareError ?? null,
+    error: null,
   }).catch(() => undefined);
 }
 

@@ -3,8 +3,6 @@ package workspace
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 
 	"github.com/cohub/apps/sandbox/env"
 )
@@ -12,8 +10,6 @@ import (
 type PrepareSummary struct {
 	WorkspaceDir      string
 	PlatformAgentsDir string
-	RepoCloned        bool
-	ConfigApplied     bool
 }
 
 func Prepare(cfg env.Config) (PrepareSummary, error) {
@@ -21,56 +17,8 @@ func Prepare(cfg env.Config) (PrepareSummary, error) {
 		return PrepareSummary{}, fmt.Errorf("mkdir workspace: %w", err)
 	}
 
-	repoCloned := false
-	if cfg.SpaceRepoURL != "" {
-		gitDir := filepath.Join(cfg.WorkspaceDir, ".git")
-		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-			empty, err := isWorkspaceEmpty(cfg.WorkspaceDir)
-			if err != nil {
-				return PrepareSummary{}, err
-			}
-			if empty {
-				cmd := exec.Command("git", "clone", cfg.SpaceRepoURL, cfg.WorkspaceDir)
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					return PrepareSummary{}, fmt.Errorf("git clone failed: %s: %w", string(output), err)
-				}
-				repoCloned = true
-			} else {
-				return PrepareSummary{}, fmt.Errorf("workspace directory exists and is not empty, skipping clone")
-			}
-		}
-
-	}
-
 	return PrepareSummary{
 		WorkspaceDir:      cfg.WorkspaceDir,
 		PlatformAgentsDir: cfg.PlatformAgentsDir,
-		RepoCloned:        repoCloned,
-		ConfigApplied:     false,
 	}, nil
-}
-
-func isWorkspaceEmpty(dir string) (bool, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false, fmt.Errorf("read workspace dir: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.Name() == "lost+found" {
-			continue
-		}
-		return false, nil
-	}
-	return true, nil
-}
-
-func gitConfig(cwd string, key string, value string) error {
-	cmd := exec.Command("git", "config", key, value)
-	cmd.Dir = cwd
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git config %s failed: %s: %w", key, string(output), err)
-	}
-	return nil
 }

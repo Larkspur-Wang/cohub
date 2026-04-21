@@ -4,7 +4,6 @@ type SandboxPodTemplateVariables = {
   SPACE_ID: string;
   USER_ID: string;
   ENV?: string;
-  SPACE_REPO_URL?: string;
   SPACE_STORAGE_PVC?: string;
   SPACE_STORAGE_SUBPATH?: string;
 };

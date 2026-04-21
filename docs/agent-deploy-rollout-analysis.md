@@ -652,7 +652,6 @@ StatefulSet 解决的是：
 - `status`
 - `ownedBy`
 - `lastHeartbeatAt`
-- `preparedAt`
 - `endpoint` 或连接信息
 
 这样 owner 切换时，系统更容易做到接管而不是重建一切。

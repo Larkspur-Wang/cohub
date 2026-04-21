@@ -101,9 +101,6 @@ agent (WS client)  ──connect──>  sandbox pod (WS server)
   - `SANDBOX_WS_HOST=0.0.0.0`
   - `SANDBOX_WS_PORT=8788`
   - `WORKSPACE_DIR=/workspace`
-  - `SPACE_REPO_URL`
-  - `SPACE_GIT_USERNAME`
-  - `SPACE_GIT_EMAIL`
   - `IMAGE_VERSION`
 
 ---
