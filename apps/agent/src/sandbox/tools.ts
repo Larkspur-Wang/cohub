@@ -4,18 +4,25 @@ import {
   createBashTool,
   createEditTool,
   createFindTool,
-  createGrepTool,
+  createGrepToolDefinition,
   createLsTool,
   createReadTool,
   createWriteTool,
   type BashOperations,
   type EditOperations,
   type FindOperations,
-  type GrepOperations,
+  type GrepToolDetails,
+  type GrepToolInput,
   type LsOperations,
   type ReadOperations,
   type WriteOperations,
+  DEFAULT_MAX_BYTES,
+  formatSize,
+  truncateHead,
+  truncateLine,
 } from "@mariozechner/pi-coding-agent";
+
+const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
 import { env, PLATFORM_AGENTS_DIR, PLATFORM_ROOT } from "../env.js";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
@@ -105,12 +112,23 @@ function createRemoteReadOperations(): ReadOperations {
       const connection = await getCurrentConnection();
       const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
       console.log(`[Tool:read] path=${path}`);
-      const result = await rpc(connection, "fs.read", { path });
+      // Use binary mode so sandbox detects MIME type and returns base64 for binary files.
+      const result = await rpc(connection, "fs.read", { path, binary: true });
+      if (result.contentBase64) {
+        return Buffer.from(result.contentBase64, "base64");
+      }
       return Buffer.from(result.content, "utf8");
     },
     async access(absolutePath) {
       const connection = await getCurrentConnection();
       await rpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath), offset: 1, limit: 1 });
+    },
+    async detectImageMimeType(absolutePath) {
+      const connection = await getCurrentConnection();
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      const result = await rpc(connection, "fs.read", { path, binary: true });
+      // Return the MIME type detected by the sandbox, or null to signal "not an image".
+      return result.mimeType ?? null;
     },
   };
 }
@@ -254,55 +272,309 @@ function createRemoteFindOperations(): FindOperations {
     async glob(pattern, cwd, options) {
       const path = mapLocalAbsolutePathToSandboxPath(cwd);
       console.log(`[Tool:find] pattern=${pattern} path=${path}`);
+
+      // Agent owns tool semantics: match pi-coding-agent fd behavior.
+      // In --full-path mode fd matches against the absolute candidate path,
+      // so a path-containing pattern like 'src/**/*.spec.ts' needs a leading
+      // '**/' to match anything (matching pi-coding-agent logic).
+      let effectivePattern = pattern;
+      const useFullPath = pattern.includes("/");
+      if (useFullPath && !pattern.startsWith("/") && !pattern.startsWith("**/") && pattern !== "**") {
+        effectivePattern = `**/${pattern}`;
+      }
+
       const connection = await getCurrentConnection();
       const result = await rpc(connection, "fs.find", {
-        pattern,
+        pattern: effectivePattern,
         path,
         limit: options.limit,
+        maxResults: options.limit,
+        mode: "glob",
+        // Always include hidden files (matching pi-coding-agent `--hidden`).
+        hidden: true,
+        // Apply .gitignore even outside a git repo (matching pi-coding-agent `--no-require-git`).
+        requireGit: false,
+        // Don't skip VCS ignore rules — let .gitignore work naturally.
+        ignoreVcs: false,
+        fullPath: useFullPath,
+        // Pass through ignore patterns from the caller (e.g. node_modules).
+        ignore: options.ignore,
       });
       return result.matches;
     },
   };
 }
 
+/**
+ * Sandbox grep tool that delegates fs.grep to the sandbox but replicates
+ * the native pi-coding-agent output format so the model sees identical results.
+ *
+ * Native grep output format:
+ *   Match lines:   relativePath:lineNumber: text
+ *   Context lines: relativePath-lineNumber- text
+ *   Long lines are truncated to GREP_MAX_LINE_LENGTH.
+ */
 function createRemoteGrepTool() {
-  return createGrepTool(SANDBOX_WORKSPACE_ROOT, {
-    operations: {
-      async isDirectory(absolutePath: string) {
-        const connection = await getCurrentConnection();
-        const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
-        return result.isDirectory;
-      },
-      async readFile(absolutePath: string) {
-        const connection = await getCurrentConnection();
-        const result = await rpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
-        return result.content;
-      },
-    },
-    // kept only for type compatibility through operations; execution uses custom tool below
-  } as never);
+  const definition = createGrepToolDefinition(SANDBOX_WORKSPACE_ROOT);
+
+  definition.execute = async (
+    _toolCallId,
+    input,
+    signal?: AbortSignal,
+    _onUpdate?,
+    _ctx?,
+  ) => {
+    const grepInput = input as GrepToolInput;
+    console.log(`[Tool:grep] pattern=${grepInput.pattern} path=${grepInput.path}`);
+
+    // Check abort before starting.
+    if (signal?.aborted) {
+      throw new Error("Operation aborted");
+    }
+
+    const contextValue = grepInput.context && grepInput.context > 0 ? grepInput.context : 0;
+    const effectiveLimit = Math.max(1, grepInput.limit ?? 100);
+
+    // Set up abort handling.
+    let aborted = false;
+    let activeProcessId: string | null = null;
+    const onAbort = () => {
+      aborted = true;
+      if (activeProcessId) {
+        void rpcAbortProcess(activeProcessId);
+      }
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    try {
+      const connection = await getCurrentConnection();
+      const result = await connection.request(
+        "fs.grep",
+        {
+          pattern: grepInput.pattern,
+          path: mapSandboxInputPath(grepInput.path),
+          glob: grepInput.glob,
+          ignoreCase: grepInput.ignoreCase,
+          literal: grepInput.literal,
+          context: grepInput.context,
+          limit: effectiveLimit,
+          // Agent owns semantics: match pi-coding-agent behavior.
+          maxCount: grepInput.limit,
+          json: true,
+          hidden: true,
+        },
+        {
+          requestId: randomUUID(),
+          spaceId: getCurrentSpaceId(),
+          sandboxId: connection.sandboxId,
+          onStream(event) {
+            if (event.type === "started") {
+              activeProcessId = event.processId;
+              if (aborted) {
+                void rpcAbortProcess(event.processId);
+              }
+            }
+          },
+        },
+      );
+
+      if (aborted) {
+        throw new Error("Operation aborted");
+      }
+
+      // Phase 1: Parse all matches from rg JSON output.
+      const matches: Array<{
+        filePath: string;
+        lineNumber: number;
+        lineText?: string;
+      }> = [];
+      for (const rawLine of result.lines) {
+        if (!rawLine.trim()) continue;
+        let rgEvent: {
+          type: string;
+          data?: {
+            path?: { text?: string };
+            line_number?: number;
+            lines?: { text?: string };
+          };
+        };
+        try {
+          rgEvent = JSON.parse(rawLine);
+        } catch {
+          continue;
+        }
+        if (rgEvent.type === "match") {
+          const filePath = rgEvent.data?.path?.text;
+          const lineNumber = rgEvent.data?.line_number;
+          const lineText = rgEvent.data?.lines?.text;
+          if (filePath && typeof lineNumber === "number") {
+            matches.push({ filePath, lineNumber, lineText });
+          }
+          if (matches.length >= effectiveLimit) break;
+        }
+      }
+
+      if (matches.length === 0) {
+        return {
+          content: [{ type: "text", text: "No matches found" }],
+          details: undefined,
+        };
+      }
+
+      const matchLimitReached = matches.length >= effectiveLimit;
+
+      // Phase 2: If context mode, pre-fetch all needed files in parallel with caching.
+      const fileCache = new Map<string, string[]>();
+      if (contextValue > 0) {
+        // Collect unique file paths.
+        const filePaths = [...new Set(matches.map((m) => m.filePath))];
+        // Fetch all files in parallel.
+        const fetchResults = await Promise.all(
+          filePaths.map(async (filePath) => {
+            const connection = await getCurrentConnection();
+            const fileResult = await rpc(connection, "fs.read", { path: filePath });
+            return { filePath, lines: fileResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") };
+          }),
+        );
+        for (const r of fetchResults) {
+          fileCache.set(r.filePath, r.lines);
+        }
+      }
+
+      // Phase 3: Format output lines from parsed matches (with cache hits for context).
+      const outputLines: string[] = [];
+      let linesTruncated = false;
+
+      for (const match of matches) {
+        const relativePath = formatRelativePath(match.filePath, grepInput.path);
+
+        if (contextValue === 0 && match.lineText !== undefined) {
+          // No context: format directly from rg line text (native behavior).
+          const sanitized = match.lineText.replace(/\r\n/g, "\n").replace(/\r/g, "").replace(/\n$/, "");
+          const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
+          if (wasTruncated) linesTruncated = true;
+          outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
+        } else {
+          // Context mode: use pre-fetched file content from cache.
+          const cachedLines = fileCache.get(match.filePath);
+          if (cachedLines) {
+            const block = formatContextBlockFromCache(match.filePath, match.lineNumber, contextValue, cachedLines);
+            if (block.anyTruncated) linesTruncated = true;
+            outputLines.push(...block.lines);
+          } else {
+            // Fallback: shouldn't happen after parallel fetch, but handle gracefully.
+            const relativePathFallback = match.filePath.includes("/") ? match.filePath.split("/").pop() ?? match.filePath : match.filePath;
+            outputLines.push(`${relativePathFallback}:${match.lineNumber}: (unable to read file)`);
+          }
+        }
+      }
+
+      // Apply byte truncation (matching native behavior).
+      const rawOutput = outputLines.join("\n");
+      const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+      let output = truncation.content;
+
+      // Build details (matching native behavior).
+      const details: GrepToolDetails = {};
+      const notices: string[] = [];
+      if (matchLimitReached) {
+        notices.push(`${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`);
+        details.matchLimitReached = effectiveLimit;
+      }
+      if (truncation.truncated) {
+        notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+        details.truncation = truncation;
+      }
+      if (linesTruncated) {
+        notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
+        details.linesTruncated = true;
+      }
+      if (notices.length > 0) {
+        output += `\n\n[${notices.join(". ")}]`;
+      }
+
+      return {
+        content: [{ type: "text", text: output }],
+        details: Object.keys(details).length > 0 ? details : undefined,
+      };
+    } finally {
+      if (signal) signal.removeEventListener("abort", onAbort);
+    }
+  };
+
+  // Keep native renderCall and renderResult for TUI consistency.
+  return {
+    name: definition.name,
+    label: definition.label,
+    description: definition.description,
+    promptSnippet: definition.promptSnippet,
+    parameters: definition.parameters,
+    execute: definition.execute,
+    renderCall: definition.renderCall?.bind(definition),
+    renderResult: definition.renderResult?.bind(definition),
+  };
+}
+
+/** Format a file path as relative, matching native grep behavior. */
+function formatRelativePath(absolutePath: string, searchPath: string | undefined): string {
+  // Reconstruct the sandbox-internal search path to compute relative output.
+  let sandboxSearchDir: string | null = null;
+  if (!searchPath || searchPath === ".") {
+    sandboxSearchDir = SANDBOX_WORKSPACE_ROOT;
+  } else if (!searchPath.startsWith("/")) {
+    sandboxSearchDir = `${SANDBOX_WORKSPACE_ROOT}/${searchPath}`;
+  } else {
+    sandboxSearchDir = searchPath;
+  }
+
+  if (absolutePath.startsWith(`${sandboxSearchDir}/`)) {
+    return absolutePath.slice(sandboxSearchDir.length + 1);
+  }
+  // Fallback: just the filename.
+  const parts = absolutePath.split("/");
+  return parts[parts.length - 1] ?? absolutePath;
+}
+
+/** Format context lines from cached file content. Pure/sync, no RPC. */
+function formatContextBlockFromCache(
+  filePath: string,
+  lineNumber: number,
+  contextValue: number,
+  fileLines: string[],
+): { lines: string[]; anyTruncated: boolean } {
+  const relativePath = filePath.includes("/") ? filePath.split("/").pop() ?? filePath : filePath;
+  const block: string[] = [];
+  let anyTruncated = false;
+  const start = contextValue > 0 ? Math.max(1, lineNumber - contextValue) : lineNumber;
+  const end = contextValue > 0 ? Math.min(fileLines.length, lineNumber + contextValue) : lineNumber;
+
+  for (let current = start; current <= end; current++) {
+    const lineText = fileLines[current - 1] ?? "";
+    const sanitized = lineText.replace(/\r/g, "");
+    const isMatchLine = current === lineNumber;
+    const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
+    if (wasTruncated) anyTruncated = true;
+    if (isMatchLine) block.push(`${relativePath}:${current}: ${truncatedText}`);
+    else block.push(`${relativePath}-${current}- ${truncatedText}`);
+  }
+  return { lines: block, anyTruncated };
+}
+
+/** Abort a running process via sandbox RPC. */
+async function rpcAbortProcess(processId: string) {
+  try {
+    const connection = await getCurrentConnection();
+    await rpc(connection, "process.abort", { processId });
+  } catch {
+    // Ignore abort errors.
+  }
 }
 
 export function createSandboxCodingTools() {
   const toolCwd = SANDBOX_WORKSPACE_ROOT;
-  const grepTool = createRemoteGrepTool();
-  grepTool.execute = async (_toolCallId, input) => {
-    console.log(`[Tool:grep] pattern=${input.pattern} path=${input.path}`);
-    const connection = await getCurrentConnection();
-    const result = await rpc(connection, "fs.grep", {
-      pattern: input.pattern,
-      path: mapSandboxInputPath(input.path),
-      glob: input.glob,
-      ignoreCase: input.ignoreCase,
-      literal: input.literal,
-      context: input.context,
-      limit: input.limit,
-    });
-    return {
-      content: [{ type: "text", text: result.lines.join("\n") || "No matches found" }],
-      details: undefined,
-    };
-  };
 
   return [
     createReadTool(toolCwd, { operations: createRemoteReadOperations() }),
@@ -311,6 +583,6 @@ export function createSandboxCodingTools() {
     createWriteTool(toolCwd, { operations: createRemoteWriteOperations() }),
     createLsTool(toolCwd, { operations: createRemoteLsOperations() }),
     createFindTool(toolCwd, { operations: createRemoteFindOperations() }),
-    grepTool,
+    createRemoteGrepTool(),
   ];
 }

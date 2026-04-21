@@ -1,6 +1,8 @@
 package rpc
 
 import (
+	"encoding/base64"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,34 @@ func osReadFile(path string) (string, error) {
 		return "", err
 	}
 	return string(bytes), nil
+}
+
+func osReadFileBytes(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+func fileToBase64(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// detectMimeType uses file extension first, then content sniffing as fallback.
+func detectMimeType(path string, data []byte) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	imageTypes := map[string]string{
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".png":  "image/png",
+		".gif":  "image/gif",
+		".webp": "image/webp",
+		".svg":  "image/svg+xml",
+		".bmp":  "image/bmp",
+		".ico":  "image/x-icon",
+	}
+	if mt, ok := imageTypes[ext]; ok {
+		return mt
+	}
+	// Fallback: sniff content bytes.
+	return http.DetectContentType(data)
 }
 
 func osReadDir(path string) ([]os.DirEntry, error) {

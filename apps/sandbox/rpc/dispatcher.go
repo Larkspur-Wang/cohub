@@ -66,6 +66,7 @@ type fsReadParams struct {
 	CWD    string `json:"cwd"`
 	Offset int    `json:"offset"`
 	Limit  int    `json:"limit"`
+	Binary bool   `json:"binary"`
 }
 
 type fsWriteParams struct {
@@ -81,10 +82,16 @@ type fsLsParams struct {
 }
 
 type fsFindParams struct {
-	Pattern string `json:"pattern"`
-	Path    string `json:"path"`
-	CWD     string `json:"cwd"`
-	Limit   int    `json:"limit"`
+	Pattern    string   `json:"pattern"`
+	Path       string   `json:"path"`
+	CWD        string   `json:"cwd"`
+	Limit      int      `json:"limit"`
+	Mode       string   `json:"mode"`
+	Hidden     bool     `json:"hidden"`
+	RequireGit bool     `json:"requireGit"`
+	IgnoreVcs  bool     `json:"ignoreVcs"`
+	FullPath   bool     `json:"fullPath"`
+	Ignore     []string `json:"ignore"`
 }
 
 type fsGrepParams struct {
@@ -96,6 +103,11 @@ type fsGrepParams struct {
 	Literal    bool   `json:"literal"`
 	Context    int    `json:"context"`
 	Limit      int    `json:"limit"`
+	MaxCount   int    `json:"maxCount"`
+	JSON       bool   `json:"json"`
+	RequireGit bool   `json:"requireGit"`
+	IgnoreVcs  bool   `json:"ignoreVcs"`
+	Hidden     bool   `json:"hidden"`
 }
 
 type processStartParams struct {
@@ -125,6 +137,24 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
 	if !ok {
 		return errResponse
+	}
+
+	// Binary mode: return base64-encoded content with MIME type detection.
+	if params.Binary {
+		rawBytes, err := osReadFileBytes(resolved.path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return d.errorResponse(request, "NOT_FOUND", err.Error())
+			}
+			return d.errorResponse(request, "IO_ERROR", err.Error())
+		}
+		mimeType := detectMimeType(resolved.path, rawBytes)
+		return d.response(request, map[string]interface{}{
+			"path":          resolved.path,
+			"content":       "",
+			"contentBase64": fileToBase64(rawBytes),
+			"mimeType":      mimeType,
+		})
 	}
 
 	content, err := osReadFile(resolved.path)
@@ -294,10 +324,48 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 		limit = 1000
 	}
 
-	cmd := exec.Command("fd", params.Pattern, resolved.path)
+	// Build fd arguments based on agent-controlled parameters.
+	// Sandbox is a generic executor; agent owns all tool semantics.
+	args := []string{"--color=never"}
+
+	// Search mode: glob (default), regex, or fixed-strings.
+	switch params.Mode {
+	case "glob":
+		args = append(args, "--glob")
+	case "fixed-strings":
+		args = append(args, "--fixed-strings")
+	// "regex" is fd default, no flag needed.
+	}
+
+	if params.Hidden {
+		args = append(args, "--hidden")
+	}
+	// --no-require-git: apply .gitignore even outside a git repo (agent default).
+	if !params.RequireGit {
+		args = append(args, "--no-require-git")
+	}
+	// --no-ignore-vcs: skip all VCS ignore rules.
+	if params.IgnoreVcs {
+		args = append(args, "--no-ignore-vcs")
+	}
+	if params.FullPath {
+		args = append(args, "--full-path")
+	}
+
+	// Add ignore patterns as --exclude flags.
+	for _, pattern := range params.Ignore {
+		if pattern != "" {
+			args = append(args, "--exclude", pattern)
+		}
+	}
+
+	args = append(args, "--max-results", fmt.Sprintf("%d", limit))
+	args = append(args, params.Pattern, resolved.path)
+
+	cmd := exec.Command("fd", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exec.ErrNotFound != nil && strings.Contains(err.Error(), exec.ErrNotFound.Error()) {
+		if strings.Contains(err.Error(), "executable file not found") {
 			return d.errorResponse(request, "INTERNAL_ERROR", "fd is not installed in sandbox")
 		}
 		stderr := strings.TrimSpace(string(output))
@@ -347,7 +415,24 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 		limit = 100
 	}
 
-	args := []string{"--line-number", "--color=never", "--hidden"}
+	args := []string{"--line-number", "--color=never"}
+	if params.Hidden {
+		args = append(args, "--hidden")
+	}
+	// --no-require-git: apply .gitignore even outside a git repo (agent default).
+	if !params.RequireGit {
+		args = append(args, "--no-require-git")
+	}
+	// --no-ignore-vcs: skip all VCS ignore rules.
+	if params.IgnoreVcs {
+		args = append(args, "--no-ignore-vcs")
+	}
+	if params.MaxCount > 0 {
+		args = append(args, "--max-count", fmt.Sprintf("%d", params.MaxCount))
+	}
+	if params.JSON {
+		args = append(args, "--json")
+	}
 	if params.Context > 0 {
 		args = append(args, "--context", fmt.Sprintf("%d", params.Context))
 	}

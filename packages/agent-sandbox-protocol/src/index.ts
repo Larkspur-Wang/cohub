@@ -106,11 +106,17 @@ export type FsReadParams = {
   cwd?: string;
   offset?: number;
   limit?: number;
+  /** Return content as base64 for binary-safe reading */
+  binary?: boolean;
 };
 
 export type FsReadResult = {
   path: string;
   content: string;
+  /** Base64-encoded content when binary=true */
+  contentBase64?: string;
+  /** MIME type detected for binary content */
+  mimeType?: string;
 };
 
 export type FsWriteParams = {
@@ -152,6 +158,20 @@ export type FsFindParams = {
   path?: string;
   cwd?: string;
   limit?: number;
+  /** Search mode: "glob" (default), "regex", or "fixed-strings" */
+  mode?: "glob" | "regex" | "fixed-strings";
+  /** Maximum number of results (--max-results) */
+  maxResults?: number;
+  /** Include hidden files/directories */
+  hidden?: boolean;
+  /** Require a git repository to apply .gitignore rules (false = apply even outside git repos, i.e. --no-require-git) */
+  requireGit?: boolean;
+  /** Skip VCS ignore rules entirely (i.e. --no-ignore-vcs) */
+  ignoreVcs?: boolean;
+  /** Match against full path instead of basename */
+  fullPath?: boolean;
+  /** Glob patterns to exclude (e.g. node_modules, .git) */
+  ignore?: string[];
 };
 
 export type FsFindResult = {
@@ -169,6 +189,14 @@ export type FsGrepParams = {
   literal?: boolean;
   context?: number;
   limit?: number;
+  /** Maximum matches per file (-m/--max-count) */
+  maxCount?: number;
+  /** Output in JSON format for structured parsing (--json) */
+  json?: boolean;
+  /** Require a git repository to apply .gitignore rules (false = apply even outside git repos, i.e. --no-require-git) */
+  requireGit?: boolean;
+  /** Include hidden files/directories */
+  hidden?: boolean;
 };
 
 export type FsGrepResult = {
