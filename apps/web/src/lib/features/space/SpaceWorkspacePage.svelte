@@ -250,8 +250,6 @@ let scrollPosBySession = $state.raw(new Map<string, number>());
 let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
 let scrollTargetSessionId = $state<string | null>(null);
 let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
-let titleClickCount = $state(0);
-let titleClickTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── Settings & Share ───
 let showSettings = $state(false);
@@ -494,18 +492,6 @@ async function makeSessionPrivate() {
   }
 }
 
-function handleTitleClick() {
-	titleClickCount++;
-	if (titleClickTimer) clearTimeout(titleClickTimer);
-	if (titleClickCount >= 4) {
-		titleClickCount = 0;
-		void goto(`/spaces/${spaceId}/debug`);
-		return;
-	}
-	titleClickTimer = setTimeout(() => {
-		titleClickCount = 0;
-	}, 600);
-}
 
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
@@ -2237,7 +2223,6 @@ $effect(() => {
         <button
           type="button"
           class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
-          onclick={handleTitleClick}
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
@@ -2246,7 +2231,6 @@ $effect(() => {
         <button
           type="button"
           class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
-          onclick={handleTitleClick}
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
@@ -2255,7 +2239,6 @@ $effect(() => {
         <button
           type="button"
           class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
-          onclick={handleTitleClick}
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
@@ -2264,7 +2247,6 @@ $effect(() => {
         <button
           type="button"
           class="text-[13px] text-text-primary truncate select-none text-left hover:text-text-secondary transition-colors"
-          onclick={handleTitleClick}
         >{space?.name || space?.title || spaceId}</button>
       {/if}
     </div>

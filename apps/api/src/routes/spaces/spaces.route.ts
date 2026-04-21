@@ -11,7 +11,7 @@ import { requireAuth, useAuth, requireValidId, buildSpaceListItem, buildStorageR
 import { k8sCoreApi } from "../../k8s.js";
 import { sessionsNamespace, config } from "../../config.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
-import { getSpaceSandboxBySpaceId, provisionSpaceInBackground, updateSpaceSandbox } from "../../space-sandboxes.js";
+import { getSpaceSandboxBySpaceId, provisionSpaceSandbox, updateSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -217,7 +217,7 @@ router.post("/", async (c) => {
   }
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  void provisionSpaceInBackground(
+  void provisionSpaceSandbox(
     getSpaceProvisionParams(user, space, gitAccount, normalizedExtraEnv),
   ).catch(console.error);
 
@@ -402,7 +402,7 @@ router.post("/:id/sandbox/recreate", async (c) => {
   });
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  void provisionSpaceInBackground(getSpaceProvisionParams(user, space, gitAccount))
+  void provisionSpaceSandbox(getSpaceProvisionParams(user, space, gitAccount))
     .catch(console.error);
 
   return c.json({ ok: true, message: "Sandbox recreation triggered" });

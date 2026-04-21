@@ -95,7 +95,7 @@ const tryCreatePod = async (spaceId: string, pod: V1Pod) => {
 };
 
 
-export const provisionSpaceInBackground = async (input: {
+export const provisionSpaceSandbox = async (input: {
   spaceId: string;
   userUuid: string;
   extraEnv?: Array<{ name: string; value: string }>;

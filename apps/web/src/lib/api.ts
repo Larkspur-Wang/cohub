@@ -1,5 +1,4 @@
-import { goto } from "$app/navigation";
-import { PUBLIC_API_ORIGIN, PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
+import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import {
 	clearAuthToken as clearStoredAuthToken,
 	getAuthToken,
@@ -50,7 +49,6 @@ export type SpaceFsWriteFileInput = {
 export type SpaceFsMoveInput = { fromPath: string; toPath: string };
 
 const API_BASE_URL = PUBLIC_API_ORIGIN ?? "";
-const GATEWAY_BASE_URL = PUBLIC_GATEWAY_ORIGIN ?? "";
 
 type ApiError = {
 	message: string;
@@ -170,22 +168,7 @@ const apiFetch = async (
 	return response.json();
 };
 
-const gatewayFetch = async (
-	path: string,
-	init?: RequestInit & { fetch?: Fetch },
-) => {
-	const fetcher = init?.fetch ?? fetch;
-	const url = GATEWAY_BASE_URL ? `${GATEWAY_BASE_URL}${path}` : path;
 
-	const response = await fetcher(url, await withAuthorization(init));
-
-	if (response.status === 401 && typeof window !== "undefined") {
-		await logtoClient.signIn(`${window.location.origin}/`);
-		throw new Error("unauthorized");
-	}
-
-	return response;
-};
 
 export const setAuthToken = async (token: string) => {
 	const trimmedToken = token.trim();
