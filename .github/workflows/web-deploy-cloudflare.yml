@@ -74,6 +74,9 @@ jobs:
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway-dev.cohub.run" >> .env
           fi
 
+      - name: Build protocol
+        run: pnpm --filter @cohub/protocol build
+
       - name: Lint
         run: pnpm lint
         working-directory: apps/web
