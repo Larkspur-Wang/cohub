@@ -1,15 +1,13 @@
 <script lang="ts">
 import "../app.css";
+import { onMount } from "svelte";
 import { page } from "$app/state";
-import MediaLightbox from "$lib/components/MediaLightbox.svelte";
-import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
-import Sidebar from "$lib/components/Sidebar.svelte";
 import {
 	type DrawerGestureDirection,
 	type DrawerGesturePhase,
-	MOBILE_DRAWER_WIDTH_PX,
 	getDrawerOffsetFromDrag,
 	getRightDrawerOffsetFromDrag,
+	MOBILE_DRAWER_WIDTH_PX,
 	resolveDrawerGestureDirection,
 	shouldKeepDrawerOpen,
 	shouldKeepRightDrawerOpen,
@@ -25,14 +23,13 @@ import {
 	LEFT_SIDEBAR_MIN,
 	uiState,
 } from "$lib/stores/ui.svelte";
-import { onMount } from "svelte";
 
 const { children } = $props();
 
 const currentPath = $derived(page.url.pathname);
-const isLogin = $derived(currentPath === "/callback");
-const isHome = $derived(currentPath === "/");
-const sidebarMode = $derived(
+const _isLogin = $derived(currentPath === "/callback");
+const _isHome = $derived(currentPath === "/");
+const _sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
 
@@ -49,10 +46,10 @@ let velocityX = $state(0);
 let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
 
-const isDrawerVisible = $derived(
+const _isDrawerVisible = $derived(
 	isDragging || gesturePhase === "settling" || uiState.mobileDrawerOpen,
 );
-const isRightDrawerVisible = $derived(
+const _isRightDrawerVisible = $derived(
 	uiState.rightIsDragging ||
 		gesturePhase === "settling" ||
 		uiState.mobileRightDrawerOpen,
@@ -268,7 +265,7 @@ function handleTouchCancel(e: TouchEvent) {
 	finalizeGesture();
 }
 
-function beginLeftSidebarResize(event: PointerEvent) {
+function _beginLeftSidebarResize(event: PointerEvent) {
 	if (window.innerWidth < 1024) return;
 	event.preventDefault();
 

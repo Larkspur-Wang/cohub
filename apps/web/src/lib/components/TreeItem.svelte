@@ -1,39 +1,37 @@
 <script lang="ts">
 import type { RepositoryTreeNode } from "$lib/types";
 
-import TreeItem from "./TreeItem.svelte";
-
 const {
-  node,
-  depth,
-  selectedPath,
-  onToggle,
-  onSelect,
+	node,
+	depth,
+	selectedPath,
+	onToggle,
+	onSelect,
 }: {
-  node: RepositoryTreeNode;
-  depth: number;
-  selectedPath: string;
-  onToggle: (node: RepositoryTreeNode) => void;
-  onSelect: (node: RepositoryTreeNode) => void;
+	node: RepositoryTreeNode;
+	depth: number;
+	selectedPath: string;
+	onToggle: (node: RepositoryTreeNode) => void;
+	onSelect: (node: RepositoryTreeNode) => void;
 } = $props();
 
-const handleClick = () => {
-  if (node.type === "dir") {
-    onToggle(node);
-    return;
-  }
+const _handleClick = () => {
+	if (node.type === "dir") {
+		onToggle(node);
+		return;
+	}
 
-  onSelect(node);
+	onSelect(node);
 };
 
-const icon = $derived.by(() => {
-  if (node.type === "dir") {
-    return node.isOpen ? "▾" : "▸";
-  }
-  return "·";
+const _icon = $derived.by(() => {
+	if (node.type === "dir") {
+		return node.isOpen ? "▾" : "▸";
+	}
+	return "·";
 });
 
-const isActive = $derived(selectedPath === node.path);
+const _isActive = $derived(selectedPath === node.path);
 </script>
 
 <button

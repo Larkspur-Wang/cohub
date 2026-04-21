@@ -18,17 +18,17 @@
   },
   "dependencies": {
     "@cohub/protocol": "workspace:*",
-    "bullmq": "^5.73.4",
-    "dotenv": "^17.3.1",
-    "drizzle-orm": "^0.45.1",
-    "ioredis": "^5.7.0",
-    "postgres": "^3.4.8"
+    "bullmq": "^5.75.2",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.10.1",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
-    "@types/node": "22.10.2",
-    "tsx": "4.19.2",
-    "typescript": "^6.0.2",
-    "@typescript/native-preview": "^7.0.0-dev"
+    "@biomejs/biome": "2.4.12",
+    "@types/node": "25.6.0",
+    "@typescript/native-preview": "7.0.0-dev.20260421.1",
+    "tsx": "4.21.0",
+    "typescript": "^6.0.3"
   }
 }

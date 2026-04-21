@@ -6,7 +6,6 @@ import { db } from "../db.js";
 import { checkpoints, spaces } from "../db-schema.js";
 import { getUserGitAccount } from "../git-accounts.js";
 import { createRepository } from "../gitea.js";
-import { config } from "../config.js";
 import {
   buildAuthenticatedRemoteUrl,
   emptyDirectory,

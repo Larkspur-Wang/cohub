@@ -1,7 +1,4 @@
 <script lang="ts">
-import { Image } from "lucide-svelte";
-import Dialog from "./Dialog.svelte";
-
 type ModelItem = {
 	provider: string;
 	id: string;
@@ -16,20 +13,26 @@ type Props = {
 	currentModel?: { provider: string; id: string } | null;
 };
 
-const { open, onClose, onSelect, models, currentModel = null }: Props = $props();
+const {
+	open,
+	onClose,
+	onSelect,
+	models,
+	currentModel = null,
+}: Props = $props();
 
 let searchQuery = $state("");
 let selectedIndex = $state(0);
-let navigationMode: "mouse" | "keyboard" = $state("mouse");
+let _navigationMode: "mouse" | "keyboard" = $state("mouse");
 let containerEl = $state<HTMLElement | null>(null);
 let searchInputEl = $state<HTMLInputElement | null>(null);
 
 function getDisplayName(item: ModelItem): string {
 	const name = item.model.name;
-	return (typeof name === "string" && name.trim()) ? name : item.id;
+	return typeof name === "string" && name.trim() ? name : item.id;
 }
 
-function hasVision(item: ModelItem): boolean {
+function _hasVision(item: ModelItem): boolean {
 	const input = item.model.input as string[] | undefined;
 	return input?.includes("image") ?? false;
 }
@@ -41,7 +44,8 @@ const filteredModels = $derived.by(() => {
 		const query = searchQuery.toLowerCase().replace(/\s+/g, "");
 		const scored = result
 			.map((item) => {
-				const text = `${item.provider} ${item.id} ${getDisplayName(item)}`.toLowerCase();
+				const text =
+					`${item.provider} ${item.id} ${getDisplayName(item)}`.toLowerCase();
 				const score = subsequenceScore(query, text);
 				return score > 0 ? { item, score } : null;
 			})
@@ -53,8 +57,10 @@ const filteredModels = $derived.by(() => {
 	// When not searching, current model first
 	if (!searchQuery.trim() && currentModel) {
 		result = [...result].sort((a, b) => {
-			const aIsCurrent = a.provider === currentModel.provider && a.id === currentModel.id;
-			const bIsCurrent = b.provider === currentModel.provider && b.id === currentModel.id;
+			const aIsCurrent =
+				a.provider === currentModel.provider && a.id === currentModel.id;
+			const bIsCurrent =
+				b.provider === currentModel.provider && b.id === currentModel.id;
 			if (aIsCurrent && !bIsCurrent) return -1;
 			if (!aIsCurrent && bIsCurrent) return 1;
 			return a.provider.localeCompare(b.provider);
@@ -68,7 +74,7 @@ $effect(() => {
 	if (open) {
 		searchQuery = "";
 		selectedIndex = 0;
-		navigationMode = "mouse";
+		_navigationMode = "mouse";
 		// Focus search input after render
 		requestAnimationFrame(() => {
 			searchInputEl?.focus();
@@ -76,7 +82,7 @@ $effect(() => {
 	}
 });
 
-function handleKeyDown(e: KeyboardEvent) {
+function _handleKeyDown(e: KeyboardEvent) {
 	if (!open) return;
 	if (e.key === "Escape") {
 		e.preventDefault();
@@ -85,14 +91,14 @@ function handleKeyDown(e: KeyboardEvent) {
 	}
 	if (e.key === "ArrowDown") {
 		e.preventDefault();
-		navigationMode = "keyboard";
+		_navigationMode = "keyboard";
 		selectedIndex = Math.min(selectedIndex + 1, filteredModels.length - 1);
 		scrollSelectedIntoView();
 		return;
 	}
 	if (e.key === "ArrowUp") {
 		e.preventDefault();
-		navigationMode = "keyboard";
+		_navigationMode = "keyboard";
 		selectedIndex = Math.max(selectedIndex - 1, 0);
 		scrollSelectedIntoView();
 		return;
@@ -114,7 +120,7 @@ function scrollSelectedIntoView() {
 	});
 }
 
-function isCurrentModel(item: ModelItem): boolean {
+function _isCurrentModel(item: ModelItem): boolean {
 	return (
 		currentModel !== null &&
 		item.provider === currentModel.provider &&

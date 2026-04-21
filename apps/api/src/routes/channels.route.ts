@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { userChannels, spaceChannels, spaces } from "../db/schema-v2.js";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { requireAuth, useAuth, requireValidId } from "../lib/middleware.js";
+import { useAuth, requireValidId } from "../lib/middleware.js";
 
 const router = new Hono();
 

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { constants, type Stats } from "node:fs";
-import { access, chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+
+import type { Stats } from "node:fs";
+import { chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { config } from "./config.js";
 import type {

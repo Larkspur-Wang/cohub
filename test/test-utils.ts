@@ -400,7 +400,7 @@ const SERVICE_LABELS: Record<string, string> = {
 };
 
 /** 从 K8s pod name 中标准化为服务名 (e.g. cohub-agent-dev-97bc74c78-gs52h → agent) */
-function normalizePodName(podName: string): string {
+function _normalizePodName(podName: string): string {
   for (const [svc, label] of Object.entries(SERVICE_LABELS)) {
     const labelValue = label.split("=")[1];
     if (podName.startsWith(labelValue)) return svc;
@@ -423,7 +423,7 @@ async function collectPodMetricsByLabel(label: string, namespace: string): Promi
       const memStr = parts[2] ?? "0Mi";
 
       let cpu = 0;
-      if (cpuStr.endsWith("m")) cpu = Number.parseInt(cpuStr);
+      if (cpuStr.endsWith("m")) cpu = Number.parseInt(cpuStr, 10);
       else cpu = Math.round(Number.parseFloat(cpuStr) * 1000);
 
       let mem = 0;
@@ -463,7 +463,7 @@ async function collectAllMetrics(): Promise<PodMetrics[]> {
       if (!name.startsWith("sandbox-")) continue;
       const cpuStr = parts[1] ?? "0m";
       const memStr = parts[2] ?? "0Mi";
-      let cpu = cpuStr.endsWith("m") ? Number.parseInt(cpuStr) : 0;
+      let cpu = cpuStr.endsWith("m") ? Number.parseInt(cpuStr, 10) : 0;
       let mem = memStr.endsWith("Mi") ? Math.round(Number.parseFloat(memStr)) : 0;
       sandboxPods.push({ name, cpu, mem });
     }

@@ -1,40 +1,39 @@
 <script lang="ts">
 import type { ToolState } from "$lib/session-tree";
-import { ChevronDown, ChevronRight } from "lucide-svelte";
 
 type Props = {
-  tool: ToolState;
+	tool: ToolState;
 };
 
 const { tool }: Props = $props();
 
-let expanded = $state(false);
+let _expanded = $state(false);
 
-const statusDotMap = {
-  done: "bg-status-running",
-  running: "bg-status-starting animate-pulse",
-  failed: "bg-status-error",
+const _statusDotMap = {
+	done: "bg-status-running",
+	running: "bg-status-starting animate-pulse",
+	failed: "bg-status-error",
 } as const;
 
-function summarizeToolInput(
-  name: string,
-  input?: Record<string, unknown>,
+function _summarizeToolInput(
+	name: string,
+	input?: Record<string, unknown>,
 ): string {
-  if (!input) return "";
-  if (name === "bash" && typeof input.command === "string") {
-    return `$ ${input.command}`;
-  }
-  if (
-    ["read", "write", "edit"].includes(name) &&
-    typeof input.path === "string"
-  ) {
-    return input.path;
-  }
-  try {
-    return JSON.stringify(input);
-  } catch {
-    return String(input);
-  }
+	if (!input) return "";
+	if (name === "bash" && typeof input.command === "string") {
+		return `$ ${input.command}`;
+	}
+	if (
+		["read", "write", "edit"].includes(name) &&
+		typeof input.path === "string"
+	) {
+		return input.path;
+	}
+	try {
+		return JSON.stringify(input);
+	} catch {
+		return String(input);
+	}
 }
 </script>
 

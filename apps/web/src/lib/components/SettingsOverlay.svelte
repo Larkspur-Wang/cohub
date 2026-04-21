@@ -1,14 +1,12 @@
 <script lang="ts">
-import Dialog from "./Dialog.svelte";
-
 const {
-  open,
-  onClose,
-  children,
+	open,
+	onClose,
+	children,
 }: {
-  open: boolean;
-  onClose: () => void;
-  children: import("svelte").Snippet;
+	open: boolean;
+	onClose: () => void;
+	children: import("svelte").Snippet;
 } = $props();
 </script>
 

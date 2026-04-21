@@ -11,7 +11,7 @@
  */
 
 import {
-  assertConfig, config, api, createSession, sendMessage, waitForAssistantReply,
+  assertConfig, config, createSession, sendMessage, waitForAssistantReply,
   createK8sMonitor, findReadySpace, cleanupTestResources,
   C, SEC, TIMEOUTS,
 } from "./test-utils.js";
@@ -27,7 +27,7 @@ const TEST_SPACE_ID = config.testSpaceId;
 
 // ── 辅助 ──────────────────────────────────────────────────────────────────────
 
-function assert(cond: unknown, msg: string): asserts cond {
+function _assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 

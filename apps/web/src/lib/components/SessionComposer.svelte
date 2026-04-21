@@ -1,6 +1,4 @@
 <script lang="ts">
-import { ArrowUp, ChevronDown, Plus, Upload, X } from "lucide-svelte";
-
 type ComposerImageAttachment = {
 	id: string;
 	name: string;
@@ -41,8 +39,8 @@ let {
 }: Props = $props();
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
-let fileInputEl = $state<HTMLInputElement | null>(null);
-let isDragOver = $state(false);
+let _fileInputEl = $state<HTMLInputElement | null>(null);
+let _isDragOver = $state(false);
 let dragCounter = 0;
 
 function resizeTextarea() {
@@ -54,40 +52,42 @@ function resizeTextarea() {
 
 function hasImageFiles(dataTransfer: DataTransfer | null) {
 	if (!dataTransfer) return false;
-	return Array.from(dataTransfer.items ?? []).some((item) => item.type.startsWith("image/"));
+	return Array.from(dataTransfer.items ?? []).some((item) =>
+		item.type.startsWith("image/"),
+	);
 }
 
-function handleDragEnter(event: DragEvent) {
+function _handleDragEnter(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter += 1;
-	isDragOver = true;
+	_isDragOver = true;
 }
 
-function handleDragOver(event: DragEvent) {
+function _handleDragOver(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
-	isDragOver = true;
+	_isDragOver = true;
 }
 
-function handleDragLeave(event: DragEvent) {
+function _handleDragLeave(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter = Math.max(0, dragCounter - 1);
 	if (dragCounter === 0) {
-		isDragOver = false;
+		_isDragOver = false;
 	}
 }
 
-function handleDrop(event: DragEvent) {
+function _handleDrop(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
-	isDragOver = false;
+	_isDragOver = false;
 	dragCounter = 0;
 	onpickimage?.(event.dataTransfer?.files ?? null);
 }
 
-function handlePaste(event: ClipboardEvent) {
+function _handlePaste(event: ClipboardEvent) {
 	const files = Array.from(event.clipboardData?.items ?? [])
 		.filter((item) => item.type.startsWith("image/"))
 		.map((item) => item.getAsFile())

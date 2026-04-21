@@ -13,7 +13,7 @@ const buildDiscordBindingKey = (message: Message) => {
 const truncate = (value: string, limit = 120) =>
   value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 
-const splitDiscordMessage = (value: string, limit = 1900) => {
+const _splitDiscordMessage = (value: string, limit = 1900) => {
   const text = value.trim();
   if (!text) return [] as string[];
   if (text.length <= limit) return [text];
@@ -185,7 +185,7 @@ const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Mes
   return message.mentions.users.has(botUserId);
 };
 
-const buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutboundCommand) => {
+const _buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutboundCommand) => {
   const renderMode = String(cmd.meta?.renderMode ?? "message");
   const isFinalMessage = cmd.meta?.source === "session_persist";
 
@@ -245,14 +245,13 @@ const buildThreadConversationMeta = async (thread: AnyThreadChannel) => {
   };
 };
 
-function resolveDiscordDisplayMode(_cmd: GatewayOutboundCommand) {
+function _resolveDiscordDisplayMode(_cmd: GatewayOutboundCommand) {
   return "full";
 }
 
 export class DiscordProvider implements GatewayProvider {
   private client: Client;
   private channelId: string; // 在我们的数据库中定义的该 Channel 实体 ID
-  private isConnected = false;
 
   constructor(channelId: string, token: string) {
     this.channelId = channelId;
@@ -278,7 +277,6 @@ export class DiscordProvider implements GatewayProvider {
 
   private setupListeners() {
     this.client.on(Events.ClientReady, (readyClient) => {
-      this.isConnected = true;
       console.log(`[Discord:${this.channelId}] ✓ Connected as ${readyClient.user.tag} (${readyClient.user.id})`);
       console.log(`[Discord:${this.channelId}] Guilds: ${readyClient.guilds.cache.size}`);
       if (readyClient.guilds.cache.size > 0) {
@@ -308,7 +306,6 @@ export class DiscordProvider implements GatewayProvider {
     });
 
     this.client.on("disconnect", () => {
-      this.isConnected = false;
       console.warn(`[Discord:${this.channelId}] Disconnected from Discord`);
     });
 
@@ -643,7 +640,6 @@ export class DiscordProvider implements GatewayProvider {
   public destroy() {
     console.log(`[Discord:${this.channelId}] Destroying Discord client...`);
     this.client.destroy();
-    this.isConnected = false;
     console.log(`[Discord:${this.channelId}] Discord client destroyed`);
   }
 }

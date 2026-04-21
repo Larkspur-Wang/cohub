@@ -1,52 +1,55 @@
 <script lang="ts">
-import { User, Copy, Check } from "lucide-svelte";
-import { getMe } from "$lib/api";
 import { onMount } from "svelte";
-import { ensureAuth, logtoClient } from "$lib/auth";
 import { page } from "$app/state";
+import { getMe } from "$lib/api";
+import { ensureAuth, logtoClient } from "$lib/auth";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
 let userUuid = $state("");
-let userNickname = $state("");
-let userAvatar = $state("");
-let uuidCopied = $state(false);
-let loadError = $state("");
+let _userNickname = $state("");
+let _userAvatar = $state("");
+let _uuidCopied = $state(false);
+let _loadError = $state("");
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadProfile() {
-  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
-  try {
-    const me = await getMe();
-    userUuid = me.uuid ?? "";
-    userNickname = me.nick_name ?? "";
-    userAvatar = me.avatar_url ?? "";
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load profile";
-    if (message.includes("unauthorized") || message.includes("401")) {
-      await logtoClient.signIn(`${window.location.origin}/callback`);
-      return;
-    }
-    loadError = message;
-    console.error("[profile] Failed to load profile:", error);
-  }
+	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
+		return;
+	try {
+		const me = await getMe();
+		userUuid = me.uuid ?? "";
+		_userNickname = me.nick_name ?? "";
+		_userAvatar = me.avatar_url ?? "";
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to load profile";
+		if (message.includes("unauthorized") || message.includes("401")) {
+			await logtoClient.signIn(`${window.location.origin}/callback`);
+			return;
+		}
+		_loadError = message;
+		console.error("[profile] Failed to load profile:", error);
+	}
 }
 
-async function copyUuid() {
-  if (!userUuid) return;
-  try {
-    await navigator.clipboard.writeText(userUuid);
-    uuidCopied = true;
-    if (uuidCopiedTimer) clearTimeout(uuidCopiedTimer);
-    uuidCopiedTimer = setTimeout(() => { uuidCopied = false; }, 2000);
-  } catch {
-    console.warn("[profile] Failed to copy UUID");
-  }
+async function _copyUuid() {
+	if (!userUuid) return;
+	try {
+		await navigator.clipboard.writeText(userUuid);
+		_uuidCopied = true;
+		if (uuidCopiedTimer) clearTimeout(uuidCopiedTimer);
+		uuidCopiedTimer = setTimeout(() => {
+			_uuidCopied = false;
+		}, 2000);
+	} catch {
+		console.warn("[profile] Failed to copy UUID");
+	}
 }
 
 onMount(() => {
-  void loadProfile();
+	void loadProfile();
 });
 </script>
 

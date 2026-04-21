@@ -1,35 +1,33 @@
 <script lang="ts">
-import { fade, scale, slide } from "svelte/transition";
-import { X } from "lucide-svelte";
 import {
-  DURATION_MODAL_IN,
-  DURATION_MODAL_OUT,
-  svelteEaseIn,
-  svelteEaseOut,
+	DURATION_MODAL_IN,
+	DURATION_MODAL_OUT,
+	svelteEaseIn,
+	svelteEaseOut,
 } from "$lib/motion.svelte";
 
 const {
-  open,
-  onClose,
-  title,
-  children,
-  footer,
-  mobile = true,
-  maxWidth = "480px",
+	open,
+	onClose,
+	title,
+	children,
+	footer,
+	mobile = true,
+	maxWidth = "480px",
 }: {
-  open: boolean;
-  onClose: () => void;
-  title?: string;
-  children: import("svelte").Snippet;
-  footer?: import("svelte").Snippet;
-  mobile?: boolean;
-  maxWidth?: string;
+	open: boolean;
+	onClose: () => void;
+	title?: string;
+	children: import("svelte").Snippet;
+	footer?: import("svelte").Snippet;
+	mobile?: boolean;
+	maxWidth?: string;
 } = $props();
 
 const TRANSITION_IN = { duration: DURATION_MODAL_IN, easing: svelteEaseOut };
 const TRANSITION_OUT = { duration: DURATION_MODAL_OUT, easing: svelteEaseIn };
-const SCALE_TRANSITION_IN = { ...TRANSITION_IN, start: 0.95 };
-const SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
+const _SCALE_TRANSITION_IN = { ...TRANSITION_IN, start: 0.95 };
+const _SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
 </script>
 
 {#if open}

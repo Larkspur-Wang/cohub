@@ -1,29 +1,21 @@
 <script lang="ts">
+import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import { onMount, tick } from "svelte";
 import { goto } from "$app/navigation";
 import {
-	buildSpaceCheckpointRoute,
-	buildSpaceCronjobNewRoute,
-	buildSpaceCronjobRoute,
-	buildSpaceDetailRoute,
-	buildSpaceFileRoute,
-	buildSpaceSessionRoute,
-	buildSpaceTaskRoute,
-} from "$lib/space-routes";
-import {
+	addSpaceCollaborator,
 	type CheckpointRecord,
 	type CronJobRecord,
-	type SandboxRecord,
-	type SessionRecord,
-	type SpaceFsEntry,
-	type SpaceFsFileResponse,
-	type SpaceRecord,
-	type TaskRunRecord,
 	createCronJob,
+	createSessionPermission,
 	createSpaceCheckpoint,
 	createSpaceFsDir,
+	createSpacePermission,
 	createSpaceSession,
 	deleteCronJob,
+	deleteSessionPermission,
 	deleteSpaceFsNode,
+	deleteSpacePermission,
 	extractSessionRenderState,
 	getCronJobRuns,
 	getCronJobs,
@@ -36,79 +28,60 @@ import {
 	getSpaceSandbox,
 	getSpaceSessions,
 	getTaskRun,
-	getTaskRuns,
+	listSpaceCollaborators,
+	listSpacePermissions,
 	moveSpaceFsNode,
 	postSessionMessage,
 	putSpaceFsFile,
+	type ResourcePermission,
 	recreateSpaceSandbox,
+	removeSpaceCollaborator,
+	type SandboxRecord,
+	type SessionRecord,
+	type SpaceFsEntry,
+	type SpaceFsFileResponse,
+	type SpaceRecord,
+	type TaskRunRecord,
 	toggleCronJob,
+	updateSpaceCollaborator,
 } from "$lib/api";
-import ChatTimeline from "$lib/components/ChatTimeline.svelte";
-import CodeEditor from "$lib/components/CodeEditor.svelte";
-import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
-import Dialog from "$lib/components/Dialog.svelte";
-import ModelSelector from "$lib/components/ModelSelector.svelte";
-import PageHeader from "$lib/components/PageHeader.svelte";
-import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
-import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
-import { formatCheckpointTimestamp, getCheckpointTitle, pollCheckpointJob } from "$lib/checkpoints";
+import { pollCheckpointJob } from "$lib/checkpoints";
 import { renderMarkdown } from "$lib/markdown";
+import type { RealtimeEventPayload } from "$lib/realtime";
+import { getRealtimeClient } from "$lib/realtime";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
 } from "$lib/session-render";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
+import {
+	buildSpaceCheckpointRoute,
+	buildSpaceDetailRoute,
+	buildSpaceFileRoute,
+	buildSpaceSessionRoute,
+} from "$lib/space-routes";
 import { messageCache } from "$lib/stores/message-cache";
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-
-import { getRealtimeClient } from "$lib/realtime";
-import type { RealtimeEventPayload } from "$lib/realtime";
-import { createSessionPermission, deleteSessionPermission, listSpacePermissions, createSpacePermission, deleteSpacePermission, addSpaceCollaborator, updateSpaceCollaborator, removeSpaceCollaborator, listSpaceCollaborators, type ResourcePermission } from "$lib/api";
 import {
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
 	uiState,
 } from "$lib/stores/ui.svelte";
-import type { ContentBlock, MessageRecord } from "@cohub/protocol";
-import {
-	AlertCircle,
-	ArrowDown,
-	Check,
-	Clock,
-	Clock3,
-	Copy,
-	Download,
-	Eye,
-	FolderKanban,
-	GitCommitHorizontal,
-	Globe,
-	Hash,
-	Loader2,
-	Lock,
-	Network,
-	PanelRightClose,
-	PanelRightOpen,
-	Pencil,
-	Plus,
-	Power,
-	PowerOff,
-	RefreshCw,
-	Save,
-	Settings,
-	Share2,
-	Terminal,
-	Trash2,
-	X,
-} from "lucide-svelte";
-import { onMount, tick } from "svelte";
 
 type Props = {
 	data: {
 		spaceId: string;
-		view: "space" | "session" | "file" | "checkpoint" | "checkpoint-new" | "cronjob" | "cronjob-new" | "task";
+		view:
+			| "space"
+			| "session"
+			| "file"
+			| "checkpoint"
+			| "checkpoint-new"
+			| "cronjob"
+			| "cronjob-new"
+			| "task";
 		sessionId?: string | null;
 		filePath?: string | null;
 		checkpointId?: string | null;
@@ -157,8 +130,10 @@ const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
 const routeCronjobId = $derived(data.cronjobId ?? null);
 const routeTaskId = $derived(data.taskId ?? null);
-const fileMode = $derived<"chat" | "file">(routeView === "file" ? "file" : "chat");
-const isRightDrawerVisible = $derived(
+const fileMode = $derived<"chat" | "file">(
+	routeView === "file" ? "file" : "chat",
+);
+const _isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
 );
 
@@ -172,70 +147,85 @@ let sending = $state(false);
 let spaceLoadError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
-let streamingAssistantText = $state("");
-let streamingThinking = $state("");
+let _streamingAssistantText = $state("");
+let _streamingThinking = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
-let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>({});
-let streamingDraftAnchorUserMessageIdBySessionId = $state<Record<string, string | null>>({});
+let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>(
+	{},
+);
+let streamingDraftAnchorUserMessageIdBySessionId = $state<
+	Record<string, string | null>
+>({});
 let modelsCatalog = $state<Array<{
 	provider: string;
 	id: string;
 	model: Record<string, unknown>;
 }> | null>(null);
-let showModelSelector = $state(false);
+let _showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeLoading = $state(false);
-let fileTreeError = $state<string | null>(null);
+let _fileTreeError = $state<string | null>(null);
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
-let openFileLoading = $state(false);
-let openFileSaving = $state(false);
-let openFileError = $state<string | null>(null);
-let openFileTooLarge = $state(false);
+let _openFileLoading = $state(false);
+let _openFileSaving = $state(false);
+let _openFileError = $state<string | null>(null);
+let _openFileTooLarge = $state(false);
 
-const fileDirty = $derived(Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content));
-const openFileIsMarkdown = $derived(Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)));
-const openFileExt = $derived.by(() => {
+const _fileDirty = $derived(
+	Boolean(
+		openFile && openFile.kind === "text" && openFileDraft !== openFile.content,
+	),
+);
+const _openFileIsMarkdown = $derived(
+	Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)),
+);
+const _openFileExt = $derived.by(() => {
 	if (!openFile || openFile.kind !== "text") return "plaintext";
 	return openFile.name.split(".").pop()?.toLowerCase() ?? "plaintext";
 });
-const openFileIsImage = $derived(Boolean(openFile?.mimeType?.startsWith("image/")));
-const openFileIsVideo = $derived(Boolean(openFile?.mimeType?.startsWith("video/")));
-const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
-const openFileDataUrl = $derived.by(() => {
+const _openFileIsImage = $derived(
+	Boolean(openFile?.mimeType?.startsWith("image/")),
+);
+const _openFileIsVideo = $derived(
+	Boolean(openFile?.mimeType?.startsWith("video/")),
+);
+const _openFileIsText = $derived(Boolean(openFile?.kind === "text"));
+const _openFileDataUrl = $derived.by(() => {
 	if (!openFile || openFile.kind !== "binary") return null;
 	const mime = openFile.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${openFile.content}`;
 });
-const openFileDownloadUrl = $derived.by(() => {
+const _openFileDownloadUrl = $derived.by(() => {
 	if (!routeFilePath) return "";
 	return `/api/spaces/${spaceId}/fs/download?path=${encodeURIComponent(routeFilePath)}`;
 });
-const openFileDownloadName = $derived.by(() => {
+const _openFileDownloadName = $derived.by(() => {
 	if (!routeFilePath) return "";
 	return routeFilePath.split("/").pop() ?? "download";
 });
 
-
-let fileMarkdownHtml = $state("");
-let fileEdit = $state(true);
+let _fileMarkdownHtml = $state("");
+let _fileEdit = $state(true);
 
 $effect(() => {
 	const current = openFile;
 	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-		fileMarkdownHtml = "";
+		_fileMarkdownHtml = "";
 		return;
 	}
-	void renderMarkdown(current.content).then((html) => {
-		if (openFile?.path === current.path) fileMarkdownHtml = html;
-	}).catch(() => {
-		fileMarkdownHtml = "";
-	});
+	void renderMarkdown(current.content)
+		.then((html) => {
+			if (openFile?.path === current.path) _fileMarkdownHtml = html;
+		})
+		.catch(() => {
+			_fileMarkdownHtml = "";
+		});
 });
 
 $effect(() => {
-	if (openFile) fileEdit = true;
+	if (openFile) _fileEdit = true;
 });
 
 let pageMounted = false;
@@ -244,19 +234,19 @@ let pageOnline = true;
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
-let createSessionError = $state("");
+let _createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
-let bootstrapping = $state(true);
+let _bootstrapping = $state(true);
 let sandbox = $state<SandboxRecord | null>(null);
 let sandboxProvisioning = $state(false);
 let sandboxError = $state<string | null>(null);
-let sandboxElapsed = $state(0);
-let spaceStatusNotice = $state("");
+let _sandboxElapsed = $state(0);
+let _spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
 let autoScrollGuard = $state(false);
-let showScrollToBottom = $state(false);
+let _showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<{
@@ -272,196 +262,212 @@ let scrollTargetSessionId = $state<string | null>(null);
 let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── Settings & Share ───
-let showSettings = $state(false);
-let showShareModal = $state(false);
+let _showSettings = $state(false);
+let _showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
-let shareCopied = $state(false);
+let _shareCopied = $state(false);
 let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let shareModalError = $state("");
-let shareModalSaving = $state(false);
+let _shareModalError = $state("");
+let _shareModalSaving = $state(false);
 let checkpointDetail = $state<CheckpointRecord | null>(null);
-let checkpointDetailLoading = $state(false);
-let checkpointDetailError = $state("");
-let checkpointCopied = $state(false);
+let _checkpointDetailLoading = $state(false);
+let _checkpointDetailError = $state("");
+let _checkpointCopied = $state(false);
 let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let checkpointCreateDescription = $state("");
 let checkpointCreateSubmitting = $state(false);
-let checkpointCreateError = $state("");
+let _checkpointCreateError = $state("");
 
 // ─── Cronjobs ───
 let cronjobDetail = $state<CronJobRecord | null>(null);
-let cronjobDetailLoading = $state(false);
-let cronjobDetailError = $state("");
-let cronjobRuns = $state<TaskRunRecord[]>([]);
-let cronjobRunsLoading = $state(false);
+let _cronjobDetailLoading = $state(false);
+let _cronjobDetailError = $state("");
+let _cronjobRuns = $state<TaskRunRecord[]>([]);
+let _cronjobRunsLoading = $state(false);
 let cronjobActionInProgress = $state(false);
-let cronjobToggleError = $state("");
+let _cronjobToggleError = $state("");
 
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
 let cronjobNewPrompt = $state("");
 let cronjobNewSubmitting = $state(false);
-let cronjobNewError = $state("");
+let _cronjobNewError = $state("");
 
 // ─── Tasks ───
-let taskRunDetail = $state<TaskRunRecord | null>(null);
-let taskRunDetailLoading = $state(false);
-let taskRunDetailError = $state("");
+let _taskRunDetail = $state<TaskRunRecord | null>(null);
+let _taskRunDetailLoading = $state(false);
+let _taskRunDetailError = $state("");
 
 // Space-level permissions
-let spacePerms = $state<ResourcePermission[]>([]);
-let spacePublicRead = $state(false);
-let savingSpacePerm = $state(false);
+let _spacePerms = $state<ResourcePermission[]>([]);
+let _spacePublicRead = $state(false);
+let _savingSpacePerm = $state(false);
 
 // Session-level permissions
 let sessionPerms = $state<ResourcePermission[]>([]);
 
 // Session title cache for settings panel
-let sessionTitleById = $state<Map<string, string>>(new Map());
+let _sessionTitleById = $state<Map<string, string>>(new Map());
 
 // Collaborators
-let spaceCollaborators = $state<ResourcePermission[]>([]);
-let loadingCollaborators = $state(false);
+let _spaceCollaborators = $state<ResourcePermission[]>([]);
+let _loadingCollaborators = $state(false);
 let addingCollaboratorUuid = $state("");
 let addingCollaboratorLevel = $state<"read" | "write">("write");
-let savingCollaborator = $state(false);
-let addingCollaboratorError = $state("");
+let _savingCollaborator = $state(false);
+let _addingCollaboratorError = $state("");
 
 function getSessionTitle(session: SessionRecord): string {
-  const candidates = [session.title, session.latestMessageText];
-  for (const candidate of candidates) {
-    const normalized = candidate?.replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim();
-    if (normalized) return normalized.slice(0, 36);
-  }
-  return "New session";
+	const candidates = [session.title, session.latestMessageText];
+	for (const candidate of candidates) {
+		const normalized = candidate
+			?.replace(/\s+/g, " ")
+			.replace(/^[:\-\s]+/, "")
+			.trim();
+		if (normalized) return normalized.slice(0, 36);
+	}
+	return "New session";
 }
 
-function hasSessionPermission(sessionId: string): boolean {
-  return sessionPerms.some((p) => p.resourceId === sessionId && p.level === "read");
+function _hasSessionPermission(sessionId: string): boolean {
+	return sessionPerms.some(
+		(p) => p.resourceId === sessionId && p.level === "read",
+	);
 }
 
 async function loadSpacePermissions() {
-  try {
-    const perms = await listSpacePermissions(spaceId);
-    spacePerms = perms;
-    spacePublicRead = perms.some(
-      (p) => p.resourceType === "space" && p.level === "read" && p.granteeUuid === null,
-    );
-    sessionPerms = perms.filter(
-      (p) => p.resourceType === "session" && p.granteeUuid === null,
-    );
-    // Cache session titles from existing session data
-    const titleMap = new Map<string, string>();
-    for (const perm of sessionPerms) {
-      const sess = spaceSessions.find((s) => s.id === perm.resourceId);
-      if (sess) titleMap.set(perm.resourceId, getSessionTitle(sess));
-    }
-    sessionTitleById = titleMap;
-  } catch {
-    // Non-blocking
-  }
+	try {
+		const perms = await listSpacePermissions(spaceId);
+		_spacePerms = perms;
+		_spacePublicRead = perms.some(
+			(p) =>
+				p.resourceType === "space" &&
+				p.level === "read" &&
+				p.granteeUuid === null,
+		);
+		sessionPerms = perms.filter(
+			(p) => p.resourceType === "session" && p.granteeUuid === null,
+		);
+		// Cache session titles from existing session data
+		const titleMap = new Map<string, string>();
+		for (const perm of sessionPerms) {
+			const sess = spaceSessions.find((s) => s.id === perm.resourceId);
+			if (sess) titleMap.set(perm.resourceId, getSessionTitle(sess));
+		}
+		_sessionTitleById = titleMap;
+	} catch {
+		// Non-blocking
+	}
 }
 
-async function toggleSpacePublicRead(checked: boolean) {
-  savingSpacePerm = true;
-  try {
-    if (checked) {
-      await createSpacePermission(spaceId, "read");
-    } else {
-      await deleteSpacePermission(spaceId);
-    }
-    await loadSpacePermissions();
-  } catch {
-    // Silently fail
-  } finally {
-    savingSpacePerm = false;
-  }
+async function _toggleSpacePublicRead(checked: boolean) {
+	_savingSpacePerm = true;
+	try {
+		if (checked) {
+			await createSpacePermission(spaceId, "read");
+		} else {
+			await deleteSpacePermission(spaceId);
+		}
+		await loadSpacePermissions();
+	} catch {
+		// Silently fail
+	} finally {
+		_savingSpacePerm = false;
+	}
 }
 
-async function removeSessionPermission(sessionId: string) {
-  try {
-    await deleteSessionPermission(sessionId);
-    await loadSpacePermissions();
-  } catch {
-    // Silently fail
-  }
+async function _removeSessionPermission(sessionId: string) {
+	try {
+		await deleteSessionPermission(sessionId);
+		await loadSpacePermissions();
+	} catch {
+		// Silently fail
+	}
 }
 
 // Collaborator management
 async function loadCollaborators() {
-  loadingCollaborators = true;
-  try {
-    spaceCollaborators = await listSpaceCollaborators(spaceId);
-  } catch {
-    // Non-blocking
-  } finally {
-    loadingCollaborators = false;
-  }
+	_loadingCollaborators = true;
+	try {
+		_spaceCollaborators = await listSpaceCollaborators(spaceId);
+	} catch {
+		// Non-blocking
+	} finally {
+		_loadingCollaborators = false;
+	}
 }
 
-async function handleAddCollaborator() {
-  if (!addingCollaboratorUuid.trim()) return;
-  savingCollaborator = true;
-  addingCollaboratorError = "";
-  try {
-    await addSpaceCollaborator(spaceId, addingCollaboratorUuid.trim(), addingCollaboratorLevel);
-    addingCollaboratorUuid = "";
-    await loadCollaborators();
-  } catch (error) {
-    addingCollaboratorError = error instanceof Error ? error.message : "Failed to add collaborator";
-  } finally {
-    savingCollaborator = false;
-  }
+async function _handleAddCollaborator() {
+	if (!addingCollaboratorUuid.trim()) return;
+	_savingCollaborator = true;
+	_addingCollaboratorError = "";
+	try {
+		await addSpaceCollaborator(
+			spaceId,
+			addingCollaboratorUuid.trim(),
+			addingCollaboratorLevel,
+		);
+		addingCollaboratorUuid = "";
+		await loadCollaborators();
+	} catch (error) {
+		_addingCollaboratorError =
+			error instanceof Error ? error.message : "Failed to add collaborator";
+	} finally {
+		_savingCollaborator = false;
+	}
 }
 
-async function handleUpdateCollaboratorLevel(granteeUuid: string, level: "read" | "write") {
-  try {
-    await updateSpaceCollaborator(spaceId, granteeUuid, level);
-    await loadCollaborators();
-  } catch {
-    // Silently fail
-  }
+async function _handleUpdateCollaboratorLevel(
+	granteeUuid: string,
+	level: "read" | "write",
+) {
+	try {
+		await updateSpaceCollaborator(spaceId, granteeUuid, level);
+		await loadCollaborators();
+	} catch {
+		// Silently fail
+	}
 }
 
-async function handleRemoveCollaborator(granteeUuid: string) {
-  try {
-    await removeSpaceCollaborator(spaceId, granteeUuid);
-    await loadCollaborators();
-  } catch {
-    // Silently fail
-  }
+async function _handleRemoveCollaborator(granteeUuid: string) {
+	try {
+		await removeSpaceCollaborator(spaceId, granteeUuid);
+		await loadCollaborators();
+	} catch {
+		// Silently fail
+	}
 }
 
 async function loadCheckpointDetail(checkpointId: string) {
-	checkpointDetailLoading = true;
-	checkpointDetailError = "";
+	_checkpointDetailLoading = true;
+	_checkpointDetailError = "";
 	try {
 		const result = await getSpaceCheckpoint(spaceId, checkpointId);
 		checkpointDetail = result.checkpoint;
 	} catch (error) {
 		checkpointDetail = null;
-		checkpointDetailError =
+		_checkpointDetailError =
 			error instanceof Error ? error.message : "Failed to load checkpoint";
 	} finally {
-		checkpointDetailLoading = false;
+		_checkpointDetailLoading = false;
 	}
 }
 
-async function handleCopyCheckpointCommitHash() {
+async function _handleCopyCheckpointCommitHash() {
 	if (!checkpointDetail) return;
 	await navigator.clipboard.writeText(checkpointDetail.commitHash);
-	checkpointCopied = true;
+	_checkpointCopied = true;
 	if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 	checkpointCopiedTimer = setTimeout(() => {
-		checkpointCopied = false;
+		_checkpointCopied = false;
 	}, 1800);
 }
 
-async function handleCreateCheckpointSubmit(event: SubmitEvent) {
+async function _handleCreateCheckpointSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (checkpointCreateSubmitting) return;
-	checkpointCreateError = "";
+	_checkpointCreateError = "";
 	checkpointCreateSubmitting = true;
 	try {
 		const { taskRunId } = await createSpaceCheckpoint(
@@ -485,7 +491,7 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 		}
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		checkpointCreateError =
+		_checkpointCreateError =
 			error instanceof Error ? error.message : "Failed to save checkpoint";
 	} finally {
 		checkpointCreateSubmitting = false;
@@ -495,75 +501,83 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 // ─── Cronjob detail & actions ───
 
 async function loadCronjobDetail(cronjobId: string) {
-	cronjobDetailLoading = true;
-	cronjobDetailError = "";
-	cronjobToggleError = "";
+	_cronjobDetailLoading = true;
+	_cronjobDetailError = "";
+	_cronjobToggleError = "";
 	try {
 		const { jobs } = await getCronJobs(spaceId);
 		const job = jobs.find((j) => j.id === cronjobId) ?? null;
 		if (!job) {
 			cronjobDetail = null;
-			cronjobDetailError = "Cronjob not found";
+			_cronjobDetailError = "Cronjob not found";
 			return;
 		}
 		cronjobDetail = job;
 		const { runs } = await getCronJobRuns(cronjobId);
-		cronjobRuns = runs;
+		_cronjobRuns = runs;
 	} catch (error) {
 		cronjobDetail = null;
-		cronjobDetailError = error instanceof Error ? error.message : "Failed to load cronjob";
+		_cronjobDetailError =
+			error instanceof Error ? error.message : "Failed to load cronjob";
 	} finally {
-		cronjobDetailLoading = false;
+		_cronjobDetailLoading = false;
 	}
 }
 
-async function handleToggleCronjob(enabled: boolean) {
+async function _handleToggleCronjob(enabled: boolean) {
 	if (!cronjobDetail || cronjobActionInProgress) return;
 	cronjobActionInProgress = true;
 	try {
 		await toggleCronJob(cronjobDetail.id, enabled);
 		cronjobDetail = { ...cronjobDetail, enabled };
 	} catch (error) {
-		cronjobToggleError = error instanceof Error ? error.message : "Failed to toggle";
+		_cronjobToggleError =
+			error instanceof Error ? error.message : "Failed to toggle";
 		void loadCronjobDetail(cronjobDetail.id);
 	} finally {
 		cronjobActionInProgress = false;
 	}
 }
 
-async function handleDeleteCronjob() {
-	if (!cronjobDetail || !confirm("Are you sure you want to delete this cronjob?")) return;
+async function _handleDeleteCronjob() {
+	if (
+		!cronjobDetail ||
+		!confirm("Are you sure you want to delete this cronjob?")
+	)
+		return;
 	cronjobActionInProgress = true;
 	try {
 		await deleteCronJob(cronjobDetail.id);
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		cronjobDetailError = error instanceof Error ? error.message : "Failed to delete";
+		_cronjobDetailError =
+			error instanceof Error ? error.message : "Failed to delete";
 		cronjobActionInProgress = false;
 	}
 }
 
-async function handleCreateCronjobSubmit(event: SubmitEvent) {
+async function _handleCreateCronjobSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (cronjobNewSubmitting) return;
 	if (!cronjobNewTitle.trim()) {
-		cronjobNewError = "Title is required";
+		_cronjobNewError = "Title is required";
 		return;
 	}
 	if (!cronjobNewExpression.trim()) {
-		cronjobNewError = "Cron expression is required";
+		_cronjobNewError = "Cron expression is required";
 		return;
 	}
 	if (!cronjobNewPrompt.trim()) {
-		cronjobNewError = "Prompt message is required";
+		_cronjobNewError = "Prompt message is required";
 		return;
 	}
 	const cronParts = cronjobNewExpression.trim().split(/\s+/);
 	if (cronParts.length < 5 || cronParts.length > 6) {
-		cronjobNewError = "Invalid cron expression format. Expected 5 or 6 space-separated fields.";
+		_cronjobNewError =
+			"Invalid cron expression format. Expected 5 or 6 space-separated fields.";
 		return;
 	}
-	cronjobNewError = "";
+	_cronjobNewError = "";
 	cronjobNewSubmitting = true;
 	try {
 		await createCronJob({
@@ -577,7 +591,8 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 		});
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		cronjobNewError = error instanceof Error ? error.message : "Failed to create cronjob";
+		_cronjobNewError =
+			error instanceof Error ? error.message : "Failed to create cronjob";
 	} finally {
 		cronjobNewSubmitting = false;
 	}
@@ -586,60 +601,64 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 // ─── Task detail ───
 
 async function loadTaskDetail(taskId: string) {
-	taskRunDetailLoading = true;
-	taskRunDetailError = "";
+	_taskRunDetailLoading = true;
+	_taskRunDetailError = "";
 	try {
 		const { run } = await getTaskRun(taskId);
-		taskRunDetail = run;
+		_taskRunDetail = run;
 	} catch (error) {
-		taskRunDetail = null;
-		taskRunDetailError = error instanceof Error ? error.message : "Failed to load task run";
+		_taskRunDetail = null;
+		_taskRunDetailError =
+			error instanceof Error ? error.message : "Failed to load task run";
 	} finally {
-		taskRunDetailLoading = false;
+		_taskRunDetailLoading = false;
 	}
 }
 
-function openShareModal(sessionId: string) {
-  shareModalSessionId = sessionId;
-  showShareModal = true;
-  shareCopied = false;
-  shareModalError = "";
+function _openShareModal(sessionId: string) {
+	shareModalSessionId = sessionId;
+	_showShareModal = true;
+	_shareCopied = false;
+	_shareModalError = "";
 }
 
-async function shareAndCopyLink() {
-  if (!shareModalSessionId) return;
-  shareModalError = "";
-  shareModalSaving = true;
-  try {
-    await createSessionPermission(shareModalSessionId, "read");
-    const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
-    await navigator.clipboard.writeText(url);
-    shareCopied = true;
-    if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
-    shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
-    await loadSpacePermissions();
-  } catch (error) {
-    shareModalError = error instanceof Error ? error.message : "Failed to share session";
-  } finally {
-    shareModalSaving = false;
-  }
+async function _shareAndCopyLink() {
+	if (!shareModalSessionId) return;
+	_shareModalError = "";
+	_shareModalSaving = true;
+	try {
+		await createSessionPermission(shareModalSessionId, "read");
+		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
+		await navigator.clipboard.writeText(url);
+		_shareCopied = true;
+		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+		shareCopiedTimer = setTimeout(() => {
+			_shareCopied = false;
+		}, 2000);
+		await loadSpacePermissions();
+	} catch (error) {
+		_shareModalError =
+			error instanceof Error ? error.message : "Failed to share session";
+	} finally {
+		_shareModalSaving = false;
+	}
 }
 
-async function makeSessionPrivate() {
-  if (!shareModalSessionId) return;
-  shareModalError = "";
-  shareModalSaving = true;
-  try {
-    await deleteSessionPermission(shareModalSessionId);
-    await loadSpacePermissions();
-    showShareModal = false;
-  } catch (error) {
-    shareModalError = error instanceof Error ? error.message : "Failed to make session private";
-  } finally {
-    shareModalSaving = false;
-  }
+async function _makeSessionPrivate() {
+	if (!shareModalSessionId) return;
+	_shareModalError = "";
+	_shareModalSaving = true;
+	try {
+		await deleteSessionPermission(shareModalSessionId);
+		await loadSpacePermissions();
+		_showShareModal = false;
+	} catch (error) {
+		_shareModalError =
+			error instanceof Error ? error.message : "Failed to make session private";
+	} finally {
+		_shareModalSaving = false;
+	}
 }
-
 
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
@@ -648,33 +667,44 @@ const bootstrapMeta = $derived.by(() => {
 	const raw = space?.meta;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
 	const bootstrap = (raw as Record<string, unknown>).bootstrap;
-	if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) return null;
+	if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap))
+		return null;
 	return bootstrap as Record<string, unknown>;
 });
-const bootstrapStatus = $derived.by<"pending" | "running" | "ready" | "failed" | null>(() => {
+const bootstrapStatus = $derived.by<
+	"pending" | "running" | "ready" | "failed" | null
+>(() => {
 	const value = bootstrapMeta?.status;
-	return value === "pending" || value === "running" || value === "ready" || value === "failed"
+	return value === "pending" ||
+		value === "running" ||
+		value === "ready" ||
+		value === "failed"
 		? value
 		: null;
 });
-const bootstrapStage = $derived.by<string | null>(() => {
+const _bootstrapStage = $derived.by<string | null>(() => {
 	const value = bootstrapMeta?.stage;
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
-const bootstrapErrorMessage = $derived.by<string | null>(() => {
+const _bootstrapErrorMessage = $derived.by<string | null>(() => {
 	const value = bootstrapMeta?.errorMessage;
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
-const bootstrapSourceLabel = $derived.by(() => {
+const _bootstrapSourceLabel = $derived.by(() => {
 	const source = bootstrapMeta?.source;
-	if (!source || typeof source !== "object" || Array.isArray(source)) return "Blank";
+	if (!source || typeof source !== "object" || Array.isArray(source))
+		return "Blank";
 	const type = (source as Record<string, unknown>).type;
 	if (type === "public_git_repo") return "Public Git Repo";
 	if (type === "checkpoint") return "Checkpoint";
 	return "Blank";
 });
-const sandboxStatusTone = $derived.by(() => {
-	if (sandboxError || space?.sandboxStatus === "error" || sandbox?.status === "error") {
+const _sandboxStatusTone = $derived.by(() => {
+	if (
+		sandboxError ||
+		space?.sandboxStatus === "error" ||
+		sandbox?.status === "error"
+	) {
 		return "text-error-soft border-error-soft/20 bg-error-soft/8";
 	}
 	if (space?.sandboxStatus === "ready" || sandbox?.status === "ready") {
@@ -682,12 +712,20 @@ const sandboxStatusTone = $derived.by(() => {
 	}
 	return "text-text-secondary border-border-subtle bg-bg-surface";
 });
-const bootstrapStatusTone = $derived.by(() => {
-	if (bootstrapStatus === "failed") return "text-error-soft border-error-soft/20 bg-error-soft/8";
-	if (bootstrapStatus === "ready") return "text-success-soft border-success-soft/20 bg-success-soft/8";
+const _bootstrapStatusTone = $derived.by(() => {
+	if (bootstrapStatus === "failed")
+		return "text-error-soft border-error-soft/20 bg-error-soft/8";
+	if (bootstrapStatus === "ready")
+		return "text-success-soft border-success-soft/20 bg-success-soft/8";
 	return "text-text-secondary border-border-subtle bg-bg-surface";
 });
-const canCreateSession = $derived(Boolean(space && !creatingSession && (space.sandboxStatus === "ready" || sandbox?.status === "ready")));
+const canCreateSession = $derived(
+	Boolean(
+		space &&
+			!creatingSession &&
+			(space.sandboxStatus === "ready" || sandbox?.status === "ready"),
+	),
+);
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
 		? {
@@ -702,14 +740,16 @@ const activeSessionModel = $derived.by(() => {
 	return sessionModelById[activeSessionId] ?? firstCatalogModel;
 });
 const activePendingMessages = $derived.by(() =>
-	activeSessionId ? sessionPendingStore.pendingBySessionId[activeSessionId] ?? [] : [],
+	activeSessionId
+		? (sessionPendingStore.pendingBySessionId[activeSessionId] ?? [])
+		: [],
 );
 const activeRenderableMessages = $derived.by(() => {
 	const state = activeSessionState;
 	if (!state) return [] as ChatMessage[];
 	return buildRenderableChatMessages(state.messages, activePendingMessages);
 });
-const timeline = $derived.by<TimelineItem[]>(() => {
+const _timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
 	return buildTimelineItems({
@@ -717,17 +757,18 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		streaming:
 			streamStatus === "streaming" || streamingContentBlocks.length > 0
 				? {
-					sessionId: activeSessionId ?? "active",
-					anchorUserMessageId:
-						activeSessionId
-							? (streamingDraftAnchorUserMessageIdBySessionId[activeSessionId] ?? null)
+						sessionId: activeSessionId ?? "active",
+						anchorUserMessageId: activeSessionId
+							? (streamingDraftAnchorUserMessageIdBySessionId[
+									activeSessionId
+								] ?? null)
 							: null,
-					contentBlocks: streamingContentBlocks,
-					truncatedStart:
-						activeSessionId
-							? (streamingDraftTruncatedStartBySessionId[activeSessionId] ?? false)
+						contentBlocks: streamingContentBlocks,
+						truncatedStart: activeSessionId
+							? (streamingDraftTruncatedStartBySessionId[activeSessionId] ??
+								false)
 							: false,
-				}
+					}
 				: null,
 	});
 });
@@ -779,7 +820,7 @@ async function loadModelsCatalog() {
 	}
 }
 
-function handleModelSelect(model: { provider: string; id: string }) {
+function _handleModelSelect(model: { provider: string; id: string }) {
 	if (!activeSessionId) return;
 	const catalogItem = modelsCatalog?.find(
 		(item) => item.provider === model.provider && item.id === model.id,
@@ -794,10 +835,13 @@ function handleModelSelect(model: { provider: string; id: string }) {
 		[activeSessionId]: selected,
 	};
 	saveSessionModel(activeSessionId, selected);
-	showModelSelector = false;
+	_showModelSelector = false;
 }
 
-function navigateToSession(sessionId: string, options?: { replaceState?: boolean }) {
+function navigateToSession(
+	sessionId: string,
+	options?: { replaceState?: boolean },
+) {
 	void goto(buildSpaceSessionRoute(spaceId, sessionId), {
 		replaceState: options?.replaceState ?? true,
 		keepFocus: true,
@@ -853,7 +897,7 @@ function mergeMessagesById(
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
 }
 
-function getPendingMessages(sessionId: string | null) {
+function _getPendingMessages(sessionId: string | null) {
 	if (!sessionId) return [];
 	return sessionPendingStore.list(sessionId);
 }
@@ -932,7 +976,7 @@ function seedSessions(sessions: SessionRecord[]) {
 	}
 }
 
-async function loadSpace(options?: { force?: boolean }) {
+async function loadSpace(_options?: { force?: boolean }) {
 	spaceLoadError = "";
 
 	const tasks: Array<Promise<void>> = [];
@@ -985,10 +1029,10 @@ async function loadSpace(options?: { force?: boolean }) {
 }
 
 function showSpaceStatusNotice(message: string) {
-	spaceStatusNotice = message;
+	_spaceStatusNotice = message;
 	if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 	spaceStatusNoticeTimer = setTimeout(() => {
-		spaceStatusNotice = "";
+		_spaceStatusNotice = "";
 		spaceStatusNoticeTimer = null;
 	}, 2800);
 }
@@ -996,7 +1040,11 @@ function showSpaceStatusNotice(message: string) {
 function getStatusRefreshIntervalMs() {
 	const sandboxState = sandbox?.status ?? space?.sandboxStatus ?? null;
 	if (!pageVisible || !pageOnline) return null;
-	if (sandboxProvisioning || sandboxState === "pending" || sandboxState === "provisioning") {
+	if (
+		sandboxProvisioning ||
+		sandboxState === "pending" ||
+		sandboxState === "provisioning"
+	) {
 		return 1500;
 	}
 	if (bootstrapStatus === "pending" || bootstrapStatus === "running") {
@@ -1024,7 +1072,12 @@ async function refreshSpaceStatus() {
 				const raw = nextSpaceResult.value.meta;
 				if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
 				const bootstrap = (raw as Record<string, unknown>).bootstrap;
-				if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) return null;
+				if (
+					!bootstrap ||
+					typeof bootstrap !== "object" ||
+					Array.isArray(bootstrap)
+				)
+					return null;
 				const status = (bootstrap as Record<string, unknown>).status;
 				return typeof status === "string" ? status : null;
 			})();
@@ -1033,7 +1086,8 @@ async function refreshSpaceStatus() {
 			}
 		}
 		if (nextSandboxResult.status === "fulfilled") {
-			const previousSandboxStatus = sandbox?.status ?? space?.sandboxStatus ?? null;
+			const previousSandboxStatus =
+				sandbox?.status ?? space?.sandboxStatus ?? null;
 			sandbox = nextSandboxResult.value.sandbox;
 			if (nextSandboxResult.value.sandbox?.status === "error") {
 				sandboxError =
@@ -1054,10 +1108,10 @@ async function refreshSpaceStatus() {
 async function pollSandboxReady() {
 	const startedAt = Date.now();
 	const TIMEOUT = 120_000;
-	sandboxElapsed = 0;
+	_sandboxElapsed = 0;
 
 	const elapsedTimer = setInterval(() => {
-		sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
+		_sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
 	}, 1000);
 
 	try {
@@ -1089,13 +1143,13 @@ async function pollSandboxReady() {
 	}
 }
 
-function formatElapsedTime(seconds: number): string {
+function _formatElapsedTime(seconds: number): string {
 	const m = Math.floor(seconds / 60);
 	const s = seconds % 60;
 	return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
-function formatDateTime(dateStr: string | null | undefined): string {
+function _formatDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
 	return d.toLocaleString("en-US", {
@@ -1107,7 +1161,7 @@ function formatDateTime(dateStr: string | null | undefined): string {
 	});
 }
 
-function formatShortDateTime(dateStr: string | null | undefined): string {
+function _formatShortDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
 	return d.toLocaleString("en-US", {
@@ -1118,28 +1172,43 @@ function formatShortDateTime(dateStr: string | null | undefined): string {
 	});
 }
 
-function taskRunStatusBadge(run: TaskRunRecord) {
+function _taskRunStatusBadge(run: TaskRunRecord) {
 	switch (run.status) {
 		case "completed":
-			return { label: "Completed", color: "text-status-running", dot: "bg-status-running" };
+			return {
+				label: "Completed",
+				color: "text-status-running",
+				dot: "bg-status-running",
+			};
 		case "failed":
-			return { label: "Failed", color: "text-status-error", dot: "bg-status-error" };
+			return {
+				label: "Failed",
+				color: "text-status-error",
+				dot: "bg-status-error",
+			};
 		case "running":
 			return { label: "Running", color: "text-info", dot: "bg-info" };
 		case "pending":
 			return { label: "Pending", color: "text-warning", dot: "bg-warning" };
 		default:
-			return { label: run.status, color: "text-text-placeholder", dot: "bg-text-placeholder" };
+			return {
+				label: run.status,
+				color: "text-text-placeholder",
+				dot: "bg-text-placeholder",
+			};
 	}
 }
 
-function taskRunDuration(run: TaskRunRecord): string {
+function _taskRunDuration(run: TaskRunRecord): string {
 	if (!run.startedAt || !run.finishedAt) return "—";
-	const ms = Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime());
+	const ms = Math.max(
+		0,
+		new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime(),
+	);
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function formatBootstrapStage(stage: string | null) {
+function _formatBootstrapStage(stage: string | null) {
 	if (!stage) return "Waiting";
 	if (stage === "prepare") return "Preparing workspace";
 	if (stage === "import") return "Importing repository";
@@ -1149,7 +1218,7 @@ function formatBootstrapStage(stage: string | null) {
 	return stage.replace(/_/g, " ");
 }
 
-function formatBootstrapStatus(status: string | null) {
+function _formatBootstrapStatus(status: string | null) {
 	if (!status) return "Pending";
 	if (status === "running") return "Running";
 	if (status === "ready") return "Ready";
@@ -1157,7 +1226,7 @@ function formatBootstrapStatus(status: string | null) {
 	return "Pending";
 }
 
-async function handleRecreateSandbox() {
+async function _handleRecreateSandbox() {
 	if (!space) return;
 	sandboxError = null;
 	sandboxProvisioning = true;
@@ -1172,7 +1241,7 @@ async function handleRecreateSandbox() {
 
 		await loadSpace({ force: true });
 		void loadFileTree(true);
-		bootstrapping = false;
+		_bootstrapping = false;
 	} catch (error) {
 		sandboxError =
 			error instanceof Error ? error.message : "Failed to recreate sandbox";
@@ -1313,7 +1382,7 @@ async function syncSessionNewer(
 
 async function loadOlderMessages(sessionId: string) {
 	const state = sessionStateById[sessionId];
-	if (!state || !state.hasMore || state.loadingOlder) return;
+	if (!state?.hasMore || state.loadingOlder) return;
 	chatTimelineRef?.preparePrepend();
 	sessionStateById = {
 		...sessionStateById,
@@ -1377,10 +1446,10 @@ async function loadOlderMessages(sessionId: string) {
 	}
 }
 
-function handleFirstVisible(index: number) {
+function _handleFirstVisible(index: number) {
 	if (!activeSessionId) return;
 	const state = sessionStateById[activeSessionId];
-	if (!state || !state.hasMore || state.loadingOlder) return;
+	if (!state?.hasMore || state.loadingOlder) return;
 	if (
 		index <= PRELOAD_THRESHOLD &&
 		!preloadingSessionIds.has(activeSessionId)
@@ -1489,15 +1558,17 @@ async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
 	try {
-		const response = await getSessionMessagesPaginated(sessionId, { limit: 30 });
+		const response = await getSessionMessagesPaginated(sessionId, {
+			limit: 30,
+		});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
 		await messageCache.replaceAuthoritativeSnapshot({
 			sessionId,
 			messages: response.messages,
 			hasMore: response.hasMore,
 		});
-		const existingOlder = state.messages.filter(
-			(message) => response.messages.every((incoming) => incoming.id !== message.id),
+		const existingOlder = state.messages.filter((message) =>
+			response.messages.every((incoming) => incoming.id !== message.id),
 		);
 		const merged = mergeMessagesById(existingOlder, response.messages, {
 			preferIncoming: true,
@@ -1521,7 +1592,10 @@ async function reconcileSessionTail(sessionId: string) {
 		};
 		void messageCache.evict();
 	} catch (error) {
-		console.warn("[reconcileSessionTail] Failed to reconcile session tail:", error);
+		console.warn(
+			"[reconcileSessionTail] Failed to reconcile session tail:",
+			error,
+		);
 	}
 }
 
@@ -1549,11 +1623,13 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 					: null;
 			const hasExistingStreamingState =
 				streamingContentBlocks.length > 0 ||
-				Boolean(streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId]);
+				Boolean(
+					streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId],
+				);
 			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
 			const { thinking, answer } = extractSessionRenderState(mergedContent);
-			streamingThinking = thinking;
-			streamingAssistantText = answer;
+			_streamingThinking = thinking;
+			_streamingAssistantText = answer;
 			streamingContentBlocks = mergedContent;
 			if (streamingAnchorUserMessageId) {
 				streamingDraftAnchorUserMessageIdBySessionId = {
@@ -1635,8 +1711,9 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 				lastMessageId: message.id ?? null,
 				updatedAt: new Date().toISOString(),
 			};
-			spaceSessions = spaceSessions.map((s): SessionRecord =>
-				s.id === updatedSession.id ? refreshedSession : s,
+			spaceSessions = spaceSessions.map(
+				(s): SessionRecord =>
+					s.id === updatedSession.id ? refreshedSession : s,
 			);
 		}
 	} catch (error) {
@@ -1648,7 +1725,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
  * Set up WebSocket event listeners for the current active session.
  * The RealtimeClient is a singleton — we only need to register/unregister handlers.
  */
-function connectSessionWS(sessionId: string) {
+function connectSessionWS(_sessionId: string) {
 	if (!shouldHandleWsEvents()) return;
 	const client = getRealtimeClient();
 	if (client.state === "idle") {
@@ -1674,8 +1751,8 @@ function disconnectAllWS() {
 }
 
 function clearStreamingState(sessionId: string | null = activeSessionId) {
-	streamingAssistantText = "";
-	streamingThinking = "";
+	_streamingAssistantText = "";
+	_streamingThinking = "";
 	streamingContentBlocks = [];
 	if (sessionId) {
 		streamingDraftTruncatedStartBySessionId = {
@@ -1691,7 +1768,7 @@ function clearStreamingState(sessionId: string | null = activeSessionId) {
 	streamingSessionId = null;
 }
 
-async function handleSend() {
+async function _handleSend() {
 	if (
 		!activeSessionState ||
 		(!input.trim() && imageAttachments.length === 0) ||
@@ -1767,7 +1844,11 @@ async function handleSend() {
 			});
 		}
 
-		sessionPendingStore.markStatus(sessionId, clientMessageId, "sent_unconfirmed");
+		sessionPendingStore.markStatus(
+			sessionId,
+			clientMessageId,
+			"sent_unconfirmed",
+		);
 		input = "";
 		imageAttachments = [];
 		clearStreamingState();
@@ -1817,7 +1898,7 @@ function updateAutoFollow() {
 	}
 	shouldAutoFollow = distanceFromBottom <= threshold;
 	if (shouldAutoFollow) userScrolledUp = false;
-	showScrollToBottom =
+	_showScrollToBottom =
 		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
 
@@ -1887,7 +1968,7 @@ async function compressImageFile(file: File) {
 	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
 
-async function handlePickImages(files: FileList | File[] | null) {
+async function _handlePickImages(files: FileList | File[] | null) {
 	if (!files) return;
 	const validFiles = Array.from(files).filter((file) =>
 		file.type.startsWith("image/"),
@@ -1916,13 +1997,13 @@ async function handlePickImages(files: FileList | File[] | null) {
 	}
 }
 
-function handleRemoveAttachment(id: string) {
+function _handleRemoveAttachment(id: string) {
 	imageAttachments = imageAttachments.filter(
 		(attachment) => attachment.id !== id,
 	);
 }
 
-function beginRightSidebarResize(event: PointerEvent) {
+function _beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024 || uiState.rightSidebarCollapsed) return;
 	rightSidebarResizeCleanup?.();
@@ -1955,19 +2036,19 @@ function beginRightSidebarResize(event: PointerEvent) {
 async function loadFileTree(force = false) {
 	if (fileTreeLoading && !force) return;
 	fileTreeLoading = true;
-	fileTreeError = null;
+	_fileTreeError = null;
 	try {
 		const tree = await getSpaceFsTree(spaceId, "");
 		fileTree = tree.entries.map(makeFsNode);
 	} catch (error) {
-		fileTreeError =
+		_fileTreeError =
 			error instanceof Error ? error.message : "Failed to load files";
 	} finally {
 		fileTreeLoading = false;
 	}
 }
 
-async function expandDirectory(node: SpaceFsNode) {
+async function _expandDirectory(node: SpaceFsNode) {
 	if (node.type !== "dir") return;
 	if (node.isOpen) {
 		fileTree = updateNodeState(fileTree, node.path, (item) => ({
@@ -2000,7 +2081,7 @@ async function expandDirectory(node: SpaceFsNode) {
 			...item,
 			isLoading: false,
 		}));
-		fileTreeError =
+		_fileTreeError =
 			error instanceof Error ? error.message : "Failed to load directory";
 	}
 }
@@ -2013,15 +2094,15 @@ async function openSpaceFile(path: string) {
 	});
 }
 
-async function refreshFileTree() {
+async function _refreshFileTree() {
 	await loadFileTree(true);
 }
 
 async function openFileFromUrl(path: string) {
-	openFileLoading = true;
-	openFileError = null;
-	openFileTooLarge = false;
-	fileEdit = true;
+	_openFileLoading = true;
+	_openFileError = null;
+	_openFileTooLarge = false;
+	_fileEdit = true;
 	try {
 		const file = await getSpaceFsFile(spaceId, path);
 		openFile = file;
@@ -2030,22 +2111,22 @@ async function openFileFromUrl(path: string) {
 		const message =
 			error instanceof Error ? error.message : "Failed to open file";
 		if (message.includes("413") || message.includes("too large")) {
-			openFileTooLarge = true;
+			_openFileTooLarge = true;
 			openFile = null;
 			openFileDraft = "";
-			openFileError = null;
+			_openFileError = null;
 		} else {
-			openFileError = message;
+			_openFileError = message;
 		}
 	} finally {
-		openFileLoading = false;
+		_openFileLoading = false;
 	}
 }
 
 async function saveOpenFile() {
 	if (!openFile || openFile.kind !== "text") return;
-	openFileSaving = true;
-	openFileError = null;
+	_openFileSaving = true;
+	_openFileError = null;
 	try {
 		await putSpaceFsFile(spaceId, {
 			path: openFile.path,
@@ -2059,14 +2140,14 @@ async function saveOpenFile() {
 		};
 		await loadFileTree(true);
 	} catch (error) {
-		openFileError =
+		_openFileError =
 			error instanceof Error ? error.message : "Failed to save file";
 	} finally {
-		openFileSaving = false;
+		_openFileSaving = false;
 	}
 }
 
-async function handleCreateFile(parentPath: string) {
+async function _handleCreateFile(parentPath: string) {
 	const name = prompt("New file name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -2075,12 +2156,12 @@ async function handleCreateFile(parentPath: string) {
 		await loadFileTree(true);
 		await openSpaceFile(path);
 	} catch (error) {
-		fileTreeError =
+		_fileTreeError =
 			error instanceof Error ? error.message : "Failed to create file";
 	}
 }
 
-async function handleCreateDir(parentPath: string) {
+async function _handleCreateDir(parentPath: string) {
 	const name = prompt("New folder name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -2088,12 +2169,12 @@ async function handleCreateDir(parentPath: string) {
 		await createSpaceFsDir(spaceId, path);
 		await loadFileTree(true);
 	} catch (error) {
-		fileTreeError =
+		_fileTreeError =
 			error instanceof Error ? error.message : "Failed to create folder";
 	}
 }
 
-async function handleRenameNode(node: SpaceFsNode) {
+async function _handleRenameNode(node: SpaceFsNode) {
 	const nextName = prompt("Rename", node.name);
 	if (!nextName?.trim() || nextName.trim() === node.name) return;
 	const parent = node.path.includes("/")
@@ -2107,18 +2188,20 @@ async function handleRenameNode(node: SpaceFsNode) {
 			await openSpaceFile(toPath);
 		}
 	} catch (error) {
-		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
+		_fileTreeError =
+			error instanceof Error ? error.message : "Failed to rename";
 	}
 }
 
-async function handleDeleteNode(node: SpaceFsNode) {
+async function _handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
 		await loadFileTree(true);
 		if (openFile?.path === node.path) closeFile();
 	} catch (error) {
-		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
+		_fileTreeError =
+			error instanceof Error ? error.message : "Failed to delete";
 	}
 }
 
@@ -2131,16 +2214,20 @@ function closeFile() {
 }
 
 async function handleFileKeyboardSave(event: KeyboardEvent) {
-	if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && fileMode === "file") {
+	if (
+		(event.metaKey || event.ctrlKey) &&
+		event.key.toLowerCase() === "s" &&
+		fileMode === "file"
+	) {
 		event.preventDefault();
 		await saveOpenFile();
 	}
 }
 
-function handleCreateNewSession() {
+function _handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	creatingSession = true;
-	createSessionError = "";
+	_createSessionError = "";
 	const createSpaceId = space.id;
 	void createSpaceSession(createSpaceId, { source: "web" })
 		.then(async (result) => {
@@ -2158,7 +2245,7 @@ function handleCreateNewSession() {
 			await forceScrollToBottom();
 		})
 		.catch((error) => {
-			createSessionError =
+			_createSessionError =
 				error instanceof Error ? error.message : "Failed to create session";
 		})
 		.finally(() => {
@@ -2224,7 +2311,7 @@ onMount(() => {
 				const ready = await pollSandboxReady();
 				if (!ready) {
 					sandboxProvisioning = false;
-					bootstrapping = false;
+					_bootstrapping = false;
 					return;
 				}
 				sandboxProvisioning = false;
@@ -2240,15 +2327,15 @@ onMount(() => {
 				activeSessionId = initialSessionId;
 				ensureSessionModelLoaded(initialSessionId);
 				void loadSessionState(initialSessionId).finally(() => {
-					bootstrapping = false;
+					_bootstrapping = false;
 				});
 				return;
 			}
 
-			bootstrapping = false;
+			_bootstrapping = false;
 		})
 		.catch(() => {
-			bootstrapping = false;
+			_bootstrapping = false;
 		});
 
 	return () => {
@@ -2267,7 +2354,11 @@ onMount(() => {
 });
 
 $effect(() => {
-	if (routeView === "session" && routeSessionId && routeSessionId !== activeSessionId) {
+	if (
+		routeView === "session" &&
+		routeSessionId &&
+		routeSessionId !== activeSessionId
+	) {
 		clearStreamingState(activeSessionId);
 		activeSessionId = routeSessionId;
 		ensureSessionModelLoaded(routeSessionId);
@@ -2354,10 +2445,10 @@ $effect(() => {
 	if (routeView !== "file" || !routeFilePath) {
 		openFile = null;
 		openFileDraft = "";
-		openFileError = null;
-		openFileTooLarge = false;
-		fileMarkdownHtml = "";
-		fileEdit = true;
+		_openFileError = null;
+		_openFileTooLarge = false;
+		_fileMarkdownHtml = "";
+		_fileEdit = true;
 		return;
 	}
 	void openFileFromUrl(routeFilePath);
@@ -2369,17 +2460,20 @@ $effect(() => {
 		return;
 	}
 	checkpointDetail = null;
-	checkpointDetailError = "";
+	_checkpointDetailError = "";
 });
 
 $effect(() => {
 	if (routeView === "checkpoint-new") {
-		checkpointCreateError = "";
+		_checkpointCreateError = "";
 	}
 });
 
 $effect(() => {
-	if ((routeView === "cronjob" || routeView === "cronjob-new") && routeCronjobId) {
+	if (
+		(routeView === "cronjob" || routeView === "cronjob-new") &&
+		routeCronjobId
+	) {
 		void loadCronjobDetail(routeCronjobId);
 		return;
 	}
@@ -2387,17 +2481,17 @@ $effect(() => {
 		cronjobNewTitle = "";
 		cronjobNewExpression = "";
 		cronjobNewPrompt = "";
-		cronjobNewError = "";
+		_cronjobNewError = "";
 		cronjobDetail = null;
-		cronjobDetailError = "";
-		cronjobRuns = [];
-		cronjobToggleError = "";
+		_cronjobDetailError = "";
+		_cronjobRuns = [];
+		_cronjobToggleError = "";
 		return;
 	}
 	cronjobDetail = null;
-	cronjobDetailError = "";
-	cronjobRuns = [];
-	cronjobToggleError = "";
+	_cronjobDetailError = "";
+	_cronjobRuns = [];
+	_cronjobToggleError = "";
 });
 
 $effect(() => {
@@ -2405,8 +2499,8 @@ $effect(() => {
 		void loadTaskDetail(routeTaskId);
 		return;
 	}
-	taskRunDetail = null;
-	taskRunDetailError = "";
+	_taskRunDetail = null;
+	_taskRunDetailError = "";
 });
 
 $effect(() => {

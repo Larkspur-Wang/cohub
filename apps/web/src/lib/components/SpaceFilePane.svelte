@@ -1,71 +1,73 @@
 <script lang="ts">
-import { renderMarkdown } from "$lib/markdown";
 import type { SpaceFsFileResponse } from "$lib/api";
-import { Eye, FileWarning, Pencil, Save, X, Download } from "lucide-svelte";
-import CodeEditor from "$lib/components/CodeEditor.svelte";
+import { renderMarkdown } from "$lib/markdown";
 
 const {
-  file,
-  draftContent,
-  dirty,
-  loading,
-  saving,
-  error,
-  onInput,
-  onSave,
-  onClose,
-  onDownload,
-  downloadUrl,
-  children,
+	file,
+	draftContent,
+	dirty,
+	loading,
+	saving,
+	error,
+	onInput,
+	onSave,
+	onClose,
+	onDownload,
+	downloadUrl,
+	children,
 }: {
-  file: SpaceFsFileResponse | null;
-  draftContent: string;
-  dirty: boolean;
-  loading: boolean;
-  saving: boolean;
-  error: string | null;
-  onInput: (value: string) => void;
-  onSave: () => void;
-  onClose: () => void;
-  onDownload?: () => void;
-  downloadUrl?: string;
-  children?: import("svelte").Snippet;
+	file: SpaceFsFileResponse | null;
+	draftContent: string;
+	dirty: boolean;
+	loading: boolean;
+	saving: boolean;
+	error: string | null;
+	onInput: (value: string) => void;
+	onSave: () => void;
+	onClose: () => void;
+	onDownload?: () => void;
+	downloadUrl?: string;
+	children?: import("svelte").Snippet;
 } = $props();
 
-let markdownHtml = $state("");
-let fileEdit = $state(true);
+let _markdownHtml = $state("");
+let _fileEdit = $state(true);
 
 $effect(() => {
-  const current = file;
-  if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-    markdownHtml = "";
-    return;
-  }
-  void renderMarkdown(current.content).then((html) => {
-    if (file?.path === current.path) markdownHtml = html;
-  }).catch(() => {
-    markdownHtml = "";
-  });
+	const current = file;
+	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
+		_markdownHtml = "";
+		return;
+	}
+	void renderMarkdown(current.content)
+		.then((html) => {
+			if (file?.path === current.path) _markdownHtml = html;
+		})
+		.catch(() => {
+			_markdownHtml = "";
+		});
 });
 
 $effect(() => {
-  if (file) fileEdit = true;
+	if (file) _fileEdit = true;
 });
 
-const dataUrl = $derived.by(() => {
-  if (!file || file.kind !== "binary") return null;
-  const mime = file.mimeType ?? "application/octet-stream";
-  return `data:${mime};base64,${file.content}`;
+const _dataUrl = $derived.by(() => {
+	if (!file || file.kind !== "binary") return null;
+	const mime = file.mimeType ?? "application/octet-stream";
+	return `data:${mime};base64,${file.content}`;
 });
 
-const isImage = $derived(Boolean(file?.mimeType?.startsWith("image/")));
-const isVideo = $derived(Boolean(file?.mimeType?.startsWith("video/")));
-const isText = $derived(Boolean(file?.kind === "text"));
-const isMarkdown = $derived(Boolean(file?.kind === "text" && /\.md$/i.test(file.path)));
+const _isImage = $derived(Boolean(file?.mimeType?.startsWith("image/")));
+const _isVideo = $derived(Boolean(file?.mimeType?.startsWith("video/")));
+const _isText = $derived(Boolean(file?.kind === "text"));
+const _isMarkdown = $derived(
+	Boolean(file?.kind === "text" && /\.md$/i.test(file.path)),
+);
 
-const editorLanguage = $derived.by(() => {
-  if (!file || file.kind !== "text") return "plaintext";
-  return file.name.split(".").pop()?.toLowerCase() ?? "";
+const _editorLanguage = $derived.by(() => {
+	if (!file || file.kind !== "text") return "plaintext";
+	return file.name.split(".").pop()?.toLowerCase() ?? "";
 });
 </script>
 

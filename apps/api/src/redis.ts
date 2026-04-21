@@ -69,7 +69,7 @@ export const checkPendingMessages = async (streamKey: string, groupName: string)
 export const getStreamInfo = async (streamKey: string) => {
   try {
     const info = await redisCommandClient.xinfo("STREAM", streamKey) as (string | number)[];
-    const lengthIdx = info.findIndex((item) => item === "length");
+    const lengthIdx = info.indexOf("length");
     return { length: lengthIdx >= 0 ? Number(info[lengthIdx + 1]) : 0, exists: true };
   } catch {
     return { length: 0, exists: false };

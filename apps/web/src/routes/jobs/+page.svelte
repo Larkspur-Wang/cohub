@@ -1,28 +1,25 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import {
-  getCronJobs,
-  createCronJob,
-  createScheduledTask,
-  deleteCronJob,
-  toggleCronJob,
-  getTaskRuns,
-  getSpaces,
-  type CronJobRecord,
-  type TaskRunRecord,
-  type SpaceRecord,
+	type CronJobRecord,
+	createCronJob,
+	createScheduledTask,
+	deleteCronJob,
+	getCronJobs,
+	getSpaces,
+	getTaskRuns,
+	type SpaceRecord,
+	type TaskRunRecord,
+	toggleCronJob,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
-import { Plus, Trash2, Power, PowerOff, Loader2, Clock, Activity, Filter, X, Clipboard, ClipboardCheck, Pencil } from "lucide-svelte";
-import Dialog from "$lib/components/Dialog.svelte";
-import PageHeader from "$lib/components/PageHeader.svelte";
 
 type TabId = "cronjobs" | "history";
 type ModalMode = "create" | "edit";
 
-let activeTab: TabId = $state("cronjobs");
-let isLoading = $state(true);
-let loadError = $state("");
+let _activeTab: TabId = $state("cronjobs");
+let _isLoading = $state(true);
+let _loadError = $state("");
 let cronJobs = $state<CronJobRecord[]>([]);
 let taskRuns = $state<TaskRunRecord[]>([]);
 let filterCronJobId = $state<string | null>(null);
@@ -36,342 +33,366 @@ let isCreating = $state(false);
 let createType = $state<"repeating" | "onetime">("repeating");
 
 // Derived helpers to avoid tsgo type-narrowing false positives in template
-const isEditMode = $derived(modalMode === "edit");
-const isCreateMode = $derived(modalMode === "create");
-const isRepeating = $derived(createType === "repeating");
-const isOnetime = $derived(createType === "onetime");
+const _isEditMode = $derived(modalMode === "edit");
+const _isCreateMode = $derived(modalMode === "create");
+const _isRepeating = $derived(createType === "repeating");
+const _isOnetime = $derived(createType === "onetime");
 let createTitle = $state("");
 let createCronExpression = $state("");
 let createScheduleAt = $state("");
 let createSpaceId = $state("");
 let createPromptText = $state("");
-let createError = $state("");
+let _createError = $state("");
 let spaces = $state<SpaceRecord[]>([]);
-let copiedIndex = $state<number | null>(null);
+let _copiedIndex = $state<number | null>(null);
 
 // Example prompts — create (2 items for mobile fit)
 const createExamplePrompts = [
-  "Every day at 10 AM, send a daily report summary to this space",
-  "Remind me to check the deployment status in 5 minutes",
+	"Every day at 10 AM, send a daily report summary to this space",
+	"Remind me to check the deployment status in 5 minutes",
 ];
 
 // Example prompts — edit mode
 const editExamplePrompts = [
-  "Change the schedule to every Monday at 9 AM",
-  "Update the prompt message to include error counts",
+	"Change the schedule to every Monday at 9 AM",
+	"Update the prompt message to include error counts",
 ];
 
-function getExamplePrompts(): string[] {
-  return modalMode === "edit" ? editExamplePrompts : createExamplePrompts;
+function _getExamplePrompts(): string[] {
+	return modalMode === "edit" ? editExamplePrompts : createExamplePrompts;
 }
 
-function copyPrompt(text: string, index: number) {
-  navigator.clipboard.writeText(text).then(() => {
-    copiedIndex = index;
-    setTimeout(() => { copiedIndex = null; }, 1500);
-  });
+function _copyPrompt(text: string, index: number) {
+	navigator.clipboard.writeText(text).then(() => {
+		_copiedIndex = index;
+		setTimeout(() => {
+			_copiedIndex = null;
+		}, 1500);
+	});
 }
 
 function extractPromptText(payload: Record<string, unknown>): string {
-  const content = payload.content as Array<{ type: string; text: string }> | undefined;
-  if (Array.isArray(content)) {
-    const textBlock = content.find((c) => c.type === "text");
-    return textBlock?.text ?? "";
-  }
-  return "";
+	const content = payload.content as
+		| Array<{ type: string; text: string }>
+		| undefined;
+	if (Array.isArray(content)) {
+		const textBlock = content.find((c) => c.type === "text");
+		return textBlock?.text ?? "";
+	}
+	return "";
 }
 
 async function loadCronJobs() {
-  if (!(await logtoClient.isAuthenticated())) {
-    isLoading = false;
-    return;
-  }
+	if (!(await logtoClient.isAuthenticated())) {
+		_isLoading = false;
+		return;
+	}
 
-  loadError = "";
-  try {
-    const result = await getCronJobs();
-    cronJobs = result.jobs ?? [];
-  } catch (error) {
-    loadError = error instanceof Error ? error.message : "Failed to load cron jobs";
-  } finally {
-    isLoading = false;
-  }
+	_loadError = "";
+	try {
+		const result = await getCronJobs();
+		cronJobs = result.jobs ?? [];
+	} catch (error) {
+		_loadError =
+			error instanceof Error ? error.message : "Failed to load cron jobs";
+	} finally {
+		_isLoading = false;
+	}
 }
 
 async function loadTaskRuns() {
-  if (!(await logtoClient.isAuthenticated())) {
-    return;
-  }
+	if (!(await logtoClient.isAuthenticated())) {
+		return;
+	}
 
-  try {
-    const result = await getTaskRuns();
-    taskRuns = result.runs ?? [];
-  } catch (error) {
-    console.warn("Failed to load task runs", error);
-  }
+	try {
+		const result = await getTaskRuns();
+		taskRuns = result.runs ?? [];
+	} catch (error) {
+		console.warn("Failed to load task runs", error);
+	}
 }
 
-async function handleDelete(id: string, e: Event) {
-  e.stopPropagation();
-  if (!confirm("Are you sure you want to delete this cron job?")) return;
-  actionInProgress = { ...actionInProgress, [id]: "delete" };
-  try {
-    await deleteCronJob(id);
-    await loadCronJobs();
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to delete");
-  } finally {
-    const { [id]: _, ...rest } = actionInProgress;
-    actionInProgress = rest;
-  }
+async function _handleDelete(id: string, e: Event) {
+	e.stopPropagation();
+	if (!confirm("Are you sure you want to delete this cron job?")) return;
+	actionInProgress = { ...actionInProgress, [id]: "delete" };
+	try {
+		await deleteCronJob(id);
+		await loadCronJobs();
+	} catch (error) {
+		alert(error instanceof Error ? error.message : "Failed to delete");
+	} finally {
+		const { [id]: _, ...rest } = actionInProgress;
+		actionInProgress = rest;
+	}
 }
 
-async function handleToggle(id: string, enabled: boolean, e: Event) {
-  e.stopPropagation();
-  actionInProgress = { ...actionInProgress, [id]: "toggle" };
-  try {
-    await toggleCronJob(id, enabled);
-    cronJobs = cronJobs.map((j) => (j.id === id ? { ...j, enabled } : j));
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to toggle");
-    await loadCronJobs();
-  } finally {
-    const { [id]: _, ...rest } = actionInProgress;
-    actionInProgress = rest;
-  }
+async function _handleToggle(id: string, enabled: boolean, e: Event) {
+	e.stopPropagation();
+	actionInProgress = { ...actionInProgress, [id]: "toggle" };
+	try {
+		await toggleCronJob(id, enabled);
+		cronJobs = cronJobs.map((j) => (j.id === id ? { ...j, enabled } : j));
+	} catch (error) {
+		alert(error instanceof Error ? error.message : "Failed to toggle");
+		await loadCronJobs();
+	} finally {
+		const { [id]: _, ...rest } = actionInProgress;
+		actionInProgress = rest;
+	}
 }
 
-function filterHistoryForJob(jobId: string) {
-  filterCronJobId = jobId;
-  activeTab = "history";
+function _filterHistoryForJob(jobId: string) {
+	filterCronJobId = jobId;
+	_activeTab = "history";
 }
 
-function clearFilter() {
-  filterCronJobId = null;
+function _clearFilter() {
+	filterCronJobId = null;
 }
 
 async function loadSpaces() {
-  try {
-    const data = await getSpaces();
-    spaces = data ?? [];
-  } catch (error) {
-    console.warn("[Jobs] Failed to load spaces", error);
-  }
+	try {
+		const data = await getSpaces();
+		spaces = data ?? [];
+	} catch (error) {
+		console.warn("[Jobs] Failed to load spaces", error);
+	}
 }
 
-function openCreateModal() {
-  showCreateModal = true;
-  modalMode = "create";
-  editingJob = null;
-  isCreating = false;
-  createType = "repeating";
-  createTitle = "";
-  createCronExpression = "";
-  createScheduleAt = "";
-  createSpaceId = spaces[0]?.id ?? "";
-  createPromptText = "";
-  createError = "";
-  copiedIndex = null;
-  void loadSpaces();
+function _openCreateModal() {
+	showCreateModal = true;
+	modalMode = "create";
+	editingJob = null;
+	isCreating = false;
+	createType = "repeating";
+	createTitle = "";
+	createCronExpression = "";
+	createScheduleAt = "";
+	createSpaceId = spaces[0]?.id ?? "";
+	createPromptText = "";
+	_createError = "";
+	_copiedIndex = null;
+	void loadSpaces();
 }
 
-function openEditModal(job: CronJobRecord) {
-  showCreateModal = true;
-  modalMode = "edit";
-  editingJob = job;
-  isCreating = false;
-  createType = "repeating";
-  createTitle = job.title;
-  createCronExpression = job.cronExpression;
-  createScheduleAt = "";
-  createSpaceId = job.spaceId ?? "";
-  createPromptText = extractPromptText(job.payload as Record<string, unknown>);
-  createError = "";
-  copiedIndex = null;
-  void loadSpaces();
+function _openEditModal(job: CronJobRecord) {
+	showCreateModal = true;
+	modalMode = "edit";
+	editingJob = job;
+	isCreating = false;
+	createType = "repeating";
+	createTitle = job.title;
+	createCronExpression = job.cronExpression;
+	createScheduleAt = "";
+	createSpaceId = job.spaceId ?? "";
+	createPromptText = extractPromptText(job.payload as Record<string, unknown>);
+	_createError = "";
+	_copiedIndex = null;
+	void loadSpaces();
 }
 
 function closeCreateModal() {
-  if (isCreating) return;
-  showCreateModal = false;
+	if (isCreating) return;
+	showCreateModal = false;
 }
 
-function handleModalBackdropKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") closeCreateModal();
+function _handleModalBackdropKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") closeCreateModal();
 }
 
-async function handleCreate() {
-  createError = "";
-  if (isCreating) return;
+async function _handleCreate() {
+	_createError = "";
+	if (isCreating) return;
 
-  if (modalMode === "edit" && editingJob) {
-    // Edit mode: only update prompt and cron expression via delete+recreate
-    // For simplicity, delete old and create new
-    if (!createTitle.trim()) {
-      createError = "Title is required";
-      return;
-    }
-    if (!createPromptText.trim()) {
-      createError = "Prompt message is required";
-      return;
-    }
-    if (!createCronExpression.trim()) {
-      createError = "Cron expression is required";
-      return;
-    }
+	if (modalMode === "edit" && editingJob) {
+		// Edit mode: only update prompt and cron expression via delete+recreate
+		// For simplicity, delete old and create new
+		if (!createTitle.trim()) {
+			_createError = "Title is required";
+			return;
+		}
+		if (!createPromptText.trim()) {
+			_createError = "Prompt message is required";
+			return;
+		}
+		if (!createCronExpression.trim()) {
+			_createError = "Cron expression is required";
+			return;
+		}
 
-    isCreating = true;
-    try {
-      // Delete old cron job
-      await deleteCronJob(editingJob.id);
+		isCreating = true;
+		try {
+			// Delete old cron job
+			await deleteCronJob(editingJob.id);
 
-      // Create new one with updated values
-      await createCronJob({
-        title: createTitle.trim(),
-        taskType: "send_message",
-        payload: {
-          content: [{ type: "text", text: createPromptText.trim() }],
-        },
-        cronExpression: createCronExpression.trim(),
-        spaceId: createSpaceId || undefined,
-      });
+			// Create new one with updated values
+			await createCronJob({
+				title: createTitle.trim(),
+				taskType: "send_message",
+				payload: {
+					content: [{ type: "text", text: createPromptText.trim() }],
+				},
+				cronExpression: createCronExpression.trim(),
+				spaceId: createSpaceId || undefined,
+			});
 
-      showCreateModal = false;
-      await loadCronJobs();
-      await loadTaskRuns();
-    } catch (error) {
-      createError = error instanceof Error ? error.message : "Failed to update";
-    } finally {
-      isCreating = false;
-    }
-    return;
-  }
+			showCreateModal = false;
+			await loadCronJobs();
+			await loadTaskRuns();
+		} catch (error) {
+			_createError =
+				error instanceof Error ? error.message : "Failed to update";
+		} finally {
+			isCreating = false;
+		}
+		return;
+	}
 
-  // Create mode
-  if (!createPromptText.trim()) {
-    createError = "Prompt message is required";
-    return;
-  }
-  if (!createSpaceId) {
-    createError = "Space is required";
-    return;
-  }
+	// Create mode
+	if (!createPromptText.trim()) {
+		_createError = "Prompt message is required";
+		return;
+	}
+	if (!createSpaceId) {
+		_createError = "Space is required";
+		return;
+	}
 
-  isCreating = true;
-  try {
-    if (createType === "repeating") {
-      if (!createTitle.trim()) {
-        createError = "Title is required";
-        return;
-      }
-      if (!createCronExpression.trim()) {
-        createError = "Cron expression is required";
-        return;
-      }
-      const cronParts = createCronExpression.trim().split(/\s+/);
-      if (cronParts.length < 5 || cronParts.length > 6) {
-        createError = "Invalid cron expression format. Expected 5 or 6 space-separated fields (min hour day month weekday [year])";
-        return;
-      }
-      await createCronJob({
-        title: createTitle.trim(),
-        taskType: "send_message",
-        payload: {
-          content: [{ type: "text", text: createPromptText.trim() }],
-        },
-        cronExpression: createCronExpression.trim(),
-        spaceId: createSpaceId || undefined,
-      });
-    } else {
-      if (!createScheduleAt) {
-        createError = "Schedule time is required";
-        return;
-      }
-      const scheduleTime = new Date(createScheduleAt);
-      if (Number.isNaN(scheduleTime.getTime()) || scheduleTime.getTime() <= Date.now()) {
-        createError = "Schedule time must be in the future";
-        return;
-      }
-      await createScheduledTask({
-        taskType: "send_message",
-        payload: {
-          content: [{ type: "text", text: createPromptText.trim() }],
-        },
-        scheduleAt: scheduleTime.toISOString(),
-        spaceId: createSpaceId || undefined,
-      });
-    }
-    showCreateModal = false;
-    await loadCronJobs();
-    await loadTaskRuns();
-  } catch (error) {
-    createError = error instanceof Error ? error.message : "Failed to create";
-  } finally {
-    isCreating = false;
-  }
+	isCreating = true;
+	try {
+		if (createType === "repeating") {
+			if (!createTitle.trim()) {
+				_createError = "Title is required";
+				return;
+			}
+			if (!createCronExpression.trim()) {
+				_createError = "Cron expression is required";
+				return;
+			}
+			const cronParts = createCronExpression.trim().split(/\s+/);
+			if (cronParts.length < 5 || cronParts.length > 6) {
+				_createError =
+					"Invalid cron expression format. Expected 5 or 6 space-separated fields (min hour day month weekday [year])";
+				return;
+			}
+			await createCronJob({
+				title: createTitle.trim(),
+				taskType: "send_message",
+				payload: {
+					content: [{ type: "text", text: createPromptText.trim() }],
+				},
+				cronExpression: createCronExpression.trim(),
+				spaceId: createSpaceId || undefined,
+			});
+		} else {
+			if (!createScheduleAt) {
+				_createError = "Schedule time is required";
+				return;
+			}
+			const scheduleTime = new Date(createScheduleAt);
+			if (
+				Number.isNaN(scheduleTime.getTime()) ||
+				scheduleTime.getTime() <= Date.now()
+			) {
+				_createError = "Schedule time must be in the future";
+				return;
+			}
+			await createScheduledTask({
+				taskType: "send_message",
+				payload: {
+					content: [{ type: "text", text: createPromptText.trim() }],
+				},
+				scheduleAt: scheduleTime.toISOString(),
+				spaceId: createSpaceId || undefined,
+			});
+		}
+		showCreateModal = false;
+		await loadCronJobs();
+		await loadTaskRuns();
+	} catch (error) {
+		_createError = error instanceof Error ? error.message : "Failed to create";
+	} finally {
+		isCreating = false;
+	}
 }
 
-function statusBadge(run: TaskRunRecord) {
-  switch (run.status) {
-    case "completed":
-      return { label: "Completed", color: "text-status-running", dot: "bg-status-running" };
-    case "failed":
-      return { label: "Failed", color: "text-status-error", dot: "bg-status-error" };
-    case "running":
-      return { label: "Running", color: "text-info", dot: "bg-info" };
-    case "pending":
-      return { label: "Pending", color: "text-warning", dot: "bg-warning" };
-    default:
-      return { label: run.status, color: "text-text-placeholder", dot: "bg-text-placeholder" };
-  }
+function _statusBadge(run: TaskRunRecord) {
+	switch (run.status) {
+		case "completed":
+			return {
+				label: "Completed",
+				color: "text-status-running",
+				dot: "bg-status-running",
+			};
+		case "failed":
+			return {
+				label: "Failed",
+				color: "text-status-error",
+				dot: "bg-status-error",
+			};
+		case "running":
+			return { label: "Running", color: "text-info", dot: "bg-info" };
+		case "pending":
+			return { label: "Pending", color: "text-warning", dot: "bg-warning" };
+		default:
+			return {
+				label: run.status,
+				color: "text-text-placeholder",
+				dot: "bg-text-placeholder",
+			};
+	}
 }
 
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleString("en-US", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+function _formatDate(dateStr: string | null) {
+	if (!dateStr) return "—";
+	const d = new Date(dateStr);
+	return d.toLocaleString("en-US", {
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
 }
 
-function getJobTitle(cronJobId: string | null) {
-  if (!cronJobId) return null;
-  const job = cronJobs.find((j) => j.id === cronJobId);
-  return job?.title ?? null;
+function _getJobTitle(cronJobId: string | null) {
+	if (!cronJobId) return null;
+	const job = cronJobs.find((j) => j.id === cronJobId);
+	return job?.title ?? null;
 }
 
-function formatScheduled(dateStr: string | null) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function _formatScheduled(dateStr: string | null) {
+	if (!dateStr) return "—";
+	const d = new Date(dateStr);
+	return d.toLocaleString("en-US", {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
-const filteredRuns = $derived(
-  filterCronJobId ? taskRuns.filter((r) => r.cronJobId === filterCronJobId) : taskRuns
+const _filteredRuns = $derived(
+	filterCronJobId
+		? taskRuns.filter((r) => r.cronJobId === filterCronJobId)
+		: taskRuns,
 );
 
 $effect(() => {
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && showCreateModal && !isCreating) {
-      closeCreateModal();
-    }
-  }
-  window.addEventListener("keydown", handleKeydown);
-  return () => window.removeEventListener("keydown", handleKeydown);
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === "Escape" && showCreateModal && !isCreating) {
+			closeCreateModal();
+		}
+	}
+	window.addEventListener("keydown", handleKeydown);
+	return () => window.removeEventListener("keydown", handleKeydown);
 });
 
 onMount(() => {
-  void loadCronJobs();
-  void loadTaskRuns();
+	void loadCronJobs();
+	void loadTaskRuns();
 });
 </script>
 

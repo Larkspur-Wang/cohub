@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import type { ContentBlock, PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import {
-  providerMessageRefs,
   sessionMessages,
   spaceSessions,
   spaces,
@@ -12,7 +11,6 @@ import {
   getAgentInstanceInputQueueKey,
   redisCommandClient,
 } from "./redis.js";
-import type { RedisStreamEntry } from "./redis.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs } from "./session-output.js";
@@ -191,7 +189,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const content = input.message.content;
   const text = deriveMessagePreviewText({ role: input.message.role ?? null, content }) || null;
   const messageRole = input.message.role ?? "assistant";
-  const shouldDispatchToProvider = messageRole === "assistant";
+  const _shouldDispatchToProvider = messageRole === "assistant";
 
   if (messageRole === "assistant" && content.length === 0 && !text?.trim()) throw new Error("Refusing to persist empty assistant message");
 

@@ -51,7 +51,7 @@ const startGatewayInboundListener = async () => {
       if (!entries || entries.length === 0) continue;
       for (const [, messages] of entries as Array<[string, Array<[string, string[]]>]>) {
         for (const [id, fields] of messages) {
-          const payloadIndex = fields.findIndex((field) => field === "payload");
+          const payloadIndex = fields.indexOf("payload");
           const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
           if (!payload) continue;
           try {
@@ -94,7 +94,7 @@ const startSessionUpdatesBridge = async () => {
       if (!entries || entries.length === 0) continue;
       for (const [, messages] of entries as Array<[string, Array<[string, string[]]>]>) {
         for (const [id, fields] of messages) {
-          const payloadIndex = fields.findIndex((field) => field === "payload");
+          const payloadIndex = fields.indexOf("payload");
           const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
           if (!payload) {
             await client.xack(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, id).catch(() => undefined);

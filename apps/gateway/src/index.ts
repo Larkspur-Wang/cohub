@@ -131,12 +131,12 @@ const sendWsError = (
   }));
 };
 
-const parseWsJson = (value: string) => {
-  const parsed = wsClientEventSchema.safeParse(JSON.parse(value));
-  if (!parsed.success) {
-    throw new Error(parsed.error.issues.map((issue) => issue.message).join("; "));
+const parseWsJson = (value: string): WsClientEvent => {
+  const result = wsClientEventSchema.safeParse(JSON.parse(value));
+  if (!result.success) {
+    throw new Error(result.error.issues.map((issue) => issue.message).join("; "));
   }
-  return parsed.data as WsClientEvent;
+  return result.data as WsClientEvent;
 };
 
 const touchWsConnection = async (ctx: WsConnectionContext) => {
@@ -512,7 +512,7 @@ async function main() {
       if (providerType === "discord" && typeof credential === "string") {
         const { DiscordProvider } = await import("./providers/discord/index.js");
         const provider = new DiscordProvider(channelId, credential);
-        // @ts-ignore
+        // @ts-expect-error
         manager.providers.set(channelId, provider);
       } else if (providerType === "feishu" && typeof credential === "object") {
         const { FeishuProvider } = await import("./providers/feishu/index.js");
@@ -521,7 +521,7 @@ async function main() {
           appSecret: credential.appSecret,
           brand: (credential.brand as "feishu" | "lark") ?? "feishu",
         });
-        // @ts-ignore
+        // @ts-expect-error
         manager.providers.set(channelId, provider);
       }
     };

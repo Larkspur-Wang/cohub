@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { resourcePermissions } from "../../db/schema-v2.js";
 import { useAuth, requireValidId } from "../../lib/middleware.js";

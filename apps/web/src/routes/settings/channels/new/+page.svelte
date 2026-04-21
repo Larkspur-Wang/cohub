@@ -1,10 +1,8 @@
 <script lang="ts">
 import { goto } from "$app/navigation";
-import { onMount } from "svelte";
-import { ArrowLeft, MessageSquare, Webhook, Copy, ExternalLink, Check, Loader2, ChevronDown } from "lucide-svelte";
+import { page } from "$app/state";
 import { createChannel } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
-import { page } from "$app/state";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -20,92 +18,96 @@ let formAppSecret = $state("");
 let formBrand = $state<"feishu" | "lark">("feishu");
 
 let isSubmitting = $state(false);
-let submitError = $state("");
-let copiedField = $state<string | null>(null);
+let _submitError = $state("");
+let _copiedField = $state<string | null>(null);
 
 // Guide accordion state
-let discordGuideOpen = $state(false);
-let feishuGuideOpen = $state(false);
+let _discordGuideOpen = $state(false);
+let _feishuGuideOpen = $state(false);
 
-function selectProvider(provider: Provider) {
-  selectedProvider = provider;
-  submitError = "";
+function _selectProvider(provider: Provider) {
+	selectedProvider = provider;
+	_submitError = "";
 }
 
-function goBack() {
-  selectedProvider = null;
-  submitError = "";
+function _goBack() {
+	selectedProvider = null;
+	_submitError = "";
 }
 
-function copyToClipboard(text: string, field: string) {
-  navigator.clipboard.writeText(text).then(() => {
-    copiedField = field;
-    setTimeout(() => { copiedField = null; }, 1500);
-  });
+function _copyToClipboard(text: string, field: string) {
+	navigator.clipboard.writeText(text).then(() => {
+		_copiedField = field;
+		setTimeout(() => {
+			_copiedField = null;
+		}, 1500);
+	});
 }
 
-async function handleSubmit(e: Event) {
-  e.preventDefault();
-  if (!selectedProvider || isSubmitting) return;
+async function _handleSubmit(e: Event) {
+	e.preventDefault();
+	if (!selectedProvider || isSubmitting) return;
 
-  // Validate
-  if (!formName.trim()) {
-    submitError = "Channel name is required.";
-    return;
-  }
+	// Validate
+	if (!formName.trim()) {
+		_submitError = "Channel name is required.";
+		return;
+	}
 
-  if (selectedProvider === "discord" && !formToken.trim()) {
-    submitError = "Bot Token is required.";
-    return;
-  }
+	if (selectedProvider === "discord" && !formToken.trim()) {
+		_submitError = "Bot Token is required.";
+		return;
+	}
 
-  if (selectedProvider === "feishu") {
-    if (!formAppId.trim()) {
-      submitError = "App ID is required.";
-      return;
-    }
-    if (!formAppSecret.trim()) {
-      submitError = "App Secret is required.";
-      return;
-    }
-  }
+	if (selectedProvider === "feishu") {
+		if (!formAppId.trim()) {
+			_submitError = "App ID is required.";
+			return;
+		}
+		if (!formAppSecret.trim()) {
+			_submitError = "App Secret is required.";
+			return;
+		}
+	}
 
-  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
+	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
+		return;
 
-  isSubmitting = true;
-  submitError = "";
+	isSubmitting = true;
+	_submitError = "";
 
-  try {
-    let credentials: Record<string, unknown>;
-    if (selectedProvider === "discord") {
-      credentials = { token: formToken.trim() };
-    } else if (selectedProvider === "feishu") {
-      credentials = {
-        appId: formAppId.trim(),
-        appSecret: formAppSecret.trim(),
-        brand: formBrand,
-      };
-    } else {
-      credentials = {};
-    }
+	try {
+		let credentials: Record<string, unknown>;
+		if (selectedProvider === "discord") {
+			credentials = { token: formToken.trim() };
+		} else if (selectedProvider === "feishu") {
+			credentials = {
+				appId: formAppId.trim(),
+				appSecret: formAppSecret.trim(),
+				brand: formBrand,
+			};
+		} else {
+			credentials = {};
+		}
 
-    await createChannel({
-      provider: selectedProvider,
-      name: formName.trim(),
-      credentials,
-    });
+		await createChannel({
+			provider: selectedProvider,
+			name: formName.trim(),
+			credentials,
+		});
 
-    await goto("/settings/channels");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create channel";
-    if (message.includes("unauthorized") || message.includes("401")) {
-      await logtoClient.signIn(`${window.location.origin}/callback`);
-      return;
-    }
-    submitError = message;
-  } finally {
-    isSubmitting = false;
-  }
+		await goto("/settings/channels");
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to create channel";
+		if (message.includes("unauthorized") || message.includes("401")) {
+			await logtoClient.signIn(`${window.location.origin}/callback`);
+			return;
+		}
+		_submitError = message;
+	} finally {
+		isSubmitting = false;
+	}
 }
 </script>
 

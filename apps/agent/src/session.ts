@@ -1,5 +1,5 @@
 import { existsSync, renameSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import {
   type AuthStorage,
@@ -9,7 +9,7 @@ import {
   createAgentSession,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import type { ContentBlock, SessionStreamEvent } from "@cohub/protocol";
+import type { ContentBlock, } from "@cohub/protocol";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
 import { sendOutput } from "./redis.js";

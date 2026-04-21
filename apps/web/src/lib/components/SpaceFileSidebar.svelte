@@ -1,42 +1,40 @@
 <script lang="ts">
 import type { SpaceFsNode } from "$lib/space-fs";
-import { RefreshCw, Plus, FolderPlus, AlertCircle, Lock } from "lucide-svelte";
-import FsTreeItem from "./FsTreeItem.svelte";
 
 const {
-  nodes,
-  selectedPath,
-  loading,
-  error,
-  onToggle,
-  onSelect,
-  onRefresh,
-  onCreateFile,
-  onCreateDir,
-  onRename,
-  onDelete,
-  canWrite = true,
+	nodes,
+	selectedPath,
+	loading,
+	error,
+	onToggle,
+	onSelect,
+	onRefresh,
+	onCreateFile,
+	onCreateDir,
+	onRename,
+	onDelete,
+	canWrite = true,
 }: {
-  nodes: SpaceFsNode[];
-  selectedPath: string;
-  loading: boolean;
-  error: string | null;
-  onToggle: (node: SpaceFsNode) => void;
-  onSelect: (node: SpaceFsNode) => void;
-  onRefresh: () => void;
-  onCreateFile: (parentPath: string) => void;
-  onCreateDir: (parentPath: string) => void;
-  onRename: (node: SpaceFsNode) => void;
-  onDelete: (node: SpaceFsNode) => void;
-  canWrite?: boolean;
+	nodes: SpaceFsNode[];
+	selectedPath: string;
+	loading: boolean;
+	error: string | null;
+	onToggle: (node: SpaceFsNode) => void;
+	onSelect: (node: SpaceFsNode) => void;
+	onRefresh: () => void;
+	onCreateFile: (parentPath: string) => void;
+	onCreateDir: (parentPath: string) => void;
+	onRename: (node: SpaceFsNode) => void;
+	onDelete: (node: SpaceFsNode) => void;
+	canWrite?: boolean;
 } = $props();
 
-function handleCreateFileAtRoot() {
-  onCreateFile("");
+function _handleCreateFileAtRoot() {
+	onCreateFile("");
 }
 
-function handleCreateDirAtRoot() {
-  onCreateDir("");
+function _handleCreateDirAtRoot() {
+	onCreateDir("");
 }
 </script>
 

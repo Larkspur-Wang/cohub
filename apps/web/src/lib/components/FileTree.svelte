@@ -1,18 +1,16 @@
 <script lang="ts">
 import type { RepositoryTreeNode } from "$lib/types";
 
-import TreeItem from "./TreeItem.svelte";
-
 const {
-  nodes,
-  selectedPath,
-  onToggle,
-  onSelect,
+	nodes,
+	selectedPath,
+	onToggle,
+	onSelect,
 }: {
-  nodes: RepositoryTreeNode[];
-  selectedPath: string;
-  onToggle: (node: RepositoryTreeNode) => void;
-  onSelect: (node: RepositoryTreeNode) => void;
+	nodes: RepositoryTreeNode[];
+	selectedPath: string;
+	onToggle: (node: RepositoryTreeNode) => void;
+	onSelect: (node: RepositoryTreeNode) => void;
 } = $props();
 </script>
 

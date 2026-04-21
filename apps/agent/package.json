@@ -18,15 +18,15 @@
     "@cohub/agent-sandbox-protocol": "workspace:*",
     "@cohub/protocol": "workspace:*",
     "@mariozechner/pi-coding-agent": "0.68.0",
-    "ioredis": "^5.3.2",
-    "ws": "^8.18.3",
-    "zod": "^3.22.4"
+    "ioredis": "^5.10.1",
+    "ws": "^8.20.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.6.0",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.19.2",
-    "typescript": "^6.0.2",
-    "@typescript/native-preview": "^7.0.0-dev"
+    "@typescript/native-preview": "7.0.0-dev.20260421.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
   }
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock, GatewayInboundEvent } from "@cohub/protocol";
 import { buildSessionSourceChannel } from "@cohub/protocol";

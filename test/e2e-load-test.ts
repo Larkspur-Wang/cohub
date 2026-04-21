@@ -9,7 +9,7 @@
  */
 
 import {
-  assertConfig, config, api, createSession, sendMessage, waitForAssistantReply,
+  assertConfig, config, createSession, sendMessage, waitForAssistantReply,
   createK8sMonitor, cleanupTestResources, batchedAll,
   C, SEC,
 } from "./test-utils.js";

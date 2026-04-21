@@ -1,28 +1,53 @@
 <script lang="ts">
-import { Sun, Moon, Monitor } from "lucide-svelte";
-import { getTheme, getResolvedTheme, setTheme, type ThemeMode } from "$lib/theme.svelte";
+import { Monitor, Moon, Sun } from "lucide-svelte";
+import {
+	getResolvedTheme,
+	getTheme,
+	setTheme,
+	type ThemeMode,
+} from "$lib/theme.svelte";
 
 // Reactive — reads from $state-backed store, auto-updates on system changes
 const mode = $derived(getTheme());
 const resolved = $derived(getResolvedTheme());
 
-const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun; description: string }[] = [
-  { value: "dark", label: "Dark", icon: Moon, description: "Always use dark theme" },
-  { value: "light", label: "Light", icon: Sun, description: "Always use light theme" },
-  { value: "system", label: "System", icon: Monitor, description: "Follow your system preference" },
+const _themeOptions: {
+	value: ThemeMode;
+	label: string;
+	icon: typeof Sun;
+	description: string;
+}[] = [
+	{
+		value: "dark",
+		label: "Dark",
+		icon: Moon,
+		description: "Always use dark theme",
+	},
+	{
+		value: "light",
+		label: "Light",
+		icon: Sun,
+		description: "Always use light theme",
+	},
+	{
+		value: "system",
+		label: "System",
+		icon: Monitor,
+		description: "Follow your system preference",
+	},
 ];
 
-function handleThemeChange(mode: ThemeMode) {
-  setTheme(mode);
+function _handleThemeChange(mode: ThemeMode) {
+	setTheme(mode);
 }
 
 // An option is "active" if:
 // 1. Its mode matches the stored mode (dark/light/system)
 // 2. OR user is in "system" mode and the option's resolved theme matches the current resolved theme
-function isActive(option: ThemeMode): boolean {
-  if (mode === option) return true;
-  if (mode === "system" && resolved === option) return true;
-  return false;
+function _isActive(option: ThemeMode): boolean {
+	if (mode === option) return true;
+	if (mode === "system" && resolved === option) return true;
+	return false;
 }
 </script>
 

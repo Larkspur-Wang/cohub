@@ -1,23 +1,26 @@
 <script lang="ts">
-import Sidebar from "$lib/components/Sidebar.svelte";
 import {
-  MOBILE_DRAWER_MAX_WIDTH_VW,
-  MOBILE_DRAWER_WIDTH_PX,
-  getDrawerOpenRatio,
+	getDrawerOpenRatio,
+	MOBILE_DRAWER_WIDTH_PX,
 } from "$lib/gestures/drawer-swipe";
-import { DURATION_DRAWER_IN, DURATION_DRAWER_OUT, EASE_OUT, EASE_IN } from "$lib/motion.svelte";
+import {
+	DURATION_DRAWER_IN,
+	DURATION_DRAWER_OUT,
+	EASE_IN,
+	EASE_OUT,
+} from "$lib/motion.svelte";
 import { uiState } from "$lib/stores/ui.svelte";
 
 const {
-  dragOffsetPx = 0,
-  isDragging = false,
-  isDrawerVisible = false,
-  mode = "space",
+	dragOffsetPx = 0,
+	isDragging = false,
+	isDrawerVisible = false,
+	mode = "space",
 }: {
-  dragOffsetPx?: number;
-  isDragging?: boolean;
-  isDrawerVisible?: boolean;
-  mode?: "space" | "settings";
+	dragOffsetPx?: number;
+	isDragging?: boolean;
+	isDrawerVisible?: boolean;
+	mode?: "space" | "settings";
 } = $props();
 
 const TRANSITION_CSS = `transform ${DURATION_DRAWER_IN}ms ${EASE_OUT}`;
@@ -28,44 +31,43 @@ const TRANSITION_DURATION_MS = DURATION_DRAWER_OUT;
 
 const openRatio = $derived(getDrawerOpenRatio(dragOffsetPx));
 
-const panelStyle = $derived.by(() => {
-  if (isDragging) {
-    const offset = MOBILE_DRAWER_WIDTH_PX - dragOffsetPx;
-    return `transform: translateX(-${offset}px); transition: none;`;
-  }
-  if (uiState.mobileDrawerOpen) {
-    return `transform: translateX(0); transition: ${TRANSITION_CSS};`;
-  }
-  return `transform: translateX(-${MOBILE_DRAWER_WIDTH_PX}px); transition: ${CLOSE_TRANSITION_CSS}; pointer-events: none;`;
+const _panelStyle = $derived.by(() => {
+	if (isDragging) {
+		const offset = MOBILE_DRAWER_WIDTH_PX - dragOffsetPx;
+		return `transform: translateX(-${offset}px); transition: none;`;
+	}
+	if (uiState.mobileDrawerOpen) {
+		return `transform: translateX(0); transition: ${TRANSITION_CSS};`;
+	}
+	return `transform: translateX(-${MOBILE_DRAWER_WIDTH_PX}px); transition: ${CLOSE_TRANSITION_CSS}; pointer-events: none;`;
 });
 
-const backdropStyle = $derived.by(() => {
-  if (isDragging) {
-    return `opacity: ${openRatio * 0.5}; transition: none;`;
-  }
-  if (uiState.mobileDrawerOpen) {
-    return `opacity: 0.5; transition: ${BACKDROP_TRANSITION_CSS};`;
-  }
-  return `opacity: 0; transition: ${CLOSE_BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
+const _backdropStyle = $derived.by(() => {
+	if (isDragging) {
+		return `opacity: ${openRatio * 0.5}; transition: none;`;
+	}
+	if (uiState.mobileDrawerOpen) {
+		return `opacity: 0.5; transition: ${BACKDROP_TRANSITION_CSS};`;
+	}
+	return `opacity: 0; transition: ${CLOSE_BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
 });
 
-
-function closeDrawer() {
-  uiState.mobileDrawerOpen = false;
+function _closeDrawer() {
+	uiState.mobileDrawerOpen = false;
 }
 
-let renderContent = $state(false);
+let _renderContent = $state(false);
 
 $effect(() => {
-  if (isDrawerVisible) {
-    renderContent = true;
-    return;
-  }
+	if (isDrawerVisible) {
+		_renderContent = true;
+		return;
+	}
 
-  const timer = window.setTimeout(() => {
-    renderContent = false;
-  }, TRANSITION_DURATION_MS);
-  return () => window.clearTimeout(timer);
+	const timer = window.setTimeout(() => {
+		_renderContent = false;
+	}, TRANSITION_DURATION_MS);
+	return () => window.clearTimeout(timer);
 });
 </script>
 

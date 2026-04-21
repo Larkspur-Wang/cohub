@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAuth, useAuth } from "../lib/middleware.js";
+import { useAuth } from "../lib/middleware.js";
 
 const router = new Hono();
 

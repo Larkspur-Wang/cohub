@@ -1,75 +1,80 @@
 <script lang="ts">
-import { Plus, Trash2, KeyRound, X } from "lucide-svelte";
-import { getSshKeys, createSshKey, deleteSshKey, type UserSshKey } from "$lib/api";
-import { fade } from "svelte/transition";
 import { onMount } from "svelte";
-import { ensureAuth, logtoClient } from "$lib/auth";
 import { page } from "$app/state";
+import {
+	createSshKey,
+	deleteSshKey,
+	getSshKeys,
+	type UserSshKey,
+} from "$lib/api";
+import { ensureAuth, logtoClient } from "$lib/auth";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let keys = $state<UserSshKey[]>([]);
-let isLoading = $state(true);
-let loadError = $state("");
+let _keys = $state<UserSshKey[]>([]);
+let _isLoading = $state(true);
+let _loadError = $state("");
 
-let isAdding = $state(false);
+let _isAdding = $state(false);
 let isSubmitting = $state(false);
 
 let formTitle = $state("");
 let formKey = $state("");
 
 async function loadKeys() {
-  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
-  isLoading = true;
-  loadError = "";
-  try {
-    keys = await getSshKeys();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load SSH keys";
-    if (message.includes("unauthorized") || message.includes("401")) {
-      await logtoClient.signIn(`${window.location.origin}/callback`);
-      return;
-    }
-    loadError = message;
-  } finally {
-    isLoading = false;
-  }
+	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
+		return;
+	_isLoading = true;
+	_loadError = "";
+	try {
+		_keys = await getSshKeys();
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to load SSH keys";
+		if (message.includes("unauthorized") || message.includes("401")) {
+			await logtoClient.signIn(`${window.location.origin}/callback`);
+			return;
+		}
+		_loadError = message;
+	} finally {
+		_isLoading = false;
+	}
 }
 
-async function handleSubmit(e: Event) {
-  e.preventDefault();
-  if (!formTitle.trim() || !formKey.trim() || isSubmitting) return;
+async function _handleSubmit(e: Event) {
+	e.preventDefault();
+	if (!formTitle.trim() || !formKey.trim() || isSubmitting) return;
 
-  isSubmitting = true;
-  try {
-    await createSshKey({
-      key: formKey.trim(),
-      title: formTitle.trim(),
-    });
-    isAdding = false;
-    formTitle = "";
-    formKey = "";
-    await loadKeys();
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to add SSH key");
-  } finally {
-    isSubmitting = false;
-  }
+	isSubmitting = true;
+	try {
+		await createSshKey({
+			key: formKey.trim(),
+			title: formTitle.trim(),
+		});
+		_isAdding = false;
+		formTitle = "";
+		formKey = "";
+		await loadKeys();
+	} catch (error) {
+		alert(error instanceof Error ? error.message : "Failed to add SSH key");
+	} finally {
+		isSubmitting = false;
+	}
 }
 
-async function handleDelete(id: string) {
-  if (!confirm("Are you sure you want to delete this SSH key?")) return;
-  try {
-    await deleteSshKey(id);
-    await loadKeys();
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to delete SSH key");
-  }
+async function _handleDelete(id: string) {
+	if (!confirm("Are you sure you want to delete this SSH key?")) return;
+	try {
+		await deleteSshKey(id);
+		await loadKeys();
+	} catch (error) {
+		alert(error instanceof Error ? error.message : "Failed to delete SSH key");
+	}
 }
 
 onMount(() => {
-  void loadKeys();
+	void loadKeys();
 });
 </script>
 

@@ -1,8 +1,4 @@
 <script lang="ts">
-import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
-import ProcessCard from "$lib/components/ProcessCard.svelte";
-import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
-import { Loader2 } from "lucide-svelte";
 import type { TimelineItem } from "$lib/session-tree";
 
 type Props = {
@@ -47,7 +43,7 @@ export function finalizePrepend() {
 }
 
 // Svelte action: register element with IntersectionObserver
-function observeItem(node: HTMLElement, originalIndex: number) {
+function _observeItem(node: HTMLElement, originalIndex: number) {
 	observedNodes.set(node, originalIndex);
 	if (observer) {
 		observer.observe(node);

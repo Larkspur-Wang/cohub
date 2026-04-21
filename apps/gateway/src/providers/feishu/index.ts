@@ -2,11 +2,10 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 import { randomUUID } from "node:crypto";
 import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, FeishuChannelConfig } from "@cohub/protocol";
 import type { GatewayProvider } from "../base.js";
-import { publishInboundEvent, publishConversationCreateEvent } from "../../bus.js";
+import { publishInboundEvent, } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 import { buildFeishuDeliveryPlan } from "../../session-output-planner.js";
 import {
-  detectIdType,
   resolveReceiveIdType,
   buildFeishuBindingKey,
   resolveAtMentions,
@@ -372,126 +371,6 @@ export class FeishuProvider implements GatewayProvider {
       }
       return { success: false, error: msg };
     }
-  }
-
-  private buildCard(
-    cmd: GatewayOutboundCommand,
-    opts: {
-      isFinal: boolean;
-      showThinking: boolean;
-      showToolCalls: boolean;
-    },
-  ): Record<string, unknown> {
-    const elements: Record<string, unknown>[] = [];
-    const thinking = !opts.isFinal && opts.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
-    const toolCalls = opts.showToolCalls && !opts.isFinal && Array.isArray(cmd.meta?.toolCalls)
-      ? (cmd.meta.toolCalls as Array<Record<string, unknown>>)
-      : [];
-    const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : this.extractText(cmd.content);
-
-    if (thinking.trim()) {
-      elements.push({ tag: "markdown", content: `> ${thinking.trim()}` });
-    }
-
-    if (toolCalls.length > 0) {
-      const lines = toolCalls
-        .map((t) => this.buildToolLine(
-          typeof t.status === "string" ? t.status : undefined,
-          typeof t.toolName === "string" ? t.toolName : undefined,
-          typeof t.summary === "string" ? t.summary : undefined,
-        ))
-        .join("\n");
-      elements.push({ tag: "markdown", content: lines });
-    }
-
-    if (answer.trim()) {
-      elements.push({ tag: "markdown", content: answer.trim() });
-    }
-
-    if (!opts.isFinal) {
-      elements.push({ tag: "markdown", content: "🍳 cooking…" });
-    }
-
-    return {
-      schema: "2.0",
-      config: { wide_screen_mode: true, update_multi: true },
-      body: { elements },
-    };
-  }
-
-  private buildPostText(
-    cmd: GatewayOutboundCommand,
-    opts: {
-      isFinal: boolean;
-      showThinking: boolean;
-      showToolCalls: boolean;
-    },
-  ): string {
-    const parts: string[] = [];
-    const thinking = !opts.isFinal && opts.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
-    const toolCalls = opts.showToolCalls && !opts.isFinal && Array.isArray(cmd.meta?.toolCalls)
-      ? (cmd.meta.toolCalls as Array<Record<string, unknown>>)
-      : [];
-    const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : this.extractText(cmd.content);
-
-    if (thinking.trim()) {
-      parts.push(`> ${thinking.trim()}`);
-    }
-
-    if (toolCalls.length > 0) {
-      const lines = toolCalls
-        .map((t) => this.buildToolLine(
-          typeof t.status === "string" ? t.status : undefined,
-          typeof t.toolName === "string" ? t.toolName : undefined,
-          typeof t.summary === "string" ? t.summary : undefined,
-        ))
-        .join("\n");
-      parts.push(lines);
-    }
-
-    if (answer.trim()) {
-      parts.push(answer.trim());
-    }
-
-    if (!opts.isFinal) {
-      parts.push("🍳 cooking…");
-    }
-
-    return parts.join("\n").trim();
-  }
-
-  private buildToolLine(status: string | undefined, toolName: string | undefined, summary: string | undefined): string {
-    const safeStatus = status ?? "queued";
-    const safeToolName = toolName ?? "tool";
-    const suffix = summary?.trim() ? ` ${summary.trim()}` : "";
-    return `[${safeStatus}] ${safeToolName}${suffix}`;
-  }
-
-  private extractText(content: ContentBlock[]): string {
-    return content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("\n");
-  }
-
-  private extractImageKeys(content: ContentBlock[]): string[] {
-    const keys: string[] = [];
-    for (const block of content) {
-      if (block.type === "image" && block.source.type === "url") {
-        // Extract image_key from Feishu image URL if present
-        const url = block.source.url;
-        const match = url.match(/img_v3_([a-zA-Z0-9_-]+)/);
-        if (match) keys.push(match[0]);
-      } else if (block.type === "text") {
-        // Check for image_key placeholders in text (e.g. [image:img_v3_xxx])
-        const imgPattern = /\[image:(img_v3_[a-zA-Z0-9_-]+)\]/g;
-        const matches = block.text.match(imgPattern);
-        if (matches) {
-          for (const match of matches) {
-            const key = match.slice(8, -1); // strip "[image:" and "]"
-            if (key) keys.push(key);
-          }
-        }
-      }
-    }
-    return keys;
   }
 
   public destroy() {

@@ -1,157 +1,171 @@
 <script lang="ts">
-import { goto } from "$app/navigation";
 import { onMount } from "svelte";
-import { ArrowLeft, Loader2, Plus, X } from "lucide-svelte";
+import { goto } from "$app/navigation";
+import { page } from "$app/state";
 import {
-  getChannels,
-  createSpace,
-  type Channel,
-  type SpaceChannelBindingInput,
-  type ChannelConfig,
-  type DiscordChannelConfig,
-  type SpaceEnvInput,
+	type Channel,
+	type ChannelConfig,
+	createSpace,
+	type DiscordChannelConfig,
+	getChannels,
+	type SpaceChannelBindingInput,
+	type SpaceEnvInput,
 } from "$lib/api";
 import { ensureAuth } from "$lib/auth";
-import { page } from "$app/state";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let channels = $state<Channel[]>([]);
-let isLoading = $state(true);
+let _channels = $state<Channel[]>([]);
+let _isLoading = $state(true);
 let isSubmitting = $state(false);
-let loadError = $state("");
-let submitError = $state("");
+let _loadError = $state("");
+let _submitError = $state("");
 
 let name = $state("");
 let description = $state("");
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<SpaceEnvInput[]>([]);
 let channelConfigById = $state<Record<string, ChannelConfig>>({});
-let selectedBootstrapType = $state<"blank" | "public_git_repo" | "checkpoint">("blank");
+let selectedBootstrapType = $state<"blank" | "public_git_repo" | "checkpoint">(
+	"blank",
+);
 let publicRepoUrl = $state("");
 let publicRepoRef = $state("");
 let checkpointId = $state("");
 
 const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
-  if (channel.provider === "discord") {
-    return {
-      inbound: { requireMentionInGuild: false },
-      outbound: { showThinking: true, showToolCalls: true },
-    };
-  }
-  return {};
+	if (channel.provider === "discord") {
+		return {
+			inbound: { requireMentionInGuild: false },
+			outbound: { showThinking: true, showToolCalls: true },
+		};
+	}
+	return {};
 };
 
 async function loadPage() {
-  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
-  isLoading = true;
-  loadError = "";
+	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
+		return;
+	_isLoading = true;
+	_loadError = "";
 
-  try {
-    const channelsData = await getChannels();
-    channels = channelsData;
-    channelConfigById = Object.fromEntries(
-      channelsData.map((ch) => [ch.id, getDefaultChannelConfig(ch)]),
-    );
-  } catch (error) {
-    loadError = error instanceof Error ? error.message : "Failed to load form data";
-  } finally {
-    isLoading = false;
-  }
+	try {
+		const channelsData = await getChannels();
+		_channels = channelsData;
+		channelConfigById = Object.fromEntries(
+			channelsData.map((ch) => [ch.id, getDefaultChannelConfig(ch)]),
+		);
+	} catch (error) {
+		_loadError =
+			error instanceof Error ? error.message : "Failed to load form data";
+	} finally {
+		_isLoading = false;
+	}
 }
 
 onMount(() => {
-  void loadPage();
+	void loadPage();
 });
 
-function toggleChannel(channelId: string, checked: boolean) {
-  if (checked) {
-    if (!selectedChannelIds.includes(channelId)) {
-      selectedChannelIds = [...selectedChannelIds, channelId];
-    }
-    return;
-  }
-  selectedChannelIds = selectedChannelIds.filter((id) => id !== channelId);
+function _toggleChannel(channelId: string, checked: boolean) {
+	if (checked) {
+		if (!selectedChannelIds.includes(channelId)) {
+			selectedChannelIds = [...selectedChannelIds, channelId];
+		}
+		return;
+	}
+	selectedChannelIds = selectedChannelIds.filter((id) => id !== channelId);
 }
 
-function addEnvRow() {
-  extraEnv = [...extraEnv, { name: "", value: "" }];
+function _addEnvRow() {
+	extraEnv = [...extraEnv, { name: "", value: "" }];
 }
 
-function removeEnvRow(index: number) {
-  extraEnv = extraEnv.filter((_, idx) => idx !== index);
+function _removeEnvRow(index: number) {
+	extraEnv = extraEnv.filter((_, idx) => idx !== index);
 }
 
-function updateEnvName(index: number, value: string) {
-  extraEnv = extraEnv.map((item, idx) =>
-    idx === index ? { ...item, name: value } : item,
-  );
+function _updateEnvName(index: number, value: string) {
+	extraEnv = extraEnv.map((item, idx) =>
+		idx === index ? { ...item, name: value } : item,
+	);
 }
 
-function updateEnvValue(index: number, value: string) {
-  extraEnv = extraEnv.map((item, idx) =>
-    idx === index ? { ...item, value: value } : item,
-  );
+function _updateEnvValue(index: number, value: string) {
+	extraEnv = extraEnv.map((item, idx) =>
+		idx === index ? { ...item, value: value } : item,
+	);
 }
 
-function updateDiscordConfig(channelId: string, updater: (config: DiscordChannelConfig) => DiscordChannelConfig) {
-  channelConfigById = {
-    ...channelConfigById,
-    [channelId]: updater((channelConfigById[channelId] ?? {}) as DiscordChannelConfig),
-  };
+function _updateDiscordConfig(
+	channelId: string,
+	updater: (config: DiscordChannelConfig) => DiscordChannelConfig,
+) {
+	channelConfigById = {
+		...channelConfigById,
+		[channelId]: updater(
+			(channelConfigById[channelId] ?? {}) as DiscordChannelConfig,
+		),
+	};
 }
 
-async function handleSubmit(event: SubmitEvent) {
-  event.preventDefault();
-  if (!name.trim() || isSubmitting) return;
+async function _handleSubmit(event: SubmitEvent) {
+	event.preventDefault();
+	if (!name.trim() || isSubmitting) return;
 
-  submitError = "";
-  isSubmitting = true;
+	_submitError = "";
+	isSubmitting = true;
 
-  try {
-    const channelBindings: SpaceChannelBindingInput[] = selectedChannelIds.map((channelId) => ({
-      channelId,
-      config: channelConfigById[channelId] ?? null,
-    }));
-    const normalizedExtraEnv: SpaceEnvInput[] = extraEnv
-      .map((item) => ({ name: item.name.trim(), value: item.value }))
-      .filter((item) => item.name.length > 0);
+	try {
+		const channelBindings: SpaceChannelBindingInput[] = selectedChannelIds.map(
+			(channelId) => ({
+				channelId,
+				config: channelConfigById[channelId] ?? null,
+			}),
+		);
+		const normalizedExtraEnv: SpaceEnvInput[] = extraEnv
+			.map((item) => ({ name: item.name.trim(), value: item.value }))
+			.filter((item) => item.name.length > 0);
 
-    const result = await createSpace({
-      name: name.trim(),
-      description: description.trim() || undefined,
-      source: "web",
-      extraEnv: normalizedExtraEnv,
-      channelBindings,
-      bootstrapSource:
-        selectedBootstrapType === "public_git_repo"
-          ? {
-              type: "public_git_repo",
-              repoUrl: publicRepoUrl.trim(),
-              ref: publicRepoRef.trim() || null,
-            }
-          : selectedBootstrapType === "checkpoint"
-            ? {
-                type: "checkpoint",
-                checkpointId: checkpointId.trim(),
-              }
-            : { type: "blank" },
-    });
+		const result = await createSpace({
+			name: name.trim(),
+			description: description.trim() || undefined,
+			source: "web",
+			extraEnv: normalizedExtraEnv,
+			channelBindings,
+			bootstrapSource:
+				selectedBootstrapType === "public_git_repo"
+					? {
+							type: "public_git_repo",
+							repoUrl: publicRepoUrl.trim(),
+							ref: publicRepoRef.trim() || null,
+						}
+					: selectedBootstrapType === "checkpoint"
+						? {
+								type: "checkpoint",
+								checkpointId: checkpointId.trim(),
+							}
+						: { type: "blank" },
+		});
 
-    window.dispatchEvent(new CustomEvent("cohub:space-created"));
+		window.dispatchEvent(new CustomEvent("cohub:space-created"));
 
-    await goto(`/spaces/${result.space.id}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create space";
-    if (message.includes("channel binding already exists") || message.includes("409")) {
-      submitError = "This channel is already bound to another space.";
-    } else {
-      submitError = message;
-    }
-  } finally {
-    isSubmitting = false;
-  }
+		await goto(`/spaces/${result.space.id}`);
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to create space";
+		if (
+			message.includes("channel binding already exists") ||
+			message.includes("409")
+		) {
+			_submitError = "This channel is already bound to another space.";
+		} else {
+			_submitError = message;
+		}
+	} finally {
+		isSubmitting = false;
+	}
 }
 </script>
 

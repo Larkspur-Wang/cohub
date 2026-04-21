@@ -7,15 +7,14 @@ import {
   spaces,
 } from "../../db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { requireAuth, useAuth, requireValidId, buildSpaceListItem, buildStorageRepoName } from "../../lib/middleware.js";
+import { useAuth, requireValidId, buildSpaceListItem, buildStorageRepoName } from "../../lib/middleware.js";
 import { k8sCoreApi } from "../../k8s.js";
-import { sessionsNamespace, config } from "../../config.js";
+import { sessionsNamespace, } from "../../config.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { getSpaceSandboxBySpaceId, provisionSpaceSandbox, updateSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
-  getSpaceSessionById,
   listSpaceSessions,
   normalizeSpaceEnv,
   validateSpaceEnv,

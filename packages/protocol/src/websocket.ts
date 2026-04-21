@@ -1,7 +1,9 @@
 import { z } from "zod";
-import type { MessageRecord } from "./session-ingestion.js";
+import type { ContentBlock, MessageRecord } from "./session-ingestion.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
+
+// ── Schemas ──
 
 export const contentBlockSchema = z.discriminatedUnion("type", [
   z.object({
@@ -88,7 +90,17 @@ export const realtimeEnvelopeSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 
-export type RealtimeEnvelope = z.infer<typeof realtimeEnvelopeSchema>;
+// ── Explicit types (z.infer fails for complex discriminated unions across packages in Zod 4) ──
+
+export type { ContentBlock };
+
+export type WsClientEvent =
+  | { type: "auth"; requestId?: string; payload: { token: string } }
+  | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string } }
+  | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
+  | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
+
+export type RealtimeEnvelope = z.output<typeof realtimeEnvelopeSchema>;
 export type RealtimeEnvelopeBase = RealtimeEnvelope;
 export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
 
@@ -193,7 +205,7 @@ export type SessionTurnProgressEvent = {
   sessionId: string;
   payload: {
     anchorUserMessageId: string | null;
-    content: Array<z.infer<typeof contentBlockSchema>>;
+    content: ContentBlock[];
   };
 };
 
@@ -208,7 +220,7 @@ export type SessionTurnFinalEvent = {
   payload: {
     sessionMessageId: string | null;
     anchorUserMessageId: string | null;
-    content: Array<z.infer<typeof contentBlockSchema>>;
+    content: ContentBlock[];
   };
 };
 
@@ -252,5 +264,4 @@ export type RealtimeServerEvent =
   | SessionTurnErrorEvent
   | SessionMessagePersistedEvent;
 
-export type WsClientEvent = z.infer<typeof wsClientEventSchema>;
 export type WsServerEnvelope = RealtimeEnvelope;

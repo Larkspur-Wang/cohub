@@ -7,7 +7,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       // Prevent FOUC — resolve theme before first paint
-      (function() {
+      (() => {
         var stored = localStorage.getItem('cohub-theme');
         var resolved;
         if (stored === 'dark' || stored === 'light') {

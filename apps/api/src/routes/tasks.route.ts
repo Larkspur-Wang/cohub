@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { taskRuns } from "../db/schema-v2.js";
 import { eq, and, desc } from "drizzle-orm";
-import { requireAuth, useAuth, requireValidId } from "../lib/middleware.js";
+import { useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { canWrite } from "../permissions.js";
 import { enqueueTask, SUPPORTED_TASK_TYPES } from "../tasks.js";

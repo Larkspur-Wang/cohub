@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import { db } from "./db/index.js";
-import { userGitAccounts, userChannels } from "./db/schema-v2.js";
+import { userGitAccounts, } from "./db/schema-v2.js";
 import {
   createGiteaAccessTokenWithBasicAuth,
   createManagedGiteaUser,

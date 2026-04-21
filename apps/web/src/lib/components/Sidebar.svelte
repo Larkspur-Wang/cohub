@@ -1,65 +1,46 @@
 <script lang="ts">
+import { KeyRound, Network, Palette, User } from "lucide-svelte";
 import { onMount, untrack } from "svelte";
-import { page } from "$app/state";
 import { goto } from "$app/navigation";
+import { page } from "$app/state";
 import {
-  Plus,
-  ChevronDown,
-  Loader2,
-  Settings,
-  LogOut,
-  Users,
-  FolderKanban,
-  User,
-  Palette,
-  KeyRound,
-  Network,
-  LayoutDashboard,
-  History,
-  Clock,
-  Activity,
-} from "lucide-svelte";
-import Dialog from "$lib/components/Dialog.svelte";
-import {
-  getSpaces,
-  getSpaceSessions,
-  getSpaceCheckpoints,
-  createSpaceSession,
-  getCronJobs,
-  getTaskRuns,
-  type CheckpointRecord,
-  type CronJobRecord,
-  type SessionRecord,
-  type SpaceRecord,
-  type TaskRunRecord,
+	type CheckpointRecord,
+	type CronJobRecord,
+	createSpaceSession,
+	getCronJobs,
+	getSpaceCheckpoints,
+	getSpaceSessions,
+	getSpaces,
+	getTaskRuns,
+	type SessionRecord,
+	type SpaceRecord,
+	type TaskRunRecord,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
-import { getCheckpointTitle } from "$lib/checkpoints";
 import {
-  buildSpaceCheckpointNewRoute,
-  buildSpaceCheckpointRoute,
-  buildSpaceCronjobNewRoute,
-  buildSpaceCronjobRoute,
-  buildSpaceDetailRoute,
-  buildSpaceSessionRoute,
-  buildSpaceTaskRoute,
+	buildSpaceCheckpointNewRoute,
+	buildSpaceCheckpointRoute,
+	buildSpaceCronjobNewRoute,
+	buildSpaceCronjobRoute,
+	buildSpaceDetailRoute,
+	buildSpaceSessionRoute,
+	buildSpaceTaskRoute,
 } from "$lib/space-routes";
-import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
-import { authStore } from "$lib/stores/auth.svelte";
+import { isStreaming, unreadTracker } from "$lib/stores/session-state.svelte";
 
 const {
-  isMobile = false,
-  onClose,
-  mode = "space",
+	isMobile = false,
+	onClose,
+	mode = "space",
 }: {
-  isMobile?: boolean;
-  onClose?: () => void;
-  mode?: "space" | "settings";
+	isMobile?: boolean;
+	onClose?: () => void;
+	mode?: "space" | "settings";
 } = $props();
 
-let isLoading = $state(true);
-let loadError = $state("");
-let showUserMenu = $state(false);
+let _isLoading = $state(true);
+let _loadError = $state("");
+let _showUserMenu = $state(false);
 let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
@@ -67,12 +48,12 @@ let checkpoints = $state<CheckpointRecord[]>([]);
 let loadingSessions = $state(false);
 let loadingCheckpoints = $state(false);
 
-let sessionsCollapsed = $state(false);
-let checkpointsCollapsed = $state(false);
-let cronjobsCollapsed = $state(false);
-let tasksCollapsed = $state(false);
+let _sessionsCollapsed = $state(false);
+let _checkpointsCollapsed = $state(false);
+let _cronjobsCollapsed = $state(false);
+let _tasksCollapsed = $state(false);
 let creatingSession = $state(false);
-let createSessionError = $state("");
+let _createSessionError = $state("");
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
@@ -80,363 +61,405 @@ let loadingCronjobs = $state(false);
 let loadingTasks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
-const activeSession = $derived.by(() => {
-  const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
-  const activeSessionId = match?.[1] ?? null;
-  return sessions.find((s) => s.id === activeSessionId) ?? null;
+const _activeSession = $derived.by(() => {
+	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
+	const activeSessionId = match?.[1] ?? null;
+	return sessions.find((s) => s.id === activeSessionId) ?? null;
 });
 const activeCheckpointId = $derived.by(() => {
-  const match = currentPath.match(/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/);
-  const id = match?.[1] ?? null;
-  if (!id || id === "new") return null;
-  return id;
+	const match = currentPath.match(/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/);
+	const id = match?.[1] ?? null;
+	if (!id || id === "new") return null;
+	return id;
 });
-const activeCheckpoint = $derived(
-  checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ?? null,
+const _activeCheckpoint = $derived(
+	checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ??
+		null,
 );
 
 const activeCronjobId = $derived.by(() => {
-  const match = currentPath.match(/^\/spaces\/[^/]+\/cronjobs\/([^/]+)/);
-  const id = match?.[1] ?? null;
-  if (!id || id === "new") return null;
-  return id;
+	const match = currentPath.match(/^\/spaces\/[^/]+\/cronjobs\/([^/]+)/);
+	const id = match?.[1] ?? null;
+	if (!id || id === "new") return null;
+	return id;
 });
-const activeCronjob = $derived(
-  cronjobs.find((job) => job.id === activeCronjobId) ?? null,
+const _activeCronjob = $derived(
+	cronjobs.find((job) => job.id === activeCronjobId) ?? null,
 );
 
-const activeTaskId = $derived.by(() => {
-  const match = currentPath.match(/^\/spaces\/[^/]+\/tasks\/([^/]+)/);
-  return match?.[1] ?? null;
+const _activeTaskId = $derived.by(() => {
+	const match = currentPath.match(/^\/spaces\/[^/]+\/tasks\/([^/]+)/);
+	return match?.[1] ?? null;
 });
 
 let streamingSessionIds = $state<Set<string>>(new Set());
 
 const currentSpaceId = $derived.by(() => {
-  const match = currentPath.match(/^\/spaces\/([^/]+)/);
-  const id = match?.[1] ?? null;
-  if (id === "new") return null;
-  return id;
+	const match = currentPath.match(/^\/spaces\/([^/]+)/);
+	const id = match?.[1] ?? null;
+	if (id === "new") return null;
+	return id;
 });
 
-const currentSpace = $derived(
-  currentSpaceId ? spaces.find((s) => s.id === currentSpaceId) ?? null : null,
+const _currentSpace = $derived(
+	currentSpaceId ? (spaces.find((s) => s.id === currentSpaceId) ?? null) : null,
 );
 
 const settingsTabs = [
-  { id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
-  { id: "appearance", label: "Appearance", icon: Palette, href: "/settings/appearance" },
-  { id: "ssh-keys", label: "SSH Keys", icon: KeyRound, href: "/settings/ssh-keys" },
-  { id: "channels", label: "Channels", icon: Network, href: "/settings/channels" },
+	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
+	{
+		id: "appearance",
+		label: "Appearance",
+		icon: Palette,
+		href: "/settings/appearance",
+	},
+	{
+		id: "ssh-keys",
+		label: "SSH Keys",
+		icon: KeyRound,
+		href: "/settings/ssh-keys",
+	},
+	{
+		id: "channels",
+		label: "Channels",
+		icon: Network,
+		href: "/settings/channels",
+	},
 ];
 
-const activeSettingsTab = $derived.by(() => {
-  const tab = settingsTabs.find((tab) => currentPath.startsWith(tab.href));
-  return tab?.id ?? null;
+const _activeSettingsTab = $derived.by(() => {
+	const tab = settingsTabs.find((tab) => currentPath.startsWith(tab.href));
+	return tab?.id ?? null;
 });
 
-function sourceBadge(source: string | null): string {
-  if (!source || source === "web") return "";
-  const idx = source.indexOf(":");
-  return idx > 0 ? source.slice(0, idx) : source;
+function _sourceBadge(source: string | null): string {
+	if (!source || source === "web") return "";
+	const idx = source.indexOf(":");
+	return idx > 0 ? source.slice(0, idx) : source;
 }
 
-function sourceTooltip(source: string | null): string {
-  return source ?? "";
+function _sourceTooltip(source: string | null): string {
+	return source ?? "";
 }
 
-function displayStatus(space: SpaceRecord) {
-  return space.status ?? "unknown";
+function _displayStatus(space: SpaceRecord) {
+	return space.status ?? "unknown";
 }
 
-function statusColorClass(status: string): string {
-  switch (status) {
-    case "running":
-      return "bg-status-running";
-    case "starting":
-      return "bg-status-starting";
-    case "error":
-    case "failed":
-      return "bg-status-error";
-    case "hibernated":
-      return "bg-status-hibernated";
-    case "hibernating":
-      return "bg-status-hibernating";
-    default:
-      return "bg-status-unknown";
-  }
+function _statusColorClass(status: string): string {
+	switch (status) {
+		case "running":
+			return "bg-status-running";
+		case "starting":
+			return "bg-status-starting";
+		case "error":
+		case "failed":
+			return "bg-status-error";
+		case "hibernated":
+			return "bg-status-hibernated";
+		case "hibernating":
+			return "bg-status-hibernating";
+		default:
+			return "bg-status-unknown";
+	}
 }
 
-async function loadSpaces(force = false) {
-  if (!(await logtoClient.isAuthenticated())) {
-    isLoading = false;
-    spaces = [];
-    return;
-  }
+async function loadSpaces(_force = false) {
+	if (!(await logtoClient.isAuthenticated())) {
+		_isLoading = false;
+		spaces = [];
+		return;
+	}
 
-  loadError = "";
-  const shouldShowInitialLoading = spaces.length === 0;
-  if (shouldShowInitialLoading) {
-    isLoading = true;
-  }
+	_loadError = "";
+	const shouldShowInitialLoading = spaces.length === 0;
+	if (shouldShowInitialLoading) {
+		_isLoading = true;
+	}
 
-  try {
-    spaces = await getSpaces();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load spaces";
-    if (message.includes("unauthorized") || message.includes("401")) {
-      await logtoClient.signIn(`${window.location.origin}/callback`);
-      return;
-    }
-    loadError = message;
-  } finally {
-    isLoading = false;
-  }
+	try {
+		spaces = await getSpaces();
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to load spaces";
+		if (message.includes("unauthorized") || message.includes("401")) {
+			await logtoClient.signIn(`${window.location.origin}/callback`);
+			return;
+		}
+		_loadError = message;
+	} finally {
+		_isLoading = false;
+	}
 }
 
 async function loadSessionsForSpace(spaceId: string, force = false) {
-  if (!force && loadingSessions) return;
-  const shouldShowLoading = sessions.length === 0;
-  if (shouldShowLoading) {
-    loadingSessions = true;
-  }
-  try {
-    const result = await getSpaceSessions(spaceId);
-    const rawSessions = result.sessions ?? [];
-    // Deduplicate by id to guard against race conditions from concurrent loads
-    const seen = new Set<string>();
-    sessions = rawSessions.filter((s) => {
-      if (seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
-    });
-  } catch (error) {
-    console.warn("[sidebar] Failed to load sessions", { spaceId, error });
-  } finally {
-    loadingSessions = false;
-  }
+	if (!force && loadingSessions) return;
+	const shouldShowLoading = sessions.length === 0;
+	if (shouldShowLoading) {
+		loadingSessions = true;
+	}
+	try {
+		const result = await getSpaceSessions(spaceId);
+		const rawSessions = result.sessions ?? [];
+		// Deduplicate by id to guard against race conditions from concurrent loads
+		const seen = new Set<string>();
+		sessions = rawSessions.filter((s) => {
+			if (seen.has(s.id)) return false;
+			seen.add(s.id);
+			return true;
+		});
+	} catch (error) {
+		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
+	} finally {
+		loadingSessions = false;
+	}
 }
 
 async function loadCheckpointsForSpace(spaceId: string, force = false) {
-  if (!force && loadingCheckpoints) return;
-  const shouldShowLoading = checkpoints.length === 0;
-  if (shouldShowLoading) {
-    loadingCheckpoints = true;
-  }
-  try {
-    const result = await getSpaceCheckpoints(spaceId);
-    checkpoints = result.checkpoints ?? [];
-  } catch (error) {
-    console.warn("[sidebar] Failed to load checkpoints", { spaceId, error });
-  } finally {
-    loadingCheckpoints = false;
-  }
+	if (!force && loadingCheckpoints) return;
+	const shouldShowLoading = checkpoints.length === 0;
+	if (shouldShowLoading) {
+		loadingCheckpoints = true;
+	}
+	try {
+		const result = await getSpaceCheckpoints(spaceId);
+		checkpoints = result.checkpoints ?? [];
+	} catch (error) {
+		console.warn("[sidebar] Failed to load checkpoints", { spaceId, error });
+	} finally {
+		loadingCheckpoints = false;
+	}
 }
 
 async function loadCronjobsForSpace(spaceId: string, force = false) {
-  if (!force && loadingCronjobs) return;
-  const shouldShowLoading = cronjobs.length === 0;
-  if (shouldShowLoading) {
-    loadingCronjobs = true;
-  }
-  try {
-    const result = await getCronJobs(spaceId);
-    cronjobs = result.jobs ?? [];
-  } catch (error) {
-    console.warn("[sidebar] Failed to load cronjobs", { spaceId, error });
-  } finally {
-    loadingCronjobs = false;
-  }
+	if (!force && loadingCronjobs) return;
+	const shouldShowLoading = cronjobs.length === 0;
+	if (shouldShowLoading) {
+		loadingCronjobs = true;
+	}
+	try {
+		const result = await getCronJobs(spaceId);
+		cronjobs = result.jobs ?? [];
+	} catch (error) {
+		console.warn("[sidebar] Failed to load cronjobs", { spaceId, error });
+	} finally {
+		loadingCronjobs = false;
+	}
 }
 
 async function loadTasksForSpace(spaceId: string, force = false) {
-  if (!force && loadingTasks) return;
-  const shouldShowLoading = tasks.length === 0;
-  if (shouldShowLoading) {
-    loadingTasks = true;
-  }
-  try {
-    const result = await getTaskRuns({ spaceId });
-    tasks = result.runs ?? [];
-  } catch (error) {
-    console.warn("[sidebar] Failed to load tasks", { spaceId, error });
-  } finally {
-    loadingTasks = false;
-  }
+	if (!force && loadingTasks) return;
+	const shouldShowLoading = tasks.length === 0;
+	if (shouldShowLoading) {
+		loadingTasks = true;
+	}
+	try {
+		const result = await getTaskRuns({ spaceId });
+		tasks = result.runs ?? [];
+	} catch (error) {
+		console.warn("[sidebar] Failed to load tasks", { spaceId, error });
+	} finally {
+		loadingTasks = false;
+	}
 }
 
 function markSessionStreaming(sessionId: string, isSessionStreaming: boolean) {
-  const next = new Set(streamingSessionIds);
-  if (isSessionStreaming) {
-    next.add(sessionId);
-  } else {
-    next.delete(sessionId);
-  }
-  streamingSessionIds = next;
+	const next = new Set(streamingSessionIds);
+	if (isSessionStreaming) {
+		next.add(sessionId);
+	} else {
+		next.delete(sessionId);
+	}
+	streamingSessionIds = next;
 }
 
 function handleStreamingStatusEvent(e: Event) {
-  const custom = e as CustomEvent;
-  if (custom.detail?.sessionId != null && typeof custom.detail?.isStreaming === "boolean") {
-    markSessionStreaming(custom.detail.sessionId, custom.detail.isStreaming);
-  }
+	const custom = e as CustomEvent;
+	if (
+		custom.detail?.sessionId != null &&
+		typeof custom.detail?.isStreaming === "boolean"
+	) {
+		markSessionStreaming(custom.detail.sessionId, custom.detail.isStreaming);
+	}
 }
 
-async function handleNavigate(href: string) {
-  onClose?.();
-  await goto(href);
+async function _handleNavigate(href: string) {
+	onClose?.();
+	await goto(href);
 }
 
-async function handleNavigateToSpace(spaceId: string) {
-  showSpaceModal = false;
-  onClose?.();
-  await goto(buildSpaceDetailRoute(spaceId));
+async function _handleNavigateToSpace(spaceId: string) {
+	showSpaceModal = false;
+	onClose?.();
+	await goto(buildSpaceDetailRoute(spaceId));
 }
 
 async function handleNavigateToSession(sessionId: string) {
-  onClose?.();
-  const session = sessions.find((s) => s.id === sessionId);
-  if (session?.lastMessageId) {
-    unreadTracker.markViewed(sessionId, session.lastMessageId);
-  }
-  if (!currentSpaceId) return;
-  await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
+	onClose?.();
+	const session = sessions.find((s) => s.id === sessionId);
+	if (session?.lastMessageId) {
+		unreadTracker.markViewed(sessionId, session.lastMessageId);
+	}
+	if (!currentSpaceId) return;
+	await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
 
-async function handleNavigateToCheckpoint(checkpointId: string) {
-  onClose?.();
-  if (!currentSpaceId) return;
-  await goto(buildSpaceCheckpointRoute(currentSpaceId, checkpointId));
+async function _handleNavigateToCheckpoint(checkpointId: string) {
+	onClose?.();
+	if (!currentSpaceId) return;
+	await goto(buildSpaceCheckpointRoute(currentSpaceId, checkpointId));
 }
 
-async function handleNavigateToNewCheckpoint() {
-  onClose?.();
-  if (!currentSpaceId) return;
-  await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
+async function _handleNavigateToNewCheckpoint() {
+	onClose?.();
+	if (!currentSpaceId) return;
+	await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
 }
 
-async function handleNavigateToCronjob(cronjobId: string) {
-  onClose?.();
-  if (!currentSpaceId) return;
-  await goto(buildSpaceCronjobRoute(currentSpaceId, cronjobId));
+async function _handleNavigateToCronjob(cronjobId: string) {
+	onClose?.();
+	if (!currentSpaceId) return;
+	await goto(buildSpaceCronjobRoute(currentSpaceId, cronjobId));
 }
 
-async function handleNavigateToNewCronjob() {
-  onClose?.();
-  if (!currentSpaceId) return;
-  await goto(buildSpaceCronjobNewRoute(currentSpaceId));
+async function _handleNavigateToNewCronjob() {
+	onClose?.();
+	if (!currentSpaceId) return;
+	await goto(buildSpaceCronjobNewRoute(currentSpaceId));
 }
 
-async function handleNavigateToTask(taskId: string) {
-  onClose?.();
-  if (!currentSpaceId) return;
-  await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
+async function _handleNavigateToTask(taskId: string) {
+	onClose?.();
+	if (!currentSpaceId) return;
+	await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
 }
 
-async function handleCreateNewSession() {
-  if (!currentSpaceId || creatingSession) return;
-  creatingSession = true;
-  createSessionError = "";
-  try {
-    const result = await createSpaceSession(currentSpaceId, { source: "web" });
-    await loadSessionsForSpace(currentSpaceId, true);
-    await handleNavigateToSession(result.session.id);
-  } catch (error) {
-    createSessionError = error instanceof Error ? error.message : "Failed to create session";
-  } finally {
-    creatingSession = false;
-  }
+async function _handleCreateNewSession() {
+	if (!currentSpaceId || creatingSession) return;
+	creatingSession = true;
+	_createSessionError = "";
+	try {
+		const result = await createSpaceSession(currentSpaceId, { source: "web" });
+		await loadSessionsForSpace(currentSpaceId, true);
+		await handleNavigateToSession(result.session.id);
+	} catch (error) {
+		_createSessionError =
+			error instanceof Error ? error.message : "Failed to create session";
+	} finally {
+		creatingSession = false;
+	}
 }
 
-function sessionIsStreaming(session: SessionRecord): boolean {
-  return isStreaming(session, streamingSessionIds);
+function _sessionIsStreaming(session: SessionRecord): boolean {
+	return isStreaming(session, streamingSessionIds);
 }
 
-function getSessionTitle(session: SessionRecord, _index: number) {
-  const candidates = [session.title, session.latestMessageText];
-  for (const candidate of candidates) {
-    const normalized = candidate?.replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim();
-    if (normalized) return normalized.slice(0, 36);
-  }
-  return "New session";
+function _getSessionTitle(session: SessionRecord, _index: number) {
+	const candidates = [session.title, session.latestMessageText];
+	for (const candidate of candidates) {
+		const normalized = candidate
+			?.replace(/\s+/g, " ")
+			.replace(/^[:\-\s]+/, "")
+			.trim();
+		if (normalized) return normalized.slice(0, 36);
+	}
+	return "New session";
 }
 
-async function handleLogout() {
-  onClose?.();
-  await logtoClient.signOut(`${window.location.origin}/`);
+async function _handleLogout() {
+	onClose?.();
+	await logtoClient.signOut(`${window.location.origin}/`);
 }
 
 onMount(() => {
-  if (mode === "space") {
-    void (async () => {
-      await loadSpaces(true);
+	if (mode === "space") {
+		void (async () => {
+			await loadSpaces(true);
 
-      window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
-      window.addEventListener("cohub:space-created", handleSpaceCreated as EventListener);
-      window.addEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
-    })();
-  }
+			window.addEventListener(
+				"cohub:streaming-status",
+				handleStreamingStatusEvent as EventListener,
+			);
+			window.addEventListener(
+				"cohub:space-created",
+				handleSpaceCreated as EventListener,
+			);
+			window.addEventListener(
+				"cohub:checkpoints-updated",
+				handleCheckpointsUpdated as EventListener,
+			);
+		})();
+	}
 
-  function handleSpaceCreated() {
-    void loadSpaces(true);
-  }
+	function handleSpaceCreated() {
+		void loadSpaces(true);
+	}
 
-  function handleCheckpointsUpdated(e: Event) {
-    const custom = e as CustomEvent;
-    if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
-      void loadCheckpointsForSpace(currentSpaceId, true);
-    }
-  }
+	function handleCheckpointsUpdated(e: Event) {
+		const custom = e as CustomEvent;
+		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
+			void loadCheckpointsForSpace(currentSpaceId, true);
+		}
+	}
 
-  function handleClickOutside(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-    if (!target.closest("[data-user-menu]")) {
-      showUserMenu = false;
-    }
-    if (!target.closest("[data-space-switcher]")) {
-      showSpaceModal = false;
-    }
-  }
-  document.addEventListener("click", handleClickOutside);
+	function handleClickOutside(e: MouseEvent) {
+		const target = e.target as HTMLElement;
+		if (!target.closest("[data-user-menu]")) {
+			_showUserMenu = false;
+		}
+		if (!target.closest("[data-space-switcher]")) {
+			showSpaceModal = false;
+		}
+	}
+	document.addEventListener("click", handleClickOutside);
 
-  return () => {
-    document.removeEventListener("click", handleClickOutside);
-    if (mode === "space") {
-      window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
-      window.removeEventListener("cohub:space-created", handleSpaceCreated as EventListener);
-      window.removeEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
-    }
-  };
+	return () => {
+		document.removeEventListener("click", handleClickOutside);
+		if (mode === "space") {
+			window.removeEventListener(
+				"cohub:streaming-status",
+				handleStreamingStatusEvent as EventListener,
+			);
+			window.removeEventListener(
+				"cohub:space-created",
+				handleSpaceCreated as EventListener,
+			);
+			window.removeEventListener(
+				"cohub:checkpoints-updated",
+				handleCheckpointsUpdated as EventListener,
+			);
+		}
+	};
 });
 
 $effect(() => {
-  if (mode !== "space") return;
-  const id = currentSpaceId;
-  if (id) {
-    untrack(() => {
-      void loadSessionsForSpace(id, true);
-      void loadCheckpointsForSpace(id, true);
-      void loadCronjobsForSpace(id, true);
-      void loadTasksForSpace(id, true);
-    });
-  } else {
-    sessions = [];
-    checkpoints = [];
-    cronjobs = [];
-    tasks = [];
-  }
+	if (mode !== "space") return;
+	const id = currentSpaceId;
+	if (id) {
+		untrack(() => {
+			void loadSessionsForSpace(id, true);
+			void loadCheckpointsForSpace(id, true);
+			void loadCronjobsForSpace(id, true);
+			void loadTasksForSpace(id, true);
+		});
+	} else {
+		sessions = [];
+		checkpoints = [];
+		cronjobs = [];
+		tasks = [];
+	}
 });
 
 // Close space modal on Escape
 $effect(() => {
-  if (!showSpaceModal) return;
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      showSpaceModal = false;
-    }
-  }
-  window.addEventListener("keydown", handleKeydown);
-  return () => window.removeEventListener("keydown", handleKeydown);
+	if (!showSpaceModal) return;
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === "Escape") {
+			showSpaceModal = false;
+		}
+	}
+	window.addEventListener("keydown", handleKeydown);
+	return () => window.removeEventListener("keydown", handleKeydown);
 });
 </script>
 

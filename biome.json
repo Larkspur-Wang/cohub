@@ -1,16 +1,15 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.12/schema.json",
   "files": {
-    "ignore": [
-      "**/.svelte-kit/**",
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/.wrangler/**"
+    "includes": [
+      "**",
+      "!**/.svelte-kit",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.wrangler"
     ]
   },
-  "organizeImports": {
-    "enabled": false
-  },
+  "assist": { "actions": { "source": { "organizeImports": "off" } } },
   "formatter": {
     "enabled": false,
     "indentStyle": "space",
@@ -24,5 +23,17 @@
         "useConst": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["**/templates/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
+          }
+        }
+      }
+    }
+  ]
 }

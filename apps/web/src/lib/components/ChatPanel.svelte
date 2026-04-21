@@ -1,25 +1,25 @@
 <script lang="ts">
 type ChatBubble = {
-  role: "system" | "user";
-  content: string;
+	role: "system" | "user";
+	content: string;
 };
 
 let draft = $state("");
 const messages = $state<ChatBubble[]>([
-  {
-    role: "system",
-    content: "Space chat preview placeholder.",
-  },
+	{
+		role: "system",
+		content: "Space chat preview placeholder.",
+	},
 ]);
 
-const submit = () => {
-  const value = draft.trim();
-  if (!value) {
-    return;
-  }
+const _submit = () => {
+	const value = draft.trim();
+	if (!value) {
+		return;
+	}
 
-  messages.push({ role: "user", content: value });
-  draft = "";
+	messages.push({ role: "user", content: value });
+	draft = "";
 };
 </script>
 

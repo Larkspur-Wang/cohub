@@ -1,59 +1,61 @@
 <script lang="ts">
-import { Plus, Trash2, Webhook, MessageSquare, MonitorPlay } from "lucide-svelte";
-import { deleteChannel, getChannels, type Channel } from "$lib/api";
+import { MessageSquare, MonitorPlay, Webhook } from "lucide-svelte";
 import { onMount } from "svelte";
-import { ensureAuth, logtoClient } from "$lib/auth";
 import { page } from "$app/state";
+import { type Channel, deleteChannel, getChannels } from "$lib/api";
+import { ensureAuth, logtoClient } from "$lib/auth";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let channels = $state<Channel[]>([]);
-let isLoading = $state(true);
-let loadError = $state("");
+let _channels = $state<Channel[]>([]);
+let _isLoading = $state(true);
+let _loadError = $state("");
 
-const providerIcons: Record<string, typeof MessageSquare> = {
-  discord: MessageSquare,
-  feishu: Webhook,
-  web: MonitorPlay,
+const _providerIcons: Record<string, typeof MessageSquare> = {
+	discord: MessageSquare,
+	feishu: Webhook,
+	web: MonitorPlay,
 };
 
-const providerDotColor: Record<string, string> = {
-  discord: "bg-indigo-400",
-  feishu: "bg-cyan-400",
-  web: "bg-status-running",
+const _providerDotColor: Record<string, string> = {
+	discord: "bg-indigo-400",
+	feishu: "bg-cyan-400",
+	web: "bg-status-running",
 };
 
 async function loadChannels() {
-  if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) return;
-  isLoading = true;
-  loadError = "";
-  try {
-    channels = await getChannels();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load channels";
-    if (message.includes("unauthorized") || message.includes("401")) {
-      await logtoClient.signIn(`${window.location.origin}/callback`);
-      return;
-    }
-    loadError = message;
-  } finally {
-    isLoading = false;
-  }
+	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
+		return;
+	_isLoading = true;
+	_loadError = "";
+	try {
+		_channels = await getChannels();
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Failed to load channels";
+		if (message.includes("unauthorized") || message.includes("401")) {
+			await logtoClient.signIn(`${window.location.origin}/callback`);
+			return;
+		}
+		_loadError = message;
+	} finally {
+		_isLoading = false;
+	}
 }
 
 onMount(() => {
-  void loadChannels();
+	void loadChannels();
 });
 
-async function handleDelete(id: string) {
-  if (!confirm("Are you sure you want to delete this channel?")) return;
-  try {
-    await deleteChannel(id);
-    await loadChannels();
-  } catch (error) {
-    alert(error instanceof Error ? error.message : "Failed to delete channel");
-  }
+async function _handleDelete(id: string) {
+	if (!confirm("Are you sure you want to delete this channel?")) return;
+	try {
+		await deleteChannel(id);
+		await loadChannels();
+	} catch (error) {
+		alert(error instanceof Error ? error.message : "Failed to delete channel");
+	}
 }
 </script>
 

@@ -1,6 +1,4 @@
 <script lang="ts">
-import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
-import { ChevronDown, ChevronRight } from "lucide-svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
 type Props = {
@@ -11,38 +9,42 @@ const { messages }: Props = $props();
 
 let expanded = $state(false);
 
-function toggle() {
+function _toggle() {
 	expanded = !expanded;
 }
 
 const toolCallCount = $derived(
 	messages.reduce(
 		(sum, msg) =>
-			sum +
-			(msg.content?.filter((b) => b.type === "tool_use").length ?? 0),
+			sum + (msg.content?.filter((b) => b.type === "tool_use").length ?? 0),
 		0,
 	),
 );
 
 const thinkingCharCount = $derived(
 	messages.reduce((sum, msg) => {
-		const thinking = msg.content
-			?.filter((b) => b.type === "thinking")
-			.map((b) => (b.type === "thinking" ? b.thinking : ""))
-			.join("") ?? "";
+		const thinking =
+			msg.content
+				?.filter((b) => b.type === "thinking")
+				.map((b) => (b.type === "thinking" ? b.thinking : ""))
+				.join("") ?? "";
 		return sum + thinking.length;
 	}, 0),
 );
 
 const labelParts = $derived(
 	[
-		messages.length > 0 ? `${messages.length} message${messages.length > 1 ? "s" : ""}` : "",
-		toolCallCount > 0 ? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : "",
+		messages.length > 0
+			? `${messages.length} message${messages.length > 1 ? "s" : ""}`
+			: "",
+		toolCallCount > 0
+			? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}`
+			: "",
 		thinkingCharCount > 0 ? `${thinkingCharCount} chars thinking` : "",
 	].filter(Boolean),
 );
 
-const summaryLabel = $derived(labelParts.join(" · "));
+const _summaryLabel = $derived(labelParts.join(" · "));
 </script>
 
 {#if !expanded}

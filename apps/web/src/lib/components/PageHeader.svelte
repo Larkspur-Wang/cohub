@@ -1,14 +1,12 @@
 <script lang="ts">
-import { Menu } from "lucide-svelte";
-import { uiState } from "$lib/stores/ui.svelte";
 import type { Snippet } from "svelte";
 
 const {
-  left,
-  right,
+	left,
+	right,
 }: {
-  left: Snippet;
-  right?: Snippet;
+	left: Snippet;
+	right?: Snippet;
 } = $props();
 </script>
 

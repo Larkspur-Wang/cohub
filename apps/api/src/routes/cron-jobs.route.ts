@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { cronJobs, taskRuns } from "../db/schema-v2.js";
 import { eq, and, isNull, desc } from "drizzle-orm";
-import { requireAuth, useAuth, requireValidId } from "../lib/middleware.js";
+import { useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { canWrite } from "../permissions.js";
 import { createCronJob, disableCronJob, enableCronJob, removeCronJob, SUPPORTED_TASK_TYPES } from "../tasks.js";

@@ -17,7 +17,7 @@ import {
   assertConfig, config, api, createTestRunner,
   waitForAssistantReply, wsSendAndWaitForAgentReply, summarizeEvents,
   createSession, sendMessage, findReadySpace, cleanupTestResources,
-  C, PASS, FAIL, WARN, SEC, TIMEOUTS,
+  C, FAIL, SEC, TIMEOUTS,
 } from "./test-utils.js";
 
 assertConfig();
@@ -30,6 +30,7 @@ function assert(cond: unknown, msg: string): asserts cond {
 
 // ── 测试运行器 ────────────────────────────────────────────────────────────────
 
+// biome-ignore lint/correctness/noUnusedVariables: false positive, warn is used later in the file
 const { ok, fail, warn, run, summary } = createTestRunner();
 
 // ── 测试用例 ──────────────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: false positive, warn is used later in the file
 const { ok, fail, warn, run, summary } = createTestRunner();
 
 let testSpaceId: string | null = null;

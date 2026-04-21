@@ -1,55 +1,53 @@
 <script lang="ts">
 import type { SpaceFsNode } from "$lib/space-fs";
-import { File, Folder, FolderOpen, Plus, FolderPlus, Pencil, Trash2 } from "lucide-svelte";
-import FsTreeItem from "./FsTreeItem.svelte";
 
 const {
-  node,
-  depth,
-  selectedPath,
-  onToggle,
-  onSelect,
-  onCreateFile,
-  onCreateDir,
-  onRename,
-  onDelete,
-  canWrite = true,
+	node,
+	depth,
+	selectedPath,
+	onToggle,
+	onSelect,
+	onCreateFile,
+	onCreateDir,
+	onRename,
+	onDelete,
+	canWrite = true,
 }: {
-  node: SpaceFsNode;
-  depth: number;
-  selectedPath: string;
-  onToggle: (node: SpaceFsNode) => void;
-  onSelect: (node: SpaceFsNode) => void;
-  onCreateFile: (parentPath: string) => void;
-  onCreateDir: (parentPath: string) => void;
-  onRename: (node: SpaceFsNode) => void;
-  onDelete: (node: SpaceFsNode) => void;
-  canWrite?: boolean;
+	node: SpaceFsNode;
+	depth: number;
+	selectedPath: string;
+	onToggle: (node: SpaceFsNode) => void;
+	onSelect: (node: SpaceFsNode) => void;
+	onCreateFile: (parentPath: string) => void;
+	onCreateDir: (parentPath: string) => void;
+	onRename: (node: SpaceFsNode) => void;
+	onDelete: (node: SpaceFsNode) => void;
+	canWrite?: boolean;
 } = $props();
 
-const indent = $derived(10 + depth * 14);
-const isActive = $derived(selectedPath === node.path);
+const _indent = $derived(10 + depth * 14);
+const _isActive = $derived(selectedPath === node.path);
 
 function handleClick() {
-  if (node.type === 'dir') {
-    onToggle(node);
-  } else {
-    onSelect(node);
-  }
+	if (node.type === "dir") {
+		onToggle(node);
+	} else {
+		onSelect(node);
+	}
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault();
-    handleClick();
-  }
+function _handleKeydown(e: KeyboardEvent) {
+	if (e.key === "Enter" || e.key === " ") {
+		e.preventDefault();
+		handleClick();
+	}
 }
 
-function stop(handler: () => void) {
-  return (e: MouseEvent) => {
-    e.stopPropagation();
-    handler();
-  };
+function _stop(handler: () => void) {
+	return (e: MouseEvent) => {
+		e.stopPropagation();
+		handler();
+	};
 }
 </script>
 

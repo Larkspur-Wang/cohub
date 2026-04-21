@@ -1,9 +1,8 @@
 <script lang="ts">
+import type { ContentBlock } from "@cohub/protocol";
+import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
-import type { ContentBlock } from "@cohub/protocol";
-import { ChevronDown, ChevronRight } from "lucide-svelte";
-import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 
 type Props = {
 	message: ChatMessage;
@@ -12,10 +11,10 @@ type Props = {
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
 const { message }: Props = $props();
-let renderedHtml = $state("");
+let _renderedHtml = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
-let thinkingExpanded = $state(false);
+let _thinkingExpanded = $state(false);
 let thinkingUserToggled = $state(false);
 
 // Auto-expand during streaming, auto-collapse after (unless user toggled)
@@ -25,9 +24,9 @@ const isStreaming = $derived(
 
 $effect(() => {
 	if (isStreaming && !thinkingUserToggled) {
-		thinkingExpanded = true;
+		_thinkingExpanded = true;
 	} else if (!isStreaming && !thinkingUserToggled) {
-		thinkingExpanded = false;
+		_thinkingExpanded = false;
 	}
 });
 
@@ -41,16 +40,18 @@ const thinkingContent = $derived(
 		.trim() || "",
 );
 
-const imageBlocks = $derived(
-	(message.content?.filter((block) => block.type === "image") as ImageBlock[]) ?? [],
+const _imageBlocks = $derived(
+	(message.content?.filter(
+		(block) => block.type === "image",
+	) as ImageBlock[]) ?? [],
 );
 
-function getImagePreviewSrc(block: ImageBlock): string {
+function _getImagePreviewSrc(block: ImageBlock): string {
 	if (block.source.type === "url") return block.source.url;
 	return `data:${block.source.media_type};base64,${block.source.data}`;
 }
 
-function getImageAlt(block: ImageBlock, index: number): string {
+function _getImageAlt(block: ImageBlock, index: number): string {
 	return String(block._meta?.filename ?? `attachment-${index + 1}`);
 }
 
@@ -59,7 +60,7 @@ const THINKING_COLLAPSE_CHARS = 260;
 const thinkingNeedsTruncation = $derived(
 	thinkingContent.length > THINKING_COLLAPSE_CHARS,
 );
-function getThinkingDisplay(expanded: boolean): string {
+function _getThinkingDisplay(expanded: boolean): string {
 	if (expanded || !thinkingNeedsTruncation) return thinkingContent;
 	const truncated = thinkingContent.slice(0, THINKING_COLLAPSE_CHARS);
 	// Prefer cutting at last newline for cleaner truncation
@@ -80,11 +81,12 @@ const textContent = $derived(
 $effect(() => {
 	let cancelled = false;
 
-	const markdownSource = textContent || (message.content?.length ? "" : message.text);
+	const markdownSource =
+		textContent || (message.content?.length ? "" : message.text);
 
 	void renderMarkdown(markdownSource).then((html) => {
 		if (!cancelled) {
-			renderedHtml = html;
+			_renderedHtml = html;
 		}
 	});
 
@@ -94,7 +96,7 @@ $effect(() => {
 });
 
 // Tool call inline helpers
-function summarizeToolInput(
+function _summarizeToolInput(
 	name: string,
 	input?: Record<string, unknown>,
 ): string {
@@ -118,7 +120,7 @@ function summarizeToolInput(
 // Tool expansion state (per tool call id)
 let expandedToolCalls = $state<Set<string>>(new Set());
 
-function toggleToolCall(id: string) {
+function _toggleToolCall(id: string) {
 	const next = new Set(expandedToolCalls);
 	if (next.has(id)) {
 		next.delete(id);
@@ -136,14 +138,14 @@ function findToolResult(toolUseId: string): ContentBlock | undefined {
 }
 
 // Infer tool status from tool_result presence
-function getToolStatus(toolUseId: string): "done" | "failed" | "running" {
+function _getToolStatus(toolUseId: string): "done" | "failed" | "running" {
 	const result = findToolResult(toolUseId);
 	if (!result) return "running";
 	if (result.type === "tool_result" && result.is_error) return "failed";
 	return "done";
 }
 
-const statusDotMap = {
+const _statusDotMap = {
 	done: "bg-status-running",
 	running: "bg-status-starting",
 	failed: "bg-status-error",
@@ -162,7 +164,11 @@ $effect(() => {
 			e.preventDefault();
 			e.stopPropagation();
 			const img = target as HTMLImageElement;
-			mediaLightbox.show({ src: img.src, type: "image" as const, alt: img.alt });
+			mediaLightbox.show({
+				src: img.src,
+				type: "image" as const,
+				alt: img.alt,
+			});
 		} else if (
 			target.tagName === "VIDEO" ||
 			(target.tagName === "SOURCE" && target.parentElement?.tagName === "VIDEO")

@@ -1,32 +1,31 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
-import { Terminal, Loader2 } from "lucide-svelte";
 import { getSpaces } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 
-let isLoading = $state(true);
-let spaceCount = $state(0);
+let _isLoading = $state(true);
+let _spaceCount = $state(0);
 
 onMount(async () => {
-  const authenticated = await logtoClient.isAuthenticated();
-  if (!authenticated) {
-    isLoading = false;
-    return;
-  }
-  try {
-    const spaces = await getSpaces();
-    spaceCount = spaces.length;
-    if (spaces.length > 0) {
-      const firstSpace = spaces[0];
-      await goto(`/spaces/${firstSpace.id}`);
-      return;
-    }
-  } catch {
-    // ignore
-  } finally {
-    isLoading = false;
-  }
+	const authenticated = await logtoClient.isAuthenticated();
+	if (!authenticated) {
+		_isLoading = false;
+		return;
+	}
+	try {
+		const spaces = await getSpaces();
+		_spaceCount = spaces.length;
+		if (spaces.length > 0) {
+			const firstSpace = spaces[0];
+			await goto(`/spaces/${firstSpace.id}`);
+			return;
+		}
+	} catch {
+		// ignore
+	} finally {
+		_isLoading = false;
+	}
 });
 </script>
 

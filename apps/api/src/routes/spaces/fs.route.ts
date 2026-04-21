@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
-import { requireAuth, useAuth, requireValidId } from "../../lib/middleware.js";
+import { useAuth, requireValidId } from "../../lib/middleware.js";
 import { canWrite, canRead } from "../../permissions.js";
 import {
   createSpaceDirectory,

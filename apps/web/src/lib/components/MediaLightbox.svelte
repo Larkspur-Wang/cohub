@@ -1,5 +1,4 @@
 <script lang="ts">
-import { X, ChevronLeft, ChevronRight, Download } from "lucide-svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 
 // ─── Keyboard ───
@@ -18,13 +17,13 @@ $effect(() => {
 let startX = $state(0);
 let startY = $state(0);
 
-function onTouchStart(e: TouchEvent) {
+function _onTouchStart(e: TouchEvent) {
 	if (e.target !== e.currentTarget) return;
 	startX = e.touches[0].clientX;
 	startY = e.touches[0].clientY;
 }
 
-function onTouchEnd(e: TouchEvent) {
+function _onTouchEnd(e: TouchEvent) {
 	if (e.target !== e.currentTarget) return;
 	const dx = e.changedTouches[0].clientX - startX;
 	const dy = e.changedTouches[0].clientY - startY;
@@ -34,11 +33,11 @@ function onTouchEnd(e: TouchEvent) {
 }
 
 // ─── Backdrop ───
-function onBackdropClick(e: MouseEvent) {
+function _onBackdropClick(e: MouseEvent) {
 	if (e.target === e.currentTarget) mediaLightbox.close();
 }
 
-function onBackdropKeyDown(e: KeyboardEvent) {
+function _onBackdropKeyDown(e: KeyboardEvent) {
 	if (e.key === "Escape") {
 		e.preventDefault();
 		mediaLightbox.close();
@@ -57,14 +56,14 @@ $effect(() => {
 
 // ─── Download ───
 let downloading = $state(false);
-let downloadError = $state<string | null>(null);
+let _downloadError = $state<string | null>(null);
 
-async function handleDownload() {
+async function _handleDownload() {
 	const item = mediaLightbox.current;
 	if (!item || downloading) return;
 
 	downloading = true;
-	downloadError = null;
+	_downloadError = null;
 	try {
 		const filename = extractFilename(item.src, item.alt);
 		const blob = item.src.startsWith("data:")
@@ -80,7 +79,7 @@ async function handleDownload() {
 		a.remove();
 		URL.revokeObjectURL(url);
 	} catch (err) {
-		downloadError = err instanceof Error ? err.message : "Download failed";
+		_downloadError = err instanceof Error ? err.message : "Download failed";
 	} finally {
 		downloading = false;
 	}

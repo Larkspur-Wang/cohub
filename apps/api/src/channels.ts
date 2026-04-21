@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand, RealtimeServerEvent } from "@cohub/protocol";
 import { buildSessionSourceChannel } from "@cohub/protocol";
@@ -450,7 +450,7 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
   } as Record<string, unknown>;
 }
 
-async function resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
   const lockKey = `${input.spaceChannelId}:${input.bindingKey}`;
   const existingLock = bindingLocks.get(lockKey);
   if (existingLock) {

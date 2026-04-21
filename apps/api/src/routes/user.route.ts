@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { userGitAccounts } from "../db/schema-v2.js";
 import { eq, and } from "drizzle-orm";
-import { requireAuth, useAuth } from "../lib/middleware.js";
+import { useAuth } from "../lib/middleware.js";
 import { ensureUserGitAccount } from "../git-accounts.js";
 import { addSshKey, deleteSshKey, listSshKeys } from "../gitea.js";
 
