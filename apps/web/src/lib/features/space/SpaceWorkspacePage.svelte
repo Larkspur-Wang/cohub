@@ -1809,7 +1809,7 @@ async function forceScrollToBottom() {
 
 function updateAutoFollow() {
 	if (!listEl) return;
-	const threshold = 80;
+	const threshold = 96;
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
 	if (!autoScrollGuard && distanceFromBottom > threshold) {
