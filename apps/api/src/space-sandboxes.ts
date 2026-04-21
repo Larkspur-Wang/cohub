@@ -132,6 +132,7 @@ export const provisionSpaceSandbox = async (input: {
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
         { name: "IMAGE_VERSION", value: config.sandboxImage },
+        { name: "POD_IP", valueFrom: { fieldRef: { fieldPath: "status.podIP" } } },
         {
           name: "INTERNAL_API_BASE_URL",
           value:
