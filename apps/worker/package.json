@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsgo -p tsconfig.typecheck.json --noEmit",
     "start": "node dist/index.js",
     "test:trigger-echo": "tsx src/test-helpers.ts trigger-echo",
     "test:trigger": "tsx src/test-helpers.ts trigger",

@@ -52,9 +52,6 @@ jobs:
       - name: Lint
         run: pnpm --filter @cohub/api lint
 
-      - name: Build protocol
-        run: pnpm --filter @cohub/protocol build
-
       - name: Typecheck
         run: pnpm --filter @cohub/api typecheck
 
