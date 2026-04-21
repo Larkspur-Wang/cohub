@@ -13,20 +13,20 @@ import (
 )
 
 type Client struct {
-	cfg        env.Config
+	cfg      env.Config
+	hostname string
 	httpClient *http.Client
 }
 
 type Payload struct {
-	Status    string                 `json:"status"`
-	PodName   string                 `json:"podName,omitempty"`
-	SandboxID string                 `json:"sandboxId,omitempty"`
-	Meta      map[string]interface{} `json:"meta,omitempty"`
+	Status string                 `json:"status"`
+	Meta   map[string]interface{} `json:"meta,omitempty"`
 }
 
-func NewClient(cfg env.Config) *Client {
+func NewClient(cfg env.Config, hostname string) *Client {
 	return &Client{
-		cfg: cfg,
+		cfg:      cfg,
+		hostname: hostname,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -37,12 +37,6 @@ func (c *Client) Report(payload Payload) error {
 	baseURL := strings.TrimRight(c.cfg.InternalAPIBaseURL, "/")
 	if baseURL == "" {
 		return fmt.Errorf("INTERNAL_API_BASE_URL is required")
-	}
-	if strings.TrimSpace(payload.PodName) == "" {
-		payload.PodName = c.cfg.PodName
-	}
-	if strings.TrimSpace(payload.SandboxID) == "" {
-		payload.SandboxID = c.cfg.SandboxID
 	}
 
 	body, err := json.Marshal(payload)

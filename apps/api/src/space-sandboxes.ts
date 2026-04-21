@@ -99,8 +99,6 @@ export const provisionSpaceInBackground = async (input: {
   spaceId: string;
   userUuid: string;
   spaceRepoUrl?: string;
-  spaceGitUsername?: string;
-  spaceGitEmail?: string;
   extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   const podName = `sandbox-${input.spaceId}`;
@@ -126,8 +124,6 @@ export const provisionSpaceInBackground = async (input: {
       USER_ID: input.userUuid,
       ENV: config.env,
       SPACE_REPO_URL: input.spaceRepoUrl,
-      SPACE_GIT_USERNAME: input.spaceGitUsername,
-      SPACE_GIT_EMAIL: input.spaceGitEmail,
       SPACE_STORAGE_PVC: config.spaceStoragePvc,
       SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
     }) as V1Pod;
@@ -135,8 +131,6 @@ export const provisionSpaceInBackground = async (input: {
     if (pod.spec?.containers?.[0]) {
       pod.spec.containers[0].env = [
         { name: "SPACE_ID", value: input.spaceId },
-        { name: "SANDBOX_WS_HOST", value: "0.0.0.0" },
-        { name: "SANDBOX_WS_PORT", value: "8788" },
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
         { name: "IMAGE_VERSION", value: config.sandboxImage },
@@ -156,20 +150,6 @@ export const provisionSpaceInBackground = async (input: {
         },
         { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
         { name: "SPACE_REPO_URL", value: input.spaceRepoUrl ?? "" },
-        { name: "SPACE_GIT_USERNAME", value: input.spaceGitUsername ?? "" },
-        { name: "SPACE_GIT_EMAIL", value: input.spaceGitEmail ?? "" },
-        {
-          name: "POD_NAME",
-          valueFrom: { fieldRef: { fieldPath: "metadata.name" } },
-        },
-        {
-          name: "POD_NAMESPACE",
-          valueFrom: { fieldRef: { fieldPath: "metadata.namespace" } },
-        },
-        {
-          name: "POD_IP",
-          valueFrom: { fieldRef: { fieldPath: "status.podIP" } },
-        },
         ...(input.extraEnv ?? []),
       ];
     }

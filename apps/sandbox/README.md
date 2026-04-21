@@ -71,10 +71,7 @@ go build ./...
 
 ```bash
 cd apps/sandbox
-SANDBOX_WS_HOST=0.0.0.0 \
-SANDBOX_WS_PORT=8788 \
 SPACE_ID=00000000-0000-0000-0000-000000000001 \
-SANDBOX_ID=sandbox-dev \
 WORKSPACE_DIR=/tmp/cohub-sandbox-workspace \
 PLATFORM_AGENTS_DIR=/configs/platform/.agents \
 go run .

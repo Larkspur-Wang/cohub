@@ -45,8 +45,6 @@ function getSpaceProvisionParams(
     spaceId: space.id,
     userUuid: user.uuid,
     spaceRepoUrl: `https://${gitAccount.giteaUsername}:${gitAccount.giteaAccessToken}@gitea.cohub.run/${gitAccount.giteaUsername}/${storageRepoName}.git`,
-    spaceGitUsername: gitAccount.giteaUsername,
-    spaceGitEmail: `${gitAccount.giteaUsername}@${config.giteaManagedEmailDomain}`,
     extraEnv,
   };
 }

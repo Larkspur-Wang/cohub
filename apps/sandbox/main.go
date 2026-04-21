@@ -49,17 +49,15 @@ func main() {
 	state := &prepareState{status: "preparing"}
 	startedAt := time.Now().UTC().Format(time.RFC3339)
 	hostname, _ := os.Hostname()
-	reporter := report.NewClient(cfg)
+	reporter := report.NewClient(cfg, hostname)
 
 	processManager := process.NewManager(logger)
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
-	server := ws.NewServer(cfg, dispatcher, processManager, state, logger)
+	server := ws.NewServer(cfg, dispatcher, processManager, state, hostname, logger)
 
 	if err := reporter.Report(report.Payload{
-		Status:    "provisioning",
-		SandboxID: cfg.SandboxID,
+		Status: "provisioning",
 		Meta: map[string]interface{}{
-			"podName":       cfg.PodName,
 			"hostname":      hostname,
 			"imageVersion":  cfg.ImageVersion,
 			"prepareStatus": "preparing",
@@ -76,10 +74,8 @@ func main() {
 			logger.Error("workspace prepare failed", slog.String("error", err.Error()))
 			state.Set("error", err)
 			if reportErr := reporter.Report(report.Payload{
-				Status:    "error",
-				SandboxID: cfg.SandboxID,
+				Status: "error",
 				Meta: map[string]interface{}{
-					"podName":       cfg.PodName,
 					"hostname":      hostname,
 					"imageVersion":  cfg.ImageVersion,
 					"prepareStatus": "error",
@@ -96,11 +92,8 @@ func main() {
 			)
 			state.Set("ready", nil)
 			if reportErr := reporter.Report(report.Payload{
-				Status:    "ready",
-				SandboxID: cfg.SandboxID,
+				Status: "ready",
 				Meta: map[string]interface{}{
-					"podName":           cfg.PodName,
-					"podIp":             cfg.PodIP,
 					"hostname":          hostname,
 					"imageVersion":      cfg.ImageVersion,
 					"prepareStatus":     "ready",

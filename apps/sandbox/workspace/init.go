@@ -41,16 +41,6 @@ func Prepare(cfg env.Config) (PrepareSummary, error) {
 			}
 		}
 
-		if cfg.SpaceGitUsername != "" {
-			if err := gitConfig(cfg.WorkspaceDir, "user.name", cfg.SpaceGitUsername); err != nil {
-				return PrepareSummary{}, err
-			}
-		}
-		if cfg.SpaceGitEmail != "" {
-			if err := gitConfig(cfg.WorkspaceDir, "user.email", cfg.SpaceGitEmail); err != nil {
-				return PrepareSummary{}, err
-			}
-		}
 	}
 
 	return PrepareSummary{

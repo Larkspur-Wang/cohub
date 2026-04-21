@@ -29,7 +29,6 @@ type SandboxCapabilities struct {
 }
 
 type SandboxMetadata struct {
-	PodName       string `json:"podName,omitempty"`
 	Hostname      string `json:"hostname,omitempty"`
 	ImageVersion  string `json:"imageVersion,omitempty"`
 	StartedAt     string `json:"startedAt,omitempty"`

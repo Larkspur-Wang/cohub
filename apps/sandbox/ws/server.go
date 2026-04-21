@@ -26,6 +26,7 @@ type Server struct {
 	dispatcher     *rpc.Dispatcher
 	processManager *process.Manager
 	prepareState   prepareState
+	hostname       string
 	logger         *slog.Logger
 
 	mu     sync.Mutex
@@ -56,6 +57,7 @@ func NewServer(
 	dispatcher *rpc.Dispatcher,
 	processManager *process.Manager,
 	prepareState prepareState,
+	hostname string,
 	logger *slog.Logger,
 ) *Server {
 	return &Server{
@@ -63,6 +65,7 @@ func NewServer(
 		dispatcher:     dispatcher,
 		processManager: processManager,
 		prepareState:   prepareState,
+		hostname:       hostname,
 		logger:         logger,
 	}
 }
@@ -75,7 +78,7 @@ func (s *Server) Run() error {
 		_, _ = w.Write([]byte("Not found"))
 	})
 
-	addr := fmt.Sprintf("%s:%d", s.cfg.SandboxWSHost, s.cfg.SandboxWSPort)
+	addr := fmt.Sprintf("%s:%d", env.DefaultSandboxWSHost, env.DefaultSandboxWSPort)
 	s.logger.Info("sandbox ws server listening", slog.String("addr", addr))
 	return http.ListenAndServe(addr, mux)
 }
@@ -220,7 +223,7 @@ func (s *Server) sendHello(session *connectionSession) error {
 		Version:   protocol.Version,
 		Type:      "sandbox.hello",
 		SpaceID:   s.cfg.SpaceID,
-		SandboxID: s.cfg.SandboxID,
+		SandboxID: s.hostname,
 		Timestamp: time.Now().UnixMilli(),
 		Capabilities: protocol.SandboxCapabilities{
 			FSRead:       true,
@@ -260,7 +263,7 @@ func (s *Server) sendHello(session *connectionSession) error {
 }
 
 func (s *Server) heartbeatLoop(session *connectionSession) {
-	ticker := time.NewTicker(time.Duration(s.cfg.HeartbeatIntervalSecs) * time.Second)
+	ticker := time.NewTicker(time.Duration(env.DefaultHeartbeatSecs) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -273,7 +276,7 @@ func (s *Server) heartbeatLoop(session *connectionSession) {
 				Version:   protocol.Version,
 				Type:      "sandbox.heartbeat",
 				SpaceID:   s.cfg.SpaceID,
-				SandboxID: s.cfg.SandboxID,
+				SandboxID: s.hostname,
 				Timestamp: time.Now().UnixMilli(),
 				Status:    prepareStatus,
 			})
