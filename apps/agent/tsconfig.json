@@ -11,7 +11,11 @@
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "paths": {
+      "@cohub/protocol": ["../../packages/protocol/dist/index.d.ts"],
+      "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*"]
 }
