@@ -16,11 +16,11 @@ import { ensureAuth } from "$lib/auth";
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let _channels = $state<Channel[]>([]);
-let _isLoading = $state(true);
+let channels = $state<Channel[]>([]);
+let isLoading = $state(true);
 let isSubmitting = $state(false);
-let _loadError = $state("");
-let _submitError = $state("");
+let loadError = $state("");
+let submitError = $state("");
 
 let name = $state("");
 let description = $state("");
@@ -47,20 +47,20 @@ const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
 async function loadPage() {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
-	_isLoading = true;
-	_loadError = "";
+	isLoading = true;
+	loadError = "";
 
 	try {
 		const channelsData = await getChannels();
-		_channels = channelsData;
+		channels = channelsData;
 		channelConfigById = Object.fromEntries(
 			channelsData.map((ch) => [ch.id, getDefaultChannelConfig(ch)]),
 		);
 	} catch (error) {
-		_loadError =
+		loadError =
 			error instanceof Error ? error.message : "Failed to load form data";
 	} finally {
-		_isLoading = false;
+		isLoading = false;
 	}
 }
 
@@ -68,7 +68,7 @@ onMount(() => {
 	void loadPage();
 });
 
-function _toggleChannel(channelId: string, checked: boolean) {
+function toggleChannel(channelId: string, checked: boolean) {
 	if (checked) {
 		if (!selectedChannelIds.includes(channelId)) {
 			selectedChannelIds = [...selectedChannelIds, channelId];
@@ -78,27 +78,27 @@ function _toggleChannel(channelId: string, checked: boolean) {
 	selectedChannelIds = selectedChannelIds.filter((id) => id !== channelId);
 }
 
-function _addEnvRow() {
+function addEnvRow() {
 	extraEnv = [...extraEnv, { name: "", value: "" }];
 }
 
-function _removeEnvRow(index: number) {
+function removeEnvRow(index: number) {
 	extraEnv = extraEnv.filter((_, idx) => idx !== index);
 }
 
-function _updateEnvName(index: number, value: string) {
+function updateEnvName(index: number, value: string) {
 	extraEnv = extraEnv.map((item, idx) =>
 		idx === index ? { ...item, name: value } : item,
 	);
 }
 
-function _updateEnvValue(index: number, value: string) {
+function updateEnvValue(index: number, value: string) {
 	extraEnv = extraEnv.map((item, idx) =>
 		idx === index ? { ...item, value: value } : item,
 	);
 }
 
-function _updateDiscordConfig(
+function updateDiscordConfig(
 	channelId: string,
 	updater: (config: DiscordChannelConfig) => DiscordChannelConfig,
 ) {
@@ -110,11 +110,11 @@ function _updateDiscordConfig(
 	};
 }
 
-async function _handleSubmit(event: SubmitEvent) {
+async function handleSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (!name.trim() || isSubmitting) return;
 
-	_submitError = "";
+	submitError = "";
 	isSubmitting = true;
 
 	try {
@@ -159,9 +159,9 @@ async function _handleSubmit(event: SubmitEvent) {
 			message.includes("channel binding already exists") ||
 			message.includes("409")
 		) {
-			_submitError = "This channel is already bound to another space.";
+			submitError = "This channel is already bound to another space.";
 		} else {
-			_submitError = message;
+			submitError = message;
 		}
 	} finally {
 		isSubmitting = false;

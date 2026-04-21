@@ -4,18 +4,18 @@ import { goto } from "$app/navigation";
 import { getSpaces } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 
-let _isLoading = $state(true);
-let _spaceCount = $state(0);
+let isLoading = $state(true);
+let spaceCount = $state(0);
 
 onMount(async () => {
 	const authenticated = await logtoClient.isAuthenticated();
 	if (!authenticated) {
-		_isLoading = false;
+		isLoading = false;
 		return;
 	}
 	try {
 		const spaces = await getSpaces();
-		_spaceCount = spaces.length;
+		spaceCount = spaces.length;
 		if (spaces.length > 0) {
 			const firstSpace = spaces[0];
 			await goto(`/spaces/${firstSpace.id}`);
@@ -24,7 +24,7 @@ onMount(async () => {
 	} catch {
 		// ignore
 	} finally {
-		_isLoading = false;
+		isLoading = false;
 	}
 });
 </script>

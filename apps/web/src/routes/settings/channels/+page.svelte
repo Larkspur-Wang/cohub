@@ -8,17 +8,17 @@ import { ensureAuth, logtoClient } from "$lib/auth";
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let _channels = $state<Channel[]>([]);
-let _isLoading = $state(true);
-let _loadError = $state("");
+let channels = $state<Channel[]>([]);
+let isLoading = $state(true);
+let loadError = $state("");
 
-const _providerIcons: Record<string, typeof MessageSquare> = {
+const providerIcons: Record<string, typeof MessageSquare> = {
 	discord: MessageSquare,
 	feishu: Webhook,
 	web: MonitorPlay,
 };
 
-const _providerDotColor: Record<string, string> = {
+const providerDotColor: Record<string, string> = {
 	discord: "bg-indigo-400",
 	feishu: "bg-cyan-400",
 	web: "bg-status-running",
@@ -27,8 +27,8 @@ const _providerDotColor: Record<string, string> = {
 async function loadChannels() {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
-	_isLoading = true;
-	_loadError = "";
+	isLoading = true;
+	loadError = "";
 	try {
 		_channels = await getChannels();
 	} catch (error) {
@@ -38,9 +38,9 @@ async function loadChannels() {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		_loadError = message;
+		loadError = message;
 	} finally {
-		_isLoading = false;
+		isLoading = false;
 	}
 }
 
@@ -48,7 +48,7 @@ onMount(() => {
 	void loadChannels();
 });
 
-async function _handleDelete(id: string) {
+async function handleDelete(id: string) {
 	if (!confirm("Are you sure you want to delete this channel?")) return;
 	try {
 		await deleteChannel(id);

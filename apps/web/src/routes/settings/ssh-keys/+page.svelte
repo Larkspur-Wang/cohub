@@ -12,11 +12,11 @@ import { ensureAuth, logtoClient } from "$lib/auth";
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let _keys = $state<UserSshKey[]>([]);
-let _isLoading = $state(true);
-let _loadError = $state("");
+let keys = $state<UserSshKey[]>([]);
+let isLoading = $state(true);
+let loadError = $state("");
 
-let _isAdding = $state(false);
+let isAdding = $state(false);
 let isSubmitting = $state(false);
 
 let formTitle = $state("");
@@ -25,8 +25,8 @@ let formKey = $state("");
 async function loadKeys() {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
-	_isLoading = true;
-	_loadError = "";
+	isLoading = true;
+	loadError = "";
 	try {
 		_keys = await getSshKeys();
 	} catch (error) {
@@ -36,13 +36,13 @@ async function loadKeys() {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		_loadError = message;
+		loadError = message;
 	} finally {
-		_isLoading = false;
+		isLoading = false;
 	}
 }
 
-async function _handleSubmit(e: Event) {
+async function handleSubmit(e: Event) {
 	e.preventDefault();
 	if (!formTitle.trim() || !formKey.trim() || isSubmitting) return;
 
@@ -52,7 +52,7 @@ async function _handleSubmit(e: Event) {
 			key: formKey.trim(),
 			title: formTitle.trim(),
 		});
-		_isAdding = false;
+		isAdding = false;
 		formTitle = "";
 		formKey = "";
 		await loadKeys();
@@ -63,7 +63,7 @@ async function _handleSubmit(e: Event) {
 	}
 }
 
-async function _handleDelete(id: string) {
+async function handleDelete(id: string) {
 	if (!confirm("Are you sure you want to delete this SSH key?")) return;
 	try {
 		await deleteSshKey(id);

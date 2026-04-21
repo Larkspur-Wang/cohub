@@ -26,6 +26,7 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
+import { authStore } from "$lib/stores/auth.svelte";
 import { isStreaming, unreadTracker } from "$lib/stores/session-state.svelte";
 
 const {
@@ -38,9 +39,9 @@ const {
 	mode?: "space" | "settings";
 } = $props();
 
-let _isLoading = $state(true);
-let _loadError = $state("");
-let _showUserMenu = $state(false);
+let isLoading = $state(true);
+let loadError = $state("");
+let showUserMenu = $state(false);
 let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
@@ -48,12 +49,12 @@ let checkpoints = $state<CheckpointRecord[]>([]);
 let loadingSessions = $state(false);
 let loadingCheckpoints = $state(false);
 
-let _sessionsCollapsed = $state(false);
-let _checkpointsCollapsed = $state(false);
-let _cronjobsCollapsed = $state(false);
-let _tasksCollapsed = $state(false);
+let sessionsCollapsed = $state(false);
+let checkpointsCollapsed = $state(false);
+let cronjobsCollapsed = $state(false);
+let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
-let _createSessionError = $state("");
+let createSessionError = $state("");
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
@@ -61,7 +62,7 @@ let loadingCronjobs = $state(false);
 let loadingTasks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
-const _activeSession = $derived.by(() => {
+const activeSession = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
 	const activeSessionId = match?.[1] ?? null;
 	return sessions.find((s) => s.id === activeSessionId) ?? null;
@@ -72,7 +73,7 @@ const activeCheckpointId = $derived.by(() => {
 	if (!id || id === "new") return null;
 	return id;
 });
-const _activeCheckpoint = $derived(
+const activeCheckpoint = $derived(
 	checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ??
 		null,
 );
@@ -83,11 +84,11 @@ const activeCronjobId = $derived.by(() => {
 	if (!id || id === "new") return null;
 	return id;
 });
-const _activeCronjob = $derived(
+const activeCronjob = $derived(
 	cronjobs.find((job) => job.id === activeCronjobId) ?? null,
 );
 
-const _activeTaskId = $derived.by(() => {
+const activeTaskId = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/tasks\/([^/]+)/);
 	return match?.[1] ?? null;
 });
@@ -101,7 +102,7 @@ const currentSpaceId = $derived.by(() => {
 	return id;
 });
 
-const _currentSpace = $derived(
+const currentSpace = $derived(
 	currentSpaceId ? (spaces.find((s) => s.id === currentSpaceId) ?? null) : null,
 );
 
@@ -127,26 +128,26 @@ const settingsTabs = [
 	},
 ];
 
-const _activeSettingsTab = $derived.by(() => {
+const activeSettingsTab = $derived.by(() => {
 	const tab = settingsTabs.find((tab) => currentPath.startsWith(tab.href));
 	return tab?.id ?? null;
 });
 
-function _sourceBadge(source: string | null): string {
+function sourceBadge(source: string | null): string {
 	if (!source || source === "web") return "";
 	const idx = source.indexOf(":");
 	return idx > 0 ? source.slice(0, idx) : source;
 }
 
-function _sourceTooltip(source: string | null): string {
+function sourceTooltip(source: string | null): string {
 	return source ?? "";
 }
 
-function _displayStatus(space: SpaceRecord) {
+function displayStatus(space: SpaceRecord) {
 	return space.status ?? "unknown";
 }
 
-function _statusColorClass(status: string): string {
+function statusColorClass(status: string): string {
 	switch (status) {
 		case "running":
 			return "bg-status-running";
@@ -166,12 +167,12 @@ function _statusColorClass(status: string): string {
 
 async function loadSpaces(_force = false) {
 	if (!(await logtoClient.isAuthenticated())) {
-		_isLoading = false;
+		isLoading = false;
 		spaces = [];
 		return;
 	}
 
-	_loadError = "";
+	loadError = "";
 	const shouldShowInitialLoading = spaces.length === 0;
 	if (shouldShowInitialLoading) {
 		_isLoading = true;
@@ -186,9 +187,9 @@ async function loadSpaces(_force = false) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		_loadError = message;
+		loadError = message;
 	} finally {
-		_isLoading = false;
+		isLoading = false;
 	}
 }
 
@@ -283,12 +284,12 @@ function handleStreamingStatusEvent(e: Event) {
 	}
 }
 
-async function _handleNavigate(href: string) {
+async function handleNavigate(href: string) {
 	onClose?.();
 	await goto(href);
 }
 
-async function _handleNavigateToSpace(spaceId: string) {
+async function handleNavigateToSpace(spaceId: string) {
 	showSpaceModal = false;
 	onClose?.();
 	await goto(buildSpaceDetailRoute(spaceId));
@@ -304,57 +305,57 @@ async function handleNavigateToSession(sessionId: string) {
 	await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
 
-async function _handleNavigateToCheckpoint(checkpointId: string) {
+async function handleNavigateToCheckpoint(checkpointId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(buildSpaceCheckpointRoute(currentSpaceId, checkpointId));
 }
 
-async function _handleNavigateToNewCheckpoint() {
+async function handleNavigateToNewCheckpoint() {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
 }
 
-async function _handleNavigateToCronjob(cronjobId: string) {
+async function handleNavigateToCronjob(cronjobId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(buildSpaceCronjobRoute(currentSpaceId, cronjobId));
 }
 
-async function _handleNavigateToNewCronjob() {
+async function handleNavigateToNewCronjob() {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(buildSpaceCronjobNewRoute(currentSpaceId));
 }
 
-async function _handleNavigateToTask(taskId: string) {
+async function handleNavigateToTask(taskId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
 }
 
-async function _handleCreateNewSession() {
+async function handleCreateNewSession() {
 	if (!currentSpaceId || creatingSession) return;
 	creatingSession = true;
-	_createSessionError = "";
+	createSessionError = "";
 	try {
 		const result = await createSpaceSession(currentSpaceId, { source: "web" });
 		await loadSessionsForSpace(currentSpaceId, true);
 		await handleNavigateToSession(result.session.id);
 	} catch (error) {
-		_createSessionError =
+		createSessionError =
 			error instanceof Error ? error.message : "Failed to create session";
 	} finally {
 		creatingSession = false;
 	}
 }
 
-function _sessionIsStreaming(session: SessionRecord): boolean {
+function sessionIsStreaming(session: SessionRecord): boolean {
 	return isStreaming(session, streamingSessionIds);
 }
 
-function _getSessionTitle(session: SessionRecord, _index: number) {
+function getSessionTitle(session: SessionRecord, _index: number) {
 	const candidates = [session.title, session.latestMessageText];
 	for (const candidate of candidates) {
 		const normalized = candidate
@@ -366,7 +367,11 @@ function _getSessionTitle(session: SessionRecord, _index: number) {
 	return "New session";
 }
 
-async function _handleLogout() {
+function getCheckpointTitle(checkpoint: CheckpointRecord): string {
+	return checkpoint.description || checkpoint.commitHash.slice(0, 12);
+}
+
+async function handleLogout() {
 	onClose?.();
 	await logtoClient.signOut(`${window.location.origin}/`);
 }
@@ -405,7 +410,7 @@ onMount(() => {
 	function handleClickOutside(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest("[data-user-menu]")) {
-			_showUserMenu = false;
+			showUserMenu = false;
 		}
 		if (!target.closest("[data-space-switcher]")) {
 			showSpaceModal = false;

@@ -17,9 +17,9 @@ import { logtoClient } from "$lib/auth";
 type TabId = "cronjobs" | "history";
 type ModalMode = "create" | "edit";
 
-let _activeTab: TabId = $state("cronjobs");
-let _isLoading = $state(true);
-let _loadError = $state("");
+let activeTab: TabId = $state("cronjobs");
+let isLoading = $state(true);
+let loadError = $state("");
 let cronJobs = $state<CronJobRecord[]>([]);
 let taskRuns = $state<TaskRunRecord[]>([]);
 let filterCronJobId = $state<string | null>(null);
@@ -33,18 +33,18 @@ let isCreating = $state(false);
 let createType = $state<"repeating" | "onetime">("repeating");
 
 // Derived helpers to avoid tsgo type-narrowing false positives in template
-const _isEditMode = $derived(modalMode === "edit");
-const _isCreateMode = $derived(modalMode === "create");
-const _isRepeating = $derived(createType === "repeating");
-const _isOnetime = $derived(createType === "onetime");
+const isEditMode = $derived(modalMode === "edit");
+const isCreateMode = $derived(modalMode === "create");
+const isRepeating = $derived(createType === "repeating");
+const isOnetime = $derived(createType === "onetime");
 let createTitle = $state("");
 let createCronExpression = $state("");
 let createScheduleAt = $state("");
 let createSpaceId = $state("");
 let createPromptText = $state("");
-let _createError = $state("");
+let createError = $state("");
 let spaces = $state<SpaceRecord[]>([]);
-let _copiedIndex = $state<number | null>(null);
+let copiedIndex = $state<number | null>(null);
 
 // Example prompts — create (2 items for mobile fit)
 const createExamplePrompts = [
@@ -145,7 +145,7 @@ async function _handleToggle(id: string, enabled: boolean, e: Event) {
 
 function _filterHistoryForJob(jobId: string) {
 	filterCronJobId = jobId;
-	_activeTab = "history";
+	activeTab = "history";
 }
 
 function _clearFilter() {
@@ -161,7 +161,7 @@ async function loadSpaces() {
 	}
 }
 
-function _openCreateModal() {
+function openCreateModal() {
 	showCreateModal = true;
 	modalMode = "create";
 	editingJob = null;
@@ -172,12 +172,12 @@ function _openCreateModal() {
 	createScheduleAt = "";
 	createSpaceId = spaces[0]?.id ?? "";
 	createPromptText = "";
-	_createError = "";
-	_copiedIndex = null;
+	createError = "";
+	copiedIndex = null;
 	void loadSpaces();
 }
 
-function _openEditModal(job: CronJobRecord) {
+function openEditModal(job: CronJobRecord) {
 	showCreateModal = true;
 	modalMode = "edit";
 	editingJob = job;
@@ -188,8 +188,8 @@ function _openEditModal(job: CronJobRecord) {
 	createScheduleAt = "";
 	createSpaceId = job.spaceId ?? "";
 	createPromptText = extractPromptText(job.payload as Record<string, unknown>);
-	_createError = "";
-	_copiedIndex = null;
+	createError = "";
+	copiedIndex = null;
 	void loadSpaces();
 }
 
@@ -198,27 +198,27 @@ function closeCreateModal() {
 	showCreateModal = false;
 }
 
-function _handleModalBackdropKeydown(event: KeyboardEvent) {
+function handleModalBackdropKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") closeCreateModal();
 }
 
-async function _handleCreate() {
-	_createError = "";
+async function handleCreate() {
+	createError = "";
 	if (isCreating) return;
 
 	if (modalMode === "edit" && editingJob) {
 		// Edit mode: only update prompt and cron expression via delete+recreate
 		// For simplicity, delete old and create new
 		if (!createTitle.trim()) {
-			_createError = "Title is required";
+			createError = "Title is required";
 			return;
 		}
 		if (!createPromptText.trim()) {
-			_createError = "Prompt message is required";
+			createError = "Prompt message is required";
 			return;
 		}
 		if (!createCronExpression.trim()) {
-			_createError = "Cron expression is required";
+			createError = "Cron expression is required";
 			return;
 		}
 
@@ -242,8 +242,7 @@ async function _handleCreate() {
 			await loadCronJobs();
 			await loadTaskRuns();
 		} catch (error) {
-			_createError =
-				error instanceof Error ? error.message : "Failed to update";
+			createError = error instanceof Error ? error.message : "Failed to update";
 		} finally {
 			isCreating = false;
 		}
@@ -252,11 +251,11 @@ async function _handleCreate() {
 
 	// Create mode
 	if (!createPromptText.trim()) {
-		_createError = "Prompt message is required";
+		createError = "Prompt message is required";
 		return;
 	}
 	if (!createSpaceId) {
-		_createError = "Space is required";
+		createError = "Space is required";
 		return;
 	}
 
@@ -264,16 +263,16 @@ async function _handleCreate() {
 	try {
 		if (createType === "repeating") {
 			if (!createTitle.trim()) {
-				_createError = "Title is required";
+				createError = "Title is required";
 				return;
 			}
 			if (!createCronExpression.trim()) {
-				_createError = "Cron expression is required";
+				createError = "Cron expression is required";
 				return;
 			}
 			const cronParts = createCronExpression.trim().split(/\s+/);
 			if (cronParts.length < 5 || cronParts.length > 6) {
-				_createError =
+				createError =
 					"Invalid cron expression format. Expected 5 or 6 space-separated fields (min hour day month weekday [year])";
 				return;
 			}
@@ -288,7 +287,7 @@ async function _handleCreate() {
 			});
 		} else {
 			if (!createScheduleAt) {
-				_createError = "Schedule time is required";
+				createError = "Schedule time is required";
 				return;
 			}
 			const scheduleTime = new Date(createScheduleAt);
@@ -296,7 +295,7 @@ async function _handleCreate() {
 				Number.isNaN(scheduleTime.getTime()) ||
 				scheduleTime.getTime() <= Date.now()
 			) {
-				_createError = "Schedule time must be in the future";
+				createError = "Schedule time must be in the future";
 				return;
 			}
 			await createScheduledTask({
@@ -312,13 +311,13 @@ async function _handleCreate() {
 		await loadCronJobs();
 		await loadTaskRuns();
 	} catch (error) {
-		_createError = error instanceof Error ? error.message : "Failed to create";
+		createError = error instanceof Error ? error.message : "Failed to create";
 	} finally {
 		isCreating = false;
 	}
 }
 
-function _statusBadge(run: TaskRunRecord) {
+function statusBadge(run: TaskRunRecord) {
 	switch (run.status) {
 		case "completed":
 			return {
@@ -345,7 +344,7 @@ function _statusBadge(run: TaskRunRecord) {
 	}
 }
 
-function _formatDate(dateStr: string | null) {
+function formatDate(dateStr: string | null) {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
 	return d.toLocaleString("en-US", {
@@ -357,13 +356,13 @@ function _formatDate(dateStr: string | null) {
 	});
 }
 
-function _getJobTitle(cronJobId: string | null) {
+function getJobTitle(cronJobId: string | null) {
 	if (!cronJobId) return null;
 	const job = cronJobs.find((j) => j.id === cronJobId);
 	return job?.title ?? null;
 }
 
-function _formatScheduled(dateStr: string | null) {
+function formatScheduled(dateStr: string | null) {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
 	return d.toLocaleString("en-US", {
@@ -374,7 +373,7 @@ function _formatScheduled(dateStr: string | null) {
 	});
 }
 
-const _filteredRuns = $derived(
+const filteredRuns = $derived(
 	filterCronJobId
 		? taskRuns.filter((r) => r.cronJobId === filterCronJobId)
 		: taskRuns,
