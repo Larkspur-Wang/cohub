@@ -172,7 +172,7 @@ export const createGiteaAccessTokenWithBasicAuth = async (
 export const createRepository = async (
   token: string,
   name: string,
-  isPrivate = true,
+  isPrivate = false,
 ) => {
   const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/repos`, {
     method: "POST",
@@ -265,17 +265,6 @@ export const listSshKeys = async (token: string): Promise<GiteaSshKey[]> => {
   }
 
   return response.json() as Promise<GiteaSshKey[]>;
-};
-
-export const createAnonymousRepository = async (
-  name: string,
-): Promise<GiteaRepository> => {
-  const repo = await giteaPost<GiteaRepository>("/orgs/anonymous/repos", {
-    name,
-    private: false,
-    auto_init: false,
-  });
-  return repo;
 };
 
 export const addDeployKeyToRepo = async (

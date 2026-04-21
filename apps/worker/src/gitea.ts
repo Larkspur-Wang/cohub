@@ -3,7 +3,7 @@ import { config } from "./config.js";
 export const createRepository = async (
   token: string,
   name: string,
-  isPrivate = true,
+  isPrivate = false,
 ) => {
   const response = await fetch(`${config.giteaBaseUrl}/api/v1/user/repos`, {
     method: "POST",

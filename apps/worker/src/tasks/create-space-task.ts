@@ -238,7 +238,7 @@ const createSpaceHandler = async (job: Job) => {
 
   try {
     const gitAccount = await getUserGitAccount(currentSpace.userUuid);
-    await createRepository(gitAccount.giteaAccessToken, currentSpace.storageRepoName, true);
+    await createRepository(gitAccount.giteaAccessToken, currentSpace.storageRepoName, false);
 
     await ensureSpaceWorkspaceReady(currentSpace.id);
     const workspaceDir = getSpaceWorkspaceDir(currentSpace.id);
