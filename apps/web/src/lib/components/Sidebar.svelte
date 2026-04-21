@@ -16,6 +16,8 @@ import {
   Network,
   LayoutDashboard,
   History,
+  Clock,
+  Activity,
 } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import {
@@ -23,17 +25,24 @@ import {
   getSpaceSessions,
   getSpaceCheckpoints,
   createSpaceSession,
+  getCronJobs,
+  getTaskRuns,
   type CheckpointRecord,
+  type CronJobRecord,
   type SessionRecord,
   type SpaceRecord,
+  type TaskRunRecord,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { getCheckpointTitle } from "$lib/checkpoints";
 import {
   buildSpaceCheckpointNewRoute,
   buildSpaceCheckpointRoute,
+  buildSpaceCronjobNewRoute,
+  buildSpaceCronjobRoute,
   buildSpaceDetailRoute,
   buildSpaceSessionRoute,
+  buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -60,8 +69,15 @@ let loadingCheckpoints = $state(false);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
+let cronjobsCollapsed = $state(false);
+let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
+
+let cronjobs = $state<CronJobRecord[]>([]);
+let tasks = $state<TaskRunRecord[]>([]);
+let loadingCronjobs = $state(false);
+let loadingTasks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
 const activeSession = $derived.by(() => {
@@ -78,6 +94,21 @@ const activeCheckpointId = $derived.by(() => {
 const activeCheckpoint = $derived(
   checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ?? null,
 );
+
+const activeCronjobId = $derived.by(() => {
+  const match = currentPath.match(/^\/spaces\/[^/]+\/cronjobs\/([^/]+)/);
+  const id = match?.[1] ?? null;
+  if (!id || id === "new") return null;
+  return id;
+});
+const activeCronjob = $derived(
+  cronjobs.find((job) => job.id === activeCronjobId) ?? null,
+);
+
+const activeTaskId = $derived.by(() => {
+  const match = currentPath.match(/^\/spaces\/[^/]+\/tasks\/([^/]+)/);
+  return match?.[1] ?? null;
+});
 
 let streamingSessionIds = $state<Set<string>>(new Set());
 
@@ -202,6 +233,38 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
   }
 }
 
+async function loadCronjobsForSpace(spaceId: string, force = false) {
+  if (!force && loadingCronjobs) return;
+  const shouldShowLoading = cronjobs.length === 0;
+  if (shouldShowLoading) {
+    loadingCronjobs = true;
+  }
+  try {
+    const result = await getCronJobs(spaceId);
+    cronjobs = result.jobs ?? [];
+  } catch (error) {
+    console.warn("[sidebar] Failed to load cronjobs", { spaceId, error });
+  } finally {
+    loadingCronjobs = false;
+  }
+}
+
+async function loadTasksForSpace(spaceId: string, force = false) {
+  if (!force && loadingTasks) return;
+  const shouldShowLoading = tasks.length === 0;
+  if (shouldShowLoading) {
+    loadingTasks = true;
+  }
+  try {
+    const result = await getTaskRuns({ spaceId });
+    tasks = result.runs ?? [];
+  } catch (error) {
+    console.warn("[sidebar] Failed to load tasks", { spaceId, error });
+  } finally {
+    loadingTasks = false;
+  }
+}
+
 function markSessionStreaming(sessionId: string, isSessionStreaming: boolean) {
   const next = new Set(streamingSessionIds);
   if (isSessionStreaming) {
@@ -250,6 +313,24 @@ async function handleNavigateToNewCheckpoint() {
   onClose?.();
   if (!currentSpaceId) return;
   await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
+}
+
+async function handleNavigateToCronjob(cronjobId: string) {
+  onClose?.();
+  if (!currentSpaceId) return;
+  await goto(buildSpaceCronjobRoute(currentSpaceId, cronjobId));
+}
+
+async function handleNavigateToNewCronjob() {
+  onClose?.();
+  if (!currentSpaceId) return;
+  await goto(buildSpaceCronjobNewRoute(currentSpaceId));
+}
+
+async function handleNavigateToTask(taskId: string) {
+  onClose?.();
+  if (!currentSpaceId) return;
+  await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
 }
 
 async function handleCreateNewSession() {
@@ -335,10 +416,14 @@ $effect(() => {
     untrack(() => {
       void loadSessionsForSpace(id, true);
       void loadCheckpointsForSpace(id, true);
+      void loadCronjobsForSpace(id, true);
+      void loadTasksForSpace(id, true);
     });
   } else {
     sessions = [];
     checkpoints = [];
+    cronjobs = [];
+    tasks = [];
   }
 });
 
@@ -530,6 +615,128 @@ $effect(() => {
                 <div class="min-w-0 flex-1">
                   <div class="truncate leading-tight">{getCheckpointTitle(activeCheckpoint)}</div>
                   <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{activeCheckpoint.commitHash.slice(0, 12)}</div>
+                </div>
+              </a>
+            {/if}
+          </div>
+
+          <!-- Cronjobs -->
+          <div class="mt-3">
+            <div
+              class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px] cursor-pointer"
+              onclick={() => { cronjobsCollapsed = !cronjobsCollapsed; }}
+              title={cronjobsCollapsed ? "Expand cronjobs" : "Collapse cronjobs"}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cronjobsCollapsed = !cronjobsCollapsed; } }}
+            >
+              <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {cronjobsCollapsed ? 'rotate-180' : ''}" />
+              <span class="text-[11px] text-text-placeholder select-none">Cronjobs</span>
+              <span
+                class="ml-auto p-0.5 rounded hover:bg-bg-hover text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
+                onclick={(e) => { e.stopPropagation(); handleNavigateToNewCronjob(); }}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); handleNavigateToNewCronjob(); } }}
+                title="New cronjob"
+                role="button"
+                tabindex="0"
+              >
+                <Plus class="w-3 h-3" />
+              </span>
+            </div>
+
+            {#if !cronjobsCollapsed}
+              {#if loadingCronjobs && cronjobs.length === 0}
+                <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                  <Loader2 class="w-3 h-3 animate-spin" />
+                  Loading cronjobs...
+                </div>
+              {:else if cronjobs.length === 0}
+                <div class="px-2 py-2 text-[12px] text-text-placeholder">No cronjobs</div>
+              {:else}
+                <div class="space-y-[2px] mt-1">
+                  {#each cronjobs.slice(0, 20) as job (job.id)}
+                    {@const isActive = activeCronjobId === job.id}
+                    <a
+                      href={buildSpaceCronjobRoute(currentSpaceId!, job.id)}
+                      class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}
+                    >
+                      <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate leading-tight">{job.title}</div>
+                      </div>
+                      <span class="w-[6px] h-[6px] rounded-full shrink-0 {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            {:else if activeCronjob}
+              <a
+                href={buildSpaceCronjobRoute(currentSpaceId!, activeCronjob.id)}
+                class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(activeCronjob.id); }}
+              >
+                <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate leading-tight">{activeCronjob.title}</div>
+                </div>
+                <span class="w-[6px] h-[6px] rounded-full shrink-0 {activeCronjob.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+              </a>
+            {/if}
+          </div>
+
+          <!-- Tasks -->
+          <div class="mt-3">
+            <button
+              type="button"
+              class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+              onclick={() => { tasksCollapsed = !tasksCollapsed; }}
+              title={tasksCollapsed ? "Expand tasks" : "Collapse tasks"}
+            >
+              <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {tasksCollapsed ? 'rotate-180' : ''}" />
+              <span class="text-[11px] text-text-placeholder select-none">Tasks</span>
+            </button>
+
+            {#if !tasksCollapsed}
+              {#if loadingTasks && tasks.length === 0}
+                <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                  <Loader2 class="w-3 h-3 animate-spin" />
+                  Loading tasks...
+                </div>
+              {:else if tasks.length === 0}
+                <div class="px-2 py-2 text-[12px] text-text-placeholder">No tasks</div>
+              {:else}
+                <div class="space-y-[2px] mt-1">
+                  {#each tasks.slice(0, 15) as run (run.id)}
+                    {@const isActive = activeTaskId === run.id}
+                    {@const badge = run.status === 'completed' ? { color: 'text-status-running', dot: 'bg-status-running' }
+                      : run.status === 'failed' ? { color: 'text-status-error', dot: 'bg-status-error' }
+                      : run.status === 'running' ? { color: 'text-info', dot: 'bg-info' }
+                      : { color: 'text-text-placeholder', dot: 'bg-text-placeholder' }}
+                    <a
+                      href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
+                      class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
+                    >
+                      <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate leading-tight text-[12px] capitalize {badge.color}">{run.status}</div>
+                        <div class="mt-0.5 text-[10px] text-text-placeholder">{(() => { const d = new Date(run.createdAt ?? run.scheduledAt); return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); })()}</div>
+                      </div>
+                      <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            {:else if activeTaskId}
+              <a
+                href={buildSpaceTaskRoute(currentSpaceId!, activeTaskId)}
+                class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                onclick={(e) => { e.preventDefault(); handleNavigateToTask(activeTaskId); }}
+              >
+                <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate leading-tight text-[12px]">Task run</div>
                 </div>
               </a>
             {/if}

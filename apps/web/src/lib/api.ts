@@ -611,8 +611,9 @@ export type CreateCronJobInput = {
 	sessionId?: string;
 };
 
-export const getCronJobs = async () => {
-	return apiFetch("/api/cron-jobs") as Promise<{ jobs: CronJobRecord[] }>;
+export const getCronJobs = async (spaceId?: string) => {
+	const query = spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : "";
+	return apiFetch(`/api/cron-jobs${query}`) as Promise<{ jobs: CronJobRecord[] }>;
 };
 
 export const createCronJob = async (data: CreateCronJobInput) => {

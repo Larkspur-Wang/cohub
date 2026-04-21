@@ -93,10 +93,16 @@ router.post("/", async (c) => {
 router.get("/", async (c) => {
   const user = useAuth(c);
 
+  const spaceId = c.req.query("spaceId") ?? null;
+  if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
+
+  const conditions = [eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)];
+  if (spaceId) conditions.push(eq(cronJobs.spaceId, spaceId));
+
   const jobs = await db
     .select()
     .from(cronJobs)
-    .where(and(eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .where(and(...conditions))
     .orderBy(desc(cronJobs.createdAt));
 
   return c.json({ jobs });

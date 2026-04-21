@@ -2,22 +2,31 @@
 import { goto } from "$app/navigation";
 import {
 	buildSpaceCheckpointRoute,
+	buildSpaceCronjobNewRoute,
+	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
 	buildSpaceSessionRoute,
+	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import {
 	type CheckpointRecord,
+	type CronJobRecord,
 	type SandboxRecord,
 	type SessionRecord,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceRecord,
+	type TaskRunRecord,
+	createCronJob,
 	createSpaceCheckpoint,
 	createSpaceFsDir,
 	createSpaceSession,
+	deleteCronJob,
 	deleteSpaceFsNode,
 	extractSessionRenderState,
+	getCronJobRuns,
+	getCronJobs,
 	getModels,
 	getSessionMessagesPaginated,
 	getSpace,
@@ -26,10 +35,13 @@ import {
 	getSpaceFsTree,
 	getSpaceSandbox,
 	getSpaceSessions,
+	getTaskRun,
+	getTaskRuns,
 	moveSpaceFsNode,
 	postSessionMessage,
 	putSpaceFsFile,
 	recreateSpaceSandbox,
+	toggleCronJob,
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
@@ -65,6 +77,7 @@ import {
 	AlertCircle,
 	ArrowDown,
 	Check,
+	Clock,
 	Clock3,
 	Copy,
 	Download,
@@ -80,11 +93,14 @@ import {
 	PanelRightOpen,
 	Pencil,
 	Plus,
+	Power,
+	PowerOff,
 	RefreshCw,
 	Save,
 	Settings,
 	Share2,
 	Terminal,
+	Trash2,
 	X,
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
@@ -92,10 +108,12 @@ import { onMount, tick } from "svelte";
 type Props = {
 	data: {
 		spaceId: string;
-		view: "space" | "session" | "file" | "checkpoint" | "checkpoint-new";
+		view: "space" | "session" | "file" | "checkpoint" | "checkpoint-new" | "cronjob" | "cronjob-new" | "task";
 		sessionId?: string | null;
 		filePath?: string | null;
 		checkpointId?: string | null;
+		cronjobId?: string | null;
+		taskId?: string | null;
 	};
 };
 
@@ -137,6 +155,8 @@ const routeView = $derived(data.view);
 const routeSessionId = $derived(data.sessionId ?? null);
 const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
+const routeCronjobId = $derived(data.cronjobId ?? null);
+const routeTaskId = $derived(data.taskId ?? null);
 const fileMode = $derived<"chat" | "file">(routeView === "file" ? "file" : "chat");
 const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
@@ -267,6 +287,27 @@ let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let checkpointCreateDescription = $state("");
 let checkpointCreateSubmitting = $state(false);
 let checkpointCreateError = $state("");
+
+// ─── Cronjobs ───
+let cronjobDetail = $state<CronJobRecord | null>(null);
+let cronjobDetailLoading = $state(false);
+let cronjobDetailError = $state("");
+let cronjobRuns = $state<TaskRunRecord[]>([]);
+let cronjobRunsLoading = $state(false);
+let cronjobActionInProgress = $state(false);
+let cronjobToggleError = $state("");
+
+// ─── Cronjob New Form ───
+let cronjobNewTitle = $state("");
+let cronjobNewExpression = $state("");
+let cronjobNewPrompt = $state("");
+let cronjobNewSubmitting = $state(false);
+let cronjobNewError = $state("");
+
+// ─── Tasks ───
+let taskRunDetail = $state<TaskRunRecord | null>(null);
+let taskRunDetailLoading = $state(false);
+let taskRunDetailError = $state("");
 
 // Space-level permissions
 let spacePerms = $state<ResourcePermission[]>([]);
@@ -448,6 +489,113 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 			error instanceof Error ? error.message : "Failed to save checkpoint";
 	} finally {
 		checkpointCreateSubmitting = false;
+	}
+}
+
+// ─── Cronjob detail & actions ───
+
+async function loadCronjobDetail(cronjobId: string) {
+	cronjobDetailLoading = true;
+	cronjobDetailError = "";
+	cronjobToggleError = "";
+	try {
+		const { jobs } = await getCronJobs(spaceId);
+		const job = jobs.find((j) => j.id === cronjobId) ?? null;
+		if (!job) {
+			cronjobDetail = null;
+			cronjobDetailError = "Cronjob not found";
+			return;
+		}
+		cronjobDetail = job;
+		const { runs } = await getCronJobRuns(cronjobId);
+		cronjobRuns = runs;
+	} catch (error) {
+		cronjobDetail = null;
+		cronjobDetailError = error instanceof Error ? error.message : "Failed to load cronjob";
+	} finally {
+		cronjobDetailLoading = false;
+	}
+}
+
+async function handleToggleCronjob(enabled: boolean) {
+	if (!cronjobDetail || cronjobActionInProgress) return;
+	cronjobActionInProgress = true;
+	try {
+		await toggleCronJob(cronjobDetail.id, enabled);
+		cronjobDetail = { ...cronjobDetail, enabled };
+	} catch (error) {
+		cronjobToggleError = error instanceof Error ? error.message : "Failed to toggle";
+		void loadCronjobDetail(cronjobDetail.id);
+	} finally {
+		cronjobActionInProgress = false;
+	}
+}
+
+async function handleDeleteCronjob() {
+	if (!cronjobDetail || !confirm("Are you sure you want to delete this cronjob?")) return;
+	cronjobActionInProgress = true;
+	try {
+		await deleteCronJob(cronjobDetail.id);
+		await goto(buildSpaceDetailRoute(spaceId));
+	} catch (error) {
+		cronjobDetailError = error instanceof Error ? error.message : "Failed to delete";
+		cronjobActionInProgress = false;
+	}
+}
+
+async function handleCreateCronjobSubmit(event: SubmitEvent) {
+	event.preventDefault();
+	if (cronjobNewSubmitting) return;
+	if (!cronjobNewTitle.trim()) {
+		cronjobNewError = "Title is required";
+		return;
+	}
+	if (!cronjobNewExpression.trim()) {
+		cronjobNewError = "Cron expression is required";
+		return;
+	}
+	if (!cronjobNewPrompt.trim()) {
+		cronjobNewError = "Prompt message is required";
+		return;
+	}
+	const cronParts = cronjobNewExpression.trim().split(/\s+/);
+	if (cronParts.length < 5 || cronParts.length > 6) {
+		cronjobNewError = "Invalid cron expression format. Expected 5 or 6 space-separated fields.";
+		return;
+	}
+	cronjobNewError = "";
+	cronjobNewSubmitting = true;
+	try {
+		await createCronJob({
+			title: cronjobNewTitle.trim(),
+			taskType: "send_message",
+			payload: {
+				content: [{ type: "text", text: cronjobNewPrompt.trim() }],
+			},
+			cronExpression: cronjobNewExpression.trim(),
+			spaceId,
+		});
+		await goto(buildSpaceDetailRoute(spaceId));
+	} catch (error) {
+		cronjobNewError = error instanceof Error ? error.message : "Failed to create cronjob";
+	} finally {
+		cronjobNewSubmitting = false;
+	}
+}
+
+// ─── Task detail ───
+
+async function loadTaskDetail(taskId: string) {
+	taskRunDetailLoading = true;
+	taskRunDetailError = "";
+	try {
+		const { run } = await getTaskRun(taskId);
+		taskRunDetail = run;
+	} catch (error) {
+		taskRunDetail = null;
+		taskRunDetailError = error instanceof Error ? error.message : "Failed to load task run";
+	} finally {
+		taskRunDetailLoading = false;
 	}
 }
 
@@ -945,6 +1093,50 @@ function formatElapsedTime(seconds: number): string {
 	const m = Math.floor(seconds / 60);
 	const s = seconds % 60;
 	return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
+}
+
+function formatDateTime(dateStr: string | null | undefined): string {
+	if (!dateStr) return "—";
+	const d = new Date(dateStr);
+	return d.toLocaleString("en-US", {
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+}
+
+function formatShortDateTime(dateStr: string | null | undefined): string {
+	if (!dateStr) return "—";
+	const d = new Date(dateStr);
+	return d.toLocaleString("en-US", {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
+
+function taskRunStatusBadge(run: TaskRunRecord) {
+	switch (run.status) {
+		case "completed":
+			return { label: "Completed", color: "text-status-running", dot: "bg-status-running" };
+		case "failed":
+			return { label: "Failed", color: "text-status-error", dot: "bg-status-error" };
+		case "running":
+			return { label: "Running", color: "text-info", dot: "bg-info" };
+		case "pending":
+			return { label: "Pending", color: "text-warning", dot: "bg-warning" };
+		default:
+			return { label: run.status, color: "text-text-placeholder", dot: "bg-text-placeholder" };
+	}
+}
+
+function taskRunDuration(run: TaskRunRecord): string {
+	if (!run.startedAt || !run.finishedAt) return "—";
+	const ms = Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime());
+	return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function formatBootstrapStage(stage: string | null) {
@@ -2187,6 +2379,37 @@ $effect(() => {
 });
 
 $effect(() => {
+	if ((routeView === "cronjob" || routeView === "cronjob-new") && routeCronjobId) {
+		void loadCronjobDetail(routeCronjobId);
+		return;
+	}
+	if (routeView === "cronjob-new") {
+		cronjobNewTitle = "";
+		cronjobNewExpression = "";
+		cronjobNewPrompt = "";
+		cronjobNewError = "";
+		cronjobDetail = null;
+		cronjobDetailError = "";
+		cronjobRuns = [];
+		cronjobToggleError = "";
+		return;
+	}
+	cronjobDetail = null;
+	cronjobDetailError = "";
+	cronjobRuns = [];
+	cronjobToggleError = "";
+});
+
+$effect(() => {
+	if (routeView === "task" && routeTaskId) {
+		void loadTaskDetail(routeTaskId);
+		return;
+	}
+	taskRunDetail = null;
+	taskRunDetailError = "";
+});
+
+$effect(() => {
 	if (!listEl || !activeSessionId) return;
 	requestAnimationFrame(() => updateAutoFollow());
 });
@@ -2243,6 +2466,30 @@ $effect(() => {
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">New checkpoint</span>
+      {:else if routeView === "cronjob" && cronjobDetail}
+        <button
+          type="button"
+          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          title="Space details"
+        >{space?.name || space?.title || spaceId}</button>
+        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
+        <span class="text-[13px] text-text-secondary truncate">{cronjobDetail.title}</span>
+      {:else if routeView === "cronjob-new"}
+        <button
+          type="button"
+          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          title="Space details"
+        >{space?.name || space?.title || spaceId}</button>
+        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
+        <span class="text-[13px] text-text-secondary truncate">New cronjob</span>
+      {:else if routeView === "task" && taskRunDetail}
+        <button
+          type="button"
+          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          title="Space details"
+        >{space?.name || space?.title || spaceId}</button>
+        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
+        <span class="text-[13px] text-text-secondary truncate">Task run</span>
       {:else}
         <button
           type="button"
@@ -2431,6 +2678,300 @@ $effect(() => {
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Checkpoint not found.</div>
         {/if}
       </div>
+
+    {:else if routeView === 'cronjob-new'}
+      <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
+        {#if spaceLoadError}
+          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
+        {:else}
+          <form onsubmit={handleCreateCronjobSubmit} class="space-y-3">
+            <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Cronjob</div>
+                <p class="text-[13px] text-text-tertiary mt-1">Create a repeating task that sends a message to <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> on a schedule.</p>
+              </div>
+
+              <div>
+                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="cronjob-title">Title</label>
+                <input
+                  id="cronjob-title"
+                  type="text"
+                  bind:value={cronjobNewTitle}
+                  placeholder="e.g. Daily report"
+                  class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="cronjob-expression">Cron Expression</label>
+                <input
+                  id="cronjob-expression"
+                  type="text"
+                  bind:value={cronjobNewExpression}
+                  placeholder="e.g. 0 10 * * * (daily at 10 AM)"
+                  class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] font-mono text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
+                />
+                <p class="mt-1 text-[11px] text-text-placeholder">Format: min hour day month weekday · Example: */30 * * * * (every 30 min)</p>
+              </div>
+
+              <div>
+                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="cronjob-prompt">Prompt Message</label>
+                <textarea
+                  id="cronjob-prompt"
+                  bind:value={cronjobNewPrompt}
+                  rows="4"
+                  placeholder="Message content to send to the space..."
+                  class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
+                ></textarea>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/50 p-3 text-[12px] text-text-secondary">
+                The cronjob will send this message to the space on every scheduled run.
+              </div>
+            </div>
+
+            {#if cronjobNewError}
+              <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobNewError}</div>
+            {/if}
+
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                class="px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                onclick={() => goto(buildSpaceDetailRoute(spaceId))}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-white text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
+                disabled={cronjobNewSubmitting}
+              >
+                {#if cronjobNewSubmitting}
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                {:else}
+                  <Plus class="w-3.5 h-3.5" />
+                {/if}
+                <span>Create Cronjob</span>
+              </button>
+            </div>
+          </form>
+        {/if}
+      </div>
+
+    {:else if routeView === 'cronjob'}
+      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
+        {#if cronjobDetailLoading}
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
+            Loading cronjob...
+          </div>
+        {:else if cronjobDetailError}
+          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
+        {:else if cronjobDetail}
+          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
+            <div class="space-y-1">
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Cronjob</div>
+              <div class="flex items-center gap-3">
+                <h1 class="text-[22px] font-semibold text-text-primary tracking-tight break-words">{cronjobDetail.title}</h1>
+                <span class="w-2.5 h-2.5 rounded-full shrink-0 {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+              </div>
+              <p class="text-[13px] text-text-tertiary">Running in <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
+            </div>
+
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                  <Clock class="w-3.5 h-3.5" />
+                  Schedule
+                </div>
+                <div class="mt-2 font-mono text-[14px] text-text-primary">{cronjobDetail.cronExpression}</div>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                  <Clock3 class="w-3.5 h-3.5" />
+                  Timezone
+                </div>
+                <div class="mt-2 text-[13px] text-text-primary">{cronjobDetail.timezone}</div>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                  <Terminal class="w-3.5 h-3.5" />
+                  Task Type
+                </div>
+                <div class="mt-2 text-[13px] text-text-primary">{cronjobDetail.taskType}</div>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                  <Clock3 class="w-3.5 h-3.5" />
+                  Created At
+                </div>
+                <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(cronjobDetail.createdAt)}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] font-medium transition-colors {cronjobDetail!.enabled ? 'text-status-running hover:bg-bg-hover' : 'text-text-tertiary hover:bg-bg-hover'}"
+                onclick={() => handleToggleCronjob(!cronjobDetail!.enabled)}
+                disabled={cronjobActionInProgress}
+              >
+                {#if cronjobActionInProgress}
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                {:else if cronjobDetail.enabled}
+                  <Power class="w-3.5 h-3.5" />
+                {:else}
+                  <PowerOff class="w-3.5 h-3.5" />
+                {/if}
+                <span>{cronjobDetail.enabled ? 'Disable' : 'Enable'}</span>
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] font-medium text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors disabled:opacity-50"
+                onclick={handleDeleteCronjob}
+                disabled={cronjobActionInProgress}
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+                <span>Delete</span>
+              </button>
+            </div>
+
+            {#if cronjobToggleError}
+              <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft">{cronjobToggleError}</div>
+            {/if}
+
+            {#if cronjobRuns.length > 0}
+              <div class="border-t border-border-subtle pt-4">
+                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium mb-3">Recent Runs</div>
+                <div class="space-y-2">
+                  {#each cronjobRuns.slice(0, 20) as run (run.id)}
+                    {@const badge = taskRunStatusBadge(run)}
+                    <a
+                      href={buildSpaceTaskRoute(spaceId, run.id)}
+                      class="flex items-center gap-3 px-3 py-2 rounded-[6px] hover:bg-bg-hover transition-colors"
+                      onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, run.id)); }}
+                    >
+                      <span class="flex items-center gap-2 min-w-[100px]">
+                        <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
+                        <span class="text-[12px] {badge.color}">{badge.label}</span>
+                      </span>
+                      <span class="text-[12px] text-text-placeholder font-mono">{formatShortDateTime(run.scheduledAt)}</span>
+                      <span class="text-[12px] text-text-placeholder font-mono">{taskRunDuration(run)}</span>
+                      {#if run.errorMessage}
+                        <span class="text-[11px] text-status-error truncate flex-1" title={run.errorMessage}>{run.errorMessage}</span>
+                      {/if}
+                    </a>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Cronjob not found.</div>
+        {/if}
+      </div>
+
+    {:else if routeView === 'task'}
+      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
+        {#if taskRunDetailLoading}
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
+            Loading task run...
+          </div>
+        {:else if taskRunDetailError}
+          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{taskRunDetailError}</div>
+        {:else if taskRunDetail}
+          {@const badge = taskRunStatusBadge(taskRunDetail)}
+          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
+            <div class="space-y-1">
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Task Run</div>
+              <div class="flex items-center gap-3">
+                <span class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full {badge.dot}"></span>
+                  <span class="text-[16px] font-semibold text-text-primary {badge.color}">{badge.label}</span>
+                </span>
+              </div>
+              <p class="text-[13px] text-text-tertiary">
+                {#if taskRunDetail.cronJobId}
+                  From cronjob
+                  <a
+                    href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
+                    class="text-text-primary hover:text-brand transition-colors"
+                    onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
+                  >view</a>
+                {:else}
+                  One-time task
+                {/if}
+              </p>
+            </div>
+
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Task Type</div>
+                <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.taskType}</div>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Attempts</div>
+                <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.attemptCount}</div>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                  <Clock class="w-3.5 h-3.5" />
+                  Scheduled
+                </div>
+                <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
+              </div>
+
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                  <Clock3 class="w-3.5 h-3.5" />
+                  Duration
+                </div>
+                <div class="mt-2 text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
+              </div>
+            </div>
+
+            {#if taskRunDetail.startedAt || taskRunDetail.finishedAt}
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Started At</div>
+                  <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div>
+                </div>
+                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Finished At</div>
+                  <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div>
+                </div>
+              </div>
+            {/if}
+
+            <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
+              <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Payload</div>
+              <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.payload, null, 2)}</pre>
+            </div>
+
+            {#if taskRunDetail.result}
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
+                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Result</div>
+                <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.result, null, 2)}</pre>
+              </div>
+            {/if}
+
+            {#if taskRunDetail.errorMessage}
+              <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-4">
+                <div class="text-[11px] uppercase tracking-wider text-error-soft font-medium">Error</div>
+                <div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Task run not found.</div>
+        {/if}
+      </div>
+
     {:else if fileMode === 'file'}
       <!-- File Viewer -->
       {#if openFileLoading}

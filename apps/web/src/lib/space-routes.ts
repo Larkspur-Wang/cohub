@@ -14,3 +14,12 @@ export const buildSpaceFileRoute = (spaceId: string, path: string) =>
 		.split("/")
 		.map((segment) => encodeURIComponent(segment))
 		.join("/")}`;
+
+export const buildSpaceCronjobRoute = (spaceId: string, cronjobId: string) =>
+	`/spaces/${spaceId}/cronjobs/${cronjobId}`;
+
+export const buildSpaceCronjobNewRoute = (spaceId: string) =>
+	`/spaces/${spaceId}/cronjobs/new`;
+
+export const buildSpaceTaskRoute = (spaceId: string, taskId: string) =>
+	`/spaces/${spaceId}/tasks/${taskId}`;
