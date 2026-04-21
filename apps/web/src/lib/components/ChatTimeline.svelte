@@ -1,4 +1,5 @@
 <script lang="ts">
+import { Loader2 } from "lucide-svelte";
 import type { TimelineItem } from "$lib/session-tree";
 
 type Props = {

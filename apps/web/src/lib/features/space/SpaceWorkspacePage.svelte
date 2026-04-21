@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import { Loader2 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 import { goto } from "$app/navigation";
 import {

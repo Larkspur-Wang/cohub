@@ -1,4 +1,5 @@
 <script lang="ts">
+import { Loader2 } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { getSpaces } from "$lib/api";

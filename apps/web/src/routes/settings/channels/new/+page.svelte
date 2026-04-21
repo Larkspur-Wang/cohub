@@ -1,4 +1,5 @@
 <script lang="ts">
+import { Loader2 } from "lucide-svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { createChannel } from "$lib/api";

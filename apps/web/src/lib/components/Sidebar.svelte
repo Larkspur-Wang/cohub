@@ -1,5 +1,5 @@
 <script lang="ts">
-import { KeyRound, Network, Palette, User } from "lucide-svelte";
+import { KeyRound, Loader2, Network, Palette, User } from "lucide-svelte";
 import { onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
