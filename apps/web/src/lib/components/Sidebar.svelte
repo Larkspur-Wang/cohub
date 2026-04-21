@@ -29,6 +29,12 @@ import {
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { getCheckpointTitle } from "$lib/checkpoints";
+import {
+  buildSpaceCheckpointNewRoute,
+  buildSpaceCheckpointRoute,
+  buildSpaceDetailRoute,
+  buildSpaceSessionRoute,
+} from "$lib/space-routes";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 
@@ -58,9 +64,11 @@ let creatingSession = $state(false);
 let createSessionError = $state("");
 
 const currentPath = $derived(page.url.pathname);
-const activeSession = $derived(
-  sessions.find((s) => page.url.searchParams.get("session") === s.id) ?? null,
-);
+const activeSession = $derived.by(() => {
+  const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
+  const activeSessionId = match?.[1] ?? null;
+  return sessions.find((s) => s.id === activeSessionId) ?? null;
+});
 const activeCheckpointId = $derived.by(() => {
   const match = currentPath.match(/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/);
   const id = match?.[1] ?? null;
@@ -219,7 +227,7 @@ async function handleNavigate(href: string) {
 async function handleNavigateToSpace(spaceId: string) {
   showSpaceModal = false;
   onClose?.();
-  await goto(`/spaces/${spaceId}`);
+  await goto(buildSpaceDetailRoute(spaceId));
 }
 
 async function handleNavigateToSession(sessionId: string) {
@@ -228,17 +236,20 @@ async function handleNavigateToSession(sessionId: string) {
   if (session?.lastMessageId) {
     unreadTracker.markViewed(sessionId, session.lastMessageId);
   }
-  await goto(`/spaces/${currentSpaceId}?session=${sessionId}`);
+  if (!currentSpaceId) return;
+  await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
 
 async function handleNavigateToCheckpoint(checkpointId: string) {
   onClose?.();
-  await goto(`/spaces/${currentSpaceId}/checkpoints/${checkpointId}`);
+  if (!currentSpaceId) return;
+  await goto(buildSpaceCheckpointRoute(currentSpaceId, checkpointId));
 }
 
 async function handleNavigateToNewCheckpoint() {
   onClose?.();
-  await goto(`/spaces/${currentSpaceId}/checkpoints/new`);
+  if (!currentSpaceId) return;
+  await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
 }
 
 async function handleCreateNewSession() {
@@ -379,7 +390,7 @@ $effect(() => {
         <button
           type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={() => { void handleNavigate(`/spaces/${currentSpaceId}`); }}
+          onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
           title="Space details"
         >
           <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
@@ -439,9 +450,9 @@ $effect(() => {
             {:else}
               <div class="space-y-[2px] mt-1">
                 {#each sessions as session, index (session.id)}
-                  {@const isActive = page.url.searchParams.get("session") === session.id}
+                  {@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
                   <a
-                    href="/spaces/{currentSpaceId}?session={session.id}"
+                    href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
                     class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                     onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
                     title={sourceTooltip(session.source) || undefined}
@@ -463,7 +474,7 @@ $effect(() => {
             {/if}
           {:else if activeSession}
             <a
-              href="/spaces/{currentSpaceId}?session={activeSession.id}"
+              href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
               class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
               onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
               title={sourceTooltip(activeSession.source) || undefined}
@@ -496,7 +507,7 @@ $effect(() => {
                   {#each checkpoints.slice(0, 20) as checkpoint (checkpoint.id)}
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
-                      href="/spaces/{currentSpaceId}/checkpoints/{checkpoint.id}"
+                      href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
                       class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
                     >
@@ -511,7 +522,7 @@ $effect(() => {
               {/if}
             {:else if activeCheckpoint}
               <a
-                href="/spaces/{currentSpaceId}/checkpoints/{activeCheckpoint.id}"
+                href={buildSpaceCheckpointRoute(currentSpaceId!, activeCheckpoint.id)}
                 class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(activeCheckpoint.id); }}
               >
