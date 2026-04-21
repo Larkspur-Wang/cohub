@@ -27,9 +27,9 @@ import {
 const { children } = $props();
 
 const currentPath = $derived(page.url.pathname);
-const _isLogin = $derived(currentPath === "/callback");
-const _isHome = $derived(currentPath === "/");
-const _sidebarMode = $derived(
+const isLogin = $derived(currentPath === "/callback");
+const isHome = $derived(currentPath === "/");
+const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
 
@@ -46,10 +46,10 @@ let velocityX = $state(0);
 let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
 
-const _isDrawerVisible = $derived(
+const isDrawerVisible = $derived(
 	isDragging || gesturePhase === "settling" || uiState.mobileDrawerOpen,
 );
-const _isRightDrawerVisible = $derived(
+const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging ||
 		gesturePhase === "settling" ||
 		uiState.mobileRightDrawerOpen,
