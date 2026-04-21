@@ -27,16 +27,16 @@ import {
 	postSessionMessage,
 	putSpaceFsFile,
 	recreateSpaceSandbox,
-	triggerSpaceFsDownload,
 } from "$lib/api";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
+import CodeEditor from "$lib/components/CodeEditor.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
-import SpaceFilePane from "$lib/components/SpaceFilePane.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
+import { renderMarkdown } from "$lib/markdown";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
@@ -61,6 +61,7 @@ import {
 	ArrowDown,
 	Check,
 	Copy,
+	Download,
 	Eye,
 	FolderKanban,
 	Globe,
@@ -72,6 +73,7 @@ import {
 	Pencil,
 	Plus,
 	RefreshCw,
+	Save,
 	Settings,
 	Share2,
 	Terminal,
@@ -121,6 +123,7 @@ const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
 const urlSessionId = $derived(page.url.searchParams.get("session"));
 const urlFilePath = $derived(page.url.searchParams.get("file"));
+const fileMode = $derived<"chat" | "file">(urlFilePath ? "file" : "chat");
 const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
 );
@@ -156,6 +159,50 @@ let openFileLoading = $state(false);
 let openFileSaving = $state(false);
 let openFileError = $state<string | null>(null);
 let openFileTooLarge = $state(false);
+
+const fileDirty = $derived(Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content));
+const openFileIsMarkdown = $derived(Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)));
+const openFileExt = $derived.by(() => {
+	if (!openFile || openFile.kind !== "text") return "plaintext";
+	return openFile.name.split(".").pop()?.toLowerCase() ?? "plaintext";
+});
+const openFileIsImage = $derived(Boolean(openFile?.mimeType?.startsWith("image/")));
+const openFileIsVideo = $derived(Boolean(openFile?.mimeType?.startsWith("video/")));
+const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
+const openFileDataUrl = $derived.by(() => {
+	if (!openFile || openFile.kind !== "binary") return null;
+	const mime = openFile.mimeType ?? "application/octet-stream";
+	return `data:${mime};base64,${openFile.content}`;
+});
+const openFileDownloadUrl = $derived.by(() => {
+	if (!urlFilePath) return "";
+	return `/api/spaces/${spaceId}/fs/download?path=${encodeURIComponent(urlFilePath)}`;
+});
+const openFileDownloadName = $derived.by(() => {
+	if (!urlFilePath) return "";
+	return urlFilePath.split("/").pop() ?? "download";
+});
+
+let fileMarkdownHtml = $state("");
+let fileEdit = $state(true);
+
+$effect(() => {
+	const current = openFile;
+	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
+		fileMarkdownHtml = "";
+		return;
+	}
+	void renderMarkdown(current.content).then((html) => {
+		if (openFile?.path === current.path) fileMarkdownHtml = html;
+	}).catch(() => {
+		fileMarkdownHtml = "";
+	});
+});
+
+$effect(() => {
+	if (openFile) fileEdit = true;
+});
+
 let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
@@ -1638,6 +1685,7 @@ async function openFileFromUrl(path: string) {
 	openFileLoading = true;
 	openFileError = null;
 	openFileTooLarge = false;
+	fileEdit = true;
 	try {
 		const file = await getSpaceFsFile(spaceId, path);
 		openFile = file;
@@ -1748,6 +1796,13 @@ function closeFile() {
 	});
 }
 
+async function handleFileKeyboardSave(event: KeyboardEvent) {
+	if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && fileMode === "file") {
+		event.preventDefault();
+		await saveOpenFile();
+	}
+}
+
 function handleCreateNewSession() {
 	if (creatingSession || !space) return;
 	creatingSession = true;
@@ -1817,6 +1872,7 @@ onMount(() => {
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
+	window.addEventListener("keydown", handleFileKeyboardSave);
 
 	void loadSpace()
 		.then(async () => {
@@ -1861,6 +1917,7 @@ onMount(() => {
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
 		window.removeEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
+		window.removeEventListener("keydown", handleFileKeyboardSave);
 		rightSidebarResizeCleanup?.();
 	};
 });
@@ -1950,6 +2007,8 @@ $effect(() => {
 		openFileDraft = "";
 		openFileError = null;
 		openFileTooLarge = false;
+		fileMarkdownHtml = "";
+		fileEdit = true;
 		return;
 	}
 	void openFileFromUrl(urlFilePath);
@@ -2051,6 +2110,192 @@ $effect(() => {
 
 <div class="relative flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
+    {#if fileMode === 'file'}
+      <!-- File Viewer -->
+      {#if openFileLoading}
+        <div class="flex-1 flex items-center justify-center text-[12px] text-text-tertiary">Loading file…</div>
+      {:else if openFileError}
+        <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
+          {openFileError}
+        </div>
+      {:else if openFileTooLarge}
+        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+            <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+              {urlFilePath}
+            </div>
+            <a
+              href={openFileDownloadUrl}
+              download={openFileDownloadName}
+              class="action-btn"
+              title="Download file"
+            >
+              <Download class="w-3.5 h-3.5 shrink-0" />
+              <span class="hidden sm:inline">Download</span>
+            </a>
+            <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="flex-1 flex items-center justify-center">
+            <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
+              <div class="text-[40px] mb-3">📦</div>
+              <div class="text-[14px] font-semibold text-text-primary mb-1">File too large to preview</div>
+              <div class="text-[12px] text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
+              <a
+                href={openFileDownloadUrl}
+                download={openFileDownloadName}
+                class="action-btn primary"
+              >
+                <Download class="w-3.5 h-3.5" />
+                Download file
+              </a>
+            </div>
+          </div>
+        </div>
+      {:else if openFile}
+        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {#if openFileIsText}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              {#if openFileIsMarkdown}
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  class:active={!fileEdit}
+                  onclick={() => fileEdit = false}
+                  title="Preview"
+                >
+                  <Eye class="w-3.5 h-3.5" />
+                  <span class="hidden sm:inline">Preview</span>
+                </button>
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  class:active={fileEdit}
+                  onclick={() => fileEdit = true}
+                  title="Edit"
+                >
+                  <Pencil class="w-3.5 h-3.5" />
+                  <span class="hidden sm:inline">Edit</span>
+                </button>
+              {/if}
+              <a
+                href={openFileDownloadUrl}
+                download={openFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button
+                type="button"
+                class="action-btn"
+                onclick={saveOpenFile}
+                disabled={openFileSaving || !fileDirty}
+                title="Save (Ctrl+S)"
+              >
+                <Save class="w-3.5 h-3.5 shrink-0" />
+                <span class="hidden sm:inline">Save</span>
+              </button>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex-1 min-h-0">
+              {#if fileEdit}
+                <CodeEditor
+                  value={openFileDraft}
+                  language={openFileExt}
+                  onInput={(v) => openFileDraft = v}
+                />
+              {:else if openFileIsMarkdown && fileMarkdownHtml}
+                <article class="markdown-preview">{@html fileMarkdownHtml}</article>
+              {:else}
+                <CodeEditor
+                  value={openFileDraft}
+                  language={openFileExt}
+                  readonly={true}
+                />
+              {/if}
+            </div>
+          {:else if openFileIsImage && openFileDataUrl}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <a
+                href={openFileDownloadUrl}
+                download={openFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex flex-1 items-center justify-center p-4">
+              <img src={openFileDataUrl} alt={openFile.name} class="max-h-full max-w-full rounded-md object-contain" />
+            </div>
+          {:else if openFileIsVideo && openFileDataUrl}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <a
+                href={openFileDownloadUrl}
+                download={openFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex flex-1 items-center justify-center p-4">
+              <video src={openFileDataUrl} controls class="max-h-full max-w-full rounded-md">
+                <track kind="captions" />
+              </video>
+            </div>
+          {:else}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
+                {openFile.path}
+              </div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <a
+                href={openFileDownloadUrl}
+                download={openFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-[12px] text-text-secondary">
+              <div><strong>Name:</strong> {openFile.name}</div>
+              <div><strong>Type:</strong> {openFile.mimeType ?? 'application/octet-stream'}</div>
+              <div><strong>Size:</strong> {openFile.size} bytes</div>
+              <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <div class="flex-1 flex items-center justify-center text-[12px] text-text-tertiary">No file selected</div>
+      {/if}
+    {:else}
+      <!-- Chat -->
     {#if spaceLoadError && !sandboxProvisioning && !sandboxError}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
     {/if}
@@ -2223,30 +2468,10 @@ $effect(() => {
         />
       </div>
     {/if}
+  {/if}
   </div>
 
-  <!-- File viewer overlay — floats above main content on screens without right sidebar -->
-  {#if urlFilePath}
-    <div class="lg:hidden absolute inset-0 z-30 flex flex-col bg-bg-content">
-      <SpaceFilePane
-        file={openFile}
-        draftContent={openFileDraft}
-        dirty={Boolean(openFile && openFile.kind === 'text' && openFileDraft !== openFile.content)}
-        loading={openFileLoading}
-        saving={openFileSaving}
-        error={openFileError}
-        onInput={(value) => openFileDraft = value}
-        onSave={saveOpenFile}
-        onClose={closeFile}
-        onDownload={() => openFile && triggerSpaceFsDownload(spaceId, openFile.path)}
-      >
-        {#if openFileTooLarge}
-          <div class="px-4 py-3 text-[12px] text-text-tertiary">This file is too large to preview. Download it instead.</div>
-        {/if}
-      </SpaceFilePane>
-    </div>
-  {/if}
-
+  <!-- Desktop right sidebar — file tree only -->
   {#if !uiState.rightSidebarCollapsed}
     <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
       <div class="w-full relative">
@@ -2683,5 +2908,152 @@ $effect(() => {
     .sandbox-error-view {
       animation: none;
     }
+  }
+
+  /* File viewer */
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-tertiary);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .action-btn.primary {
+    background: var(--brand, #FF3E00);
+    border-color: var(--brand, #FF3E00);
+    color: #fff;
+  }
+  .action-btn.primary:hover { opacity: 0.9; }
+
+  .toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 28px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .toggle-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .toggle-btn.active {
+    border-color: var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .markdown-preview {
+    height: 100%;
+    overflow: auto;
+    padding: 20px 24px;
+    max-width: 860px;
+    margin: 0 auto;
+    line-height: 1.7;
+    font-size: 14px;
+  }
+  .markdown-preview :global(h1) {
+    font-size: 1.8em;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 0.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .markdown-preview :global(h2) {
+    font-size: 1.4em;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+  .markdown-preview :global(h3) {
+    font-size: 1.15em;
+    font-weight: 600;
+    margin-top: 1.2em;
+    margin-bottom: 0.4em;
+  }
+  .markdown-preview :global(p) { margin-bottom: 1em; }
+  .markdown-preview :global(code) {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    font-size: 0.9em;
+    font-family: var(--font-mono, monospace);
+  }
+  .markdown-preview :global(pre) {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 16px;
+    overflow: auto;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(pre code) {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .markdown-preview :global(ul),
+  .markdown-preview :global(ol) {
+    padding-left: 1.5em;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(li) { margin-bottom: 0.3em; }
+  .markdown-preview :global(blockquote) {
+    border-left: 3px solid var(--border-subtle);
+    padding-left: 1em;
+    color: var(--text-tertiary);
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(img) {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 0.5em 0;
+  }
+  .markdown-preview :global(a) { color: var(--brand, #FF3E00); }
+  .markdown-preview :global(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 1em;
+  }
+  .markdown-preview :global(th),
+  .markdown-preview :global(td) {
+    border: 1px solid var(--border-subtle);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .markdown-preview :global(th) {
+    background: var(--bg-hover);
+    font-weight: 600;
   }
 </style>
