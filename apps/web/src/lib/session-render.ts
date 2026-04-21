@@ -235,27 +235,33 @@ export function buildTimelineItems(input: {
 
   const streamingBlocks = input.streaming?.contentBlocks ?? [];
   if (streamingBlocks.length > 0) {
-    const previewBlocks = buildStreamingPreviewBlocks(streamingBlocks, {
-      truncatedStart: input.streaming?.truncatedStart,
-    });
-    if (previewBlocks.length > 0) {
-      const previewText =
-        previewBlocks.find((block) => block.type === "text")?.text?.trim() ?? "";
-      const renderKey = getStreamingRenderKey(
-        input.streaming?.anchorUserMessageId ?? null,
-        input.streaming?.sessionId ?? "active",
-      );
-      groupedHistory.push({
-        id: renderKey,
-        kind: "message",
-        message: {
-          id: renderKey,
-          role: "assistant",
-          content: previewBlocks,
-          text: previewText,
-          sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
-        },
+    const renderKey = getStreamingRenderKey(
+      input.streaming?.anchorUserMessageId ?? null,
+      input.streaming?.sessionId ?? "active",
+    );
+    const alreadyRendered = groupedHistory.some(
+      (item) => item.kind === "message" && item.message.id === renderKey,
+    );
+
+    if (!alreadyRendered) {
+      const previewBlocks = buildStreamingPreviewBlocks(streamingBlocks, {
+        truncatedStart: input.streaming?.truncatedStart,
       });
+      if (previewBlocks.length > 0) {
+        const previewText =
+          previewBlocks.find((block) => block.type === "text")?.text?.trim() ?? "";
+        groupedHistory.push({
+          id: renderKey,
+          kind: "message",
+          message: {
+            id: renderKey,
+            role: "assistant",
+            content: previewBlocks,
+            text: previewText,
+            sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
+          },
+        });
+      }
     }
   }
 

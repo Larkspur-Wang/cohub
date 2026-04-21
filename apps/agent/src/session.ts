@@ -413,17 +413,6 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         });
       });
 
-      void sendOutput({
-        type: "stream_update",
-        spaceId: handle.spaceId,
-        sessionId: handle.sessionId,
-        content: handle.streamState.content,
-        sourceMessageId: currentUserMessageId,
-        timestamp: Date.now(),
-        turnEnd: true,
-        anchorUserMessageId: currentUserMessageId,
-      });
-
       resetStreamState(handle);
       handle.pendingUserMessages = handle.pendingUserMessages.filter((item) => item.userMessageId !== currentUserMessageId);
     }

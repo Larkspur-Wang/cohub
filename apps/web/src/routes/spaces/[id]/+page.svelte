@@ -1164,7 +1164,9 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 				typeof payload.payload.anchorUserMessageId === "string"
 					? payload.payload.anchorUserMessageId
 					: null;
-			const hadContentBefore = streamingContentBlocks.length > 0;
+			const hasExistingStreamingState =
+				streamingContentBlocks.length > 0 ||
+				Boolean(streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId]);
 			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
 			const { thinking, answer } = extractSessionRenderState(mergedContent);
 			streamingThinking = thinking;
@@ -1176,7 +1178,11 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 					[currentActiveSessionId]: streamingAnchorUserMessageId,
 				};
 			}
-			if (!hadContentBefore && state.messages.length > 0) {
+			if (
+				!hasExistingStreamingState &&
+				streamStatus === "streaming" &&
+				streamingSessionId === currentActiveSessionId
+			) {
 				streamingDraftTruncatedStartBySessionId = {
 					...streamingDraftTruncatedStartBySessionId,
 					[currentActiveSessionId]: true,
@@ -1186,6 +1192,7 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 				streamingSessionId = currentActiveSessionId;
 				notifyStreamingStatus(currentActiveSessionId, true);
 			}
+			streamStatus = "streaming";
 			await tick();
 			if (!userScrolledUp) scrollToBottomNow();
 			return;
