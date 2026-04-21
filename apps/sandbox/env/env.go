@@ -50,7 +50,7 @@ func Load() (Config, error) {
 
 	imageVersion := strings.TrimSpace(os.Getenv("IMAGE_VERSION"))
 	if imageVersion == "" {
-		imageVersion = "dev"
+		imageVersion = "sandbox:dev"
 	}
 
 	return Config{

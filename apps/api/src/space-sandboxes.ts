@@ -131,7 +131,7 @@ export const provisionSpaceSandbox = async (input: {
         { name: "SPACE_ID", value: input.spaceId },
         { name: "WORKSPACE_DIR", value: "/workspace" },
         { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
-        { name: "IMAGE_VERSION", value: config.sandboxImage },
+        { name: "IMAGE_VERSION", value: config.sandboxImage.split("/").pop() ?? config.sandboxImage },
         { name: "POD_IP", valueFrom: { fieldRef: { fieldPath: "status.podIP" } } },
         {
           name: "INTERNAL_API_BASE_URL",
