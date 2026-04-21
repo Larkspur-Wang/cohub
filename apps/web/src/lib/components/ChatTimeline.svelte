@@ -119,7 +119,7 @@ $effect(() => {
 	bind:this={bindListEl}
 	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
 >
-	<div class={`mx-auto max-w-4xl flex flex-col-reverse [&>*]:mt-2 pt-10 pb-2`}>
+	<div class={`mx-auto max-w-4xl flex flex-col-reverse [&>*]:mt-2 pt-3 pb-6`}>
 		{#each reversedTimeline as item, idx (item.id)}
 			{@const originalIdx = timeline.length - 1 - idx}
 			<div

@@ -240,7 +240,9 @@ export function buildTimelineItems(input: {
       input.streaming?.sessionId ?? "active",
     );
     const alreadyRendered = groupedHistory.some(
-      (item) => item.kind === "message" && item.message.id === renderKey,
+      (item) =>
+        (item.kind === "message" && item.message.id === renderKey) ||
+        (item.kind === "process" && item.messages.some((m) => m.id === renderKey)),
     );
 
     if (!alreadyRendered) {
@@ -265,5 +267,13 @@ export function buildTimelineItems(input: {
     }
   }
 
-  return groupIntermediateMessages(groupedHistory);
+  const result = groupIntermediateMessages(groupedHistory);
+
+  // Safety: deduplicate by ID to guard against any edge-case collisions.
+  const seen = new Set<string>();
+  return result.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }
