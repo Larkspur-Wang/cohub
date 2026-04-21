@@ -18,6 +18,7 @@ import {
 	shouldStartDrawerGesture,
 	shouldStartRightDrawerGesture,
 } from "$lib/gestures/drawer-swipe";
+import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
 	LEFT_SIDEBAR_MAX,
@@ -352,7 +353,7 @@ $effect(() => {
 			if (!uiState.mobileRightDrawerOpen) uiState.rightDragOffsetPx = 0;
 			if (!uiState.mobileDrawerOpen) dragOffsetPx = 0;
 		}
-	}, 220);
+	}, DURATION_DRAWER_OUT);
 
 	return () => window.clearTimeout(timer);
 });

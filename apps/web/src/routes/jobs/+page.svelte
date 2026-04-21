@@ -14,6 +14,7 @@ import {
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { Plus, Trash2, Power, PowerOff, Loader2, Clock, Activity, Filter, X, Clipboard, ClipboardCheck, Pencil } from "lucide-svelte";
+import Dialog from "$lib/components/Dialog.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 
 type TabId = "cronjobs" | "history";
@@ -620,252 +621,226 @@ onMount(() => {
 </div>
 
 <!-- Create/Edit Modal -->
-{#if showCreateModal}
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-    role="presentation"
-    aria-hidden="true"
-    onclick={closeCreateModal}
-    onkeydown={(e) => { if (e.key === 'Escape') closeCreateModal(); }}
-  >
-    <div
-      class="w-full max-w-2xl rounded-xl bg-bg-primary border border-border-subtle shadow-2xl mx-4"
-      role="dialog"
-      tabindex="-1"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => { if (e.key === 'Escape') closeCreateModal(); }}
-    >
-      <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-        <h2 id="modal-title" class="text-[14px] font-semibold">{isEditMode ? 'Edit Cronjob' : 'New Task'}</h2>
-        <button type="button" class="text-text-tertiary hover:text-text-primary" aria-label="Close" onclick={closeCreateModal}>
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+<Dialog open={showCreateModal} onClose={closeCreateModal} title={isEditMode ? 'Edit Cronjob' : 'New Task'} maxWidth="max-w-2xl">
+  <div class="p-4 space-y-4">
+    {#if isEditMode}
+      <!-- Edit mode -->
+      <div>
+        <p class="text-[12px] text-text-tertiary mb-2">Edit via Agent — or fill the form below:</p>
+        <div class="flex flex-col gap-1.5 mb-3">
+          {#each editExamplePrompts as prompt, i}
+            <button
+              type="button"
+              class="w-full text-left text-[12px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-between gap-2 py-1 group/prompt"
+              onclick={() => copyPrompt(prompt, i)}
+            >
+              <span class="leading-relaxed flex-1">{prompt}</span>
+              <span class="shrink-0 text-text-placeholder group-hover/prompt:text-brand transition-colors">
+                {#if copiedIndex === i}
+                  <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
+                {:else}
+                  <Clipboard class="w-3.5 h-3.5" />
+                {/if}
+              </span>
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
+          <input
+            id="task-title"
+            type="text"
+            bind:value={createTitle}
+            placeholder="e.g. Daily report"
+            class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+          />
+        </div>
+
+        <div>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-space">Target Space</label>
+          <select
+            id="task-space"
+            bind:value={createSpaceId}
+            class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
+          >
+            <option value="">— Select —</option>
+            {#each spaces as space (space.id)}
+              <option value={space.id}>{space.name || space.title || space.id.slice(0, 12)}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
+          <input
+            id="task-expression"
+            type="text"
+            bind:value={createCronExpression}
+            placeholder="e.g. 0 10 * * *"
+            class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+          />
+        </div>
+
+        <div>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
+          <textarea
+            id="task-prompt"
+            bind:value={createPromptText}
+            rows="2"
+            placeholder="Message content to send to the space..."
+            class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
+          ></textarea>
+        </div>
+      </div>
+    {:else}
+      <!-- Create mode -->
+      <div>
+        <p class="text-[12px] text-text-tertiary mb-2">Create via Agent — or fill the form below:</p>
+        <div class="flex flex-col gap-1.5 mb-1">
+          {#each createExamplePrompts as prompt, i}
+            <button
+              type="button"
+              class="w-full text-left text-[12px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-between gap-2 py-1 group/prompt"
+              onclick={() => copyPrompt(prompt, i)}
+            >
+              <span class="leading-relaxed flex-1">{prompt}</span>
+              <span class="shrink-0 text-text-placeholder group-hover/prompt:text-brand transition-colors">
+                {#if copiedIndex === i}
+                  <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
+                {:else}
+                  <Clipboard class="w-3.5 h-3.5" />
+                {/if}
+              </span>
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Type toggle -->
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="px-2.5 py-1 text-[12px] font-medium rounded transition-colors {isRepeating ? 'text-text-primary bg-bg-active' : 'text-text-tertiary hover:text-text-secondary'}"
+          onclick={() => { createType = "repeating"; }}
+        >
+          <span class="flex items-center gap-1.5">
+            <Clock class="w-3.5 h-3.5" />
+            Repeating
+          </span>
+        </button>
+        <button
+          type="button"
+          class="px-2.5 py-1 text-[12px] font-medium rounded transition-colors {isOnetime ? 'text-text-primary bg-bg-active' : 'text-text-tertiary hover:text-text-secondary'}"
+          onclick={() => { createType = "onetime"; }}
+        >
+          <span class="flex items-center gap-1.5">
+            <Activity class="w-3.5 h-3.5" />
+            One-time
+          </span>
         </button>
       </div>
 
-      <div class="px-4 py-3 space-y-4">
-        {#if isEditMode}
-          <!-- Edit mode -->
+      <!-- Form fields -->
+      <div class="space-y-3">
+        {#if isRepeating}
           <div>
-            <p class="text-[12px] text-text-tertiary mb-2">Edit via Agent — or fill the form below:</p>
-            <div class="flex flex-col gap-1.5 mb-3">
-              {#each editExamplePrompts as prompt, i}
-                <button
-                  type="button"
-                  class="w-full text-left text-[12px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-between gap-2 py-1 group/prompt"
-                  onclick={() => copyPrompt(prompt, i)}
-                >
-                  <span class="leading-relaxed flex-1">{prompt}</span>
-                  <span class="shrink-0 text-text-placeholder group-hover/prompt:text-brand transition-colors">
-                    {#if copiedIndex === i}
-                      <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
-                    {:else}
-                      <Clipboard class="w-3.5 h-3.5" />
-                    {/if}
-                  </span>
-                </button>
-              {/each}
-            </div>
+            <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
+            <input
+              id="task-title"
+              type="text"
+              bind:value={createTitle}
+              placeholder="e.g. Daily report"
+              class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+            />
           </div>
+        {/if}
 
-          <div class="space-y-3">
-            <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
-              <input
-                id="task-title"
-                type="text"
-                bind:value={createTitle}
-                placeholder="e.g. Daily report"
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
-              />
-            </div>
+        <div>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-space">Target Space</label>
+          <select
+            id="task-space"
+            bind:value={createSpaceId}
+            class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
+          >
+            <option value="">— Select —</option>
+            {#each spaces as space (space.id)}
+              <option value={space.id}>{space.name || space.title || space.id.slice(0, 12)}</option>
+            {/each}
+          </select>
+        </div>
 
-            <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-space">Target Space</label>
-              <select
-                id="task-space"
-                bind:value={createSpaceId}
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
-              >
-                <option value="">— Select —</option>
-                {#each spaces as space (space.id)}
-                  <option value={space.id}>{space.name || space.title || space.id.slice(0, 12)}</option>
-                {/each}
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
-              <input
-                id="task-expression"
-                type="text"
-                bind:value={createCronExpression}
-                placeholder="e.g. 0 10 * * *"
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
-              />
-            </div>
-
-            <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
-              <textarea
-                id="task-prompt"
-                bind:value={createPromptText}
-                rows="2"
-                placeholder="Message content to send to the space..."
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
-              ></textarea>
-            </div>
+        {#if isRepeating}
+          <div>
+            <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
+            <input
+              id="task-expression"
+              type="text"
+              bind:value={createCronExpression}
+              placeholder="e.g. 0 10 * * * (daily at 10AM)"
+              class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
+            />
+            <p class="mt-1 text-[11px] text-text-placeholder">
+              Format: min hour day month weekday · Example: */30 * * * * (every 30 min)
+            </p>
           </div>
         {:else}
-          <!-- Create mode -->
           <div>
-            <p class="text-[12px] text-text-tertiary mb-2">Create via Agent — or fill the form below:</p>
-            <div class="flex flex-col gap-1.5 mb-1">
-              {#each createExamplePrompts as prompt, i}
-                <button
-                  type="button"
-                  class="w-full text-left text-[12px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-between gap-2 py-1 group/prompt"
-                  onclick={() => copyPrompt(prompt, i)}
-                >
-                  <span class="leading-relaxed flex-1">{prompt}</span>
-                  <span class="shrink-0 text-text-placeholder group-hover/prompt:text-brand transition-colors">
-                    {#if copiedIndex === i}
-                      <ClipboardCheck class="w-3.5 h-3.5 text-status-running" />
-                    {:else}
-                      <Clipboard class="w-3.5 h-3.5" />
-                    {/if}
-                  </span>
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <!-- Type toggle -->
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              class="px-2.5 py-1 text-[12px] font-medium rounded transition-colors {isRepeating ? 'text-text-primary bg-bg-active' : 'text-text-tertiary hover:text-text-secondary'}"
-              onclick={() => { createType = "repeating"; }}
-            >
-              <span class="flex items-center gap-1.5">
-                <Clock class="w-3.5 h-3.5" />
-                Repeating
-              </span>
-            </button>
-            <button
-              type="button"
-              class="px-2.5 py-1 text-[12px] font-medium rounded transition-colors {isOnetime ? 'text-text-primary bg-bg-active' : 'text-text-tertiary hover:text-text-secondary'}"
-              onclick={() => { createType = "onetime"; }}
-            >
-              <span class="flex items-center gap-1.5">
-                <Activity class="w-3.5 h-3.5" />
-                One-time
-              </span>
-            </button>
-          </div>
-
-          <!-- Form fields -->
-          <div class="space-y-3">
-            {#if isRepeating}
-              <div>
-                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-title">Name</label>
-                <input
-                  id="task-title"
-                  type="text"
-                  bind:value={createTitle}
-                  placeholder="e.g. Daily report"
-                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder"
-                />
-              </div>
-            {/if}
-
-            <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-space">Target Space</label>
-              <select
-                id="task-space"
-                bind:value={createSpaceId}
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
-              >
-                <option value="">— Select —</option>
-                {#each spaces as space (space.id)}
-                  <option value={space.id}>{space.name || space.title || space.id.slice(0, 12)}</option>
-                {/each}
-              </select>
-            </div>
-
-            {#if isRepeating}
-              <div>
-                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-expression">Cron Expression</label>
-                <input
-                  id="task-expression"
-                  type="text"
-                  bind:value={createCronExpression}
-                  placeholder="e.g. 0 10 * * * (daily at 10AM)"
-                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] font-mono outline-none focus:border-brand/50 placeholder:text-text-placeholder"
-                />
-                <p class="mt-1 text-[11px] text-text-placeholder">
-                  Format: min hour day month weekday · Example: */30 * * * * (every 30 min)
-                </p>
-              </div>
-            {:else}
-              <div>
-                <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-schedule">Schedule At</label>
-                <input
-                  id="task-schedule"
-                  type="datetime-local"
-                  bind:value={createScheduleAt}
-                  class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
-                />
-                <p class="mt-1 text-[11px] text-text-placeholder">
-                  Local time (UTC{new Date().getTimezoneOffset() > 0 ? '-' : '+'}{Math.abs(new Date().getTimezoneOffset() / 60)})
-                </p>
-              </div>
-            {/if}
-
-            <div>
-              <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
-              <textarea
-                id="task-prompt"
-                bind:value={createPromptText}
-                rows="2"
-                placeholder="Message content to send to the space..."
-                class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
-              ></textarea>
-            </div>
+            <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-schedule">Schedule At</label>
+            <input
+              id="task-schedule"
+              type="datetime-local"
+              bind:value={createScheduleAt}
+              class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 text-text-primary"
+            />
+            <p class="mt-1 text-[11px] text-text-placeholder">
+              Local time (UTC{new Date().getTimezoneOffset() > 0 ? '-' : '+'}{Math.abs(new Date().getTimezoneOffset() / 60)})
+            </p>
           </div>
         {/if}
 
-        {#if createError}
-          <p class="text-[12px] text-error-soft">{createError}</p>
-        {/if}
+        <div>
+          <label class="block text-[12px] font-medium text-text-secondary mb-1" for="task-prompt">Prompt Message</label>
+          <textarea
+            id="task-prompt"
+            bind:value={createPromptText}
+            rows="2"
+            placeholder="Message content to send to the space..."
+            class="w-full px-3 py-2 rounded-md border border-border-subtle bg-bg-secondary text-[13px] outline-none focus:border-brand/50 placeholder:text-text-placeholder resize-none"
+          ></textarea>
+        </div>
       </div>
+    {/if}
 
-      <div class="flex justify-end gap-2 px-4 py-2.5 border-t border-border-subtle">
-        <button
-          type="button"
-          class="px-3 py-1.5 rounded text-[12px] text-text-tertiary hover:text-text-primary transition-colors"
-          onclick={closeCreateModal}
-          disabled={isCreating}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="px-3 py-1.5 rounded text-[12px] font-medium bg-brand text-white hover:bg-brand-hover transition-colors disabled:opacity-50 flex items-center gap-1.5"
-          disabled={isCreating || !createPromptText.trim() || !createSpaceId || (isEditMode && !createTitle.trim()) || (isEditMode && !createCronExpression.trim()) || (isCreateMode && isRepeating && !createTitle.trim()) || (isCreateMode && isRepeating && !createCronExpression.trim()) || (isCreateMode && isOnetime && !createScheduleAt)}
-          onclick={handleCreate}
-        >
-          {#if isCreating}
-            <Loader2 class="w-3.5 h-3.5 animate-spin" />
-            {#if isEditMode}Updating...{:else}Creating...{/if}
-          {:else}
-            {#if isEditMode}Update{:else}Create{/if}
-          {/if}
-        </button>
-      </div>
-    </div>
+    {#if createError}
+      <p class="text-[12px] text-error-soft">{createError}</p>
+    {/if}
   </div>
-{/if}
+  {#snippet footer()}
+    <div class="flex justify-end gap-2 px-4 py-2.5 border-t border-border-subtle">
+      <button
+        type="button"
+        class="px-3 py-1.5 rounded text-[12px] text-text-tertiary hover:text-text-primary transition-colors"
+        onclick={closeCreateModal}
+        disabled={isCreating}
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="px-3 py-1.5 rounded text-[12px] font-medium bg-brand text-white hover:bg-brand-hover transition-colors disabled:opacity-50 flex items-center gap-1.5"
+        disabled={isCreating || !createPromptText.trim() || !createSpaceId || (isEditMode && !createTitle.trim()) || (isEditMode && !createCronExpression.trim()) || (isCreateMode && isRepeating && !createTitle.trim()) || (isCreateMode && isRepeating && !createCronExpression.trim()) || (isCreateMode && isOnetime && !createScheduleAt)}
+        onclick={handleCreate}
+      >
+        {#if isCreating}
+          <Loader2 class="w-3.5 h-3.5 animate-spin" />
+          {#if isEditMode}Updating...{:else}Creating...{/if}
+        {:else}
+          {#if isEditMode}Update{:else}Create{/if}
+        {/if}
+      </button>
+    </div>
+  {/snippet}
+</Dialog>

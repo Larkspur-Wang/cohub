@@ -5,6 +5,7 @@ import {
   MOBILE_DRAWER_WIDTH_PX,
   getDrawerOpenRatio,
 } from "$lib/gestures/drawer-swipe";
+import { DURATION_DRAWER_IN, DURATION_DRAWER_OUT, EASE_OUT, EASE_IN } from "$lib/motion.svelte";
 import { uiState } from "$lib/stores/ui.svelte";
 
 const {
@@ -19,9 +20,11 @@ const {
   mode?: "space" | "settings";
 } = $props();
 
-const TRANSITION_CSS = "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)";
-const BACKDROP_TRANSITION_CSS = "opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)";
-const TRANSITION_DURATION_MS = 220;
+const TRANSITION_CSS = `transform ${DURATION_DRAWER_IN}ms ${EASE_OUT}`;
+const CLOSE_TRANSITION_CSS = `transform ${DURATION_DRAWER_OUT}ms ${EASE_IN}`;
+const BACKDROP_TRANSITION_CSS = `opacity ${DURATION_DRAWER_IN}ms ${EASE_OUT}`;
+const CLOSE_BACKDROP_TRANSITION_CSS = `opacity ${DURATION_DRAWER_OUT}ms ${EASE_IN}`;
+const TRANSITION_DURATION_MS = DURATION_DRAWER_OUT;
 
 const openRatio = $derived(getDrawerOpenRatio(dragOffsetPx));
 
@@ -33,7 +36,7 @@ const panelStyle = $derived.by(() => {
   if (uiState.mobileDrawerOpen) {
     return `transform: translateX(0); transition: ${TRANSITION_CSS};`;
   }
-  return `transform: translateX(-${MOBILE_DRAWER_WIDTH_PX}px); transition: ${TRANSITION_CSS}; pointer-events: none;`;
+  return `transform: translateX(-${MOBILE_DRAWER_WIDTH_PX}px); transition: ${CLOSE_TRANSITION_CSS}; pointer-events: none;`;
 });
 
 const backdropStyle = $derived.by(() => {
@@ -43,7 +46,7 @@ const backdropStyle = $derived.by(() => {
   if (uiState.mobileDrawerOpen) {
     return `opacity: 0.5; transition: ${BACKDROP_TRANSITION_CSS};`;
   }
-  return `opacity: 0; transition: ${BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
+  return `opacity: 0; transition: ${CLOSE_BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
 });
 
 

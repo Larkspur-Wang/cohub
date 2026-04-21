@@ -31,6 +31,7 @@ import {
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
+import Dialog from "$lib/components/Dialog.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
@@ -2717,95 +2718,79 @@ $effect(() => {
   </SettingsOverlay>
 
   <!-- Share Modal -->
-  {#if showShareModal && shareModalSessionId}
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        class="absolute inset-0 bg-black/40"
-        aria-label="Close share dialog"
-        onclick={() => { showShareModal = false; }}
-      ></button>
-      <div class="relative w-full max-w-[380px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl overflow-hidden">
-        <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none">
-          <span>{hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'}</span>
-          <button type="button" class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors" onclick={() => { showShareModal = false; }}>
-            <X class="w-3.5 h-3.5" />
+  <Dialog open={showShareModal && !!shareModalSessionId} onClose={() => { showShareModal = false; }} title={hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'} maxWidth="380px">
+    <div class="p-4 space-y-4">
+      {#if hasSessionPermission(shareModalSessionId!)}
+        <p class="text-[13px] text-text-secondary leading-relaxed">Anyone with the link can view this session. Choose how to manage access:</p>
+        <div class="space-y-2">
+          <button
+            type="button"
+            class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
+            onclick={() => { void removeSessionPermission(shareModalSessionId!); showShareModal = false; }}
+            disabled={shareModalSaving}
+          >
+            <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
+            <div class="min-w-0">
+              <div class="text-[13px] text-text-primary font-medium">Remove permission</div>
+              <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Delete this session's access rule.</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
+            onclick={() => { void makeSessionPrivate(); }}
+            disabled={shareModalSaving}
+          >
+            <Lock class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
+            <div class="min-w-0">
+              <div class="text-[13px] text-text-primary font-medium">Make private</div>
+              <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Block all external access.</div>
+            </div>
           </button>
         </div>
-        <div class="p-4 space-y-4">
-          {#if hasSessionPermission(shareModalSessionId!)}
-            <p class="text-[13px] text-text-secondary leading-relaxed">Anyone with the link can view this session. Choose how to manage access:</p>
-            <div class="space-y-2">
-              <button
-                type="button"
-                class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
-                onclick={() => { void removeSessionPermission(shareModalSessionId!); showShareModal = false; }}
-                disabled={shareModalSaving}
-              >
-                <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
-                <div class="min-w-0">
-                  <div class="text-[13px] text-text-primary font-medium">Remove permission</div>
-                  <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Delete this session's access rule.</div>
-                </div>
-              </button>
-              <button
-                type="button"
-                class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
-                onclick={() => { void makeSessionPrivate(); }}
-                disabled={shareModalSaving}
-              >
-                <Lock class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
-                <div class="min-w-0">
-                  <div class="text-[13px] text-text-primary font-medium">Make private</div>
-                  <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Block all external access.</div>
-                </div>
-              </button>
-            </div>
-            <button
-              type="button"
-              class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] text-[13px] text-text-secondary hover:text-text-primary border border-border-subtle hover:bg-bg-hover transition-colors disabled:opacity-50"
-              onclick={() => {
-                const url = `${window.location.origin}/spaces/${spaceId}?session=${shareModalSessionId}`;
-                void navigator.clipboard.writeText(url);
-                shareCopied = true;
-                if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
-                shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
-              }}
-              disabled={shareModalSaving}
-            >
-              {#if shareCopied}
-                <Check class="w-3.5 h-3.5 text-status-success" />
-                Copied
-              {:else}
-                <Copy class="w-3.5 h-3.5" />
-                Copy link
-              {/if}
-            </button>
+        <button
+          type="button"
+          class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] text-[13px] text-text-secondary hover:text-text-primary border border-border-subtle hover:bg-bg-hover transition-colors disabled:opacity-50"
+          onclick={() => {
+            const url = `${window.location.origin}/spaces/${spaceId}?session=${shareModalSessionId}`;
+            void navigator.clipboard.writeText(url);
+            shareCopied = true;
+            if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+            shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
+          }}
+          disabled={shareModalSaving}
+        >
+          {#if shareCopied}
+            <Check class="w-3.5 h-3.5 text-status-success" />
+            Copied
           {:else}
-            <p class="text-[13px] text-text-secondary leading-relaxed">This session will become publicly accessible. Anyone with the link can view the conversation.</p>
-            <button
-              type="button"
-              class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] bg-bg-primary hover:bg-bg-hover-strong border border-border-subtle text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
-              onclick={() => { void shareAndCopyLink(); }}
-              disabled={shareModalSaving}
-            >
-              {#if shareModalSaving}
-                <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                Sharing…
-              {:else}
-                <Share2 class="w-3.5 h-3.5" />
-                Share &amp; copy link
-              {/if}
-            </button>
+            <Copy class="w-3.5 h-3.5" />
+            Copy link
           {/if}
+        </button>
+      {:else}
+        <p class="text-[13px] text-text-secondary leading-relaxed">This session will become publicly accessible. Anyone with the link can view the conversation.</p>
+        <button
+          type="button"
+          class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] bg-bg-primary hover:bg-bg-hover-strong border border-border-subtle text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
+          onclick={() => { void shareAndCopyLink(); }}
+          disabled={shareModalSaving}
+        >
+          {#if shareModalSaving}
+            <Loader2 class="w-3.5 h-3.5 animate-spin" />
+            Sharing…
+          {:else}
+            <Share2 class="w-3.5 h-3.5" />
+            Share &amp; copy link
+          {/if}
+        </button>
+      {/if}
 
-          {#if shareModalError}
-            <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
-          {/if}
-        </div>
-      </div>
+      {#if shareModalError}
+        <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
+      {/if}
     </div>
-  {/if}
+  </Dialog>
 
   <ModelSelector
     open={showModelSelector}

@@ -17,6 +17,7 @@ import {
   Save,
   LayoutDashboard,
 } from "lucide-svelte";
+import Dialog from "$lib/components/Dialog.svelte";
 import { getSpaces, getSpaceSessions, createSpaceSession, createSpaceCheckpoint, getTaskRun, type SessionRecord, type SpaceRecord } from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
@@ -566,102 +567,62 @@ $effect(() => {
   </div>
 
   <!-- Space Switcher Modal -->
-  {#if showSpaceModal}
-    <div
-      role="button"
-      tabindex="0"
-      class="fixed inset-0 z-[100] flex items-center justify-center"
-      onclick={() => { showSpaceModal = false; }}
-      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { showSpaceModal = false; } }}
-    >
-      <!-- Backdrop -->
-      <div class="absolute inset-0 bg-black/60" style="backdrop-filter: blur(4px);"></div>
-
-      <!-- Modal Panel -->
-      <div
-        role="dialog"
-        aria-label="Switch Space"
-        tabindex="-1"
-        class="relative w-[340px] max-w-[calc(100vw-2rem)] max-h-[70vh] bg-bg-primary border border-border-subtle rounded-lg shadow-2xl overflow-hidden flex flex-col"
-        onclick={(e) => e.stopPropagation()}
-        onkeydown={(e) => e.stopPropagation()}
-      >
-        <!-- Header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-          <h2 class="text-[13px] font-semibold text-text-primary">Switch Space</h2>
+  <Dialog open={showSpaceModal} onClose={() => { showSpaceModal = false; }} title="Switch Space" maxWidth="340px">
+    <div class="py-1">
+      {#if isLoading}
+        <div class="px-4 py-6 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
+          <Loader2 class="w-3 h-3 animate-spin" />
+          Loading...
+        </div>
+      {:else if loadError}
+        <div class="px-4 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
+      {:else if spaces.length === 0}
+        <div class="px-4 py-6 text-center">
+          <p class="text-[13px] text-text-tertiary">No spaces yet</p>
+          <p class="text-[11px] text-text-placeholder mt-1">Create your first space to get started</p>
+        </div>
+      {:else}
+        {#each spaces as space (space.id)}
+          {@const isActive = currentSpaceId === space.id}
+          {@const status = displayStatus(space)}
           <button
             type="button"
-            class="p-1 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-            onclick={() => { showSpaceModal = false; }}
-            aria-label="Close"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
+            onclick={() => { void handleNavigateToSpace(space.id); }}
           >
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
+            <!-- Status dot -->
+            <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
 
-        <!-- Space List -->
-        <div class="flex-1 overflow-y-auto py-1">
-          {#if isLoading}
-            <div class="px-4 py-6 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
-              <Loader2 class="w-3 h-3 animate-spin" />
-              Loading...
-            </div>
-          {:else if loadError}
-            <div class="px-4 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
-          {:else if spaces.length === 0}
-            <div class="px-4 py-6 text-center">
-              <p class="text-[13px] text-text-tertiary">No spaces yet</p>
-              <p class="text-[11px] text-text-placeholder mt-1">Create your first space to get started</p>
-            </div>
-          {:else}
-            {#each spaces as space (space.id)}
-              {@const isActive = currentSpaceId === space.id}
-              {@const status = displayStatus(space)}
-              <button
-                type="button"
-                class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
-                onclick={() => { void handleNavigateToSpace(space.id); }}
-              >
-                <!-- Status dot -->
-                <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
-
-                <!-- Name & meta -->
-                <div class="flex-1 min-w-0">
-                  <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
-                    {space.name || space.title || space.id.slice(0, 12)}
-                  </div>
-                  {#if space.userUuid !== authStore.userUuid}
-                    <div class="flex items-center gap-1 mt-0.5">
-                      <Users class="w-2.5 h-2.5 text-text-placeholder" />
-                      <span class="text-[10px] text-text-placeholder">Shared</span>
-                    </div>
-                  {/if}
+            <!-- Name & meta -->
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
+                {space.name || space.title || space.id.slice(0, 12)}
+              </div>
+              {#if space.userUuid !== authStore.userUuid}
+                <div class="flex items-center gap-1 mt-0.5">
+                  <Users class="w-2.5 h-2.5 text-text-placeholder" />
+                  <span class="text-[10px] text-text-placeholder">Shared</span>
                 </div>
+              {/if}
+            </div>
 
-                <!-- Active indicator -->
-                {#if isActive}
-                  <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
-                {/if}
-              </button>
-            {/each}
-          {/if}
-        </div>
-
-        <!-- Footer: New Space -->
-        <div class="border-t border-border-subtle shrink-0">
-          <button
-            type="button"
-            class="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-brand hover:bg-bg-hover transition-colors duration-100"
-            onclick={() => { showSpaceModal = false; handleNavigate("/spaces/new"); }}
-          >
-            <Plus class="w-3.5 h-3.5" />
-            <span>New Space</span>
+            <!-- Active indicator -->
+            {#if isActive}
+              <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
+            {/if}
           </button>
-        </div>
-      </div>
+        {/each}
+      {/if}
     </div>
-  {/if}
+    {#snippet footer()}
+      <button
+        type="button"
+        class="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-brand hover:bg-bg-hover transition-colors duration-100"
+        onclick={() => { showSpaceModal = false; handleNavigate("/spaces/new"); }}
+      >
+        <Plus class="w-3.5 h-3.5" />
+        <span>New Space</span>
+      </button>
+    {/snippet}
+  </Dialog>
 </aside>
