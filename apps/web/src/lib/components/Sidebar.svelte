@@ -406,7 +406,7 @@ $effect(() => {
 
     <!-- Sessions -->
     {#if currentSpace}
-      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
+      <div class="flex-1 overflow-y-auto px-1 pb-2 pt-1 min-h-0">
         {#if loadingSessions && sessions.length === 0}
           <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
             <Loader2 class="w-3 h-3 animate-spin" />
@@ -415,29 +415,27 @@ $effect(() => {
         {:else if sessions.length === 0}
           <div class="px-1 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
         {:else}
-          {#if !sessionsCollapsed}
-            <!-- Sessions header — collapse button on hover -->
-            <div class="flex items-center gap-1 px-2 py-1 shrink-0 group relative">
-              <span class="text-[11px] text-text-placeholder select-none">
-                Sessions
-              </span>
-              <button
-                type="button"
-                class="absolute right-1 w-5 h-5 flex items-center justify-center rounded-[4px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                onclick={() => { sessionsCollapsed = true; }}
-                title="Collapse sessions"
-              >
-                <ChevronDown class="w-3 h-3" />
-              </button>
-            </div>
+          <!-- Sessions header — clickable to toggle collapse -->
+          <button
+            type="button"
+            class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+            onclick={() => { sessionsCollapsed = !sessionsCollapsed; }}
+            title={sessionsCollapsed ? "Expand sessions" : "Collapse sessions"}
+          >
+            <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {sessionsCollapsed ? 'rotate-180' : ''}" />
+            <span class="text-[11px] text-text-placeholder select-none">
+              Sessions
+            </span>
+          </button>
 
+          {#if !sessionsCollapsed}
             <!-- Session list -->
-            <div class="space-y-[2px]">
+            <div class="space-y-[2px] mt-1">
               {#each sessions as session, index (session.id)}
                 {@const isActive = page.url.searchParams.get("session") === session.id}
                 <a
                   href="/spaces/{currentSpaceId}?session={session.id}"
-                  class="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                  class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                   onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
                   title={sourceTooltip(session.source) || undefined}
                 >
@@ -455,14 +453,12 @@ $effect(() => {
                 </a>
               {/each}
             </div>
-          {/if}
-
-          {#if sessionsCollapsed}
-            <!-- Always show active session + expand button when collapsed -->
+          {:else}
+            <!-- Collapsed: show only active session -->
             {#if activeSession}
               <a
                 href="/spaces/{currentSpaceId}?session={activeSession.id}"
-                class="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
                 title={sourceTooltip(activeSession.source) || undefined}
               >
@@ -479,21 +475,11 @@ $effect(() => {
                 {/if}
               </a>
             {/if}
-            <!-- Expand button -->
-            <button
-              type="button"
-              class="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
-              onclick={() => { sessionsCollapsed = false; }}
-              title="Expand sessions"
-            >
-              <ChevronDown class="w-3 h-3 rotate-180" />
-              <span class="text-[12px]">Sessions</span>
-            </button>
           {/if}
         {/if}
       </div>
     {:else}
-      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
+      <div class="flex-1 overflow-y-auto px-1 pb-2 pt-1 min-h-0">
         <div class="px-1 py-6 text-[12px] text-text-placeholder text-center">
           Select a space to view sessions
         </div>
