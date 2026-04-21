@@ -1413,6 +1413,8 @@ async function handleSend() {
 					sessionId,
 					content,
 					clientMessageId,
+					model: model?.id,
+					provider: model?.provider,
 				}),
 				new Promise<void>((_, reject) => {
 					setTimeout(() => reject(new Error("WS send timeout")), 5000);

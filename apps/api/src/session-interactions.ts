@@ -34,6 +34,8 @@ export type ResolvedInboundInteraction = {
   source: string;
   interactionId: string;
   actorUserId?: string | null;
+  model?: string;
+  provider?: string;
   inboundRef?: SessionInteractionInboundRef | null;
 };
 
@@ -78,8 +80,8 @@ export const executeSessionInteraction = async (input: ResolvedInboundInteractio
       source: input.source,
       interactionId: input.interactionId,
       actorUserId: input.actorUserId ?? null,
-      model: (input as { model?: string; provider?: string }).model ?? null,
-      provider: (input as { model?: string; provider?: string }).provider ?? null,
+      model: input.model ?? null,
+      provider: input.provider ?? null,
     },
   });
 

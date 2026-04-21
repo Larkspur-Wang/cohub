@@ -59,6 +59,8 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
       sessionId: z.string().uuid(),
       clientMessageId: z.string().optional(),
       content: z.array(contentBlockSchema).min(1),
+      model: z.string().optional(),
+      provider: z.string().optional(),
     }),
   }),
   z.object({

@@ -175,6 +175,8 @@ async function buildDirectWebsocketInteraction(event: GatewayInboundEvent): Prom
     source: "channel:websocket",
     interactionId: event.eventId,
     actorUserId: context.userId,
+    model: typeof event.meta?.model === "string" && event.meta.model.trim() ? event.meta.model.trim() : undefined,
+    provider: typeof event.meta?.provider === "string" && event.meta.provider.trim() ? event.meta.provider.trim() : undefined,
     inboundRef: {
       provider: event.provider,
       spaceChannelId: context.sessionId,

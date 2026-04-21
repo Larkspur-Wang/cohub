@@ -221,6 +221,12 @@ const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestI
   const content = Array.isArray(payload.content)
     ? payload.content as GatewayInboundEvent["content"]
     : [];
+  const model = typeof payload.model === "string" && payload.model.trim()
+    ? payload.model.trim()
+    : null;
+  const provider = typeof payload.provider === "string" && payload.provider.trim()
+    ? payload.provider.trim()
+    : null;
 
   if (!spaceId || !sessionId) throw new WsClientInputError("spaceId and sessionId are required");
   if (content.length === 0) throw new WsClientInputError("content is required");
@@ -257,6 +263,8 @@ const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestI
       spaceId,
       sessionId,
       clientMessageId,
+      model,
+      provider,
     },
   };
 

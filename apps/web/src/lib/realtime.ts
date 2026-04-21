@@ -234,6 +234,8 @@ export class RealtimeClient {
     content: ContentBlock[];
     clientMessageId?: string;
     requestId?: string;
+    model?: string;
+    provider?: string;
   }) {
     await this.ensureOpen();
     this.send({
@@ -244,6 +246,8 @@ export class RealtimeClient {
         sessionId: input.sessionId,
         content: input.content,
         clientMessageId: input.clientMessageId,
+        model: input.model,
+        provider: input.provider,
       },
     });
   }
