@@ -285,18 +285,28 @@ async function connectOnce(registration: SandboxClientRegistration) {
 
     socket.on("close", (_code, reason) => {
       connection?.dispose();
-      if (registrations.get(registration.spaceId)?.connection === connection) {
+      const isStillActive = registrations.get(registration.spaceId)?.connection === connection;
+      if (isStillActive) {
         setActiveConnection(registration.spaceId, null);
       }
-      console.log(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reason.toString() || "unknown"}`);
+      const reasonStr = reason?.toString() || "unknown";
       void registration.hooks?.onDisconnected?.({
         spaceId: registration.spaceId,
-        reason: reason.toString() || "socket closed",
+        reason: reasonStr,
       });
       if (!firstHeartbeatAccepted) {
-        finishReject(new Error(`Sandbox websocket closed before first heartbeat: ${reason.toString() || "unknown reason"}`));
+        console.warn(`[SandboxWS] closed before first heartbeat spaceId=${registration.spaceId} reason=${reasonStr}`);
+        finishReject(new Error(`Sandbox websocket closed before first heartbeat: ${reasonStr}`));
         return;
       }
+      // If this connection was replaced by a newer one, reject so runLoop applies backoff
+      // instead of immediately reconnecting and creating a tight replacement loop.
+      if (!isStillActive) {
+        console.warn(`[SandboxWS] closed spaceId=${registration.spaceId} reason=replaced: ${reasonStr}`);
+        finishReject(new Error(`Sandbox websocket was replaced by a newer connection: ${reasonStr}`));
+        return;
+      }
+      console.log(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reasonStr}`);
       finishResolve();
     });
 
