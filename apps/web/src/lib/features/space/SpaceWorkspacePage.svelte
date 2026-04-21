@@ -464,11 +464,11 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 	checkpointCreateError = "";
 	checkpointCreateSubmitting = true;
 	try {
-		const { jobId } = await createSpaceCheckpoint(
+		const { taskRunId } = await createSpaceCheckpoint(
 			spaceId,
 			checkpointCreateDescription.trim() || null,
 		);
-		const run = await pollCheckpointJob(jobId);
+		const run = await pollCheckpointJob(taskRunId);
 		const checkpointId =
 			typeof run.result === "object" &&
 			run.result !== null &&

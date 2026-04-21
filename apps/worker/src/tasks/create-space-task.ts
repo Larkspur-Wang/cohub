@@ -66,7 +66,7 @@ const ensureValidGitRef = (value: string) => {
 
 const updateBootstrap = async (input: {
   space: typeof spaces.$inferSelect;
-  jobId: string;
+  taskRunId: string;
   source: SpaceCreateSource;
   status: BootstrapStatus;
   stage?: BootstrapStage;
@@ -78,7 +78,7 @@ const updateBootstrap = async (input: {
   const nextMeta = {
     ...meta,
     bootstrap: {
-      jobId: input.jobId,
+      taskRunId: input.taskRunId,
       source: input.source,
       status: input.status,
       stage: input.stage ?? null,
@@ -220,9 +220,9 @@ const bootstrapFromCheckpoint = async (input: {
 const createSpaceHandler = async (job: Job) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const jobId = String(job.id ?? "");
+  const taskRunId = String(job.id ?? "");
   if (!spaceId) throw new Error("spaceId is required for create_space task");
-  if (!jobId) throw new Error("job id is required for create_space task");
+  if (!taskRunId) throw new Error("task run id is required for create_space task");
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) throw new Error("space not found");
@@ -230,7 +230,7 @@ const createSpaceHandler = async (job: Job) => {
   const source = resolveSource(payload);
   let currentSpace = await updateBootstrap({
     space,
-    jobId,
+    taskRunId,
     source,
     status: "running",
     stage: source.type === "checkpoint" ? "checkpoint_restore" : source.type === "public_git_repo" ? "import" : "prepare",
@@ -253,7 +253,7 @@ const createSpaceHandler = async (job: Job) => {
     if (source.type === "public_git_repo") {
       currentSpace = await updateBootstrap({
         space: currentSpace,
-        jobId,
+        taskRunId,
         source,
         status: "running",
         stage: "import",
@@ -267,7 +267,7 @@ const createSpaceHandler = async (job: Job) => {
     } else if (source.type === "checkpoint") {
       currentSpace = await updateBootstrap({
         space: currentSpace,
-        jobId,
+        taskRunId,
         source,
         status: "running",
         stage: "checkpoint_restore",
@@ -290,7 +290,7 @@ const createSpaceHandler = async (job: Job) => {
 
     currentSpace = await updateBootstrap({
       space: currentSpace,
-      jobId,
+      taskRunId,
       source,
       status: "ready",
       stage: "finalize",
@@ -307,7 +307,7 @@ const createSpaceHandler = async (job: Job) => {
   } catch (error) {
     await updateBootstrap({
       space: currentSpace,
-      jobId,
+      taskRunId,
       source,
       status: "failed",
       errorMessage: sanitizeBootstrapError(error),

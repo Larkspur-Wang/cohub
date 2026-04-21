@@ -103,7 +103,7 @@ export type SpaceBootstrapSource =
 
 export type SpaceCreateResponse = {
 	space: SpaceRecord;
-	jobId: string;
+	taskRunId: string;
 };
 
 /** Web-extended space record with live status and channels */
@@ -657,7 +657,7 @@ export const createScheduledTask = async (data: CreateScheduledTaskInput) => {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(data),
-	}) as Promise<{ ok: true; jobId: string; scheduledAt: string }>;
+	}) as Promise<{ ok: true; taskRunId: string; scheduledAt: string }>;
 };
 
 export const createSpaceCheckpoint = async (
@@ -668,7 +668,7 @@ export const createSpaceCheckpoint = async (
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ description: description ?? null }),
-	}) as Promise<{ ok: true; jobId: string }>;
+	}) as Promise<{ ok: true; taskRunId: string }>;
 };
 
 export const getSpaceCheckpoints = async (spaceId: string) => {
@@ -688,8 +688,8 @@ export const getSpaceCheckpoint = async (
 };
 
 
-export const getTaskRun = async (jobId: string) => {
-	return apiFetch(`/api/tasks/runs/${jobId}`) as Promise<{
+export const getTaskRun = async (taskRunId: string) => {
+	return apiFetch(`/api/tasks/${taskRunId}`) as Promise<{
 		run: TaskRunRecord;
 	}>;
 };
@@ -702,7 +702,7 @@ export const getTaskRuns = async (filters?: {
 	if (filters?.cronJobId) params.set("cronJobId", filters.cronJobId);
 	if (filters?.spaceId) params.set("spaceId", filters.spaceId);
 	const query = params.toString();
-	return apiFetch(`/api/tasks/runs${query ? `?${query}` : ""}`) as Promise<{
+	return apiFetch(`/api/tasks${query ? `?${query}` : ""}`) as Promise<{
 		runs: TaskRunRecord[];
 	}>;
 };

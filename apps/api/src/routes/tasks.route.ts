@@ -48,7 +48,7 @@ router.post("/", async (c) => {
   }
 
   try {
-    const job = await enqueueTask(
+    const { taskRunId } = await enqueueTask(
       {
         type: body.taskType,
         spaceId: effectiveSpaceId ?? undefined,
@@ -59,17 +59,14 @@ router.post("/", async (c) => {
       { delay, scheduledAt: scheduledTime },
     );
 
-    const jobId = job.id;
-    if (!jobId) throw new Error("Failed to get job id");
-
-    return c.json({ ok: true, jobId, scheduledAt: scheduledTime.toISOString() });
+    return c.json({ ok: true, taskRunId, scheduledAt: scheduledTime.toISOString() });
   } catch (error) {
     console.error("[Tasks] Failed to schedule task:", error);
     return c.json({ message: "failed to schedule task" }, 500);
   }
 });
 
-router.get("/runs", async (c) => {
+router.get("/", async (c) => {
   const user = useAuth(c);
 
   const cronJobId = c.req.query("cronJobId");
@@ -89,7 +86,7 @@ router.get("/runs", async (c) => {
   return c.json({ runs });
 });
 
-router.get("/runs/:taskId", async (c) => {
+router.get("/:taskId", async (c) => {
   const user = useAuth(c);
 
   const taskId = c.req.param("taskId");

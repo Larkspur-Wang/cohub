@@ -17,13 +17,15 @@ export const enqueueTask = async (
   payload: TaskPayload,
   opts?: JobsOptions & { scheduledAt?: Date | null },
 ) => {
-  const job = await taskQueue.add(payload.type, payload, opts);
+  const taskRunId = crypto.randomUUID();
 
-  const jobId = job.id;
-  if (!jobId) throw new Error("Failed to get job id");
+  const job = await taskQueue.add(payload.type, payload, {
+    ...opts,
+    jobId: taskRunId,
+  });
 
   await db.insert(taskRuns).values({
-    jobId,
+    jobId: taskRunId,
     taskType: payload.type,
     spaceId: payload.spaceId ?? null,
     sessionId: payload.sessionId ?? null,
@@ -34,7 +36,7 @@ export const enqueueTask = async (
     scheduledAt: opts?.scheduledAt ?? (opts?.delay ? new Date(Date.now() + opts.delay) : null),
   });
 
-  return job;
+  return { job, taskRunId };
 };
 
 export const createCronJob = async (params: {

@@ -183,7 +183,7 @@ router.post("/", async (c) => {
         bootstrap: {
           status: "pending",
           stage: null,
-          jobId: null,
+          taskRunId: null,
           errorMessage: null,
           source: normalizedBootstrapSource,
           startedAt: null,
@@ -234,7 +234,7 @@ router.post("/", async (c) => {
       bootstrap: {
         status: "failed",
         stage: null,
-        jobId: null,
+        taskRunId: null,
         errorMessage: error instanceof Error ? error.message : String(error),
         source: normalizedBootstrapSource,
         startedAt: null,
@@ -247,8 +247,8 @@ router.post("/", async (c) => {
       .where(eq(spaces.id, space.id));
     throw error;
   });
-  const jobId = String(job.id ?? "");
-  if (!jobId) {
+  const taskRunId = job.taskRunId;
+  if (!taskRunId) {
     await db
       .update(spaces)
       .set({
@@ -257,8 +257,8 @@ router.post("/", async (c) => {
           bootstrap: {
             status: "failed",
             stage: null,
-            jobId: null,
-            errorMessage: "failed to allocate create_space job id",
+            taskRunId: null,
+            errorMessage: "failed to allocate create_space task id",
             source: normalizedBootstrapSource,
             startedAt: null,
             finishedAt: new Date().toISOString(),
@@ -278,7 +278,7 @@ router.post("/", async (c) => {
         bootstrap: {
           status: "pending",
           stage: null,
-          jobId,
+          taskRunId,
           errorMessage: null,
           source: normalizedBootstrapSource,
           startedAt: null,
@@ -290,7 +290,7 @@ router.post("/", async (c) => {
     .where(eq(spaces.id, space.id))
     .returning();
 
-  return c.json({ space: spaceWithJob ?? space, jobId });
+  return c.json({ space: spaceWithJob ?? space, taskRunId });
 });
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────
@@ -319,14 +319,14 @@ router.post("/:id/checkpoints", async (c) => {
   const body = await c.req.json<{ description?: string }>().catch(() => null);
   const description = body?.description?.trim() || null;
 
-  const job = await enqueueTask({
+  const { taskRunId } = await enqueueTask({
     type: "save_checkpoint",
     spaceId,
     userId: user.uuid,
     data: { spaceId, description },
   });
 
-  return c.json({ ok: true, jobId: job.id });
+  return c.json({ ok: true, taskRunId });
 });
 
 router.get("/:id/checkpoints", async (c) => {
