@@ -282,6 +282,7 @@ async function main() {
   const authStorage = AuthStorage.create(PLATFORM_AUTH_PATH);
   const modelRegistry = ModelRegistry.create(authStorage, PLATFORM_MODELS_PATH);
   const resourceLoader = new DefaultResourceLoader({
+    cwd: PLATFORM_ROOT,
     agentDir: PLATFORM_AGENT_DIR,
     additionalSkillPaths: hasPlatformSkillsDir() ? [PLATFORM_SKILLS_DIR] : [],
   });

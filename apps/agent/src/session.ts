@@ -501,7 +501,7 @@ export async function loadOrCreateSessionHandle(input: {
     authStorage: input.authStorage,
     modelRegistry: input.modelRegistry,
     resourceLoader: input.resourceLoader,
-    tools: input.tools,
+    tools: input.tools.map((tool) => tool.name),
     sessionManager,
     ...(resolvedModel ? { model: resolvedModel } : {}),
   });
