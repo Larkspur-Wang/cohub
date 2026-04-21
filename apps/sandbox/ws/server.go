@@ -108,12 +108,9 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 	go s.writeLoop(session)
 	go s.heartbeatLoop(session)
 
-	if err := s.sendHello(session); err != nil {
-		s.logger.Error("failed to send sandbox.hello", slog.String("error", err.Error()))
+	if err := s.sendHeartbeat(session, true); err != nil {
+		s.logger.Error("failed to send initial sandbox.heartbeat", slog.String("error", err.Error()))
 		return
-	}
-	if err := s.sendHeartbeat(session); err != nil {
-		s.logger.Warn("failed to send initial sandbox.heartbeat", slog.String("error", err.Error()))
 	}
 
 	for {
@@ -130,13 +127,6 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 
 		switch envelope.Type {
-		case "sandbox.hello_ack":
-			var ack protocol.SandboxHelloAck
-			if err := json.Unmarshal(data, &ack); err != nil {
-				s.logger.Warn("failed to parse sandbox.hello_ack", slog.String("error", err.Error()))
-				continue
-			}
-			s.logger.Info("received sandbox.hello_ack", slog.Bool("accepted", ack.Accepted))
 		case "rpc.request":
 			var request protocol.RPCRequest
 			if err := json.Unmarshal(data, &request); err != nil {
@@ -219,15 +209,19 @@ func (s *Server) handleRPCRequest(session *connectionSession, request protocol.R
 	}
 }
 
-func (s *Server) sendHello(session *connectionSession) error {
-	hostname, _ := os.Hostname()
-	payload, err := json.Marshal(protocol.SandboxHello{
+func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool) error {
+	prepareStatus, _ := s.prepareState.Get()
+	message := protocol.SandboxHeartbeat{
 		Version:   protocol.Version,
-		Type:      "sandbox.hello",
+		Type:      "sandbox.heartbeat",
 		SpaceID:   s.cfg.SpaceID,
 		SandboxID: s.hostname,
 		Timestamp: time.Now().UnixMilli(),
-		Capabilities: protocol.SandboxCapabilities{
+		Status:    prepareStatus,
+	}
+	if includeSnapshot {
+		hostname, _ := os.Hostname()
+		message.Capabilities = protocol.SandboxCapabilities{
 			FSRead:       true,
 			FSWrite:      true,
 			FSStat:       true,
@@ -236,8 +230,8 @@ func (s *Server) sendHello(session *connectionSession) error {
 			FSGrep:       true,
 			ProcessStart: true,
 			ProcessAbort: true,
-		},
-		Filesystem: &protocol.SandboxFilesystem{
+		}
+		message.Filesystem = &protocol.SandboxFilesystem{
 			DefaultCwd: s.cfg.WorkspaceDir,
 			Mode:       "host-like",
 			Notes: []string{
@@ -249,29 +243,14 @@ func (s *Server) sendHello(session *connectionSession) error {
 				{Path: s.cfg.PlatformAgentsDir, Writable: false, Label: "platform-skills"},
 				{Path: "/tmp", Writable: true, Label: "tmp"},
 			},
-		},
-		Metadata: &protocol.SandboxMetadata{
+		}
+		message.Metadata = &protocol.SandboxMetadata{
 			Hostname:     hostname,
 			ImageVersion: s.cfg.ImageVersion,
 			StartedAt:    time.Now().Format(time.RFC3339),
-		},
-	})
-	if err != nil {
-		return err
+		}
 	}
-	return enqueuePayload(session, payload)
-}
-
-func (s *Server) sendHeartbeat(session *connectionSession) error {
-	prepareStatus, _ := s.prepareState.Get()
-	payload, err := json.Marshal(protocol.SandboxHeartbeat{
-		Version:   protocol.Version,
-		Type:      "sandbox.heartbeat",
-		SpaceID:   s.cfg.SpaceID,
-		SandboxID: s.hostname,
-		Timestamp: time.Now().UnixMilli(),
-		Status:    prepareStatus,
-	})
+	payload, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
@@ -287,7 +266,7 @@ func (s *Server) heartbeatLoop(session *connectionSession) {
 		case <-session.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.sendHeartbeat(session); err != nil {
+			if err := s.sendHeartbeat(session, false); err != nil {
 				s.logger.Warn("failed to enqueue heartbeat", slog.String("error", err.Error()))
 				return
 			}

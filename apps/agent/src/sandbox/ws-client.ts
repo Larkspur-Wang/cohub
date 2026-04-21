@@ -7,7 +7,6 @@ import type {
   RpcRequestMap,
   RpcStreamEvent,
   SandboxHeartbeat,
-  SandboxHello,
 } from "@cohub/agent-sandbox-protocol";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 
@@ -21,7 +20,6 @@ type PendingRequest = {
 };
 
 type SandboxStatusHooks = {
-  onHello?: (message: SandboxHello) => void | Promise<void>;
   onHeartbeat?: (message: SandboxHeartbeat) => void | Promise<void>;
   onDisconnected?: (input: { spaceId: string; reason?: string }) => void | Promise<void>;
   onConnectionError?: (input: { spaceId: string; error: Error }) => void | Promise<void>;
@@ -240,7 +238,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
     const socket = new WebSocket(registration.wsUrl);
     let connection: SandboxConnection | null = null;
     let settled = false;
-    let helloAccepted = false;
+    let firstHeartbeatAccepted = false;
 
     const finishResolve = () => {
       if (settled) return;
@@ -263,38 +261,18 @@ async function connectOnce(registration: SandboxClientRegistration) {
         const raw = typeof data === "string" ? data : data.toString("utf8");
         const message = JSON.parse(raw) as AgentSandboxMessage;
 
-        if (message.type === "sandbox.hello") {
+        if (message.type === "sandbox.heartbeat") {
           if (message.spaceId !== registration.spaceId) {
-            socket.send(JSON.stringify({
-              version: AGENT_SANDBOX_PROTOCOL_VERSION,
-              type: "sandbox.hello_ack",
-              spaceId: registration.spaceId,
-              sandboxId: message.sandboxId,
-              timestamp: Date.now(),
-              accepted: false,
-              reason: `spaceId mismatch: expected ${registration.spaceId}, got ${message.spaceId}`,
-            }));
             socket.close();
-            finishReject(new Error(`Sandbox hello spaceId mismatch: expected ${registration.spaceId}, got ${message.spaceId}`));
+            finishReject(new Error(`Sandbox heartbeat spaceId mismatch: expected ${registration.spaceId}, got ${message.spaceId}`));
             return;
           }
-
-          connection = new SandboxConnection(registration.spaceId, message.sandboxId, socket);
-          setActiveConnection(registration.spaceId, connection);
-          connection.send({
-            version: AGENT_SANDBOX_PROTOCOL_VERSION,
-            type: "sandbox.hello_ack",
-            spaceId: registration.spaceId,
-            sandboxId: message.sandboxId,
-            timestamp: Date.now(),
-            accepted: true,
-          });
-          helloAccepted = true;
-          void registration.hooks?.onHello?.(message);
-          return;
-        }
-
-        if (message.type === "sandbox.heartbeat") {
+          if (!connection) {
+            connection = new SandboxConnection(registration.spaceId, message.sandboxId, socket);
+            setActiveConnection(registration.spaceId, connection);
+            firstHeartbeatAccepted = true;
+            finishResolve();
+          }
           void registration.hooks?.onHeartbeat?.(message);
           return;
         }
@@ -315,8 +293,8 @@ async function connectOnce(registration: SandboxClientRegistration) {
         spaceId: registration.spaceId,
         reason: reason.toString() || "socket closed",
       });
-      if (!helloAccepted) {
-        finishReject(new Error(`Sandbox websocket closed before successful hello: ${reason.toString() || "unknown reason"}`));
+      if (!firstHeartbeatAccepted) {
+        finishReject(new Error(`Sandbox websocket closed before first heartbeat: ${reason.toString() || "unknown reason"}`));
         return;
       }
       finishResolve();

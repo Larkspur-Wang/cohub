@@ -21,7 +21,7 @@
 
 - `apps/sandbox` 提供 WebSocket server（默认监听 `0.0.0.0:8788`）
 - `apps/agent` 作为客户端主动连接 sandbox
-- sandbox 连接建立后先发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
+- sandbox 建连后立即发送首帧 `sandbox.heartbeat`，携带 capabilities / filesystem / metadata 快照
 - 所有 tools 都通过 WebSocket RPC 转发给 sandbox
 
 ## 当前 sandbox filesystem 语义
@@ -36,7 +36,7 @@
 - 其他 sandbox 本地路径
   - 如 `/tmp`
   - 可按真实机器语义访问
-- hello 中返回的 `filesystem.roots`
+- 首帧 heartbeat 中返回的 `filesystem.roots`
   - 仅用于说明已知挂载与推荐目录
   - 不是访问白名单
 
@@ -113,8 +113,8 @@ pnpm dev
 1. API 先上报 `provisioning`
 2. 创建 sandbox Pod，sandbox 启动 WS server
 3. agent 作为客户端主动连接 sandbox
-4. sandbox 发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
-5. sandbox 进入 heartbeat；workspace 内容初始化由 worker 独立完成
+4. sandbox 发送首帧 `sandbox.heartbeat`，同时携带能力与文件系统快照
+5. 后续 heartbeat 持续上报 sandbox runtime 状态；workspace 内容初始化由 worker 独立完成
 6. sandbox ready 与 workspace bootstrap ready 分别建模，不再耦合
 
 ## 当前限制 / 后续事项

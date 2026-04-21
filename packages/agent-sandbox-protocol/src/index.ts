@@ -71,9 +71,10 @@ export type SandboxFilesystemRoot = {
   label?: string;
 };
 
-export type SandboxHello = BaseMessage & {
-  type: "sandbox.hello";
-  capabilities: SandboxCapabilities;
+export type SandboxHeartbeat = BaseMessage & {
+  type: "sandbox.heartbeat";
+  status: SandboxStatus;
+  capabilities?: SandboxCapabilities;
   filesystem?: {
     roots: SandboxFilesystemRoot[];
     defaultCwd: string;
@@ -86,17 +87,6 @@ export type SandboxHello = BaseMessage & {
     imageVersion?: string;
     startedAt?: string;
   };
-};
-
-export type SandboxHelloAck = BaseMessage & {
-  type: "sandbox.hello_ack";
-  accepted: boolean;
-  reason?: string;
-};
-
-export type SandboxHeartbeat = BaseMessage & {
-  type: "sandbox.heartbeat";
-  status: SandboxStatus;
 };
 
 export type FsReadParams = {
@@ -290,8 +280,6 @@ export type RpcStream = RequestScopedMessage & {
 };
 
 export type AgentSandboxMessage =
-  | SandboxHello
-  | SandboxHelloAck
   | SandboxHeartbeat
   | RpcRequest
   | RpcResponse

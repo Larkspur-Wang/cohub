@@ -4,7 +4,7 @@ import {
   ModelRegistry,
 } from "@mariozechner/pi-coding-agent";
 import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
-import type { SandboxHeartbeat, SandboxHello } from "@cohub/agent-sandbox-protocol";
+import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
 
 import {
   env,
@@ -67,15 +67,6 @@ function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
 
 function toRuntimeSandboxStatus(status: NormalizedSandboxStatus): RuntimeSandboxStatus {
   return status === "ready" ? "ready" : status === "error" ? "error" : "idle";
-}
-
-async function syncSandboxHello(spaceId: string, message: SandboxHello) {
-  await updateSpaceRuntime({
-    spaceId,
-    status: "idle",
-    sandboxId: message.sandboxId,
-    error: null,
-  }).catch(() => undefined);
 }
 
 async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) {
@@ -206,7 +197,6 @@ async function ensureSandboxWsConnected(spaceId: string) {
     spaceId,
     wsUrl,
     hooks: {
-      onHello: (message) => syncSandboxHello(spaceId, message),
       onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
       onDisconnected: ({ reason }) => {
         if (Array.from(sessionHandles.values()).some((handle) => handle.spaceId === spaceId)) {

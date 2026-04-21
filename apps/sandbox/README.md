@@ -4,9 +4,7 @@
 
 ## 当前已实现
 
-- `sandbox.hello`
-- `sandbox.hello_ack`
-- `sandbox.heartbeat`
+- `sandbox.heartbeat`（首帧包含 capabilities / filesystem / metadata 快照）
 - workspace mount readiness check
 - `fs.read`
 - `fs.write`
@@ -32,7 +30,7 @@ sandbox 只保证工作目录挂载可用，不再负责 clone repo 或初始化
 - 其他 sandbox 本地路径
   - 如 `/tmp`
   - 按真实机器语义访问
-- hello 中返回的 `filesystem.roots`
+- 首帧 heartbeat 中返回的 `filesystem.roots`
   - 仅用于说明已知挂载与推荐目录
   - 不是访问白名单
 

@@ -79,9 +79,9 @@
 - `cohub-agent`：独立 Deployment / Service
 - `cohub-sandbox`：按 space 动态创建的 Pod（提供 WS server）
 - agent 作为 WS 客户端主动连接 sandbox
-- sandbox 连接建立后先发送 `sandbox.hello`，agent 回复 `sandbox.hello_ack`
-- agent 主动执行 `workspace.prepare`
-- `space_sandboxes.status=ready` 由 agent 在 prepare 成功后上报
+- sandbox 连接建立后立即发送首帧 `sandbox.heartbeat`，携带能力与文件系统快照
+- workspace 内容初始化统一由 worker 完成
+- `space_sandboxes.status` 由 sandbox heartbeat 与控制面共同维护
 
 ### 连接模型
 

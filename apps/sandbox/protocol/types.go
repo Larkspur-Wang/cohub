@@ -34,34 +34,16 @@ type SandboxMetadata struct {
 	StartedAt    string `json:"startedAt,omitempty"`
 }
 
-type SandboxHello struct {
+type SandboxHeartbeat struct {
 	Version      string              `json:"version"`
 	Type         string              `json:"type"`
 	SpaceID      string              `json:"spaceId"`
 	SandboxID    string              `json:"sandboxId"`
 	Timestamp    int64               `json:"timestamp"`
-	Capabilities SandboxCapabilities `json:"capabilities"`
+	Status       string              `json:"status"`
+	Capabilities SandboxCapabilities `json:"capabilities,omitempty"`
 	Filesystem   *SandboxFilesystem  `json:"filesystem,omitempty"`
 	Metadata     *SandboxMetadata    `json:"metadata,omitempty"`
-}
-
-type SandboxHelloAck struct {
-	Version   string `json:"version"`
-	Type      string `json:"type"`
-	SpaceID   string `json:"spaceId"`
-	SandboxID string `json:"sandboxId"`
-	Timestamp int64  `json:"timestamp"`
-	Accepted  bool   `json:"accepted"`
-	Reason    string `json:"reason,omitempty"`
-}
-
-type SandboxHeartbeat struct {
-	Version   string `json:"version"`
-	Type      string `json:"type"`
-	SpaceID   string `json:"spaceId"`
-	SandboxID string `json:"sandboxId"`
-	Timestamp int64  `json:"timestamp"`
-	Status    string `json:"status"`
 }
 
 type RPCRequest struct {
