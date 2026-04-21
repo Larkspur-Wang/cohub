@@ -271,7 +271,6 @@ async function connectOnce(registration: SandboxClientRegistration) {
             connection = new SandboxConnection(registration.spaceId, message.sandboxId, socket);
             setActiveConnection(registration.spaceId, connection);
             firstHeartbeatAccepted = true;
-            finishResolve();
           }
           void registration.hooks?.onHeartbeat?.(message);
           return;
