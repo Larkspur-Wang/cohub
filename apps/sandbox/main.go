@@ -55,14 +55,16 @@ func main() {
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
 	server := ws.NewServer(cfg, dispatcher, processManager, state, hostname, logger)
 
+	initialMeta := map[string]interface{}{
+		"hostname":      hostname,
+		"imageVersion":  cfg.ImageVersion,
+		"prepareStatus": "preparing",
+		"startedAt":     startedAt,
+		"podIp":         cfg.PodIP,
+	}
 	if err := reporter.Report(report.Payload{
 		Status: "provisioning",
-		Meta: map[string]interface{}{
-			"hostname":      hostname,
-			"imageVersion":  cfg.ImageVersion,
-			"prepareStatus": "preparing",
-			"startedAt":     startedAt,
-		},
+		Meta:   initialMeta,
 	}); err != nil {
 		logger.Warn("failed to report sandbox provisioning", slog.String("error", err.Error()))
 	}
@@ -80,6 +82,7 @@ func main() {
 					"imageVersion":  cfg.ImageVersion,
 					"prepareStatus": "error",
 					"prepareError":  err.Error(),
+					"podIp":         cfg.PodIP,
 				},
 			}); reportErr != nil {
 				logger.Warn("failed to report sandbox error", slog.String("error", reportErr.Error()))
@@ -102,6 +105,7 @@ func main() {
 					"platformAgentsDir": summary.PlatformAgentsDir,
 					"repoCloned":        summary.RepoCloned,
 					"configApplied":     summary.ConfigApplied,
+					"podIp":             cfg.PodIP,
 				},
 			}); reportErr != nil {
 				logger.Warn("failed to report sandbox ready", slog.String("error", reportErr.Error()))

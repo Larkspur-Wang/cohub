@@ -40,6 +40,16 @@ export const SANDBOX_POD_TEMPLATE = {
       {
         name: "sandbox",
         image: config.sandboxImage,
+        env: [
+          {
+            name: "POD_IP",
+            valueFrom: {
+              fieldRef: {
+                fieldPath: "status.podIP",
+              },
+            },
+          },
+        ],
         resources: {
           limits: {
             cpu: "1",
