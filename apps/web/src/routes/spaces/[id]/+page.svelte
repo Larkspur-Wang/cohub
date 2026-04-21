@@ -2022,17 +2022,28 @@ $effect(() => {
 	requestAnimationFrame(() => updateAutoFollow());
 });
 
+// ResizeObserver: when the scroll container's content grows and the user
+// is already near the bottom (shouldAutoFollow), keep them pinned. This
+// replaces fragile tick()/setTimeout-based scroll logic and naturally
+// catches async markdown rendering, image loading, etc.
 $effect(() => {
-	const state = activeSessionState;
-	if (!state) return;
-	if (userScrolledUp) return;
-	state.messages.length;
-	requestAnimationFrame(() => {
-		if (listEl && !userScrolledUp) {
+	const el = listEl;
+	if (!el) return;
+
+	let prevHeight = el.scrollHeight;
+
+	const ro = new ResizeObserver(() => {
+		if (!listEl) return;
+		const currentHeight = listEl.scrollHeight;
+		if (currentHeight > prevHeight && shouldAutoFollow && !autoScrollGuard) {
 			scrollToBottomNow();
-			updateAutoFollow();
 		}
+		prevHeight = currentHeight;
+		updateAutoFollow();
 	});
+	ro.observe(el);
+
+	return () => ro.disconnect();
 });
 </script>
 
