@@ -127,8 +127,10 @@ function createRemoteReadOperations(): ReadOperations {
       const connection = await getCurrentConnection();
       const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
       const result = await rpc(connection, "fs.read", { path, binary: true });
-      // Return the MIME type detected by the sandbox, or null to signal "not an image".
-      return result.mimeType ?? null;
+      const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
+      // Only return image MIME types. The upstream read tool treats any truthy
+      // return value here as an image and will otherwise misclassify text files.
+      return mimeType?.startsWith("image/") ? mimeType : null;
     },
   };
 }
