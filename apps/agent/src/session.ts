@@ -62,6 +62,10 @@ export function getSessionFilePath(spaceId: string, sessionId: string) {
   return join(getSpaceSessionsDir(spaceId), `${sessionId}.jsonl`);
 }
 
+function setSessionManagerFilePath(sessionManager: SessionManager, sessionFile: string) {
+  ((sessionManager as unknown) as { sessionFile?: string }).sessionFile = sessionFile;
+}
+
 export async function ensureSpaceDirs(spaceId: string) {
   await mkdir(getSpaceSessionsDir(spaceId), { recursive: true }).catch(() => undefined);
 }
@@ -489,11 +493,7 @@ export async function loadOrCreateSessionHandle(input: {
     } else {
       const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
       tmpManager.newSession({ id: input.sessionId });
-      const actualSessionFile = tmpManager.getSessionFile();
-      if (actualSessionFile && actualSessionFile !== existingSessionFile) {
-        renameSync(actualSessionFile, existingSessionFile);
-        tmpManager.setSessionFile(existingSessionFile);
-      }
+      setSessionManagerFilePath(tmpManager, existingSessionFile);
       sessionManager = tmpManager;
     }
   }
