@@ -39,12 +39,15 @@ let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
 let loadingSessions = $state(false);
+
 let sessionsCollapsed = $state(false);
 let checkpointSaving = $state(false);
 let checkpointNotice = $state("");
 let checkpointError = $state("");
 let creatingSession = $state(false);
 let createSessionError = $state("");
+
+
 
 const activeSession = $derived(
   sessions.find((s) => page.url.searchParams.get("session") === s.id) ?? null,
@@ -351,7 +354,7 @@ $effect(() => {
 
     <!-- Action Buttons -->
     {#if currentSpace}
-      <div class="px-2 py-1.5 shrink-0 space-y-[2px] border-b border-border-subtle">
+      <div class="px-2 py-1.5 shrink-0 space-y-[2px]">
         <button
           type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
@@ -359,7 +362,7 @@ $effect(() => {
           title="Space details"
         >
           <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">Space Details</span>
+          <span class="text-[12px] font-medium">Detail</span>
         </button>
         <button
           type="button"
@@ -401,77 +404,94 @@ $effect(() => {
       </div>
     {/if}
 
-    <!-- Sessions Section (collapsible) -->
-    <div class="flex flex-col min-h-0 flex-1">
-      <button
-        type="button"
-        class="h-8 flex items-center gap-1 px-2 shrink-0 hover:bg-bg-hover transition-colors duration-100"
-        onclick={() => { sessionsCollapsed = !sessionsCollapsed; }}
-        title={sessionsCollapsed ? "Expand sessions" : "Collapse sessions"}
-      >
-        <ChevronDown class="w-3 h-3 text-text-placeholder shrink-0 transition-transform duration-150 {sessionsCollapsed ? '' : 'rotate-180'}" />
-        <span class="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-placeholder select-none">
-          Sessions
-        </span>
-      </button>
-
-      <div class="flex-1 overflow-y-auto px-1.5 pb-2 space-y-[2px]">
-        {#if !currentSpace}
-          <div class="px-3 py-6 text-[12px] text-text-placeholder text-center">
-            Select a space to view sessions
-          </div>
-        {:else if sessionsCollapsed && activeSession}
-          {@const isActive = page.url.searchParams.get("session") === activeSession.id}
-          <a
-            href="/spaces/{currentSpaceId}?session={activeSession.id}"
-            class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
-            onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
-            title={sourceTooltip(activeSession.source) || undefined}
-          >
-            <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
-            {#if sourceBadge(activeSession.source)}
-              <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                {sourceBadge(activeSession.source)}
-              </span>
-            {/if}
-            {#if sessionIsStreaming(activeSession)}
-              <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-            {:else if unreadTracker.isUnread(activeSession)}
-              <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-            {/if}
-          </a>
-        {:else if loadingSessions && sessions.length === 0}
-          <div class="px-3 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
+    <!-- Sessions -->
+    {#if currentSpace}
+      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
+        {#if loadingSessions && sessions.length === 0}
+          <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
             <Loader2 class="w-3 h-3 animate-spin" />
             Loading...
           </div>
         {:else if sessions.length === 0}
-          <div class="px-3 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
+          <div class="px-1 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
         {:else}
-          {#each sessions as session, index (session.id)}
-            {@const isActive = page.url.searchParams.get("session") === session.id}
-            <a
-              href="/spaces/{currentSpaceId}?session={session.id}"
-              class="flex items-center gap-1.5 px-2 py-1 rounded-[4px] text-[12.5px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-              onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
-              title={sourceTooltip(session.source) || undefined}
+          {#if !sessionsCollapsed}
+            <div class="relative group">
+              {#each sessions as session, index (session.id)}
+                {@const isActive = page.url.searchParams.get("session") === session.id}
+                <a
+                  href="/spaces/{currentSpaceId}?session={session.id}"
+                  class="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                  onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+                  title={sourceTooltip(session.source) || undefined}
+                >
+                  <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+                  {#if sourceBadge(session.source)}
+                    <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                      {sourceBadge(session.source)}
+                    </span>
+                  {/if}
+                  {#if sessionIsStreaming(session)}
+                    <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                  {:else if unreadTracker.isUnread(session)}
+                    <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                  {/if}
+                </a>
+              {/each}
+              <!-- Collapse button — visible on hover when expanded -->
+              <button
+                type="button"
+                class="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-[4px] bg-bg-primary border border-border-subtle text-text-tertiary hover:text-text-primary hover:bg-bg-hover opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                onclick={() => { sessionsCollapsed = true; }}
+                title="Collapse sessions"
+              >
+                <ChevronDown class="w-3 h-3" />
+              </button>
+            </div>
+          {/if}
+
+          {#if sessionsCollapsed}
+            <!-- Always show active session + expand button when collapsed -->
+            {#if activeSession}
+              <a
+                href="/spaces/{currentSpaceId}?session={activeSession.id}"
+                class="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
+                title={sourceTooltip(activeSession.source) || undefined}
+              >
+                <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
+                {#if sourceBadge(activeSession.source)}
+                  <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                    {sourceBadge(activeSession.source)}
+                  </span>
+                {/if}
+                {#if sessionIsStreaming(activeSession)}
+                  <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                {:else if unreadTracker.isUnread(activeSession)}
+                  <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                {/if}
+              </a>
+            {/if}
+            <!-- Expand button — always visible when collapsed -->
+            <button
+              type="button"
+              class="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
+              onclick={() => { sessionsCollapsed = false; }}
+              title="Expand sessions"
             >
-              <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-              {#if sourceBadge(session.source)}
-                <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                  {sourceBadge(session.source)}
-                </span>
-              {/if}
-              {#if sessionIsStreaming(session)}
-                <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-              {:else if unreadTracker.isUnread(session)}
-                <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-              {/if}
-            </a>
-          {/each}
+              <ChevronDown class="w-3 h-3 rotate-180" />
+              <span class="text-[12px]">All sessions</span>
+            </button>
+          {/if}
         {/if}
       </div>
-    </div>
+    {:else}
+      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
+        <div class="px-1 py-6 text-[12px] text-text-placeholder text-center">
+          Select a space to view sessions
+        </div>
+      </div>
+    {/if}
   {:else}
     <nav class="flex-1 overflow-y-auto px-2 py-2 space-y-[2px]">
       {#each settingsTabs as tab (tab.id)}
