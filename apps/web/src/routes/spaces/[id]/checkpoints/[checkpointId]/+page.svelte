@@ -1,5 +1,7 @@
 <script lang="ts">
-const _props = $props<{
+import SpaceWorkspacePage from "$lib/features/space/SpaceWorkspacePage.svelte";
+
+const props = $props<{
 	data: {
 		spaceId: string;
 		view: "space" | "session" | "file" | "checkpoint" | "checkpoint-new";

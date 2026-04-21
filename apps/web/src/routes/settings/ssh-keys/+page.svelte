@@ -1,5 +1,7 @@
 <script lang="ts">
+import { KeyRound, Plus, Trash2, X } from "lucide-svelte";
 import { onMount } from "svelte";
+import { fade } from "svelte/transition";
 import { page } from "$app/state";
 import {
 	createSshKey,
@@ -28,7 +30,7 @@ async function loadKeys() {
 	isLoading = true;
 	loadError = "";
 	try {
-		_keys = await getSshKeys();
+		keys = await getSshKeys();
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Failed to load SSH keys";

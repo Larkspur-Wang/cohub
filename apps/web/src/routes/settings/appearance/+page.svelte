@@ -11,7 +11,7 @@ import {
 const mode = $derived(getTheme());
 const resolved = $derived(getResolvedTheme());
 
-const _themeOptions: {
+const themeOptions: {
 	value: ThemeMode;
 	label: string;
 	icon: typeof Sun;
@@ -37,14 +37,14 @@ const _themeOptions: {
 	},
 ];
 
-function _handleThemeChange(mode: ThemeMode) {
+function handleThemeChange(mode: ThemeMode) {
 	setTheme(mode);
 }
 
 // An option is "active" if:
 // 1. Its mode matches the stored mode (dark/light/system)
 // 2. OR user is in "system" mode and the option's resolved theme matches the current resolved theme
-function _isActive(option: ThemeMode): boolean {
+function isActive(option: ThemeMode): boolean {
 	if (mode === option) return true;
 	if (mode === "system" && resolved === option) return true;
 	return false;

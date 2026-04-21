@@ -1,5 +1,14 @@
 <script lang="ts">
-import { Loader2 } from "lucide-svelte";
+import {
+	ArrowLeft,
+	Check,
+	ChevronDown,
+	Copy,
+	ExternalLink,
+	Loader2,
+	MessageSquare,
+	Webhook,
+} from "lucide-svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { createChannel } from "$lib/api";
@@ -19,54 +28,54 @@ let formAppSecret = $state("");
 let formBrand = $state<"feishu" | "lark">("feishu");
 
 let isSubmitting = $state(false);
-let _submitError = $state("");
-let _copiedField = $state<string | null>(null);
+let submitError = $state("");
+let copiedField = $state<string | null>(null);
 
 // Guide accordion state
-let _discordGuideOpen = $state(false);
-let _feishuGuideOpen = $state(false);
+let discordGuideOpen = $state(false);
+let feishuGuideOpen = $state(false);
 
-function _selectProvider(provider: Provider) {
+function selectProvider(provider: Provider) {
 	selectedProvider = provider;
-	_submitError = "";
+	submitError = "";
 }
 
-function _goBack() {
+function goBack() {
 	selectedProvider = null;
-	_submitError = "";
+	submitError = "";
 }
 
-function _copyToClipboard(text: string, field: string) {
+function copyToClipboard(text: string, field: string) {
 	navigator.clipboard.writeText(text).then(() => {
-		_copiedField = field;
+		copiedField = field;
 		setTimeout(() => {
-			_copiedField = null;
+			copiedField = null;
 		}, 1500);
 	});
 }
 
-async function _handleSubmit(e: Event) {
+async function handleSubmit(e: Event) {
 	e.preventDefault();
 	if (!selectedProvider || isSubmitting) return;
 
 	// Validate
 	if (!formName.trim()) {
-		_submitError = "Channel name is required.";
+		submitError = "Channel name is required.";
 		return;
 	}
 
 	if (selectedProvider === "discord" && !formToken.trim()) {
-		_submitError = "Bot Token is required.";
+		submitError = "Bot Token is required.";
 		return;
 	}
 
 	if (selectedProvider === "feishu") {
 		if (!formAppId.trim()) {
-			_submitError = "App ID is required.";
+			submitError = "App ID is required.";
 			return;
 		}
 		if (!formAppSecret.trim()) {
-			_submitError = "App Secret is required.";
+			submitError = "App Secret is required.";
 			return;
 		}
 	}
@@ -75,7 +84,7 @@ async function _handleSubmit(e: Event) {
 		return;
 
 	isSubmitting = true;
-	_submitError = "";
+	submitError = "";
 
 	try {
 		let credentials: Record<string, unknown>;
@@ -105,7 +114,7 @@ async function _handleSubmit(e: Event) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		_submitError = message;
+		submitError = message;
 	} finally {
 		isSubmitting = false;
 	}

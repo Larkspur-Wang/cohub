@@ -1,5 +1,11 @@
 <script lang="ts">
-import { MessageSquare, MonitorPlay, Webhook } from "lucide-svelte";
+import {
+	MessageSquare,
+	MonitorPlay,
+	Plus,
+	Trash2,
+	Webhook,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { type Channel, deleteChannel, getChannels } from "$lib/api";
@@ -30,7 +36,7 @@ async function loadChannels() {
 	isLoading = true;
 	loadError = "";
 	try {
-		_channels = await getChannels();
+		channels = await getChannels();
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Failed to load channels";

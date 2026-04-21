@@ -1,4 +1,6 @@
 <script lang="ts">
+import Dialog from "$lib/components/Dialog.svelte";
+
 const {
 	open,
 	onClose,

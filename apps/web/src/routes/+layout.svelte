@@ -2,6 +2,9 @@
 import "../app.css";
 import { onMount } from "svelte";
 import { page } from "$app/state";
+import MediaLightbox from "$lib/components/MediaLightbox.svelte";
+import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
+import Sidebar from "$lib/components/Sidebar.svelte";
 import {
 	type DrawerGestureDirection,
 	type DrawerGesturePhase,
@@ -265,7 +268,7 @@ function handleTouchCancel(e: TouchEvent) {
 	finalizeGesture();
 }
 
-function _beginLeftSidebarResize(event: PointerEvent) {
+function beginLeftSidebarResize(event: PointerEvent) {
 	if (window.innerWidth < 1024) return;
 	event.preventDefault();
 

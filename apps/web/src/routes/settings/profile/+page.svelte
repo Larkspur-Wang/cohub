@@ -1,4 +1,5 @@
 <script lang="ts">
+import { Check, Copy, User } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { getMe } from "$lib/api";
@@ -8,10 +9,10 @@ const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
 let userUuid = $state("");
-let _userNickname = $state("");
-let _userAvatar = $state("");
-let _uuidCopied = $state(false);
-let _loadError = $state("");
+let userNickname = $state("");
+let userAvatar = $state("");
+let uuidCopied = $state(false);
+let loadError = $state("");
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadProfile() {
@@ -20,8 +21,8 @@ async function loadProfile() {
 	try {
 		const me = await getMe();
 		userUuid = me.uuid ?? "";
-		_userNickname = me.nick_name ?? "";
-		_userAvatar = me.avatar_url ?? "";
+		userNickname = me.nick_name ?? "";
+		userAvatar = me.avatar_url ?? "";
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Failed to load profile";
@@ -29,19 +30,19 @@ async function loadProfile() {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		_loadError = message;
+		loadError = message;
 		console.error("[profile] Failed to load profile:", error);
 	}
 }
 
-async function _copyUuid() {
+async function copyUuid() {
 	if (!userUuid) return;
 	try {
 		await navigator.clipboard.writeText(userUuid);
-		_uuidCopied = true;
+		uuidCopied = true;
 		if (uuidCopiedTimer) clearTimeout(uuidCopiedTimer);
 		uuidCopiedTimer = setTimeout(() => {
-			_uuidCopied = false;
+			uuidCopied = false;
 		}, 2000);
 	} catch {
 		console.warn("[profile] Failed to copy UUID");

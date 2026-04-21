@@ -1,5 +1,21 @@
 <script lang="ts">
-import { KeyRound, Loader2, Network, Palette, User } from "lucide-svelte";
+import {
+	Activity,
+	ChevronDown,
+	Clock,
+	FolderKanban,
+	History,
+	KeyRound,
+	LayoutDashboard,
+	Loader2,
+	LogOut,
+	Network,
+	Palette,
+	Plus,
+	Settings,
+	User,
+	Users,
+} from "lucide-svelte";
 import { onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
@@ -17,6 +33,7 @@ import {
 	type TaskRunRecord,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
+import Dialog from "$lib/components/Dialog.svelte";
 import {
 	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
@@ -175,7 +192,7 @@ async function loadSpaces(_force = false) {
 	loadError = "";
 	const shouldShowInitialLoading = spaces.length === 0;
 	if (shouldShowInitialLoading) {
-		_isLoading = true;
+		isLoading = true;
 	}
 
 	try {

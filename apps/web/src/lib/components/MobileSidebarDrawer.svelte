@@ -1,6 +1,8 @@
 <script lang="ts">
+import Sidebar from "$lib/components/Sidebar.svelte";
 import {
 	getDrawerOpenRatio,
+	MOBILE_DRAWER_MAX_WIDTH_VW,
 	MOBILE_DRAWER_WIDTH_PX,
 } from "$lib/gestures/drawer-swipe";
 import {
@@ -31,7 +33,7 @@ const TRANSITION_DURATION_MS = DURATION_DRAWER_OUT;
 
 const openRatio = $derived(getDrawerOpenRatio(dragOffsetPx));
 
-const _panelStyle = $derived.by(() => {
+const panelStyle = $derived.by(() => {
 	if (isDragging) {
 		const offset = MOBILE_DRAWER_WIDTH_PX - dragOffsetPx;
 		return `transform: translateX(-${offset}px); transition: none;`;
@@ -42,7 +44,7 @@ const _panelStyle = $derived.by(() => {
 	return `transform: translateX(-${MOBILE_DRAWER_WIDTH_PX}px); transition: ${CLOSE_TRANSITION_CSS}; pointer-events: none;`;
 });
 
-const _backdropStyle = $derived.by(() => {
+const backdropStyle = $derived.by(() => {
 	if (isDragging) {
 		return `opacity: ${openRatio * 0.5}; transition: none;`;
 	}
@@ -52,20 +54,20 @@ const _backdropStyle = $derived.by(() => {
 	return `opacity: 0; transition: ${CLOSE_BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
 });
 
-function _closeDrawer() {
+function closeDrawer() {
 	uiState.mobileDrawerOpen = false;
 }
 
-let _renderContent = $state(false);
+let renderContent = $state(false);
 
 $effect(() => {
 	if (isDrawerVisible) {
-		_renderContent = true;
+		renderContent = true;
 		return;
 	}
 
 	const timer = window.setTimeout(() => {
-		_renderContent = false;
+		renderContent = false;
 	}, TRANSITION_DURATION_MS);
 	return () => window.clearTimeout(timer);
 });

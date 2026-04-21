@@ -12,7 +12,7 @@ const messages = $state<ChatBubble[]>([
 	},
 ]);
 
-const _submit = () => {
+const submit = () => {
 	const value = draft.trim();
 	if (!value) {
 		return;

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Loader2 } from "lucide-svelte";
+import { ArrowLeft, Loader2, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";

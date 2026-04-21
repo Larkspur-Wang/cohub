@@ -1,4 +1,7 @@
 <script lang="ts">
+import { Image } from "lucide-svelte";
+import Dialog from "$lib/components/Dialog.svelte";
+
 type ModelItem = {
 	provider: string;
 	id: string;
@@ -23,7 +26,7 @@ const {
 
 let searchQuery = $state("");
 let selectedIndex = $state(0);
-let _navigationMode: "mouse" | "keyboard" = $state("mouse");
+let navigationMode: "mouse" | "keyboard" = $state("mouse");
 let containerEl = $state<HTMLElement | null>(null);
 let searchInputEl = $state<HTMLInputElement | null>(null);
 
@@ -32,7 +35,7 @@ function getDisplayName(item: ModelItem): string {
 	return typeof name === "string" && name.trim() ? name : item.id;
 }
 
-function _hasVision(item: ModelItem): boolean {
+function hasVision(item: ModelItem): boolean {
 	const input = item.model.input as string[] | undefined;
 	return input?.includes("image") ?? false;
 }
@@ -74,7 +77,7 @@ $effect(() => {
 	if (open) {
 		searchQuery = "";
 		selectedIndex = 0;
-		_navigationMode = "mouse";
+		navigationMode = "mouse";
 		// Focus search input after render
 		requestAnimationFrame(() => {
 			searchInputEl?.focus();
@@ -82,7 +85,7 @@ $effect(() => {
 	}
 });
 
-function _handleKeyDown(e: KeyboardEvent) {
+function handleKeyDown(e: KeyboardEvent) {
 	if (!open) return;
 	if (e.key === "Escape") {
 		e.preventDefault();
@@ -91,14 +94,14 @@ function _handleKeyDown(e: KeyboardEvent) {
 	}
 	if (e.key === "ArrowDown") {
 		e.preventDefault();
-		_navigationMode = "keyboard";
+		navigationMode = "keyboard";
 		selectedIndex = Math.min(selectedIndex + 1, filteredModels.length - 1);
 		scrollSelectedIntoView();
 		return;
 	}
 	if (e.key === "ArrowUp") {
 		e.preventDefault();
-		_navigationMode = "keyboard";
+		navigationMode = "keyboard";
 		selectedIndex = Math.max(selectedIndex - 1, 0);
 		scrollSelectedIntoView();
 		return;
@@ -120,7 +123,7 @@ function scrollSelectedIntoView() {
 	});
 }
 
-function _isCurrentModel(item: ModelItem): boolean {
+function isCurrentModel(item: ModelItem): boolean {
 	return (
 		currentModel !== null &&
 		item.provider === currentModel.provider &&

@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol";
+import { ChevronDown, ChevronRight } from "lucide-svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
@@ -11,10 +12,10 @@ type Props = {
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
 const { message }: Props = $props();
-let _renderedHtml = $state("");
+let renderedHtml = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
-let _thinkingExpanded = $state(false);
+let thinkingExpanded = $state(false);
 let thinkingUserToggled = $state(false);
 
 // Auto-expand during streaming, auto-collapse after (unless user toggled)
@@ -24,9 +25,9 @@ const isStreaming = $derived(
 
 $effect(() => {
 	if (isStreaming && !thinkingUserToggled) {
-		_thinkingExpanded = true;
+		thinkingExpanded = true;
 	} else if (!isStreaming && !thinkingUserToggled) {
-		_thinkingExpanded = false;
+		thinkingExpanded = false;
 	}
 });
 
@@ -40,18 +41,18 @@ const thinkingContent = $derived(
 		.trim() || "",
 );
 
-const _imageBlocks = $derived(
+const imageBlocks = $derived(
 	(message.content?.filter(
 		(block) => block.type === "image",
 	) as ImageBlock[]) ?? [],
 );
 
-function _getImagePreviewSrc(block: ImageBlock): string {
+function getImagePreviewSrc(block: ImageBlock): string {
 	if (block.source.type === "url") return block.source.url;
 	return `data:${block.source.media_type};base64,${block.source.data}`;
 }
 
-function _getImageAlt(block: ImageBlock, index: number): string {
+function getImageAlt(block: ImageBlock, index: number): string {
 	return String(block._meta?.filename ?? `attachment-${index + 1}`);
 }
 
@@ -60,7 +61,7 @@ const THINKING_COLLAPSE_CHARS = 260;
 const thinkingNeedsTruncation = $derived(
 	thinkingContent.length > THINKING_COLLAPSE_CHARS,
 );
-function _getThinkingDisplay(expanded: boolean): string {
+function getThinkingDisplay(expanded: boolean): string {
 	if (expanded || !thinkingNeedsTruncation) return thinkingContent;
 	const truncated = thinkingContent.slice(0, THINKING_COLLAPSE_CHARS);
 	// Prefer cutting at last newline for cleaner truncation
@@ -86,7 +87,7 @@ $effect(() => {
 
 	void renderMarkdown(markdownSource).then((html) => {
 		if (!cancelled) {
-			_renderedHtml = html;
+			renderedHtml = html;
 		}
 	});
 
@@ -96,7 +97,7 @@ $effect(() => {
 });
 
 // Tool call inline helpers
-function _summarizeToolInput(
+function summarizeToolInput(
 	name: string,
 	input?: Record<string, unknown>,
 ): string {
@@ -120,7 +121,7 @@ function _summarizeToolInput(
 // Tool expansion state (per tool call id)
 let expandedToolCalls = $state<Set<string>>(new Set());
 
-function _toggleToolCall(id: string) {
+function toggleToolCall(id: string) {
 	const next = new Set(expandedToolCalls);
 	if (next.has(id)) {
 		next.delete(id);
@@ -138,14 +139,14 @@ function findToolResult(toolUseId: string): ContentBlock | undefined {
 }
 
 // Infer tool status from tool_result presence
-function _getToolStatus(toolUseId: string): "done" | "failed" | "running" {
+function getToolStatus(toolUseId: string): "done" | "failed" | "running" {
 	const result = findToolResult(toolUseId);
 	if (!result) return "running";
 	if (result.type === "tool_result" && result.is_error) return "failed";
 	return "done";
 }
 
-const _statusDotMap = {
+const statusDotMap = {
 	done: "bg-status-running",
 	running: "bg-status-starting",
 	failed: "bg-status-error",

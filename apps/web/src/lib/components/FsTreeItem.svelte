@@ -1,4 +1,14 @@
 <script lang="ts">
+import {
+	File,
+	Folder,
+	FolderOpen,
+	FolderPlus,
+	Pencil,
+	Plus,
+	Trash2,
+} from "lucide-svelte";
+import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 
 const {
@@ -25,8 +35,8 @@ const {
 	canWrite?: boolean;
 } = $props();
 
-const _indent = $derived(10 + depth * 14);
-const _isActive = $derived(selectedPath === node.path);
+const indent = $derived(10 + depth * 14);
+const isActive = $derived(selectedPath === node.path);
 
 function handleClick() {
 	if (node.type === "dir") {
@@ -36,14 +46,14 @@ function handleClick() {
 	}
 }
 
-function _handleKeydown(e: KeyboardEvent) {
+function handleKeydown(e: KeyboardEvent) {
 	if (e.key === "Enter" || e.key === " ") {
 		e.preventDefault();
 		handleClick();
 	}
 }
 
-function _stop(handler: () => void) {
+function stop(handler: () => void) {
 	return (e: MouseEvent) => {
 		e.stopPropagation();
 		handler();

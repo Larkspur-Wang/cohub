@@ -1,4 +1,5 @@
 <script lang="ts">
+import TreeItem from "$lib/components/TreeItem.svelte";
 import type { RepositoryTreeNode } from "$lib/types";
 
 const {

@@ -1,6 +1,37 @@
 <script lang="ts">
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
-import { Loader2 } from "lucide-svelte";
+import {
+	AlertCircle,
+	ArrowDown,
+	Check,
+	Clock,
+	Clock3,
+	Code,
+	Copy,
+	Download,
+	Eye,
+	FolderKanban,
+	GitCommitHorizontal,
+	Globe,
+	Hash,
+	Loader2,
+	Lock,
+	Network,
+	PanelLeftClose,
+	PanelRightClose,
+	PanelRightOpen,
+	Pencil,
+	Plus,
+	Power,
+	PowerOff,
+	RefreshCw,
+	Save,
+	Settings,
+	Share2,
+	Terminal,
+	Trash2,
+	X,
+} from "lucide-svelte";
 import { onMount, tick } from "svelte";
 import { goto } from "$app/navigation";
 import {
@@ -47,6 +78,15 @@ import {
 	updateSpaceCollaborator,
 } from "$lib/api";
 import { pollCheckpointJob } from "$lib/checkpoints";
+import ChatTimeline from "$lib/components/ChatTimeline.svelte";
+import CodeEditor from "$lib/components/CodeEditor.svelte";
+import Dialog from "$lib/components/Dialog.svelte";
+import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
+import ModelSelector from "$lib/components/ModelSelector.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
+import SessionComposer from "$lib/components/SessionComposer.svelte";
+import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
+import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { RealtimeEventPayload } from "$lib/realtime";
 import { getRealtimeClient } from "$lib/realtime";
@@ -58,9 +98,12 @@ import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	buildSpaceCheckpointRoute,
+	buildSpaceCronjobNewRoute,
+	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
 	buildSpaceSessionRoute,
+	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { messageCache } from "$lib/stores/message-cache";
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
@@ -134,7 +177,7 @@ const routeTaskId = $derived(data.taskId ?? null);
 const fileMode = $derived<"chat" | "file">(
 	routeView === "file" ? "file" : "chat",
 );
-const _isRightDrawerVisible = $derived(
+const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
 );
 
@@ -148,8 +191,8 @@ let sending = $state(false);
 let spaceLoadError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
-let _streamingAssistantText = $state("");
-let _streamingThinking = $state("");
+let streamingAssistantText = $state("");
+let streamingThinking = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
 let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>(
 	{},
@@ -162,71 +205,71 @@ let modelsCatalog = $state<Array<{
 	id: string;
 	model: Record<string, unknown>;
 }> | null>(null);
-let _showModelSelector = $state(false);
+let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeLoading = $state(false);
-let _fileTreeError = $state<string | null>(null);
+let fileTreeError = $state<string | null>(null);
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
-let _openFileLoading = $state(false);
-let _openFileSaving = $state(false);
-let _openFileError = $state<string | null>(null);
-let _openFileTooLarge = $state(false);
+let openFileLoading = $state(false);
+let openFileSaving = $state(false);
+let openFileError = $state<string | null>(null);
+let openFileTooLarge = $state(false);
 
-const _fileDirty = $derived(
+const fileDirty = $derived(
 	Boolean(
 		openFile && openFile.kind === "text" && openFileDraft !== openFile.content,
 	),
 );
-const _openFileIsMarkdown = $derived(
+const openFileIsMarkdown = $derived(
 	Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)),
 );
-const _openFileExt = $derived.by(() => {
+const openFileExt = $derived.by(() => {
 	if (!openFile || openFile.kind !== "text") return "plaintext";
 	return openFile.name.split(".").pop()?.toLowerCase() ?? "plaintext";
 });
-const _openFileIsImage = $derived(
+const openFileIsImage = $derived(
 	Boolean(openFile?.mimeType?.startsWith("image/")),
 );
-const _openFileIsVideo = $derived(
+const openFileIsVideo = $derived(
 	Boolean(openFile?.mimeType?.startsWith("video/")),
 );
-const _openFileIsText = $derived(Boolean(openFile?.kind === "text"));
-const _openFileDataUrl = $derived.by(() => {
+const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
+const openFileDataUrl = $derived.by(() => {
 	if (!openFile || openFile.kind !== "binary") return null;
 	const mime = openFile.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${openFile.content}`;
 });
-const _openFileDownloadUrl = $derived.by(() => {
+const openFileDownloadUrl = $derived.by(() => {
 	if (!routeFilePath) return "";
 	return `/api/spaces/${spaceId}/fs/download?path=${encodeURIComponent(routeFilePath)}`;
 });
-const _openFileDownloadName = $derived.by(() => {
+const openFileDownloadName = $derived.by(() => {
 	if (!routeFilePath) return "";
 	return routeFilePath.split("/").pop() ?? "download";
 });
 
-let _fileMarkdownHtml = $state("");
-let _fileEdit = $state(true);
+let fileMarkdownHtml = $state("");
+let fileEdit = $state(true);
 
 $effect(() => {
 	const current = openFile;
 	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-		_fileMarkdownHtml = "";
+		fileMarkdownHtml = "";
 		return;
 	}
 	void renderMarkdown(current.content)
 		.then((html) => {
-			if (openFile?.path === current.path) _fileMarkdownHtml = html;
+			if (openFile?.path === current.path) fileMarkdownHtml = html;
 		})
 		.catch(() => {
-			_fileMarkdownHtml = "";
+			fileMarkdownHtml = "";
 		});
 });
 
 $effect(() => {
-	if (openFile) _fileEdit = true;
+	if (openFile) fileEdit = true;
 });
 
 let pageMounted = false;
@@ -235,19 +278,19 @@ let pageOnline = true;
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
-let _createSessionError = $state("");
+let createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
-let _bootstrapping = $state(true);
+let bootstrapping = $state(true);
 let sandbox = $state<SandboxRecord | null>(null);
 let sandboxProvisioning = $state(false);
 let sandboxError = $state<string | null>(null);
-let _sandboxElapsed = $state(0);
-let _spaceStatusNotice = $state("");
+let sandboxElapsed = $state(0);
+let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
 let autoScrollGuard = $state(false);
-let _showScrollToBottom = $state(false);
+let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<{
@@ -263,61 +306,61 @@ let scrollTargetSessionId = $state<string | null>(null);
 let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── Settings & Share ───
-let _showSettings = $state(false);
-let _showShareModal = $state(false);
+let showSettings = $state(false);
+let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
-let _shareCopied = $state(false);
+let shareCopied = $state(false);
 let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let _shareModalError = $state("");
-let _shareModalSaving = $state(false);
+let shareModalError = $state("");
+let shareModalSaving = $state(false);
 let checkpointDetail = $state<CheckpointRecord | null>(null);
-let _checkpointDetailLoading = $state(false);
-let _checkpointDetailError = $state("");
-let _checkpointCopied = $state(false);
+let checkpointDetailLoading = $state(false);
+let checkpointDetailError = $state("");
+let checkpointCopied = $state(false);
 let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let checkpointCreateDescription = $state("");
 let checkpointCreateSubmitting = $state(false);
-let _checkpointCreateError = $state("");
+let checkpointCreateError = $state("");
 
 // ─── Cronjobs ───
 let cronjobDetail = $state<CronJobRecord | null>(null);
-let _cronjobDetailLoading = $state(false);
-let _cronjobDetailError = $state("");
-let _cronjobRuns = $state<TaskRunRecord[]>([]);
-let _cronjobRunsLoading = $state(false);
+let cronjobDetailLoading = $state(false);
+let cronjobDetailError = $state("");
+let cronjobRuns = $state<TaskRunRecord[]>([]);
+let cronjobRunsLoading = $state(false);
 let cronjobActionInProgress = $state(false);
-let _cronjobToggleError = $state("");
+let cronjobToggleError = $state("");
 
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
 let cronjobNewPrompt = $state("");
 let cronjobNewSubmitting = $state(false);
-let _cronjobNewError = $state("");
+let cronjobNewError = $state("");
 
 // ─── Tasks ───
-let _taskRunDetail = $state<TaskRunRecord | null>(null);
-let _taskRunDetailLoading = $state(false);
-let _taskRunDetailError = $state("");
+let taskRunDetail = $state<TaskRunRecord | null>(null);
+let taskRunDetailLoading = $state(false);
+let taskRunDetailError = $state("");
 
 // Space-level permissions
-let _spacePerms = $state<ResourcePermission[]>([]);
-let _spacePublicRead = $state(false);
-let _savingSpacePerm = $state(false);
+let spacePerms = $state<ResourcePermission[]>([]);
+let spacePublicRead = $state(false);
+let savingSpacePerm = $state(false);
 
 // Session-level permissions
 let sessionPerms = $state<ResourcePermission[]>([]);
 
 // Session title cache for settings panel
-let _sessionTitleById = $state<Map<string, string>>(new Map());
+let sessionTitleById = $state<Map<string, string>>(new Map());
 
 // Collaborators
-let _spaceCollaborators = $state<ResourcePermission[]>([]);
-let _loadingCollaborators = $state(false);
+let spaceCollaborators = $state<ResourcePermission[]>([]);
+let loadingCollaborators = $state(false);
 let addingCollaboratorUuid = $state("");
 let addingCollaboratorLevel = $state<"read" | "write">("write");
-let _savingCollaborator = $state(false);
-let _addingCollaboratorError = $state("");
+let savingCollaborator = $state(false);
+let addingCollaboratorError = $state("");
 
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
@@ -331,7 +374,7 @@ function getSessionTitle(session: SessionRecord): string {
 	return "New session";
 }
 
-function _hasSessionPermission(sessionId: string): boolean {
+function hasSessionPermission(sessionId: string): boolean {
 	return sessionPerms.some(
 		(p) => p.resourceId === sessionId && p.level === "read",
 	);
@@ -340,8 +383,8 @@ function _hasSessionPermission(sessionId: string): boolean {
 async function loadSpacePermissions() {
 	try {
 		const perms = await listSpacePermissions(spaceId);
-		_spacePerms = perms;
-		_spacePublicRead = perms.some(
+		spacePerms = perms;
+		spacePublicRead = perms.some(
 			(p) =>
 				p.resourceType === "space" &&
 				p.level === "read" &&
@@ -356,14 +399,14 @@ async function loadSpacePermissions() {
 			const sess = spaceSessions.find((s) => s.id === perm.resourceId);
 			if (sess) titleMap.set(perm.resourceId, getSessionTitle(sess));
 		}
-		_sessionTitleById = titleMap;
+		sessionTitleById = titleMap;
 	} catch {
 		// Non-blocking
 	}
 }
 
-async function _toggleSpacePublicRead(checked: boolean) {
-	_savingSpacePerm = true;
+async function toggleSpacePublicRead(checked: boolean) {
+	savingSpacePerm = true;
 	try {
 		if (checked) {
 			await createSpacePermission(spaceId, "read");
@@ -374,11 +417,11 @@ async function _toggleSpacePublicRead(checked: boolean) {
 	} catch {
 		// Silently fail
 	} finally {
-		_savingSpacePerm = false;
+		savingSpacePerm = false;
 	}
 }
 
-async function _removeSessionPermission(sessionId: string) {
+async function removeSessionPermission(sessionId: string) {
 	try {
 		await deleteSessionPermission(sessionId);
 		await loadSpacePermissions();
@@ -389,20 +432,20 @@ async function _removeSessionPermission(sessionId: string) {
 
 // Collaborator management
 async function loadCollaborators() {
-	_loadingCollaborators = true;
+	loadingCollaborators = true;
 	try {
-		_spaceCollaborators = await listSpaceCollaborators(spaceId);
+		spaceCollaborators = await listSpaceCollaborators(spaceId);
 	} catch {
 		// Non-blocking
 	} finally {
-		_loadingCollaborators = false;
+		loadingCollaborators = false;
 	}
 }
 
-async function _handleAddCollaborator() {
+async function handleAddCollaborator() {
 	if (!addingCollaboratorUuid.trim()) return;
-	_savingCollaborator = true;
-	_addingCollaboratorError = "";
+	savingCollaborator = true;
+	addingCollaboratorError = "";
 	try {
 		await addSpaceCollaborator(
 			spaceId,
@@ -412,14 +455,14 @@ async function _handleAddCollaborator() {
 		addingCollaboratorUuid = "";
 		await loadCollaborators();
 	} catch (error) {
-		_addingCollaboratorError =
+		addingCollaboratorError =
 			error instanceof Error ? error.message : "Failed to add collaborator";
 	} finally {
-		_savingCollaborator = false;
+		savingCollaborator = false;
 	}
 }
 
-async function _handleUpdateCollaboratorLevel(
+async function handleUpdateCollaboratorLevel(
 	granteeUuid: string,
 	level: "read" | "write",
 ) {
@@ -431,7 +474,7 @@ async function _handleUpdateCollaboratorLevel(
 	}
 }
 
-async function _handleRemoveCollaborator(granteeUuid: string) {
+async function handleRemoveCollaborator(granteeUuid: string) {
 	try {
 		await removeSpaceCollaborator(spaceId, granteeUuid);
 		await loadCollaborators();
@@ -441,34 +484,34 @@ async function _handleRemoveCollaborator(granteeUuid: string) {
 }
 
 async function loadCheckpointDetail(checkpointId: string) {
-	_checkpointDetailLoading = true;
-	_checkpointDetailError = "";
+	checkpointDetailLoading = true;
+	checkpointDetailError = "";
 	try {
 		const result = await getSpaceCheckpoint(spaceId, checkpointId);
 		checkpointDetail = result.checkpoint;
 	} catch (error) {
 		checkpointDetail = null;
-		_checkpointDetailError =
+		checkpointDetailError =
 			error instanceof Error ? error.message : "Failed to load checkpoint";
 	} finally {
-		_checkpointDetailLoading = false;
+		checkpointDetailLoading = false;
 	}
 }
 
-async function _handleCopyCheckpointCommitHash() {
+async function handleCopyCheckpointCommitHash() {
 	if (!checkpointDetail) return;
 	await navigator.clipboard.writeText(checkpointDetail.commitHash);
-	_checkpointCopied = true;
+	checkpointCopied = true;
 	if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 	checkpointCopiedTimer = setTimeout(() => {
-		_checkpointCopied = false;
+		checkpointCopied = false;
 	}, 1800);
 }
 
-async function _handleCreateCheckpointSubmit(event: SubmitEvent) {
+async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (checkpointCreateSubmitting) return;
-	_checkpointCreateError = "";
+	checkpointCreateError = "";
 	checkpointCreateSubmitting = true;
 	try {
 		const { taskRunId } = await createSpaceCheckpoint(
@@ -492,7 +535,7 @@ async function _handleCreateCheckpointSubmit(event: SubmitEvent) {
 		}
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		_checkpointCreateError =
+		checkpointCreateError =
 			error instanceof Error ? error.message : "Failed to save checkpoint";
 	} finally {
 		checkpointCreateSubmitting = false;
@@ -502,37 +545,37 @@ async function _handleCreateCheckpointSubmit(event: SubmitEvent) {
 // ─── Cronjob detail & actions ───
 
 async function loadCronjobDetail(cronjobId: string) {
-	_cronjobDetailLoading = true;
-	_cronjobDetailError = "";
-	_cronjobToggleError = "";
+	cronjobDetailLoading = true;
+	cronjobDetailError = "";
+	cronjobToggleError = "";
 	try {
 		const { jobs } = await getCronJobs(spaceId);
 		const job = jobs.find((j) => j.id === cronjobId) ?? null;
 		if (!job) {
 			cronjobDetail = null;
-			_cronjobDetailError = "Cronjob not found";
+			cronjobDetailError = "Cronjob not found";
 			return;
 		}
 		cronjobDetail = job;
 		const { runs } = await getCronJobRuns(cronjobId);
-		_cronjobRuns = runs;
+		cronjobRuns = runs;
 	} catch (error) {
 		cronjobDetail = null;
-		_cronjobDetailError =
+		cronjobDetailError =
 			error instanceof Error ? error.message : "Failed to load cronjob";
 	} finally {
-		_cronjobDetailLoading = false;
+		cronjobDetailLoading = false;
 	}
 }
 
-async function _handleToggleCronjob(enabled: boolean) {
+async function handleToggleCronjob(enabled: boolean) {
 	if (!cronjobDetail || cronjobActionInProgress) return;
 	cronjobActionInProgress = true;
 	try {
 		await toggleCronJob(cronjobDetail.id, enabled);
 		cronjobDetail = { ...cronjobDetail, enabled };
 	} catch (error) {
-		_cronjobToggleError =
+		cronjobToggleError =
 			error instanceof Error ? error.message : "Failed to toggle";
 		void loadCronjobDetail(cronjobDetail.id);
 	} finally {
@@ -540,7 +583,7 @@ async function _handleToggleCronjob(enabled: boolean) {
 	}
 }
 
-async function _handleDeleteCronjob() {
+async function handleDeleteCronjob() {
 	if (
 		!cronjobDetail ||
 		!confirm("Are you sure you want to delete this cronjob?")
@@ -551,34 +594,34 @@ async function _handleDeleteCronjob() {
 		await deleteCronJob(cronjobDetail.id);
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		_cronjobDetailError =
+		cronjobDetailError =
 			error instanceof Error ? error.message : "Failed to delete";
 		cronjobActionInProgress = false;
 	}
 }
 
-async function _handleCreateCronjobSubmit(event: SubmitEvent) {
+async function handleCreateCronjobSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (cronjobNewSubmitting) return;
 	if (!cronjobNewTitle.trim()) {
-		_cronjobNewError = "Title is required";
+		cronjobNewError = "Title is required";
 		return;
 	}
 	if (!cronjobNewExpression.trim()) {
-		_cronjobNewError = "Cron expression is required";
+		cronjobNewError = "Cron expression is required";
 		return;
 	}
 	if (!cronjobNewPrompt.trim()) {
-		_cronjobNewError = "Prompt message is required";
+		cronjobNewError = "Prompt message is required";
 		return;
 	}
 	const cronParts = cronjobNewExpression.trim().split(/\s+/);
 	if (cronParts.length < 5 || cronParts.length > 6) {
-		_cronjobNewError =
+		cronjobNewError =
 			"Invalid cron expression format. Expected 5 or 6 space-separated fields.";
 		return;
 	}
-	_cronjobNewError = "";
+	cronjobNewError = "";
 	cronjobNewSubmitting = true;
 	try {
 		await createCronJob({
@@ -592,7 +635,7 @@ async function _handleCreateCronjobSubmit(event: SubmitEvent) {
 		});
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		_cronjobNewError =
+		cronjobNewError =
 			error instanceof Error ? error.message : "Failed to create cronjob";
 	} finally {
 		cronjobNewSubmitting = false;
@@ -602,62 +645,62 @@ async function _handleCreateCronjobSubmit(event: SubmitEvent) {
 // ─── Task detail ───
 
 async function loadTaskDetail(taskId: string) {
-	_taskRunDetailLoading = true;
-	_taskRunDetailError = "";
+	taskRunDetailLoading = true;
+	taskRunDetailError = "";
 	try {
 		const { run } = await getTaskRun(taskId);
-		_taskRunDetail = run;
+		taskRunDetail = run;
 	} catch (error) {
-		_taskRunDetail = null;
-		_taskRunDetailError =
+		taskRunDetail = null;
+		taskRunDetailError =
 			error instanceof Error ? error.message : "Failed to load task run";
 	} finally {
-		_taskRunDetailLoading = false;
+		taskRunDetailLoading = false;
 	}
 }
 
-function _openShareModal(sessionId: string) {
+function openShareModal(sessionId: string) {
 	shareModalSessionId = sessionId;
-	_showShareModal = true;
-	_shareCopied = false;
-	_shareModalError = "";
+	showShareModal = true;
+	shareCopied = false;
+	shareModalError = "";
 }
 
-async function _shareAndCopyLink() {
+async function shareAndCopyLink() {
 	if (!shareModalSessionId) return;
-	_shareModalError = "";
-	_shareModalSaving = true;
+	shareModalError = "";
+	shareModalSaving = true;
 	try {
 		await createSessionPermission(shareModalSessionId, "read");
 		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
 		await navigator.clipboard.writeText(url);
-		_shareCopied = true;
+		shareCopied = true;
 		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
 		shareCopiedTimer = setTimeout(() => {
-			_shareCopied = false;
+			shareCopied = false;
 		}, 2000);
 		await loadSpacePermissions();
 	} catch (error) {
-		_shareModalError =
+		shareModalError =
 			error instanceof Error ? error.message : "Failed to share session";
 	} finally {
-		_shareModalSaving = false;
+		shareModalSaving = false;
 	}
 }
 
-async function _makeSessionPrivate() {
+async function makeSessionPrivate() {
 	if (!shareModalSessionId) return;
-	_shareModalError = "";
-	_shareModalSaving = true;
+	shareModalError = "";
+	shareModalSaving = true;
 	try {
 		await deleteSessionPermission(shareModalSessionId);
 		await loadSpacePermissions();
-		_showShareModal = false;
+		showShareModal = false;
 	} catch (error) {
-		_shareModalError =
+		shareModalError =
 			error instanceof Error ? error.message : "Failed to make session private";
 	} finally {
-		_shareModalSaving = false;
+		shareModalSaving = false;
 	}
 }
 
@@ -683,15 +726,15 @@ const bootstrapStatus = $derived.by<
 		? value
 		: null;
 });
-const _bootstrapStage = $derived.by<string | null>(() => {
+const bootstrapStage = $derived.by<string | null>(() => {
 	const value = bootstrapMeta?.stage;
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
-const _bootstrapErrorMessage = $derived.by<string | null>(() => {
+const bootstrapErrorMessage = $derived.by<string | null>(() => {
 	const value = bootstrapMeta?.errorMessage;
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
-const _bootstrapSourceLabel = $derived.by(() => {
+const bootstrapSourceLabel = $derived.by(() => {
 	const source = bootstrapMeta?.source;
 	if (!source || typeof source !== "object" || Array.isArray(source))
 		return "Blank";
@@ -700,7 +743,7 @@ const _bootstrapSourceLabel = $derived.by(() => {
 	if (type === "checkpoint") return "Checkpoint";
 	return "Blank";
 });
-const _sandboxStatusTone = $derived.by(() => {
+const sandboxStatusTone = $derived.by(() => {
 	if (
 		sandboxError ||
 		space?.sandboxStatus === "error" ||
@@ -713,7 +756,7 @@ const _sandboxStatusTone = $derived.by(() => {
 	}
 	return "text-text-secondary border-border-subtle bg-bg-surface";
 });
-const _bootstrapStatusTone = $derived.by(() => {
+const bootstrapStatusTone = $derived.by(() => {
 	if (bootstrapStatus === "failed")
 		return "text-error-soft border-error-soft/20 bg-error-soft/8";
 	if (bootstrapStatus === "ready")
@@ -750,7 +793,7 @@ const activeRenderableMessages = $derived.by(() => {
 	if (!state) return [] as ChatMessage[];
 	return buildRenderableChatMessages(state.messages, activePendingMessages);
 });
-const _timeline = $derived.by<TimelineItem[]>(() => {
+const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
 	return buildTimelineItems({
@@ -821,7 +864,7 @@ async function loadModelsCatalog() {
 	}
 }
 
-function _handleModelSelect(model: { provider: string; id: string }) {
+function handleModelSelect(model: { provider: string; id: string }) {
 	if (!activeSessionId) return;
 	const catalogItem = modelsCatalog?.find(
 		(item) => item.provider === model.provider && item.id === model.id,
@@ -836,7 +879,7 @@ function _handleModelSelect(model: { provider: string; id: string }) {
 		[activeSessionId]: selected,
 	};
 	saveSessionModel(activeSessionId, selected);
-	_showModelSelector = false;
+	showModelSelector = false;
 }
 
 function navigateToSession(
@@ -1030,10 +1073,10 @@ async function loadSpace(_options?: { force?: boolean }) {
 }
 
 function showSpaceStatusNotice(message: string) {
-	_spaceStatusNotice = message;
+	spaceStatusNotice = message;
 	if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 	spaceStatusNoticeTimer = setTimeout(() => {
-		_spaceStatusNotice = "";
+		spaceStatusNotice = "";
 		spaceStatusNoticeTimer = null;
 	}, 2800);
 }
@@ -1109,10 +1152,10 @@ async function refreshSpaceStatus() {
 async function pollSandboxReady() {
 	const startedAt = Date.now();
 	const TIMEOUT = 120_000;
-	_sandboxElapsed = 0;
+	sandboxElapsed = 0;
 
 	const elapsedTimer = setInterval(() => {
-		_sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
+		sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
 	}, 1000);
 
 	try {
@@ -1144,13 +1187,13 @@ async function pollSandboxReady() {
 	}
 }
 
-function _formatElapsedTime(seconds: number): string {
+function formatElapsedTime(seconds: number): string {
 	const m = Math.floor(seconds / 60);
 	const s = seconds % 60;
 	return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
-function _formatDateTime(dateStr: string | null | undefined): string {
+function formatDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
 	return d.toLocaleString("en-US", {
@@ -1162,7 +1205,7 @@ function _formatDateTime(dateStr: string | null | undefined): string {
 	});
 }
 
-function _formatShortDateTime(dateStr: string | null | undefined): string {
+function formatShortDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
 	return d.toLocaleString("en-US", {
@@ -1173,7 +1216,7 @@ function _formatShortDateTime(dateStr: string | null | undefined): string {
 	});
 }
 
-function _taskRunStatusBadge(run: TaskRunRecord) {
+function taskRunStatusBadge(run: TaskRunRecord) {
 	switch (run.status) {
 		case "completed":
 			return {
@@ -1200,7 +1243,7 @@ function _taskRunStatusBadge(run: TaskRunRecord) {
 	}
 }
 
-function _taskRunDuration(run: TaskRunRecord): string {
+function taskRunDuration(run: TaskRunRecord): string {
 	if (!run.startedAt || !run.finishedAt) return "—";
 	const ms = Math.max(
 		0,
@@ -1209,7 +1252,7 @@ function _taskRunDuration(run: TaskRunRecord): string {
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function _formatBootstrapStage(stage: string | null) {
+function formatBootstrapStage(stage: string | null) {
 	if (!stage) return "Waiting";
 	if (stage === "prepare") return "Preparing workspace";
 	if (stage === "import") return "Importing repository";
@@ -1219,7 +1262,7 @@ function _formatBootstrapStage(stage: string | null) {
 	return stage.replace(/_/g, " ");
 }
 
-function _formatBootstrapStatus(status: string | null) {
+function formatBootstrapStatus(status: string | null) {
 	if (!status) return "Pending";
 	if (status === "running") return "Running";
 	if (status === "ready") return "Ready";
@@ -1227,7 +1270,7 @@ function _formatBootstrapStatus(status: string | null) {
 	return "Pending";
 }
 
-async function _handleRecreateSandbox() {
+async function handleRecreateSandbox() {
 	if (!space) return;
 	sandboxError = null;
 	sandboxProvisioning = true;
@@ -1242,7 +1285,7 @@ async function _handleRecreateSandbox() {
 
 		await loadSpace({ force: true });
 		void loadFileTree(true);
-		_bootstrapping = false;
+		bootstrapping = false;
 	} catch (error) {
 		sandboxError =
 			error instanceof Error ? error.message : "Failed to recreate sandbox";
@@ -1447,7 +1490,7 @@ async function loadOlderMessages(sessionId: string) {
 	}
 }
 
-function _handleFirstVisible(index: number) {
+function handleFirstVisible(index: number) {
 	if (!activeSessionId) return;
 	const state = sessionStateById[activeSessionId];
 	if (!state?.hasMore || state.loadingOlder) return;
@@ -1629,8 +1672,8 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 				);
 			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
 			const { thinking, answer } = extractSessionRenderState(mergedContent);
-			_streamingThinking = thinking;
-			_streamingAssistantText = answer;
+			streamingThinking = thinking;
+			streamingAssistantText = answer;
 			streamingContentBlocks = mergedContent;
 			if (streamingAnchorUserMessageId) {
 				streamingDraftAnchorUserMessageIdBySessionId = {
@@ -1752,8 +1795,8 @@ function disconnectAllWS() {
 }
 
 function clearStreamingState(sessionId: string | null = activeSessionId) {
-	_streamingAssistantText = "";
-	_streamingThinking = "";
+	streamingAssistantText = "";
+	streamingThinking = "";
 	streamingContentBlocks = [];
 	if (sessionId) {
 		streamingDraftTruncatedStartBySessionId = {
@@ -1769,7 +1812,7 @@ function clearStreamingState(sessionId: string | null = activeSessionId) {
 	streamingSessionId = null;
 }
 
-async function _handleSend() {
+async function handleSend() {
 	if (
 		!activeSessionState ||
 		(!input.trim() && imageAttachments.length === 0) ||
@@ -1899,7 +1942,7 @@ function updateAutoFollow() {
 	}
 	shouldAutoFollow = distanceFromBottom <= threshold;
 	if (shouldAutoFollow) userScrolledUp = false;
-	_showScrollToBottom =
+	showScrollToBottom =
 		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
 
@@ -1969,7 +2012,7 @@ async function compressImageFile(file: File) {
 	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
 
-async function _handlePickImages(files: FileList | File[] | null) {
+async function handlePickImages(files: FileList | File[] | null) {
 	if (!files) return;
 	const validFiles = Array.from(files).filter((file) =>
 		file.type.startsWith("image/"),
@@ -1998,13 +2041,13 @@ async function _handlePickImages(files: FileList | File[] | null) {
 	}
 }
 
-function _handleRemoveAttachment(id: string) {
+function handleRemoveAttachment(id: string) {
 	imageAttachments = imageAttachments.filter(
 		(attachment) => attachment.id !== id,
 	);
 }
 
-function _beginRightSidebarResize(event: PointerEvent) {
+function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024 || uiState.rightSidebarCollapsed) return;
 	rightSidebarResizeCleanup?.();
@@ -2037,19 +2080,19 @@ function _beginRightSidebarResize(event: PointerEvent) {
 async function loadFileTree(force = false) {
 	if (fileTreeLoading && !force) return;
 	fileTreeLoading = true;
-	_fileTreeError = null;
+	fileTreeError = null;
 	try {
 		const tree = await getSpaceFsTree(spaceId, "");
 		fileTree = tree.entries.map(makeFsNode);
 	} catch (error) {
-		_fileTreeError =
+		fileTreeError =
 			error instanceof Error ? error.message : "Failed to load files";
 	} finally {
 		fileTreeLoading = false;
 	}
 }
 
-async function _expandDirectory(node: SpaceFsNode) {
+async function expandDirectory(node: SpaceFsNode) {
 	if (node.type !== "dir") return;
 	if (node.isOpen) {
 		fileTree = updateNodeState(fileTree, node.path, (item) => ({
@@ -2082,7 +2125,7 @@ async function _expandDirectory(node: SpaceFsNode) {
 			...item,
 			isLoading: false,
 		}));
-		_fileTreeError =
+		fileTreeError =
 			error instanceof Error ? error.message : "Failed to load directory";
 	}
 }
@@ -2095,15 +2138,15 @@ async function openSpaceFile(path: string) {
 	});
 }
 
-async function _refreshFileTree() {
+async function refreshFileTree() {
 	await loadFileTree(true);
 }
 
 async function openFileFromUrl(path: string) {
-	_openFileLoading = true;
-	_openFileError = null;
-	_openFileTooLarge = false;
-	_fileEdit = true;
+	openFileLoading = true;
+	openFileError = null;
+	openFileTooLarge = false;
+	fileEdit = true;
 	try {
 		const file = await getSpaceFsFile(spaceId, path);
 		openFile = file;
@@ -2112,22 +2155,22 @@ async function openFileFromUrl(path: string) {
 		const message =
 			error instanceof Error ? error.message : "Failed to open file";
 		if (message.includes("413") || message.includes("too large")) {
-			_openFileTooLarge = true;
+			openFileTooLarge = true;
 			openFile = null;
 			openFileDraft = "";
-			_openFileError = null;
+			openFileError = null;
 		} else {
-			_openFileError = message;
+			openFileError = message;
 		}
 	} finally {
-		_openFileLoading = false;
+		openFileLoading = false;
 	}
 }
 
 async function saveOpenFile() {
 	if (!openFile || openFile.kind !== "text") return;
-	_openFileSaving = true;
-	_openFileError = null;
+	openFileSaving = true;
+	openFileError = null;
 	try {
 		await putSpaceFsFile(spaceId, {
 			path: openFile.path,
@@ -2141,14 +2184,14 @@ async function saveOpenFile() {
 		};
 		await loadFileTree(true);
 	} catch (error) {
-		_openFileError =
+		openFileError =
 			error instanceof Error ? error.message : "Failed to save file";
 	} finally {
-		_openFileSaving = false;
+		openFileSaving = false;
 	}
 }
 
-async function _handleCreateFile(parentPath: string) {
+async function handleCreateFile(parentPath: string) {
 	const name = prompt("New file name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -2157,12 +2200,12 @@ async function _handleCreateFile(parentPath: string) {
 		await loadFileTree(true);
 		await openSpaceFile(path);
 	} catch (error) {
-		_fileTreeError =
+		fileTreeError =
 			error instanceof Error ? error.message : "Failed to create file";
 	}
 }
 
-async function _handleCreateDir(parentPath: string) {
+async function handleCreateDir(parentPath: string) {
 	const name = prompt("New folder name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -2170,12 +2213,12 @@ async function _handleCreateDir(parentPath: string) {
 		await createSpaceFsDir(spaceId, path);
 		await loadFileTree(true);
 	} catch (error) {
-		_fileTreeError =
+		fileTreeError =
 			error instanceof Error ? error.message : "Failed to create folder";
 	}
 }
 
-async function _handleRenameNode(node: SpaceFsNode) {
+async function handleRenameNode(node: SpaceFsNode) {
 	const nextName = prompt("Rename", node.name);
 	if (!nextName?.trim() || nextName.trim() === node.name) return;
 	const parent = node.path.includes("/")
@@ -2189,20 +2232,18 @@ async function _handleRenameNode(node: SpaceFsNode) {
 			await openSpaceFile(toPath);
 		}
 	} catch (error) {
-		_fileTreeError =
-			error instanceof Error ? error.message : "Failed to rename";
+		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
 	}
 }
 
-async function _handleDeleteNode(node: SpaceFsNode) {
+async function handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
 		await loadFileTree(true);
 		if (openFile?.path === node.path) closeFile();
 	} catch (error) {
-		_fileTreeError =
-			error instanceof Error ? error.message : "Failed to delete";
+		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
 	}
 }
 
@@ -2225,10 +2266,25 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 	}
 }
 
-function _handleCreateNewSession() {
+function getCheckpointTitle(checkpoint: CheckpointRecord): string {
+	return checkpoint.description || checkpoint.commitHash.slice(0, 12);
+}
+
+function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
+	if (!dateStr) return "—";
+	const d = new Date(dateStr);
+	return d.toLocaleString("en-US", {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
+
+function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	creatingSession = true;
-	_createSessionError = "";
+	createSessionError = "";
 	const createSpaceId = space.id;
 	void createSpaceSession(createSpaceId, { source: "web" })
 		.then(async (result) => {
@@ -2246,7 +2302,7 @@ function _handleCreateNewSession() {
 			await forceScrollToBottom();
 		})
 		.catch((error) => {
-			_createSessionError =
+			createSessionError =
 				error instanceof Error ? error.message : "Failed to create session";
 		})
 		.finally(() => {
@@ -2312,7 +2368,7 @@ onMount(() => {
 				const ready = await pollSandboxReady();
 				if (!ready) {
 					sandboxProvisioning = false;
-					_bootstrapping = false;
+					bootstrapping = false;
 					return;
 				}
 				sandboxProvisioning = false;
@@ -2328,15 +2384,15 @@ onMount(() => {
 				activeSessionId = initialSessionId;
 				ensureSessionModelLoaded(initialSessionId);
 				void loadSessionState(initialSessionId).finally(() => {
-					_bootstrapping = false;
+					bootstrapping = false;
 				});
 				return;
 			}
 
-			_bootstrapping = false;
+			bootstrapping = false;
 		})
 		.catch(() => {
-			_bootstrapping = false;
+			bootstrapping = false;
 		});
 
 	return () => {
@@ -2446,10 +2502,10 @@ $effect(() => {
 	if (routeView !== "file" || !routeFilePath) {
 		openFile = null;
 		openFileDraft = "";
-		_openFileError = null;
-		_openFileTooLarge = false;
-		_fileMarkdownHtml = "";
-		_fileEdit = true;
+		openFileError = null;
+		openFileTooLarge = false;
+		fileMarkdownHtml = "";
+		fileEdit = true;
 		return;
 	}
 	void openFileFromUrl(routeFilePath);
@@ -2461,12 +2517,12 @@ $effect(() => {
 		return;
 	}
 	checkpointDetail = null;
-	_checkpointDetailError = "";
+	checkpointDetailError = "";
 });
 
 $effect(() => {
 	if (routeView === "checkpoint-new") {
-		_checkpointCreateError = "";
+		checkpointCreateError = "";
 	}
 });
 
@@ -2482,17 +2538,17 @@ $effect(() => {
 		cronjobNewTitle = "";
 		cronjobNewExpression = "";
 		cronjobNewPrompt = "";
-		_cronjobNewError = "";
+		cronjobNewError = "";
 		cronjobDetail = null;
-		_cronjobDetailError = "";
-		_cronjobRuns = [];
-		_cronjobToggleError = "";
+		cronjobDetailError = "";
+		cronjobRuns = [];
+		cronjobToggleError = "";
 		return;
 	}
 	cronjobDetail = null;
-	_cronjobDetailError = "";
-	_cronjobRuns = [];
-	_cronjobToggleError = "";
+	cronjobDetailError = "";
+	cronjobRuns = [];
+	cronjobToggleError = "";
 });
 
 $effect(() => {
@@ -2500,8 +2556,8 @@ $effect(() => {
 		void loadTaskDetail(routeTaskId);
 		return;
 	}
-	_taskRunDetail = null;
-	_taskRunDetailError = "";
+	taskRunDetail = null;
+	taskRunDetailError = "";
 });
 
 $effect(() => {

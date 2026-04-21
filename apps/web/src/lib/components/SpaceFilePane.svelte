@@ -1,5 +1,15 @@
 <script lang="ts">
+import {
+	Code,
+	Download,
+	Eye,
+	FileWarning,
+	Pencil,
+	Save,
+	X,
+} from "lucide-svelte";
 import type { SpaceFsFileResponse } from "$lib/api";
+import CodeEditor from "$lib/components/CodeEditor.svelte";
 import { renderMarkdown } from "$lib/markdown";
 
 const {
@@ -30,42 +40,42 @@ const {
 	children?: import("svelte").Snippet;
 } = $props();
 
-let _markdownHtml = $state("");
-let _fileEdit = $state(true);
+let markdownHtml = $state("");
+let fileEdit = $state(true);
 
 $effect(() => {
 	const current = file;
 	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-		_markdownHtml = "";
+		markdownHtml = "";
 		return;
 	}
 	void renderMarkdown(current.content)
 		.then((html) => {
-			if (file?.path === current.path) _markdownHtml = html;
+			if (file?.path === current.path) markdownHtml = html;
 		})
 		.catch(() => {
-			_markdownHtml = "";
+			markdownHtml = "";
 		});
 });
 
 $effect(() => {
-	if (file) _fileEdit = true;
+	if (file) fileEdit = true;
 });
 
-const _dataUrl = $derived.by(() => {
+const dataUrl = $derived.by(() => {
 	if (!file || file.kind !== "binary") return null;
 	const mime = file.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${file.content}`;
 });
 
-const _isImage = $derived(Boolean(file?.mimeType?.startsWith("image/")));
-const _isVideo = $derived(Boolean(file?.mimeType?.startsWith("video/")));
-const _isText = $derived(Boolean(file?.kind === "text"));
-const _isMarkdown = $derived(
+const isImage = $derived(Boolean(file?.mimeType?.startsWith("image/")));
+const isVideo = $derived(Boolean(file?.mimeType?.startsWith("video/")));
+const isText = $derived(Boolean(file?.kind === "text"));
+const isMarkdown = $derived(
 	Boolean(file?.kind === "text" && /\.md$/i.test(file.path)),
 );
 
-const _editorLanguage = $derived.by(() => {
+const editorLanguage = $derived.by(() => {
 	if (!file || file.kind !== "text") return "plaintext";
 	return file.name.split(".").pop()?.toLowerCase() ?? "";
 });

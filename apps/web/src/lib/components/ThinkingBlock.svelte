@@ -6,7 +6,7 @@ type Props = {
 };
 
 const { title = "Thinking", content, isStreaming = false }: Props = $props();
-let _expanded = $state(false);
+let expanded = $state(false);
 </script>
 
 <div class="rounded-md border border-warning-soft/20 bg-warning-bg overflow-hidden">

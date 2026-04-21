@@ -1,4 +1,6 @@
 <script lang="ts">
+import { X } from "lucide-svelte";
+import { fade, scale, slide } from "svelte/transition";
 import {
 	DURATION_MODAL_IN,
 	DURATION_MODAL_OUT,
@@ -26,8 +28,8 @@ const {
 
 const TRANSITION_IN = { duration: DURATION_MODAL_IN, easing: svelteEaseOut };
 const TRANSITION_OUT = { duration: DURATION_MODAL_OUT, easing: svelteEaseIn };
-const _SCALE_TRANSITION_IN = { ...TRANSITION_IN, start: 0.95 };
-const _SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
+const SCALE_TRANSITION_IN = { ...TRANSITION_IN, start: 0.95 };
+const SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
 </script>
 
 {#if open}

@@ -1,4 +1,6 @@
 <script lang="ts">
+import { ArrowUp, ChevronDown, Plus, Upload, X } from "lucide-svelte";
+
 type ComposerImageAttachment = {
 	id: string;
 	name: string;
@@ -39,8 +41,8 @@ let {
 }: Props = $props();
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
-let _fileInputEl = $state<HTMLInputElement | null>(null);
-let _isDragOver = $state(false);
+let fileInputEl = $state<HTMLInputElement | null>(null);
+let isDragOver = $state(false);
 let dragCounter = 0;
 
 function resizeTextarea() {
@@ -57,37 +59,37 @@ function hasImageFiles(dataTransfer: DataTransfer | null) {
 	);
 }
 
-function _handleDragEnter(event: DragEvent) {
+function handleDragEnter(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter += 1;
-	_isDragOver = true;
+	isDragOver = true;
 }
 
-function _handleDragOver(event: DragEvent) {
+function handleDragOver(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
-	_isDragOver = true;
+	isDragOver = true;
 }
 
-function _handleDragLeave(event: DragEvent) {
+function handleDragLeave(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter = Math.max(0, dragCounter - 1);
 	if (dragCounter === 0) {
-		_isDragOver = false;
+		isDragOver = false;
 	}
 }
 
-function _handleDrop(event: DragEvent) {
+function handleDrop(event: DragEvent) {
 	if (!hasImageFiles(event.dataTransfer)) return;
 	event.preventDefault();
-	_isDragOver = false;
+	isDragOver = false;
 	dragCounter = 0;
 	onpickimage?.(event.dataTransfer?.files ?? null);
 }
 
-function _handlePaste(event: ClipboardEvent) {
+function handlePaste(event: ClipboardEvent) {
 	const files = Array.from(event.clipboardData?.items ?? [])
 		.filter((item) => item.type.startsWith("image/"))
 		.map((item) => item.getAsFile())

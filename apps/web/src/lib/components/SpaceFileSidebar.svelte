@@ -1,4 +1,6 @@
 <script lang="ts">
+import { AlertCircle, FolderPlus, Lock, Plus, RefreshCw } from "lucide-svelte";
+import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 
 const {
@@ -29,11 +31,11 @@ const {
 	canWrite?: boolean;
 } = $props();
 
-function _handleCreateFileAtRoot() {
+function handleCreateFileAtRoot() {
 	onCreateFile("");
 }
 
-function _handleCreateDirAtRoot() {
+function handleCreateDirAtRoot() {
 	onCreateDir("");
 }
 </script>

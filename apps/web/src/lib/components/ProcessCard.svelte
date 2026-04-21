@@ -1,4 +1,6 @@
 <script lang="ts">
+import { ChevronDown, ChevronRight } from "lucide-svelte";
+import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
 type Props = {
@@ -9,7 +11,7 @@ const { messages }: Props = $props();
 
 let expanded = $state(false);
 
-function _toggle() {
+function toggle() {
 	expanded = !expanded;
 }
 
@@ -44,7 +46,7 @@ const labelParts = $derived(
 	].filter(Boolean),
 );
 
-const _summaryLabel = $derived(labelParts.join(" · "));
+const summaryLabel = $derived(labelParts.join(" · "));
 </script>
 
 {#if !expanded}

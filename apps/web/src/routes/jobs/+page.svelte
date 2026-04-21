@@ -1,5 +1,17 @@
 <script lang="ts">
-import { Loader2 } from "lucide-svelte";
+import {
+	Activity,
+	Clipboard,
+	ClipboardCheck,
+	Clock,
+	Filter,
+	Loader2,
+	Plus,
+	Power,
+	PowerOff,
+	Trash2,
+	X,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 import {
 	type CronJobRecord,
@@ -14,6 +26,8 @@ import {
 	toggleCronJob,
 } from "$lib/api";
 import { logtoClient } from "$lib/auth";
+import Dialog from "$lib/components/Dialog.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
 
 type TabId = "cronjobs" | "history";
 type ModalMode = "create" | "edit";
@@ -59,15 +73,15 @@ const editExamplePrompts = [
 	"Update the prompt message to include error counts",
 ];
 
-function _getExamplePrompts(): string[] {
+function getExamplePrompts(): string[] {
 	return modalMode === "edit" ? editExamplePrompts : createExamplePrompts;
 }
 
-function _copyPrompt(text: string, index: number) {
+function copyPrompt(text: string, index: number) {
 	navigator.clipboard.writeText(text).then(() => {
-		_copiedIndex = index;
+		copiedIndex = index;
 		setTimeout(() => {
-			_copiedIndex = null;
+			copiedIndex = null;
 		}, 1500);
 	});
 }
@@ -85,19 +99,19 @@ function extractPromptText(payload: Record<string, unknown>): string {
 
 async function loadCronJobs() {
 	if (!(await logtoClient.isAuthenticated())) {
-		_isLoading = false;
+		isLoading = false;
 		return;
 	}
 
-	_loadError = "";
+	loadError = "";
 	try {
 		const result = await getCronJobs();
 		cronJobs = result.jobs ?? [];
 	} catch (error) {
-		_loadError =
+		loadError =
 			error instanceof Error ? error.message : "Failed to load cron jobs";
 	} finally {
-		_isLoading = false;
+		isLoading = false;
 	}
 }
 
@@ -114,7 +128,7 @@ async function loadTaskRuns() {
 	}
 }
 
-async function _handleDelete(id: string, e: Event) {
+async function handleDelete(id: string, e: Event) {
 	e.stopPropagation();
 	if (!confirm("Are you sure you want to delete this cron job?")) return;
 	actionInProgress = { ...actionInProgress, [id]: "delete" };
@@ -129,7 +143,7 @@ async function _handleDelete(id: string, e: Event) {
 	}
 }
 
-async function _handleToggle(id: string, enabled: boolean, e: Event) {
+async function handleToggle(id: string, enabled: boolean, e: Event) {
 	e.stopPropagation();
 	actionInProgress = { ...actionInProgress, [id]: "toggle" };
 	try {
@@ -144,12 +158,12 @@ async function _handleToggle(id: string, enabled: boolean, e: Event) {
 	}
 }
 
-function _filterHistoryForJob(jobId: string) {
+function filterHistoryForJob(jobId: string) {
 	filterCronJobId = jobId;
 	activeTab = "history";
 }
 
-function _clearFilter() {
+function clearFilter() {
 	filterCronJobId = null;
 }
 

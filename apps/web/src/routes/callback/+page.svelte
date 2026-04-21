@@ -2,7 +2,7 @@
 import { onMount } from "svelte";
 import { logtoClient } from "$lib/auth";
 
-let _error = $state("");
+let error = $state("");
 
 onMount(async () => {
 	try {
@@ -22,7 +22,7 @@ onMount(async () => {
 		}
 		window.location.replace(redirectUri.toString());
 	} catch (err) {
-		_error = err instanceof Error ? err.message : "Authentication failed";
+		error = err instanceof Error ? err.message : "Authentication failed";
 	}
 });
 </script>

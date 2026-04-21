@@ -1,4 +1,5 @@
 <script lang="ts">
+import TreeItem from "$lib/components/TreeItem.svelte";
 import type { RepositoryTreeNode } from "$lib/types";
 
 const {
@@ -15,7 +16,7 @@ const {
 	onSelect: (node: RepositoryTreeNode) => void;
 } = $props();
 
-const _handleClick = () => {
+const handleClick = () => {
 	if (node.type === "dir") {
 		onToggle(node);
 		return;
@@ -24,14 +25,14 @@ const _handleClick = () => {
 	onSelect(node);
 };
 
-const _icon = $derived.by(() => {
+const icon = $derived.by(() => {
 	if (node.type === "dir") {
 		return node.isOpen ? "▾" : "▸";
 	}
 	return "·";
 });
 
-const _isActive = $derived(selectedPath === node.path);
+const isActive = $derived(selectedPath === node.path);
 </script>
 
 <button

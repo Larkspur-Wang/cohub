@@ -1,4 +1,5 @@
 <script lang="ts">
+import { ChevronDown, ChevronRight } from "lucide-svelte";
 import type { ToolState } from "$lib/session-tree";
 
 type Props = {
@@ -7,15 +8,15 @@ type Props = {
 
 const { tool }: Props = $props();
 
-let _expanded = $state(false);
+let expanded = $state(false);
 
-const _statusDotMap = {
+const statusDotMap = {
 	done: "bg-status-running",
 	running: "bg-status-starting animate-pulse",
 	failed: "bg-status-error",
 } as const;
 
-function _summarizeToolInput(
+function summarizeToolInput(
 	name: string,
 	input?: Record<string, unknown>,
 ): string {
