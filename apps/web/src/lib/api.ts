@@ -606,6 +606,11 @@ export type CheckpointRecord = {
 	createdAt: string;
 };
 
+export type SpaceCheckpointDetailResponse = {
+	checkpoint: CheckpointRecord;
+};
+
+
 export type CreateCronJobInput = {
 	title: string;
 	taskType: string;
@@ -680,6 +685,17 @@ export const getSpaceCheckpoints = async (spaceId: string) => {
 		checkpoints: CheckpointRecord[];
 	}>;
 };
+
+export const getSpaceCheckpoint = async (
+	spaceId: string,
+	checkpointId: string,
+	customFetch?: Fetch,
+) => {
+	return apiFetch(`/api/spaces/${spaceId}/checkpoints/${checkpointId}`, {
+		fetch: customFetch,
+	}) as Promise<SpaceCheckpointDetailResponse>;
+};
+
 
 export const getTaskRun = async (jobId: string) => {
 	return apiFetch(`/api/tasks/runs/${jobId}`) as Promise<{

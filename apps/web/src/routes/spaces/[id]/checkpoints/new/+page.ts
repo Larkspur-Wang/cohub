@@ -3,8 +3,9 @@ import type { PageLoad } from "./$types";
 export const load: PageLoad = async ({ params }) => {
 	return {
 		spaceId: params.id,
-		view: "space" as const,
+		view: "checkpoint-new" as const,
 		sessionId: null,
 		filePath: null,
+		checkpointId: null,
 	};
 };

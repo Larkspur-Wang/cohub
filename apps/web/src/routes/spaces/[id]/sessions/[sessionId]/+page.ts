@@ -3,8 +3,8 @@ import type { PageLoad } from "./$types";
 export const load: PageLoad = async ({ params }) => {
 	return {
 		spaceId: params.id,
-		view: "space" as const,
-		sessionId: null,
+		view: "session" as const,
+		sessionId: params.sessionId,
 		filePath: null,
 	};
 };

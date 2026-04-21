@@ -14,12 +14,27 @@ import {
   Palette,
   KeyRound,
   Network,
-  Save,
   LayoutDashboard,
+  History,
 } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
-import { getSpaces, getSpaceSessions, createSpaceSession, createSpaceCheckpoint, getTaskRun, type SessionRecord, type SpaceRecord } from "$lib/api";
+import {
+  getSpaces,
+  getSpaceSessions,
+  getSpaceCheckpoints,
+  createSpaceSession,
+  type CheckpointRecord,
+  type SessionRecord,
+  type SpaceRecord,
+} from "$lib/api";
 import { logtoClient } from "$lib/auth";
+import { getCheckpointTitle } from "$lib/checkpoints";
+import {
+  buildSpaceCheckpointNewRoute,
+  buildSpaceCheckpointRoute,
+  buildSpaceDetailRoute,
+  buildSpaceSessionRoute,
+} from "$lib/space-routes";
 import { unreadTracker, isStreaming } from "$lib/stores/session-state.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 
@@ -39,24 +54,33 @@ let showUserMenu = $state(false);
 let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
+let checkpoints = $state<CheckpointRecord[]>([]);
 let loadingSessions = $state(false);
+let loadingCheckpoints = $state(false);
 
 let sessionsCollapsed = $state(false);
-let checkpointSaving = $state(false);
-let checkpointNotice = $state("");
-let checkpointError = $state("");
+let checkpointsCollapsed = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
 
-
-
-const activeSession = $derived(
-  sessions.find((s) => page.url.searchParams.get("session") === s.id) ?? null,
+const currentPath = $derived(page.url.pathname);
+const activeSession = $derived.by(() => {
+  const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
+  const activeSessionId = match?.[1] ?? null;
+  return sessions.find((s) => s.id === activeSessionId) ?? null;
+});
+const activeCheckpointId = $derived.by(() => {
+  const match = currentPath.match(/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/);
+  const id = match?.[1] ?? null;
+  if (!id || id === "new") return null;
+  return id;
+});
+const activeCheckpoint = $derived(
+  checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ?? null,
 );
 
 let streamingSessionIds = $state<Set<string>>(new Set());
 
-const currentPath = $derived(page.url.pathname);
 const currentSpaceId = $derived.by(() => {
   const match = currentPath.match(/^\/spaces\/([^/]+)/);
   const id = match?.[1] ?? null;
@@ -162,6 +186,22 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
   }
 }
 
+async function loadCheckpointsForSpace(spaceId: string, force = false) {
+  if (!force && loadingCheckpoints) return;
+  const shouldShowLoading = checkpoints.length === 0;
+  if (shouldShowLoading) {
+    loadingCheckpoints = true;
+  }
+  try {
+    const result = await getSpaceCheckpoints(spaceId);
+    checkpoints = result.checkpoints ?? [];
+  } catch (error) {
+    console.warn("[sidebar] Failed to load checkpoints", { spaceId, error });
+  } finally {
+    loadingCheckpoints = false;
+  }
+}
+
 function markSessionStreaming(sessionId: string, isSessionStreaming: boolean) {
   const next = new Set(streamingSessionIds);
   if (isSessionStreaming) {
@@ -187,7 +227,7 @@ async function handleNavigate(href: string) {
 async function handleNavigateToSpace(spaceId: string) {
   showSpaceModal = false;
   onClose?.();
-  await goto(`/spaces/${spaceId}`);
+  await goto(buildSpaceDetailRoute(spaceId));
 }
 
 async function handleNavigateToSession(sessionId: string) {
@@ -196,39 +236,20 @@ async function handleNavigateToSession(sessionId: string) {
   if (session?.lastMessageId) {
     unreadTracker.markViewed(sessionId, session.lastMessageId);
   }
-  await goto(`/spaces/${currentSpaceId}?session=${sessionId}`);
+  if (!currentSpaceId) return;
+  await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
 
-async function handleSaveCheckpoint() {
-  if (!currentSpaceId || checkpointSaving) return;
-  checkpointError = "";
-  checkpointNotice = "";
-  const description = typeof window !== "undefined" ? window.prompt("Checkpoint description (optional)", "") : null;
-  if (description === null) return;
+async function handleNavigateToCheckpoint(checkpointId: string) {
+  onClose?.();
+  if (!currentSpaceId) return;
+  await goto(buildSpaceCheckpointRoute(currentSpaceId, checkpointId));
+}
 
-  checkpointSaving = true;
-  try {
-    const { jobId } = await createSpaceCheckpoint(currentSpaceId, description.trim() || null);
-    checkpointNotice = "Saving checkpoint…";
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 90_000) {
-      const { run } = await getTaskRun(jobId);
-      if (run.status === "completed") {
-        checkpointNotice = "Checkpoint saved.";
-        window.dispatchEvent(new CustomEvent("cohub:checkpoints-updated", { detail: { spaceId: currentSpaceId } }));
-        return;
-      }
-      if (run.status === "failed") {
-        throw new Error((run.errorMessage as string) || "Checkpoint job failed");
-      }
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-    throw new Error("Checkpoint job timed out");
-  } catch (error) {
-    checkpointError = error instanceof Error ? error.message : "Failed to save checkpoint";
-  } finally {
-    checkpointSaving = false;
-  }
+async function handleNavigateToNewCheckpoint() {
+  onClose?.();
+  if (!currentSpaceId) return;
+  await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
 }
 
 async function handleCreateNewSession() {
@@ -271,11 +292,19 @@ onMount(() => {
 
       window.addEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
       window.addEventListener("cohub:space-created", handleSpaceCreated as EventListener);
+      window.addEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
     })();
   }
 
   function handleSpaceCreated() {
     void loadSpaces(true);
+  }
+
+  function handleCheckpointsUpdated(e: Event) {
+    const custom = e as CustomEvent;
+    if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
+      void loadCheckpointsForSpace(currentSpaceId, true);
+    }
   }
 
   function handleClickOutside(e: MouseEvent) {
@@ -294,6 +323,7 @@ onMount(() => {
     if (mode === "space") {
       window.removeEventListener("cohub:streaming-status", handleStreamingStatusEvent as EventListener);
       window.removeEventListener("cohub:space-created", handleSpaceCreated as EventListener);
+      window.removeEventListener("cohub:checkpoints-updated", handleCheckpointsUpdated as EventListener);
     }
   };
 });
@@ -302,12 +332,13 @@ $effect(() => {
   if (mode !== "space") return;
   const id = currentSpaceId;
   if (id) {
-    // Use untrack to prevent the effect from tracking reactive reads
-    // inside loadSessionsForSpace (e.g. sessions.length), which would
-    // cause an infinite loop when sessions is written after the API call.
     untrack(() => {
       void loadSessionsForSpace(id, true);
+      void loadCheckpointsForSpace(id, true);
     });
+  } else {
+    sessions = [];
+    checkpoints = [];
   }
 });
 
@@ -359,7 +390,7 @@ $effect(() => {
         <button
           type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={() => { void handleNavigate(`/spaces/${currentSpaceId}`); }}
+          onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
           title="Space details"
         >
           <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
@@ -368,16 +399,11 @@ $effect(() => {
         <button
           type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={handleSaveCheckpoint}
-          disabled={checkpointSaving}
-          title="Save checkpoint"
+          onclick={handleNavigateToNewCheckpoint}
+          title="New checkpoint"
         >
-          {#if checkpointSaving}
-            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
-          {:else}
-            <Save class="w-3.5 h-3.5 shrink-0" />
-          {/if}
-          <span class="text-[12px] font-medium">Save Checkpoint</span>
+          <History class="w-3.5 h-3.5 shrink-0" />
+          <span class="text-[12px] font-medium">New Checkpoint</span>
         </button>
         <button
           type="button"
@@ -393,30 +419,21 @@ $effect(() => {
           {/if}
           <span class="text-[12px] font-medium">New Session</span>
         </button>
-        {#if checkpointNotice}
-          <div class="px-2 py-1 text-[11px] text-text-secondary">{checkpointNotice}</div>
-        {/if}
-        {#if checkpointError}
-          <div class="px-2 py-1 text-[11px] text-error-soft">{checkpointError}</div>
-        {/if}
         {#if createSessionError}
           <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
         {/if}
       </div>
     {/if}
 
-    <!-- Sessions -->
+    <!-- Sessions / Checkpoints -->
     {#if currentSpace}
       <div class="flex-1 overflow-y-auto px-1 pb-2 pt-1 min-h-0">
-        {#if loadingSessions && sessions.length === 0}
+        {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
           <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
             <Loader2 class="w-3 h-3 animate-spin" />
             Loading...
           </div>
-        {:else if sessions.length === 0}
-          <div class="px-1 py-4 text-[12px] text-text-placeholder text-center">No sessions</div>
         {:else}
-          <!-- Sessions header — clickable to toggle collapse -->
           <button
             type="button"
             class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
@@ -424,59 +441,99 @@ $effect(() => {
             title={sessionsCollapsed ? "Expand sessions" : "Collapse sessions"}
           >
             <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {sessionsCollapsed ? 'rotate-180' : ''}" />
-            <span class="text-[11px] text-text-placeholder select-none">
-              Sessions
-            </span>
+            <span class="text-[11px] text-text-placeholder select-none">Sessions</span>
           </button>
 
           {#if !sessionsCollapsed}
-            <!-- Session list -->
-            <div class="space-y-[2px] mt-1">
-              {#each sessions as session, index (session.id)}
-                {@const isActive = page.url.searchParams.get("session") === session.id}
-                <a
-                  href="/spaces/{currentSpaceId}?session={session.id}"
-                  class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                  onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
-                  title={sourceTooltip(session.source) || undefined}
-                >
-                  <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-                  {#if sourceBadge(session.source)}
-                    <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                      {sourceBadge(session.source)}
-                    </span>
-                  {/if}
-                  {#if sessionIsStreaming(session)}
-                    <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                  {:else if unreadTracker.isUnread(session)}
-                    <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-                  {/if}
-                </a>
-              {/each}
-            </div>
-          {:else}
-            <!-- Collapsed: show only active session -->
-            {#if activeSession}
+            {#if sessions.length === 0}
+              <div class="px-2 py-2 text-[12px] text-text-placeholder">No sessions</div>
+            {:else}
+              <div class="space-y-[2px] mt-1">
+                {#each sessions as session, index (session.id)}
+                  {@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
+                  <a
+                    href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
+                    class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                    onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+                    title={sourceTooltip(session.source) || undefined}
+                  >
+                    <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+                    {#if sourceBadge(session.source)}
+                      <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                        {sourceBadge(session.source)}
+                      </span>
+                    {/if}
+                    {#if sessionIsStreaming(session)}
+                      <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                    {:else if unreadTracker.isUnread(session)}
+                      <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                    {/if}
+                  </a>
+                {/each}
+              </div>
+            {/if}
+          {:else if activeSession}
+            <a
+              href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
+              class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+              onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
+              title={sourceTooltip(activeSession.source) || undefined}
+            >
+              <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
+            </a>
+          {/if}
+
+          <div class="mt-3">
+            <button
+              type="button"
+              class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+              onclick={() => { checkpointsCollapsed = !checkpointsCollapsed; }}
+              title={checkpointsCollapsed ? "Expand checkpoints" : "Collapse checkpoints"}
+            >
+              <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {checkpointsCollapsed ? 'rotate-180' : ''}" />
+              <span class="text-[11px] text-text-placeholder select-none">Checkpoints</span>
+            </button>
+
+            {#if !checkpointsCollapsed}
+              {#if loadingCheckpoints && checkpoints.length === 0}
+                <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                  <Loader2 class="w-3 h-3 animate-spin" />
+                  Loading checkpoints...
+                </div>
+              {:else if checkpoints.length === 0}
+                <div class="px-2 py-2 text-[12px] text-text-placeholder">No checkpoints</div>
+              {:else}
+                <div class="space-y-[2px] mt-1">
+                  {#each checkpoints.slice(0, 20) as checkpoint (checkpoint.id)}
+                    {@const isActive = activeCheckpointId === checkpoint.id}
+                    <a
+                      href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
+                      class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
+                    >
+                      <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div>
+                        <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{checkpoint.commitHash.slice(0, 12)}</div>
+                      </div>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            {:else if activeCheckpoint}
               <a
-                href="/spaces/{currentSpaceId}?session={activeSession.id}"
-                class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
-                onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
-                title={sourceTooltip(activeSession.source) || undefined}
+                href={buildSpaceCheckpointRoute(currentSpaceId!, activeCheckpoint.id)}
+                class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(activeCheckpoint.id); }}
               >
-                <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
-                {#if sourceBadge(activeSession.source)}
-                  <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                    {sourceBadge(activeSession.source)}
-                  </span>
-                {/if}
-                {#if sessionIsStreaming(activeSession)}
-                  <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                {:else if unreadTracker.isUnread(activeSession)}
-                  <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-                {/if}
+                <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate leading-tight">{getCheckpointTitle(activeCheckpoint)}</div>
+                  <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{activeCheckpoint.commitHash.slice(0, 12)}</div>
+                </div>
               </a>
             {/if}
-          {/if}
+          </div>
         {/if}
       </div>
     {:else}
