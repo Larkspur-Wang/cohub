@@ -8,10 +8,8 @@ import {
 } from "../../db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, requireValidId, buildSpaceListItem, buildStorageRepoName } from "../../lib/middleware.js";
-import { k8sCoreApi } from "../../k8s.js";
-import { sessionsNamespace, } from "../../config.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
-import { getSpaceSandboxBySpaceId, provisionSpaceSandbox, updateSpaceSandbox } from "../../space-sandboxes.js";
+import { getSpaceSandboxBySpaceId, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -216,8 +214,12 @@ router.post("/", async (c) => {
   }
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  void provisionSpaceSandbox(
-    getSpaceProvisionParams(user, space, gitAccount, normalizedExtraEnv),
+  void reconcileSpaceSandbox(
+    {
+      ...getSpaceProvisionParams(user, space, gitAccount, normalizedExtraEnv),
+      mode: "ensure",
+      reason: "space_created",
+    },
   ).catch(console.error);
 
   const job = await enqueueTask({
@@ -385,24 +387,12 @@ router.post("/:id/sandbox/recreate", async (c) => {
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
 
-  const existingSandbox = await getSpaceSandboxBySpaceId(spaceId);
-  const podName = existingSandbox?.podName ?? `sandbox-${spaceId}`;
-
-  if (existingSandbox?.podName) {
-    await Promise.allSettled([
-      k8sCoreApi.deleteNamespacedPod({ name: podName, namespace: sessionsNamespace }),
-    ]);
-  }
-
-  await updateSpaceSandbox({
-    spaceId,
-    status: "provisioning",
-    meta: { recreatedAt: new Date().toISOString() },
-  });
-
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  void provisionSpaceSandbox(getSpaceProvisionParams(user, space, gitAccount))
-    .catch(console.error);
+  void reconcileSpaceSandbox({
+    ...getSpaceProvisionParams(user, space, gitAccount),
+    mode: "replace",
+    reason: "manual_recreate",
+  }).catch(console.error);
 
   return c.json({ ok: true, message: "Sandbox recreation triggered" });
 });

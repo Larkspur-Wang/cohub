@@ -127,6 +127,9 @@ router.post("/:id/sandbox-report", async (c) => {
     podName: body.podName?.trim() || sandbox.podName || null,
     sandboxId: body.sandboxId?.trim() || null,
   });
+  const reportedImageVersion = typeof safeMeta?.imageVersion === "string"
+    ? safeMeta.imageVersion.trim() || null
+    : null;
 
   await updateSpaceSandbox({
     spaceId,
@@ -137,6 +140,8 @@ router.post("/:id/sandbox-report", async (c) => {
           ? "error"
           : "provisioning",
     podName: body.podName?.trim() || sandbox.podName || `sandbox-${spaceId}`,
+    reportedImageVersion,
+    reportedAt: reportedImageVersion ? new Date() : undefined,
     lastHeartbeatAt: new Date(),
     meta: {
       ...(sandboxMeta ?? {}),

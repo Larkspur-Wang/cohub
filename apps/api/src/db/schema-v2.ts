@@ -101,6 +101,9 @@ export const spaceSandboxes = v2.table(
     spaceId: uuid("space_id").notNull(),
     status: varchar("status", { length: 30 }).notNull().default("pending"),
     podName: varchar("pod_name", { length: 255 }),
+    desiredImage: text("desired_image"),
+    reportedImageVersion: varchar("reported_image_version", { length: 255 }),
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -109,6 +112,8 @@ export const spaceSandboxes = v2.table(
   (table) => ({
     spaceIdx: uniqueIndex("v2_uq_space_sandboxes_space_id").on(table.spaceId),
     statusIdx: index("v2_idx_space_sandboxes_status").on(table.status),
+    desiredImageIdx: index("v2_idx_space_sandboxes_desired_image").on(table.desiredImage),
+    reportedImageVersionIdx: index("v2_idx_space_sandboxes_reported_image_version").on(table.reportedImageVersion),
     heartbeatIdx: index("v2_idx_space_sandboxes_last_heartbeat_at").on(table.lastHeartbeatAt),
   }),
 );
