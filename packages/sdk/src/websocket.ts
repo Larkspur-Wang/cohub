@@ -7,6 +7,18 @@ import {
 
 export type WebsocketEventPayload = ChannelEnvelope;
 
+export type WebSocketLike = {
+  readonly readyState: number;
+  onopen: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onclose: ((event: CloseEvent) => void) | null;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+};
+
+export type WebSocketConstructor = new (url: string) => WebSocketLike;
+
 export type WebsocketClientOptions = {
   url?: string;
   autoReconnect?: boolean;
@@ -16,6 +28,7 @@ export type WebsocketClientOptions = {
   pongTimeoutMs?: number;
   debug?: boolean;
   getAccessToken?: () => Promise<string | null> | string | null;
+  WebSocketImpl?: WebSocketConstructor;
 };
 
 export type WebsocketClientState = "idle" | "connecting" | "open" | "closed";
@@ -105,8 +118,9 @@ export class WebsocketClient {
   private readonly pongTimeoutMs: number;
   private readonly debug: boolean;
   private readonly getAccessToken?: () => Promise<string | null> | string | null;
+  private readonly WebSocketImpl: WebSocketConstructor;
 
-  private ws: WebSocket | null = null;
+  private ws: WebSocketLike | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
@@ -136,6 +150,7 @@ export class WebsocketClient {
     this.pongTimeoutMs = normalized.pongTimeoutMs;
     this.debug = normalized.debug;
     this.getAccessToken = options.getAccessToken;
+    this.WebSocketImpl = options.WebSocketImpl ?? WebSocket;
   }
 
   on<K extends keyof WebsocketClientEvents>(
@@ -173,7 +188,7 @@ export class WebsocketClient {
     this.manuallyClosed = false;
     this.state = "connecting";
     this.connectPromise = new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(this.url);
+      const ws = new this.WebSocketImpl(this.url);
       this.ws = ws;
       let settled = false;
 

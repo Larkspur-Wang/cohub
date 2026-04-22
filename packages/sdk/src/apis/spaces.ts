@@ -91,16 +91,6 @@ export class SpaceFilesApi {
     return `/api/spaces/${this.spaceId}/fs/download?${params.toString()}`;
   }
 
-  triggerDownload(path: string) {
-    const url = this.getDownloadUrl(path);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = path.split("/").pop() ?? "download";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
   write(input: SpaceFsWriteFileInput) {
     return this.transport.request<{ ok: true; path: string; size: number; mtimeMs: number }>(
       `/api/spaces/${this.spaceId}/fs/file`,
