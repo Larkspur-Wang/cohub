@@ -412,8 +412,13 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       console.log(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
       const currentUserMessageId = handle.currentUserMessageId;
       const currentModel = handle.session.agent.state.model;
+
+      // Use streamState.content (built incrementally via upsert during streaming)
+      // instead of the SDK's event.message.content, which may contain duplicated
+      // tool_result text due to the SDK's content accumulation bug.
       const enrichedMessage = {
         ...(event.message as unknown as Record<string, unknown>),
+        content: handle.streamState.content,
         provider: currentModel.provider,
         model: currentModel.id,
       };
