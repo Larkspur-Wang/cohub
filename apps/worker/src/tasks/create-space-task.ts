@@ -38,11 +38,15 @@ const resolveSource = (payload: TaskPayload): SpaceCreateSource & { gitToken?: s
   const source = payload.data?.source;
   if (!isRecord(source) || typeof source.type !== "string") return { type: "blank" };
   if (source.type === "git_repo" && typeof source.repoUrl === "string") {
+    // gitToken lives at payload.data.gitToken (sibling of source), not inside source
+    const gitToken = typeof payload.data?.gitToken === "string"
+      ? (payload.data.gitToken as string).trim() || undefined
+      : undefined;
     return {
       type: "git_repo",
       repoUrl: source.repoUrl.trim(),
       ref: typeof source.ref === "string" ? source.ref.trim() || null : null,
-      gitToken: typeof source.gitToken === "string" ? source.gitToken.trim() || undefined : undefined,
+      gitToken,
     };
   }
   if (source.type === "checkpoint" && typeof source.checkpointId === "string") {
