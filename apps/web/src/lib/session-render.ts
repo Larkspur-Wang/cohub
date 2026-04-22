@@ -2,6 +2,40 @@ import type { ContentBlock, MessageRecord } from "@cohub/protocol";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { PendingSessionMessage } from "$lib/stores/session-pending.svelte";
 
+export function extractSessionRenderState(content: ContentBlock[]) {
+	const thinkingBlocks = content.filter(
+		(block): block is Extract<ContentBlock, { type: "thinking" }> =>
+			block.type === "thinking",
+	);
+	const textBlocks = content.filter(
+		(block): block is Extract<ContentBlock, { type: "text" }> =>
+			block.type === "text",
+	);
+	const toolUseBlocks = content.filter(
+		(block): block is Extract<ContentBlock, { type: "tool_use" }> =>
+			block.type === "tool_use",
+	);
+
+	const thinking = thinkingBlocks
+		.map((block) => block.thinking)
+		.join("\n")
+		.trim();
+	const answer = textBlocks
+		.map((block) => block.text)
+		.join("\n")
+		.trim();
+	const toolCalls = toolUseBlocks.map((block) => ({
+		toolCallId: block.id,
+		toolName: block.name,
+		status:
+			(block._meta as { toolStatus?: string } | undefined)?.toolStatus ??
+			"queued",
+		summary: (block._meta as { summary?: string } | undefined)?.summary ?? "",
+	}));
+
+	return { thinking, answer, toolCalls };
+}
+
 function getClientMessageId(meta: Record<string, unknown> | null | undefined) {
 	const clientMessageId = meta?.clientMessageId;
 	return typeof clientMessageId === "string" && clientMessageId.trim()

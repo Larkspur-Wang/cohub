@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { UserSshKey } from "@cohub/sdk";
+import { HttpError, type UserSshKey } from "@cohub/sdk";
 import { KeyRound, Plus, Trash2, X } from "lucide-svelte";
 import { onMount } from "svelte";
 import { fade } from "svelte/transition";
@@ -28,13 +28,12 @@ async function loadKeys() {
 	try {
 		keys = await sdk.user.getSshKeys();
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to load SSH keys";
-		if (message.includes("unauthorized") || message.includes("401")) {
+		if (error instanceof HttpError && error.status === 401) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		loadError = message;
+		loadError =
+			error instanceof Error ? error.message : "Failed to load SSH keys";
 	} finally {
 		isLoading = false;
 	}

@@ -1,10 +1,11 @@
 <script lang="ts">
-import type {
-	Channel,
-	ChannelConfig,
-	DiscordChannelConfig,
-	SpaceChannelBindingInput,
-	SpaceEnvInput,
+import {
+	type Channel,
+	type ChannelConfig,
+	type DiscordChannelConfig,
+	HttpError,
+	type SpaceChannelBindingInput,
+	type SpaceEnvInput,
 } from "@cohub/sdk";
 import { ArrowLeft, Loader2, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
@@ -157,15 +158,11 @@ async function handleSubmit(event: SubmitEvent) {
 
 		await goto(`/spaces/${result.space.id}`);
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to create space";
-		if (
-			message.includes("channel binding already exists") ||
-			message.includes("409")
-		) {
+		if (error instanceof HttpError && error.status === 409) {
 			submitError = "This channel is already bound to another space.";
 		} else {
-			submitError = message;
+			submitError =
+				error instanceof Error ? error.message : "Failed to create space";
 		}
 	} finally {
 		isSubmitting = false;

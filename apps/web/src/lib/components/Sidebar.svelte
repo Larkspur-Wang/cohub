@@ -1,10 +1,11 @@
 <script lang="ts">
-import type {
-	CheckpointRecord,
-	CronJobRecord,
-	SessionRecord,
-	SpaceRecord,
-	TaskRunRecord,
+import {
+	type CheckpointRecord,
+	type CronJobRecord,
+	HttpError,
+	type SessionRecord,
+	type SpaceRecord,
+	type TaskRunRecord,
 } from "@cohub/sdk";
 import {
 	Activity,
@@ -193,13 +194,12 @@ async function loadSpaces(_force = false) {
 	try {
 		spaces = await sdk.spaces.list();
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to load spaces";
-		if (message.includes("unauthorized") || message.includes("401")) {
+		if (error instanceof HttpError && error.status === 401) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		loadError = message;
+		loadError =
+			error instanceof Error ? error.message : "Failed to load spaces";
 	} finally {
 		isLoading = false;
 	}

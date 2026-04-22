@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Channel } from "@cohub/sdk";
+import { type Channel, HttpError } from "@cohub/sdk";
 import {
 	MessageSquare,
 	MonitorPlay,
@@ -39,13 +39,12 @@ async function loadChannels() {
 	try {
 		channels = await sdk.channels.list();
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to load channels";
-		if (message.includes("unauthorized") || message.includes("401")) {
+		if (error instanceof HttpError && error.status === 401) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		loadError = message;
+		loadError =
+			error instanceof Error ? error.message : "Failed to load channels";
 	} finally {
 		isLoading = false;
 	}

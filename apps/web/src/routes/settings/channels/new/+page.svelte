@@ -1,4 +1,5 @@
 <script lang="ts">
+import { HttpError } from "@cohub/sdk";
 import {
 	ArrowLeft,
 	Check,
@@ -108,13 +109,12 @@ async function handleSubmit(e: Event) {
 
 		await goto("/settings/channels");
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to create channel";
-		if (message.includes("unauthorized") || message.includes("401")) {
+		if (error instanceof HttpError && error.status === 401) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		submitError = message;
+		submitError =
+			error instanceof Error ? error.message : "Failed to create channel";
 	} finally {
 		isSubmitting = false;
 	}

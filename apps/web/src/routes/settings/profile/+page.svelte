@@ -1,4 +1,5 @@
 <script lang="ts">
+import { HttpError } from "@cohub/sdk";
 import { Check, Copy, User } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
@@ -28,13 +29,12 @@ async function loadProfile() {
 		userNickname = me.nick_name ?? "";
 		userAvatar = me.avatar_url ?? "";
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to load profile";
-		if (message.includes("unauthorized") || message.includes("401")) {
+		if (error instanceof HttpError && error.status === 401) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
 			return;
 		}
-		loadError = message;
+		loadError =
+			error instanceof Error ? error.message : "Failed to load profile";
 		console.error("[profile] Failed to load profile:", error);
 	}
 }

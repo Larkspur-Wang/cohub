@@ -4,17 +4,17 @@ import type {
 	ContentBlock,
 	MessageRecord,
 } from "@cohub/protocol";
-import type {
-	CheckpointRecord,
-	CronJobRecord,
-	ResourcePermission,
-	SessionRecord,
-	SpaceFsEntry,
-	SpaceFsFileResponse,
-	SpaceRecord,
-	TaskRunRecord,
+import {
+	type CheckpointRecord,
+	type CronJobRecord,
+	HttpError,
+	type ResourcePermission,
+	type SessionRecord,
+	type SpaceFsEntry,
+	type SpaceFsFileResponse,
+	type SpaceRecord,
+	type TaskRunRecord,
 } from "@cohub/sdk";
-import { extractSessionRenderState } from "@cohub/sdk";
 import {
 	AlertCircle,
 	ArrowDown,
@@ -64,6 +64,7 @@ import { sdk } from "$lib/sdk";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
+	extractSessionRenderState,
 } from "$lib/session-render";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -1984,15 +1985,14 @@ async function openFileFromUrl(path: string) {
 		openFile = file;
 		openFileDraft = file.kind === "text" ? file.content : "";
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to open file";
-		if (message.includes("413") || message.includes("too large")) {
+		if (error instanceof HttpError && error.status === 413) {
 			openFileTooLarge = true;
 			openFile = null;
 			openFileDraft = "";
 			openFileError = null;
 		} else {
-			openFileError = message;
+			openFileError =
+				error instanceof Error ? error.message : "Failed to open file";
 		}
 	} finally {
 		openFileLoading = false;

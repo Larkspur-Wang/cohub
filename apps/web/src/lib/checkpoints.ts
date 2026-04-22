@@ -1,4 +1,4 @@
-import type { CheckpointRecord } from "@cohub/sdk";
+import { type CheckpointRecord, HttpError } from "@cohub/sdk";
 import { sdk } from "$lib/sdk";
 
 export async function pollCheckpointJob(taskRunId: string) {
@@ -11,7 +11,7 @@ export async function pollCheckpointJob(taskRunId: string) {
 				throw new Error(run.errorMessage || "Save job failed");
 			}
 		} catch (error) {
-			if (!(error instanceof Error) || !error.message.includes("404")) {
+			if (!(error instanceof HttpError && error.status === 404)) {
 				throw error;
 			}
 		}
