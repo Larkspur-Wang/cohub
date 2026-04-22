@@ -237,7 +237,7 @@ async function handleSubmit(event: SubmitEvent) {
                 </label>
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
                   <input type="radio" bind:group={selectedBootstrapType} value="checkpoint" />
-                  <span>Checkpoint</span>
+                  <span>Save</span>
                 </label>
               </div>
             </div>
@@ -268,7 +268,7 @@ async function handleSubmit(event: SubmitEvent) {
               <input
                 bind:value={checkpointId}
                 type="text"
-                placeholder="Checkpoint ID"
+                placeholder="Save ID"
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                 required
               />

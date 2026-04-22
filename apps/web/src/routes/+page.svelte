@@ -73,7 +73,7 @@ onMount(async () => {
           <p class="text-[11px] text-text-tertiary mt-1 leading-relaxed">Isolated environments for your agents and files</p>
         </div>
         <div class="rounded-[6px] border border-border-subtle bg-bg-content px-3 py-3 text-left">
-          <p class="text-[12px] font-medium text-text-primary">Sessions</p>
+          <p class="text-[12px] font-medium text-text-primary">Chats</p>
           <p class="text-[11px] text-text-tertiary mt-1 leading-relaxed">Conversation threads within each space</p>
         </div>
         <div class="rounded-[6px] border border-border-subtle bg-bg-content px-3 py-3 text-left">

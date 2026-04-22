@@ -374,7 +374,7 @@ function getSessionTitle(session: SessionRecord): string {
 			.trim();
 		if (normalized) return normalized.slice(0, 36);
 	}
-	return "New session";
+	return "New chat";
 }
 
 function hasSessionPermission(sessionId: string): boolean {
@@ -495,7 +495,7 @@ async function loadCheckpointDetail(checkpointId: string) {
 	} catch (error) {
 		checkpointDetail = null;
 		checkpointDetailError =
-			error instanceof Error ? error.message : "Failed to load checkpoint";
+			error instanceof Error ? error.message : "Failed to load save";
 	} finally {
 		checkpointDetailLoading = false;
 	}
@@ -556,7 +556,7 @@ async function loadCronjobDetail(cronjobId: string) {
 		const job = jobs.find((j) => j.id === cronjobId) ?? null;
 		if (!job) {
 			cronjobDetail = null;
-			cronjobDetailError = "Cronjob not found";
+			cronjobDetailError = "Scheduled job not found";
 			return;
 		}
 		cronjobDetail = job;
@@ -565,7 +565,7 @@ async function loadCronjobDetail(cronjobId: string) {
 	} catch (error) {
 		cronjobDetail = null;
 		cronjobDetailError =
-			error instanceof Error ? error.message : "Failed to load cronjob";
+			error instanceof Error ? error.message : "Failed to load scheduled job";
 	} finally {
 		cronjobDetailLoading = false;
 	}
@@ -1211,7 +1211,7 @@ function formatBootstrapStage(stage: string | null) {
 	if (!stage) return "Waiting";
 	if (stage === "prepare") return "Preparing workspace";
 	if (stage === "import") return "Importing repository";
-	if (stage === "checkpoint_restore") return "Restoring checkpoint";
+	if (stage === "checkpoint_restore") return "Restoring save";
 	if (stage === "push") return "Pushing initial state";
 	if (stage === "finalize") return "Finalizing";
 	return stage.replace(/_/g, " ");
@@ -2560,7 +2560,7 @@ $effect(() => {
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">New checkpoint</span>
+        <span class="text-[13px] text-text-secondary truncate">New save</span>
       {:else if routeView === "cronjob" && cronjobDetail}
         <button
           type="button"
@@ -2659,7 +2659,7 @@ $effect(() => {
           <form onsubmit={handleCreateCheckpointSubmit} class="space-y-3">
             <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint</div>
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
                 <p class="text-[13px] text-text-tertiary mt-1">Save the current workspace state of <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> as a reusable checkpoint.</p>
               </div>
 
@@ -2669,7 +2669,7 @@ $effect(() => {
                   id="checkpoint-description"
                   bind:value={checkpointCreateDescription}
                   rows="4"
-                  placeholder="What changed? What is this checkpoint for?"
+                  placeholder="What changed? What is this save for?"
                   class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
                 ></textarea>
               </div>
@@ -2711,14 +2711,14 @@ $effect(() => {
       <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
         {#if checkpointDetailLoading}
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
-            Loading checkpoint...
+            Loading save...
           </div>
         {:else if checkpointDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
         {:else if checkpointDetail}
           <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
             <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint</div>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
               <h1 class="text-[22px] font-semibold text-text-primary tracking-tight break-words">{getCheckpointTitle(checkpointDetail)}</h1>
               <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
             </div>
@@ -2770,7 +2770,7 @@ $effect(() => {
             </div>
           </div>
         {:else}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Checkpoint not found.</div>
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Save not found.</div>
         {/if}
       </div>
 
@@ -2782,7 +2782,7 @@ $effect(() => {
           <form onsubmit={handleCreateCronjobSubmit} class="space-y-3">
             <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Cronjob</div>
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Scheduled</div>
                 <p class="text-[13px] text-text-tertiary mt-1">Create a repeating task that sends a message to <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> on a schedule.</p>
               </div>
 
@@ -2858,14 +2858,14 @@ $effect(() => {
       <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
         {#if cronjobDetailLoading}
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
-            Loading cronjob...
+            Loading scheduled job...
           </div>
         {:else if cronjobDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
         {:else if cronjobDetail}
           <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
             <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Cronjob</div>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Scheduled</div>
               <div class="flex items-center gap-3">
                 <h1 class="text-[22px] font-semibold text-text-primary tracking-tight break-words">{cronjobDetail.title}</h1>
                 <span class="w-2.5 h-2.5 rounded-full shrink-0 {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
@@ -2965,7 +2965,7 @@ $effect(() => {
             {/if}
           </div>
         {:else}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Cronjob not found.</div>
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Scheduled job not found.</div>
         {/if}
       </div>
 
@@ -3368,7 +3368,7 @@ $effect(() => {
                   Creating…
                 {:else}
                   <Plus class="w-3.5 h-3.5" />
-                  New session
+                  New chat
                 {/if}
               </button>
             </div>
@@ -3393,9 +3393,9 @@ $effect(() => {
                     {sandboxError}
                   </div>
                 {:else if sandbox?.status === "ready" || space?.sandboxStatus === "ready"}
-                  <p>The sandbox is ready. You can start a new session now.</p>
+                  <p>The sandbox is ready. You can start a new chat now.</p>
                 {:else}
-                  <p>The sandbox is still provisioning. New sessions become available as soon as the environment is ready.</p>
+                  <p>The sandbox is still provisioning. New chats become available as soon as the environment is ready.</p>
                 {/if}
               </div>
 
@@ -3455,7 +3455,7 @@ $effect(() => {
           <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sessions</div>
+                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Chats</div>
                 <div class="mt-1 text-[15px] font-medium text-text-primary">Ready when environment is ready</div>
               </div>
               <div class="text-[12px] text-text-tertiary">{spaceSessions.length} existing</div>
@@ -3463,15 +3463,15 @@ $effect(() => {
 
             <div class="mt-4 text-[13px] text-text-secondary">
               {#if canCreateSession}
-                <p>You can create a new session immediately.</p>
+                <p>You can create a new chat immediately.</p>
               {:else}
-                <p>Waiting for sandbox readiness before enabling new sessions.</p>
+                <p>Waiting for sandbox readiness before enabling new chats.</p>
               {/if}
             </div>
 
             {#if spaceSessions.length > 0}
               <div class="mt-4 space-y-2 border-t border-border-subtle pt-4">
-                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Recent sessions</div>
+                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Recent chats</div>
                 <div class="space-y-2">
                   {#each spaceSessions.slice(0, 5) as session (session.id)}
                     <button
@@ -3494,7 +3494,7 @@ $effect(() => {
       </div>
     {:else if !activeSessionState}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
-        <div class="text-[14px]">No session selected</div>
+        <div class="text-[14px]">No chat selected</div>
         <button
           type="button"
           class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"

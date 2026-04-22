@@ -381,7 +381,7 @@ function getSessionTitle(session: SessionRecord, _index: number) {
 			.trim();
 		if (normalized) return normalized.slice(0, 36);
 	}
-	return "New session";
+	return "New chat";
 }
 
 function getCheckpointTitle(checkpoint: CheckpointRecord): string {
@@ -530,24 +530,24 @@ $effect(() => {
           type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={handleNavigateToNewCheckpoint}
-          title="New checkpoint"
+          title="New save"
         >
           <History class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">New Checkpoint</span>
+          <span class="text-[12px] font-medium">New Save</span>
         </button>
         <button
           type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={() => { void handleCreateNewSession(); }}
           disabled={creatingSession}
-          title="New session"
+          title="New chat"
         >
           {#if creatingSession}
             <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
           {:else}
             <Plus class="w-3.5 h-3.5 shrink-0" />
           {/if}
-          <span class="text-[12px] font-medium">New Session</span>
+          <span class="text-[12px] font-medium">New Chat</span>
         </button>
         {#if createSessionError}
           <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
@@ -568,15 +568,15 @@ $effect(() => {
             type="button"
             class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
             onclick={() => { sessionsCollapsed = !sessionsCollapsed; }}
-            title={sessionsCollapsed ? "Expand sessions" : "Collapse sessions"}
+            title={sessionsCollapsed ? "Expand chats" : "Collapse chats"}
           >
             <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {sessionsCollapsed ? 'rotate-180' : ''}" />
-            <span class="text-[11px] text-text-placeholder select-none">Sessions</span>
+            <span class="text-[11px] text-text-placeholder select-none">Chats</span>
           </button>
 
           {#if !sessionsCollapsed}
             {#if sessions.length === 0}
-              <div class="px-2 py-2 text-[12px] text-text-placeholder">No sessions</div>
+              <div class="px-2 py-2 text-[12px] text-text-placeholder">No chats</div>
             {:else}
               <div class="space-y-[2px] mt-1">
                 {#each sessions as session, index (session.id)}
@@ -618,20 +618,20 @@ $effect(() => {
               type="button"
               class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
               onclick={() => { checkpointsCollapsed = !checkpointsCollapsed; }}
-              title={checkpointsCollapsed ? "Expand checkpoints" : "Collapse checkpoints"}
+              title={checkpointsCollapsed ? "Expand saves" : "Collapse saves"}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {checkpointsCollapsed ? 'rotate-180' : ''}" />
-              <span class="text-[11px] text-text-placeholder select-none">Checkpoints</span>
+              <span class="text-[11px] text-text-placeholder select-none">Saves</span>
             </button>
 
             {#if !checkpointsCollapsed}
               {#if loadingCheckpoints && checkpoints.length === 0}
                 <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
                   <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading checkpoints...
+                  Loading saves...
                 </div>
               {:else if checkpoints.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-placeholder">No checkpoints</div>
+                <div class="px-2 py-2 text-[12px] text-text-placeholder">No saves</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each checkpoints.slice(0, 20) as checkpoint (checkpoint.id)}
@@ -665,23 +665,23 @@ $effect(() => {
             {/if}
           </div>
 
-          <!-- Cronjobs -->
+          <!-- Scheduled Jobs -->
           <div class="mt-3">
             <div
               class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px] cursor-pointer"
               onclick={() => { cronjobsCollapsed = !cronjobsCollapsed; }}
-              title={cronjobsCollapsed ? "Expand cronjobs" : "Collapse cronjobs"}
+              title={cronjobsCollapsed ? "Expand scheduled" : "Collapse scheduled"}
               role="button"
               tabindex="0"
               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cronjobsCollapsed = !cronjobsCollapsed; } }}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {cronjobsCollapsed ? 'rotate-180' : ''}" />
-              <span class="text-[11px] text-text-placeholder select-none">Cronjobs</span>
+              <span class="text-[11px] text-text-placeholder select-none">Scheduled</span>
               <span
                 class="ml-auto p-0.5 rounded hover:bg-bg-hover text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
                 onclick={(e) => { e.stopPropagation(); handleNavigateToNewCronjob(); }}
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); handleNavigateToNewCronjob(); } }}
-                title="New cronjob"
+                title="New scheduled"
                 role="button"
                 tabindex="0"
               >
@@ -693,10 +693,10 @@ $effect(() => {
               {#if loadingCronjobs && cronjobs.length === 0}
                 <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
                   <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading cronjobs...
+                  Loading scheduled...
                 </div>
               {:else if cronjobs.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-placeholder">No cronjobs</div>
+                <div class="px-2 py-2 text-[12px] text-text-placeholder">No scheduled</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each cronjobs.slice(0, 20) as job (job.id)}
@@ -791,7 +791,7 @@ $effect(() => {
     {:else}
       <div class="flex-1 overflow-y-auto px-1 pb-2 pt-1 min-h-0">
         <div class="px-1 py-6 text-[12px] text-text-placeholder text-center">
-          Select a space to view sessions
+          Select a space to view chats
         </div>
       </div>
     {/if}

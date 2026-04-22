@@ -15,7 +15,7 @@ import PageHeader from "$lib/components/PageHeader.svelte";
       <h1 class="mt-2 text-[20px] font-semibold text-text-primary tracking-tight">Explore is being rebuilt</h1>
       <p class="mt-2 text-[13px] leading-6 text-text-tertiary">
         Public discovery based on the old sharing model has been removed. It will come back with the new
-        Space / Checkpoint sharing model.
+        Space / Save sharing model.
       </p>
     </div>
   </div>

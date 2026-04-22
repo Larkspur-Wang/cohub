@@ -109,7 +109,7 @@ async function loadCronJobs() {
 		cronJobs = result.jobs ?? [];
 	} catch (error) {
 		loadError =
-			error instanceof Error ? error.message : "Failed to load cron jobs";
+			error instanceof Error ? error.message : "Failed to load scheduled jobs";
 	} finally {
 		isLoading = false;
 	}
@@ -422,7 +422,7 @@ onMount(() => {
         >
           <span class="flex items-center gap-1.5">
             <Clock class="w-3.5 h-3.5" />
-            Cronjobs
+            Scheduled
           </span>
         </button>
         <button
@@ -452,7 +452,7 @@ onMount(() => {
   <!-- Content -->
   <div class="flex-1 overflow-y-auto">
     {#if activeTab === "cronjobs"}
-      <!-- Cronjobs Tab -->
+      <!-- Scheduled Tab -->
       <div class="px-4 py-3">
         {#if isLoading}
           <div class="flex items-center justify-center gap-2 py-12 text-text-tertiary text-[13px]">
@@ -464,7 +464,7 @@ onMount(() => {
         {:else if cronJobs.length === 0}
           <div class="flex flex-col items-center justify-center py-20 text-center">
             <Clock class="w-8 h-8 text-text-placeholder mb-3" />
-            <p class="text-[14px] font-medium text-text-secondary">No cronjobs yet</p>
+            <p class="text-[14px] font-medium text-text-secondary">No scheduled jobs yet</p>
             <p class="text-[12px] text-text-placeholder mt-1">Create a scheduled task to automate your workflows</p>
           </div>
         {:else}
@@ -549,10 +549,10 @@ onMount(() => {
           <div class="flex flex-col items-center justify-center py-20 text-center">
             <Activity class="w-8 h-8 text-text-placeholder mb-3" />
             {#if filterCronJobId}
-              <p class="text-[14px] font-medium text-text-secondary">No runs for this cronjob</p>
+              <p class="text-[14px] font-medium text-text-secondary">No runs for this scheduled job</p>
             {:else}
               <p class="text-[14px] font-medium text-text-secondary">No task run records</p>
-              <p class="text-[12px] text-text-placeholder mt-1">Task runs will appear here once cronjobs start executing</p>
+              <p class="text-[12px] text-text-placeholder mt-1">Task runs will appear here once scheduled jobs start executing</p>
             {/if}
           </div>
         {:else}
@@ -656,7 +656,7 @@ onMount(() => {
 </div>
 
 <!-- Create/Edit Modal -->
-<Dialog open={showCreateModal} onClose={closeCreateModal} title={isEditMode ? 'Edit Cronjob' : 'New Task'} maxWidth="max-w-2xl">
+<Dialog open={showCreateModal} onClose={closeCreateModal} title={isEditMode ? 'Edit Scheduled' : 'New Task'} maxWidth="max-w-2xl">
   <div class="p-4 space-y-4">
     {#if isEditMode}
       <!-- Edit mode -->
