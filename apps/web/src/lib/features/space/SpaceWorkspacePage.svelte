@@ -1,5 +1,9 @@
 <script lang="ts">
-import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import type {
+	ChannelEnvelope,
+	ContentBlock,
+	MessageRecord,
+} from "@cohub/protocol";
 import type {
 	CheckpointRecord,
 	CronJobRecord,
@@ -1522,10 +1526,128 @@ async function reconcileSessionTail(sessionId: string) {
 	}
 }
 
-/**
- * Handle a real-time event from the WebSocket gateway.
- * Called whenever the server persists a new message in the current session.
- */
+async function handleWsEvent(payload: ChannelEnvelope) {
+	try {
+		const currentActiveSessionId = activeSessionId;
+		if (!currentActiveSessionId) return;
+		if (payload.sessionId !== currentActiveSessionId) return;
+
+		const state = sessionStateById[currentActiveSessionId];
+		if (!state) return;
+
+		if (payload.type === "session.turn.progress") {
+			const content = Array.isArray(payload.payload.content)
+				? (payload.payload.content as ContentBlock[])
+				: [];
+			if (content.length === 0) return;
+			const streamingAnchorUserMessageId =
+				typeof payload.payload.anchorUserMessageId === "string"
+					? payload.payload.anchorUserMessageId
+					: null;
+			const hasExistingStreamingState =
+				streamingContentBlocks.length > 0 ||
+				Boolean(
+					streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId],
+				);
+			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
+			const { thinking, answer } = extractSessionRenderState(mergedContent);
+			streamingThinking = thinking;
+			streamingAssistantText = answer;
+			streamingContentBlocks = mergedContent;
+			if (streamingAnchorUserMessageId) {
+				streamingDraftAnchorUserMessageIdBySessionId = {
+					...streamingDraftAnchorUserMessageIdBySessionId,
+					[currentActiveSessionId]: streamingAnchorUserMessageId,
+				};
+			}
+			if (
+				!hasExistingStreamingState &&
+				streamStatus === "streaming" &&
+				streamingSessionId === currentActiveSessionId
+			) {
+				streamingDraftTruncatedStartBySessionId = {
+					...streamingDraftTruncatedStartBySessionId,
+					[currentActiveSessionId]: true,
+				};
+			}
+			if (streamingSessionId !== currentActiveSessionId) {
+				streamingSessionId = currentActiveSessionId;
+				notifyStreamingStatus(currentActiveSessionId, true);
+			}
+			streamStatus = "streaming";
+			await tick();
+			if (!userScrolledUp) scrollToBottomNow();
+			return;
+		}
+
+		if (payload.type === "session.turn.error") {
+			clearStreamingState(currentActiveSessionId);
+			streamStatus = "error";
+			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+			streamingSessionId = null;
+			return;
+		}
+
+		if (payload.type === "session.turn.final") {
+			clearStreamingState(currentActiveSessionId);
+			streamStatus = "done";
+			streamingDraftTruncatedStartBySessionId = {
+				...streamingDraftTruncatedStartBySessionId,
+				[currentActiveSessionId]: false,
+			};
+			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
+			streamingSessionId = null;
+			void reconcileSessionTail(currentActiveSessionId);
+			if (!userScrolledUp) scrollToBottomNow();
+			return;
+		}
+
+		if (payload.type !== "session.message.persisted") return;
+		const message = payload.payload.message as MessageRecord | undefined;
+		if (!message) return;
+		if (state.messages.some((m) => m.id === message.id)) return;
+
+		const clientMessageId =
+			typeof message.meta?.clientMessageId === "string"
+				? (message.meta.clientMessageId as string)
+				: null;
+		if (message.role === "user" && clientMessageId) {
+			sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
+			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
+		}
+
+		if (message.role === "assistant") {
+			clearStreamingState(currentActiveSessionId);
+		}
+
+		const merged = mergeMessagesById(state.messages, [message], {
+			preferIncoming: true,
+		});
+		sessionStateById = {
+			...sessionStateById,
+			[currentActiveSessionId]: {
+				...state,
+				messages: merged,
+			},
+		};
+
+		const updatedSession = state.session;
+		if (updatedSession) {
+			const refreshedSession: SessionRecord = {
+				...updatedSession,
+				lastMessageId: message.id ?? null,
+				updatedAt: new Date().toISOString(),
+			};
+			spaceSessions = spaceSessions.map(
+				(s): SessionRecord =>
+					s.id === updatedSession.id ? refreshedSession : s,
+			);
+		}
+	} catch (error) {
+		console.error("[WS] handleWsEvent error:", error);
+	}
+}
+
 function clearStreamingState(sessionId: string | null = activeSessionId) {
 	streamingAssistantText = "";
 	streamingThinking = "";
@@ -1546,8 +1668,7 @@ function clearStreamingState(sessionId: string | null = activeSessionId) {
 
 async function handleSend() {
 	if (
-		!activeSessionState ||
-		!activeSessionState.session ||
+		!activeSessionState?.session ||
 		(!input.trim() && imageAttachments.length === 0) ||
 		sending ||
 		!space
@@ -2046,6 +2167,10 @@ onMount(() => {
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
 
+	const wsEventCleanup = sdk.space(spaceId).events.onEvent((event) => {
+		void handleWsEvent(event as ChannelEnvelope);
+	});
+
 	const handleVisibility = () => {
 		pageVisible = !document.hidden;
 		scheduleStatusRefresh();
@@ -2090,6 +2215,7 @@ onMount(() => {
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		pageMounted = false;
+		wsEventCleanup();
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
