@@ -80,6 +80,32 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
 
+  deploy-dev:
+    needs: build-and-push
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > ~/.kube/config
+
+      - name: Get short sha
+        id: get-sha
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Patch sandbox image config
+        run: |
+          kubectl patch configmap cohub-api-dev-config -n cohub-dev --type=json \
+            -p="[{\"op\":\"replace\",\"path\":\"/data/SANDBOX_IMAGE\",\"value\":\"${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${{ steps.get-sha.outputs.sha }}\"}]"
+
   deploy-prod:
     needs: build-and-push
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
