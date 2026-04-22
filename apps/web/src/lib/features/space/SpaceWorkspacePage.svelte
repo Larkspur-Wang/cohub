@@ -1696,6 +1696,14 @@ async function handleWsEvent(payload: RealtimeEventPayload) {
 			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
 		}
 
+		// When an assistant message is persisted (intermediate or final), its
+		// content is now represented in the persisted timeline. Clear the
+		// streaming accumulator so subsequent progress events only contain
+		// *new* content and don't duplicate what's already in a ProcessCard.
+		if (message.role === "assistant") {
+			clearStreamingState(currentActiveSessionId);
+		}
+
 		const merged = mergeMessagesById(state.messages, [message], {
 			preferIncoming: true,
 		});
