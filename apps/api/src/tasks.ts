@@ -25,6 +25,7 @@ export const enqueueTask = async (
   });
 
   await db.insert(taskRuns).values({
+    id: taskRunId,
     jobId: taskRunId,
     taskType: payload.type,
     spaceId: payload.spaceId ?? null,
