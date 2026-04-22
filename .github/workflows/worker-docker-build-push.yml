@@ -174,6 +174,8 @@ jobs:
     needs: build-and-push
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' }}
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -187,7 +189,7 @@ jobs:
 
       - name: Deploy to Prod
         run: |
-          kubectl rollout restart deployment/cohub-worker -n cohub
+          kubectl set image deployment/cohub-worker cohub-worker=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub
 
       - name: Verify deployment
         run: |
