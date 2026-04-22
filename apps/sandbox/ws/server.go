@@ -31,9 +31,9 @@ type Server struct {
 	hostname       string
 	logger         *slog.Logger
 
-	mu                   sync.RWMutex
-	sessionsByID         map[string]*connectionSession
-	sessionIDsByIdentity map[string]map[string]struct{}
+	mu                      sync.RWMutex
+	sessionsByID            map[string]*connectionSession
+	sessionIDsByIdentity    map[string]map[string]struct{}
 	cleanupTimersByIdentity map[string]*time.Timer
 }
 
@@ -60,14 +60,14 @@ func NewServer(
 	logger *slog.Logger,
 ) *Server {
 	s := &Server{
-		cfg:                   cfg,
-		dispatcher:            dispatcher,
-		processManager:        processManager,
-		prepareState:          prepareState,
-		hostname:              hostname,
-		logger:                logger,
-		sessionsByID:          make(map[string]*connectionSession),
-		sessionIDsByIdentity:  make(map[string]map[string]struct{}),
+		cfg:                     cfg,
+		dispatcher:              dispatcher,
+		processManager:          processManager,
+		prepareState:            prepareState,
+		hostname:                hostname,
+		logger:                  logger,
+		sessionsByID:            make(map[string]*connectionSession),
+		sessionIDsByIdentity:    make(map[string]map[string]struct{}),
 		cleanupTimersByIdentity: make(map[string]*time.Timer),
 	}
 	dispatcher.SetRouter(s)
