@@ -282,9 +282,7 @@ let createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
 let sandbox = $state<SandboxRecord | null>(null);
-let sandboxProvisioning = $state(false);
 let sandboxError = $state<string | null>(null);
-let sandboxElapsed = $state(0);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
@@ -1084,11 +1082,7 @@ function showSpaceStatusNotice(message: string) {
 function getStatusRefreshIntervalMs() {
 	const sandboxState = sandbox?.status ?? space?.sandboxStatus ?? null;
 	if (!pageVisible || !pageOnline) return null;
-	if (
-		sandboxProvisioning ||
-		sandboxState === "pending" ||
-		sandboxState === "provisioning"
-	) {
+	if (sandboxState === "pending" || sandboxState === "provisioning") {
 		return 1500;
 	}
 	if (bootstrapStatus === "pending" || bootstrapStatus === "running") {
@@ -1147,50 +1141,6 @@ async function refreshSpaceStatus() {
 	} finally {
 		statusRefreshInFlight = false;
 	}
-}
-
-async function pollSandboxReady() {
-	const startedAt = Date.now();
-	const TIMEOUT = 120_000;
-	sandboxElapsed = 0;
-
-	const elapsedTimer = setInterval(() => {
-		sandboxElapsed = Math.floor((Date.now() - startedAt) / 1000);
-	}, 1000);
-
-	try {
-		while (Date.now() - startedAt < TIMEOUT) {
-			try {
-				const result = await getSpaceSandbox(spaceId);
-				sandbox = result.sandbox;
-
-				if (result.sandbox?.status === "ready") {
-					return true;
-				}
-				if (result.sandbox?.status === "error") {
-					sandboxError =
-						(result.sandbox.meta?.lastError as string) ??
-						"Sandbox provision failed";
-					return false;
-				}
-			} catch {
-				// Network error, retry
-			}
-
-			await new Promise((resolve) => setTimeout(resolve, 1500));
-		}
-
-		sandboxError = "Sandbox provision timed out";
-		return false;
-	} finally {
-		clearInterval(elapsedTimer);
-	}
-}
-
-function formatElapsedTime(seconds: number): string {
-	const m = Math.floor(seconds / 60);
-	const s = seconds % 60;
-	return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
 function formatDateTime(dateStr: string | null | undefined): string {
@@ -1273,24 +1223,13 @@ function formatBootstrapStatus(status: string | null) {
 async function handleRecreateSandbox() {
 	if (!space) return;
 	sandboxError = null;
-	sandboxProvisioning = true;
-
 	try {
 		await recreateSpaceSandbox(spaceId);
-		const ready = await pollSandboxReady();
-		if (!ready) {
-			sandboxProvisioning = false;
-			return;
-		}
-
 		await loadSpace({ force: true });
 		void loadFileTree(true);
-		bootstrapping = false;
 	} catch (error) {
 		sandboxError =
 			error instanceof Error ? error.message : "Failed to recreate sandbox";
-	} finally {
-		sandboxProvisioning = false;
 	}
 }
 
@@ -2362,21 +2301,6 @@ onMount(() => {
 
 	void loadSpace()
 		.then(async () => {
-			// If sandbox is not ready yet, poll until it is
-			if (space && space.sandboxStatus !== "ready") {
-				sandboxProvisioning = true;
-				const ready = await pollSandboxReady();
-				if (!ready) {
-					sandboxProvisioning = false;
-					bootstrapping = false;
-					return;
-				}
-				sandboxProvisioning = false;
-				// Refresh space data now that sandbox is ready
-				await loadSpace({ force: true });
-			}
-
-			// Only load file tree after sandbox is confirmed ready
 			void loadFileTree(true);
 
 			const initialSessionId = routeView === "session" ? routeSessionId : null;
@@ -3309,70 +3233,12 @@ $effect(() => {
       {/if}
     {:else}
       <!-- Chat -->
-    {#if spaceLoadError && !sandboxProvisioning && !sandboxError}
+    {#if spaceLoadError && !sandboxError}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
     {/if}
 
-    {#if createSessionError && !sandboxProvisioning && !sandboxError}
+    {#if createSessionError && !sandboxError}
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
-    {/if}
-
-    {#if sandboxProvisioning || (sandbox && (sandbox.status === "pending" || sandbox.status === "provisioning"))}
-      <div class="flex-1 flex items-center justify-center sandbox-provision-view">
-        <div class="w-full max-w-md px-6">
-          <div class="text-center space-y-6">
-            <!-- Status indicator -->
-            <div class="flex items-center justify-center gap-3">
-              <div class="sandbox-pulse-ring"></div>
-              <div class="text-[13px] font-mono uppercase tracking-wider text-brand">
-                {sandbox?.status ?? "pending"}
-              </div>
-            </div>
-
-            <!-- Elapsed time -->
-            <div class="text-[11px] font-mono text-text-placeholder tabular-nums">
-              elapsed {formatElapsedTime(sandboxElapsed)}
-            </div>
-
-            <!-- Stage messages -->
-            <div class="space-y-1.5 text-[12px] font-mono">
-              {#if !sandbox || sandbox.status === "pending"}
-                <div class="text-text-tertiary">allocating resources…</div>
-              {:else}
-                <div class="text-text-secondary">starting sandbox environment</div>
-                <div class="text-text-placeholder">pulling image · cloning repo · installing deps</div>
-              {/if}
-            </div>
-          </div>
-        </div>
-      </div>
-    {:else if sandboxError}
-      <div class="flex-1 flex items-center justify-center sandbox-error-view">
-        <div class="w-full max-w-md px-6">
-          <div class="text-center space-y-5">
-            <div class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-error-soft/10 border border-error-soft/20">
-              <AlertCircle class="w-[18px] h-[18px] text-error-soft" />
-            </div>
-            <div>
-              <div class="text-[14px] font-medium text-text-primary">Sandbox error</div>
-              <div class="text-[12px] text-text-tertiary mt-1">The sandbox failed to provision.</div>
-            </div>
-            {#if sandboxError}
-              <div class="rounded-[5px] border border-border-subtle bg-bg-surface p-3 text-[11px] font-mono text-text-secondary text-left break-all max-h-24 overflow-y-auto">
-                {sandboxError}
-              </div>
-            {/if}
-            <button
-              type="button"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 active:scale-[0.97] transition-all duration-100"
-              onclick={handleRecreateSandbox}
-            >
-              <RefreshCw class="w-3.5 h-3.5" />
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
     {/if}
 
     {#if bootstrapping && !activeSessionState}
@@ -3442,18 +3308,6 @@ $effect(() => {
                   <p>The sandbox is ready. You can start a new session now.</p>
                 {:else}
                   <p>The sandbox is still provisioning. New sessions become available as soon as the environment is ready.</p>
-                  <div class="text-[12px] font-mono text-text-placeholder">
-                    {#if sandboxProvisioning || sandbox?.status === "pending" || sandbox?.status === "provisioning" || space?.sandboxStatus === "pending" || space?.sandboxStatus === "provisioning"}
-                      refreshing every ~1.5s
-                    {:else if space?.sandboxStatus === "error"}
-                      refreshing every ~15s
-                    {:else}
-                      refresh paused
-                    {/if}
-                  </div>
-                  {#if sandboxProvisioning}
-                    <div class="text-[12px] font-mono text-text-placeholder">elapsed {formatElapsedTime(sandboxElapsed)}</div>
-                  {/if}
                 {/if}
               </div>
 
@@ -3570,7 +3424,7 @@ $effect(() => {
           <div class="text-[12px]">Loading messages…</div>
         </div>
       </div>
-    {:else if !(sandboxProvisioning || sandboxError)}
+    {:else if !sandboxError}
       {#if activeSessionState.error}
         <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
           {activeSessionState.error}
@@ -3978,69 +3832,6 @@ $effect(() => {
 
   .right-sidebar-resize-handle:hover::after {
     background: var(--border-subtle);
-  }
-
-  /* Sandbox provisioning pulse ring */
-  .sandbox-pulse-ring {
-    position: relative;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--brand, #FF3E00);
-  }
-
-  .sandbox-pulse-ring::after {
-    content: "";
-    position: absolute;
-    inset: -4px;
-    border-radius: 50%;
-    background: var(--brand, #FF3E00);
-    opacity: 0;
-    animation: sandboxPulse 2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
-  }
-
-  @keyframes sandboxPulse {
-    0% {
-      transform: scale(1);
-      opacity: 0.4;
-    }
-    100% {
-      transform: scale(2.5);
-      opacity: 0;
-    }
-  }
-
-  /* Entrance animations for sandbox views */
-  .sandbox-provision-view,
-  .sandbox-error-view {
-    animation: sandboxFadeIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) both;
-  }
-
-  .sandbox-error-view {
-    animation-delay: 0.05s;
-  }
-
-  @keyframes sandboxFadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .sandbox-pulse-ring::after {
-      animation: none;
-      opacity: 0.2;
-    }
-
-    .sandbox-provision-view,
-    .sandbox-error-view {
-      animation: none;
-    }
   }
 
   /* File viewer */
