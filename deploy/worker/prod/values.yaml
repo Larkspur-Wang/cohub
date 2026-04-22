@@ -3,7 +3,7 @@ NAMESPACE: "cohub"
 APP_NAME: "cohub-worker"
 
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-worker"
-IMAGE_TAG: "latest"
+IMAGE_TAG: "v0.6.8"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: "gitea-registry"
 
