@@ -433,6 +433,12 @@ class SpaceSessionsApi {
     private readonly websocketClient: ReturnType<typeof getWebsocketClient>,
   ) {}
 
+  private ensureRealtimeConnected() {
+    void this.websocketClient.connect().catch((error) => {
+      console.error("[CohubClient] Failed to connect realtime websocket:", error);
+    });
+  }
+
   create(input?: { title?: string; source?: string }) {
     return this.transport.request<{ ok: true; session: SessionRecord }>(
       `/api/spaces/${this.spaceId}/sessions`,
@@ -539,6 +545,7 @@ class SpaceSessionsApi {
       onPersisted?: (event: unknown) => void;
     },
   ) {
+    this.ensureRealtimeConnected();
     const unsubscribers = [
       this.websocketClient.on("event", (event) => {
         if (event.spaceId !== this.spaceId || event.sessionId !== sessionId) return;
@@ -558,6 +565,9 @@ class SpaceEventsApi {
   constructor(private readonly websocketClient: ReturnType<typeof getWebsocketClient>) {}
 
   onEvent(handler: (event: unknown) => void) {
+    void this.websocketClient.connect().catch((error) => {
+      console.error("[CohubClient] Failed to connect realtime websocket:", error);
+    });
     return this.websocketClient.on("event", handler);
   }
 }
