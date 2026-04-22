@@ -155,6 +155,26 @@ const assertPublicRepoUrl = (value: string) => {
   return url.toString();
 };
 
+const pushExistingHistory = async (input: {
+  workspaceDir: string;
+  authenticatedRemoteUrl: string;
+}) => {
+  await runGit(["remote", "remove", "origin"], input.workspaceDir).catch(() => undefined);
+  await runGit(["remote", "add", "origin", input.authenticatedRemoteUrl], input.workspaceDir);
+
+  // Resolve current branch; if detached HEAD (e.g. checked out a specific commit), create main
+  const branchResult = await runGitWithOutput(["rev-parse", "--abbrev-ref", "HEAD"], input.workspaceDir);
+  const currentBranch = branchResult.stdout.trim();
+  const branch = currentBranch === "HEAD" ? "main" : currentBranch;
+  if (currentBranch === "HEAD") {
+    await runGit(["checkout", "-B", "main"], input.workspaceDir);
+  }
+
+  await runGit(["push", "-u", "origin", branch], input.workspaceDir);
+  const head = await runGitWithOutput(["rev-parse", "HEAD"], input.workspaceDir);
+  return { branch, commitHash: head.stdout.trim() };
+};
+
 const bootstrapFromPublicRepo = async (input: {
   workspaceDir: string;
   authenticatedRemoteUrl: string;
@@ -169,11 +189,9 @@ const bootstrapFromPublicRepo = async (input: {
     await runGit(["checkout", ref], input.workspaceDir);
   }
   await runGit(["remote", "rename", "origin", "upstream"], input.workspaceDir).catch(() => undefined);
-  return commitAllAndPush({
+  return pushExistingHistory({
     workspaceDir: input.workspaceDir,
     authenticatedRemoteUrl: input.authenticatedRemoteUrl,
-    branch: "main",
-    message: "chore: import public repository",
   });
 };
 
@@ -207,11 +225,9 @@ const bootstrapFromCheckpoint = async (input: {
   await runGit(["clone", sourceRemoteUrl, "."], input.workspaceDir);
   await runGit(["checkout", checkpoint.commitHash], input.workspaceDir);
   await runGit(["remote", "remove", "origin"], input.workspaceDir).catch(() => undefined);
-  return commitAllAndPush({
+  return pushExistingHistory({
     workspaceDir: input.workspaceDir,
     authenticatedRemoteUrl: input.authenticatedRemoteUrl,
-    branch: "main",
-    message: "chore: initialize from checkpoint",
   });
 };
 
