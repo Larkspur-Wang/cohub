@@ -156,12 +156,126 @@ const summarizeToolArgs = (toolName: string, args: unknown): string => {
   return first.slice(0, 120);
 };
 
-// ─── Event → ContentBlock conversion ───
+type ToolExecution = {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  resultContent?: string | ContentBlock[];
+  isError: boolean;
+  toolUseMeta?: Record<string, unknown>;
+};
 
-function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolResults: Array<Record<string, unknown>>): ContentBlock[] {
+type NormalizedAssistantTurn = {
+  content: ContentBlock[];
+  thinking: string;
+  thinkingSummary: string;
+  toolCallRenderStates: Array<{
+    toolCallId: string;
+    toolName: string;
+    status: "running" | "done" | "failed";
+    summary: string;
+  }>;
+};
+
+const normalizeToolExecutions = (
+  assistantMessage: Record<string, unknown>,
+  toolResults: Array<Record<string, unknown>>,
+): Map<string, ToolExecution> => {
+  const executions = new Map<string, ToolExecution>();
+  const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
+
+  for (const raw of toolResults) {
+    const id = typeof raw.toolCallId === "string" ? raw.toolCallId : "";
+    const name = typeof raw.toolName === "string" ? raw.toolName : "";
+    if (!id || !name) continue;
+    const rawResultContent = "content" in raw
+      ? (typeof raw.content === "string"
+          ? raw.content
+          : Array.isArray(raw.content)
+            ? (raw.content as ContentBlock[])
+            : extractTextFromContent(raw.content))
+      : undefined;
+
+    executions.set(id, {
+      id,
+      name,
+      input: (raw.input as Record<string, unknown>) ?? {},
+      resultContent: rawResultContent,
+      isError: Boolean(raw.isError),
+    });
+  }
+
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+    const block = item as Record<string, unknown>;
+
+    if ((block.type === "toolCall" || block.type === "tool_use") && typeof block.id === "string" && typeof block.name === "string") {
+      const existing = executions.get(block.id);
+      executions.set(block.id, {
+        id: block.id,
+        name: block.name,
+        input: (block.type === "toolCall" ? block.arguments : block.input) as Record<string, unknown> ?? existing?.input ?? {},
+        resultContent: existing?.resultContent,
+        isError: existing?.isError ?? false,
+        toolUseMeta: (block._meta as Record<string, unknown> | undefined) ?? existing?.toolUseMeta,
+      });
+      continue;
+    }
+
+    if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
+      const existing = executions.get(block.tool_use_id);
+      if (!existing) continue;
+      executions.set(block.tool_use_id, {
+        ...existing,
+        resultContent: typeof block.content === "string" ? block.content : ((block.content as string | ContentBlock[] | null) ?? existing.resultContent ?? ""),
+        isError: Boolean(block.is_error) || existing.isError,
+      });
+    }
+  }
+
+  return executions;
+};
+
+const emitToolUseBlock = (
+  blocks: ContentBlock[],
+  execution: ToolExecution,
+  emittedToolUses: Set<string>,
+) => {
+  if (emittedToolUses.has(execution.id)) return;
+  blocks.push({
+    type: "tool_use",
+    id: execution.id,
+    name: execution.name,
+    input: execution.input,
+    ...(execution.toolUseMeta ? { _meta: execution.toolUseMeta } : {}),
+  });
+  emittedToolUses.add(execution.id);
+};
+
+const emitToolResultBlock = (
+  blocks: ContentBlock[],
+  execution: ToolExecution,
+  emittedToolResults: Set<string>,
+) => {
+  if (emittedToolResults.has(execution.id) || execution.resultContent === undefined) return;
+  blocks.push({
+    type: "tool_result",
+    tool_use_id: execution.id,
+    content: execution.resultContent,
+    is_error: execution.isError,
+  });
+  emittedToolResults.add(execution.id);
+};
+
+export function normalizeAssistantTurn(
+  assistantMessage: Record<string, unknown>,
+  toolResults: Array<Record<string, unknown>>,
+): NormalizedAssistantTurn {
   const blocks: ContentBlock[] = [];
   const content = Array.isArray(assistantMessage.content) ? assistantMessage.content : [];
-  const toolResultsById = new Map(toolResults.map((r) => [String(r.toolCallId ?? ""), r]));
+  const executions = normalizeToolExecutions(assistantMessage, toolResults);
+  const emittedToolUses = new Set<string>();
+  const emittedToolResults = new Set<string>();
 
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
@@ -186,62 +300,69 @@ function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolRes
       });
       continue;
     }
-    if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      // Upsert tool_use by id — covers SDK sending duplicate toolCall blocks
-      upsertToolBlock(blocks, {
-        type: "tool_use",
-        id: block.id,
-        name: block.name,
-        input: (block.arguments as Record<string, unknown>) ?? {},
-      });
-
-      // Emit corresponding tool_result
-      const result = toolResultsById.get(block.id);
-      const resultText = result ? extractTextFromContent(result?.content) : "";
-      upsertToolBlock(blocks, {
-        type: "tool_result",
-        tool_use_id: block.id,
-        content: resultText || JSON.stringify(result?.content ?? null),
-        is_error: result ? Boolean(result.isError) : false,
-      });
+    if ((block.type === "toolCall" || block.type === "tool_use") && typeof block.id === "string") {
+      const execution = executions.get(block.id);
+      if (execution) {
+        emitToolUseBlock(blocks, execution, emittedToolUses);
+      } else {
+        console.warn("[Normalize] tool block has no matching execution", {
+          blockType: block.type,
+          toolCallId: block.id,
+          hasName: typeof block.name === "string",
+        });
+      }
+      continue;
     }
     if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
-      // Upsert tool_result by tool_use_id — covers SDK sending duplicate tool_result blocks
-      upsertToolBlock(blocks, {
-        type: "tool_result",
-        tool_use_id: block.tool_use_id,
-        content: typeof block.content === "string" ? block.content : (block.content as string | ContentBlock[] | null) ?? "",
-        is_error: Boolean(block.is_error),
-      });
+      const execution = executions.get(block.tool_use_id);
+      if (execution) {
+        emitToolUseBlock(blocks, execution, emittedToolUses);
+        emitToolResultBlock(blocks, execution, emittedToolResults);
+      } else {
+        console.warn("[Normalize] tool_result block has no matching execution", {
+          toolCallId: block.tool_use_id,
+        });
+        blocks.push({
+          type: "tool_result",
+          tool_use_id: block.tool_use_id,
+          content: typeof block.content === "string" ? block.content : ((block.content as string | ContentBlock[] | null) ?? ""),
+          is_error: Boolean(block.is_error),
+        });
+        emittedToolResults.add(block.tool_use_id);
+      }
     }
   }
 
-  return blocks;
-}
-
-function upsertToolBlock(blocks: ContentBlock[], block: ContentBlock): void {
-  const key = block.type === "tool_use"
-    ? block.id
-    : block.type === "tool_result"
-      ? block.tool_use_id
-      : null;
-  if (!key) {
-    blocks.push(block);
-    return;
+  for (const execution of executions.values()) {
+    emitToolUseBlock(blocks, execution, emittedToolUses);
+    emitToolResultBlock(blocks, execution, emittedToolResults);
   }
 
-  // Only search within the same block type to avoid cross-type collisions
-  const idx = blocks.findIndex((b) => b.type === block.type &&
-    (b.type === "tool_use" ? (b as Extract<ContentBlock, { type: "tool_use" }>).id === key : (b as Extract<ContentBlock, { type: "tool_result" }>).tool_use_id === key),
-  );
-  if (idx !== -1) {
-    blocks[idx] = block;
-  } else {
-    blocks.push(block);
-  }
+  const thinking = extractThinkingFromContent(assistantMessage.content);
+  const thinkingSummary = summarizeThinking(thinking);
+  const toolCallRenderStates = [...executions.values()].map((execution) => {
+    const status: "running" | "done" | "failed" = execution.resultContent === undefined
+      ? "running"
+      : execution.isError
+        ? "failed"
+        : "done";
+    return {
+      toolCallId: execution.id,
+      toolName: execution.name,
+      status,
+      summary: summarizeToolArgs(execution.name, execution.input),
+    };
+  });
+
+  return {
+    content: blocks,
+    thinking,
+    thinkingSummary,
+    toolCallRenderStates,
+  };
 }
 
-// ─── API calls ───
+// ─── Event normalization ───
 
 export async function registerSpaceSession(input: RegisterSessionInput) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions`;
@@ -352,8 +473,8 @@ export async function persistAssistantMessage(input: {
   }
 
   const assistant = assistantMessage as Record<string, unknown>;
-  const content = eventToContentBlocks(assistant, toolResultsRaw);
-  const thinking = extractThinkingFromContent(assistant.content);
+  const normalized = normalizeAssistantTurn(assistant, toolResultsRaw);
+  const { content, thinking, thinkingSummary, toolCallRenderStates } = normalized;
 
   if (content.length === 0) {
     console.warn("[Persist] skipping empty assistant message", {
@@ -364,21 +485,6 @@ export async function persistAssistantMessage(input: {
     });
     return;
   }
-
-  // Build tool call render states for meta (live rendering)
-  const toolResultsById = new Map(toolResultsRaw.map((r) => [String(r.toolCallId ?? ""), r]));
-  const toolCallRenderStates = content
-    .filter((b) => b.type === "tool_use")
-    .map((block) => {
-      const toolBlock = block as Extract<typeof block, { type: "tool_use" }>;
-      const matched = toolResultsById.get(toolBlock.id);
-      return {
-        toolCallId: toolBlock.id,
-        toolName: toolBlock.name,
-        status: matched ? (matched.isError ? "failed" : "done") : "running",
-        summary: summarizeToolArgs(toolBlock.name, toolBlock.input),
-      };
-    });
 
   const payload: PersistMessageInput = {
     spaceId: input.spaceId,
@@ -400,7 +506,7 @@ export async function persistAssistantMessage(input: {
         sessionId: input.spaceSessionId,
         rawStopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
         thinking,
-        thinkingSummary: summarizeThinking(thinking),
+        thinkingSummary,
         toolCallRenderStates,
       },
       usage:
