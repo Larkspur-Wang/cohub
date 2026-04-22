@@ -3,18 +3,19 @@ import { setTimeout as sleep } from "node:timers/promises";
 import WebSocket, { type RawData } from "ws";
 import type {
   AgentSandboxMessage,
-  RpcFailed,
+  RpcEventPayload,
   RpcMethod,
   RpcRequestMap,
-  RpcEventPayload,
   SandboxHeartbeat,
 } from "@cohub/agent-sandbox-protocol";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
 
-type PendingRequest = {
+type PendingOperation = {
+  requestId: string;
   method: string;
   opId?: string;
+  accepted: boolean;
   resolve: (value: never) => void;
   reject: (error: Error) => void;
   onEvent?: (event: RpcEventPayload) => void;
@@ -33,18 +34,18 @@ type SandboxClientRegistration = {
   connection: SandboxConnection | null;
   resolveWaiters: Array<(connection: SandboxConnection) => void>;
   hooks?: SandboxStatusHooks;
+  pendingByRequestId: Map<string, PendingOperation>;
+  requestIdByOpId: Map<string, string>;
 };
 
 export class SandboxConnection {
-  private readonly pendingByRequestId = new Map<string, PendingRequest>();
-  private readonly requestIdByOpId = new Map<string, string>();
-
   constructor(
     readonly spaceId: string,
     readonly sandboxId: string,
     readonly identity: string,
     readonly connectionId: string,
     private readonly socket: WebSocket,
+    private readonly registration: SandboxClientRegistration,
   ) {}
 
   send(message: AgentSandboxMessage) {
@@ -64,8 +65,10 @@ export class SandboxConnection {
     const requestId = options.requestId ?? randomUUID();
     console.log(`[SandboxWS] rpc:request spaceId=${this.spaceId} identity=${this.identity} method=${method} requestId=${requestId.slice(0, 8)}`);
     return new Promise((resolve, reject) => {
-      this.pendingByRequestId.set(requestId, {
+      this.registration.pendingByRequestId.set(requestId, {
+        requestId,
         method,
+        accepted: false,
         resolve,
         reject,
         onEvent: options.onEvent,
@@ -88,56 +91,54 @@ export class SandboxConnection {
 
   handleMessage(message: AgentSandboxMessage) {
     if (message.type === "rpc.accepted") {
-      const pending = this.pendingByRequestId.get(message.requestId);
+      const pending = this.registration.pendingByRequestId.get(message.requestId);
       if (!pending) return;
+      pending.accepted = true;
       pending.opId = message.opId;
-      this.requestIdByOpId.set(message.opId, message.requestId);
+      this.registration.requestIdByOpId.set(message.opId, message.requestId);
       console.log(`[SandboxWS] rpc:accepted spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${message.requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
       return;
     }
 
     if (message.type === "rpc.event") {
-      const pending = this.pendingByRequestId.get(this.requestIdByOpId.get(message.opId) ?? "");
-      if (!pending) {
-        console.warn(`[SandboxWS] rpc:event without pending request spaceId=${this.spaceId} identity=${this.identity} opId=${message.opId.slice(0, 8)} event=${message.event.type}`);
-        return;
-      }
-      pending.onEvent?.(message.event);
+      const pending = this.registration.pendingByRequestId.get(this.registration.requestIdByOpId.get(message.opId) ?? "");
+      pending?.onEvent?.(message.event);
       return;
     }
 
     if (message.type === "rpc.completed") {
-      const requestId = this.requestIdByOpId.get(message.opId) ?? message.requestId;
-      const pending = this.pendingByRequestId.get(requestId);
+      const requestId = this.registration.requestIdByOpId.get(message.opId) ?? message.requestId;
+      const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
       console.log(`[SandboxWS] rpc:completed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
-      this.pendingByRequestId.delete(requestId);
-      this.requestIdByOpId.delete(message.opId);
+      this.registration.pendingByRequestId.delete(requestId);
+      this.registration.requestIdByOpId.delete(message.opId);
       pending.resolve(message.result as never);
       return;
     }
 
     if (message.type === "rpc.failed") {
-      const requestId = this.requestIdByOpId.get(message.opId) ?? message.requestId;
-      const pending = this.pendingByRequestId.get(requestId);
+      const requestId = this.registration.requestIdByOpId.get(message.opId) ?? message.requestId;
+      const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
-      this.pendingByRequestId.delete(requestId);
-      this.requestIdByOpId.delete(message.opId);
+      this.registration.pendingByRequestId.delete(requestId);
+      this.registration.requestIdByOpId.delete(message.opId);
       console.error(`[SandboxWS] rpc:failed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)} error=${message.error.message}`);
       pending.reject(new Error(message.error.message));
     }
   }
 
   dispose(error?: Error) {
-    const count = this.pendingByRequestId.size;
-    if (count > 0) {
-      console.warn(`[SandboxWS] dispose with ${count} pending requests spaceId=${this.spaceId} identity=${this.identity}`);
+    const pendingEntries = [...this.registration.pendingByRequestId.entries()];
+    const toReject = pendingEntries.filter(([, pending]) => !pending.accepted);
+    if (toReject.length > 0) {
+      console.warn(`[SandboxWS] dispose with ${toReject.length} unaccepted requests spaceId=${this.spaceId} identity=${this.identity}`);
     }
-    for (const [requestId, pending] of this.pendingByRequestId) {
+    for (const [requestId, pending] of toReject) {
       pending.reject(error ?? new Error("sandbox connection closed"));
-      this.pendingByRequestId.delete(requestId);
+      this.registration.pendingByRequestId.delete(requestId);
       if (pending.opId) {
-        this.requestIdByOpId.delete(pending.opId);
+        this.registration.requestIdByOpId.delete(pending.opId);
       }
     }
   }
@@ -160,6 +161,8 @@ function getOrCreateRegistration(spaceId: string, wsUrl: string, hooks?: Sandbox
     connection: null,
     resolveWaiters: [],
     hooks,
+    pendingByRequestId: new Map(),
+    requestIdByOpId: new Map(),
   };
   registrations.set(spaceId, created);
   return created;
@@ -176,7 +179,7 @@ function setActiveConnection(spaceId: string, connection: SandboxConnection | nu
     registration.resolveWaiters = [];
   }
   if (previous && previous !== connection) {
-    previous.dispose(new Error("sandbox connection superseded by a newer local connection"));
+    previous.dispose(new Error("sandbox connection replaced"));
   }
 }
 
@@ -216,9 +219,19 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
   const registration = registrations.get(spaceId);
   if (!registration) return;
   registration.started = false;
-  const connection = registration.connection;
   setActiveConnection(spaceId, null);
-  connection?.dispose(new Error(reason));
+
+  if (registration.pendingByRequestId.size > 0) {
+    console.warn(`[SandboxWS] disconnect rejecting ${registration.pendingByRequestId.size} accepted requests spaceId=${spaceId} reason=${reason}`);
+  }
+  for (const [requestId, pending] of registration.pendingByRequestId) {
+    pending.reject(new Error(reason));
+    registration.pendingByRequestId.delete(requestId);
+    if (pending.opId) {
+      registration.requestIdByOpId.delete(pending.opId);
+    }
+  }
+
   console.log(`[SandboxWS] disconnect spaceId=${spaceId} reason=${reason}`);
   void registration.hooks?.onDisconnected?.({ spaceId, reason });
 }
@@ -256,6 +269,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
     let connection: SandboxConnection | null = null;
     let attached = false;
     let settled = false;
+    let attachSent = false;
     const attachRequestId = randomUUID();
 
     const finishResolve = () => {
@@ -287,7 +301,8 @@ async function connectOnce(registration: SandboxClientRegistration) {
           }
           heartbeat = message;
           void registration.hooks?.onHeartbeat?.(message);
-          if (!attached) {
+          if (!attachSent) {
+            attachSent = true;
             socket.send(JSON.stringify({
               version: AGENT_SANDBOX_PROTOCOL_VERSION,
               type: "session.attach",
@@ -308,7 +323,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
             return;
           }
           attached = true;
-          connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, socket);
+          connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, socket, registration);
           setActiveConnection(registration.spaceId, connection);
           console.log(`[SandboxWS] attached spaceId=${registration.spaceId} identity=${message.identity} connectionId=${message.connectionId.slice(0, 8)}`);
           return;
