@@ -117,7 +117,7 @@ type SelectedModel = {
 };
 
 type SessionViewState = {
-	session: SessionRecord;
+	session: SessionRecord | undefined;
 	messages: MessageRecord[];
 	loading: boolean;
 	loaded: boolean;
@@ -1173,7 +1173,8 @@ async function loadSessionState(sessionId: string, force = false) {
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
-				session: existing?.session,
+				session:
+					existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
 				messages: cached.messages,
 				loading: false,
 				loaded: true,
@@ -1194,7 +1195,8 @@ async function loadSessionState(sessionId: string, force = false) {
 	sessionStateById = {
 		...sessionStateById,
 		[sessionId]: {
-			session: existing?.session,
+			session:
+				existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
 			messages: existing?.messages ?? [],
 			loading: true,
 			loaded: existing?.loaded ?? false,
@@ -1241,7 +1243,8 @@ async function loadSessionState(sessionId: string, force = false) {
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
-				session: existing?.session,
+				session:
+					existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
 				messages: existing?.messages ?? [],
 				loading: false,
 				loaded: true,
@@ -1544,6 +1547,7 @@ function clearStreamingState(sessionId: string | null = activeSessionId) {
 async function handleSend() {
 	if (
 		!activeSessionState ||
+		!activeSessionState.session ||
 		(!input.trim() && imageAttachments.length === 0) ||
 		sending ||
 		!space
