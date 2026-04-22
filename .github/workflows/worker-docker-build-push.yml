@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
+      image_version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,6 +93,8 @@ jobs:
     needs: build-and-push
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -105,7 +108,7 @@ jobs:
 
       - name: Deploy to Dev
         run: |
-          kubectl rollout restart deployment/cohub-worker-dev -n cohub-dev
+          kubectl set image deployment/cohub-worker-dev cohub-worker-dev=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub-dev
 
       - name: Verify deployment
         run: |
@@ -146,6 +149,8 @@ jobs:
     needs: build-and-push
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev' }}
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -159,7 +164,7 @@ jobs:
 
       - name: Deploy to Dev
         run: |
-          kubectl rollout restart deployment/cohub-worker-dev -n cohub-dev
+          kubectl set image deployment/cohub-worker-dev cohub-worker-dev=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub-dev
 
       - name: Verify deployment
         run: |

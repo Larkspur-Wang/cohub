@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
+      image_version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,6 +85,8 @@ jobs:
     needs: build-and-push
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -97,9 +100,7 @@ jobs:
 
       - name: Deploy to Dev
         run: |
-          # StatefulSet 在 Pod not-ready 时 rollout restart 不会重建，改用 delete pod 强制重建
-          # StatefulSet 会自动用最新模板拉起新 Pod
-          kubectl delete pod -l app.kubernetes.io/name=cohub-gateway-dev -n cohub-dev
+          kubectl set image statefulset/cohub-gateway-dev cohub-gateway-dev=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub-dev
 
       - name: Verify deployment
         run: |

@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
+      image_version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,6 +93,8 @@ jobs:
     needs: build-and-push
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -113,16 +116,15 @@ jobs:
           CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
             'apps/api/src/db/schema-v2.ts' \
             'apps/api/drizzle/v2/*.sql' 2>/dev/null || true)
-          
+
           if [ -z "$CHANGED" ]; then
             echo "No migration needed"
             exit 0
           fi
-          
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}
+
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           echo "Migration needed, running with image: $IMAGE"
-          
+
           kubectl apply -f - <<EOF
           apiVersion: batch/v1
           kind: Job
@@ -148,7 +150,7 @@ jobs:
                             name: cohub-api-dev-secrets
                             key: DATABASE_URL
           EOF
-          
+
           if kubectl wait --for=condition=complete job/api-migrate-${{ github.run_id }} \
             -n cohub-dev --timeout=300s; then
             echo "Migration completed successfully"
@@ -165,7 +167,7 @@ jobs:
 
       - name: Deploy to Dev
         run: |
-          kubectl rollout restart deployment/cohub-api-dev -n cohub-dev
+          kubectl set image deployment/cohub-api-dev cohub-api-dev=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub-dev
 
       - name: Verify deployment
         run: |
@@ -256,6 +258,8 @@ jobs:
     needs: build-and-push
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev' }}
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -272,8 +276,7 @@ jobs:
 
       - name: Run migration
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}
+          IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           echo "Running migration with image: $IMAGE"
 
           kubectl apply -f - <<EOF
