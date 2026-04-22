@@ -187,7 +187,8 @@ function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolRes
       continue;
     }
     if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      blocks.push({
+      // Upsert tool_use by id — covers SDK sending duplicate toolCall blocks
+      upsertToolBlock(blocks, {
         type: "tool_use",
         id: block.id,
         name: block.name,
@@ -196,17 +197,48 @@ function eventToContentBlocks(assistantMessage: Record<string, unknown>, toolRes
 
       // Emit corresponding tool_result
       const result = toolResultsById.get(block.id);
-      const resultText = result ? extractTextFromContent(result.content) : "";
-      blocks.push({
+      const resultText = result ? extractTextFromContent(result?.content) : "";
+      upsertToolBlock(blocks, {
         type: "tool_result",
         tool_use_id: block.id,
         content: resultText || JSON.stringify(result?.content ?? null),
         is_error: result ? Boolean(result.isError) : false,
       });
     }
+    if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
+      // Upsert tool_result by tool_use_id — covers SDK sending duplicate tool_result blocks
+      upsertToolBlock(blocks, {
+        type: "tool_result",
+        tool_use_id: block.tool_use_id,
+        content: typeof block.content === "string" ? block.content : (block.content as string | ContentBlock[] | null) ?? "",
+        is_error: Boolean(block.is_error),
+      });
+    }
   }
 
   return blocks;
+}
+
+function upsertToolBlock(blocks: ContentBlock[], block: ContentBlock): void {
+  const key = block.type === "tool_use"
+    ? block.id
+    : block.type === "tool_result"
+      ? block.tool_use_id
+      : null;
+  if (!key) {
+    blocks.push(block);
+    return;
+  }
+
+  // Only search within the same block type to avoid cross-type collisions
+  const idx = blocks.findIndex((b) => b.type === block.type &&
+    (b.type === "tool_use" ? (b as Extract<ContentBlock, { type: "tool_use" }>).id === key : (b as Extract<ContentBlock, { type: "tool_result" }>).tool_use_id === key),
+  );
+  if (idx !== -1) {
+    blocks[idx] = block;
+  } else {
+    blocks.push(block);
+  }
 }
 
 // ─── API calls ───

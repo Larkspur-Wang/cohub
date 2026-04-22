@@ -95,6 +95,13 @@ function summarizeToolArgs(toolName: string, args: unknown): string {
 function sdkContentToBlocks(content: unknown, existing: ContentBlock[]): ContentBlock[] {
   if (!Array.isArray(content)) return [];
   const blocks: ContentBlock[] = [];
+
+  // Track processed ids separately for toolCall and tool_result.
+  // SDK sends both in the same content array, so sharing a single Set
+  // would incorrectly skip tool_result entries that share an id with a toolCall.
+  const seenToolCallIds = new Set<string>();
+  const seenToolResultIds = new Set<string>();
+
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
     const block = item as Record<string, unknown>;
@@ -105,6 +112,8 @@ function sdkContentToBlocks(content: unknown, existing: ContentBlock[]): Content
     } else if (type === "thinking" && typeof block.thinking === "string") {
       blocks.push({ type: "thinking", thinking: block.thinking });
     } else if (type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
+      if (seenToolCallIds.has(block.id)) continue;
+      seenToolCallIds.add(block.id);
       const existingBlock = existing.find(
         (b) => b.type === "tool_use" && b.id === block.id,
       ) as Extract<ContentBlock, { type: "tool_use" }> | undefined;
@@ -118,6 +127,8 @@ function sdkContentToBlocks(content: unknown, existing: ContentBlock[]): Content
     } else if (type === "image" && typeof block.uri === "string") {
       blocks.push({ type: "image", source: { type: "url", url: block.uri } });
     } else if (type === "tool_result" && typeof block.tool_use_id === "string") {
+      if (seenToolResultIds.has(block.tool_use_id)) continue;
+      seenToolResultIds.add(block.tool_use_id);
       const existingBlock = existing.find(
         (b) => b.type === "tool_result" && b.tool_use_id === block.tool_use_id,
       ) as Extract<ContentBlock, { type: "tool_result" }> | undefined;
