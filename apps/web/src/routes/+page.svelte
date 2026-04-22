@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Loader2, Terminal } from "lucide-svelte";
+import { Loader2, LogIn, Terminal } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { getSpaces } from "$lib/api";
@@ -7,6 +7,16 @@ import { logtoClient } from "$lib/auth";
 
 let isLoading = $state(true);
 let spaceCount = $state(0);
+
+async function handleSignIn() {
+	try {
+		await logtoClient.signIn({
+			redirectUri: `${window.location.origin}/callback`,
+		});
+	} catch (error) {
+		console.error("[home] Sign in failed:", error);
+	}
+}
 
 onMount(async () => {
 	const authenticated = await logtoClient.isAuthenticated();
@@ -52,11 +62,19 @@ onMount(async () => {
         Welcome to Cohub
       </h1>
       <p class="mt-1.5 text-[13px] text-text-tertiary max-w-sm leading-relaxed">
-        Create your first space to get started.
+        Sign in to manage your spaces, agents, and workflows.
       </p>
 
-      <!-- CTA -->
-      <div class="mt-6">
+      <!-- CTA Buttons -->
+      <div class="mt-6 flex flex-col sm:flex-row items-center gap-3">
+        <button
+          type="button"
+          onclick={handleSignIn}
+          class="inline-flex items-center gap-2 px-5 py-2 rounded-[6px] bg-[#FF3E00] text-[13px] text-white font-medium hover:bg-[#FF3E00]/90 transition-colors shadow-sm"
+        >
+          <LogIn class="w-[14px] h-[14px]" />
+          Sign In
+        </button>
         <a
           href="/spaces/new"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
