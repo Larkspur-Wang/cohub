@@ -1,18 +1,17 @@
 <script lang="ts">
+import type {
+	Channel,
+	ChannelConfig,
+	DiscordChannelConfig,
+	SpaceChannelBindingInput,
+	SpaceEnvInput,
+} from "@cohub/sdk";
 import { ArrowLeft, Loader2, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import {
-	type Channel,
-	type ChannelConfig,
-	createSpace,
-	type DiscordChannelConfig,
-	getChannels,
-	type SpaceChannelBindingInput,
-	type SpaceEnvInput,
-} from "$lib/api";
 import { ensureAuth } from "$lib/auth";
+import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -53,7 +52,7 @@ async function loadPage() {
 	loadError = "";
 
 	try {
-		const channelsData = await getChannels();
+		const channelsData = await sdk.channels.list();
 		channels = channelsData;
 		channelConfigById = Object.fromEntries(
 			channelsData.map((ch) => [ch.id, getDefaultChannelConfig(ch)]),
@@ -130,7 +129,7 @@ async function handleSubmit(event: SubmitEvent) {
 			.map((item) => ({ name: item.name.trim(), value: item.value }))
 			.filter((item) => item.name.length > 0);
 
-		const result = await createSpace(
+		const result = await sdk.spaces.create(
 			{
 				name: name.trim(),
 				description: description.trim() || undefined,

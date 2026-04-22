@@ -15,7 +15,9 @@
 			"$lib": ["./src/lib"],
 			"$lib/*": ["./src/lib/*"],
 			"$app/types": ["./.svelte-kit/types/index.d.ts"],
-			"@cohub/protocol": ["../../packages/protocol/src/index.ts"]
+			"@cohub/protocol": ["../../packages/protocol/src/index.ts"],
+			"@cohub/sdk": ["../../packages/sdk/src/index.ts"],
+			"@cohub/sdk/gateway": ["../../packages/sdk/src/gateway.ts"]
 		}
 	}
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias

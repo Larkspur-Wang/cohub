@@ -1,10 +1,11 @@
-import { getTaskRun, type CheckpointRecord } from "$lib/api";
+import type { CheckpointRecord } from "@cohub/sdk";
+import { sdk } from "$lib/sdk";
 
 export async function pollCheckpointJob(taskRunId: string) {
 	const startedAt = Date.now();
 	while (Date.now() - startedAt < 90_000) {
 		try {
-			const { run } = await getTaskRun(taskRunId);
+			const { run } = await sdk.tasks.get(taskRunId);
 			if (run.status === "completed") return run;
 			if (run.status === "failed") {
 				throw new Error(run.errorMessage || "Save job failed");

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@cohub/protocol": ["../protocol/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

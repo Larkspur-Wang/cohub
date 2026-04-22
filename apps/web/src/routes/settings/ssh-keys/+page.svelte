@@ -1,15 +1,11 @@
 <script lang="ts">
+import type { UserSshKey } from "@cohub/sdk";
 import { KeyRound, Plus, Trash2, X } from "lucide-svelte";
 import { onMount } from "svelte";
 import { fade } from "svelte/transition";
 import { page } from "$app/state";
-import {
-	createSshKey,
-	deleteSshKey,
-	getSshKeys,
-	type UserSshKey,
-} from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -30,7 +26,7 @@ async function loadKeys() {
 	isLoading = true;
 	loadError = "";
 	try {
-		keys = await getSshKeys();
+		keys = await sdk.user.getSshKeys();
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Failed to load SSH keys";
@@ -50,7 +46,7 @@ async function handleSubmit(e: Event) {
 
 	isSubmitting = true;
 	try {
-		await createSshKey({
+		await sdk.user.createSshKey({
 			key: formKey.trim(),
 			title: formTitle.trim(),
 		});
@@ -68,7 +64,7 @@ async function handleSubmit(e: Event) {
 async function handleDelete(id: string) {
 	if (!confirm("Are you sure you want to delete this SSH key?")) return;
 	try {
-		await deleteSshKey(id);
+		await sdk.user.deleteSshKey(id);
 		await loadKeys();
 	} catch (error) {
 		alert(error instanceof Error ? error.message : "Failed to delete SSH key");

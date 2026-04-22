@@ -1,5 +1,16 @@
 <script lang="ts">
 import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import type {
+	CheckpointRecord,
+	CronJobRecord,
+	ResourcePermission,
+	SessionRecord,
+	SpaceFsEntry,
+	SpaceFsFileResponse,
+	SpaceRecord,
+	TaskRunRecord,
+} from "@cohub/sdk";
+import { extractSessionRenderState } from "@cohub/sdk";
 import {
 	AlertCircle,
 	ArrowDown,
@@ -34,50 +45,6 @@ import {
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 import { goto } from "$app/navigation";
-import {
-	addSpaceCollaborator,
-	type CheckpointRecord,
-	type CronJobRecord,
-	createCronJob,
-	createSessionPermission,
-	createSpaceCheckpoint,
-	createSpaceFsDir,
-	createSpacePermission,
-	createSpaceSession,
-	deleteCronJob,
-	deleteSessionPermission,
-	deleteSpaceFsNode,
-	deleteSpacePermission,
-	extractSessionRenderState,
-	getCronJobRuns,
-	getCronJobs,
-	getModels,
-	getSessionMessagesPaginated,
-	getSpace,
-	getSpaceCheckpoint,
-	getSpaceFsFile,
-	getSpaceFsTree,
-	getSpaceSandbox,
-	getSpaceSessions,
-	getTaskRun,
-	listSpaceCollaborators,
-	listSpacePermissions,
-	moveSpaceFsNode,
-	postSessionMessage,
-	putSpaceFsFile,
-	type ResourcePermission,
-	recreateSpaceSandbox,
-	removeSpaceCollaborator,
-	renameSpace,
-	type SandboxRecord,
-	type SessionRecord,
-	type SpaceFsEntry,
-	type SpaceFsFileResponse,
-	type SpaceRecord,
-	type TaskRunRecord,
-	toggleCronJob,
-	updateSpaceCollaborator,
-} from "$lib/api";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
@@ -89,8 +56,7 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
-import type { RealtimeEventPayload } from "$lib/realtime";
-import { getRealtimeClient } from "$lib/realtime";
+import { sdk } from "$lib/sdk";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
@@ -286,8 +252,6 @@ let creatingSession = $state(false);
 let createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
-let sandbox = $state<SandboxRecord | null>(null);
-let sandboxError = $state<string | null>(null);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
@@ -385,7 +349,7 @@ function hasSessionPermission(sessionId: string): boolean {
 
 async function loadSpacePermissions() {
 	try {
-		const perms = await listSpacePermissions(spaceId);
+		const perms = await sdk.space(spaceId).permissions.list();
 		spacePerms = perms;
 		spacePublicRead = perms.some(
 			(p) =>
@@ -412,9 +376,9 @@ async function toggleSpacePublicRead(checked: boolean) {
 	savingSpacePerm = true;
 	try {
 		if (checked) {
-			await createSpacePermission(spaceId, "read");
+			await sdk.space(spaceId).permissions.create("read");
 		} else {
-			await deleteSpacePermission(spaceId);
+			await sdk.space(spaceId).permissions.delete();
 		}
 		await loadSpacePermissions();
 	} catch {
@@ -426,7 +390,7 @@ async function toggleSpacePublicRead(checked: boolean) {
 
 async function removeSessionPermission(sessionId: string) {
 	try {
-		await deleteSessionPermission(sessionId);
+		await sdk.sessionPermissions.delete(sessionId);
 		await loadSpacePermissions();
 	} catch {
 		// Silently fail
@@ -437,7 +401,9 @@ async function removeSessionPermission(sessionId: string) {
 async function loadCollaborators() {
 	loadingCollaborators = true;
 	try {
-		spaceCollaborators = await listSpaceCollaborators(spaceId);
+		spaceCollaborators = await sdk
+			.space(spaceId)
+			.permissions.listCollaborators();
 	} catch {
 		// Non-blocking
 	} finally {
@@ -450,11 +416,12 @@ async function handleAddCollaborator() {
 	savingCollaborator = true;
 	addingCollaboratorError = "";
 	try {
-		await addSpaceCollaborator(
-			spaceId,
-			addingCollaboratorUuid.trim(),
-			addingCollaboratorLevel,
-		);
+		await sdk
+			.space(spaceId)
+			.permissions.addCollaborator(
+				addingCollaboratorUuid.trim(),
+				addingCollaboratorLevel,
+			);
 		addingCollaboratorUuid = "";
 		await loadCollaborators();
 	} catch (error) {
@@ -470,7 +437,7 @@ async function handleUpdateCollaboratorLevel(
 	level: "read" | "write",
 ) {
 	try {
-		await updateSpaceCollaborator(spaceId, granteeUuid, level);
+		await sdk.space(spaceId).permissions.updateCollaborator(granteeUuid, level);
 		await loadCollaborators();
 	} catch {
 		// Silently fail
@@ -479,7 +446,7 @@ async function handleUpdateCollaboratorLevel(
 
 async function handleRemoveCollaborator(granteeUuid: string) {
 	try {
-		await removeSpaceCollaborator(spaceId, granteeUuid);
+		await sdk.space(spaceId).permissions.removeCollaborator(granteeUuid);
 		await loadCollaborators();
 	} catch {
 		// Silently fail
@@ -490,7 +457,7 @@ async function loadCheckpointDetail(checkpointId: string) {
 	checkpointDetailLoading = true;
 	checkpointDetailError = "";
 	try {
-		const result = await getSpaceCheckpoint(spaceId, checkpointId);
+		const result = await sdk.space(spaceId).checkpoints.get(checkpointId);
 		checkpointDetail = result.checkpoint;
 	} catch (error) {
 		checkpointDetail = null;
@@ -517,10 +484,9 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 	checkpointCreateError = "";
 	checkpointCreateSubmitting = true;
 	try {
-		const { taskRunId } = await createSpaceCheckpoint(
-			spaceId,
-			checkpointCreateDescription.trim() || null,
-		);
+		const { taskRunId } = await sdk
+			.space(spaceId)
+			.checkpoints.create(checkpointCreateDescription.trim() || null);
 		const run = await pollCheckpointJob(taskRunId);
 		const checkpointId =
 			typeof run.result === "object" &&
@@ -552,7 +518,7 @@ async function loadCronjobDetail(cronjobId: string) {
 	cronjobDetailError = "";
 	cronjobToggleError = "";
 	try {
-		const { jobs } = await getCronJobs(spaceId);
+		const { jobs } = await sdk.cronJobs.list(spaceId);
 		const job = jobs.find((j) => j.id === cronjobId) ?? null;
 		if (!job) {
 			cronjobDetail = null;
@@ -560,7 +526,7 @@ async function loadCronjobDetail(cronjobId: string) {
 			return;
 		}
 		cronjobDetail = job;
-		const { runs } = await getCronJobRuns(cronjobId);
+		const { runs } = await sdk.cronJobs.runs(cronjobId);
 		cronjobRuns = runs;
 	} catch (error) {
 		cronjobDetail = null;
@@ -575,7 +541,7 @@ async function handleToggleCronjob(enabled: boolean) {
 	if (!cronjobDetail || cronjobActionInProgress) return;
 	cronjobActionInProgress = true;
 	try {
-		await toggleCronJob(cronjobDetail.id, enabled);
+		await sdk.cronJobs.toggle(cronjobDetail.id, enabled);
 		cronjobDetail = { ...cronjobDetail, enabled };
 	} catch (error) {
 		cronjobToggleError =
@@ -594,7 +560,7 @@ async function handleDeleteCronjob() {
 		return;
 	cronjobActionInProgress = true;
 	try {
-		await deleteCronJob(cronjobDetail.id);
+		await sdk.cronJobs.delete(cronjobDetail.id);
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
 		cronjobDetailError =
@@ -627,7 +593,7 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 	cronjobNewError = "";
 	cronjobNewSubmitting = true;
 	try {
-		await createCronJob({
+		await sdk.cronJobs.create({
 			title: cronjobNewTitle.trim(),
 			taskType: "send_message",
 			payload: {
@@ -651,7 +617,7 @@ async function loadTaskDetail(taskId: string) {
 	taskRunDetailLoading = true;
 	taskRunDetailError = "";
 	try {
-		const { run } = await getTaskRun(taskId);
+		const { run } = await sdk.tasks.get(taskId);
 		taskRunDetail = run;
 	} catch (error) {
 		taskRunDetail = null;
@@ -674,7 +640,7 @@ async function shareAndCopyLink() {
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
-		await createSessionPermission(shareModalSessionId, "read");
+		await sdk.sessionPermissions.create(shareModalSessionId, "read");
 		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
 		await navigator.clipboard.writeText(url);
 		shareCopied = true;
@@ -696,7 +662,7 @@ async function makeSessionPrivate() {
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
-		await deleteSessionPermission(shareModalSessionId);
+		await sdk.sessionPermissions.delete(shareModalSessionId);
 		await loadSpacePermissions();
 		showShareModal = false;
 	} catch (error) {
@@ -746,19 +712,6 @@ const bootstrapSourceLabel = $derived.by(() => {
 	if (type === "checkpoint") return "Checkpoint";
 	return "Blank";
 });
-const sandboxStatusTone = $derived.by(() => {
-	if (
-		sandboxError ||
-		space?.sandboxStatus === "error" ||
-		sandbox?.status === "error"
-	) {
-		return "text-error-soft border-error-soft/20 bg-error-soft/8";
-	}
-	if (space?.sandboxStatus === "ready" || sandbox?.status === "ready") {
-		return "text-success-soft border-success-soft/20 bg-success-soft/8";
-	}
-	return "text-text-secondary border-border-subtle bg-bg-surface";
-});
 const bootstrapStatusTone = $derived.by(() => {
 	if (bootstrapStatus === "failed")
 		return "text-error-soft border-error-soft/20 bg-error-soft/8";
@@ -766,13 +719,7 @@ const bootstrapStatusTone = $derived.by(() => {
 		return "text-success-soft border-success-soft/20 bg-success-soft/8";
 	return "text-text-secondary border-border-subtle bg-bg-surface";
 });
-const canCreateSession = $derived(
-	Boolean(
-		space &&
-			!creatingSession &&
-			(space.sandboxStatus === "ready" || sandbox?.status === "ready"),
-	),
-);
+const canCreateSession = $derived(Boolean(space && !creatingSession));
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
 		? {
@@ -852,7 +799,7 @@ function ensureSessionModelLoaded(sessionId: string) {
 async function loadModelsCatalog() {
 	if (modelsCatalog) return;
 	try {
-		const catalog = await getModels();
+		const catalog = await sdk.models.list();
 		const items: Array<{
 			provider: string;
 			id: string;
@@ -1030,7 +977,7 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				space = await getSpace(spaceId);
+				space = await sdk.space(spaceId).get();
 			} catch (error) {
 				spaceLoadError =
 					error instanceof Error ? error.message : "Failed to load space";
@@ -1041,7 +988,7 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				const result = await getSpaceSessions(spaceId);
+				const result = await sdk.space(spaceId).sessions.list();
 				seedSessions(result.sessions ?? []);
 			} catch (error) {
 				if (!spaceLoadError) {
@@ -1085,15 +1032,11 @@ function showSpaceStatusNotice(message: string) {
 }
 
 function getStatusRefreshIntervalMs() {
-	const sandboxState = sandbox?.status ?? space?.sandboxStatus ?? null;
 	if (!pageVisible || !pageOnline) return null;
-	if (sandboxState === "pending" || sandboxState === "provisioning") {
-		return 1500;
-	}
 	if (bootstrapStatus === "pending" || bootstrapStatus === "running") {
 		return 4000;
 	}
-	if (sandboxState === "error" || bootstrapStatus === "failed") {
+	if (bootstrapStatus === "failed") {
 		return 15000;
 	}
 	return null;
@@ -1103,45 +1046,24 @@ async function refreshSpaceStatus() {
 	if (statusRefreshInFlight) return;
 	statusRefreshInFlight = true;
 	try {
-		const [nextSpaceResult, nextSandboxResult] = await Promise.allSettled([
-			getSpace(spaceId),
-			getSpaceSandbox(spaceId),
-		]);
-
-		if (nextSpaceResult.status === "fulfilled") {
-			const previousBootstrapStatus = bootstrapStatus;
-			space = nextSpaceResult.value;
-			const nextBootstrap = (() => {
-				const raw = nextSpaceResult.value.meta;
-				if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-				const bootstrap = (raw as Record<string, unknown>).bootstrap;
-				if (
-					!bootstrap ||
-					typeof bootstrap !== "object" ||
-					Array.isArray(bootstrap)
-				)
-					return null;
-				const status = (bootstrap as Record<string, unknown>).status;
-				return typeof status === "string" ? status : null;
-			})();
-			if (previousBootstrapStatus !== "ready" && nextBootstrap === "ready") {
-				showSpaceStatusNotice("Workspace prepared");
-			}
-		}
-		if (nextSandboxResult.status === "fulfilled") {
-			const previousSandboxStatus =
-				sandbox?.status ?? space?.sandboxStatus ?? null;
-			sandbox = nextSandboxResult.value.sandbox;
-			if (nextSandboxResult.value.sandbox?.status === "error") {
-				sandboxError =
-					(nextSandboxResult.value.sandbox.meta?.lastError as string) ??
-					"Sandbox provision failed";
-			} else if (nextSandboxResult.value.sandbox?.status === "ready") {
-				sandboxError = null;
-				if (previousSandboxStatus !== "ready") {
-					showSpaceStatusNotice("Environment ready");
-				}
-			}
+		const nextSpace = await sdk.space(spaceId).get();
+		const previousBootstrapStatus = bootstrapStatus;
+		space = nextSpace;
+		const nextBootstrap = (() => {
+			const raw = nextSpace.meta;
+			if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+			const bootstrap = (raw as Record<string, unknown>).bootstrap;
+			if (
+				!bootstrap ||
+				typeof bootstrap !== "object" ||
+				Array.isArray(bootstrap)
+			)
+				return null;
+			const status = (bootstrap as Record<string, unknown>).status;
+			return typeof status === "string" ? status : null;
+		})();
+		if (previousBootstrapStatus !== "ready" && nextBootstrap === "ready") {
+			showSpaceStatusNotice("Workspace prepared");
 		}
 	} finally {
 		statusRefreshInFlight = false;
@@ -1225,24 +1147,11 @@ function formatBootstrapStatus(status: string | null) {
 	return "Pending";
 }
 
-async function handleRecreateSandbox() {
-	if (!space) return;
-	sandboxError = null;
-	try {
-		await recreateSpaceSandbox(spaceId);
-		await loadSpace({ force: true });
-		void loadFileTree(true);
-	} catch (error) {
-		sandboxError =
-			error instanceof Error ? error.message : "Failed to recreate sandbox";
-	}
-}
-
 async function handleRenameSpace(newName: string) {
 	renameSaving = true;
 	renameError = "";
 	try {
-		const result = await renameSpace(spaceId, newName);
+		const result = await sdk.space(spaceId).rename(newName);
 		space = result.space;
 		renamingSpace = false;
 	} catch (error) {
@@ -1297,9 +1206,11 @@ async function loadSessionState(sessionId: string, force = false) {
 	};
 
 	try {
-		const response = await getSessionMessagesPaginated(sessionId, {
-			limit: 30,
-		});
+		const response = await sdk
+			.space(spaceId)
+			.sessions.listMessagesPaginated(sessionId, {
+				limit: 30,
+			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
 		await messageCache.replaceAuthoritativeSnapshot({
 			sessionId,
@@ -1353,11 +1264,13 @@ async function syncSessionNewer(
 	if (!cached || cached.messages.length === 0 || cached.newestSeq == null)
 		return;
 	try {
-		const response = await getSessionMessagesPaginated(sessionId, {
-			cursor: cached.newestSeq,
-			direction: "newer",
-			limit: 100,
-		});
+		const response = await sdk
+			.space(spaceId)
+			.sessions.listMessagesPaginated(sessionId, {
+				cursor: cached.newestSeq,
+				direction: "newer",
+				limit: 100,
+			});
 		if (response.messages.length > 0) {
 			await messageCache.mergeAuthoritativeNewerPage(
 				sessionId,
@@ -1395,11 +1308,13 @@ async function loadOlderMessages(sessionId: string) {
 		},
 	};
 	try {
-		const response = await getSessionMessagesPaginated(sessionId, {
-			cursor: state.oldestCursor,
-			direction: "older",
-			limit: 30,
-		});
+		const response = await sdk
+			.space(spaceId)
+			.sessions.listMessagesPaginated(sessionId, {
+				cursor: state.oldestCursor,
+				direction: "older",
+				limit: 30,
+			});
 		if (response.messages.length > 0) {
 			await messageCache.mergeAuthoritativeOlderPage(
 				sessionId,
@@ -1561,9 +1476,11 @@ async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
 	try {
-		const response = await getSessionMessagesPaginated(sessionId, {
-			limit: 30,
-		});
+		const response = await sdk
+			.space(spaceId)
+			.sessions.listMessagesPaginated(sessionId, {
+				limit: 30,
+			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
 		await messageCache.replaceAuthoritativeSnapshot({
 			sessionId,
@@ -1606,161 +1523,6 @@ async function reconcileSessionTail(sessionId: string) {
  * Handle a real-time event from the WebSocket gateway.
  * Called whenever the server persists a new message in the current session.
  */
-async function handleWsEvent(payload: RealtimeEventPayload) {
-	try {
-		const currentActiveSessionId = activeSessionId;
-		if (!currentActiveSessionId) return;
-		if (payload.sessionId !== currentActiveSessionId) return;
-
-		const state = sessionStateById[currentActiveSessionId];
-		if (!state) return;
-
-		if (payload.type === "session.turn.progress") {
-			const content = Array.isArray(payload.payload.content)
-				? (payload.payload.content as ContentBlock[])
-				: [];
-			if (content.length === 0) return;
-			const streamingAnchorUserMessageId =
-				typeof payload.payload.anchorUserMessageId === "string"
-					? payload.payload.anchorUserMessageId
-					: null;
-			const hasExistingStreamingState =
-				streamingContentBlocks.length > 0 ||
-				Boolean(
-					streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId],
-				);
-			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
-			const { thinking, answer } = extractSessionRenderState(mergedContent);
-			streamingThinking = thinking;
-			streamingAssistantText = answer;
-			streamingContentBlocks = mergedContent;
-			if (streamingAnchorUserMessageId) {
-				streamingDraftAnchorUserMessageIdBySessionId = {
-					...streamingDraftAnchorUserMessageIdBySessionId,
-					[currentActiveSessionId]: streamingAnchorUserMessageId,
-				};
-			}
-			if (
-				!hasExistingStreamingState &&
-				streamStatus === "streaming" &&
-				streamingSessionId === currentActiveSessionId
-			) {
-				streamingDraftTruncatedStartBySessionId = {
-					...streamingDraftTruncatedStartBySessionId,
-					[currentActiveSessionId]: true,
-				};
-			}
-			if (streamingSessionId !== currentActiveSessionId) {
-				streamingSessionId = currentActiveSessionId;
-				notifyStreamingStatus(currentActiveSessionId, true);
-			}
-			streamStatus = "streaming";
-			await tick();
-			if (!userScrolledUp) scrollToBottomNow();
-			return;
-		}
-
-		if (payload.type === "session.turn.error") {
-			clearStreamingState(currentActiveSessionId);
-			streamStatus = "error";
-			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-			streamingSessionId = null;
-			return;
-		}
-
-		if (payload.type === "session.turn.final") {
-			clearStreamingState(currentActiveSessionId);
-			streamStatus = "done";
-			streamingDraftTruncatedStartBySessionId = {
-				...streamingDraftTruncatedStartBySessionId,
-				[currentActiveSessionId]: false,
-			};
-			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-			streamingSessionId = null;
-			void reconcileSessionTail(currentActiveSessionId);
-			if (!userScrolledUp) scrollToBottomNow();
-			return;
-		}
-
-		if (payload.type !== "session.message.persisted") return;
-		const message = payload.payload.message as MessageRecord | undefined;
-		if (!message) return;
-		if (state.messages.some((m) => m.id === message.id)) return;
-
-		const clientMessageId =
-			typeof message.meta?.clientMessageId === "string"
-				? (message.meta.clientMessageId as string)
-				: null;
-		if (message.role === "user" && clientMessageId) {
-			sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
-			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
-		}
-
-		// When an assistant message is persisted (intermediate or final), its
-		// content is now represented in the persisted timeline. Clear the
-		// streaming accumulator so subsequent progress events only contain
-		// *new* content and don't duplicate what's already in a ProcessCard.
-		if (message.role === "assistant") {
-			clearStreamingState(currentActiveSessionId);
-		}
-
-		const merged = mergeMessagesById(state.messages, [message], {
-			preferIncoming: true,
-		});
-		sessionStateById = {
-			...sessionStateById,
-			[currentActiveSessionId]: {
-				...state,
-				messages: merged,
-			},
-		};
-
-		const updatedSession = state.session;
-		if (updatedSession) {
-			const refreshedSession: SessionRecord = {
-				...updatedSession,
-				lastMessageId: message.id ?? null,
-				updatedAt: new Date().toISOString(),
-			};
-			spaceSessions = spaceSessions.map(
-				(s): SessionRecord =>
-					s.id === updatedSession.id ? refreshedSession : s,
-			);
-		}
-	} catch (error) {
-		console.error("[WS] handleWsEvent error:", error);
-	}
-}
-
-/**
- * Set up WebSocket event listeners for the current active session.
- * The RealtimeClient is a singleton — we only need to register/unregister handlers.
- */
-function connectSessionWS(_sessionId: string) {
-	if (!shouldHandleWsEvents()) return;
-	const client = getRealtimeClient();
-	if (client.state === "idle") {
-		void client.connect().catch((error) => {
-			console.error("[WS] Failed to connect:", error);
-		});
-	}
-}
-
-/**
- * Disconnect WebSocket if no active session.
- * (The singleton stays alive across session switches — no need to fully disconnect.)
- */
-function disconnectSessionWS() {
-	// No-op: the singleton RealtimeClient stays connected.
-	// Event handlers filter by activeSessionId so no stale events apply.
-}
-
-function disconnectAllWS() {
-	// No-op on disconnect: keep the singleton connected.
-	// The client's own ping/pong and reconnect logic handles network issues.
-	// We only fully disconnect on page unload (handled in onMount cleanup).
-}
-
 function clearStreamingState(sessionId: string | null = activeSessionId) {
 	streamingAssistantText = "";
 	streamingThinking = "";
@@ -1827,33 +1589,11 @@ async function handleSend() {
 			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
 		});
 
-		// Try WebSocket first; fall back to HTTP if not available
-		try {
-			const wsClient = getRealtimeClient();
-			await Promise.race([
-				wsClient.sendMessage({
-					spaceId: space.id,
-					sessionId,
-					content,
-					clientMessageId,
-					model: model?.id,
-					provider: model?.provider,
-				}),
-				new Promise<void>((_, reject) => {
-					setTimeout(() => reject(new Error("WS send timeout")), 5000);
-				}),
-			]);
-		} catch (wsError) {
-			console.warn(
-				"[handleSend] WS send failed, falling back to HTTP:",
-				wsError,
-			);
-			await postSessionMessage(sessionId, content, {
-				model: model?.id,
-				provider: model?.provider,
-				clientMessageId,
-			});
-		}
+		await sdk.space(spaceId).sessions.sendMessage(sessionId, content, {
+			model: model?.id,
+			provider: model?.provider,
+			clientMessageId,
+		});
 
 		sessionPendingStore.markStatus(
 			sessionId,
@@ -2049,7 +1789,7 @@ async function loadFileTree(force = false) {
 	fileTreeLoading = true;
 	fileTreeError = null;
 	try {
-		const tree = await getSpaceFsTree(spaceId, "");
+		const tree = await sdk.space(spaceId).files.list("");
 		fileTree = tree.entries.map(makeFsNode);
 	} catch (error) {
 		fileTreeError =
@@ -2081,7 +1821,7 @@ async function expandDirectory(node: SpaceFsNode) {
 		isOpen: true,
 	}));
 	try {
-		const tree = await getSpaceFsTree(spaceId, node.path);
+		const tree = await sdk.space(spaceId).files.list(node.path);
 		fileTree = replaceNodeChildren(
 			fileTree,
 			node.path,
@@ -2115,7 +1855,7 @@ async function openFileFromUrl(path: string) {
 	openFileTooLarge = false;
 	fileEdit = true;
 	try {
-		const file = await getSpaceFsFile(spaceId, path);
+		const file = await sdk.space(spaceId).files.read(path);
 		openFile = file;
 		openFileDraft = file.kind === "text" ? file.content : "";
 	} catch (error) {
@@ -2139,7 +1879,7 @@ async function saveOpenFile() {
 	openFileSaving = true;
 	openFileError = null;
 	try {
-		await putSpaceFsFile(spaceId, {
+		await sdk.space(spaceId).files.write({
 			path: openFile.path,
 			content: openFileDraft,
 			encoding: "utf-8",
@@ -2163,7 +1903,9 @@ async function handleCreateFile(parentPath: string) {
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
 	try {
-		await putSpaceFsFile(spaceId, { path, content: "", encoding: "utf-8" });
+		await sdk
+			.space(spaceId)
+			.files.write({ path, content: "", encoding: "utf-8" });
 		await loadFileTree(true);
 		await openSpaceFile(path);
 	} catch (error) {
@@ -2177,7 +1919,7 @@ async function handleCreateDir(parentPath: string) {
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
 	try {
-		await createSpaceFsDir(spaceId, path);
+		await sdk.space(spaceId).files.createDir(path);
 		await loadFileTree(true);
 	} catch (error) {
 		fileTreeError =
@@ -2193,7 +1935,7 @@ async function handleRenameNode(node: SpaceFsNode) {
 		: "";
 	const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
 	try {
-		await moveSpaceFsNode(spaceId, { fromPath: node.path, toPath });
+		await sdk.space(spaceId).files.move({ fromPath: node.path, toPath });
 		await loadFileTree(true);
 		if (openFile?.path === node.path) {
 			await openSpaceFile(toPath);
@@ -2206,7 +1948,7 @@ async function handleRenameNode(node: SpaceFsNode) {
 async function handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
-		await deleteSpaceFsNode(spaceId, node.path, node.type === "dir");
+		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
 		await loadFileTree(true);
 		if (openFile?.path === node.path) closeFile();
 	} catch (error) {
@@ -2253,7 +1995,9 @@ function handleCreateNewSession() {
 	creatingSession = true;
 	createSessionError = "";
 	const createSpaceId = space.id;
-	void createSpaceSession(createSpaceId, { source: "web" })
+	void sdk
+		.space(createSpaceId)
+		.sessions.create({ source: "web" })
 		.then(async (result) => {
 			const newSession = result.session;
 			const nextSessions = [
@@ -2298,26 +2042,16 @@ onMount(() => {
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
 
-	// Set up WebSocket event listener once — filters by activeSessionId internally
-	const wsClient = getRealtimeClient();
-	const wsEventCleanup = wsClient.on("event", (payload) => {
-		void handleWsEvent(payload);
-	});
-
 	const handleVisibility = () => {
 		pageVisible = !document.hidden;
-		if (pageVisible && activeSessionId) connectSessionWS(activeSessionId);
-		if (!pageVisible) disconnectAllWS();
 		scheduleStatusRefresh();
 	};
 	const handleOnline = () => {
 		pageOnline = true;
-		if (activeSessionId) connectSessionWS(activeSessionId);
 		scheduleStatusRefresh();
 	};
 	const handleOffline = () => {
 		pageOnline = false;
-		disconnectAllWS();
 		scheduleStatusRefresh();
 	};
 
@@ -2352,8 +2086,6 @@ onMount(() => {
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		pageMounted = false;
-		wsEventCleanup();
-		void wsClient.disconnect();
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
@@ -2445,10 +2177,6 @@ $effect(() => {
 	if (!state?.loaded && !state?.loading) {
 		void loadSessionState(activeSessionId);
 	}
-	connectSessionWS(activeSessionId);
-	return () => {
-		disconnectSessionWS();
-	};
 });
 
 $effect(() => {
@@ -3262,11 +2990,11 @@ $effect(() => {
       {/if}
     {:else}
       <!-- Chat -->
-    {#if spaceLoadError && !sandboxError}
+    {#if spaceLoadError}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
     {/if}
 
-    {#if createSessionError && !sandboxError}
+    {#if createSessionError}
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
     {/if}
 
@@ -3383,45 +3111,7 @@ $effect(() => {
             </div>
           </div>
 
-          <div class="grid gap-4 lg:grid-cols-2">
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sandbox</div>
-                  <div class="mt-1 text-[15px] font-medium text-text-primary">Environment status</div>
-                </div>
-                <div class={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${sandboxStatusTone}`}>
-                  {(sandbox?.status ?? space?.sandboxStatus ?? "pending").replace(/_/g, " ")}
-                </div>
-              </div>
-
-              <div class="mt-4 space-y-2 text-[13px] text-text-secondary">
-                {#if sandboxError}
-                  <p>The sandbox failed to provision.</p>
-                  <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3 text-[12px] font-mono text-error-soft break-all">
-                    {sandboxError}
-                  </div>
-                {:else if sandbox?.status === "ready" || space?.sandboxStatus === "ready"}
-                  <p>The sandbox is ready. You can start a new chat now.</p>
-                {:else}
-                  <p>The sandbox is still provisioning. New chats become available as soon as the environment is ready.</p>
-                {/if}
-              </div>
-
-              {#if sandboxError}
-                <div class="mt-4">
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-[6px] border border-[#FF3E00]/20 bg-[#FF3E00]/10 px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-[#FF3E00]/15"
-                    onclick={handleRecreateSandbox}
-                  >
-                    <RefreshCw class="w-3.5 h-3.5" />
-                    Retry sandbox
-                  </button>
-                </div>
-              {/if}
-            </section>
-
+          <div class="grid gap-4">
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
               <div class="flex items-center justify-between gap-3">
                 <div>
@@ -3439,9 +3129,9 @@ $effect(() => {
                 {#if bootstrapStatus === "ready"}
                   <p>The initial workspace content has been prepared.</p>
                 {:else if bootstrapStatus === "failed"}
-                  <p>Workspace initialization failed. Existing sandbox state is unaffected.</p>
+                  <p>Workspace initialization failed.</p>
                 {:else}
-                  <p>Workspace initialization is running independently from sandbox provisioning.</p>
+                  <p>Workspace initialization is still in progress.</p>
                   <div class="text-[12px] font-mono text-text-placeholder">
                     {#if bootstrapStatus === "pending" || bootstrapStatus === "running"}
                       refreshing every ~4s
@@ -3465,7 +3155,7 @@ $effect(() => {
             <div class="flex items-center justify-between gap-3">
               <div>
                 <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Chats</div>
-                <div class="mt-1 text-[15px] font-medium text-text-primary">Ready when environment is ready</div>
+                <div class="mt-1 text-[15px] font-medium text-text-primary">Start a new conversation</div>
               </div>
               <div class="text-[12px] text-text-tertiary">{spaceSessions.length} existing</div>
             </div>
@@ -3474,7 +3164,7 @@ $effect(() => {
               {#if canCreateSession}
                 <p>You can create a new chat immediately.</p>
               {:else}
-                <p>Waiting for sandbox readiness before enabling new chats.</p>
+                <p>You can create a new chat at any time.</p>
               {/if}
             </div>
 
@@ -3521,7 +3211,7 @@ $effect(() => {
           <div class="text-[12px]">Loading messages…</div>
         </div>
       </div>
-    {:else if !sandboxError}
+    {:else}
       {#if activeSessionState.error}
         <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
           {activeSessionState.error}

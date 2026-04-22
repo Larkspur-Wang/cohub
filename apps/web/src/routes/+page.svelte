@@ -2,8 +2,8 @@
 import { Loader2, LogIn, Terminal } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
-import { getSpaces } from "$lib/api";
 import { logtoClient } from "$lib/auth";
+import { sdk } from "$lib/sdk";
 
 let isLoading = $state(true);
 let spaceCount = $state(0);
@@ -25,7 +25,7 @@ onMount(async () => {
 		return;
 	}
 	try {
-		const spaces = await getSpaces();
+		const spaces = await sdk.spaces.list();
 		spaceCount = spaces.length;
 		if (spaces.length > 0) {
 			const firstSpace = spaces[0];

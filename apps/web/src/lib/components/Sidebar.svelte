@@ -1,4 +1,11 @@
 <script lang="ts">
+import type {
+	CheckpointRecord,
+	CronJobRecord,
+	SessionRecord,
+	SpaceRecord,
+	TaskRunRecord,
+} from "@cohub/sdk";
 import {
 	Activity,
 	ChevronDown,
@@ -19,21 +26,9 @@ import {
 import { onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import {
-	type CheckpointRecord,
-	type CronJobRecord,
-	createSpaceSession,
-	getCronJobs,
-	getSpaceCheckpoints,
-	getSpaceSessions,
-	getSpaces,
-	getTaskRuns,
-	type SessionRecord,
-	type SpaceRecord,
-	type TaskRunRecord,
-} from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import Dialog from "$lib/components/Dialog.svelte";
+import { sdk } from "$lib/sdk";
 import {
 	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
@@ -196,7 +191,7 @@ async function loadSpaces(_force = false) {
 	}
 
 	try {
-		spaces = await getSpaces();
+		spaces = await sdk.spaces.list();
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Failed to load spaces";
@@ -217,7 +212,7 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 		loadingSessions = true;
 	}
 	try {
-		const result = await getSpaceSessions(spaceId);
+		const result = await sdk.space(spaceId).sessions.list();
 		const rawSessions = result.sessions ?? [];
 		// Deduplicate by id to guard against race conditions from concurrent loads
 		const seen = new Set<string>();
@@ -240,7 +235,7 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 		loadingCheckpoints = true;
 	}
 	try {
-		const result = await getSpaceCheckpoints(spaceId);
+		const result = await sdk.space(spaceId).checkpoints.list();
 		checkpoints = result.checkpoints ?? [];
 	} catch (error) {
 		console.warn("[sidebar] Failed to load checkpoints", { spaceId, error });
@@ -256,7 +251,7 @@ async function loadCronjobsForSpace(spaceId: string, force = false) {
 		loadingCronjobs = true;
 	}
 	try {
-		const result = await getCronJobs(spaceId);
+		const result = await sdk.cronJobs.list(spaceId);
 		cronjobs = result.jobs ?? [];
 	} catch (error) {
 		console.warn("[sidebar] Failed to load cronjobs", { spaceId, error });
@@ -272,7 +267,7 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 		loadingTasks = true;
 	}
 	try {
-		const result = await getTaskRuns({ spaceId });
+		const result = await sdk.tasks.list({ spaceId });
 		tasks = result.runs ?? [];
 	} catch (error) {
 		console.warn("[sidebar] Failed to load tasks", { spaceId, error });
@@ -357,7 +352,9 @@ async function handleCreateNewSession() {
 	creatingSession = true;
 	createSessionError = "";
 	try {
-		const result = await createSpaceSession(currentSpaceId, { source: "web" });
+		const result = await sdk
+			.space(currentSpaceId)
+			.sessions.create({ source: "web" });
 		await loadSessionsForSpace(currentSpaceId, true);
 		await handleNavigateToSession(result.session.id);
 	} catch (error) {

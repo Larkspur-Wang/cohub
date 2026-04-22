@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { CronJobRecord, SpaceRecord, TaskRunRecord } from "@cohub/sdk";
 import {
 	Activity,
 	Clipboard,
@@ -13,21 +14,10 @@ import {
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
-import {
-	type CronJobRecord,
-	createCronJob,
-	createScheduledTask,
-	deleteCronJob,
-	getCronJobs,
-	getSpaces,
-	getTaskRuns,
-	type SpaceRecord,
-	type TaskRunRecord,
-	toggleCronJob,
-} from "$lib/api";
 import { logtoClient } from "$lib/auth";
 import Dialog from "$lib/components/Dialog.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
+import { sdk } from "$lib/sdk";
 
 type TabId = "cronjobs" | "history";
 type ModalMode = "create" | "edit";
@@ -105,7 +95,7 @@ async function loadCronJobs() {
 
 	loadError = "";
 	try {
-		const result = await getCronJobs();
+		const result = await sdk.cronJobs.list();
 		cronJobs = result.jobs ?? [];
 	} catch (error) {
 		loadError =
@@ -121,7 +111,7 @@ async function loadTaskRuns() {
 	}
 
 	try {
-		const result = await getTaskRuns();
+		const result = await sdk.tasks.list();
 		taskRuns = result.runs ?? [];
 	} catch (error) {
 		console.warn("Failed to load task runs", error);
@@ -133,7 +123,7 @@ async function handleDelete(id: string, e: Event) {
 	if (!confirm("Are you sure you want to delete this cron job?")) return;
 	actionInProgress = { ...actionInProgress, [id]: "delete" };
 	try {
-		await deleteCronJob(id);
+		await sdk.cronJobs.delete(id);
 		await loadCronJobs();
 	} catch (error) {
 		alert(error instanceof Error ? error.message : "Failed to delete");
@@ -147,7 +137,7 @@ async function handleToggle(id: string, enabled: boolean, e: Event) {
 	e.stopPropagation();
 	actionInProgress = { ...actionInProgress, [id]: "toggle" };
 	try {
-		await toggleCronJob(id, enabled);
+		await sdk.cronJobs.toggle(id, enabled);
 		cronJobs = cronJobs.map((j) => (j.id === id ? { ...j, enabled } : j));
 	} catch (error) {
 		alert(error instanceof Error ? error.message : "Failed to toggle");
@@ -169,7 +159,7 @@ function clearFilter() {
 
 async function loadSpaces() {
 	try {
-		const data = await getSpaces();
+		const data = await sdk.spaces.list();
 		spaces = data ?? [];
 	} catch (error) {
 		console.warn("[Jobs] Failed to load spaces", error);
@@ -240,10 +230,10 @@ async function handleCreate() {
 		isCreating = true;
 		try {
 			// Delete old cron job
-			await deleteCronJob(editingJob.id);
+			await sdk.cronJobs.delete(editingJob.id);
 
 			// Create new one with updated values
-			await createCronJob({
+			await sdk.cronJobs.create({
 				title: createTitle.trim(),
 				taskType: "send_message",
 				payload: {
@@ -291,7 +281,7 @@ async function handleCreate() {
 					"Invalid cron expression format. Expected 5 or 6 space-separated fields (min hour day month weekday [year])";
 				return;
 			}
-			await createCronJob({
+			await sdk.cronJobs.create({
 				title: createTitle.trim(),
 				taskType: "send_message",
 				payload: {
@@ -313,7 +303,7 @@ async function handleCreate() {
 				createError = "Schedule time must be in the future";
 				return;
 			}
-			await createScheduledTask({
+			await sdk.tasks.createScheduled({
 				taskType: "send_message",
 				payload: {
 					content: [{ type: "text", text: createPromptText.trim() }],

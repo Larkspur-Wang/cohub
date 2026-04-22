@@ -2,8 +2,8 @@
 import { Check, Copy, User } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
-import { getMe } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -19,7 +19,11 @@ async function loadProfile() {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
 	try {
-		const me = await getMe();
+		const me = (await sdk.user.getMe()) as {
+			uuid?: string;
+			nick_name?: string;
+			avatar_url?: string;
+		};
 		userUuid = me.uuid ?? "";
 		userNickname = me.nick_name ?? "";
 		userAvatar = me.avatar_url ?? "";

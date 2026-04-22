@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { Channel } from "@cohub/sdk";
 import {
 	MessageSquare,
 	MonitorPlay,
@@ -8,8 +9,8 @@ import {
 } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
-import { type Channel, deleteChannel, getChannels } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -36,7 +37,7 @@ async function loadChannels() {
 	isLoading = true;
 	loadError = "";
 	try {
-		channels = await getChannels();
+		channels = await sdk.channels.list();
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Failed to load channels";
@@ -57,7 +58,7 @@ onMount(() => {
 async function handleDelete(id: string) {
 	if (!confirm("Are you sure you want to delete this channel?")) return;
 	try {
-		await deleteChannel(id);
+		await sdk.channels.delete(id);
 		await loadChannels();
 	} catch (error) {
 		alert(error instanceof Error ? error.message : "Failed to delete channel");

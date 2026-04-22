@@ -90,6 +90,8 @@ export const realtimeEnvelopeSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 
+export const channelEnvelopeSchema = realtimeEnvelopeSchema;
+
 // ── Explicit types (z.infer fails for complex discriminated unions across packages in Zod 4) ──
 
 export type { ContentBlock };
@@ -101,6 +103,7 @@ export type WsClientEvent =
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
 
 export type RealtimeEnvelope = z.output<typeof realtimeEnvelopeSchema>;
+export type ChannelEnvelope = RealtimeEnvelope;
 export type RealtimeEnvelopeBase = RealtimeEnvelope;
 export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
 
@@ -265,3 +268,4 @@ export type RealtimeServerEvent =
   | SessionMessagePersistedEvent;
 
 export type WsServerEnvelope = RealtimeEnvelope;
+export type ChannelServerEnvelope = ChannelEnvelope;

@@ -1,15 +1,13 @@
-import { PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
 import {
   realtimeEnvelopeSchema,
   type ContentBlock,
-  type RealtimeEnvelope,
+  type ChannelEnvelope,
   type WsClientEvent,
 } from "@cohub/protocol";
-import { getAuthToken } from "$lib/auth";
 
-export type RealtimeEventPayload = RealtimeEnvelope;
+export type WebsocketEventPayload = ChannelEnvelope;
 
-export type RealtimeClientOptions = {
+export type WebsocketClientOptions = {
   url?: string;
   autoReconnect?: boolean;
   reconnectBaseDelayMs?: number;
@@ -17,26 +15,39 @@ export type RealtimeClientOptions = {
   pingIntervalMs?: number;
   pongTimeoutMs?: number;
   debug?: boolean;
+  getAccessToken?: () => Promise<string | null> | string | null;
 };
 
-export type RealtimeClientState = "idle" | "connecting" | "open" | "closed";
+export type WebsocketClientState = "idle" | "connecting" | "open" | "closed";
 
-export type RealtimeClientEvents = {
+export type WebsocketClientEvents = {
   open: { connectionId?: string | null };
   close: { code: number; reason: string; willReconnect: boolean };
   error: { error: unknown };
-  event: RealtimeEventPayload;
+  event: WebsocketEventPayload;
   ready: { connectionId: string };
   auth: { connectionId: string; user: Record<string, unknown> };
-  messageAccepted: { requestId?: string | null; clientMessageId?: string | null; sessionId?: string | null; spaceId?: string | null };
-  serverError: { code?: string; message?: string; requestId?: string | null; sessionId?: string | null; spaceId?: string | null; clientMessageId?: string | null };
+  messageAccepted: {
+    requestId?: string | null;
+    clientMessageId?: string | null;
+    sessionId?: string | null;
+    spaceId?: string | null;
+  };
+  serverError: {
+    code?: string;
+    message?: string;
+    requestId?: string | null;
+    sessionId?: string | null;
+    spaceId?: string | null;
+    clientMessageId?: string | null;
+  };
   pong: { requestId?: string | null };
 };
 
 type EventHandler<T> = (payload: T) => void;
 
 type EventMap = {
-  [K in keyof RealtimeClientEvents]: Set<EventHandler<RealtimeClientEvents[K]>>;
+  [K in keyof WebsocketClientEvents]: Set<EventHandler<WebsocketClientEvents[K]>>;
 };
 
 const createEventMap = (): EventMap => ({
@@ -52,7 +63,7 @@ const createEventMap = (): EventMap => ({
 });
 
 const toWebSocketUrl = (input?: string) => {
-  const base = (input?.trim() || PUBLIC_GATEWAY_ORIGIN?.trim() || "").replace(/\/$/, "");
+  const base = (input?.trim() || "").replace(/\/$/, "");
   if (base) {
     if (base.startsWith("ws://") || base.startsWith("wss://")) return `${base}/ws`;
     if (base.startsWith("http://")) return `${base.replace(/^http:/, "ws:")}/ws`;
@@ -65,7 +76,7 @@ const toWebSocketUrl = (input?: string) => {
   return "ws://localhost:8788/ws";
 };
 
-const normalizeOptions = (options: RealtimeClientOptions = {}) => ({
+const normalizeOptions = (options: WebsocketClientOptions = {}) => ({
   url: toWebSocketUrl(options.url),
   autoReconnect: options.autoReconnect !== false,
   reconnectBaseDelayMs: options.reconnectBaseDelayMs ?? 1000,
@@ -75,16 +86,17 @@ const normalizeOptions = (options: RealtimeClientOptions = {}) => ({
   debug: options.debug === true,
 });
 
-const stableOptionsKey = (options: RealtimeClientOptions = {}) => JSON.stringify(normalizeOptions(options));
+const stableOptionsKey = (options: WebsocketClientOptions = {}) =>
+  JSON.stringify(normalizeOptions(options));
 
-class RealtimeAuthError extends Error {
+class WebsocketAuthError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "RealtimeAuthError";
+    this.name = "WebsocketAuthError";
   }
 }
 
-export class RealtimeClient {
+export class WebsocketClient {
   private readonly url: string;
   private readonly autoReconnect: boolean;
   private readonly reconnectBaseDelayMs: number;
@@ -92,6 +104,7 @@ export class RealtimeClient {
   private readonly pingIntervalMs: number;
   private readonly pongTimeoutMs: number;
   private readonly debug: boolean;
+  private readonly getAccessToken?: () => Promise<string | null> | string | null;
 
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -108,12 +121,12 @@ export class RealtimeClient {
   private lastPingRequestId: string | null = null;
   private pongDeadlineAt = 0;
 
-  public state: RealtimeClientState = "idle";
+  public state: WebsocketClientState = "idle";
   public connectionId: string | null = null;
 
   private readonly listeners = createEventMap();
 
-  constructor(options: RealtimeClientOptions = {}) {
+  constructor(options: WebsocketClientOptions = {}) {
     const normalized = normalizeOptions(options);
     this.url = normalized.url;
     this.autoReconnect = normalized.autoReconnect;
@@ -122,25 +135,35 @@ export class RealtimeClient {
     this.pingIntervalMs = normalized.pingIntervalMs;
     this.pongTimeoutMs = normalized.pongTimeoutMs;
     this.debug = normalized.debug;
+    this.getAccessToken = options.getAccessToken;
   }
 
-  on<K extends keyof RealtimeClientEvents>(type: K, handler: EventHandler<RealtimeClientEvents[K]>) {
-    (this.listeners[type] as Set<EventHandler<RealtimeClientEvents[K]>>).add(handler);
+  on<K extends keyof WebsocketClientEvents>(
+    type: K,
+    handler: EventHandler<WebsocketClientEvents[K]>,
+  ) {
+    (this.listeners[type] as Set<EventHandler<WebsocketClientEvents[K]>>).add(handler);
     return () => this.off(type, handler);
   }
 
-  off<K extends keyof RealtimeClientEvents>(type: K, handler: EventHandler<RealtimeClientEvents[K]>) {
-    (this.listeners[type] as Set<EventHandler<RealtimeClientEvents[K]>>).delete(handler);
+  off<K extends keyof WebsocketClientEvents>(
+    type: K,
+    handler: EventHandler<WebsocketClientEvents[K]>,
+  ) {
+    (this.listeners[type] as Set<EventHandler<WebsocketClientEvents[K]>>).delete(handler);
   }
 
-  private emit<K extends keyof RealtimeClientEvents>(type: K, payload: RealtimeClientEvents[K]) {
+  private emit<K extends keyof WebsocketClientEvents>(
+    type: K,
+    payload: WebsocketClientEvents[K],
+  ) {
     for (const handler of this.listeners[type]) {
       handler(payload);
     }
   }
 
   private log(...args: unknown[]) {
-    if (this.debug) console.log("[RealtimeClient]", ...args);
+    if (this.debug) console.log("[WebsocketClient]", ...args);
   }
 
   async connect() {
@@ -178,7 +201,8 @@ export class RealtimeClient {
           this.emit("open", { connectionId: this.connectionId });
           resolveOnce();
         } catch (error) {
-          const authError = error instanceof Error ? error : new Error("authentication failed");
+          const authError =
+            error instanceof Error ? error : new Error("authentication failed");
           rejectOnce(authError);
           ws.close(4003, authError.message);
         }
@@ -197,7 +221,9 @@ export class RealtimeClient {
         const wasConnecting = this.state === "connecting";
         this.state = "closed";
         this.ws = null;
-        this.rejectAuthWaiter(new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()));
+        this.rejectAuthWaiter(
+          new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()),
+        );
         const willReconnect = !this.manuallyClosed && this.autoReconnect;
         this.emit("close", {
           code: event.code,
@@ -276,8 +302,8 @@ export class RealtimeClient {
   private async authenticate() {
     if (this.authWaiter) return this.authWaiter.promise;
 
-    const token = await getAuthToken();
-    if (!token) throw new RealtimeAuthError("authentication token is missing");
+    const token = await this.getAccessToken?.();
+    if (!token) throw new WebsocketAuthError("authentication token is missing");
 
     let resolveAuth!: () => void;
     let rejectAuth!: (error: Error) => void;
@@ -310,13 +336,15 @@ export class RealtimeClient {
   private send(message: WsClientEvent) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      throw new Error("realtime websocket is not connected");
+      throw new Error("websocket is not connected");
     }
     let serialized = "";
     try {
       serialized = JSON.stringify(message);
     } catch (error) {
-      throw new Error(`failed to serialize realtime message: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `failed to serialize websocket message: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     ws.send(serialized);
   }
@@ -335,18 +363,22 @@ export class RealtimeClient {
     }
   }
 
-  private routeEnvelope(envelope: RealtimeEnvelope) {
+  private routeEnvelope(envelope: ChannelEnvelope) {
     const payload = envelope.payload;
 
     switch (envelope.type) {
       case "system.ready": {
-        const connectionId = typeof payload.connectionId === "string" ? payload.connectionId : "";
+        const connectionId =
+          typeof payload.connectionId === "string" ? payload.connectionId : "";
         if (connectionId) this.connectionId = connectionId;
         this.emit("ready", { connectionId });
         return;
       }
       case "system.auth.ok": {
-        const connectionId = typeof payload.connectionId === "string" ? payload.connectionId : this.connectionId ?? "";
+        const connectionId =
+          typeof payload.connectionId === "string"
+            ? payload.connectionId
+            : this.connectionId ?? "";
         this.connectionId = connectionId || null;
         this.resolveAuthWaiter();
         this.emit("auth", {
@@ -358,7 +390,8 @@ export class RealtimeClient {
       case "session.request.accepted": {
         this.emit("messageAccepted", {
           requestId: envelope.requestId ?? null,
-          clientMessageId: typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
+          clientMessageId:
+            typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
           sessionId: envelope.sessionId ?? null,
           spaceId: envelope.spaceId ?? null,
         });
@@ -366,15 +399,17 @@ export class RealtimeClient {
       }
       case "session.request.error":
       case "system.request.error": {
-        const message = typeof payload.message === "string" ? payload.message : "unknown realtime error";
-        this.rejectAuthWaiter(new RealtimeAuthError(message));
+        const message =
+          typeof payload.message === "string" ? payload.message : "unknown websocket error";
+        this.rejectAuthWaiter(new WebsocketAuthError(message));
         this.emit("serverError", {
           code: typeof payload.code === "string" ? payload.code : undefined,
           message,
           requestId: envelope.requestId ?? null,
           sessionId: envelope.sessionId ?? null,
           spaceId: envelope.spaceId ?? null,
-          clientMessageId: typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
+          clientMessageId:
+            typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
         });
         return;
       }
@@ -402,8 +437,12 @@ export class RealtimeClient {
     this.stopPingLoop();
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState !== WebSocket.OPEN) return;
-      if (this.awaitingPong && this.pongDeadlineAt > 0 && Date.now() > this.pongDeadlineAt) {
-        this.emit("error", { error: new Error("realtime websocket pong timeout") });
+      if (
+        this.awaitingPong &&
+        this.pongDeadlineAt > 0 &&
+        Date.now() > this.pongDeadlineAt
+      ) {
+        this.emit("error", { error: new Error("websocket pong timeout") });
         this.ws.close(4002, "pong timeout");
         return;
       }
@@ -444,20 +483,26 @@ export class RealtimeClient {
   }
 }
 
-let sharedRealtimeClient: RealtimeClient | null = null;
-let sharedRealtimeClientOptionsKey: string | null = null;
+let sharedWebsocketClient: WebsocketClient | null = null;
+let sharedWebsocketClientOptionsKey: string | null = null;
 
-export const createRealtimeClient = (options?: RealtimeClientOptions) => new RealtimeClient(options);
+export const createWebsocketClient = (options?: WebsocketClientOptions) =>
+  new WebsocketClient(options);
 
-export const getRealtimeClient = (options?: RealtimeClientOptions) => {
+export const getWebsocketClient = (options?: WebsocketClientOptions) => {
   const nextKey = stableOptionsKey(options);
-  if (!sharedRealtimeClient) {
-    sharedRealtimeClient = new RealtimeClient(options);
-    sharedRealtimeClientOptionsKey = nextKey;
-    return sharedRealtimeClient;
+  if (!sharedWebsocketClient) {
+    sharedWebsocketClient = new WebsocketClient(options);
+    sharedWebsocketClientOptionsKey = nextKey;
+    return sharedWebsocketClient;
   }
-  if (sharedRealtimeClientOptionsKey && sharedRealtimeClientOptionsKey !== nextKey) {
-    console.warn("[RealtimeClient] getRealtimeClient() called with different options after singleton creation. Existing singleton will be reused.");
+  if (
+    sharedWebsocketClientOptionsKey &&
+    sharedWebsocketClientOptionsKey !== nextKey
+  ) {
+    console.warn(
+      "[WebsocketClient] getWebsocketClient() called with different options after singleton creation. Existing singleton will be reused.",
+    );
   }
-  return sharedRealtimeClient;
+  return sharedWebsocketClient;
 };

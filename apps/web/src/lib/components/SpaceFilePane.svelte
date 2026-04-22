@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { SpaceFsFileResponse } from "@cohub/sdk";
 import {
 	Code,
 	Download,
@@ -8,7 +9,6 @@ import {
 	Save,
 	X,
 } from "lucide-svelte";
-import type { SpaceFsFileResponse } from "$lib/api";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 import { renderMarkdown } from "$lib/markdown";
 

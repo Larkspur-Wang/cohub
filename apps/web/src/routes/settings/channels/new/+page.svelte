@@ -11,8 +11,8 @@ import {
 } from "lucide-svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { createChannel } from "$lib/api";
 import { ensureAuth, logtoClient } from "$lib/auth";
+import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -100,7 +100,7 @@ async function handleSubmit(e: Event) {
 			credentials = {};
 		}
 
-		await createChannel({
+		await sdk.channels.create({
 			provider: selectedProvider,
 			name: formName.trim(),
 			credentials,
