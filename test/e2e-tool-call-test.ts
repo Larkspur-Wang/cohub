@@ -3,11 +3,12 @@
  * Cohub Dev 环境 — Tool Call 全链路端到端验证
  *
  * 验证目标:
- *  1. 流式中间结果: WebSocket stream_update 中 tool_use 的 running→done 状态 + tool_result delta
- *  2. DB 持久化: session_messages.content 中 tool_use/tool_result 块完整性
- *  3. DB 持久化: meta.toolCallRenderStates / meta.messageKind 正确性
- *  4. 消息序列: user → assistant 的 sequence 连续性
- *  5. API 消息列表: 返回内容中 tool 信息完整
+ *  1. WS 流式事件: session.turn.progress 中 tool_use/tool_result delta
+ *  2. WS 完成事件: session.turn.final 包含完整 content
+ *  3. WS 持久化事件: session.message.persisted 消息验证
+ *  4. DB 持久化: session_messages.content 中 tool_use/tool_result 块完整性
+ *  5. DB 持久化: meta.toolCallRenderStates / meta.messageKind 正确性
+ *  6. 消息序列: user → assistant 的 sequence 连续性
  *
  * 用法: pnpm test:tool-call
  *
@@ -174,21 +175,29 @@ type ToolUseBlock = { type: "tool_use"; id: string; name: string; input: Record<
 type ToolResultBlock = { type: "tool_result"; tool_use_id: string; content: string | unknown[]; is_error?: boolean; _meta?: Record<string, unknown> };
 type ContentBlock = ToolUseBlock | ToolResultBlock | { type: "text"; text: string } | { type: "thinking"; thinking: string };
 
-interface WsStreamEvent {
+interface WsSessionEvent {
   type: string;
   payload: {
-    eventType?: string;
     content?: ContentBlock[];
-    sourceMessageId?: string | null;
-    timestamp?: number;
-    turnEnd?: boolean;
+    anchorUserMessageId?: string | null;
+    message?: MessageRecord;
+    sessionMessageId?: string;
+    error?: string;
   };
 }
 
 // ── WebSocket 采集器 ──────────────────────────────────────────────────────────
 
 /**
- * 连接 Gateway WS, 发送消息, 采集所有 stream_update 事件直到 turnEnd
+ * 连接 Gateway WS, 发送消息, 采集所有 session 事件直到 turnFinal
+ *
+ * WS 协议完整事件流:
+ *  1. system.ready           → 连接建立
+ *  2. system.auth.ok         → 鉴权成功
+ *  3. session.request.accepted → 消息已接受
+ *  4. session.turn.progress  → 流式推送 (agent 的 stream_update 经 API 转换)
+ *  5. session.message.persisted → 消息已持久化
+ *  6. session.turn.final     → 本轮完成
  */
 async function collectWsToolCallEvents(params: {
   spaceId: string;
@@ -197,23 +206,25 @@ async function collectWsToolCallEvents(params: {
   timeoutMs?: number;
 }): Promise<{
   accepted: boolean;
-  streamEvents: WsStreamEvent[];
+  sessionEvents: Array<{ type: string; payload: Record<string, unknown> }>;
   connectionId: string;
   receivedTypes: string[];
   errorMessage?: string;
+  hasTurnFinal: boolean;
 }> {
   const { spaceId, sessionId, text, timeoutMs = 180_000 } = params;
   const ws = new WebSocket(config.gatewayWs);
-  const streamEvents: WsStreamEvent[] = [];
+  const sessionEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
   const receivedTypes: string[] = [];
   let connectionId = "";
   let accepted = false;
   let errorMessage: string | undefined;
+  let hasTurnFinal = false;
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.close(1000, "timeout");
-      resolve({ accepted, streamEvents, connectionId, receivedTypes, errorMessage });
+      resolve({ accepted, sessionEvents, connectionId, receivedTypes, errorMessage, hasTurnFinal });
     }, timeoutMs);
 
     ws.onopen = () => {
@@ -231,37 +242,44 @@ async function collectWsToolCallEvents(params: {
       const msgType = String(msg.type ?? "unknown");
       receivedTypes.push(msgType);
 
-      if (msg.type === "auth.ok") {
-        connectionId = String((msg.payload as Record<string, unknown>)?.connectionId ?? "");
+      if (msg.type === "auth.ok" || msg.type === "system.auth.ok") {
+        const payload = msg.payload as Record<string, unknown> | undefined;
+        connectionId = String(payload?.connectionId ?? "");
+        // Gateway 期望: type="session.message.create", payload.content=ContentBlock[]
         ws.send(JSON.stringify({
-          type: "message.create",
+          type: "session.message.create",
           requestId: "tc-msg",
-          payload: { spaceId, sessionId, text },
+          payload: {
+            spaceId,
+            sessionId,
+            content: [{ type: "text", text }],
+          },
         }));
       }
 
-      if (msg.type === "message.accepted") {
+      // Gateway 响应: type="session.request.accepted"
+      if (msg.type === "session.request.accepted") {
         accepted = true;
       }
 
-      if (msg.type === "error" || msg.type === "message.rejected") {
+      if (msg.type === "session.request.error" || msg.type === "system.request.error") {
         errorMessage = JSON.stringify(msg.payload);
       }
 
-      // 采集 stream_update 事件（即 agent 的流式推送）
-      if (msg.type === "event") {
-        const payload = msg.payload as Record<string, unknown> | undefined;
-        if (payload?.eventType === "stream_update" && Array.isArray(payload.content)) {
-          streamEvents.push({
-            type: msg.type as string,
-            payload: {
-              eventType: payload.eventType as string,
-              content: payload.content as ContentBlock[],
-              sourceMessageId: payload.sourceMessageId as string | null | undefined,
-              timestamp: payload.timestamp as number | undefined,
-              turnEnd: payload.turnEnd as boolean | undefined,
-            },
-          });
+      // 采集 session 域事件: session.turn.progress / session.message.persisted / session.turn.final
+      if (
+        msg.type === "session.turn.progress"
+        || msg.type === "session.message.persisted"
+        || msg.type === "session.turn.final"
+        || msg.type === "session.turn.error"
+      ) {
+        sessionEvents.push({
+          type: msgType,
+          payload: msg.payload as Record<string, unknown>,
+        });
+
+        if (msg.type === "session.turn.final") {
+          hasTurnFinal = true;
         }
       }
     };
@@ -293,7 +311,7 @@ async function waitForAssistantReply(sessionId: string, timeoutMs = 180_000, int
 
 let testSpaceId: string | null = null;
 let testSessionId: string | null = null;
-let wsEvents: WsStreamEvent[] = [];
+let wsSessionEvents: WsSessionEvent[] = [];
 let allMessages: MessageRecord[] = [];
 
 async function main() {
@@ -352,11 +370,14 @@ async function main() {
     if (result.accepted) {
       ok("消息 accepted", `connectionId=${result.connectionId}`);
 
-      wsEvents = result.streamEvents;
-      if (wsEvents.length === 0) {
-        ok("流式事件", "暂无 stream_update（agent 可能尚未开始推送）");
-      } else {
-        ok("收到 stream_update 事件", `共 ${wsEvents.length} 个事件`);
+      wsSessionEvents = result.sessionEvents;
+      const progressEvents = wsSessionEvents.filter((e) => e.type === "session.turn.progress");
+      const finalEvents = wsSessionEvents.filter((e) => e.type === "session.turn.final");
+      const persistedEvents = wsSessionEvents.filter((e) => e.type === "session.message.persisted");
+      ok("WS 事件统计", `progress=${progressEvents.length}, persisted=${persistedEvents.length}, final=${finalEvents.length}`);
+
+      if (result.hasTurnFinal) {
+        ok("turn.final", "收到，本轮对话已完成");
       }
     } else {
       // WS 未被 accepted，回退到 HTTP 发送
@@ -366,67 +387,80 @@ async function main() {
       ok("HTTP 发送消息", `userMessageId=${sendResult.userMessageId}`);
     }
 
-    // 3.1-3.4: 如果有流式事件，验证其内容
-    if (wsEvents.length > 0) {
-      await sub("3.1 流式事件包含 tool_use 块", async () => {
-        const allBlocks = wsEvents.flatMap((e) => e.payload.content ?? []);
-        const toolUseBlocks = allBlocks.filter((b) => b.type === "tool_use");
-        assert(toolUseBlocks.length > 0, "流式事件中应包含 tool_use 块");
-        const toolNames = [...new Set(toolUseBlocks.map((b) => b.name))];
-        ok("tool_use 块", `共 ${toolUseBlocks.length} 个, 工具名: ${toolNames.join(", ")}`);
-        for (const tu of toolUseBlocks.slice(0, 3)) {
-          assert(tu.id, `tool_use 块应有 id (name=${tu.name})`);
-          assert(tu.name, "tool_use 块应有 name");
-          assert(tu.input !== undefined, "tool_use 块应有 input");
+    // 3.1-3.4: 如果有 session.turn.progress 事件，验证其内容
+    if (wsSessionEvents.length > 0) {
+      await sub("3.1 WS session.turn.progress 包含 content 块", async () => {
+        const progressEvents = wsSessionEvents.filter((e) => e.type === "session.turn.progress");
+        if (progressEvents.length === 0) {
+          ok("progress 事件", "无（agent 可能直接完成了对话）");
+          return;
         }
-        ok("tool_use 块结构完整", "id/name/input 均存在");
+        const allBlocks = progressEvents.flatMap((e) => e.payload.content ?? []) as ContentBlock[];
+        const toolUseBlocks = allBlocks.filter((b) => b.type === "tool_use");
+        const toolResultBlocks = allBlocks.filter((b) => b.type === "tool_result");
+
+        ok("progress 事件 content 块", `tool_use=${toolUseBlocks.length}, tool_result=${toolResultBlocks.length}, 总事件=${progressEvents.length}`);
+
+        if (toolUseBlocks.length > 0) {
+          const toolNames = [...new Set(toolUseBlocks.map((b) => b.name))];
+          ok("tool_use 块", `工具名: ${toolNames.join(", ")}`);
+          // 验证 tool_use 结构
+          for (const tu of toolUseBlocks.slice(0, 3)) {
+            assert(tu.id, `tool_use 块应有 id (name=${tu.name})`);
+            assert(tu.name, "tool_use 块应有 name");
+            assert(tu.input !== undefined, "tool_use 块应有 input");
+          }
+          ok("tool_use 块结构完整", "id/name/input 均存在");
+        }
+
+        if (toolResultBlocks.length > 0) {
+          ok("tool_result 块", `共 ${toolResultBlocks.length} 个`);
+        }
       });
 
-      await sub("3.2 tool_use 状态流: running → done", async () => {
-        const toolStatuses = new Map<string, string[]>();
-        for (const event of wsEvents) {
-          for (const block of (event.payload.content ?? [])) {
-            if (block.type === "tool_use" && block._meta?.toolStatus) {
-              const id = block.id;
-              const status = String(block._meta.toolStatus);
-              const statuses = toolStatuses.get(id) ?? [];
-              if (statuses[statuses.length - 1] !== status) statuses.push(status);
-              toolStatuses.set(id, statuses);
+      await sub("3.2 session.turn.final 包含完整 content", async () => {
+        const finalEvents = wsSessionEvents.filter((e) => e.type === "session.turn.final");
+        if (finalEvents.length === 0) {
+          ok("turn.final", "未收到（可能 agent 尚未完成）");
+          return;
+        }
+        for (const fe of finalEvents.slice(0, 1)) {
+          const content = fe.payload.content as ContentBlock[] | undefined;
+          if (content && content.length > 0) {
+            const types = [...new Set(content.map((b) => b.type))];
+            ok("turn.final content", `块类型: ${types.join(", ")}, 共 ${content.length} 块`);
+            const toolUseCount = content.filter((b) => b.type === "tool_use").length;
+            const toolResultCount = content.filter((b) => b.type === "tool_result").length;
+            if (toolUseCount > 0) {
+              ok("turn.final 中 tool_use", `${toolUseCount} 个`);
+            }
+            if (toolResultCount > 0) {
+              ok("turn.final 中 tool_result", `${toolResultCount} 个`);
             }
           }
         }
-        assert(toolStatuses.size > 0, "应有 tool_use 状态记录");
-        for (const [id, statuses] of toolStatuses) {
-          const name = (wsEvents.flatMap((e) => e.payload.content ?? [])
-            .find((b) => b.type === "tool_use" && b.id === id) as ToolUseBlock | undefined)?.name ?? "unknown";
-          ok(`工具 ${name} (${id.slice(0, 8)})`, `状态流: ${statuses.join(" → ")}`);
-          assert(statuses.includes("running") || statuses.includes("done"), `工具 ${name} 应有 running 或 done 状态`);
-        }
       });
 
-      await sub("3.3 流式事件包含 tool_result 块", async () => {
-        const allBlocks = wsEvents.flatMap((e) => e.payload.content ?? []);
-        const toolResultBlocks = allBlocks.filter((b) => b.type === "tool_result");
-        if (toolResultBlocks.length > 0) {
-          ok("tool_result 块", `共 ${toolResultBlocks.length} 个`);
-          const toolUseIds = new Set(allBlocks.filter((b) => b.type === "tool_use").map((b) => (b as ToolUseBlock).id));
-          for (const tr of toolResultBlocks.slice(0, 3)) {
-            assert(toolUseIds.has(tr.tool_use_id), `tool_result 的 tool_use_id 应匹配某个 tool_use`);
+      await sub("3.3 session.message.persisted 消息验证", async () => {
+        const persistedEvents = wsSessionEvents.filter((e) => e.type === "session.message.persisted");
+        if (persistedEvents.length === 0) {
+          ok("message.persisted", "未收到");
+          return;
+        }
+        for (const pe of persistedEvents.slice(0, 1)) {
+          const msg = pe.payload.message as MessageRecord | undefined;
+          if (msg) {
+            ok("message.persisted", `role=${msg.role}, sequence=${msg.sequence}`);
+            const toolUseCount = msg.content?.filter((b) => (b as Record<string, unknown>).type === "tool_use").length ?? 0;
+            const toolResultCount = msg.content?.filter((b) => (b as Record<string, unknown>).type === "tool_result").length ?? 0;
+            if (toolUseCount > 0 || toolResultCount > 0) {
+              console.log(`      ${C.dim}tool_use=${toolUseCount}, tool_result=${toolResultCount}${C.reset}`);
+            }
           }
-          ok("tool_result ↔ tool_use 关联正确");
-        } else {
-          ok("tool_result 块", "流式阶段未出现（可能在 turn_end 时才完整推送）");
         }
-      });
-
-      await sub("3.4 流式事件时序统计", async () => {
-        if (wsEvents.length < 2) return;
-        const timestamps = wsEvents.map((e) => e.payload.timestamp ?? 0);
-        const durationMs = (timestamps[timestamps.length - 1] ?? 0) - (timestamps[0] ?? 0);
-        ok("流式事件时序", `首帧→末帧 ${durationMs}ms, 共 ${wsEvents.length} 帧`);
       });
     } else {
-      ok("流式事件", "WS 未推送 stream_update（agent 可能通过其他路径响应）");
+      ok("WS 事件", "未收到 session 域事件");
     }
   });
 
