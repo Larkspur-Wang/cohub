@@ -90,13 +90,12 @@ func (s *Server) Run() error {
 const wsReadLimit = 50 * 1024 * 1024 // 50MB per websocket message
 
 func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		ReadLimit: wsReadLimit,
-	})
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		s.logger.Error("failed to accept websocket", slog.String("error", err.Error()))
 		return
 	}
+	conn.SetReadLimit(wsReadLimit)
 
 	ctx, cancel := context.WithCancel(r.Context())
 	session := &connectionSession{
