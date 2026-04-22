@@ -1,10 +1,3 @@
-import { PUBLIC_API_ORIGIN } from "$env/static/public";
-import {
-	clearAuthToken as clearStoredAuthToken,
-	getAuthToken,
-	logtoClient,
-	setAuthToken as setStoredAuthToken,
-} from "$lib/auth";
 import type {
 	ChannelConfig,
 	ContentBlock,
@@ -13,6 +6,14 @@ import type {
 	SessionRecord as ProtocolSessionRecord,
 	ResourcePermissionLevel,
 } from "@cohub/protocol";
+import { PUBLIC_API_ORIGIN } from "$env/static/public";
+import {
+	clearAuthToken as clearStoredAuthToken,
+	getAuthToken,
+	logtoClient,
+	setAuthToken as setStoredAuthToken,
+} from "$lib/auth";
+
 export type {
 	ChannelConfig,
 	DiscordChannelConfig,
@@ -98,7 +99,7 @@ export type SpaceRecord = {
 
 export type SpaceBootstrapSource =
 	| { type: "blank" }
-	| { type: "public_git_repo"; repoUrl?: string; ref?: string | null }
+	| { type: "git_repo"; repoUrl?: string; ref?: string | null }
 	| { type: "checkpoint"; checkpointId: string };
 
 export type SpaceCreateResponse = {
@@ -167,8 +168,6 @@ const apiFetch = async (
 
 	return response.json();
 };
-
-
 
 export const setAuthToken = async (token: string) => {
 	const trimmedToken = token.trim();
@@ -324,17 +323,21 @@ export type SpaceSessionsResponse = {
 	sessions: SessionRecord[];
 };
 
-export const createSpace = async (input?: {
-	name?: string;
-	description?: string;
-	source?: string;
-	extraEnv?: SpaceEnvInput[];
-	channelBindings?: SpaceChannelBindingInput[];
-	bootstrapSource?: SpaceBootstrapSource;
-}) => {
+export const createSpace = async (
+	input?: {
+		name?: string;
+		description?: string;
+		source?: string;
+		extraEnv?: SpaceEnvInput[];
+		channelBindings?: SpaceChannelBindingInput[];
+		bootstrapSource?: SpaceBootstrapSource;
+	},
+	headers?: Record<string, string>,
+) => {
 	return apiFetch("/api/spaces", {
 		method: "POST",
 		headers: {
+			...headers,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(input ?? {}),
@@ -600,7 +603,6 @@ export type SpaceCheckpointDetailResponse = {
 	checkpoint: CheckpointRecord;
 };
 
-
 export type CreateCronJobInput = {
 	title: string;
 	taskType: string;
@@ -613,7 +615,9 @@ export type CreateCronJobInput = {
 
 export const getCronJobs = async (spaceId?: string) => {
 	const query = spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : "";
-	return apiFetch(`/api/cron-jobs${query}`) as Promise<{ jobs: CronJobRecord[] }>;
+	return apiFetch(`/api/cron-jobs${query}`) as Promise<{
+		jobs: CronJobRecord[];
+	}>;
 };
 
 export const createCronJob = async (data: CreateCronJobInput) => {
@@ -687,7 +691,6 @@ export const getSpaceCheckpoint = async (
 	}) as Promise<SpaceCheckpointDetailResponse>;
 };
 
-
 export const getTaskRun = async (taskRunId: string) => {
 	return apiFetch(`/api/tasks/${taskRunId}`) as Promise<{
 		run: TaskRunRecord;
@@ -753,10 +756,14 @@ export const createSpacePermission = async (
 	}) as Promise<ResourcePermission>;
 
 export const deleteSpacePermission = async (spaceId: string) =>
-	apiFetch(`/api/spaces/${spaceId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+	apiFetch(`/api/spaces/${spaceId}/permissions`, {
+		method: "DELETE",
+	}) as Promise<{ ok: true }>;
 
 export const listSpacePermissions = async (spaceId: string) =>
-	apiFetch(`/api/spaces/${spaceId}/permissions`) as Promise<ResourcePermission[]>;
+	apiFetch(`/api/spaces/${spaceId}/permissions`) as Promise<
+		ResourcePermission[]
+	>;
 
 export const createSessionPermission = async (
 	sessionId: string,
@@ -769,7 +776,9 @@ export const createSessionPermission = async (
 	}) as Promise<ResourcePermission>;
 
 export const deleteSessionPermission = async (sessionId: string) =>
-	apiFetch(`/api/sessions/${sessionId}/permissions`, { method: "DELETE" }) as Promise<{ ok: true }>;
+	apiFetch(`/api/sessions/${sessionId}/permissions`, {
+		method: "DELETE",
+	}) as Promise<{ ok: true }>;
 
 // ─── Collaborator Management ──────────────────────────────
 
@@ -785,7 +794,9 @@ export const addSpaceCollaborator = async (
 	}) as Promise<ResourcePermission>;
 
 export const listSpaceCollaborators = async (spaceId: string) =>
-	apiFetch(`/api/spaces/${spaceId}/collaborators`) as Promise<ResourcePermission[]>;
+	apiFetch(`/api/spaces/${spaceId}/collaborators`) as Promise<
+		ResourcePermission[]
+	>;
 
 export const updateSpaceCollaborator = async (
 	spaceId: string,
@@ -798,7 +809,10 @@ export const updateSpaceCollaborator = async (
 		body: JSON.stringify({ level }),
 	}) as Promise<ResourcePermission>;
 
-export const removeSpaceCollaborator = async (spaceId: string, granteeUuid: string) =>
+export const removeSpaceCollaborator = async (
+	spaceId: string,
+	granteeUuid: string,
+) =>
 	apiFetch(`/api/spaces/${spaceId}/collaborators/${granteeUuid}`, {
 		method: "DELETE",
 	}) as Promise<{ ok: true }>;

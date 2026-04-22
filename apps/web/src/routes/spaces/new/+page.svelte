@@ -28,11 +28,12 @@ let description = $state("");
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<SpaceEnvInput[]>([]);
 let channelConfigById = $state<Record<string, ChannelConfig>>({});
-let selectedBootstrapType = $state<"blank" | "public_git_repo" | "checkpoint">(
+let selectedBootstrapType = $state<"blank" | "git_repo" | "checkpoint">(
 	"blank",
 );
-let publicRepoUrl = $state("");
-let publicRepoRef = $state("");
+let gitRepoUrl = $state("");
+let gitRepoRef = $state("");
+let gitToken = $state("");
 let checkpointId = $state("");
 
 const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
@@ -129,26 +130,29 @@ async function handleSubmit(event: SubmitEvent) {
 			.map((item) => ({ name: item.name.trim(), value: item.value }))
 			.filter((item) => item.name.length > 0);
 
-		const result = await createSpace({
-			name: name.trim(),
-			description: description.trim() || undefined,
-			source: "web",
-			extraEnv: normalizedExtraEnv,
-			channelBindings,
-			bootstrapSource:
-				selectedBootstrapType === "public_git_repo"
-					? {
-							type: "public_git_repo",
-							repoUrl: publicRepoUrl.trim(),
-							ref: publicRepoRef.trim() || null,
-						}
-					: selectedBootstrapType === "checkpoint"
+		const result = await createSpace(
+			{
+				name: name.trim(),
+				description: description.trim() || undefined,
+				source: "web",
+				extraEnv: normalizedExtraEnv,
+				channelBindings,
+				bootstrapSource:
+					selectedBootstrapType === "git_repo"
 						? {
-								type: "checkpoint",
-								checkpointId: checkpointId.trim(),
+								type: "git_repo",
+								repoUrl: gitRepoUrl.trim(),
+								ref: gitRepoRef.trim() || null,
 							}
-						: { type: "blank" },
-		});
+						: selectedBootstrapType === "checkpoint"
+							? {
+									type: "checkpoint",
+									checkpointId: checkpointId.trim(),
+								}
+							: { type: "blank" },
+			},
+			gitToken.trim() ? { "X-Git-Token": gitToken.trim() } : undefined,
+		);
 
 		window.dispatchEvent(new CustomEvent("cohub:space-created"));
 
@@ -228,8 +232,8 @@ async function handleSubmit(event: SubmitEvent) {
                   <span>Blank</span>
                 </label>
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
-                  <input type="radio" bind:group={selectedBootstrapType} value="public_git_repo" />
-                  <span>Public Git Repo</span>
+                  <input type="radio" bind:group={selectedBootstrapType} value="git_repo" />
+                  <span>Git Repo</span>
                 </label>
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
                   <input type="radio" bind:group={selectedBootstrapType} value="checkpoint" />
@@ -238,20 +242,26 @@ async function handleSubmit(event: SubmitEvent) {
               </div>
             </div>
 
-            {#if selectedBootstrapType === "public_git_repo"}
-              <div class="grid gap-2 sm:grid-cols-2">
+            {#if selectedBootstrapType === "git_repo"}
+              <div class="space-y-2">
                 <input
-                  bind:value={publicRepoUrl}
+                  bind:value={gitRepoUrl}
                   type="url"
                   placeholder="https://github.com/org/repo.git"
-                  class="sm:col-span-2 w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                  class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                   required
                 />
                 <input
-                  bind:value={publicRepoRef}
+                  bind:value={gitRepoRef}
                   type="text"
                   placeholder="Optional ref (branch / tag / commit)"
-                  class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors sm:col-span-2"
+                  class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                />
+                <input
+                  bind:value={gitToken}
+                  type="password"
+                  placeholder="Optional access token for private repos (not stored)"
+                  class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                 />
               </div>
             {:else if selectedBootstrapType === "checkpoint"}

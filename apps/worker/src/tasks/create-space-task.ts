@@ -20,7 +20,7 @@ type BootstrapStage = "prepare" | "import" | "checkpoint_restore" | "push" | "fi
 
 type SpaceCreateSource =
   | { type: "blank" }
-  | { type: "public_git_repo"; repoUrl: string; ref?: string | null }
+  | { type: "git_repo"; repoUrl: string; ref?: string | null }
   | { type: "checkpoint"; checkpointId: string };
 
 const SAFE_GIT_REF_REGEX = /^[a-zA-Z0-9._/-]+$/;
@@ -34,14 +34,15 @@ const getBootstrapMeta = (space: typeof spaces.$inferSelect) => {
   return { meta, bootstrap };
 };
 
-const resolveSource = (payload: TaskPayload): SpaceCreateSource => {
+const resolveSource = (payload: TaskPayload): SpaceCreateSource & { gitToken?: string } => {
   const source = payload.data?.source;
   if (!isRecord(source) || typeof source.type !== "string") return { type: "blank" };
-  if (source.type === "public_git_repo" && typeof source.repoUrl === "string") {
+  if (source.type === "git_repo" && typeof source.repoUrl === "string") {
     return {
-      type: "public_git_repo",
+      type: "git_repo",
       repoUrl: source.repoUrl.trim(),
       ref: typeof source.ref === "string" ? source.ref.trim() || null : null,
+      gitToken: typeof source.gitToken === "string" ? source.gitToken.trim() || undefined : undefined,
     };
   }
   if (source.type === "checkpoint" && typeof source.checkpointId === "string") {
@@ -142,16 +143,28 @@ const bootstrapBlankSpace = async (input: {
   });
 };
 
-const assertPublicRepoUrl = (value: string) => {
+const assertRepoUrl = (value: string, hasToken: boolean) => {
   const url = new URL(value);
-  if (url.protocol !== "https:") throw new Error("public git repo url must use https");
-  const host = url.hostname.toLowerCase();
-  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
-    throw new Error("public git repo url is not allowed");
+  if (url.protocol !== "https:") throw new Error("git repo url must use https");
+  if (!hasToken) {
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+      throw new Error("git repo url is not allowed for public access");
+    }
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)) {
+      throw new Error("git repo url is not allowed for public access");
+    }
   }
-  if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)) {
-    throw new Error("public git repo url is not allowed");
-  }
+  return url.toString();
+};
+
+const buildCloneUrl = (repoUrl: string, token?: string) => {
+  if (!token) return repoUrl;
+  const url = new URL(repoUrl);
+  // URL constructor percent-encodes special chars in username/password;
+  // x-access-token is compatible with GitHub, Gitea, and GitLab.
+  url.username = "x-access-token";
+  url.password = token;
   return url.toString();
 };
 
@@ -175,15 +188,17 @@ const pushExistingHistory = async (input: {
   return { branch, commitHash: head.stdout.trim() };
 };
 
-const bootstrapFromPublicRepo = async (input: {
+const bootstrapFromGitRepo = async (input: {
   workspaceDir: string;
   authenticatedRemoteUrl: string;
   repoUrl: string;
   ref?: string | null;
+  gitToken?: string;
 }) => {
-  const repoUrl = assertPublicRepoUrl(input.repoUrl);
+  const repoUrl = assertRepoUrl(input.repoUrl, Boolean(input.gitToken));
+  const cloneUrl = buildCloneUrl(repoUrl, input.gitToken);
   await emptyDirectory(input.workspaceDir);
-  await runGit(["clone", repoUrl, "."], input.workspaceDir);
+  await runGit(["clone", cloneUrl, "."], input.workspaceDir);
   if (input.ref) {
     const ref = ensureValidGitRef(input.ref);
     await runGit(["checkout", ref], input.workspaceDir);
@@ -235,7 +250,7 @@ const createSpaceHandler = async (job: Job) => {
     taskRunId,
     source,
     status: "running",
-    stage: source.type === "checkpoint" ? "checkpoint_restore" : source.type === "public_git_repo" ? "import" : "prepare",
+    stage: source.type === "checkpoint" ? "checkpoint_restore" : source.type === "git_repo" ? "import" : "prepare",
     startedAt: new Date().toISOString(),
   });
 
@@ -284,7 +299,7 @@ const createSpaceHandler = async (job: Job) => {
     });
 
     let result: { branch: string; commitHash: string };
-    if (source.type === "public_git_repo") {
+    if (source.type === "git_repo") {
       currentSpace = await updateBootstrap({
         space: currentSpace,
         taskRunId,
@@ -292,11 +307,12 @@ const createSpaceHandler = async (job: Job) => {
         status: "running",
         stage: "import",
       });
-      result = await bootstrapFromPublicRepo({
+      result = await bootstrapFromGitRepo({
         workspaceDir,
         authenticatedRemoteUrl,
         repoUrl: source.repoUrl,
         ref: source.ref,
+        gitToken: source.gitToken,
       });
     } else if (source.type === "checkpoint") {
       currentSpace = await updateBootstrap({

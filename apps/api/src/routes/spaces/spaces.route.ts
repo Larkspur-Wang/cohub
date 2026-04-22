@@ -72,8 +72,9 @@ router.post("/", async (c) => {
       channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
       bootstrapSource?:
         | { type: "blank" }
-        | { type: "public_git_repo"; repoUrl?: string; ref?: string | null }
+        | { type: "git_repo"; repoUrl?: string; ref?: string | null }
         | { type: "checkpoint"; checkpointId?: string };
+    gitHubToken?: string;
     }>()
     .catch(() => ({}))) as {
     name?: string;
@@ -86,8 +87,9 @@ router.post("/", async (c) => {
     channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
     bootstrapSource?:
       | { type: "blank" }
-      | { type: "public_git_repo"; repoUrl?: string; ref?: string | null }
+      | { type: "git_repo"; repoUrl?: string; ref?: string | null }
       | { type: "checkpoint"; checkpointId?: string };
+    gitHubToken?: string;
   };
 
   const name = body.name?.trim();
@@ -130,16 +132,17 @@ router.post("/", async (c) => {
 
   let normalizedBootstrapSource:
     | { type: "blank" }
-    | { type: "public_git_repo"; repoUrl: string; ref: string | null }
+    | { type: "git_repo"; repoUrl: string; ref: string | null }
     | { type: "checkpoint"; checkpointId: string };
+  const gitToken = body.gitHubToken?.trim() || c.req.header("X-Git-Token")?.trim() || null;
   try {
     normalizedBootstrapSource = (() => {
       const source = body.bootstrapSource;
       if (!source || source.type === "blank") return { type: "blank" } as const;
-      if (source.type === "public_git_repo") {
+      if (source.type === "git_repo") {
         const repoUrl = source.repoUrl?.trim();
         if (!repoUrl) throw new Error("repoUrl is required");
-        return { type: "public_git_repo", repoUrl, ref: source.ref?.trim() || null } as const;
+        return { type: "git_repo", repoUrl, ref: source.ref?.trim() || null } as const;
       }
       if (source.type === "checkpoint") {
         const checkpointId = source.checkpointId?.trim();
@@ -222,13 +225,16 @@ router.post("/", async (c) => {
     },
   ).catch(console.error);
 
+  const taskData: Record<string, unknown> = { source: normalizedBootstrapSource };
+  // TODO: gitToken is stored in taskData (BullMQ Redis + DB task_runs).
+  // For long-term security, encrypt it or use a temporary token reference.
+  if (gitToken) taskData.gitToken = gitToken;
+
   const job = await enqueueTask({
     type: "create_space",
     spaceId: space.id,
     userId: user.uuid,
-    data: {
-      source: normalizedBootstrapSource,
-    },
+    data: taskData,
   }).catch(async (error) => {
     const nextMeta = {
       ...((space.meta as Record<string, unknown> | null) ?? {}),

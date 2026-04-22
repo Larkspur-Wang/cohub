@@ -737,7 +737,7 @@ const bootstrapSourceLabel = $derived.by(() => {
 	if (!source || typeof source !== "object" || Array.isArray(source))
 		return "Blank";
 	const type = (source as Record<string, unknown>).type;
-	if (type === "public_git_repo") return "Public Git Repo";
+	if (type === "git_repo") return "Git Repo";
 	if (type === "checkpoint") return "Checkpoint";
 	return "Blank";
 });
