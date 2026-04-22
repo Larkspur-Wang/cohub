@@ -357,6 +357,16 @@ export const getSpace = async (id: string, customFetch?: Fetch) => {
 	}) as Promise<SpaceRecord>;
 };
 
+export const renameSpace = async (id: string, name: string) => {
+	return apiFetch(`/api/spaces/${id}`, {
+		method: "PATCH",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ name }),
+	}) as Promise<{ space: SpaceRecord }>;
+};
+
 export const createSpaceSession = async (
 	id: string,
 	input?: {

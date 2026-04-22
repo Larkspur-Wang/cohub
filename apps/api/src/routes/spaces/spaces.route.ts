@@ -314,6 +314,36 @@ router.get("/:id", async (c) => {
   return c.json({ ...space, sandboxStatus: sandbox?.status ?? null });
 });
 
+// ── PATCH /api/spaces/:id (rename) ─────────────────────────────────────────
+
+router.patch("/:id", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<{ name?: string }>().catch(() => null);
+  const name = body?.name?.trim();
+  if (!name) return c.json({ message: "name is required" }, 400);
+  if (name === space.name) return c.json({ space });
+
+  const duplicate = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(and(eq(spaces.userUuid, user.uuid), eq(spaces.name, name)))
+    .limit(1);
+  if (duplicate.length > 0) return c.json({ message: "space name already exists" }, 409);
+
+  const [updated] = await db
+    .update(spaces)
+    .set({ name, updatedAt: new Date() })
+    .where(eq(spaces.id, spaceId))
+    .returning();
+
+  return c.json({ space: updated ?? space });
+});
 
 // ── Checkpoints ──────────────────────────────────────────────────────────────
 

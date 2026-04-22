@@ -68,6 +68,7 @@ import {
 	type ResourcePermission,
 	recreateSpaceSandbox,
 	removeSpaceCollaborator,
+	renameSpace,
 	type SandboxRecord,
 	type SessionRecord,
 	type SpaceFsEntry,
@@ -189,6 +190,10 @@ let input = $state("");
 let imageAttachments = $state<ComposerImageAttachment[]>([]);
 let sending = $state(false);
 let spaceLoadError = $state("");
+let renamingSpace = $state(false);
+let renameInput = $state("");
+let renameSaving = $state(false);
+let renameError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
 let streamingAssistantText = $state("");
@@ -1230,6 +1235,21 @@ async function handleRecreateSandbox() {
 	} catch (error) {
 		sandboxError =
 			error instanceof Error ? error.message : "Failed to recreate sandbox";
+	}
+}
+
+async function handleRenameSpace(newName: string) {
+	renameSaving = true;
+	renameError = "";
+	try {
+		const result = await renameSpace(spaceId, newName);
+		space = result.space;
+		renamingSpace = false;
+	} catch (error) {
+		renameError =
+			error instanceof Error ? error.message : "Failed to rename space";
+	} finally {
+		renameSaving = false;
 	}
 }
 
@@ -3262,7 +3282,75 @@ $effect(() => {
               <div class="min-w-0 space-y-2">
                 <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
                 <div>
-                  <h1 class="truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
+                  <div class="flex items-center gap-1.5 group">
+                    {#if renamingSpace}
+                      <input
+                        type="text"
+                        bind:value={renameInput}
+                        disabled={renameSaving}
+                        class="text-[20px] font-medium text-text-primary bg-bg-input border border-border-subtle rounded-[6px] px-2 py-1 focus:border-brand/40 focus:outline-none transition-colors w-full max-w-xs disabled:opacity-60"
+                        onkeydown={(e) => {
+                          if (e.key === "Enter" && !renameSaving) {
+                            e.preventDefault();
+                            const trimmed = renameInput.trim();
+                            if (trimmed && trimmed !== space?.name) {
+                              void handleRenameSpace(trimmed);
+                            } else {
+                              renamingSpace = false;
+                              renameError = "";
+                            }
+                          }
+                          if (e.key === "Escape" && !renameSaving) {
+                            renamingSpace = false;
+                            renameError = "";
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        class="shrink-0 p-1 rounded text-success-soft hover:text-success hover:bg-bg-hover transition-colors disabled:opacity-50"
+                        title="Save"
+                        disabled={renameSaving}
+                        onclick={() => {
+                          const trimmed = renameInput.trim();
+                          if (trimmed && trimmed !== space?.name) {
+                            void handleRenameSpace(trimmed);
+                          } else {
+                            renamingSpace = false;
+                            renameError = "";
+                          }
+                        }}
+                      >
+                        {#if renameSaving}
+                          <Loader2 class="w-4 h-4 animate-spin" />
+                        {:else}
+                          <Check class="w-4 h-4" />
+                        {/if}
+                      </button>
+                      <button
+                        type="button"
+                        class="shrink-0 p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
+                        title="Cancel"
+                        disabled={renameSaving}
+                        onclick={() => { renamingSpace = false; renameError = ""; }}
+                      >
+                        <X class="w-4 h-4" />
+                      </button>
+                      {#if renameError}
+                        <span class="text-[11px] text-status-error ml-1">{renameError}</span>
+                      {/if}
+                    {:else}
+                      <h1 class="truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
+                      <button
+                        type="button"
+                        class="shrink-0 p-1 rounded text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-text-secondary hover:bg-bg-hover transition-all"
+                        title="Rename space"
+                        onclick={() => { renameInput = space?.name ?? ""; renamingSpace = true; renameError = ""; }}
+                      >
+                        <Pencil class="w-3.5 h-3.5" />
+                      </button>
+                    {/if}
+                  </div>
                   {#if space?.description}
                     <p class="mt-1 text-[13px] leading-6 text-text-secondary">{space.description}</p>
                   {/if}
