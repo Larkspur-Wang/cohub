@@ -111,8 +111,8 @@ jobs:
       - name: Run migration if needed
         run: |
           CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
-            'apps/api/src/db/schema.ts' \
-            'apps/api/drizzle/*.sql' 2>/dev/null || true)
+            'apps/api/src/db/schema-v2.ts' \
+            'apps/api/drizzle/v2/*.sql' 2>/dev/null || true)
           
           if [ -z "$CHANGED" ]; then
             echo "No migration needed"
