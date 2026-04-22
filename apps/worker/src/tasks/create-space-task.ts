@@ -163,10 +163,9 @@ const bootstrapFromPublicRepo = async (input: {
 }) => {
   const repoUrl = assertPublicRepoUrl(input.repoUrl);
   await emptyDirectory(input.workspaceDir);
-  await runGit(["clone", "--depth", "1", repoUrl, "."], input.workspaceDir);
+  await runGit(["clone", repoUrl, "."], input.workspaceDir);
   if (input.ref) {
     const ref = ensureValidGitRef(input.ref);
-    await runGit(["fetch", "origin", ref, "--depth", "1"], input.workspaceDir).catch(() => undefined);
     await runGit(["checkout", ref], input.workspaceDir);
   }
   await runGit(["remote", "rename", "origin", "upstream"], input.workspaceDir).catch(() => undefined);
