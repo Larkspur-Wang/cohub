@@ -27,7 +27,9 @@ export const emptyDirectory = async (dir: string) => {
 
 export const runGitWithOutput = async (args: string[], cwd: string) => {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn("git", args, {
+    // Allow git to operate in directories owned by different uids (common in container + PVC env)
+    const safeArgs = ["-c", `safe.directory=${cwd}`, ...args];
+    const child = spawn("git", safeArgs, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
