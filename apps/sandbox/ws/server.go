@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
+
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
@@ -29,28 +31,25 @@ type Server struct {
 	hostname       string
 	logger         *slog.Logger
 
-	mu     sync.Mutex
-	active *connectionSession
+	mu                   sync.RWMutex
+	sessionsByID         map[string]*connectionSession
+	sessionIDsByIdentity map[string]map[string]struct{}
+	cleanupTimersByIdentity map[string]*time.Timer
 }
 
 type connectionSession struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	conn   *websocket.Conn
-	sendCh chan []byte
+	id          string
+	spaceID     string
+	identity    string
+	attached    bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	conn        *websocket.Conn
+	sendCh      chan []byte
+	connectedAt time.Time
 }
 
-type connSender struct {
-	session *connectionSession
-}
-
-func (s connSender) SendJSON(v interface{}) error {
-	payload, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return enqueuePayload(s.session, payload)
-}
+const identityProcessCleanupGrace = 30 * time.Second
 
 func NewServer(
 	cfg env.Config,
@@ -60,14 +59,19 @@ func NewServer(
 	hostname string,
 	logger *slog.Logger,
 ) *Server {
-	return &Server{
-		cfg:            cfg,
-		dispatcher:     dispatcher,
-		processManager: processManager,
-		prepareState:   prepareState,
-		hostname:       hostname,
-		logger:         logger,
+	s := &Server{
+		cfg:                   cfg,
+		dispatcher:            dispatcher,
+		processManager:        processManager,
+		prepareState:          prepareState,
+		hostname:              hostname,
+		logger:                logger,
+		sessionsByID:          make(map[string]*connectionSession),
+		sessionIDsByIdentity:  make(map[string]map[string]struct{}),
+		cleanupTimersByIdentity: make(map[string]*time.Timer),
 	}
+	dispatcher.SetRouter(s)
+	return s
 }
 
 func (s *Server) Run() error {
@@ -92,19 +96,20 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	session := &connectionSession{
-		ctx:    ctx,
-		cancel: cancel,
-		conn:   conn,
-		sendCh: make(chan []byte, 256),
+		id:          uuid.NewString(),
+		spaceID:     s.cfg.SpaceID,
+		ctx:         ctx,
+		cancel:      cancel,
+		conn:        conn,
+		sendCh:      make(chan []byte, 256),
+		connectedAt: time.Now(),
 	}
 	defer cancel()
 	defer conn.Close(websocket.StatusNormalClosure, "closing")
+	defer s.removeSession(session)
 
-	s.replaceActiveSession(session)
-	defer s.clearActiveSession(session)
-	defer s.processManager.AbortAll()
-
-	s.logger.Info("agent connected", slog.String("remote", r.RemoteAddr))
+	s.addSession(session)
+	s.logger.Info("agent connected", slog.String("remote", r.RemoteAddr), slog.String("connectionId", session.id))
 	go s.writeLoop(session)
 	go s.heartbeatLoop(session)
 
@@ -116,53 +121,154 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
-			s.logger.Info("agent connection closed", slog.String("error", err.Error()))
+			s.logger.Info("agent connection closed", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("error", err.Error()))
 			return
 		}
 
 		var envelope protocol.IncomingEnvelope
 		if err := json.Unmarshal(data, &envelope); err != nil {
-			s.logger.Warn("failed to parse incoming envelope", slog.String("error", err.Error()))
+			s.logger.Warn("failed to parse incoming envelope", slog.String("connectionId", session.id), slog.String("error", err.Error()))
 			continue
 		}
 
 		switch envelope.Type {
-		case "rpc.request":
-			var request protocol.RPCRequest
-			if err := json.Unmarshal(data, &request); err != nil {
-				s.logger.Warn("failed to parse rpc.request", slog.String("error", err.Error()))
+		case "session.attach":
+			var attach protocol.SessionAttach
+			if err := json.Unmarshal(data, &attach); err != nil {
+				s.logger.Warn("failed to parse session.attach", slog.String("connectionId", session.id), slog.String("error", err.Error()))
 				continue
 			}
-			s.logger.Debug("rpc:request received", slog.String("method", request.Method), slog.String("requestId", request.RequestID))
+			s.handleSessionAttach(session, attach)
+		case "rpc.request":
+			if !session.attached || session.identity == "" {
+				s.logger.Warn("rpc.request before attach", slog.String("connectionId", session.id))
+				continue
+			}
+			var request protocol.RPCRequest
+			if err := json.Unmarshal(data, &request); err != nil {
+				s.logger.Warn("failed to parse rpc.request", slog.String("connectionId", session.id), slog.String("error", err.Error()))
+				continue
+			}
+			s.logger.Debug("rpc:request received", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("method", request.Method), slog.String("requestId", request.RequestID))
 			go s.handleRPCRequest(session, request)
 		default:
-			s.logger.Warn("unknown incoming message type", slog.String("type", envelope.Type))
+			s.logger.Warn("unknown incoming message type", slog.String("connectionId", session.id), slog.String("type", envelope.Type))
 		}
 	}
 }
 
-func (s *Server) replaceActiveSession(session *connectionSession) {
-	s.mu.Lock()
-	previous := s.active
-	s.active = session
-	s.dispatcher.SetSender(connSender{session: session})
-	s.mu.Unlock()
-
-	if previous != nil && previous != session {
-		s.logger.Warn("replacing existing agent connection")
-		previous.cancel()
-		_ = previous.conn.Close(websocket.StatusPolicyViolation, "replaced by newer connection")
-	}
-}
-
-func (s *Server) clearActiveSession(session *connectionSession) {
+func (s *Server) addSession(session *connectionSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != session {
+	s.sessionsByID[session.id] = session
+}
+
+func (s *Server) removeSession(session *connectionSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessionsByID, session.id)
+	if session.identity == "" {
 		return
 	}
-	s.active = nil
-	s.dispatcher.SetSender(nil)
+	ids := s.sessionIDsByIdentity[session.identity]
+	if ids == nil {
+		return
+	}
+	delete(ids, session.id)
+	if len(ids) > 0 {
+		return
+	}
+	delete(s.sessionIDsByIdentity, session.identity)
+	if timer := s.cleanupTimersByIdentity[session.identity]; timer != nil {
+		timer.Stop()
+	}
+	identity := session.identity
+	s.cleanupTimersByIdentity[identity] = time.AfterFunc(identityProcessCleanupGrace, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		ids := s.sessionIDsByIdentity[identity]
+		if len(ids) > 0 {
+			delete(s.cleanupTimersByIdentity, identity)
+			return
+		}
+		s.logger.Info("cleaning up processes for disconnected identity", slog.String("identity", identity), slog.Duration("grace", identityProcessCleanupGrace))
+		s.processManager.AbortByIdentity(identity)
+		delete(s.cleanupTimersByIdentity, identity)
+	})
+}
+
+func (s *Server) attachIdentity(session *connectionSession, identity string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if session.identity != "" {
+		if ids := s.sessionIDsByIdentity[session.identity]; ids != nil {
+			delete(ids, session.id)
+			if len(ids) == 0 {
+				delete(s.sessionIDsByIdentity, session.identity)
+			}
+		}
+	}
+	if timer := s.cleanupTimersByIdentity[identity]; timer != nil {
+		timer.Stop()
+		delete(s.cleanupTimersByIdentity, identity)
+	}
+	session.identity = identity
+	session.attached = true
+	ids := s.sessionIDsByIdentity[identity]
+	if ids == nil {
+		ids = make(map[string]struct{})
+		s.sessionIDsByIdentity[identity] = ids
+	}
+	ids[session.id] = struct{}{}
+}
+
+func (s *Server) SendToIdentity(identity string, v interface{}) error {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	s.mu.RLock()
+	ids := s.sessionIDsByIdentity[identity]
+	targets := make([]*connectionSession, 0, len(ids))
+	for sessionID := range ids {
+		if session, ok := s.sessionsByID[sessionID]; ok {
+			targets = append(targets, session)
+		}
+	}
+	s.mu.RUnlock()
+
+	for _, session := range targets {
+		if err := enqueuePayload(session, payload); err != nil {
+			s.logger.Warn("failed to enqueue identity payload", slog.String("identity", identity), slog.String("connectionId", session.id), slog.String("error", err.Error()))
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleSessionAttach(session *connectionSession, attach protocol.SessionAttach) {
+	identity := attach.Identity
+	if identity == "" {
+		s.logger.Warn("session.attach missing identity", slog.String("connectionId", session.id))
+		return
+	}
+	s.attachIdentity(session, identity)
+	s.logger.Info("session attached", slog.String("connectionId", session.id), slog.String("identity", identity))
+	payload := protocol.SessionAttachOK{
+		BaseMessage: protocol.BaseMessage{
+			Version:   protocol.Version,
+			Type:      "session.attach.ok",
+			SpaceID:   s.cfg.SpaceID,
+			SandboxID: s.hostname,
+			Timestamp: time.Now().UnixMilli(),
+		},
+		RequestID:    attach.RequestID,
+		ConnectionID: session.id,
+		Identity:     identity,
+	}
+	if err := s.sendToConnection(session, payload); err != nil {
+		s.logger.Warn("failed to send session.attach.ok", slog.String("connectionId", session.id), slog.String("identity", identity), slog.String("error", err.Error()))
+	}
 }
 
 func (s *Server) writeLoop(session *connectionSession) {
@@ -172,7 +278,7 @@ func (s *Server) writeLoop(session *connectionSession) {
 			return
 		case payload := <-session.sendCh:
 			if err := session.conn.Write(session.ctx, websocket.MessageText, payload); err != nil {
-				s.logger.Warn("failed to write websocket message", slog.String("error", err.Error()))
+				s.logger.Warn("failed to write websocket message", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("error", err.Error()))
 				session.cancel()
 				return
 			}
@@ -181,43 +287,38 @@ func (s *Server) writeLoop(session *connectionSession) {
 }
 
 func (s *Server) handleRPCRequest(session *connectionSession, request protocol.RPCRequest) {
-	response := s.dispatcher.Handle(request)
+	accepted, response := s.dispatcher.Handle(request, session.identity)
+	if err := s.sendToConnection(session, accepted); err != nil {
+		s.logger.Warn("failed to send rpc.accepted", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("requestId", request.RequestID), slog.String("method", request.Method), slog.String("error", err.Error()))
+		return
+	}
 	if response == nil {
 		return
 	}
+	if err := s.SendToIdentity(session.identity, response); err != nil {
+		s.logger.Warn("failed to send rpc result to identity", slog.String("identity", session.identity), slog.String("requestId", request.RequestID), slog.String("method", request.Method), slog.String("error", err.Error()))
+	}
+}
 
-	payload, err := json.Marshal(response)
+func (s *Server) sendToConnection(session *connectionSession, v interface{}) error {
+	payload, err := json.Marshal(v)
 	if err != nil {
-		s.logger.Warn("failed to marshal rpc response", slog.String("error", err.Error()))
-		return
+		return err
 	}
-
-	switch response.(type) {
-	case protocol.RPCError:
-		s.logger.Warn("rpc:error", slog.String("method", request.Method), slog.String("requestId", request.RequestID))
-	default:
-		s.logger.Debug("rpc:response", slog.String("method", request.Method), slog.String("requestId", request.RequestID))
-	}
-
-	if err := enqueuePayload(session, payload); err != nil {
-		s.logger.Warn(
-			"failed to enqueue rpc response",
-			slog.String("requestId", request.RequestID),
-			slog.String("method", request.Method),
-			slog.String("error", err.Error()),
-		)
-	}
+	return enqueuePayload(session, payload)
 }
 
 func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool) error {
 	prepareStatus, _ := s.prepareState.Get()
 	message := protocol.SandboxHeartbeat{
-		Version:   protocol.Version,
-		Type:      "sandbox.heartbeat",
-		SpaceID:   s.cfg.SpaceID,
-		SandboxID: s.hostname,
-		Timestamp: time.Now().UnixMilli(),
-		Status:    prepareStatus,
+		BaseMessage: protocol.BaseMessage{
+			Version:   protocol.Version,
+			Type:      "sandbox.heartbeat",
+			SpaceID:   s.cfg.SpaceID,
+			SandboxID: s.hostname,
+			Timestamp: time.Now().UnixMilli(),
+		},
+		Status: prepareStatus,
 	}
 	if includeSnapshot {
 		hostname, _ := os.Hostname()
@@ -250,11 +351,7 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 			StartedAt:    time.Now().Format(time.RFC3339),
 		}
 	}
-	payload, err := json.Marshal(message)
-	if err != nil {
-		return err
-	}
-	return enqueuePayload(session, payload)
+	return s.sendToConnection(session, message)
 }
 
 func (s *Server) heartbeatLoop(session *connectionSession) {
@@ -267,7 +364,7 @@ func (s *Server) heartbeatLoop(session *connectionSession) {
 			return
 		case <-ticker.C:
 			if err := s.sendHeartbeat(session, false); err != nil {
-				s.logger.Warn("failed to enqueue heartbeat", slog.String("error", err.Error()))
+				s.logger.Warn("failed to enqueue heartbeat", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("error", err.Error()))
 				return
 			}
 		}

@@ -54,6 +54,14 @@ export type RequestScopedMessage = BaseMessage & {
   toolCallId?: string | null;
 };
 
+export type OperationScopedMessage = BaseMessage & {
+  opId: string;
+  requestId: string;
+  seq: number;
+  sessionId?: string | null;
+  toolCallId?: string | null;
+};
+
 export type SandboxCapabilities = {
   fsRead: boolean;
   fsWrite: boolean;
@@ -87,6 +95,19 @@ export type SandboxHeartbeat = BaseMessage & {
     imageVersion?: string;
     startedAt?: string;
   };
+};
+
+export type SessionAttach = BaseMessage & {
+  type: "session.attach";
+  requestId: string;
+  identity: string;
+};
+
+export type SessionAttachOk = BaseMessage & {
+  type: "session.attach.ok";
+  requestId: string;
+  connectionId: string;
+  identity: string;
 };
 
 export type FsReadParams = {
@@ -254,13 +275,29 @@ export type RpcRequest<M extends RpcMethod = RpcMethod> = RequestScopedMessage &
   params: RpcRequestMap[M]["params"];
 };
 
-export type RpcResponse<M extends RpcMethod = RpcMethod> = RequestScopedMessage & {
-  type: "rpc.response";
+export type RpcAccepted = RequestScopedMessage & {
+  type: "rpc.accepted";
+  opId: string;
+};
+
+export type RpcEventPayload =
+  | { type: "started"; processId: string }
+  | { type: "stdout"; chunk: string }
+  | { type: "stderr"; chunk: string }
+  | { type: "exit"; exitCode: number | null };
+
+export type RpcEvent = OperationScopedMessage & {
+  type: "rpc.event";
+  event: RpcEventPayload;
+};
+
+export type RpcCompleted<M extends RpcMethod = RpcMethod> = OperationScopedMessage & {
+  type: "rpc.completed";
   result: RpcRequestMap[M]["result"];
 };
 
-export type RpcError = RequestScopedMessage & {
-  type: "rpc.error";
+export type RpcFailed = OperationScopedMessage & {
+  type: "rpc.failed";
   error: {
     code: RpcErrorCode;
     message: string;
@@ -268,23 +305,15 @@ export type RpcError = RequestScopedMessage & {
   };
 };
 
-export type RpcStreamEvent =
-  | { type: "started"; processId: string }
-  | { type: "stdout"; chunk: string }
-  | { type: "stderr"; chunk: string }
-  | { type: "exit"; exitCode: number | null };
-
-export type RpcStream = RequestScopedMessage & {
-  type: "rpc.stream";
-  event: RpcStreamEvent;
-};
-
 export type AgentSandboxMessage =
   | SandboxHeartbeat
+  | SessionAttach
+  | SessionAttachOk
   | RpcRequest
-  | RpcResponse
-  | RpcError
-  | RpcStream;
+  | RpcAccepted
+  | RpcEvent
+  | RpcCompleted
+  | RpcFailed;
 
 export function isRpcMethod(value: string): value is RpcMethod {
   return RPC_METHODS.includes(value as RpcMethod);

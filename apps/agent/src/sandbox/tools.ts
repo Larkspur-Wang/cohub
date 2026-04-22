@@ -208,7 +208,7 @@ function createRemoteBashOperations(): BashOperations {
                 requestId: randomUUID(),
                 spaceId: getCurrentSpaceId(),
                 sandboxId: connection.sandboxId,
-                onStream(event) {
+                onEvent(event) {
                   if (event.type === "started") {
                     processId = event.processId;
                     if (aborting) {
@@ -372,7 +372,7 @@ function createRemoteGrepTool() {
           requestId: randomUUID(),
           spaceId: getCurrentSpaceId(),
           sandboxId: connection.sandboxId,
-          onStream(event) {
+          onEvent(event) {
             if (event.type === "started") {
               activeProcessId = event.processId;
               if (aborted) {

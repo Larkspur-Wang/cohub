@@ -10,21 +10,25 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+
+	"github.com/google/uuid"
 
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
 )
 
-type Sender interface {
-	SendJSON(v interface{}) error
+type IdentityRouter interface {
+	SendToIdentity(identity string, v interface{}) error
 }
 
 type Dispatcher struct {
 	cfg            env.Config
 	processManager *process.Manager
 	logger         *slog.Logger
-	sender         Sender
+	router         IdentityRouter
+	opSeq          int64
 	mu             sync.Mutex
 }
 
@@ -32,32 +36,52 @@ func NewDispatcher(cfg env.Config, processManager *process.Manager, logger *slog
 	return &Dispatcher{cfg: cfg, processManager: processManager, logger: logger}
 }
 
-func (d *Dispatcher) SetSender(sender Sender) {
+func (d *Dispatcher) SetRouter(router IdentityRouter) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sender = sender
+	d.router = router
 }
 
-func (d *Dispatcher) Handle(request protocol.RPCRequest) interface{} {
+func (d *Dispatcher) nextSeq() int64 {
+	return atomic.AddInt64(&d.opSeq, 1)
+}
+
+func (d *Dispatcher) Handle(request protocol.RPCRequest, ownerIdentity string) (protocol.RPCAccepted, interface{}) {
+	accepted := protocol.RPCAccepted{
+		RequestScopedMessage: protocol.RequestScopedMessage{
+			BaseMessage: protocol.BaseMessage{
+				Version:   protocol.Version,
+				Type:      "rpc.accepted",
+				SpaceID:   request.SpaceID,
+				SandboxID: request.SandboxID,
+				Timestamp: nowMS(),
+			},
+			RequestID:  request.RequestID,
+			SessionID:  request.SessionID,
+			ToolCallID: request.ToolCallID,
+		},
+		OpID: uuid.NewString(),
+	}
+
 	switch request.Method {
 	case "fs.read":
-		return d.handleFSRead(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleFSRead(request))
 	case "fs.write":
-		return d.handleFSWrite(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleFSWrite(request))
 	case "fs.stat":
-		return d.handleFSStat(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleFSStat(request))
 	case "fs.ls":
-		return d.handleFSLs(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleFSLs(request))
 	case "fs.find":
-		return d.handleFSFind(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleFSFind(request))
 	case "fs.grep":
-		return d.handleFSGrep(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleFSGrep(request))
 	case "process.start":
-		return d.handleProcessStart(request)
+		return accepted, d.handleProcessStart(request, accepted.OpID, ownerIdentity)
 	case "process.abort":
-		return d.handleProcessAbort(request)
+		return accepted, d.complete(request, accepted.OpID, d.handleProcessAbort(request))
 	default:
-		return d.errorResponse(request, "UNSUPPORTED_METHOD", fmt.Sprintf("unsupported method: %s", request.Method))
+		return accepted, d.failed(request, accepted.OpID, "UNSUPPORTED_METHOD", fmt.Sprintf("unsupported method: %s", request.Method))
 	}
 }
 
@@ -123,7 +147,7 @@ type processAbortParams struct {
 func (d *Dispatcher) resolvePathForRequest(request protocol.RPCRequest, rawPath string, cwd string) (resolvedSandboxPath, interface{}, bool) {
 	resolved, err := resolveSandboxPath(d.cfg, rawPath, cwd)
 	if err != nil {
-		return resolvedSandboxPath{}, d.errorResponse(request, "INVALID_PATH", err.Error()), false
+		return resolvedSandboxPath{}, d.failed(request, "", "INVALID_PATH", err.Error()), false
 	}
 	return resolved, nil, true
 }
@@ -131,7 +155,7 @@ func (d *Dispatcher) resolvePathForRequest(request protocol.RPCRequest, rawPath 
 func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 	var params fsReadParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
@@ -139,30 +163,29 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 		return errResponse
 	}
 
-	// Binary mode: return base64-encoded content with MIME type detection.
 	if params.Binary {
 		rawBytes, err := osReadFileBytes(resolved.path)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return d.errorResponse(request, "NOT_FOUND", err.Error())
+				return d.failed(request, "", "NOT_FOUND", err.Error())
 			}
-			return d.errorResponse(request, "IO_ERROR", err.Error())
+			return d.failed(request, "", "IO_ERROR", err.Error())
 		}
 		mimeType := detectMimeType(resolved.path, rawBytes)
-		return d.response(request, map[string]interface{}{
+		return map[string]interface{}{
 			"path":          resolved.path,
 			"content":       "",
 			"contentBase64": fileToBase64(rawBytes),
 			"mimeType":      mimeType,
-		})
+		}
 	}
 
 	content, err := osReadFile(resolved.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return d.errorResponse(request, "NOT_FOUND", err.Error())
+			return d.failed(request, "", "NOT_FOUND", err.Error())
 		}
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 
 	lines := splitLines(content)
@@ -182,16 +205,16 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 		end = start + params.Limit
 	}
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"path":    resolved.path,
 		"content": joinLines(lines[start:end]),
-	})
+	}
 }
 
 func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
 	var params fsWriteParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
@@ -199,23 +222,23 @@ func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
 		return errResponse
 	}
 	if isReadOnlyPath(d.cfg, resolved.path) {
-		return d.errorResponse(request, "READ_ONLY_FILESYSTEM", fmt.Sprintf("path is read-only: %s", resolved.path))
+		return d.failed(request, "", "READ_ONLY_FILESYSTEM", fmt.Sprintf("path is read-only: %s", resolved.path))
 	}
 	if info, err := os.Stat(resolved.path); err == nil && info.IsDir() {
-		return d.errorResponse(request, "NOT_DIRECTORY", fmt.Sprintf("cannot write to a directory: %s", resolved.path))
+		return d.failed(request, "", "NOT_DIRECTORY", fmt.Sprintf("cannot write to a directory: %s", resolved.path))
 	}
 
 	if err := ensureParentDir(resolved.path); err != nil {
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 	if err := osWriteFile(resolved.path, []byte(params.Content)); err != nil {
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"path":         resolved.path,
 		"bytesWritten": len([]byte(params.Content)),
-	})
+	}
 }
 
 type fsStatParams struct {
@@ -226,7 +249,7 @@ type fsStatParams struct {
 func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
 	var params fsStatParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
@@ -237,26 +260,26 @@ func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
 	info, err := os.Stat(resolved.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return d.response(request, map[string]interface{}{
+			return map[string]interface{}{
 				"path":        resolved.path,
 				"exists":      false,
 				"isDirectory": false,
-			})
+			}
 		}
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"path":        resolved.path,
 		"exists":      true,
 		"isDirectory": info.IsDir(),
-	})
+	}
 }
 
 func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
 	var params fsLsParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
@@ -267,17 +290,17 @@ func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
 	info, err := os.Stat(resolved.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return d.errorResponse(request, "NOT_FOUND", err.Error())
+			return d.failed(request, "", "NOT_FOUND", err.Error())
 		}
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 	if !info.IsDir() {
-		return d.errorResponse(request, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
+		return d.failed(request, "", "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
 	}
 
 	entries, err := osReadDir(resolved.path)
 	if err != nil {
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 
 	results := make([]string, 0, len(entries))
@@ -301,17 +324,17 @@ func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
 		results = results[:limit]
 	}
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"path":      resolved.path,
 		"entries":   results,
 		"truncated": truncated,
-	})
+	}
 }
 
 func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 	var params fsFindParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
@@ -324,35 +347,25 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 		limit = 1000
 	}
 
-	// Build fd arguments based on agent-controlled parameters.
-	// Sandbox is a generic executor; agent owns all tool semantics.
 	args := []string{"--color=never"}
-
-	// Search mode: glob (default), regex, or fixed-strings.
 	switch params.Mode {
 	case "glob":
 		args = append(args, "--glob")
 	case "fixed-strings":
 		args = append(args, "--fixed-strings")
-		// "regex" is fd default, no flag needed.
 	}
-
 	if params.Hidden {
 		args = append(args, "--hidden")
 	}
-	// --no-require-git: apply .gitignore even outside a git repo (agent default).
 	if !params.RequireGit {
 		args = append(args, "--no-require-git")
 	}
-	// --no-ignore-vcs: skip all VCS ignore rules.
 	if params.IgnoreVcs {
 		args = append(args, "--no-ignore-vcs")
 	}
 	if params.FullPath {
 		args = append(args, "--full-path")
 	}
-
-	// Add ignore patterns as --exclude flags.
 	for _, pattern := range params.Ignore {
 		if pattern != "" {
 			args = append(args, "--exclude", pattern)
@@ -366,13 +379,13 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if strings.Contains(err.Error(), "executable file not found") {
-			return d.errorResponse(request, "INTERNAL_ERROR", "fd is not installed in sandbox")
+			return d.failed(request, "", "INTERNAL_ERROR", "fd is not installed in sandbox")
 		}
 		stderr := strings.TrimSpace(string(output))
 		if stderr == "" {
 			stderr = err.Error()
 		}
-		return d.errorResponse(request, "IO_ERROR", stderr)
+		return d.failed(request, "", "IO_ERROR", stderr)
 	}
 
 	matches := make([]string, 0)
@@ -392,17 +405,17 @@ func (d *Dispatcher) handleFSFind(request protocol.RPCRequest) interface{} {
 		matches = matches[:limit]
 	}
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"path":      resolved.path,
 		"matches":   matches,
 		"truncated": truncated,
-	})
+	}
 }
 
 func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 	var params fsGrepParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
@@ -419,11 +432,9 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 	if params.Hidden {
 		args = append(args, "--hidden")
 	}
-	// --no-require-git: apply .gitignore even outside a git repo (agent default).
 	if !params.RequireGit {
 		args = append(args, "--no-require-git")
 	}
-	// --no-ignore-vcs: skip all VCS ignore rules.
 	if params.IgnoreVcs {
 		args = append(args, "--no-ignore-vcs")
 	}
@@ -451,14 +462,14 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if exec.ErrNotFound != nil && strings.Contains(err.Error(), exec.ErrNotFound.Error()) {
-			return d.errorResponse(request, "INTERNAL_ERROR", "rg is not installed in sandbox")
+			return d.failed(request, "", "INTERNAL_ERROR", "rg is not installed in sandbox")
 		}
 		stderr := strings.TrimSpace(string(output))
 		if stderr == "" {
 			stderr = err.Error()
 		}
 		if !strings.Contains(stderr, "No files were searched") && !strings.Contains(stderr, "No such file or directory") {
-			return d.errorResponse(request, "IO_ERROR", stderr)
+			return d.failed(request, "", "IO_ERROR", stderr)
 		}
 	}
 
@@ -474,17 +485,17 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 		lines = lines[:limit]
 	}
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"path":      resolved.path,
 		"lines":     lines,
 		"truncated": truncated,
-	})
+	}
 }
 
-func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{} {
+func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string, ownerIdentity string) interface{} {
 	var params processStartParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, opID, "BAD_REQUEST", err.Error())
 	}
 
 	cmdSummary := strings.TrimSpace(params.Command)
@@ -500,31 +511,31 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{}
 	info, err := os.Stat(resolved.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return d.errorResponse(request, "NOT_FOUND", err.Error())
+			return d.failed(request, opID, "NOT_FOUND", err.Error())
 		}
-		return d.errorResponse(request, "IO_ERROR", err.Error())
+		return d.failed(request, opID, "IO_ERROR", err.Error())
 	}
 	if !info.IsDir() {
-		return d.errorResponse(request, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
+		return d.failed(request, opID, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
 	}
 
-	processID, stdout, stderr, exitCh, err := d.processManager.Start(params.Command, resolved.path, params.TimeoutSecs)
+	processID, stdout, stderr, exitCh, err := d.processManager.Start(ownerIdentity, params.Command, resolved.path, params.TimeoutSecs)
 	if err != nil {
 		d.logger.Error("process:start failed", slog.String("cmd", cmdSummary), slog.String("error", err.Error()))
-		return d.errorResponse(request, "PROCESS_SPAWN_FAILED", err.Error())
+		return d.failed(request, opID, "PROCESS_SPAWN_FAILED", err.Error())
 	}
-	d.logger.Info("process:start", slog.String("processId", processID), slog.String("cmd", cmdSummary), slog.String("cwd", resolved.path))
+	d.logger.Info("process:start", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("cmd", cmdSummary), slog.String("cwd", resolved.path))
 
-	_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "started", ProcessID: processID})
+	_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "started", ProcessID: processID}))
 
 	go func() {
 		_ = process.StreamLines(stdout, func(line string) {
-			_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "stdout", Chunk: line})
+			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stdout", Chunk: line}))
 		})
 	}()
 	go func() {
 		_ = process.StreamLines(stderr, func(line string) {
-			_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "stderr", Chunk: line})
+			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stderr", Chunk: line}))
 		})
 	}()
 	go func() {
@@ -533,78 +544,113 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest) interface{}
 		if exitCode != nil {
 			codeStr = fmt.Sprintf("%d", *exitCode)
 		}
-		d.logger.Info("process:exit", slog.String("processId", processID), slog.String("exitCode", codeStr), slog.String("cmd", cmdSummary))
-		_ = d.sendStream(request, protocol.RPCStreamEvent{Type: "exit", ExitCode: exitCode})
+		d.logger.Info("process:exit", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("exitCode", codeStr), slog.String("cmd", cmdSummary))
+		_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "exit", ExitCode: exitCode}))
+		_ = d.sendEventToIdentity(ownerIdentity, d.complete(request, opID, map[string]interface{}{
+			"processId": processID,
+			"exitCode":  exitCode,
+		}))
 	}()
 
-	return d.response(request, map[string]interface{}{
-		"processId": processID,
-	})
+	return nil
 }
 
 func (d *Dispatcher) handleProcessAbort(request protocol.RPCRequest) interface{} {
 	var params processAbortParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return d.errorResponse(request, "BAD_REQUEST", err.Error())
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
 	}
 
 	if err := d.processManager.Abort(params.ProcessID); err != nil {
 		d.logger.Warn("process:abort failed", slog.String("processId", params.ProcessID), slog.String("error", err.Error()))
-		return d.errorResponse(request, "PROCESS_ABORT_FAILED", err.Error())
+		return d.failed(request, "", "PROCESS_ABORT_FAILED", err.Error())
 	}
 	d.logger.Info("process:abort", slog.String("processId", params.ProcessID))
 
-	return d.response(request, map[string]interface{}{
+	return map[string]interface{}{
 		"processId": params.ProcessID,
 		"aborted":   true,
-	})
-}
-
-func (d *Dispatcher) response(request protocol.RPCRequest, result interface{}) protocol.RPCResponse {
-	return protocol.RPCResponse{
-		Version:    protocol.Version,
-		Type:       "rpc.response",
-		RequestID:  request.RequestID,
-		SpaceID:    request.SpaceID,
-		SandboxID:  request.SandboxID,
-		SessionID:  request.SessionID,
-		ToolCallID: request.ToolCallID,
-		Timestamp:  nowMS(),
-		Result:     result,
 	}
 }
 
-func (d *Dispatcher) errorResponse(request protocol.RPCRequest, code string, message string) protocol.RPCError {
-	return protocol.RPCError{
-		Version:    protocol.Version,
-		Type:       "rpc.error",
-		RequestID:  request.RequestID,
-		SpaceID:    request.SpaceID,
-		SandboxID:  request.SandboxID,
-		SessionID:  request.SessionID,
-		ToolCallID: request.ToolCallID,
-		Timestamp:  nowMS(),
-		Error:      protocol.RPCErrorPayload{Code: code, Message: message, Retryable: false},
+func (d *Dispatcher) complete(request protocol.RPCRequest, opID string, result interface{}) interface{} {
+	// If a handler already produced a terminal failure payload, enrich and forward it.
+	// Note: the type assertion yields a value copy; we intentionally mutate that copy
+	// and return it as the finalized failed payload.
+	if failed, ok := result.(protocol.RPCFailed); ok {
+		if opID != "" && failed.OpID == "" {
+			failed.OpID = opID
+		}
+		if failed.Seq == 0 {
+			failed.Seq = d.nextSeq()
+		}
+		return failed
+	}
+	return protocol.RPCCompleted{
+		OperationScopedMessage: protocol.OperationScopedMessage{
+			BaseMessage: protocol.BaseMessage{
+				Version:   protocol.Version,
+				Type:      "rpc.completed",
+				SpaceID:   request.SpaceID,
+				SandboxID: request.SandboxID,
+				Timestamp: nowMS(),
+			},
+			OpID:       opID,
+			RequestID:  request.RequestID,
+			Seq:        d.nextSeq(),
+			SessionID:  request.SessionID,
+			ToolCallID: request.ToolCallID,
+		},
+		Result: result,
 	}
 }
 
-func (d *Dispatcher) sendStream(request protocol.RPCRequest, event protocol.RPCStreamEvent) error {
+func (d *Dispatcher) failed(request protocol.RPCRequest, opID string, code string, message string) protocol.RPCFailed {
+	return protocol.RPCFailed{
+		OperationScopedMessage: protocol.OperationScopedMessage{
+			BaseMessage: protocol.BaseMessage{
+				Version:   protocol.Version,
+				Type:      "rpc.failed",
+				SpaceID:   request.SpaceID,
+				SandboxID: request.SandboxID,
+				Timestamp: nowMS(),
+			},
+			OpID:       opID,
+			RequestID:  request.RequestID,
+			Seq:        d.nextSeq(),
+			SessionID:  request.SessionID,
+			ToolCallID: request.ToolCallID,
+		},
+		Error: protocol.RPCErrorPayload{Code: code, Message: message, Retryable: false},
+	}
+}
+
+func (d *Dispatcher) event(request protocol.RPCRequest, opID string, event protocol.RPCEventPayload) protocol.RPCEvent {
+	return protocol.RPCEvent{
+		OperationScopedMessage: protocol.OperationScopedMessage{
+			BaseMessage: protocol.BaseMessage{
+				Version:   protocol.Version,
+				Type:      "rpc.event",
+				SpaceID:   request.SpaceID,
+				SandboxID: request.SandboxID,
+				Timestamp: nowMS(),
+			},
+			OpID:       opID,
+			RequestID:  request.RequestID,
+			Seq:        d.nextSeq(),
+			SessionID:  request.SessionID,
+			ToolCallID: request.ToolCallID,
+		},
+		Event: event,
+	}
+}
+
+func (d *Dispatcher) sendEventToIdentity(identity string, payload interface{}) error {
 	d.mu.Lock()
-	sender := d.sender
+	router := d.router
 	d.mu.Unlock()
-	if sender == nil {
+	if router == nil {
 		return nil
 	}
-
-	return sender.SendJSON(protocol.RPCStream{
-		Version:    protocol.Version,
-		Type:       "rpc.stream",
-		RequestID:  request.RequestID,
-		SpaceID:    request.SpaceID,
-		SandboxID:  request.SandboxID,
-		SessionID:  request.SessionID,
-		ToolCallID: request.ToolCallID,
-		Timestamp:  nowMS(),
-		Event:      event,
-	})
+	return router.SendToIdentity(identity, payload)
 }

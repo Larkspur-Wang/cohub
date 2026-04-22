@@ -4,6 +4,30 @@ import "encoding/json"
 
 const Version = "1"
 
+type BaseMessage struct {
+	Version   string `json:"version"`
+	Type      string `json:"type"`
+	SpaceID   string `json:"spaceId"`
+	SandboxID string `json:"sandboxId"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+type RequestScopedMessage struct {
+	BaseMessage
+	RequestID  string  `json:"requestId"`
+	SessionID  *string `json:"sessionId,omitempty"`
+	ToolCallID *string `json:"toolCallId,omitempty"`
+}
+
+type OperationScopedMessage struct {
+	BaseMessage
+	OpID       string  `json:"opId"`
+	RequestID  string  `json:"requestId"`
+	Seq        int64   `json:"seq"`
+	SessionID  *string `json:"sessionId,omitempty"`
+	ToolCallID *string `json:"toolCallId,omitempty"`
+}
+
 type SandboxFilesystemRoot struct {
 	Path     string `json:"path"`
 	Writable bool   `json:"writable"`
@@ -35,40 +59,40 @@ type SandboxMetadata struct {
 }
 
 type SandboxHeartbeat struct {
-	Version      string              `json:"version"`
-	Type         string              `json:"type"`
-	SpaceID      string              `json:"spaceId"`
-	SandboxID    string              `json:"sandboxId"`
-	Timestamp    int64               `json:"timestamp"`
+	BaseMessage
 	Status       string              `json:"status"`
 	Capabilities SandboxCapabilities `json:"capabilities,omitempty"`
 	Filesystem   *SandboxFilesystem  `json:"filesystem,omitempty"`
 	Metadata     *SandboxMetadata    `json:"metadata,omitempty"`
 }
 
-type RPCRequest struct {
-	Version    string          `json:"version"`
-	Type       string          `json:"type"`
-	RequestID  string          `json:"requestId"`
-	SpaceID    string          `json:"spaceId"`
-	SandboxID  string          `json:"sandboxId"`
-	SessionID  *string         `json:"sessionId,omitempty"`
-	ToolCallID *string         `json:"toolCallId,omitempty"`
-	Timestamp  int64           `json:"timestamp"`
-	Method     string          `json:"method"`
-	Params     json.RawMessage `json:"params"`
+type SessionAttach struct {
+	BaseMessage
+	RequestID string `json:"requestId"`
+	Identity  string `json:"identity"`
 }
 
-type RPCResponse struct {
-	Version    string      `json:"version"`
-	Type       string      `json:"type"`
-	RequestID  string      `json:"requestId"`
-	SpaceID    string      `json:"spaceId"`
-	SandboxID  string      `json:"sandboxId"`
-	SessionID  *string     `json:"sessionId,omitempty"`
-	ToolCallID *string     `json:"toolCallId,omitempty"`
-	Timestamp  int64       `json:"timestamp"`
-	Result     interface{} `json:"result"`
+type SessionAttachOK struct {
+	BaseMessage
+	RequestID    string `json:"requestId"`
+	ConnectionID string `json:"connectionId"`
+	Identity     string `json:"identity"`
+}
+
+type RPCRequest struct {
+	RequestScopedMessage
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
+}
+
+type RPCAccepted struct {
+	RequestScopedMessage
+	OpID string `json:"opId"`
+}
+
+type RPCCompleted struct {
+	OperationScopedMessage
+	Result interface{} `json:"result"`
 }
 
 type RPCErrorPayload struct {
@@ -77,35 +101,21 @@ type RPCErrorPayload struct {
 	Retryable bool   `json:"retryable"`
 }
 
-type RPCError struct {
-	Version    string          `json:"version"`
-	Type       string          `json:"type"`
-	RequestID  string          `json:"requestId"`
-	SpaceID    string          `json:"spaceId"`
-	SandboxID  string          `json:"sandboxId"`
-	SessionID  *string         `json:"sessionId,omitempty"`
-	ToolCallID *string         `json:"toolCallId,omitempty"`
-	Timestamp  int64           `json:"timestamp"`
-	Error      RPCErrorPayload `json:"error"`
+type RPCFailed struct {
+	OperationScopedMessage
+	Error RPCErrorPayload `json:"error"`
 }
 
-type RPCStreamEvent struct {
+type RPCEventPayload struct {
 	Type      string `json:"type"`
 	ProcessID string `json:"processId,omitempty"`
 	Chunk     string `json:"chunk,omitempty"`
 	ExitCode  *int   `json:"exitCode,omitempty"`
 }
 
-type RPCStream struct {
-	Version    string         `json:"version"`
-	Type       string         `json:"type"`
-	RequestID  string         `json:"requestId"`
-	SpaceID    string         `json:"spaceId"`
-	SandboxID  string         `json:"sandboxId"`
-	SessionID  *string        `json:"sessionId,omitempty"`
-	ToolCallID *string        `json:"toolCallId,omitempty"`
-	Timestamp  int64          `json:"timestamp"`
-	Event      RPCStreamEvent `json:"event"`
+type RPCEvent struct {
+	OperationScopedMessage
+	Event RPCEventPayload `json:"event"`
 }
 
 type IncomingEnvelope struct {

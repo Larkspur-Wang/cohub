@@ -14,9 +14,10 @@ import (
 )
 
 type ManagedProcess struct {
-	ID     string
-	Cmd    *exec.Cmd
-	Cancel context.CancelFunc
+	ID            string
+	OwnerIdentity string
+	Cmd           *exec.Cmd
+	Cancel        context.CancelFunc
 }
 
 type Manager struct {
@@ -32,7 +33,7 @@ func NewManager(logger *slog.Logger) *Manager {
 	}
 }
 
-func (m *Manager) Start(command string, cwd string, timeoutSecs int) (string, io.ReadCloser, io.ReadCloser, <-chan *int, error) {
+func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeoutSecs int) (string, io.ReadCloser, io.ReadCloser, <-chan *int, error) {
 	ctx := context.Background()
 	var cancel context.CancelFunc
 	if timeoutSecs > 0 {
@@ -61,7 +62,7 @@ func (m *Manager) Start(command string, cwd string, timeoutSecs int) (string, io
 	}
 
 	processID := uuid.NewString()
-	managed := &ManagedProcess{ID: processID, Cmd: cmd, Cancel: cancel}
+	managed := &ManagedProcess{ID: processID, OwnerIdentity: ownerIdentity, Cmd: cmd, Cancel: cancel}
 
 	m.mu.Lock()
 	m.processes[processID] = managed
@@ -107,11 +108,13 @@ func (m *Manager) Abort(processID string) error {
 	return nil
 }
 
-func (m *Manager) AbortAll() {
+func (m *Manager) AbortByIdentity(identity string) {
 	m.mu.Lock()
-	processes := make([]*ManagedProcess, 0, len(m.processes))
+	processes := make([]*ManagedProcess, 0)
 	for _, managed := range m.processes {
-		processes = append(processes, managed)
+		if managed.OwnerIdentity == identity {
+			processes = append(processes, managed)
+		}
 	}
 	m.mu.Unlock()
 
