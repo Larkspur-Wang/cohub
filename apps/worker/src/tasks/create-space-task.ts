@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { checkpoints, spaces } from "../db-schema.js";
 import { getUserGitAccount } from "../git-accounts.js";
-import { createRepository } from "../gitea.js";
+import { createRepository, forkRepository, renameRepository } from "../gitea.js";
 import {
   buildAuthenticatedRemoteUrl,
   emptyDirectory,
@@ -207,28 +207,16 @@ const bootstrapFromCheckpoint = async (input: {
     .limit(1);
   if (!checkpoint) throw new Error("checkpoint not found");
 
-  const [sourceSpace] = await db
-    .select()
-    .from(spaces)
-    .where(eq(spaces.id, checkpoint.spaceId))
-    .limit(1);
-  if (!sourceSpace) throw new Error("checkpoint source space not found");
-
-  const sourceGitAccount = await getUserGitAccount(sourceSpace.userUuid);
-  const sourceRemoteUrl = buildAuthenticatedRemoteUrl({
-    username: sourceGitAccount.giteaUsername,
-    accessToken: sourceGitAccount.giteaAccessToken,
-    repoName: sourceSpace.storageRepoName,
-  });
-
+  // The forked repo already has full history from the source.
+  // Clone it, reset to the checkpoint commit, and force push.
   await emptyDirectory(input.workspaceDir);
-  await runGit(["clone", sourceRemoteUrl, "."], input.workspaceDir);
-  await runGit(["checkout", checkpoint.commitHash], input.workspaceDir);
-  await runGit(["remote", "remove", "origin"], input.workspaceDir).catch(() => undefined);
-  return pushExistingHistory({
-    workspaceDir: input.workspaceDir,
-    authenticatedRemoteUrl: input.authenticatedRemoteUrl,
-  });
+  await runGit(["clone", input.authenticatedRemoteUrl, "."], input.workspaceDir);
+  await runGit(["reset", "--hard", checkpoint.commitHash], input.workspaceDir);
+  await runGit(["checkout", "-B", "main"], input.workspaceDir);
+  await runGit(["push", "-f", "-u", "origin", "main"], input.workspaceDir);
+
+  const head = await runGitWithOutput(["rev-parse", "HEAD"], input.workspaceDir);
+  return { branch: "main", commitHash: head.stdout.trim() };
 };
 
 const createSpaceHandler = async (job: Job) => {
@@ -253,7 +241,39 @@ const createSpaceHandler = async (job: Job) => {
 
   try {
     const gitAccount = await getUserGitAccount(currentSpace.userUuid);
-    await createRepository(gitAccount.giteaAccessToken, currentSpace.storageRepoName, false);
+
+    if (source.type === "checkpoint") {
+      const [checkpoint] = await db
+        .select()
+        .from(checkpoints)
+        .where(eq(checkpoints.id, source.checkpointId))
+        .limit(1);
+      if (!checkpoint) throw new Error("checkpoint not found");
+
+      const [sourceSpace] = await db
+        .select()
+        .from(spaces)
+        .where(eq(spaces.id, checkpoint.spaceId))
+        .limit(1);
+      if (!sourceSpace) throw new Error("checkpoint source space not found");
+
+      const sourceGitAccount = await getUserGitAccount(sourceSpace.userUuid);
+
+      await forkRepository(
+        sourceGitAccount.giteaUsername,
+        sourceSpace.storageRepoName,
+        gitAccount.giteaAccessToken,
+      );
+
+      await renameRepository(
+        gitAccount.giteaUsername,
+        sourceSpace.storageRepoName,
+        currentSpace.storageRepoName,
+        gitAccount.giteaAccessToken,
+      );
+    } else {
+      await createRepository(gitAccount.giteaAccessToken, currentSpace.storageRepoName, false);
+    }
 
     await ensureSpaceWorkspaceReady(currentSpace.id);
     const workspaceDir = getSpaceWorkspaceDir(currentSpace.id);
@@ -291,6 +311,12 @@ const createSpaceHandler = async (job: Job) => {
         authenticatedRemoteUrl,
         checkpointId: source.checkpointId,
       });
+
+      await db
+        .update(checkpoints)
+        .set({ forkCount: sql`${checkpoints.forkCount} + 1` })
+        .where(eq(checkpoints.id, source.checkpointId));
+
       currentSpace = (
         await db
           .update(spaces)
