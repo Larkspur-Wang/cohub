@@ -2386,6 +2386,7 @@ $effect(() => {
 		if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
 			scrollPosBySession.set(activeSessionId, container.scrollTop);
 		}
+		updateAutoFollow();
 	}
 	container.addEventListener("scroll", handleScrollTrack, { passive: true });
 	return () => container.removeEventListener("scroll", handleScrollTrack);
