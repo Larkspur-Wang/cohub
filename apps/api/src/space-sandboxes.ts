@@ -160,7 +160,7 @@ export const reconcileSpaceSandbox = async (input: {
     spaceId: input.spaceId,
     status: "provisioning",
     podName,
-    desiredImage: config.sandboxImage,
+    desiredImage: toSandboxImageVersion(config.sandboxImage),
     meta: provisioningMeta,
   });
 
@@ -204,7 +204,7 @@ export const reconcileSpaceSandbox = async (input: {
     spaceId: input.spaceId,
     status: "provisioning",
     podName,
-    desiredImage: config.sandboxImage,
+    desiredImage: toSandboxImageVersion(config.sandboxImage),
     meta: {
       ...provisioningMeta,
       lastProvisionedAt: new Date().toISOString(),
@@ -230,7 +230,7 @@ export const provisionSpaceSandbox = async (input: {
       spaceId: input.spaceId,
       status: "error",
       podName: `sandbox-${input.spaceId}`,
-      desiredImage: config.sandboxImage,
+      desiredImage: toSandboxImageVersion(config.sandboxImage),
       meta: {
         ...existingMeta,
         lastError: error instanceof Error ? error.message : String(error),
