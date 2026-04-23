@@ -20,7 +20,7 @@ import {
   formatSize,
   truncateHead,
   truncateLine,
-} from "@mariozechner/pi-coding-agent";
+} from "../runtime/tools/index.js";
 
 const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
@@ -324,7 +324,7 @@ function createRemoteGrepTool() {
     input,
     signal?: AbortSignal,
     _onUpdate?,
-    _ctx?,
+    _ctx?: unknown,
   ) => {
     const grepInput = input as GrepToolInput;
     console.log(`[Tool:grep] pattern=${grepInput.pattern} path=${grepInput.path}`);
@@ -509,14 +509,8 @@ function createRemoteGrepTool() {
 
   // Keep native renderCall and renderResult for TUI consistency.
   return {
-    name: definition.name,
-    label: definition.label,
-    description: definition.description,
-    promptSnippet: definition.promptSnippet,
-    parameters: definition.parameters,
+    ...definition,
     execute: definition.execute,
-    renderCall: definition.renderCall?.bind(definition),
-    renderResult: definition.renderResult?.bind(definition),
   };
 }
 

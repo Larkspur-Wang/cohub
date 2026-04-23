@@ -1,6 +1,6 @@
-import type { Agent, AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
+import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
-import type { Api, ImageContent, Model } from "@mariozechner/pi-ai";
+import { streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import type { CohubModelRegistry } from "./model-registry.js";
 import type { LoadedSkill } from "./resources.js";
@@ -42,6 +42,16 @@ function toLlmMessages(messages: AgentMessage[]) {
     const role = (message as { role?: string }).role;
     return role === "user" || role === "assistant" || role === "toolResult";
   }) as never;
+}
+
+function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
+  return (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
+    const headers = modelRegistry.getHeaders(model.provider, model.id);
+    return streamSimple(model, context, {
+      ...options,
+      headers: headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers,
+    });
+  };
 }
 
 function createUserMessage(text: string, images?: ImageContent[]): AgentMessage {
@@ -94,6 +104,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       messages: sessionContext.messages,
     },
     convertToLlm: toLlmMessages,
+    streamFn: createStreamFn(options.modelRegistry),
     getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),
   });
 
