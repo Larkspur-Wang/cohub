@@ -1,7 +1,7 @@
 {
   "name": "@neta-art/cohub-protocol",
   "version": "0.1.0",
-  "description": "Shared Cohub protocol definitions for core models, realtime events, gateway contracts, tasks, and filesystem DTOs.",
+  "description": "Shared protocol definitions for the Cohub agent collaboration platform.",
   "license": "UNLICENSED",
   "private": false,
   "type": "module",
@@ -14,8 +14,11 @@
   "keywords": [
     "cohub",
     "protocol",
+    "agent",
+    "spaces",
+    "checkpoints",
+    "collaboration",
     "realtime",
-    "gateway",
     "sdk"
   ],
   "publishConfig": {

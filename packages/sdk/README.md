@@ -1,6 +1,6 @@
 # @neta-art/cohub
 
-Business-oriented Cohub SDK for spaces, sessions, messages, files, tasks, and realtime subscriptions.
+Cohub SDK for interacting with spaces, sessions, checkpoints, and realtime agent collaboration.
 
 ## Install
 
@@ -8,9 +8,7 @@ Business-oriented Cohub SDK for spaces, sessions, messages, files, tasks, and re
 npm install @neta-art/cohub @neta-art/cohub-protocol
 ```
 
-## Recommended usage
-
-Use the main client when you want to work with Cohub business objects instead of wiring HTTP and WebSocket yourself.
+## Quick start
 
 ```ts
 import { createCohubClient } from "@neta-art/cohub";
@@ -25,6 +23,8 @@ const client = createCohubClient({
 ```
 
 ## Spaces and sessions
+
+A **Space** is a live, isolated working environment where users and agents create together.
 
 ```ts
 const created = await client.spaces.create({ name: "Demo" });
@@ -113,9 +113,9 @@ await ws.connect();
 
 ## Design principles
 
-This SDK is intentionally business-oriented:
+This SDK is intentionally built around Cohub's co-creation model:
 
-- work with `space(...)` and `session(...)`
+- work with `space(...)` and `session(...)` as the primary creative surface
 - send messages through `session.messages.send(...)`
 - subscribe through `space.subscribe(...)` and `session.subscribe(...)`
 - keep protocol details behind the SDK surface
@@ -124,9 +124,9 @@ This SDK is intentionally business-oriented:
 
 Before publishing:
 
-1. build the package: `pnpm --filter @neta-art/cohub build`
-2. typecheck the package: `pnpm --filter @neta-art/cohub typecheck`
-3. build the protocol package: `pnpm --filter @neta-art/cohub-protocol build`
-4. typecheck the protocol package: `pnpm --filter @neta-art/cohub-protocol typecheck`
+1. build the protocol package: `pnpm --filter @neta-art/cohub-protocol build`
+2. build this package: `pnpm --filter @neta-art/cohub build`
+3. typecheck the protocol package: `pnpm --filter @neta-art/cohub-protocol typecheck`
+4. typecheck this package: `pnpm --filter @neta-art/cohub typecheck`
 5. verify consuming apps still typecheck
 6. verify `dist/` contains `index`, `http`, and `websocket` outputs

@@ -1,23 +1,30 @@
 # @neta-art/cohub-protocol
 
-Shared Cohub protocol package.
+Shared protocol definitions for the Cohub agent collaboration platform.
 
-This package contains the stable protocol surface shared across Cohub services and SDKs.
+This package provides the stable type surface used across Cohub services and client SDKs — covering spaces, checkpoints, sessions, realtime events, gateway contracts, tasks, and filesystem operations.
+
+## Install
+
+```bash
+npm install @neta-art/cohub-protocol
+```
 
 ## Subpath exports
 
-- `@neta-art/cohub-protocol/core`
-- `@neta-art/cohub-protocol/model`
-- `@neta-art/cohub-protocol/realtime`
-- `@neta-art/cohub-protocol/gateway`
-- `@neta-art/cohub-protocol/task`
-- `@neta-art/cohub-protocol/fs`
+| Subpath | Contents |
+|---|---|
+| `@neta-art/cohub-protocol/core` | Low-level primitives — content blocks, usage, shared types |
+| `@neta-art/cohub-protocol/model` | Business records and input models — sessions, spaces, checkpoints |
+| `@neta-art/cohub-protocol/realtime` | WebSocket and streaming event protocol definitions |
+| `@neta-art/cohub-protocol/gateway` | Stable gateway contracts for external channels |
+| `@neta-art/cohub-protocol/task` | Task scheduler and worker contracts |
+| `@neta-art/cohub-protocol/fs` | Space filesystem DTOs |
 
-## Notes
+## Usage
 
-- `core` contains low-level primitives such as content blocks and usage.
-- `model` contains shared business records and input models.
-- `realtime` contains websocket and streaming protocol definitions.
-- `gateway` contains stable gateway contracts.
-- `task` contains task scheduler / worker contracts.
-- `fs` contains shared space filesystem DTOs.
+```ts
+import { type ContentBlock } from "@neta-art/cohub-protocol/core";
+import { type SessionInput } from "@neta-art/cohub-protocol/model";
+import { type RealtimeEvent } from "@neta-art/cohub-protocol/realtime";
+```
