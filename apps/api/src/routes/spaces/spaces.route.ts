@@ -329,10 +329,18 @@ router.get("/:id", async (c) => {
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "space not found" }, 404);
 
-  const sandbox = await getSpaceSandboxBySpaceId(space.id);
-  return c.json({ ...space, sandboxStatus: sandbox?.status ?? null });
+  if (await hasPermission(user, "space.view", { spaceId })) {
+    const sandbox = await getSpaceSandboxBySpaceId(space.id);
+    return c.json({ ...space, sandboxStatus: sandbox?.status ?? null });
+  }
+
+  // Fallback: only session-level access — return minimal info
+  return c.json({
+    id: space.id,
+    name: space.name,
+    accessLevel: "minimal" as const,
+  });
 });
 
 // ── PATCH /api/spaces/:id (rename) ─────────────────────────────────────────

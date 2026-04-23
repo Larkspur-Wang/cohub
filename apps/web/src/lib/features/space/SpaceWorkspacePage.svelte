@@ -156,6 +156,8 @@ const isRightDrawerVisible = $derived(
 );
 
 let space = $state<SpaceRecord | null>(null);
+// True when the backend returned only minimal info (session-level access only)
+const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 let spaceSessions = $state<SessionRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
@@ -975,10 +977,19 @@ async function loadSpace(_options?: { force?: boolean }) {
 			try {
 				const result = await sdk.space(spaceId).sessions.list();
 				seedSessions(result.sessions ?? []);
-			} catch (error) {
-				if (!spaceLoadError) {
-					spaceLoadError =
-						error instanceof Error ? error.message : "Failed to load sessions";
+			} catch {
+				// Sessions list not available — if viewing a session, fetch it directly
+				if (routeView === "session" && routeSessionId) {
+					void (async () => {
+						try {
+							const { session } = await sdk
+								.space(spaceId)
+								.sessions.get(routeSessionId);
+							seedSessions([session]);
+						} catch {
+							// Silently fail
+						}
+					})();
 				}
 			}
 		})(),
@@ -2461,38 +2472,42 @@ $effect(() => {
     {/if}
 
     <!-- Settings -->
-    <button
-      type="button"
-      class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-      onclick={() => { showSettings = true; }}
-      title="Settings"
-    >
-      <Settings class="w-4 h-4 shrink-0" />
-    </button>
-
-    <!-- Toggle right sidebar -->
-    <div class="relative">
+    {#if !spaceHasMinimalAccess}
       <button
         type="button"
-        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-        onclick={() => {
-          if (window.innerWidth < 1024) {
-            uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
-            return;
-          }
-          uiState.setRightSidebarCollapsed(!uiState.rightSidebarCollapsed);
-        }}
-        title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+        class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        onclick={() => { showSettings = true; }}
+        title="Settings"
       >
-        {#if uiState.rightSidebarCollapsed}
-          <PanelRightOpen class="w-4 h-4 shrink-0" />
-          <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
-        {:else}
-          <PanelRightClose class="w-4 h-4 shrink-0" />
-          <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
-        {/if}
+        <Settings class="w-4 h-4 shrink-0" />
       </button>
-    </div>
+    {/if}
+
+    <!-- Toggle right sidebar -->
+    {#if !spaceHasMinimalAccess}
+      <div class="relative">
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={() => {
+            if (window.innerWidth < 1024) {
+              uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
+              return;
+            }
+            uiState.setRightSidebarCollapsed(!uiState.rightSidebarCollapsed);
+          }}
+          title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
+        >
+          {#if uiState.rightSidebarCollapsed}
+            <PanelRightOpen class="w-4 h-4 shrink-0" />
+            <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
+          {:else}
+            <PanelRightClose class="w-4 h-4 shrink-0" />
+            <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
+          {/if}
+        </button>
+      </div>
+    {/if}
   {/snippet}
 </PageHeader>
 
@@ -2500,7 +2515,7 @@ $effect(() => {
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if routeView === 'checkpoint-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
-        {#if spaceLoadError}
+        {#if spaceLoadError && !spaceHasMinimalAccess}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
         {:else}
           <form onsubmit={handleCreateCheckpointSubmit} class="space-y-3">
@@ -2623,7 +2638,7 @@ $effect(() => {
 
     {:else if routeView === 'cronjob-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
-        {#if spaceLoadError}
+        {#if spaceLoadError && !spaceHasMinimalAccess}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
         {:else}
           <form onsubmit={handleCreateCronjobSubmit} class="space-y-3">
@@ -3100,7 +3115,7 @@ $effect(() => {
       {/if}
     {:else}
       <!-- Chat -->
-    {#if spaceLoadError}
+    {#if spaceLoadError && !spaceHasMinimalAccess}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
     {/if}
 
@@ -3204,20 +3219,22 @@ $effect(() => {
                 </div>
               </div>
 
-              <button
-                type="button"
-                class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
-                onclick={() => handleCreateNewSession()}
-                disabled={!canCreateSession}
-              >
-                {#if creatingSession}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                  Creating…
-                {:else}
-                  <Plus class="w-3.5 h-3.5" />
-                  New chat
-                {/if}
-              </button>
+              {#if !spaceHasMinimalAccess}
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                  onclick={() => handleCreateNewSession()}
+                  disabled={!canCreateSession}
+                >
+                  {#if creatingSession}
+                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                    Creating…
+                  {:else}
+                    <Plus class="w-3.5 h-3.5" />
+                    New chat
+                  {/if}
+                </button>
+              {/if}
             </div>
           </div>
 
@@ -3304,15 +3321,17 @@ $effect(() => {
     {:else if !activeSessionState}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
         <div class="text-[14px]">No chat selected</div>
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
-          onclick={() => handleCreateNewSession()}
-          disabled={!canCreateSession}
-        >
-          <Plus class="w-3.5 h-3.5" />
-          Create a session
-        </button>
+        {#if !spaceHasMinimalAccess}
+          <button
+            type="button"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
+            onclick={() => handleCreateNewSession()}
+            disabled={!canCreateSession}
+          >
+            <Plus class="w-3.5 h-3.5" />
+            Create a session
+          </button>
+        {/if}
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
       <div class="flex-1 flex items-center justify-center">
@@ -3372,7 +3391,7 @@ $effect(() => {
   </div>
 
   <!-- Desktop right sidebar — file tree only -->
-  {#if !uiState.rightSidebarCollapsed}
+  {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
     <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
       <div class="w-full relative">
         <SpaceFileSidebar
@@ -3405,20 +3424,22 @@ $effect(() => {
     isDragging={uiState.rightIsDragging}
     isDrawerVisible={isRightDrawerVisible}
   >
-    <SpaceFileSidebar
-      nodes={fileTree}
-      selectedPath={routeFilePath ?? ""}
-      loading={fileTreeLoading}
-      error={fileTreeError}
-      onToggle={expandDirectory}
-      onSelect={(node) => { if (node.type === "file") { void openSpaceFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
-      onRefresh={refreshFileTree}
-      onCreateFile={handleCreateFile}
-      onCreateDir={handleCreateDir}
-      onRename={handleRenameNode}
-      onDelete={handleDeleteNode}
-      canWrite={true}
-    />
+    {#if !spaceHasMinimalAccess}
+      <SpaceFileSidebar
+        nodes={fileTree}
+        selectedPath={routeFilePath ?? ""}
+        loading={fileTreeLoading}
+        error={fileTreeError}
+        onToggle={expandDirectory}
+        onSelect={(node) => { if (node.type === "file") { void openSpaceFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
+        onRefresh={refreshFileTree}
+        onCreateFile={handleCreateFile}
+        onCreateDir={handleCreateDir}
+        onRename={handleRenameNode}
+        onDelete={handleDeleteNode}
+        canWrite={true}
+      />
+    {/if}
   </MobileRightDrawer>
 
   <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->

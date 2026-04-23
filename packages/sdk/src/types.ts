@@ -79,6 +79,7 @@ export type SpaceRecord = {
     provider: string;
     status: string;
   }[];
+  accessLevel?: "minimal";
 };
 
 export type SpaceBootstrapSource =
