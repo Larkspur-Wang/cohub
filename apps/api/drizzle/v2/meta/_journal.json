@@ -15,6 +15,13 @@
       "when": 1776831256835,
       "tag": "0001_concerned_mattie_franklin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776910369368,
+      "tag": "0002_permissions_v1",
+      "breakpoints": true
     }
   ]
 }

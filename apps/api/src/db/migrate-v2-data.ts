@@ -359,9 +359,8 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating runtime/session permissions...");
+    console.log("[V2 Data Migration] Migrating runtime/session permissions into space members and access policies...");
     const permissions = await sql<{
-      id: string;
       resource_type: string;
       resource_id: string;
       grantee_uuid: string | null;
@@ -369,7 +368,7 @@ async function migrateV2Data() {
       created_by: string;
       created_at: Date | null;
     }[]>`
-      SELECT id, resource_type, resource_id, grantee_uuid, level, created_by, created_at
+      SELECT resource_type, resource_id, grantee_uuid, level, created_by, created_at
       FROM public.resource_permissions
     `;
 
@@ -377,45 +376,77 @@ async function migrateV2Data() {
       const resourceType = mapRuntimeResourceType(permission.resource_type);
       if (!resourceType) continue;
 
-      await sql`
-        INSERT INTO v2.resource_permissions (
-          id,
-          resource_type,
-          resource_id,
-          grantee_uuid,
-          level,
-          created_by,
-          created_at
-        )
-        VALUES (
-          ${permission.id},
-          ${resourceType},
-          ${permission.resource_id},
-          ${permission.grantee_uuid},
-          ${permission.level},
-          ${permission.created_by},
-          ${permission.created_at}
-        )
-        ON CONFLICT DO NOTHING
-      `;
+      if (resourceType === "space" && permission.grantee_uuid) {
+        await sql`
+          INSERT INTO v2.space_members (
+            space_id,
+            user_id,
+            role,
+            created_by,
+            updated_by,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            ${permission.resource_id},
+            ${permission.grantee_uuid},
+            ${permission.level === "write" ? "maker" : "guest"},
+            ${permission.created_by},
+            ${permission.created_by},
+            ${permission.created_at},
+            ${permission.created_at}
+          )
+          ON CONFLICT (space_id, user_id) DO NOTHING
+        `;
+      }
+
+      if (permission.grantee_uuid === null) {
+        await sql`
+          INSERT INTO v2.access_policies (
+            resource_type,
+            resource_id,
+            signed_in_user_role,
+            anonymous_user_role,
+            created_by,
+            updated_by,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            ${resourceType},
+            ${permission.resource_id},
+            ${permission.level === "private" ? null : "guest"},
+            ${permission.level === "private" ? null : "guest"},
+            ${permission.created_by},
+            ${permission.created_by},
+            ${permission.created_at},
+            ${permission.created_at}
+          )
+          ON CONFLICT (resource_type, resource_id) DO NOTHING
+        `;
+      }
     }
 
     console.log("[V2 Data Migration] Migrating public runtime permissions from public workspace visibility...");
     await sql`
-      INSERT INTO v2.resource_permissions (
+      INSERT INTO v2.access_policies (
         resource_type,
         resource_id,
-        grantee_uuid,
-        level,
+        signed_in_user_role,
+        anonymous_user_role,
         created_by,
-        created_at
+        updated_by,
+        created_at,
+        updated_at
       )
       SELECT
         'space',
         r.id,
-        NULL,
-        'read',
+        'guest',
+        'guest',
         r.user_uuid,
+        r.user_uuid,
+        COALESCE(w.updated_at, w.created_at, r.updated_at, r.created_at, NOW()),
         COALESCE(w.updated_at, w.created_at, r.updated_at, r.created_at, NOW())
       FROM public.runtimes r
       JOIN public.workspaces w ON w.id = r.workspace_id

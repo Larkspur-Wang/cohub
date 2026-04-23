@@ -4,7 +4,7 @@ import { taskRuns } from "../db/schema-v2.js";
 import { eq, and, desc } from "drizzle-orm";
 import { useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
-import { canWrite } from "../permissions.js";
+import { hasPermission } from "../permissions.js";
 import { enqueueTask, SUPPORTED_TASK_TYPES } from "../tasks.js";
 
 const router = new Hono();
@@ -35,7 +35,7 @@ router.post("/", async (c) => {
     effectiveSpaceId = effectiveSpaceId ?? session.spaceId;
     if (session.spaceId !== effectiveSpaceId) return c.json({ message: "session does not belong to space" }, 400);
   }
-  if (effectiveSpaceId && !(await canWrite(user, effectiveSpaceId))) return c.json({ message: "not found" }, 404);
+  if (effectiveSpaceId && !(await hasPermission(user, "cronjob.manage", { spaceId: effectiveSpaceId }))) return c.json({ message: "not found" }, 404);
 
   const scheduledTime = new Date(body.scheduleAt);
   if (Number.isNaN(scheduledTime.getTime())) {
@@ -71,15 +71,26 @@ router.get("/", async (c) => {
 
   const cronJobId = c.req.query("cronJobId");
   const spaceId = c.req.query("spaceId");
+  if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
+  if (cronJobId && !requireValidId(cronJobId)) return c.json({ message: "invalid cronJobId" }, 400);
 
-  const conditions = [eq(taskRuns.userUuid, user.uuid)];
-  if (cronJobId && requireValidId(cronJobId)) conditions.push(eq(taskRuns.cronJobId, cronJobId));
-  if (spaceId && requireValidId(spaceId)) conditions.push(eq(taskRuns.spaceId, spaceId));
+  if (spaceId) {
+    if (!(await hasPermission(user, "taskrun.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+    const conditions = [eq(taskRuns.spaceId, spaceId)];
+    if (cronJobId) conditions.push(eq(taskRuns.cronJobId, cronJobId));
+    const runs = await db
+      .select()
+      .from(taskRuns)
+      .where(and(...conditions))
+      .orderBy(desc(taskRuns.createdAt))
+      .limit(50);
+    return c.json({ runs });
+  }
 
   const runs = await db
     .select()
     .from(taskRuns)
-    .where(and(...conditions))
+    .where(eq(taskRuns.userUuid, user.uuid))
     .orderBy(desc(taskRuns.createdAt))
     .limit(50);
 
@@ -92,13 +103,17 @@ router.get("/:taskId", async (c) => {
   const taskId = c.req.param("taskId");
   if (!taskId?.trim()) return c.json({ message: "task run not found" }, 404);
 
-  const [run] = await db
-    .select()
-    .from(taskRuns)
-    .where(and(eq(taskRuns.userUuid, user.uuid), eq(taskRuns.id, taskId)))
-    .limit(1);
-
+  const [run] = await db.select().from(taskRuns).where(eq(taskRuns.id, taskId)).limit(1);
   if (!run) return c.json({ message: "task run not found" }, 404);
+
+  if (run.spaceId) {
+    if (!(await hasPermission(user, "taskrun.view", { spaceId: run.spaceId, sessionId: run.sessionId ?? undefined }))) {
+      return c.json({ message: "task run not found" }, 404);
+    }
+  } else if (run.userUuid !== user.uuid) {
+    return c.json({ message: "task run not found" }, 404);
+  }
+
   return c.json({ run });
 });
 

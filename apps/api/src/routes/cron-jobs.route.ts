@@ -4,7 +4,7 @@ import { cronJobs, taskRuns } from "../db/schema-v2.js";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
-import { canWrite } from "../permissions.js";
+import { hasPermission } from "../permissions.js";
 import { createCronJob, disableCronJob, enableCronJob, removeCronJob, SUPPORTED_TASK_TYPES } from "../tasks.js";
 import type { TaskScheduleConfig } from "@cohub/protocol";
 import * as cronParser from "cron-parser";
@@ -42,7 +42,7 @@ router.post("/", async (c) => {
     effectiveSpaceId = effectiveSpaceId ?? session.spaceId;
     if (session.spaceId !== effectiveSpaceId) return c.json({ message: "session does not belong to space" }, 400);
   }
-  if (effectiveSpaceId && !(await canWrite(user, effectiveSpaceId))) return c.json({ message: "not found" }, 404);
+  if (effectiveSpaceId && !(await hasPermission(user, "cronjob.manage", { spaceId: effectiveSpaceId }))) return c.json({ message: "not found" }, 404);
 
   try {
     const interval = CronExpressionParser.parse(body.cronExpression, {
@@ -96,13 +96,20 @@ router.get("/", async (c) => {
   const spaceId = c.req.query("spaceId") ?? null;
   if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
 
-  const conditions = [eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)];
-  if (spaceId) conditions.push(eq(cronJobs.spaceId, spaceId));
+  if (spaceId) {
+    if (!(await hasPermission(user, "cronjob.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+    const jobs = await db
+      .select()
+      .from(cronJobs)
+      .where(and(eq(cronJobs.spaceId, spaceId), isNull(cronJobs.deletedAt)))
+      .orderBy(desc(cronJobs.createdAt));
+    return c.json({ jobs });
+  }
 
   const jobs = await db
     .select()
     .from(cronJobs)
-    .where(and(...conditions))
+    .where(and(eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
     .orderBy(desc(cronJobs.createdAt));
 
   return c.json({ jobs });
@@ -115,11 +122,24 @@ router.get("/:id/runs", async (c) => {
   if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
 
   const [job] = await db
-    .select()
+    .select({
+      id: cronJobs.id,
+      userUuid: cronJobs.userUuid,
+      spaceId: cronJobs.spaceId,
+      sessionId: cronJobs.sessionId,
+    })
     .from(cronJobs)
-    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .where(and(eq(cronJobs.id, cronJobId), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
+
+  if (job.spaceId) {
+    if (!(await hasPermission(user, "taskrun.view", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
+      return c.json({ message: "not found" }, 404);
+    }
+  } else if (job.userUuid !== user.uuid) {
+    return c.json({ message: "not found" }, 404);
+  }
 
   const runs = await db
     .select()
@@ -138,11 +158,24 @@ router.delete("/:id", async (c) => {
   if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
 
   const [job] = await db
-    .select()
+    .select({
+      id: cronJobs.id,
+      userUuid: cronJobs.userUuid,
+      spaceId: cronJobs.spaceId,
+      sessionId: cronJobs.sessionId,
+      bullJobKey: cronJobs.bullJobKey,
+    })
     .from(cronJobs)
-    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .where(and(eq(cronJobs.id, cronJobId), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
+  if (job.spaceId) {
+    if (!(await hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
+      return c.json({ message: "not found" }, 404);
+    }
+  } else if (job.userUuid !== user.uuid) {
+    return c.json({ message: "not found" }, 404);
+  }
 
   await removeCronJob(cronJobId, job.bullJobKey);
   return c.json({ ok: true });
@@ -155,11 +188,29 @@ router.patch("/:id", async (c) => {
   if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
 
   const [job] = await db
-    .select()
+    .select({
+      id: cronJobs.id,
+      userUuid: cronJobs.userUuid,
+      spaceId: cronJobs.spaceId,
+      sessionId: cronJobs.sessionId,
+      enabled: cronJobs.enabled,
+      bullJobKey: cronJobs.bullJobKey,
+      taskType: cronJobs.taskType,
+      payload: cronJobs.payload,
+      cronExpression: cronJobs.cronExpression,
+      timezone: cronJobs.timezone,
+    })
     .from(cronJobs)
-    .where(and(eq(cronJobs.id, cronJobId), eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .where(and(eq(cronJobs.id, cronJobId), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
+  if (job.spaceId) {
+    if (!(await hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
+      return c.json({ message: "not found" }, 404);
+    }
+  } else if (job.userUuid !== user.uuid) {
+    return c.json({ message: "not found" }, 404);
+  }
 
   const body = await c.req.json<{ enabled?: boolean }>().catch(() => null);
   if (body?.enabled === undefined) return c.json({ message: "enabled is required" }, 400);

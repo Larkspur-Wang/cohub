@@ -13,6 +13,10 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ContentBlock, TaskPayload } from "@cohub/protocol";
 
+export type SpaceRole = "host" | "maker" | "guest";
+export type AccessPolicyRole = "guest" | null;
+export type AccessPolicyResourceType = "space" | "session";
+
 export const v2 = pgSchema("v2");
 
 export const userGitAccounts = v2.table(
@@ -337,23 +341,48 @@ export const gatewayLogs = v2.table(
   }),
 );
 
-export const resourcePermissions = v2.table(
-  "resource_permissions",
+export const spaceMembers = v2.table(
+  "space_members",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    resourceType: varchar("resource_type", { length: 20 }).notNull(),
-    resourceId: uuid("resource_id").notNull(),
-    granteeUuid: varchar("grantee_uuid", { length: 255 }),
-    level: varchar("level", { length: 20 }).notNull().default("read"),
+    spaceId: uuid("space_id").notNull(),
+    userId: varchar("user_id", { length: 255 }).notNull(),
+    role: varchar("role", { length: 20 }).$type<SpaceRole>().notNull(),
     createdBy: varchar("created_by", { length: 255 }).notNull(),
+    updatedBy: varchar("updated_by", { length: 255 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    resourceGrantUniqueIdx: uniqueIndex("v2_uq_resource_permissions_resource_grantee").on(
+    uniqueSpaceUserIdx: uniqueIndex("v2_uq_space_members_space_user").on(
+      table.spaceId,
+      table.userId,
+    ),
+    spaceIdx: index("v2_idx_space_members_space").on(table.spaceId),
+    userIdx: index("v2_idx_space_members_user").on(table.userId),
+    spaceRoleIdx: index("v2_idx_space_members_space_role").on(table.spaceId, table.role),
+  }),
+);
+
+export const accessPolicies = v2.table(
+  "access_policies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    resourceType: varchar("resource_type", { length: 20 }).$type<AccessPolicyResourceType>().notNull(),
+    resourceId: uuid("resource_id").notNull(),
+    signedInUserRole: varchar("signed_in_user_role", { length: 20 }).$type<SpaceRole | null>(),
+    anonymousUserRole: varchar("anonymous_user_role", { length: 20 }).$type<SpaceRole | null>(),
+    createdBy: varchar("created_by", { length: 255 }).notNull(),
+    updatedBy: varchar("updated_by", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    uniqueResourceIdx: uniqueIndex("v2_uq_access_policies_resource").on(
       table.resourceType,
       table.resourceId,
-      table.granteeUuid,
     ),
+    resourceIdx: index("v2_idx_access_policies_resource").on(table.resourceType, table.resourceId),
   }),
 );
 

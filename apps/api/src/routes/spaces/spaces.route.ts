@@ -2,9 +2,9 @@ import { Hono } from "hono";
 import { db } from "../../db/index.js";
 import {
   userChannels,
-  resourcePermissions,
   spaceChannels,
   spaces,
+  spaceMembers,
 } from "../../db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, requireValidId, buildSpaceListItem, buildStorageRepoName } from "../../lib/middleware.js";
@@ -19,7 +19,7 @@ import {
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "../../channels.js";
 import { enqueueTask } from "../../tasks.js";
-import { canRead, canReadForSession, canWrite } from "../../permissions.js";
+import { hasPermission } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
 
@@ -45,10 +45,22 @@ function getSpaceProvisionParams(
 router.get("/", async (c) => {
   const user = useAuth(c);
 
+  const owned = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(eq(spaces.userUuid, user.uuid));
+  const member = await db
+    .select({ id: spaceMembers.spaceId })
+    .from(spaceMembers)
+    .where(eq(spaceMembers.userId, user.uuid));
+
+  const spaceIds = Array.from(new Set([...owned.map((item) => item.id), ...member.map((item) => item.id)]));
+  if (spaceIds.length === 0) return c.json([]);
+
   const spaceList = await db
     .select()
     .from(spaces)
-    .where(eq(spaces.userUuid, user.uuid))
+    .where(inArray(spaces.id, spaceIds))
     .orderBy(desc(spaces.updatedAt), desc(spaces.createdAt));
 
   const items = await Promise.all(spaceList.map((space) => buildSpaceListItem(space)));
@@ -195,6 +207,14 @@ router.post("/", async (c) => {
 
   if (!space) return c.json({ message: "failed to create space" }, 500);
 
+  await db.insert(spaceMembers).values({
+    spaceId: space.id,
+    userId: user.uuid,
+    role: "host",
+    createdBy: user.uuid,
+    updatedBy: user.uuid,
+  });
+
   if (normalizedChannelBindings.length > 0) {
     const insertedChannels = await db
       .insert(spaceChannels)
@@ -308,7 +328,8 @@ router.get("/:id", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
+  if (!space) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "space not found" }, 404);
 
   const sandbox = await getSpaceSandboxBySpaceId(space.id);
   return c.json({ ...space, sandboxStatus: sandbox?.status ?? null });
@@ -322,7 +343,8 @@ router.patch("/:id", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
+  if (!space) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
 
   const body = await c.req.json<{ name?: string }>().catch(() => null);
   const name = body?.name?.trim();
@@ -351,7 +373,7 @@ router.post("/:id/checkpoints", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await canWrite(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "checkpoint.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const body = await c.req.json<{ description?: string }>().catch(() => null);
   const description = body?.description?.trim() || null;
@@ -370,7 +392,7 @@ router.get("/:id/checkpoints", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await canRead(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const rows = await db
     .select()
@@ -389,7 +411,7 @@ router.get("/:id/checkpoints/:checkpointId", async (c) => {
   if (!requireValidId(spaceId) || !requireValidId(checkpointId)) {
     return c.json({ message: "checkpoint not found" }, 404);
   }
-  if (!(await canRead(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const [checkpoint] = await db
     .select()
@@ -408,7 +430,7 @@ router.get("/:id/sandbox", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await canWrite(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
   return c.json({ sandbox: sandbox ?? null });
@@ -418,7 +440,7 @@ router.post("/:id/sandbox/recreate", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await canWrite(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -439,7 +461,7 @@ router.post("/:id/sessions", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await canWrite(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -465,45 +487,21 @@ router.get("/:id/sessions", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await canRead(user, spaceId))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
 
   const sessions = await listSpaceSessions(space.id);
-  const permissions = await db
-    .select()
-    .from(resourcePermissions)
-    .where(inArray(resourcePermissions.resourceId, [spaceId, ...sessions.map((s) => s.id)]));
+  const visibleSessions = (
+    await Promise.all(
+      sessions.map(async (session) =>
+        (await hasPermission(user, "session.view", { spaceId, sessionId: session.id })) ? session : null,
+      ),
+    )
+  ).filter((session): session is NonNullable<typeof session> => Boolean(session));
 
-  const sessionShareLevels = new Map(
-    permissions
-      .filter((p) => p.resourceType === "session")
-      .map((p) => [p.resourceId, p.level]),
-  );
-
-  const isOwner = user.uuid === space.userUuid;
-  const isCollaborator =
-    !isOwner &&
-    permissions.some(
-      (p) => p.resourceType === "space" && p.resourceId === spaceId && p.granteeUuid === user.uuid,
-    );
-
-  const visibleSessions = isOwner || isCollaborator
-    ? sessions
-    : (
-        await Promise.all(
-          sessions.map(async (s) =>
-            (await canReadForSession(user, spaceId, s.id)) ? s : null,
-          ),
-        )
-      ).filter((s): s is NonNullable<typeof s> => Boolean(s));
-
-  return c.json({ space, sessions: visibleSessions.map((session) => ({
-      ...session,
-      shareLevel: sessionShareLevels.get(session.id) ?? null,
-    })),
-  });
+  return c.json({ space, sessions: visibleSessions });
 });
 
 // ── Channels ─────────────────────────────────────────────────────────────────
@@ -512,18 +510,16 @@ router.get("/:id/channels", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "channel.view", { spaceId }))) return c.json({ message: "space not found" }, 404);
 
   const space = await getSpaceById(spaceId);
-  if (!space || space.userUuid !== user.uuid) return c.json({ message: "space not found" }, 404);
+  if (!space) return c.json({ message: "space not found" }, 404);
 
   const channels = await getSpaceChannelsBySpaceId(space.id);
   const channelIds = channels.map((item) => item.channelId);
   const channelList =
     channelIds.length > 0
-      ? await db
-          .select()
-          .from(userChannels)
-          .where(and(eq(userChannels.userUuid, user.uuid), inArray(userChannels.id, channelIds)))
+      ? await db.select().from(userChannels).where(inArray(userChannels.id, channelIds))
       : [];
 
   const userChannelById = new Map(channelList.map((item) => [item.id, item]));

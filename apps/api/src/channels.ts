@@ -1,9 +1,9 @@
-import { and, desc, eq, inArray, } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand, RealtimeServerEvent } from "@cohub/protocol";
 import { buildSessionSourceChannel } from "@cohub/protocol";
 import { db } from "./db/index.js";
-import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, resourcePermissions, spaces, spaceSessions } from "./db/schema-v2.js";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import {
@@ -12,6 +12,7 @@ import {
   resolveSessionInteractionForInboundEvent,
   type ResolvedInboundInteraction,
 } from "./session-interactions.js";
+import { hasPermission } from "./permissions.js";
 
 const bindingLocks = new Map<string, Promise<unknown>>();
 
@@ -117,11 +118,14 @@ export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & 
 
 export async function getReadableUserIdsForSpace(spaceId: string) {
   const [space] = await db.select({ ownerId: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  const permissions = await db.select({ granteeUuid: resourcePermissions.granteeUuid }).from(resourcePermissions).where(and(eq(resourcePermissions.resourceType, "space"), eq(resourcePermissions.resourceId, spaceId), inArray(resourcePermissions.level, ["read", "write"])));
+  const members = await db
+    .select({ userId: spaceMembers.userId })
+    .from(spaceMembers)
+    .where(eq(spaceMembers.spaceId, spaceId));
   const userIds = new Set<string>();
   if (space?.ownerId) userIds.add(space.ownerId);
-  for (const permission of permissions) {
-    if (permission.granteeUuid) userIds.add(permission.granteeUuid);
+  for (const member of members) {
+    if (member.userId) userIds.add(member.userId);
   }
   return Array.from(userIds);
 }
@@ -238,18 +242,10 @@ export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
     return;
   }
 
-  const writePermissionRows = await db.select({
-    resourceType: resourcePermissions.resourceType,
-  }).from(resourcePermissions).where(
-    and(
-      inArray(resourcePermissions.resourceType, ["space", "session"]),
-      inArray(resourcePermissions.resourceId, [spaceId, sessionId]),
-      eq(resourcePermissions.granteeUuid, userId),
-      eq(resourcePermissions.level, "write"),
-    ),
-  );
-
-  const canUserWrite = space.userUuid === userId || writePermissionRows.length > 0;
+  const canUserWrite = await hasPermission({ uuid: userId }, "session.prompt.fullaccess", {
+    spaceId,
+    sessionId,
+  });
 
   if (!canUserWrite) {
     await dispatchRealtimeEventToUsers({

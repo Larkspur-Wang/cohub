@@ -1,136 +1,150 @@
-import { and, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { resourcePermissions, spaces } from "./db/schema-v2.js";
+import { accessPolicies, spaceMembers, spaceSessions } from "./db/schema-v2.js";
 import type { AuthUserProfile } from "./auth.js";
-import type { ResourcePermissionLevel } from "@cohub/protocol";
+import type { AccessPolicyResourceType, SpaceRole } from "./db/schema-v2.js";
 
-const READABLE_LEVELS: ResourcePermissionLevel[] = ["read", "write"];
-const WRITABLE_LEVELS: ResourcePermissionLevel[] = ["write"];
+export type Audience = "member_user" | "signed_in_user" | "anonymous_user";
+export type Permission =
+  | "space.view"
+  | "space.edit"
+  | "session.view"
+  | "session.prompt.readonly"
+  | "session.prompt.fullaccess"
+  | "file.view"
+  | "file.edit"
+  | "checkpoint.view"
+  | "checkpoint.edit"
+  | "member.view"
+  | "member.manage"
+  | "channel.view"
+  | "channel.manage"
+  | "cronjob.view"
+  | "cronjob.manage"
+  | "taskrun.view"
+  | "sandbox.view"
+  | "sandbox.manage";
 
-const findEffectivePermission = (
-  perms: typeof resourcePermissions.$inferSelect[],
-  resourceType: "space" | "session",
-  resourceId: string,
-  userUuid: string | null,
-): typeof resourcePermissions.$inferSelect | null => {
-  if (userUuid) {
-    const userPerm = perms.find(
-      (permission) =>
-        permission.resourceType === resourceType &&
-        permission.resourceId === resourceId &&
-        permission.granteeUuid === userUuid,
-    );
-    if (userPerm) return userPerm;
-  }
-
-  const publicPerm = perms.find(
-    (permission) =>
-      permission.resourceType === resourceType &&
-      permission.resourceId === resourceId &&
-      permission.granteeUuid === null,
-  );
-  return publicPerm ?? null;
+const ROLE_PERMISSIONS: Record<SpaceRole, Set<Permission>> = {
+  host: new Set([
+    "space.view",
+    "space.edit",
+    "session.view",
+    "session.prompt.readonly",
+    "session.prompt.fullaccess",
+    "file.view",
+    "file.edit",
+    "checkpoint.view",
+    "checkpoint.edit",
+    "member.view",
+    "member.manage",
+    "channel.view",
+    "channel.manage",
+    "cronjob.view",
+    "cronjob.manage",
+    "taskrun.view",
+    "sandbox.view",
+    "sandbox.manage",
+  ]),
+  maker: new Set([
+    "space.view",
+    "session.view",
+    "session.prompt.readonly",
+    "session.prompt.fullaccess",
+    "file.view",
+    "file.edit",
+    "checkpoint.view",
+    "checkpoint.edit",
+    "member.view",
+    "channel.view",
+    "cronjob.view",
+    "taskrun.view",
+    "sandbox.view",
+  ]),
+  guest: new Set([
+    "space.view",
+    "session.view",
+    "session.prompt.readonly",
+    "file.view",
+    "checkpoint.view",
+  ]),
 };
 
-export const canRead = async (
-  user: AuthUserProfile | null,
-  spaceId: string,
-  sessionId?: string,
-): Promise<boolean> => {
-  if (user?.uuid) {
-    const [space] = await db
-      .select({ userUuid: spaces.userUuid })
-      .from(spaces)
-      .where(inArray(spaces.id, [spaceId]))
-      .limit(1);
-    if (space?.userUuid === user.uuid) return true;
-  }
-
-  const resourceIds = [spaceId, ...(sessionId ? [sessionId] : [])];
-  const permissions = await db
-    .select()
-    .from(resourcePermissions)
-    .where(
-      and(
-        inArray(resourcePermissions.resourceType, ["session", "space"]),
-        inArray(resourcePermissions.resourceId, resourceIds),
-      ),
-    );
-
-  if (sessionId) {
-    const sessionPermission = findEffectivePermission(
-      permissions,
-      "session",
-      sessionId,
-      user?.uuid ?? null,
-    );
-    if (sessionPermission) {
-      return READABLE_LEVELS.includes(sessionPermission.level as ResourcePermissionLevel);
-    }
-  }
-
-  const spacePermission = findEffectivePermission(
-    permissions,
-    "space",
-    spaceId,
-    user?.uuid ?? null,
-  );
-  if (spacePermission) {
-    return READABLE_LEVELS.includes(spacePermission.level as ResourcePermissionLevel);
-  }
-
-  return false;
+const resolveAudience = (user: AuthUserProfile | null): Audience => {
+  if (user?.uuid) return "signed_in_user";
+  return "anonymous_user";
 };
 
-export const canReadForSession = async (
-  user: AuthUserProfile | null,
-  spaceId: string,
-  sessionId: string,
-): Promise<boolean> => {
-  return canRead(user, spaceId, sessionId);
+const roleHasPermission = (role: SpaceRole, permission: Permission) => {
+  if (permission === "session.prompt.readonly" && ROLE_PERMISSIONS[role].has("session.prompt.fullaccess")) {
+    return true;
+  }
+  return ROLE_PERMISSIONS[role].has(permission);
 };
 
-export const canWrite = async (
-  user: AuthUserProfile | null,
-  spaceId: string,
-  sessionId?: string,
-): Promise<boolean> => {
-  if (!user?.uuid) return false;
-
-  const [space] = await db
-    .select({ userUuid: spaces.userUuid })
-    .from(spaces)
-    .where(inArray(spaces.id, [spaceId]))
+async function getSpaceMemberRole(spaceId: string, userId: string): Promise<SpaceRole | null> {
+  const [member] = await db
+    .select({ role: spaceMembers.role })
+    .from(spaceMembers)
+    .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, userId)))
     .limit(1);
-  if (space?.userUuid === user.uuid) return true;
+  return member?.role ?? null;
+}
 
-  const resourceIds = [spaceId, ...(sessionId ? [sessionId] : [])];
-  const permissions = await db
-    .select()
-    .from(resourcePermissions)
-    .where(
-      and(
-        inArray(resourcePermissions.resourceType, ["session", "space"]),
-        inArray(resourcePermissions.resourceId, resourceIds),
-      ),
-    );
+async function getAccessPolicy(resourceType: AccessPolicyResourceType, resourceId: string) {
+  const [policy] = await db
+    .select({
+      signedInUserRole: accessPolicies.signedInUserRole,
+      anonymousUserRole: accessPolicies.anonymousUserRole,
+    })
+    .from(accessPolicies)
+    .where(and(eq(accessPolicies.resourceType, resourceType), eq(accessPolicies.resourceId, resourceId)))
+    .limit(1);
+  return policy ?? null;
+}
 
-  if (sessionId) {
-    const sessionPermission = findEffectivePermission(
-      permissions,
-      "session",
-      sessionId,
-      user.uuid,
-    );
-    if (sessionPermission) {
-      return WRITABLE_LEVELS.includes(sessionPermission.level as ResourcePermissionLevel);
-    }
+async function resolveNonMemberRole(input: {
+  user: AuthUserProfile | null;
+  spaceId: string;
+  sessionId?: string;
+}): Promise<SpaceRole | null> {
+  const audience = resolveAudience(input.user);
+  const sessionPolicy = input.sessionId ? await getAccessPolicy("session", input.sessionId) : null;
+  const effectivePolicy = sessionPolicy ?? await getAccessPolicy("space", input.spaceId);
+  if (!effectivePolicy) return null;
+  return audience === "signed_in_user"
+    ? (effectivePolicy.signedInUserRole ?? null)
+    : (effectivePolicy.anonymousUserRole ?? null);
+}
+
+export async function hasPermission(
+  user: AuthUserProfile | null,
+  permission: Permission,
+  context: { spaceId: string; sessionId?: string },
+): Promise<boolean> {
+  if (user?.uuid) {
+    const memberRole = await getSpaceMemberRole(context.spaceId, user.uuid);
+    if (memberRole) return roleHasPermission(memberRole, permission);
   }
 
-  const spacePermission = findEffectivePermission(permissions, "space", spaceId, user.uuid);
-  if (spacePermission) {
-    return WRITABLE_LEVELS.includes(spacePermission.level as ResourcePermissionLevel);
-  }
+  const fallbackRole = await resolveNonMemberRole({
+    user,
+    spaceId: context.spaceId,
+    sessionId: context.sessionId,
+  });
+  if (!fallbackRole) return false;
+  return roleHasPermission(fallbackRole, permission);
+}
 
-  return false;
-};
+export async function getRoleForSpaceUser(spaceId: string, userId: string): Promise<SpaceRole | null> {
+  return getSpaceMemberRole(spaceId, userId);
+}
+
+export async function getSessionSpaceId(sessionId: string): Promise<string | null> {
+  const [session] = await db
+    .select({ spaceId: spaceSessions.spaceId })
+    .from(spaceSessions)
+    .where(eq(spaceSessions.id, sessionId))
+    .limit(1);
+  return session?.spaceId ?? null;
+}
