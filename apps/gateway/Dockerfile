@@ -24,6 +24,9 @@ COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
+COPY packages/gateway-contract/package.json ./packages/gateway-contract/package.json
+COPY packages/gateway-contract/tsconfig.json ./packages/gateway-contract/tsconfig.json
+COPY packages/gateway-contract/tsconfig.build.json ./packages/gateway-contract/tsconfig.build.json
 COPY apps/gateway/package.json ./apps/gateway/package.json
 
 # Install full deps (build needs dev deps like typescript)
@@ -32,10 +35,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway...
 
 COPY packages/protocol ./packages/protocol
+COPY packages/gateway-contract ./packages/gateway-contract
 COPY apps/gateway/src ./apps/gateway/src
 COPY apps/gateway/tsconfig.json ./apps/gateway/tsconfig.json
 
 RUN pnpm --filter @neta-art/cohub-protocol build
+RUN pnpm --filter @cohub/gateway-contract build
 RUN pnpm --filter @cohub/gateway build
 RUN pnpm --filter @cohub/gateway --prod deploy /prod/gateway
 
