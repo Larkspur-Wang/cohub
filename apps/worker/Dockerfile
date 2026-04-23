@@ -33,7 +33,7 @@ COPY packages/protocol ./packages/protocol
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
 
-RUN pnpm --filter @cohub/protocol build
+RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/worker build
 RUN pnpm --filter @cohub/worker --prod deploy /prod/worker
 

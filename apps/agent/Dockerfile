@@ -24,7 +24,7 @@ COPY packages/agent-sandbox-protocol ./packages/agent-sandbox-protocol
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
 
-RUN pnpm --filter @cohub/protocol build
+RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/agent-sandbox-protocol build
 RUN pnpm --filter @cohub/agent build
 RUN pnpm --filter @cohub/agent --prod deploy /prod/agent

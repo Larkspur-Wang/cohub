@@ -22,7 +22,7 @@ COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
 COPY apps/api/drizzle ./apps/api/drizzle
 
-RUN pnpm --filter @cohub/protocol build
+RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/api build
 RUN pnpm --filter @cohub/api --prod deploy /prod/api
 

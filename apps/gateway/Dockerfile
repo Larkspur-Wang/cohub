@@ -35,7 +35,7 @@ COPY packages/protocol ./packages/protocol
 COPY apps/gateway/src ./apps/gateway/src
 COPY apps/gateway/tsconfig.json ./apps/gateway/tsconfig.json
 
-RUN pnpm --filter @cohub/protocol build
+RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/gateway build
 RUN pnpm --filter @cohub/gateway --prod deploy /prod/gateway
 
