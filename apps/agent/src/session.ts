@@ -1,7 +1,7 @@
 import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { SessionManager } from "@mariozechner/pi-coding-agent";
+import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";

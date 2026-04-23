@@ -1,7 +1,7 @@
 import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
 import { streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
-import { SessionManager } from "@mariozechner/pi-coding-agent";
+import { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import type { LoadedSkill } from "./resources.js";
 import { buildCohubSystemPrompt } from "./system-prompt.js";
