@@ -520,12 +520,44 @@ export async function persistAssistantMessage(input: {
                 typeof (assistant.usage as Record<string, unknown>).output === "number"
                   ? ((assistant.usage as Record<string, unknown>).output as number)
                   : undefined,
-              costTotal:
-                assistant.usage &&
-                typeof (assistant.usage as Record<string, unknown>).cost === "object" &&
-                typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total) === "number"
-                  ? (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total as number)
+              cacheRead:
+                typeof (assistant.usage as Record<string, unknown>).cacheRead === "number"
+                  ? ((assistant.usage as Record<string, unknown>).cacheRead as number)
                   : undefined,
+              cacheWrite:
+                typeof (assistant.usage as Record<string, unknown>).cacheWrite === "number"
+                  ? ((assistant.usage as Record<string, unknown>).cacheWrite as number)
+                  : undefined,
+              totalTokens:
+                typeof (assistant.usage as Record<string, unknown>).totalTokens === "number"
+                  ? ((assistant.usage as Record<string, unknown>).totalTokens as number)
+                  : undefined,
+              cost:
+                assistant.usage &&
+                typeof (assistant.usage as Record<string, unknown>).cost === "object"
+                  ? {
+                      input:
+                        typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).input) === "number"
+                          ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).input) as number)
+                          : undefined,
+                      output:
+                        typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).output) === "number"
+                          ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).output) as number)
+                          : undefined,
+                      cacheRead:
+                        typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).cacheRead) === "number"
+                          ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).cacheRead) as number)
+                          : undefined,
+                      cacheWrite:
+                        typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).cacheWrite) === "number"
+                          ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).cacheWrite) as number)
+                          : undefined,
+                      total:
+                        typeof (((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total) === "number"
+                          ? ((((assistant.usage as Record<string, unknown>).cost as Record<string, unknown>).total) as number)
+                          : undefined,
+                    }
+                  : null,
             }
           : null,
     },

@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
-import type { ContentBlock, PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol";
+import type { ContentBlock, PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput, Usage } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
   spaceSessions,
   spaces,
+  tokenUsageStatsHourly,
 } from "./db/schema-v2.js";
 import {
   getAgentInstanceInputQueueKey,
@@ -65,6 +66,106 @@ const extractPlainText = (blocks: ContentBlock[]): string => {
 };
 
 const countToolCallsInContent = (blocks: ContentBlock[]) => blocks.filter((b) => b.type === "tool_use").length;
+
+const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage | null => {
+  if (!usage || typeof usage !== "object") return null;
+  return {
+    input: typeof usage.input === "number" ? usage.input : undefined,
+    output: typeof usage.output === "number" ? usage.output : undefined,
+    cacheRead: typeof usage.cacheRead === "number" ? usage.cacheRead : undefined,
+    cacheWrite: typeof usage.cacheWrite === "number" ? usage.cacheWrite : undefined,
+    totalTokens: typeof usage.totalTokens === "number" ? usage.totalTokens : undefined,
+    cost: usage.cost && typeof usage.cost === "object"
+      ? {
+          input: typeof usage.cost.input === "number" ? usage.cost.input : undefined,
+          output: typeof usage.cost.output === "number" ? usage.cost.output : undefined,
+          cacheRead: typeof usage.cost.cacheRead === "number" ? usage.cost.cacheRead : undefined,
+          cacheWrite: typeof usage.cost.cacheWrite === "number" ? usage.cost.cacheWrite : undefined,
+          total: typeof usage.cost.total === "number" ? usage.cost.total : undefined,
+        }
+      : null,
+  };
+};
+
+const toUtcHourBucket = (date: Date) => new Date(Date.UTC(
+  date.getUTCFullYear(),
+  date.getUTCMonth(),
+  date.getUTCDate(),
+  date.getUTCHours(),
+  0,
+  0,
+  0,
+));
+
+const resolveActorUserId = async (input: { sessionId: string; anchorUserMessageId?: string | null }) => {
+  const anchorUserMessageId = input.anchorUserMessageId?.trim();
+  if (!anchorUserMessageId) return null;
+  const [anchorMessage] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(
+    and(eq(sessionMessages.id, anchorUserMessageId), eq(sessionMessages.sessionId, input.sessionId)),
+  ).limit(1);
+  const actorUserId = (anchorMessage?.meta as Record<string, unknown> | null | undefined)?.actorUserId;
+  return typeof actorUserId === "string" && actorUserId.trim() ? actorUserId.trim() : null;
+};
+
+const updateTokenUsageStatsHourly = async (input: {
+  bucketStartAt: Date;
+  userId: string | null;
+  spaceId: string;
+  sessionId: string;
+  provider: string | null;
+  model: string | null;
+  usage: Usage | null;
+  success: boolean;
+}) => {
+  const usage = input.usage;
+  await db.insert(tokenUsageStatsHourly).values({
+    bucketStartAt: input.bucketStartAt,
+    userId: input.userId,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    provider: input.provider,
+    model: input.model,
+    requestCount: 1,
+    successCount: input.success ? 1 : 0,
+    errorCount: input.success ? 0 : 1,
+    inputTokens: usage?.input ?? 0,
+    outputTokens: usage?.output ?? 0,
+    cacheReadTokens: usage?.cacheRead ?? 0,
+    cacheWriteTokens: usage?.cacheWrite ?? 0,
+    totalTokens: usage?.totalTokens ?? 0,
+    costInput: String(usage?.cost?.input ?? 0),
+    costOutput: String(usage?.cost?.output ?? 0),
+    costCacheRead: String(usage?.cost?.cacheRead ?? 0),
+    costCacheWrite: String(usage?.cost?.cacheWrite ?? 0),
+    costTotal: String(usage?.cost?.total ?? 0),
+    updatedAt: new Date(),
+  }).onConflictDoUpdate({
+    target: [
+      tokenUsageStatsHourly.bucketStartAt,
+      tokenUsageStatsHourly.userId,
+      tokenUsageStatsHourly.spaceId,
+      tokenUsageStatsHourly.sessionId,
+      tokenUsageStatsHourly.provider,
+      tokenUsageStatsHourly.model,
+    ],
+    set: {
+      requestCount: sql`${tokenUsageStatsHourly.requestCount} + 1`,
+      successCount: sql`${tokenUsageStatsHourly.successCount} + ${input.success ? 1 : 0}`,
+      errorCount: sql`${tokenUsageStatsHourly.errorCount} + ${input.success ? 0 : 1}`,
+      inputTokens: sql`${tokenUsageStatsHourly.inputTokens} + ${usage?.input ?? 0}`,
+      outputTokens: sql`${tokenUsageStatsHourly.outputTokens} + ${usage?.output ?? 0}`,
+      cacheReadTokens: sql`${tokenUsageStatsHourly.cacheReadTokens} + ${usage?.cacheRead ?? 0}`,
+      cacheWriteTokens: sql`${tokenUsageStatsHourly.cacheWriteTokens} + ${usage?.cacheWrite ?? 0}`,
+      totalTokens: sql`${tokenUsageStatsHourly.totalTokens} + ${usage?.totalTokens ?? 0}`,
+      costInput: sql`${tokenUsageStatsHourly.costInput} + ${String(usage?.cost?.input ?? 0)}::numeric`,
+      costOutput: sql`${tokenUsageStatsHourly.costOutput} + ${String(usage?.cost?.output ?? 0)}::numeric`,
+      costCacheRead: sql`${tokenUsageStatsHourly.costCacheRead} + ${String(usage?.cost?.cacheRead ?? 0)}::numeric`,
+      costCacheWrite: sql`${tokenUsageStatsHourly.costCacheWrite} + ${String(usage?.cost?.cacheWrite ?? 0)}::numeric`,
+      costTotal: sql`${tokenUsageStatsHourly.costTotal} + ${String(usage?.cost?.total ?? 0)}::numeric`,
+      updatedAt: new Date(),
+    },
+  });
+};
 
 export const normalizeSpaceEnv = (input: unknown): Array<{ name: string; value: string }> => {
   if (!Array.isArray(input)) return [];
@@ -190,6 +291,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const text = deriveMessagePreviewText({ role: input.message.role ?? null, content }) || null;
   const messageRole = input.message.role ?? "assistant";
   const _shouldDispatchToProvider = messageRole === "assistant";
+  const normalizedUsage = normalizeUsage(input.message.usage);
 
   if (messageRole === "assistant" && content.length === 0 && !text?.trim()) throw new Error("Refusing to persist empty assistant message");
 
@@ -216,11 +318,23 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     model: input.message.model ?? null,
     stopReason: input.message.stopReason ?? null,
     errorMessage: input.message.errorMessage ?? null,
-    usageInput: input.message.usage?.input ?? null,
-    usageOutput: input.message.usage?.output ?? null,
-    costTotal: input.message.usage?.costTotal !== undefined ? String(input.message.usage.costTotal) : null,
+    usage: normalizedUsage,
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
+
+  if (messageRole === "assistant") {
+    const userId = await resolveActorUserId({ sessionId: input.sessionId, anchorUserMessageId });
+    await updateTokenUsageStatsHourly({
+      bucketStartAt: toUtcHourBucket(messageNode.createdAt ?? new Date()),
+      userId,
+      spaceId: session.spaceId,
+      sessionId: input.sessionId,
+      provider: input.message.provider ?? null,
+      model: input.message.model ?? null,
+      usage: normalizedUsage,
+      success: !hasError,
+    });
+  }
 
   if (messageRole === "user" && !session.title?.trim()) {
     const titleText = (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
@@ -312,9 +426,7 @@ export const forkSpaceSession = async (input: { spaceId: string; parentSessionId
       model: message.model,
       stopReason: message.stopReason,
       errorMessage: message.errorMessage,
-      usageInput: message.usageInput,
-      usageOutput: message.usageOutput,
-      costTotal: message.costTotal,
+      usage: (message.usage as Usage | null | undefined) ?? null,
     });
   }
 

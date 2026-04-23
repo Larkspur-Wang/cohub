@@ -155,9 +155,20 @@ interface MessageRecord {
   model: string | null;
   stopReason: string | null;
   errorMessage: string | null;
-  usageInput: number | null;
-  usageOutput: number | null;
-  costTotal: string | null;
+  usage: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+    cost?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      total?: number;
+    } | null;
+  } | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
 }
@@ -618,8 +629,11 @@ async function main() {
 
     // 5.5: usage 字段验证
     await sub("5.5 usage 字段验证", async () => {
-      if (latestAssistant.usageInput !== null || latestAssistant.usageOutput !== null) {
-        ok("usage", `input=${latestAssistant.usageInput ?? "null"}, output=${latestAssistant.usageOutput ?? "null"}, cost=${latestAssistant.costTotal ?? "null"}`);
+      if (latestAssistant.usage) {
+        ok(
+          "usage",
+          `input=${latestAssistant.usage.input ?? "null"}, output=${latestAssistant.usage.output ?? "null"}, cacheRead=${latestAssistant.usage.cacheRead ?? "null"}, cacheWrite=${latestAssistant.usage.cacheWrite ?? "null"}, total=${latestAssistant.usage.totalTokens ?? "null"}, cost=${latestAssistant.usage.cost?.total ?? "null"}`,
+        );
       } else {
         ok("usage", "无（agent 可能未上报 usage）");
       }

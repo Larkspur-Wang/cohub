@@ -57,6 +57,21 @@ export type RegisterSessionInput = {
   meta?: Record<string, unknown> | null;
 };
 
+export type Usage = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+  cost?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    total?: number;
+  } | null;
+};
+
 export type PersistMessageInput = {
   spaceId: string;
   sessionId: string;
@@ -74,11 +89,7 @@ export type PersistMessageInput = {
     stopReason?: string | null;
     errorMessage?: string | null;
     meta?: Record<string, unknown> | null;
-    usage?: {
-      input?: number;
-      output?: number;
-      costTotal?: number;
-    } | null;
+    usage?: Usage | null;
   };
 };
 
@@ -154,9 +165,7 @@ export type MessageRecord = {
   model: string | null;
   stopReason: string | null;
   errorMessage: string | null;
-  usageInput: number | null;
-  usageOutput: number | null;
-  costTotal: string | null;
+  usage: Usage | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
 };

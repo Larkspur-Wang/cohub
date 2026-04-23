@@ -101,9 +101,7 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 						messageKind: msgMeta?.messageKind as string | null,
 						model: message.model,
 						provider: message.provider,
-						usageInput: message.usageInput,
-						usageOutput: message.usageOutput,
-						costTotal: message.costTotal,
+						usage: message.usage,
 					}
 				: {
 						messageKind: msgMeta?.messageKind as string | null,
@@ -139,9 +137,7 @@ function buildPendingMessage(
 			pending.status === "failed"
 				? (pending.error ?? "Failed to send message")
 				: null,
-		usageInput: null,
-		usageOutput: null,
-		costTotal: null,
+		usage: null,
 		meta: {
 			messageKind: "user_pending",
 			clientMessageId: pending.clientMessageId,
