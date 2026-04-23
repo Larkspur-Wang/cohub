@@ -99,9 +99,6 @@ const normalizeOptions = (options: WebsocketClientOptions = {}) => ({
   debug: options.debug === true,
 });
 
-const stableOptionsKey = (options: WebsocketClientOptions = {}) =>
-  JSON.stringify(normalizeOptions(options));
-
 class WebsocketAuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -247,8 +244,6 @@ export class WebsocketClient {
         });
         if (wasConnecting) {
           rejectOnce(new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()));
-          // 4001 = server-side Redis key expired, a fresh connection will create a new key.
-          // Schedule reconnect so the client recovers even if it was rejected during connect.
           if (event.code === 4001 && willReconnect) {
             void this.scheduleReconnect();
           }
@@ -319,118 +314,133 @@ export class WebsocketClient {
     await this.connect();
   }
 
-  private async authenticate() {
-    if (this.authWaiter) return this.authWaiter.promise;
-
-    const token = await this.getAccessToken?.();
-    if (!token) throw new WebsocketAuthError("authentication token is missing");
-
-    let resolveAuth!: () => void;
-    let rejectAuth!: (error: Error) => void;
-    const promise = new Promise<void>((resolve, reject) => {
-      resolveAuth = resolve;
-      rejectAuth = reject;
-    });
-    this.authWaiter = { promise, resolve: resolveAuth, reject: rejectAuth };
-
-    try {
-      this.send({
-        type: "auth",
-        requestId: `auth-${Date.now()}`,
-        payload: { token },
-      });
-      await promise;
-    } finally {
-      this.authWaiter = null;
+  private send(event: WsClientEvent) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      throw new Error("websocket is not open");
     }
+    ws.send(JSON.stringify(event));
+  }
+
+  private async authenticate() {
+    const token = this.getAccessToken ? await this.getAccessToken() : null;
+    if (!token) throw new WebsocketAuthError("missing access token");
+
+    const waiter = this.createAuthWaiter();
+    this.send({ type: "auth", payload: { token } });
+    await waiter.promise;
+  }
+
+  private createAuthWaiter() {
+    this.rejectAuthWaiter(new Error("superseded auth waiter"));
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.authWaiter = { promise, resolve, reject };
+    return this.authWaiter;
   }
 
   private resolveAuthWaiter() {
-    this.authWaiter?.resolve();
+    if (!this.authWaiter) return;
+    this.authWaiter.resolve();
+    this.authWaiter = null;
   }
 
   private rejectAuthWaiter(error: Error) {
-    this.authWaiter?.reject(error);
-  }
-
-  private send(message: WsClientEvent) {
-    const ws = this.ws;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      throw new Error("websocket is not connected");
-    }
-    let serialized = "";
-    try {
-      serialized = JSON.stringify(message);
-    } catch (error) {
-      throw new Error(
-        `failed to serialize websocket message: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    ws.send(serialized);
+    if (!this.authWaiter) return;
+    this.authWaiter.reject(error);
+    this.authWaiter = null;
   }
 
   private handleMessage(raw: unknown) {
+    let parsed: unknown;
     try {
-      const text = typeof raw === "string" ? raw : String(raw);
-      const parsed = realtimeEnvelopeSchema.safeParse(JSON.parse(text));
-      if (!parsed.success) {
-        this.log("ignored invalid server message", parsed.error.issues);
-        return;
-      }
-      this.routeEnvelope(parsed.data);
-    } catch (error) {
-      this.emit("error", { error });
+      parsed = typeof raw === "string" ? JSON.parse(raw) : JSON.parse(String(raw));
+    } catch {
+      this.emit("error", { error: new Error("invalid websocket payload") });
+      return;
     }
-  }
 
-  private routeEnvelope(envelope: ChannelEnvelope) {
-    const payload = envelope.payload;
+    const result = realtimeEnvelopeSchema.safeParse(parsed);
+    if (!result.success) {
+      this.emit("error", { error: new Error("invalid realtime envelope") });
+      return;
+    }
 
+    const envelope = result.data as ChannelEnvelope;
     switch (envelope.type) {
       case "system.ready": {
-        const connectionId =
-          typeof payload.connectionId === "string" ? payload.connectionId : "";
-        if (connectionId) this.connectionId = connectionId;
-        this.emit("ready", { connectionId });
+        const connectionId = typeof envelope.payload.connectionId === "string"
+          ? envelope.payload.connectionId
+          : null;
+        if (connectionId) {
+          this.connectionId = connectionId;
+          this.emit("ready", { connectionId });
+        }
+        this.emit("event", envelope);
         return;
       }
       case "system.auth.ok": {
-        const connectionId =
-          typeof payload.connectionId === "string"
-            ? payload.connectionId
-            : this.connectionId ?? "";
-        this.connectionId = connectionId || null;
+        const connectionId = typeof envelope.payload.connectionId === "string"
+          ? envelope.payload.connectionId
+          : this.connectionId;
+        const user = envelope.payload.user && typeof envelope.payload.user === "object"
+          ? (envelope.payload.user as Record<string, unknown>)
+          : {};
+        if (connectionId) {
+          this.connectionId = connectionId;
+          this.emit("auth", { connectionId, user });
+        }
         this.resolveAuthWaiter();
-        this.emit("auth", {
-          connectionId,
-          user: (payload.user as Record<string, unknown> | undefined) ?? {},
-        });
+        this.emit("event", envelope);
         return;
       }
-      case "session.request.accepted": {
-        this.emit("messageAccepted", {
-          requestId: envelope.requestId ?? null,
-          clientMessageId:
-            typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
-          sessionId: envelope.sessionId ?? null,
-          spaceId: envelope.spaceId ?? null,
-        });
-        return;
-      }
-      case "session.request.error":
       case "system.request.error": {
-        const message =
-          typeof payload.message === "string" ? payload.message : "unknown websocket error";
-        this.rejectAuthWaiter(new WebsocketAuthError(message));
+        const message = typeof envelope.payload.message === "string"
+          ? envelope.payload.message
+          : "request failed";
+        const code = typeof envelope.payload.code === "string"
+          ? envelope.payload.code
+          : undefined;
+        const error = new WebsocketAuthError(message);
+        this.rejectAuthWaiter(error);
         this.emit("serverError", {
-          code: typeof payload.code === "string" ? payload.code : undefined,
+          code,
           message,
           requestId: envelope.requestId ?? null,
           sessionId: envelope.sessionId ?? null,
           spaceId: envelope.spaceId ?? null,
+        });
+        this.emit("event", envelope);
+        return;
+      }
+      case "session.request.accepted": {
+        const payload = envelope.payload as Record<string, unknown>;
+        this.emit("messageAccepted", {
+          requestId: envelope.requestId ?? null,
+          sessionId: envelope.sessionId ?? null,
+          spaceId: envelope.spaceId ?? null,
           clientMessageId:
             typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
         });
+        this.emit("event", envelope);
+        return;
+      }
+      case "session.request.error": {
+        const payload = envelope.payload as Record<string, unknown>;
+        this.emit("serverError", {
+          code: typeof payload.code === "string" ? payload.code : undefined,
+          message: typeof payload.message === "string" ? payload.message : undefined,
+          requestId: envelope.requestId ?? null,
+          sessionId: envelope.sessionId ?? null,
+          spaceId: envelope.spaceId ?? null,
+          clientMessageId:
+            typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
+        });
+        this.emit("event", envelope);
         return;
       }
       case "system.pong": {
@@ -503,26 +513,5 @@ export class WebsocketClient {
   }
 }
 
-let sharedWebsocketClient: WebsocketClient | null = null;
-let sharedWebsocketClientOptionsKey: string | null = null;
-
 export const createWebsocketClient = (options?: WebsocketClientOptions) =>
   new WebsocketClient(options);
-
-export const getWebsocketClient = (options?: WebsocketClientOptions) => {
-  const nextKey = stableOptionsKey(options);
-  if (!sharedWebsocketClient) {
-    sharedWebsocketClient = new WebsocketClient(options);
-    sharedWebsocketClientOptionsKey = nextKey;
-    return sharedWebsocketClient;
-  }
-  if (
-    sharedWebsocketClientOptionsKey &&
-    sharedWebsocketClientOptionsKey !== nextKey
-  ) {
-    console.warn(
-      "[WebsocketClient] getWebsocketClient() called with different options after singleton creation. Existing singleton will be reused.",
-    );
-  }
-  return sharedWebsocketClient;
-};

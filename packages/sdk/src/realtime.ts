@@ -1,8 +1,6 @@
-import type { getWebsocketClient } from "./websocket.js";
+import type { WebsocketClient } from "./websocket.js";
 
-export function ensureRealtimeConnected(
-  websocketClient: ReturnType<typeof getWebsocketClient>,
-) {
+export function ensureRealtimeConnected(websocketClient: WebsocketClient) {
   void websocketClient.connect().catch((error) => {
     console.error("[CohubClient] Failed to connect realtime websocket:", error);
   });

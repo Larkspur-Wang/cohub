@@ -40,6 +40,9 @@ export default defineConfig({
 			"@cohub/sdk": fileURLToPath(
 				new URL("../../packages/sdk/src/index.ts", import.meta.url),
 			),
+			"@cohub/sdk/http": fileURLToPath(
+				new URL("../../packages/sdk/src/http.ts", import.meta.url),
+			),
 			"@cohub/sdk/websocket": fileURLToPath(
 				new URL("../../packages/sdk/src/websocket.ts", import.meta.url),
 			),

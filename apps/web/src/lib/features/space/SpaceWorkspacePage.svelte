@@ -1,5 +1,6 @@
 <script lang="ts">
-import type { ContentBlock, MessageRecord } from "@cohub/protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { MessageRecord } from "@cohub/protocol/model";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import {
 	type CheckpointRecord,
@@ -981,7 +982,7 @@ async function loadSpace(_options?: { force?: boolean }) {
 						try {
 							const { session } = await sdk
 								.space(spaceId)
-								.sessions.get(routeSessionId);
+								.session(routeSessionId).get();
 							seedSessions([session]);
 						} catch {
 							// Silently fail
@@ -1203,7 +1204,7 @@ async function loadSessionState(sessionId: string, force = false) {
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.sessions.listMessagesPaginated(sessionId, {
+			.session(sessionId).messages.listPaginated({
 				limit: 30,
 			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
@@ -1262,7 +1263,7 @@ async function syncSessionNewer(
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.sessions.listMessagesPaginated(sessionId, {
+			.session(sessionId).messages.listPaginated({
 				cursor: cached.newestSeq,
 				direction: "newer",
 				limit: 100,
@@ -1306,7 +1307,7 @@ async function loadOlderMessages(sessionId: string) {
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.sessions.listMessagesPaginated(sessionId, {
+			.session(sessionId).messages.listPaginated({
 				cursor: state.oldestCursor,
 				direction: "older",
 				limit: 30,
@@ -1474,7 +1475,7 @@ async function reconcileSessionTail(sessionId: string) {
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.sessions.listMessagesPaginated(sessionId, {
+			.session(sessionId).messages.listPaginated({
 				limit: 30,
 			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
@@ -1484,7 +1485,7 @@ async function reconcileSessionTail(sessionId: string) {
 			hasMore: response.hasMore,
 		});
 		const existingOlder = state.messages.filter((message) =>
-			response.messages.every((incoming) => incoming.id !== message.id),
+			response.messages.every((incoming: MessageRecord) => incoming.id !== message.id),
 		);
 		const merged = mergeMessagesById(existingOlder, response.messages, {
 			preferIncoming: true,
@@ -1703,7 +1704,8 @@ async function handleSend() {
 			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
 		});
 
-		await sdk.space(spaceId).sessions.sendMessage(sessionId, content, {
+		await sdk.space(spaceId).session(sessionId).messages.send({
+			content,
 			model: model?.id,
 			provider: model?.provider,
 			clientMessageId,
@@ -2155,7 +2157,7 @@ onMount(() => {
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
 
-	const wsEventCleanup = sdk.space(spaceId).events.onEvent((event) => {
+	const wsEventCleanup = sdk.space(spaceId).subscribe((event) => {
 		void handleWsEvent(event as ChannelEnvelope);
 	});
 

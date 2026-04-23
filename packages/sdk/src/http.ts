@@ -5,10 +5,9 @@ import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
-import { HttpTransport, type CohubClientOptions } from "./transport.js";
-import { createWebsocketClient } from "./websocket.js";
+import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
 
-export class CohubClient {
+export class CohubHttpClient {
   readonly spaces: SpacesApi;
   readonly channels: ChannelsApi;
   readonly user: UserApi;
@@ -18,14 +17,9 @@ export class CohubClient {
   readonly cronJobs: CronJobsApi;
 
   private readonly transport: HttpTransport;
-  private readonly websocketClient: ReturnType<typeof createWebsocketClient>;
 
   constructor(options: CohubClientOptions = {}) {
     this.transport = new HttpTransport(options);
-    this.websocketClient = createWebsocketClient({
-      ...options.websocket,
-      getAccessToken: options.getAccessToken,
-    });
     this.spaces = new SpacesApi(this.transport);
     this.channels = new ChannelsApi(this.transport);
     this.user = new UserApi(
@@ -41,9 +35,13 @@ export class CohubClient {
   }
 
   space(spaceId: string) {
-    return new SpaceClient(spaceId, this.transport, this.websocketClient);
+    return new SpaceClient(spaceId, this.transport, null);
   }
 }
 
-export const createCohubClient = (options?: CohubClientOptions) =>
-  new CohubClient(options);
+export const createHttpClient = (options?: CohubClientOptions) =>
+  new CohubHttpClient(options);
+
+export { HttpTransport, HttpError };
+export type { CohubClientOptions, Fetch };
+export * from "./types.js";

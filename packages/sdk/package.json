@@ -1,20 +1,25 @@
 {
-  "name": "@cohub/sdk",
-  "private": true,
+  "name": "@neta-art/cohub",
+  "private": false,
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
     },
     "./websocket": {
-      "types": "./src/websocket.ts",
-      "default": "./src/websocket.ts"
+      "types": "./dist/websocket.d.ts",
+      "import": "./dist/websocket.js"
     }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "files": [
-    "src"
+    "dist"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

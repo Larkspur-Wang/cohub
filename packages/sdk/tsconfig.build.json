@@ -2,12 +2,19 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "declaration": true,
     "declarationMap": false,
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@cohub/protocol": ["../protocol/src/index.ts"]
+      "@cohub/protocol": ["../protocol/dist/index.d.ts"],
+      "@cohub/protocol/core": ["../protocol/dist/core/index.d.ts"],
+      "@cohub/protocol/model": ["../protocol/dist/model/session.d.ts"],
+      "@cohub/protocol/realtime": ["../protocol/dist/realtime/index.d.ts"],
+      "@cohub/protocol/gateway": ["../protocol/dist/gateway/index.d.ts"],
+      "@cohub/protocol/task": ["../protocol/dist/task/index.d.ts"],
+      "@cohub/protocol/fs": ["../protocol/dist/fs/index.d.ts"]
     }
   },
   "include": ["src"]
