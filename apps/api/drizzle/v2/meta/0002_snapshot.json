@@ -1,9 +1,122 @@
 {
-  "id": "08cad22c-0478-4b6a-a66f-79a1282a1141",
+  "id": "7c2bb11d-646f-4ff6-b02f-b7b6313d067f",
   "prevId": "34b6287e-67c3-43a4-9b64-82ce10e1445d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "v2.access_policies": {
+      "name": "access_policies",
+      "schema": "v2",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signed_in_user_role": {
+          "name": "signed_in_user_role",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anonymous_user_role": {
+          "name": "anonymous_user_role",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "v2_uq_access_policies_resource": {
+          "name": "v2_uq_access_policies_resource",
+          "columns": [
+            {
+              "expression": "resource_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_idx_access_policies_resource": {
+          "name": "v2_idx_access_policies_resource",
+          "columns": [
+            {
+              "expression": "resource_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "v2.checkpoints": {
       "name": "checkpoints",
       "schema": "v2",
@@ -72,9 +185,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_checkpoints_parent_id": {
           "name": "v2_idx_checkpoints_parent_id",
@@ -87,9 +200,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_checkpoints_space_commit": {
           "name": "v2_uq_checkpoints_space_commit",
@@ -108,9 +221,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -226,9 +339,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_cron_jobs_space_id": {
           "name": "v2_idx_cron_jobs_space_id",
@@ -241,9 +354,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_cron_jobs_enabled": {
           "name": "v2_idx_cron_jobs_enabled",
@@ -256,9 +369,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_cron_jobs_created_at": {
           "name": "v2_idx_cron_jobs_created_at",
@@ -271,9 +384,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -363,9 +476,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_gateway_logs_direction": {
           "name": "v2_idx_gateway_logs_direction",
@@ -378,9 +491,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_gateway_logs_created": {
           "name": "v2_idx_gateway_logs_created",
@@ -393,9 +506,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -498,9 +611,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_proposals_source_checkpoint_id": {
           "name": "v2_idx_proposals_source_checkpoint_id",
@@ -513,9 +626,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_proposals_status": {
           "name": "v2_idx_proposals_status",
@@ -528,9 +641,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -662,9 +775,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_provider_message_refs_provider_message": {
           "name": "v2_uq_provider_message_refs_provider_message",
@@ -695,9 +808,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_provider_message_refs_space_session": {
           "name": "v2_idx_provider_message_refs_space_session",
@@ -710,9 +823,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_provider_message_refs_session_message": {
           "name": "v2_idx_provider_message_refs_session_message",
@@ -725,9 +838,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_provider_message_refs_parent_message": {
           "name": "v2_idx_provider_message_refs_parent_message",
@@ -752,9 +865,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_provider_message_refs_space_channel": {
           "name": "v2_idx_provider_message_refs_space_channel",
@@ -767,95 +880,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "v2.resource_permissions": {
-      "name": "resource_permissions",
-      "schema": "v2",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "resource_type": {
-          "name": "resource_type",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "resource_id": {
-          "name": "resource_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grantee_uuid": {
-          "name": "grantee_uuid",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "level": {
-          "name": "level",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'read'"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "v2_uq_resource_permissions_resource_grantee": {
-          "name": "v2_uq_resource_permissions_resource_grantee",
-          "columns": [
-            {
-              "expression": "resource_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "resource_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "grantee_uuid",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "with": {},
-          "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -936,24 +963,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "usage_input": {
-          "name": "usage_input",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_output": {
-          "name": "usage_output",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cost_total": {
-          "name": "cost_total",
-          "type": "numeric(18, 8)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "meta": {
           "name": "meta",
           "type": "jsonb",
@@ -980,9 +989,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_session_messages_session_sequence": {
           "name": "v2_uq_session_messages_session_sequence",
@@ -1001,9 +1010,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_session_messages_session_id_idempotency_key": {
           "name": "v2_uq_session_messages_session_id_idempotency_key",
@@ -1022,9 +1031,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1083,9 +1092,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_space_channels_channel": {
           "name": "v2_uq_space_channels_channel",
@@ -1098,9 +1107,146 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "v2.space_members": {
+      "name": "space_members",
+      "schema": "v2",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "space_id": {
+          "name": "space_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "v2_uq_space_members_space_user": {
+          "name": "v2_uq_space_members_space_user",
+          "columns": [
+            {
+              "expression": "space_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_idx_space_members_space": {
+          "name": "v2_idx_space_members_space",
+          "columns": [
+            {
+              "expression": "space_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_idx_space_members_user": {
+          "name": "v2_idx_space_members_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_idx_space_members_space_role": {
+          "name": "v2_idx_space_members_space_role",
+          "columns": [
+            {
+              "expression": "space_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "role",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1197,9 +1343,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sandboxes_status": {
           "name": "v2_idx_space_sandboxes_status",
@@ -1212,9 +1358,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sandboxes_desired_image": {
           "name": "v2_idx_space_sandboxes_desired_image",
@@ -1227,9 +1373,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sandboxes_reported_image_version": {
           "name": "v2_idx_space_sandboxes_reported_image_version",
@@ -1242,9 +1388,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sandboxes_last_heartbeat_at": {
           "name": "v2_idx_space_sandboxes_last_heartbeat_at",
@@ -1257,9 +1403,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1362,9 +1508,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_session_bindings_session": {
           "name": "v2_idx_space_session_bindings_session",
@@ -1377,9 +1523,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_session_bindings_channel": {
           "name": "v2_idx_space_session_bindings_channel",
@@ -1392,9 +1538,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_session_bindings_binding_key": {
           "name": "v2_idx_space_session_bindings_binding_key",
@@ -1407,9 +1553,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_session_bindings_external_chat": {
           "name": "v2_idx_space_session_bindings_external_chat",
@@ -1422,9 +1568,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_space_session_bindings_channel_binding": {
           "name": "v2_uq_space_session_bindings_channel_binding",
@@ -1443,9 +1589,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1573,9 +1719,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sessions_parent_session_id": {
           "name": "v2_idx_space_sessions_parent_session_id",
@@ -1588,9 +1734,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sessions_lineage_root_session_id": {
           "name": "v2_idx_space_sessions_lineage_root_session_id",
@@ -1603,9 +1749,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sessions_forked_from_message_id": {
           "name": "v2_idx_space_sessions_forked_from_message_id",
@@ -1618,9 +1764,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sessions_last_message_id": {
           "name": "v2_idx_space_sessions_last_message_id",
@@ -1633,9 +1779,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_space_sessions_last_message_at": {
           "name": "v2_idx_space_sessions_last_message_at",
@@ -1648,9 +1794,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1740,9 +1886,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_spaces_base_checkpoint_id": {
           "name": "v2_idx_spaces_base_checkpoint_id",
@@ -1755,9 +1901,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_spaces_head_checkpoint_id": {
           "name": "v2_idx_spaces_head_checkpoint_id",
@@ -1770,9 +1916,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_spaces_user_name": {
           "name": "v2_uq_spaces_user_name",
@@ -1791,9 +1937,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_spaces_storage_repo_name": {
           "name": "v2_uq_spaces_storage_repo_name",
@@ -1806,9 +1952,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1942,9 +2088,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_cron_job_id": {
           "name": "v2_idx_task_runs_cron_job_id",
@@ -1957,9 +2103,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_space_id": {
           "name": "v2_idx_task_runs_space_id",
@@ -1972,9 +2118,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_session_id": {
           "name": "v2_idx_task_runs_session_id",
@@ -1987,9 +2133,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_user_uuid": {
           "name": "v2_idx_task_runs_user_uuid",
@@ -2002,9 +2148,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_status": {
           "name": "v2_idx_task_runs_status",
@@ -2017,9 +2163,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_created_at": {
           "name": "v2_idx_task_runs_created_at",
@@ -2032,9 +2178,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_task_runs_scheduled_at": {
           "name": "v2_idx_task_runs_scheduled_at",
@@ -2047,9 +2193,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2128,9 +2274,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_user_channels_provider": {
           "name": "v2_idx_user_channels_provider",
@@ -2143,9 +2289,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2261,9 +2407,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_uq_user_git_accounts_gitea_username": {
           "name": "v2_uq_user_git_accounts_gitea_username",
@@ -2276,9 +2422,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_user_git_accounts_user_uuid": {
           "name": "v2_idx_user_git_accounts_user_uuid",
@@ -2291,9 +2437,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "v2_idx_user_git_accounts_provider": {
           "name": "v2_idx_user_git_accounts_provider",
@@ -2306,9 +2452,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2323,10 +2469,10 @@
   "schemas": {
     "v2": "v2"
   },
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},
