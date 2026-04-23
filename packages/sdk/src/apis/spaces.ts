@@ -4,22 +4,23 @@ import type { HttpTransport, Fetch } from "../transport.js";
 import type {
   CheckpointRecord,
   ContentBlock,
-  ResourcePermission,
-  ResourcePermissionLevel,
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
   SessionRecord,
-  SpaceCheckpointDetailResponse,
+  SpaceAccessPolicy,
+  SpaceBootstrapSource,
   SpaceChannelBindingInput,
+  SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
   SpaceEnvInput,
   SpaceFsFileResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
   SpaceFsWriteFileInput,
+  SpaceMember,
   SpaceRecord,
+  SpaceRole,
   SpaceSessionsResponse,
-  SpaceBootstrapSource,
 } from "../types.js";
 
 const DEFAULT_DEDUP_WINDOW_MS = 2000;
@@ -276,68 +277,61 @@ export class SpaceEventsApi {
   }
 }
 
-export class SpacePermissionsApi {
+export class SpaceMembersApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly spaceId: string,
   ) {}
 
-  create(level: ResourcePermissionLevel) {
-    return this.transport.request<ResourcePermission>(
-      `/api/spaces/${this.spaceId}/permissions`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level }),
-      },
-    );
-  }
-
-  delete() {
-    return this.transport.request<{ ok: true }>(
-      `/api/spaces/${this.spaceId}/permissions`,
-      { method: "DELETE" },
-    );
-  }
-
   list() {
-    return this.transport.request<ResourcePermission[]>(
-      `/api/spaces/${this.spaceId}/permissions`,
+    return this.transport.request<{ items: SpaceMember[] }>(
+      `/api/spaces/${this.spaceId}/members`,
     );
   }
 
-  addCollaborator(granteeUuid: string, level: ResourcePermissionLevel) {
-    return this.transport.request<ResourcePermission>(
-      `/api/spaces/${this.spaceId}/collaborators`,
+  update(userId: string, role: SpaceRole) {
+    return this.transport.request<SpaceMember>(
+      `/api/spaces/${this.spaceId}/members`,
       {
-        method: "POST",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ granteeUuid, level }),
+        body: JSON.stringify({ userId, role }),
       },
     );
   }
 
-  listCollaborators() {
-    return this.transport.request<ResourcePermission[]>(
-      `/api/spaces/${this.spaceId}/collaborators`,
-    );
-  }
-
-  updateCollaborator(granteeUuid: string, level: ResourcePermissionLevel) {
-    return this.transport.request<ResourcePermission>(
-      `/api/spaces/${this.spaceId}/collaborators/${granteeUuid}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level }),
-      },
-    );
-  }
-
-  removeCollaborator(granteeUuid: string) {
+  remove(userId: string) {
     return this.transport.request<{ ok: true }>(
-      `/api/spaces/${this.spaceId}/collaborators/${granteeUuid}`,
-      { method: "DELETE" },
+      `/api/spaces/${this.spaceId}/members`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      },
+    );
+  }
+}
+
+export class SpaceAccessApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  get() {
+    return this.transport.request<SpaceAccessPolicy>(
+      `/api/spaces/${this.spaceId}/access`,
+    );
+  }
+
+  set(body: { signed_in_user?: SpaceRole | null; anonymous_user?: SpaceRole | null }) {
+    return this.transport.request<SpaceAccessPolicy>(
+      `/api/spaces/${this.spaceId}/access`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
     );
   }
 }
@@ -377,7 +371,8 @@ export class SpaceClient {
   readonly files: SpaceFilesApi;
   readonly sessions: SpaceSessionsApi;
   readonly events: SpaceEventsApi;
-  readonly permissions: SpacePermissionsApi;
+  readonly members: SpaceMembersApi;
+  readonly access: SpaceAccessApi;
   readonly checkpoints: SpaceCheckpointsApi;
 
   constructor(
@@ -388,7 +383,8 @@ export class SpaceClient {
     this.files = new SpaceFilesApi(transport, id);
     this.sessions = new SpaceSessionsApi(transport, id, websocketClient);
     this.events = new SpaceEventsApi(websocketClient);
-    this.permissions = new SpacePermissionsApi(transport, id);
+    this.members = new SpaceMembersApi(transport, id);
+    this.access = new SpaceAccessApi(transport, id);
     this.checkpoints = new SpaceCheckpointsApi(transport, id);
   }
 

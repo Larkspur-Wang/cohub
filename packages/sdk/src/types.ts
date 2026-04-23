@@ -229,3 +229,19 @@ export type ResourcePermission = {
   createdBy: string;
   createdAt: string;
 };
+
+// ─── RBAC types ───
+
+export type SpaceRole = "host" | "maker" | "guest";
+
+export type SpaceMember = {
+  userId: string;
+  role: SpaceRole;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SpaceAccessPolicy = {
+  signed_in_user: SpaceRole | null;
+  anonymous_user: SpaceRole | null;
+};

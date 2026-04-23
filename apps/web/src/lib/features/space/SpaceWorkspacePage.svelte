@@ -8,11 +8,13 @@ import {
 	type CheckpointRecord,
 	type CronJobRecord,
 	HttpError,
-	type ResourcePermission,
 	type SessionRecord,
+	type SpaceAccessPolicy,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
+	type SpaceMember,
 	type SpaceRecord,
+	type SpaceRole,
 	type TaskRunRecord,
 } from "@cohub/sdk";
 import {
@@ -315,24 +317,20 @@ let taskRunDetail = $state<TaskRunRecord | null>(null);
 let taskRunDetailLoading = $state(false);
 let taskRunDetailError = $state("");
 
-// Space-level permissions
-let spacePerms = $state<ResourcePermission[]>([]);
-let spacePublicRead = $state(false);
-let savingSpacePerm = $state(false);
+// ─── Space access & members ───
+let spaceAccess = $state<SpaceAccessPolicy | null>(null);
+let savingAccess = $state(false);
 
-// Session-level permissions
-let sessionPerms = $state<ResourcePermission[]>([]);
+// Session-level access cache
+let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
 
-// Session title cache for settings panel
-let sessionTitleById = $state<Map<string, string>>(new Map());
-
-// Collaborators
-let spaceCollaborators = $state<ResourcePermission[]>([]);
-let loadingCollaborators = $state(false);
-let addingCollaboratorUuid = $state("");
-let addingCollaboratorLevel = $state<"read" | "write">("write");
-let savingCollaborator = $state(false);
-let addingCollaboratorError = $state("");
+// Members
+let spaceMembers = $state<SpaceMember[]>([]);
+let loadingMembers = $state(false);
+let addingMemberUuid = $state("");
+let addingMemberRole = $state<SpaceRole>("guest");
+let savingMember = $state(false);
+let addingMemberError = $state("");
 
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
@@ -347,112 +345,89 @@ function getSessionTitle(session: SessionRecord): string {
 }
 
 function hasSessionPermission(sessionId: string): boolean {
-	return sessionPerms.some(
-		(p) => p.resourceId === sessionId && p.level === "read",
+	const access = sessionAccessById[sessionId];
+	return (
+		!!access &&
+		(access.anonymous_user === "guest" || access.signed_in_user === "guest")
 	);
 }
 
-async function loadSpacePermissions() {
+async function loadPermissions() {
 	try {
-		const perms = await sdk.space(spaceId).permissions.list();
-		spacePerms = perms;
-		spacePublicRead = perms.some(
-			(p) =>
-				p.resourceType === "space" &&
-				p.level === "read" &&
-				p.granteeUuid === null,
-		);
-		sessionPerms = perms.filter(
-			(p) => p.resourceType === "session" && p.granteeUuid === null,
-		);
-		// Cache session titles from existing session data
-		const titleMap = new Map<string, string>();
-		for (const perm of sessionPerms) {
-			const sess = spaceSessions.find((s) => s.id === perm.resourceId);
-			if (sess) titleMap.set(perm.resourceId, getSessionTitle(sess));
-		}
-		sessionTitleById = titleMap;
+		const access = await sdk.space(spaceId).access.get();
+		spaceAccess = access;
 	} catch {
 		// Non-blocking
 	}
 }
 
-async function toggleSpacePublicRead(checked: boolean) {
-	savingSpacePerm = true;
+async function setSpaceAccess(body: {
+	signed_in_user?: SpaceRole | null;
+	anonymous_user?: SpaceRole | null;
+}) {
+	savingAccess = true;
 	try {
-		if (checked) {
-			await sdk.space(spaceId).permissions.create("read");
-		} else {
-			await sdk.space(spaceId).permissions.delete();
-		}
-		await loadSpacePermissions();
+		spaceAccess = await sdk.space(spaceId).access.set(body);
 	} catch {
 		// Silently fail
 	} finally {
-		savingSpacePerm = false;
+		savingAccess = false;
 	}
 }
 
-async function removeSessionPermission(sessionId: string) {
+async function removeSessionAccess(sessionId: string) {
 	try {
-		await sdk.sessionPermissions.delete(sessionId);
-		await loadSpacePermissions();
+		await sdk.sessionAccess.remove(sessionId);
+		sessionAccessById = { ...sessionAccessById, [sessionId]: null };
 	} catch {
 		// Silently fail
 	}
 }
 
-// Collaborator management
-async function loadCollaborators() {
-	loadingCollaborators = true;
+// Member management
+async function loadMembers() {
+	loadingMembers = true;
 	try {
-		spaceCollaborators = await sdk
-			.space(spaceId)
-			.permissions.listCollaborators();
+		const result = await sdk.space(spaceId).members.list();
+		spaceMembers = result.items;
 	} catch {
 		// Non-blocking
 	} finally {
-		loadingCollaborators = false;
+		loadingMembers = false;
 	}
 }
 
-async function handleAddCollaborator() {
-	if (!addingCollaboratorUuid.trim()) return;
-	savingCollaborator = true;
-	addingCollaboratorError = "";
+async function handleAddMember() {
+	if (!addingMemberUuid.trim()) return;
+	savingMember = true;
+	addingMemberError = "";
 	try {
 		await sdk
 			.space(spaceId)
-			.permissions.addCollaborator(
-				addingCollaboratorUuid.trim(),
-				addingCollaboratorLevel,
-			);
-		addingCollaboratorUuid = "";
-		await loadCollaborators();
+			.members.update(addingMemberUuid.trim(), addingMemberRole);
+		addingMemberUuid = "";
+		await loadMembers();
 	} catch (error) {
-		addingCollaboratorError =
-			error instanceof Error ? error.message : "Failed to add collaborator";
+		addingMemberError =
+			error instanceof Error ? error.message : "Failed to add member";
 	} finally {
-		savingCollaborator = false;
+		savingMember = false;
 	}
 }
 
-async function handleUpdateCollaboratorLevel(
-	granteeUuid: string,
-	level: "read" | "write",
-) {
+async function handleUpdateMemberRole(userId: string, role: SpaceRole) {
 	try {
-		await sdk.space(spaceId).permissions.updateCollaborator(granteeUuid, level);
-		await loadCollaborators();
+		await sdk.space(spaceId).members.update(userId, role);
+		await loadMembers();
 	} catch {
 		// Silently fail
 	}
 }
 
-async function handleRemoveCollaborator(granteeUuid: string) {
+async function handleRemoveMember(userId: string) {
 	try {
-		await sdk.space(spaceId).permissions.removeCollaborator(granteeUuid);
-		await loadCollaborators();
+		await sdk.space(spaceId).members.remove(userId);
+		await loadMembers();
 	} catch {
 		// Silently fail
 	}
@@ -645,7 +620,9 @@ async function shareAndCopyLink() {
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
-		await sdk.sessionPermissions.create(shareModalSessionId, "read");
+		await sdk.sessionAccess.set(shareModalSessionId, {
+			anonymous_user: "guest",
+		});
 		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
 		await navigator.clipboard.writeText(url);
 		shareCopied = true;
@@ -653,7 +630,10 @@ async function shareAndCopyLink() {
 		shareCopiedTimer = setTimeout(() => {
 			shareCopied = false;
 		}, 2000);
-		await loadSpacePermissions();
+		sessionAccessById = {
+			...sessionAccessById,
+			[shareModalSessionId]: { signed_in_user: null, anonymous_user: "guest" },
+		};
 	} catch (error) {
 		shareModalError =
 			error instanceof Error ? error.message : "Failed to share session";
@@ -667,8 +647,8 @@ async function makeSessionPrivate() {
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
-		await sdk.sessionPermissions.delete(shareModalSessionId);
-		await loadSpacePermissions();
+		await sdk.sessionAccess.remove(shareModalSessionId);
+		sessionAccessById = { ...sessionAccessById, [shareModalSessionId]: null };
 		showShareModal = false;
 	} catch (error) {
 		shareModalError =
@@ -1007,7 +987,7 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				await loadSpacePermissions();
+				await loadPermissions();
 			} catch {
 				// Non-blocking
 			}
@@ -1017,7 +997,7 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				await loadCollaborators();
+				await loadMembers();
 			} catch {
 				// Non-blocking
 			}
@@ -3450,48 +3430,60 @@ $effect(() => {
           <span>Sharing</span>
         </div>
 
-        <!-- Space-level toggle -->
-        <label class="flex items-start gap-3 cursor-pointer group p-2 rounded-[5px] hover:bg-bg-hover transition-colors">
-          <div class="relative shrink-0 mt-0.5">
-            <input
-              type="checkbox"
-              checked={spacePublicRead}
-              onchange={(event) => { void toggleSpacePublicRead((event.currentTarget as HTMLInputElement).checked); }}
-              disabled={savingSpacePerm}
-              class="sr-only peer"
-            />
-            <div class="w-8 h-[18px] rounded-full bg-bg-hover-strong peer-checked:bg-brand transition-colors duration-150"></div>
-            <div class="absolute left-0.5 top-0.5 w-[13px] h-[13px] rounded-full bg-text-tertiary peer-checked:bg-white peer-checked:left-[15px] transition-all duration-150"></div>
+        <!-- Space-level access -->
+        <div class="space-y-3">
+          <div class="text-[11px] text-text-placeholder px-2">Space access</div>
+          <div class="space-y-2 px-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[12px] text-text-secondary">Signed-in users</span>
+              <select
+                value={spaceAccess?.signed_in_user ?? ''}
+                onchange={(event) => {
+                  const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
+                  void setSpaceAccess({ signed_in_user: val || null });
+                }}
+                disabled={savingAccess}
+                class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">None</option>
+                <option value="guest">Guest (read)</option>
+              </select>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-[12px] text-text-secondary">Anonymous</span>
+              <select
+                value={spaceAccess?.anonymous_user ?? ''}
+                onchange={(event) => {
+                  const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
+                  void setSpaceAccess({ anonymous_user: val || null });
+                }}
+                disabled={savingAccess}
+                class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">None</option>
+                <option value="guest">Guest (read)</option>
+              </select>
+            </div>
           </div>
-          <div class="flex flex-col min-w-0">
-            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors font-medium">Public read</span>
-            <span class="text-[11px] text-text-placeholder">Anyone with the link can view all sessions</span>
-          </div>
-        </label>
+        </div>
 
         <div class="w-full h-px bg-border-subtle"></div>
 
         <!-- Session-level permissions -->
         <div class="space-y-1">
-          <div class="text-[11px] text-text-placeholder px-2">Session access</div>
-          {#each sessionPerms as perm (perm.id)}
+          <div class="text-[11px] text-text-placeholder px-2">Shared sessions</div>
+          {#each Object.entries(sessionAccessById).filter(([_, v]) => v) as [sid, acc] (sid)}
             <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group">
-              {#if perm.level === 'write'}
-                <Share2 class="w-3.5 h-3.5 text-brand shrink-0" />
-              {:else if perm.level === 'private'}
-                <Lock class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-              {:else}
-                <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
-              {/if}
+              <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
               <span class="text-[12.5px] text-text-secondary truncate flex-1">
-                {sessionTitleById.get(perm.resourceId) || 'Session ' + perm.resourceId.slice(0, 8)}
+                {'Session ' + sid.slice(0, 8)}
               </span>
               <div class="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
                   class="p-1 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
                   onclick={() => {
-                    const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, perm.resourceId)}`;
+                    const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, sid)}`;
                     void navigator.clipboard.writeText(url);
                     shareCopied = true;
                     if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
@@ -3504,7 +3496,7 @@ $effect(() => {
                 <button
                   type="button"
                   class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
-                  onclick={() => { void removeSessionPermission(perm.resourceId); }}
+                  onclick={() => { void removeSessionAccess(sid); }}
                   title="Remove access"
                 >
                   <X class="w-3 h-3" />
@@ -3519,75 +3511,71 @@ $effect(() => {
         <div class="w-full h-px bg-border-subtle"></div>
       </section>
 
-      <!-- Collaborators section -->
+      <!-- Members section -->
       <section class="space-y-3">
         <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
-          <span>Collaborators</span>
-          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{spaceCollaborators.length}</span>
+          <span>Members</span>
+          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{spaceMembers.length}</span>
         </div>
 
-        <!-- Add collaborator form -->
+        <!-- Add member form -->
         <div class="space-y-2">
           <div class="flex gap-2">
             <input
               type="text"
-              bind:value={addingCollaboratorUuid}
+              bind:value={addingMemberUuid}
               placeholder="Paste user UUID"
               class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
-              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddCollaborator(); } }}
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddMember(); } }}
             />
             <select
-              bind:value={addingCollaboratorLevel}
+              bind:value={addingMemberRole}
               class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
             >
-              <option value="write">Write</option>
-              <option value="read">Read</option>
+              <option value="guest">Guest</option>
+              <option value="maker">Maker</option>
+              <option value="host">Host</option>
             </select>
             <button
               type="button"
-              onclick={() => { void handleAddCollaborator(); }}
-              disabled={savingCollaborator || !addingCollaboratorUuid.trim()}
+              onclick={() => { void handleAddMember(); }}
+              disabled={savingMember || !addingMemberUuid.trim()}
               class="px-2.5 py-[5px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
             >
-              {savingCollaborator ? '...' : 'Add'}
+              {savingMember ? '...' : 'Add'}
             </button>
           </div>
-          {#if addingCollaboratorError}
-            <div class="text-[11px] text-error-soft break-all">{addingCollaboratorError}</div>
+          {#if addingMemberError}
+            <div class="text-[11px] text-error-soft break-all">{addingMemberError}</div>
           {/if}
         </div>
 
-        <!-- Collaborators list -->
-        {#if loadingCollaborators}
+        <!-- Members list -->
+        {#if loadingMembers}
           <div class="flex items-center justify-center py-4 text-[12px] text-text-tertiary">
             <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
             Loading...
           </div>
-        {:else if spaceCollaborators.length === 0}
-          <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No collaborators</div>
+        {:else if spaceMembers.length === 0}
+          <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No members</div>
         {:else}
           <div class="space-y-1">
-            {#each spaceCollaborators as collab (collab.granteeUuid)}
+            {#each spaceMembers as member (member.userId)}
               <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group hover:bg-bg-hover transition-colors">
-                {#if collab.level === 'write'}
+                {#if member.role === 'host'}
+                  <span class="w-3.5 h-3.5 shrink-0 text-[10px] text-amber-400 font-bold">👑</span>
+                {:else if member.role === 'maker'}
                   <Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
                 {:else}
                   <Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
                 {/if}
-                <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{collab.granteeUuid}</code>
-                <select
-                  value={collab.level}
-                  onchange={(event) => { void handleUpdateCollaboratorLevel(collab.granteeUuid!, (event.currentTarget as HTMLSelectElement).value as "read" | "write"); }}
-                  class="px-1.5 py-0.5 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none"
-                >
-                  <option value="write">Write</option>
-                  <option value="read">Read</option>
-                </select>
+                <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{member.userId}</code>
+                <span class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium w-10 text-right">{member.role}</span>
                 <button
                   type="button"
                   class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
-                  onclick={() => { void handleRemoveCollaborator(collab.granteeUuid!); }}
-                  title="Remove collaborator"
+                  onclick={() => { void handleRemoveMember(member.userId); }}
+                  title="Remove member"
                 >
                   <X class="w-3 h-3" />
                 </button>
@@ -3645,7 +3633,7 @@ $effect(() => {
           <button
             type="button"
             class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
-            onclick={() => { void removeSessionPermission(shareModalSessionId!); showShareModal = false; }}
+            onclick={() => { void removeSessionAccess(shareModalSessionId!); showShareModal = false; }}
             disabled={shareModalSaving}
           >
             <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
