@@ -256,6 +256,10 @@ const inlineFileDownloadName = $derived.by(() => {
 let inlineFileMarkdownHtml = $state("");
 let inlineFileEdit = $state(true);
 
+// Image zoom state (for both route-based and inline file viewers)
+let openFileZoom = $state(1);
+let inlineFileZoom = $state(1);
+
 const fileDirty = $derived(
 	Boolean(
 		openFile && openFile.kind === "text" && openFileDraft !== openFile.content,
@@ -1201,6 +1205,14 @@ function formatShortDateTime(dateStr: string | null | undefined): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
+}
+
+function formatFileSize(bytes: number): string {
+	if (bytes === 0) return "0 B";
+	const units = ["B", "KB", "MB", "GB"];
+	const i = Math.floor(Math.log(bytes) / Math.log(1024));
+	const value = bytes / 1024 ** i;
+	return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
 }
 
 function taskRunStatusBadge(run: TaskRunRecord) {
@@ -3291,7 +3303,14 @@ $effect(() => {
               <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
                 {openFile.path}
               </div>
-              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
+              <button type="button" class="zoom-btn" onclick={() => openFileZoom = Math.max(0.25, openFileZoom - 0.25)} title="Zoom out">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+              <span class="text-[11px] text-text-tertiary tabular-nums w-10 text-center">{Math.round(openFileZoom * 100)}%</span>
+              <button type="button" class="zoom-btn" onclick={() => openFileZoom = Math.min(4, openFileZoom + 0.25)} title="Zoom in">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -3304,15 +3323,20 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
-            <div class="flex flex-1 items-center justify-center p-4">
-              <img src={openFileDataUrl} alt={openFile.name} class="max-h-full max-w-full rounded-md object-contain" />
+            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" role="img" aria-label="Image preview — scroll to zoom, double-click to reset" onwheel={(e) => {
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                openFileZoom = Math.max(0.25, Math.min(4, openFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
+              }
+            }} ondblclick={() => openFileZoom = 1}>
+              <img src={openFileDataUrl} alt={openFile.name} style="transform: scale({openFileZoom}); transition: transform 150ms ease;" class="max-h-full max-w-full rounded-md object-contain" />
             </div>
           {:else if openFileIsVideo && openFileDataUrl}
             <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
               <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
                 {openFile.path}
               </div>
-              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -3335,7 +3359,7 @@ $effect(() => {
               <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
                 {openFile.path}
               </div>
-              <div class="text-[11px] text-text-tertiary hidden sm:inline">{openFile.size} bytes</div>
+              <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -3753,7 +3777,14 @@ $effect(() => {
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{inlineFile.response.size} bytes</div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+              <button type="button" class="zoom-btn" onclick={() => inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25)} title="Zoom out">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+              <span class="text-xs text-text-tertiary tabular-nums w-10 text-center">{Math.round(inlineFileZoom * 100)}%</span>
+              <button type="button" class="zoom-btn" onclick={() => inlineFileZoom = Math.min(4, inlineFileZoom + 0.25)} title="Zoom in">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
               <a
                 href={inlineFileDownloadUrl}
                 download={inlineFileDownloadName}
@@ -3766,15 +3797,20 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
-            <div class="flex flex-1 items-center justify-center p-4">
-              <img src={inlineFileDataUrl} alt={inlineFile.response.name} class="max-h-full max-w-full rounded-md object-contain" />
+            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" role="img" aria-label="Image preview — scroll to zoom, double-click to reset" onwheel={(e) => {
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
+              }
+            }} ondblclick={() => inlineFileZoom = 1}>
+              <img src={inlineFileDataUrl} alt={inlineFile.response.name} style="transform: scale({inlineFileZoom}); transition: transform 150ms ease;" class="max-h-full max-w-full rounded-md object-contain" />
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
             <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{inlineFile.response.size} bytes</div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               <a
                 href={inlineFileDownloadUrl}
                 download={inlineFileDownloadName}
@@ -3797,7 +3833,7 @@ $effect(() => {
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{inlineFile.response.size} bytes</div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               <a
                 href={inlineFileDownloadUrl}
                 download={inlineFileDownloadName}
@@ -4405,4 +4441,19 @@ $effect(() => {
   .markdown-preview :global(tr:nth-child(even)) :global(td) {
     background: var(--bg-hover-soft, rgba(0,0,0,0.02));
   }
+
+  .zoom-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .zoom-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
 </style>
