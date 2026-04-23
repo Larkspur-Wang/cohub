@@ -7,10 +7,10 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/neta-art/cohub.git",
+    "url": "https://github.com/talesofai/cohub.git",
     "directory": "packages/protocol"
   },
-  "homepage": "https://github.com/neta-art/cohub",
+  "homepage": "https://github.com/talesofai/cohub",
   "keywords": [
     "cohub",
     "protocol",

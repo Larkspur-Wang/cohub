@@ -371,8 +371,8 @@ importers:
   packages/sdk:
     dependencies:
       '@neta-art/cohub-protocol':
-        specifier: workspace:*
-        version: link:../protocol
+        specifier: ^1.0.0
+        version: 1.0.0
     devDependencies:
       typescript:
         specifier: ^6.0.3
@@ -2216,6 +2216,9 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
+  '@neta-art/cohub-protocol@1.0.0':
+    resolution: {integrity: sha512-CcwpBneEHRYnzHMID51yQh023efQAQ7j5y9eqhq4+POwjYCcyNvDhC0QyFUQEz4tJIl+HUPhcANALtSYFFTzBw==, tarball: https://registry.npmjs.org/@neta-art/cohub-protocol/-/cohub-protocol-1.0.0.tgz}
+
   '@oxc-project/types@0.126.0':
     resolution: {integrity: sha512-oGfVtjAgwQVVpfBrbtk4e1XDyWHRFta6BS3GWVzrF8xYBT2VGQAk39yJS/wFSMrZqoiCU4oghT3Ch0HaHGIHcQ==}
 
@@ -3653,7 +3656,6 @@ packages:
   glob@11.1.0:
     resolution: {integrity: sha512-vuNwKSaKiqm7g0THUBu2x7ckSs3XJLXE+2ssL7/MfTGPLLcrJQ/4Uq1CjPTtO5cCIiRxqvN6Twy1qOwhL0Xjcw==}
     engines: {node: 20 || >=22}
-    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   globalthis@1.0.4:
@@ -7185,6 +7187,10 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@neta-art/cohub-protocol@1.0.0':
+    dependencies:
+      zod: 4.3.6
 
   '@oxc-project/types@0.126.0': {}
 
