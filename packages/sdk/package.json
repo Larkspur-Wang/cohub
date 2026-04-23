@@ -1,6 +1,6 @@
 {
   "name": "@neta-art/cohub",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Cohub SDK for spaces, sessions, checkpoints, and realtime agent collaboration.",
   "license": "UNLICENSED",
   "private": false,
@@ -48,7 +48,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@neta-art/cohub-protocol": "workspace:*"
+    "@neta-art/cohub-protocol": "^1.0.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
