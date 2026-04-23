@@ -1,0 +1,26 @@
+{
+  "name": "@cohub/gateway-contract",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@cohub/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "7.0.0-dev.20260421.1",
+    "typescript": "^6.0.3"
+  }
+}

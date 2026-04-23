@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContentBlock } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { ChevronDown, ChevronRight } from "lucide-svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";

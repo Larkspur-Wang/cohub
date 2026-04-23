@@ -1,17 +1,20 @@
 import type {
-  ChannelConfig,
-  ContentBlock,
-  MessageRecord,
-  ResourcePermissionLevel,
   SessionBindingRecord as ProtocolSessionBindingRecord,
   SessionRecord as ProtocolSessionRecord,
-} from "@cohub/protocol";
+} from "@cohub/protocol/model";
+import type {
+  ChannelConfig,
+  DiscordChannelConfig,
+} from "@cohub/protocol/gateway";
+import type {
+  ContentBlock,
+} from "@cohub/protocol/core";
+import type { MessageRecord } from "@cohub/protocol/model";
 
 export type {
   ChannelConfig,
   DiscordChannelConfig,
-  ResourcePermissionLevel,
-} from "@cohub/protocol";
+} from "@cohub/protocol/gateway";
 
 export type ApiError = {
   message: string;
@@ -57,7 +60,6 @@ export type SessionRecord = ProtocolSessionRecord & {
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCost?: string | number | null;
-  shareLevel?: ResourcePermissionLevel | null;
 };
 
 export type SpaceRecord = {
@@ -219,16 +221,6 @@ export type CreateScheduledTaskInput = {
   scheduleAt: string;
   spaceId?: string;
   sessionId?: string;
-};
-
-export type ResourcePermission = {
-  id: string;
-  resourceType: "space" | "session";
-  resourceId: string;
-  granteeUuid: string | null;
-  level: ResourcePermissionLevel;
-  createdBy: string;
-  createdAt: string;
 };
 
 // ─── RBAC types ───

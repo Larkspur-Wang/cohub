@@ -11,7 +11,8 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { ContentBlock, TaskPayload } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { TaskPayload } from "@cohub/protocol/task";
 
 export type SpaceRole = "host" | "maker" | "guest";
 export type AccessPolicyRole = "guest" | null;

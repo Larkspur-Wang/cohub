@@ -7,7 +7,7 @@ import {
   integer,
   jsonb,
 } from "drizzle-orm/pg-core";
-import type { TaskPayload } from "@cohub/protocol";
+import type { TaskPayload } from "@cohub/protocol/task";
 
 export const v2 = pgSchema("v2");
 

@@ -6,7 +6,7 @@ import { useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { hasPermission } from "../permissions.js";
 import { createCronJob, disableCronJob, enableCronJob, removeCronJob, SUPPORTED_TASK_TYPES } from "../tasks.js";
-import type { TaskScheduleConfig } from "@cohub/protocol";
+import type { TaskScheduleConfig } from "@cohub/protocol/task";
 import * as cronParser from "cron-parser";
 
 const { CronExpressionParser } = cronParser;

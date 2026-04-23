@@ -5,13 +5,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type {
-  GatewayInboundEvent,
-  GatewayOutboundCommand,
   RealtimeEnvelope,
   RealtimeServerEvent,
   WsClientEvent,
-} from "@cohub/protocol";
-import { realtimeEnvelopeSchema, wsClientEventSchema } from "@cohub/protocol";
+} from "@cohub/protocol/realtime";
+import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
+import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import { realtimeEnvelopeSchema, wsClientEventSchema } from "@cohub/protocol/realtime";
 import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
 import { gatewayConfig } from "./config.js";
@@ -283,13 +283,13 @@ async function main() {
 
   console.log("[Gateway] Listening for outbound commands from API...");
 
-  listenOutboundCommands(async (cmd: GatewayOutboundCommand) => {
+  listenOutboundCommands(async (cmd: PlannedGatewayOutboundCommand) => {
     console.log("[Gateway] Received outbound command:", {
       commandId: cmd.commandId,
       channelId: cmd.channelId,
       provider: cmd.provider,
       externalChatId: cmd.externalChatId,
-      contentPreview: cmd.content.map((c) => c.type).join(", "),
+      contentPreview: cmd.content.map((c: { type: string }) => c.type).join(", "),
     });
 
     if (cmd.provider === "websocket") {

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { GatewaySessionOutput, MessageRecord, SessionStreamError, SessionStreamEvent } from "@cohub/protocol";
+import type { MessageRecord } from "@cohub/protocol/model";
+import type { GatewaySessionOutput } from "@cohub/protocol/gateway";
+import type { SessionStreamError, SessionStreamEvent } from "@cohub/protocol/realtime";
 import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getReadableUserIdsForSpace, getBindingsBySessionId } from "./channels.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";

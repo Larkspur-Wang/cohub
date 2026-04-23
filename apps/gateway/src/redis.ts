@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import type { ChannelConfig } from "@cohub/protocol";
+import type { ChannelConfig } from "@cohub/protocol/gateway";
 
 export type RedisStreamEntry = [string, string[]];
 

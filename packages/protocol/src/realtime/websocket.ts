@@ -1,9 +1,8 @@
 import { z } from "zod";
-import type { ContentBlock, MessageRecord } from "./session-ingestion.js";
+import type { ContentBlock } from "../core/content.js";
+import type { MessageRecord } from "../model/session.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
-
-// ── Schemas ──
 
 export const contentBlockSchema = z.discriminatedUnion("type", [
   z.object({
@@ -91,10 +90,6 @@ export const realtimeEnvelopeSchema = z.object({
 });
 
 export const channelEnvelopeSchema = realtimeEnvelopeSchema;
-
-// ── Explicit types (z.infer fails for complex discriminated unions across packages in Zod 4) ──
-
-export type { ContentBlock };
 
 export type WsClientEvent =
   | { type: "auth"; requestId?: string; payload: { token: string } }

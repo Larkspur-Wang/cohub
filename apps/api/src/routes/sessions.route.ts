@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { useAuth, requireValidId } from "../lib/middleware.js";

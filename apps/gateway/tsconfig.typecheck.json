@@ -3,6 +3,13 @@
   "compilerOptions": {
     "paths": {
       "@cohub/protocol": ["../../packages/protocol/src/index.ts"],
+      "@cohub/protocol/core": ["../../packages/protocol/src/core/content.ts"],
+      "@cohub/protocol/model": ["../../packages/protocol/src/model/session.ts"],
+      "@cohub/protocol/realtime": ["../../packages/protocol/src/realtime/websocket.ts"],
+      "@cohub/protocol/gateway": ["../../packages/protocol/src/gateway/index.ts"],
+      "@cohub/protocol/task": ["../../packages/protocol/src/task/index.ts"],
+      "@cohub/protocol/fs": ["../../packages/protocol/src/fs/index.ts"],
+      "@cohub/gateway-contract": ["../../packages/gateway-contract/src/index.ts"],
       "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/src/index.ts"]
     }
   }

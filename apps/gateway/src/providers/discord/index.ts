@@ -1,6 +1,8 @@
 import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, DiscordChannelConfig } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { DiscordChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
+import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
@@ -185,7 +187,7 @@ const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Mes
   return message.mentions.users.has(botUserId);
 };
 
-const _buildDiscordOutboundPayload = async (channelId: string, cmd: GatewayOutboundCommand) => {
+const _buildDiscordOutboundPayload = async (channelId: string, cmd: PlannedGatewayOutboundCommand) => {
   const renderMode = String(cmd.meta?.renderMode ?? "message");
   const isFinalMessage = cmd.meta?.source === "session_persist";
 
@@ -245,7 +247,7 @@ const buildThreadConversationMeta = async (thread: AnyThreadChannel) => {
   };
 };
 
-function _resolveDiscordDisplayMode(_cmd: GatewayOutboundCommand) {
+function _resolveDiscordDisplayMode(_cmd: PlannedGatewayOutboundCommand) {
   return "full";
 }
 
@@ -520,9 +522,9 @@ export class DiscordProvider implements GatewayProvider {
     });
   }
 
-  public async handleOutbound(cmd: GatewayOutboundCommand) {
+  public async handleOutbound(cmd: PlannedGatewayOutboundCommand) {
     console.log(`[Discord:${this.channelId}] → Sending message to ${cmd.externalChatId}:`, {
-      contentPreview: cmd.content.map((c) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
+      contentPreview: cmd.content.map((c: { type: string; text?: string }) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
       replyTo: cmd.replyToExternalMessageId?.slice(0, 8) || "none",
       sessionMessageId: cmd.sessionMessageId ?? "none",
     });

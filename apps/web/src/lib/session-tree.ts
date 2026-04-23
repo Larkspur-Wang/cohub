@@ -1,4 +1,5 @@
-import type { ContentBlock, MessageRecord } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { MessageRecord } from "@cohub/protocol/model";
 
 export type ChatMessage = {
 	id: string;

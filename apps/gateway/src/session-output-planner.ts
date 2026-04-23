@@ -1,11 +1,10 @@
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
-  ContentBlock,
   DiscordChannelConfig,
   FeishuChannelConfig,
-  GatewayDeliveryPlan,
-  GatewayOutboundCommand,
   GatewaySessionOutput,
-} from "@cohub/protocol";
+} from "@cohub/protocol/gateway";
+import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 
 export const splitPlannedMessage = (value: string, limit = 1900) => {
   const text = value.trim();
@@ -81,14 +80,14 @@ const buildRenderText = (content: ContentBlock[], includeThinking = false, isFin
   };
 };
 
-const getSessionOutput = (cmd: GatewayOutboundCommand): GatewaySessionOutput | null => {
+const getSessionOutput = (cmd: PlannedGatewayOutboundCommand): GatewaySessionOutput | null => {
   const output = cmd.meta?.sessionOutput;
   if (!output || typeof output !== "object") return null;
   return output as GatewaySessionOutput;
 };
 
 export const buildDiscordDeliveryPlan = async (
-  cmd: GatewayOutboundCommand,
+  cmd: PlannedGatewayOutboundCommand,
   config: DiscordChannelConfig | null | undefined,
 ): Promise<Extract<GatewayDeliveryPlan, { adapter: "discord" }>> => {
   const output = getSessionOutput(cmd);
@@ -171,7 +170,7 @@ const extractFeishuImageKeys = (content: ContentBlock[]) => {
 };
 
 export const buildFeishuDeliveryPlan = async (
-  cmd: GatewayOutboundCommand,
+  cmd: PlannedGatewayOutboundCommand,
   config: FeishuChannelConfig | null | undefined,
 ): Promise<Extract<GatewayDeliveryPlan, { adapter: "feishu" }>> => {
   const output = getSessionOutput(cmd);

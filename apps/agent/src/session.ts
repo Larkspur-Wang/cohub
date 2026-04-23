@@ -9,7 +9,7 @@ import {
   createAgentSession,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
-import type { ContentBlock, } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
 import { sendOutput } from "./redis.js";

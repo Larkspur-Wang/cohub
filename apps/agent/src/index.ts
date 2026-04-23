@@ -3,7 +3,8 @@ import {
   DefaultResourceLoader,
   ModelRegistry,
 } from "@mariozechner/pi-coding-agent";
-import type { ContentBlock, SessionStreamError } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { SessionStreamError } from "@cohub/protocol/realtime";
 import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
 
 import {

@@ -1,5 +1,6 @@
 import type { Job } from "bullmq";
-import type { ContentBlock, TaskPayload } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { InternalApiError, registerCronjobSession, enqueuePrompt } from "../api-client.js";
 

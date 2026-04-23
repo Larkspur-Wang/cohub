@@ -1,7 +1,8 @@
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { ChannelConfig, ChannelProvider, ContentBlock, GatewayInboundEvent, GatewayOutboundCommand, RealtimeServerEvent } from "@cohub/protocol";
-import { buildSessionSourceChannel } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
+import type { RealtimeServerEvent } from "@cohub/protocol/realtime";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
@@ -13,6 +14,7 @@ import {
   type ResolvedInboundInteraction,
 } from "./session-interactions.js";
 import { hasPermission } from "./permissions.js";
+import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 
 const bindingLocks = new Map<string, Promise<unknown>>();
 

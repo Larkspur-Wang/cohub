@@ -5,7 +5,7 @@ import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
-import type { SpaceSandboxStatus } from "@cohub/protocol";
+import type { SpaceSandboxStatus } from "./lib/sandbox/types.js";
 import type { V1Pod } from "@kubernetes/client-node";
 
 export const toSandboxImageVersion = (image: string) => {

@@ -3,8 +3,8 @@ import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
   RegisterSessionInput,
-  ContentBlock,
-} from "@cohub/protocol";
+} from "@cohub/protocol/model";
+import type { ContentBlock } from "@cohub/protocol/core";
 import {
   getSpaceById,
   getSpaceSessionBootstrap,

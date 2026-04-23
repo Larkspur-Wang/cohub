@@ -14,7 +14,8 @@ import {
   SESSION_UPDATES_CONSUMER_GROUP,
 } from "./redis.js";
 import { handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
-import type { GatewayInboundEvent, SessionStreamError, SessionStreamEvent } from "@cohub/protocol";
+import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
+import type { SessionStreamError, SessionStreamEvent } from "@cohub/protocol/realtime";
 import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
 import router from "./routes/index.js";
 

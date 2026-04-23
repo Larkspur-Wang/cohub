@@ -1,9 +1,6 @@
 <script lang="ts">
-import type {
-	ChannelEnvelope,
-	ContentBlock,
-	MessageRecord,
-} from "@cohub/protocol";
+import type { ContentBlock, MessageRecord } from "@cohub/protocol/core";
+import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import {
 	type CheckpointRecord,
 	type CronJobRecord,

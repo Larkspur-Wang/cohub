@@ -1,37 +1,5 @@
-// ─── Content Block — Anthropic-style, single source of truth ───
-
-export type ContentBlockMeta = Record<string, unknown>;
-
-export type ContentBlock =
-  | { type: "text"; text: string; _meta?: ContentBlockMeta }
-  | { type: "thinking"; thinking: string; signature?: string; _meta?: ContentBlockMeta }
-  | {
-      type: "image";
-      source:
-        | { type: "url"; url: string }
-        | { type: "base64"; media_type: string; data: string };
-      _meta?: ContentBlockMeta;
-    }
-  | {
-      type: "tool_use";
-      id: string;
-      name: string;
-      input: Record<string, unknown>;
-      _meta?: ContentBlockMeta;
-    }
-  | {
-      type: "tool_result";
-      tool_use_id: string;
-      content: string | ContentBlock[];
-      is_error?: boolean;
-      _meta?: ContentBlockMeta;
-    }
-  | {
-      type: "system_note";
-      note_type: "session_created" | "forked" | "compacted" | "info";
-      text: string;
-      _meta?: ContentBlockMeta;
-    };
+import type { ContentBlock } from "../core/content.js";
+import type { Usage } from "../core/usage.js";
 
 export type SessionPromptInput = {
   spaceId: string;
@@ -55,21 +23,6 @@ export type RegisterSessionInput = {
   source?: string | null;
   externalSessionId?: string | null;
   meta?: Record<string, unknown> | null;
-};
-
-export type Usage = {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  totalTokens?: number;
-  cost?: {
-    input?: number;
-    output?: number;
-    cacheRead?: number;
-    cacheWrite?: number;
-    total?: number;
-  } | null;
 };
 
 export type PersistMessageInput = {
@@ -99,25 +52,6 @@ export type UpdateSessionInfoInput = {
   title?: string | null;
   updatedAt?: string | null;
   meta?: Record<string, unknown> | null;
-};
-
-export type SessionStreamEvent = {
-  type: "stream_update";
-  spaceId: string;
-  sessionId: string;
-  /** `content` always contains delta blocks to be merged into the current streaming state. */
-  content: ContentBlock[];
-  sourceMessageId: string | null;
-  timestamp: number;
-  turnEnd?: boolean;
-  anchorUserMessageId?: string | null;
-};
-
-export type SessionStreamError = {
-  type: "error";
-  spaceId: string;
-  sessionId: string | null;
-  error: string;
 };
 
 export type SessionBindingRecord = {

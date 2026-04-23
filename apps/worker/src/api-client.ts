@@ -1,4 +1,5 @@
-import type { ContentBlock, PersistMessageInput, RegisterSessionInput } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { PersistMessageInput, RegisterSessionInput } from "@cohub/protocol/model";
 import { config } from "./config.js";
 
 export class InternalApiError extends Error {

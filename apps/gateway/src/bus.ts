@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayOutboundCommand, GatewayLogEvent } from "@cohub/protocol";
+import type { GatewayInboundEvent, GatewayLogEvent } from "@cohub/protocol/gateway";
+import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import {
   createBlockingRedisClient,
   type RedisStreamEntry,
@@ -85,7 +86,7 @@ export const publishConversationCreateEvent = async (
 };
 
 export const publishOutboundLog = async (input: {
-  cmd: GatewayOutboundCommand;
+  cmd: PlannedGatewayOutboundCommand;
   result: { success: boolean; error?: string; externalMessageId?: string };
 }) => {
   await publishLogEvent({
@@ -117,7 +118,7 @@ export const initOutboundConsumerGroup = async () => {
 
 
 export const listenOutboundCommands = async (
-  onCommand: (cmd: GatewayOutboundCommand) => Promise<{ success: boolean; error?: string; externalMessageId?: string }>
+  onCommand: (cmd: PlannedGatewayOutboundCommand) => Promise<{ success: boolean; error?: string; externalMessageId?: string }>
 ) => {
   console.log(`[Bus] Listening: ${OUTBOUND_STREAM}`);
 
@@ -149,7 +150,7 @@ export const listenOutboundCommands = async (
 
           try {
             // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
-            const cmd = JSON.parse(payload) as GatewayOutboundCommand;
+            const cmd = JSON.parse(payload) as PlannedGatewayOutboundCommand;
             console.log("[Bus] Consuming outbound command", {
               streamId: id,
               commandId: cmd.commandId,

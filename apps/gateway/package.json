@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@cohub/protocol": "workspace:*",
+    "@cohub/gateway-contract": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@larksuiteoapi/node-sdk": "^1.61.1",
     "discord.js": "^14.26.3",

@@ -1,6 +1,8 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayOutboundCommand, ContentBlock, FeishuChannelConfig } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { FeishuChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
+import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import type { GatewayProvider } from "../base.js";
 import { publishInboundEvent, } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
@@ -270,9 +272,9 @@ export class FeishuProvider implements GatewayProvider {
     return blocks;
   }
 
-  public async handleOutbound(cmd: GatewayOutboundCommand): Promise<{ success: boolean; error?: string; externalMessageId?: string }> {
+  public async handleOutbound(cmd: PlannedGatewayOutboundCommand): Promise<{ success: boolean; error?: string; externalMessageId?: string }> {
     console.log(`[Feishu:${this.channelId}] → Outbound to ${cmd.externalChatId}`, {
-      contentPreview: cmd.content.map((c) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
+      contentPreview: cmd.content.map((c: { type: string; text?: string }) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
       replyTo: cmd.replyToExternalMessageId?.slice(0, 8) || "none",
       source: typeof cmd.meta?.source === "string" ? cmd.meta.source : "unknown",
     });

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
-import type { ContentBlock, PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput, Usage } from "@cohub/protocol";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
+import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
 import {
   sessionMessages,

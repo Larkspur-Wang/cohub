@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { ContentBlock, GatewayInboundEvent } from "@cohub/protocol";
-import { buildSessionSourceChannel } from "@cohub/protocol";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
 import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
@@ -15,6 +15,7 @@ import {
   touchSpaceSessionBinding,
   updateSpaceSessionBindingMeta,
 } from "./channels.js";
+import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 
 export type SessionInteractionInboundRef = {
   provider: string;
