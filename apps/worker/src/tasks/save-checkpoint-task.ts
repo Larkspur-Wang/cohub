@@ -59,6 +59,8 @@ const saveCheckpointHandler = async (job: Job) => {
   });
 
   await runGit(["add", "-A"], workspaceDir);
+  await runGit(["config", "user.name", "Cohub Worker"], workspaceDir);
+  await runGit(["config", "user.email", "noreply@cohub.run"], workspaceDir);
   await runGit(["commit", "-m", commitMessage], workspaceDir);
 
   try {
