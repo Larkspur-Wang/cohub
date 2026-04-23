@@ -1,13 +1,16 @@
 import { existsSync, renameSync } from "node:fs";
-import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
-import { env } from "./env.js";
 import { sendOutput } from "./redis.js";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
-import type { LoadedSkill } from "./runtime/resources.js";
+import {
+  ensureAgentSpaceSessionPath,
+  getAgentSessionFilePath,
+  getAgentSpaceSessionsPath,
+  getAgentWorkspacePath,
+} from "./runtime/paths.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 
@@ -46,26 +49,9 @@ export function getSessionKey(spaceId: string, sessionId: string) {
   return `${spaceId}:${sessionId}`;
 }
 
-export function getSpaceWorkspaceDir(spaceId: string) {
-  return join(env.WORKSPACE_ROOT, spaceId, "workspace");
-}
-
-export function getSpaceSessionsDir(spaceId: string) {
-  return join(env.SESSIONS_DIR, "spaces", spaceId);
-}
-
-export function getSessionFilePath(spaceId: string, sessionId: string) {
-  return join(getSpaceSessionsDir(spaceId), `${sessionId}.jsonl`);
-}
-
 function setSessionManagerFilePath(sessionManager: SessionManager, sessionFile: string) {
   ((sessionManager as unknown) as { sessionFile?: string }).sessionFile = sessionFile;
 }
-
-export async function ensureSpaceDirs(spaceId: string) {
-  await mkdir(getSpaceSessionsDir(spaceId), { recursive: true }).catch(() => undefined);
-}
-
 function summarizeToolArgs(toolName: string, args: unknown): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
@@ -445,9 +431,6 @@ export async function loadOrCreateSessionHandle(input: {
   spaceId: string;
   sessionId: string;
   modelRegistry: CohubModelRegistry;
-  platformPrompt?: string;
-  appendSystemPrompt?: string;
-  skills: LoadedSkill[];
   tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
   sessionHandles: Map<string, SessionHandle>;
@@ -459,7 +442,7 @@ export async function loadOrCreateSessionHandle(input: {
     return existing;
   }
 
-  await ensureSpaceDirs(input.spaceId);
+  await ensureAgentSpaceSessionPath(input.spaceId);
 
   const registration = await registerSpaceSession({
     spaceId: input.spaceId,
@@ -472,9 +455,9 @@ export async function loadOrCreateSessionHandle(input: {
     return null;
   });
 
-  const existingSessionFile = getSessionFilePath(input.spaceId, input.sessionId);
-  const spaceWorkspaceDir = getSpaceWorkspaceDir(input.spaceId);
-  const spaceSessionsDir = getSpaceSessionsDir(input.spaceId);
+  const existingSessionFile = getAgentSessionFilePath(input.spaceId, input.sessionId);
+  const spaceWorkspaceDir = getAgentWorkspacePath(input.spaceId);
+  const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
 
   let sessionManager: SessionManager;
   if (existsSync(existingSessionFile)) {
@@ -483,7 +466,7 @@ export async function loadOrCreateSessionHandle(input: {
   } else {
     const forkSourceProtocolMessageId = registration?.bootstrap?.forkSourceProtocolMessageId ?? null;
     const parentSessionId = ((registration?.session as { parentSessionId?: string | null } | undefined)?.parentSessionId) ?? null;
-    const parentSessionFile = parentSessionId ? getSessionFilePath(input.spaceId, parentSessionId) : null;
+    const parentSessionFile = parentSessionId ? getAgentSessionFilePath(input.spaceId, parentSessionId) : null;
 
     if (parentSessionFile && existsSync(parentSessionFile) && forkSourceProtocolMessageId) {
       const parentManager = SessionManager.open(parentSessionFile, spaceSessionsDir);
@@ -521,9 +504,6 @@ export async function loadOrCreateSessionHandle(input: {
     modelRegistry: input.modelRegistry,
     tools: input.tools,
     ...(resolvedModel ? { model: resolvedModel } : {}),
-    customPrompt: input.platformPrompt,
-    appendSystemPrompt: input.appendSystemPrompt,
-    skills: input.skills,
   });
 
   await session.reload();

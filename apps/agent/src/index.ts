@@ -4,7 +4,6 @@ import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
 
 import {
   env,
-  PLATFORM_ROOT,
 } from "./env.js";
 import {
   closeOwnershipRedis,
@@ -35,8 +34,10 @@ import {
   type SessionHandle,
 } from "./session.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
-import { loadPlatformPromptResources } from "./runtime/resources.js";
 
+import {
+  getAgentPlatformConfigPath,
+} from "./runtime/paths.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
@@ -243,7 +244,7 @@ async function main() {
   console.log(`[Agent] Workspace root: ${env.WORKSPACE_ROOT}`);
   console.log(`[Agent] Sessions root: ${env.SESSIONS_DIR}`);
   console.log(`[Agent] Platform config root: ${env.PLATFORM_CONFIG_ROOT}`);
-  console.log(`[Agent] Platform config dir: ${PLATFORM_ROOT}`);
+  console.log(`[Agent] Platform config dir: ${getAgentPlatformConfigPath()}`);
   console.log("[Agent] Build features:", {
     env: env.ENV,
     agentInstanceId: env.AGENT_INSTANCE_ID,
@@ -262,7 +263,6 @@ async function main() {
   startOwnerRenewLoop();
 
   const modelRegistry = new CohubModelRegistry();
-  const platformResources = loadPlatformPromptResources();
   if (modelRegistry.getError()) {
     console.warn("[Agent] Model registry warning:", modelRegistry.getError());
   }
@@ -303,9 +303,6 @@ async function main() {
             spaceId: inputEntry.spaceId,
             sessionId,
             modelRegistry,
-            platformPrompt: platformResources.systemPrompt,
-            appendSystemPrompt: platformResources.appendSystemPrompt,
-            skills: platformResources.skills,
             tools,
             model: requestedModelInput,
             sessionHandles,

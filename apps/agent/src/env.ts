@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 
 const redisUrlSchema = z
   .string()
@@ -48,17 +46,6 @@ export const EnvSchema = z.object({
 
 export type Env = z.infer<typeof EnvSchema>;
 export const env = EnvSchema.parse(process.env);
-
-export const PLATFORM_ROOT = join(env.PLATFORM_CONFIG_ROOT, "platform");
-export const PLATFORM_AGENT_DIR = join(PLATFORM_ROOT, ".pi", "agent");
-export const PLATFORM_AGENTS_DIR = join(PLATFORM_ROOT, ".agents");
-export const PLATFORM_SKILLS_DIR = join(PLATFORM_AGENTS_DIR, "skills");
-export const PLATFORM_MODELS_PATH = join(PLATFORM_AGENT_DIR, "models.json");
-export const PLATFORM_AUTH_PATH = join(PLATFORM_AGENT_DIR, "auth.json");
-
-export function hasPlatformSkillsDir(): boolean {
-  return existsSync(PLATFORM_SKILLS_DIR);
-}
 
 export const AGENT_INSTANCE_HEARTBEAT_MS = 5000;
 export const SPACE_OWNER_LEASE_MS = 15000;

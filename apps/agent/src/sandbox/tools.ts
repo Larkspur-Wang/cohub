@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import {
   createBashTool,
   createEditTool,
@@ -24,12 +23,15 @@ import {
 
 const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
-import { env, PLATFORM_AGENTS_DIR, PLATFORM_ROOT } from "../env.js";
+import {
+  getAgentPlatformAgentsPath,
+  getAgentPlatformConfigPath,
+  getAgentWorkspacePath,
+  SANDBOX_PLATFORM_AGENTS_PATH,
+  SANDBOX_WORKSPACE_PATH,
+} from "../runtime/paths.js";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
 import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
-
-const SANDBOX_WORKSPACE_ROOT = "/workspace";
-const SANDBOX_PLATFORM_AGENTS_ROOT = "/configs/platform/.agents";
 
 function getCurrentSpaceId() {
   const ctx = getCurrentToolExecutionContext();
@@ -40,7 +42,7 @@ function getCurrentSpaceId() {
 }
 
 function getSpaceWorkspaceDir(spaceId: string) {
-  return join(env.WORKSPACE_ROOT, spaceId, "workspace");
+  return getAgentWorkspacePath(spaceId);
 }
 
 function toPosixPath(value: string) {
@@ -50,23 +52,23 @@ function toPosixPath(value: string) {
 function mapLocalAbsolutePathToSandboxPath(absolutePath: string) {
   const normalized = toPosixPath(absolutePath);
   const workspaceRoot = toPosixPath(getSpaceWorkspaceDir(getCurrentSpaceId()));
-  const platformAgentsRoot = toPosixPath(PLATFORM_AGENTS_DIR);
-  const platformRoot = toPosixPath(PLATFORM_ROOT);
+  const platformAgentsRoot = toPosixPath(getAgentPlatformAgentsPath());
+  const platformRoot = toPosixPath(getAgentPlatformConfigPath());
 
   if (normalized === workspaceRoot) {
-    return SANDBOX_WORKSPACE_ROOT;
+    return SANDBOX_WORKSPACE_PATH;
   }
   if (normalized.startsWith(`${workspaceRoot}/`)) {
     const relativePath = normalized.slice(workspaceRoot.length + 1);
-    return `${SANDBOX_WORKSPACE_ROOT}/${relativePath}`;
+    return `${SANDBOX_WORKSPACE_PATH}/${relativePath}`;
   }
 
   if (normalized === platformAgentsRoot) {
-    return SANDBOX_PLATFORM_AGENTS_ROOT;
+    return SANDBOX_PLATFORM_AGENTS_PATH;
   }
   if (normalized.startsWith(`${platformAgentsRoot}/`)) {
     const relativePath = normalized.slice(platformAgentsRoot.length + 1);
-    return `${SANDBOX_PLATFORM_AGENTS_ROOT}/${relativePath}`;
+    return `${SANDBOX_PLATFORM_AGENTS_PATH}/${relativePath}`;
   }
 
   if (normalized === platformRoot || normalized.startsWith(`${platformRoot}/`)) {
@@ -317,7 +319,7 @@ function createRemoteFindOperations(): FindOperations {
  *   Long lines are truncated to GREP_MAX_LINE_LENGTH.
  */
 function createRemoteGrepTool() {
-  const definition = createGrepToolDefinition(SANDBOX_WORKSPACE_ROOT);
+  const definition = createGrepToolDefinition(SANDBOX_WORKSPACE_PATH);
 
   definition.execute = async (
     _toolCallId,
@@ -517,11 +519,11 @@ function createRemoteGrepTool() {
 /** Format a file path as relative, matching native grep behavior. */
 function formatRelativePath(absolutePath: string, searchPath: string | undefined): string {
   // Reconstruct the sandbox-internal search path to compute relative output.
-  let sandboxSearchDir: string | null = null;
+  let sandboxSearchDir: string;
   if (!searchPath || searchPath === ".") {
-    sandboxSearchDir = SANDBOX_WORKSPACE_ROOT;
+    sandboxSearchDir = SANDBOX_WORKSPACE_PATH;
   } else if (!searchPath.startsWith("/")) {
-    sandboxSearchDir = `${SANDBOX_WORKSPACE_ROOT}/${searchPath}`;
+    sandboxSearchDir = `${SANDBOX_WORKSPACE_PATH}/${searchPath}`;
   } else {
     sandboxSearchDir = searchPath;
   }
@@ -570,7 +572,7 @@ async function rpcAbortProcess(processId: string) {
 }
 
 export function createSandboxCodingTools() {
-  const toolCwd = SANDBOX_WORKSPACE_ROOT;
+  const toolCwd = SANDBOX_WORKSPACE_PATH;
 
   return [
     createReadTool(toolCwd, { operations: createRemoteReadOperations() }),

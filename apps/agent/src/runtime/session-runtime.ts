@@ -1,10 +1,9 @@
 import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
 import { streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
-import { SessionManager } from "./local-session-manager.js";
+import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
-import type { LoadedSkill } from "./resources.js";
-import { buildCohubSystemPrompt } from "./system-prompt.js";
+import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 
 export type CohubAgentSessionEvent = AgentEvent;
 
@@ -32,9 +31,6 @@ export type CreateCohubAgentSessionOptions = {
   modelRegistry: CohubModelRegistry;
   tools: ToolLike[];
   model?: Model<Api>;
-  customPrompt?: string;
-  appendSystemPrompt?: string;
-  skills?: LoadedSkill[];
 };
 
 function toLlmMessages(messages: AgentMessage[]) {
@@ -88,11 +84,9 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
   }
 
   const systemPrompt = buildCohubSystemPrompt({
-    customPrompt: options.customPrompt,
-    appendSystemPrompt: options.appendSystemPrompt,
+    cwd: options.cwd,
     selectedTools: options.tools.map((tool) => tool.name),
     toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
-    skills: options.skills,
   });
 
   const agent = new PiAgent({
@@ -137,11 +131,9 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async reload() {
       const nextPrompt = buildCohubSystemPrompt({
-        customPrompt: options.customPrompt,
-        appendSystemPrompt: options.appendSystemPrompt,
+        cwd: options.cwd,
         selectedTools: options.tools.map((tool) => tool.name),
         toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
-        skills: options.skills,
       });
       agent.state.systemPrompt = nextPrompt;
       agent.state.tools = options.tools as never;

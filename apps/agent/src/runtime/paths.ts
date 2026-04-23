@@ -1,0 +1,62 @@
+import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { env } from "../env.js";
+
+export const SANDBOX_WORKSPACE_PATH = "/workspace";
+export const SANDBOX_PLATFORM_CONFIG_PATH = "/configs/platform";
+export const SANDBOX_PLATFORM_AGENT_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.pi/agent`;
+export const SANDBOX_PLATFORM_AGENTS_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.agents`;
+export const SANDBOX_PLATFORM_SKILLS_PATH = `${SANDBOX_PLATFORM_AGENTS_PATH}/skills`;
+export const SANDBOX_WORKSPACE_AGENTS_PATH = `${SANDBOX_WORKSPACE_PATH}/.agents`;
+export const SANDBOX_WORKSPACE_SKILLS_PATH = `${SANDBOX_WORKSPACE_AGENTS_PATH}/skills`;
+
+export function getAgentPlatformConfigPath() {
+  return join(env.PLATFORM_CONFIG_ROOT, "platform");
+}
+
+export function getAgentPlatformAgentPath() {
+  return join(getAgentPlatformConfigPath(), ".pi", "agent");
+}
+
+export function getAgentPlatformAgentsPath() {
+  return join(getAgentPlatformConfigPath(), ".agents");
+}
+
+export function getAgentPlatformSkillsPath() {
+  return join(getAgentPlatformAgentsPath(), "skills");
+}
+
+export function getAgentPlatformModelsPath() {
+  return join(getAgentPlatformAgentPath(), "models.json");
+}
+
+export function getAgentPlatformAuthPath() {
+  return join(getAgentPlatformAgentPath(), "auth.json");
+}
+
+export function getAgentWorkspacePath(spaceId: string) {
+  return join(env.WORKSPACE_ROOT, spaceId, "workspace");
+}
+
+export function getAgentWorkspaceAgentsPath(spaceIdOrWorkspacePath: string) {
+  const workspacePath = spaceIdOrWorkspacePath.startsWith("/")
+    ? spaceIdOrWorkspacePath
+    : getAgentWorkspacePath(spaceIdOrWorkspacePath);
+  return join(workspacePath, ".agents");
+}
+
+export function getAgentWorkspaceSkillsPath(spaceIdOrWorkspacePath: string) {
+  return join(getAgentWorkspaceAgentsPath(spaceIdOrWorkspacePath), "skills");
+}
+
+export function getAgentSpaceSessionsPath(spaceId: string) {
+  return join(env.SESSIONS_DIR, "spaces", spaceId);
+}
+
+export function getAgentSessionFilePath(spaceId: string, sessionId: string) {
+  return join(getAgentSpaceSessionsPath(spaceId), `${sessionId}.jsonl`);
+}
+
+export async function ensureAgentSpaceSessionPath(spaceId: string) {
+  await mkdir(getAgentSpaceSessionsPath(spaceId), { recursive: true }).catch(() => undefined);
+}

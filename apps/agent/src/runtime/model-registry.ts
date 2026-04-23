@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { PLATFORM_MODELS_PATH } from "../env.js";
+import { getAgentPlatformModelsPath } from "./paths.js";
 
 type ModelCompat = Model<Api>["compat"];
 
@@ -57,7 +56,7 @@ export class CohubModelRegistry {
   private providerHeaders = new Map<string, Record<string, string>>();
   private loadError: string | undefined;
 
-  constructor(private readonly modelsPath: string = PLATFORM_MODELS_PATH) {
+  constructor(private readonly modelsPath: string = getAgentPlatformModelsPath()) {
     this.refresh();
   }
 
@@ -136,5 +135,5 @@ export class CohubModelRegistry {
 }
 
 export function getPlatformModelsPath(): string {
-  return join("/configs/platform", ".pi", "agent", "models.json");
+  return getAgentPlatformModelsPath();
 }
