@@ -78,6 +78,13 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { messageCache } from "$lib/stores/message-cache";
+import {
+	fetchSessionListWithCache,
+	getCachedSessionList,
+	onSessionListCacheUpdated,
+	patchCachedSessionList,
+	setCachedSessionList,
+} from "$lib/stores/session-list-cache";
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
@@ -933,12 +940,8 @@ function updateNodeState(
 	});
 }
 
-function seedSessions(sessions: SessionRecord[]) {
-	const sorted = [...sessions].sort((a, b) => {
-		const aTime = new Date(a.updatedAt ?? a.createdAt).getTime();
-		const bTime = new Date(b.updatedAt ?? b.createdAt).getTime();
-		return bTime - aTime;
-	});
+function applySessionsSnapshot(sessions: SessionRecord[]) {
+	const sorted = setCachedSessionList(spaceId, sessions);
 	spaceSessions = sorted;
 	for (const session of sorted) {
 		const existing = sessionStateById[session.id];
@@ -958,8 +961,36 @@ function seedSessions(sessions: SessionRecord[]) {
 	}
 }
 
+function seedSessions(sessions: SessionRecord[]) {
+	applySessionsSnapshot(sessions);
+}
+
+async function refreshSessionsList(force = true) {
+	try {
+		const sessions = await fetchSessionListWithCache(
+			spaceId,
+			async () => {
+				const result = await sdk.space(spaceId).sessions.list();
+				return result.sessions ?? [];
+			},
+			{ force },
+		);
+		applySessionsSnapshot(sessions);
+	} catch {
+		// Non-blocking
+	}
+}
+
 async function loadSpace(_options?: { force?: boolean }) {
 	spaceLoadError = "";
+	const force = _options?.force ?? false;
+
+	if (!force) {
+		const cachedSessions = getCachedSessionList(spaceId);
+		if (cachedSessions && cachedSessions.length > 0) {
+			seedSessions(cachedSessions);
+		}
+	}
 
 	const tasks: Array<Promise<void>> = [];
 	tasks.push(
@@ -976,8 +1007,15 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				const result = await sdk.space(spaceId).sessions.list();
-				seedSessions(result.sessions ?? []);
+				const sessions = await fetchSessionListWithCache(
+					spaceId,
+					async () => {
+						const result = await sdk.space(spaceId).sessions.list();
+						return result.sessions ?? [];
+					},
+					{ force },
+				);
+				seedSessions(sessions);
 			} catch {
 				// Sessions list not available — if viewing a session, fetch it directly
 				if (routeView === "session" && routeSessionId) {
@@ -1598,6 +1636,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
 			streamingSessionId = null;
 			void reconcileSessionTail(currentActiveSessionId);
+			void refreshSessionsList(true);
 			if (!userScrolledUp) scrollToBottomNow();
 			return;
 		}
@@ -1638,10 +1677,20 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				lastMessageId: message.id ?? null,
 				updatedAt: new Date().toISOString(),
 			};
-			spaceSessions = spaceSessions.map(
-				(s): SessionRecord =>
-					s.id === updatedSession.id ? refreshedSession : s,
-			);
+			spaceSessions = patchCachedSessionList(spaceId, (sessions) => [
+				refreshedSession,
+				...sessions.filter((s) => s.id !== updatedSession.id),
+			]);
+			sessionStateById = {
+				...sessionStateById,
+				[currentActiveSessionId]: {
+					...sessionStateById[currentActiveSessionId],
+					session: refreshedSession,
+				},
+			};
+			if (message.role === "user") {
+				void refreshSessionsList(true);
+			}
 		}
 	} catch (error) {
 		console.error("[WS] handleWsEvent error:", error);
@@ -2125,11 +2174,12 @@ function handleCreateNewSession() {
 		.sessions.create({ source: "web" })
 		.then(async (result) => {
 			const newSession = result.session;
-			const nextSessions = [
+			const nextSessions = patchCachedSessionList(createSpaceId, (current) => [
 				newSession,
-				...spaceSessions.filter((session) => session.id !== newSession.id),
-			];
+				...current.filter((session) => session.id !== newSession.id),
+			]);
 			seedSessions(nextSessions);
+			void loadSpace({ force: true });
 			activeSessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			updateUrlSession(newSession.id);
@@ -2163,6 +2213,12 @@ onMount(() => {
 	pageMounted = true;
 	pageVisible = !document.hidden;
 	pageOnline = navigator.onLine;
+	const offSessionListCacheUpdated = onSessionListCacheUpdated(
+		({ spaceId: updatedSpaceId, sessions }) => {
+			if (updatedSpaceId !== spaceId) return;
+			applySessionsSnapshot(sessions);
+		},
+	);
 
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
@@ -2174,6 +2230,9 @@ onMount(() => {
 	const handleVisibility = () => {
 		pageVisible = !document.hidden;
 		scheduleStatusRefresh();
+		if (pageVisible) {
+			void refreshSessionsList(true);
+		}
 	};
 	const handleOnline = () => {
 		pageOnline = true;
@@ -2211,6 +2270,7 @@ onMount(() => {
 		});
 
 	return () => {
+		offSessionListCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);

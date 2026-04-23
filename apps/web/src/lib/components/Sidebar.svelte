@@ -40,6 +40,12 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
+import {
+	fetchSessionListWithCache,
+	getCachedSessionList,
+	onSessionListCacheUpdated,
+	patchCachedSessionList,
+} from "$lib/stores/session-list-cache";
 import { isStreaming, unreadTracker } from "$lib/stores/session-state.svelte";
 
 const {
@@ -218,20 +224,27 @@ async function loadSpaces(_force = false) {
 
 async function loadSessionsForSpace(spaceId: string, force = false) {
 	if (!force && loadingSessions) return;
+
+	if (!force) {
+		const cached = getCachedSessionList(spaceId);
+		if (cached && cached.length > 0) {
+			sessions = cached;
+		}
+	}
+
 	const shouldShowLoading = sessions.length === 0;
 	if (shouldShowLoading) {
 		loadingSessions = true;
 	}
 	try {
-		const result = await sdk.space(spaceId).sessions.list();
-		const rawSessions = result.sessions ?? [];
-		// Deduplicate by id to guard against race conditions from concurrent loads
-		const seen = new Set<string>();
-		sessions = rawSessions.filter((s) => {
-			if (seen.has(s.id)) return false;
-			seen.add(s.id);
-			return true;
-		});
+		sessions = await fetchSessionListWithCache(
+			spaceId,
+			async () => {
+				const result = await sdk.space(spaceId).sessions.list();
+				return result.sessions ?? [];
+			},
+			{ force },
+		);
 	} catch (error) {
 		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
 	} finally {
@@ -366,7 +379,11 @@ async function handleCreateNewSession() {
 		const result = await sdk
 			.space(currentSpaceId)
 			.sessions.create({ source: "web" });
-		await loadSessionsForSpace(currentSpaceId, true);
+		sessions = patchCachedSessionList(currentSpaceId, (current) => [
+			result.session,
+			...current.filter((session) => session.id !== result.session.id),
+		]);
+		void loadSessionsForSpace(currentSpaceId, true);
 		await handleNavigateToSession(result.session.id);
 	} catch (error) {
 		createSessionError =
@@ -402,7 +419,14 @@ async function handleLogout() {
 }
 
 onMount(() => {
+	let offSessionListCacheUpdated = () => {};
 	if (mode === "space") {
+		offSessionListCacheUpdated = onSessionListCacheUpdated(
+			({ spaceId, sessions: nextSessions }) => {
+				if (spaceId !== currentSpaceId) return;
+				sessions = nextSessions;
+			},
+		);
 		void (async () => {
 			await loadSpaces(true);
 
@@ -444,6 +468,7 @@ onMount(() => {
 	document.addEventListener("click", handleClickOutside);
 
 	return () => {
+		offSessionListCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
 			window.removeEventListener(
