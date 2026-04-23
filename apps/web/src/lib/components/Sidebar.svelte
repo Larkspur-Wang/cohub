@@ -181,7 +181,18 @@ function statusColorClass(status: string): string {
 async function loadSpaces(_force = false) {
 	if (!(await logtoClient.isAuthenticated())) {
 		isLoading = false;
-		spaces = [];
+		// For unauthenticated users, try to fetch the space from the URL directly
+		// so the sidebar can still show the current space and sessions.
+		if (currentSpaceId && !currentSpace) {
+			try {
+				const space = await sdk.space(currentSpaceId).get();
+				spaces = [space];
+			} catch {
+				spaces = [];
+			}
+		} else {
+			spaces = [];
+		}
 		return;
 	}
 
@@ -449,6 +460,26 @@ onMount(() => {
 			);
 		}
 	};
+});
+
+// For unauthenticated users, load the space directly from the URL
+// so the sidebar can show the current space even without a full spaces list.
+$effect(() => {
+	if (mode !== "space") return;
+	const id = currentSpaceId;
+	if (id) {
+		untrack(async () => {
+			const authenticated = await logtoClient.isAuthenticated();
+			if (!authenticated && !currentSpace) {
+				try {
+					const space = await sdk.space(id).get();
+					spaces = [space];
+				} catch {
+					spaces = [];
+				}
+			}
+		});
+	}
 });
 
 $effect(() => {

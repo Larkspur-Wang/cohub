@@ -15,7 +15,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { TaskPayload } from "@cohub/protocol/task";
 
 export type SpaceRole = "host" | "maker" | "guest";
-export type AccessPolicyRole = "guest" | null;
+export type AccessPolicyRole = "maker" | "guest" | null;
 export type AccessPolicyResourceType = "space" | "session";
 
 export const v2 = pgSchema("v2");

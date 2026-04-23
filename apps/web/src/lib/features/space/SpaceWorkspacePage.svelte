@@ -348,7 +348,10 @@ function hasSessionPermission(sessionId: string): boolean {
 	const access = sessionAccessById[sessionId];
 	return (
 		!!access &&
-		(access.anonymous_user === "guest" || access.signed_in_user === "guest")
+		(access.anonymous_user === "guest" ||
+			access.anonymous_user === "maker" ||
+			access.signed_in_user === "guest" ||
+			access.signed_in_user === "maker")
 	);
 }
 
@@ -982,7 +985,8 @@ async function loadSpace(_options?: { force?: boolean }) {
 						try {
 							const { session } = await sdk
 								.space(spaceId)
-								.session(routeSessionId).get();
+								.session(routeSessionId)
+								.get();
 							seedSessions([session]);
 						} catch {
 							// Silently fail
@@ -1204,7 +1208,8 @@ async function loadSessionState(sessionId: string, force = false) {
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.session(sessionId).messages.listPaginated({
+			.session(sessionId)
+			.messages.listPaginated({
 				limit: 30,
 			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
@@ -1263,7 +1268,8 @@ async function syncSessionNewer(
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.session(sessionId).messages.listPaginated({
+			.session(sessionId)
+			.messages.listPaginated({
 				cursor: cached.newestSeq,
 				direction: "newer",
 				limit: 100,
@@ -1307,7 +1313,8 @@ async function loadOlderMessages(sessionId: string) {
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.session(sessionId).messages.listPaginated({
+			.session(sessionId)
+			.messages.listPaginated({
 				cursor: state.oldestCursor,
 				direction: "older",
 				limit: 30,
@@ -1475,7 +1482,8 @@ async function reconcileSessionTail(sessionId: string) {
 	try {
 		const response = await sdk
 			.space(spaceId)
-			.session(sessionId).messages.listPaginated({
+			.session(sessionId)
+			.messages.listPaginated({
 				limit: 30,
 			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
@@ -1485,7 +1493,9 @@ async function reconcileSessionTail(sessionId: string) {
 			hasMore: response.hasMore,
 		});
 		const existingOlder = state.messages.filter((message) =>
-			response.messages.every((incoming: MessageRecord) => incoming.id !== message.id),
+			response.messages.every(
+				(incoming: MessageRecord) => incoming.id !== message.id,
+			),
 		);
 		const merged = mergeMessagesById(existingOlder, response.messages, {
 			preferIncoming: true,
@@ -3466,6 +3476,7 @@ $effect(() => {
                 class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
               >
                 <option value="">None</option>
+                <option value="maker">Maker (edit)</option>
                 <option value="guest">Guest (read)</option>
               </select>
             </div>
