@@ -265,6 +265,12 @@ let inlineFileZoom = $state(1);
 let inlineFilePanX = $state(0);
 let inlineFilePanY = $state(0);
 let inlineFileDragging = $state(false);
+let inlineFileCopied = $state(false);
+let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let openFileCopied = $state(false);
+let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let inlineFilePanelWidth = $state(480);
+let inlineFilePanelResizeCleanup: (() => void) | null = null;
 
 const openFilePanHandlers = makeImagePanHandlers(
 	() => openFileZoom,
@@ -2110,6 +2116,37 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointercancel", stop);
 }
 
+function beginInlineFilePanelResize(event: PointerEvent) {
+	event.preventDefault();
+	if (window.innerWidth < 1024) return;
+	inlineFilePanelResizeCleanup?.();
+	const startX = event.clientX;
+	const startWidth = inlineFilePanelWidth;
+	const minMainWidth = 400;
+
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		const delta = startX - moveEvent.clientX;
+		const maxAllowed = window.innerWidth - minMainWidth - RIGHT_SIDEBAR_MIN;
+		const nextWidth = Math.min(Math.max(280, startWidth + delta), maxAllowed);
+		inlineFilePanelWidth = nextWidth;
+	};
+
+	const stop = () => {
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (inlineFilePanelResizeCleanup === stop)
+			inlineFilePanelResizeCleanup = null;
+	};
+
+	inlineFilePanelResizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
+}
+
 async function loadFileTree(force = false) {
 	if (fileTreeLoading && !force) return;
 	fileTreeLoading = true;
@@ -2393,11 +2430,21 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 async function copyFileContent() {
 	if (!openFile || openFile.kind !== "text") return;
 	await navigator.clipboard.writeText(openFileDraft);
+	openFileCopied = true;
+	if (openFileCopiedTimer) clearTimeout(openFileCopiedTimer);
+	openFileCopiedTimer = setTimeout(() => {
+		openFileCopied = false;
+	}, 1500);
 }
 
 async function copyInlineFileContent() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
 	await navigator.clipboard.writeText(inlineFile.draft);
+	inlineFileCopied = true;
+	if (inlineFileCopiedTimer) clearTimeout(inlineFileCopiedTimer);
+	inlineFileCopiedTimer = setTimeout(() => {
+		inlineFileCopied = false;
+	}, 1500);
 }
 
 function getCheckpointTitle(checkpoint: CheckpointRecord): string {
@@ -2532,6 +2579,7 @@ onMount(() => {
 		window.removeEventListener("offline", handleOffline);
 		window.removeEventListener("keydown", handleFileKeyboardSave);
 		rightSidebarResizeCleanup?.();
+		inlineFilePanelResizeCleanup?.();
 	};
 });
 
@@ -3330,7 +3378,11 @@ $effect(() => {
                 <Download class="w-4 h-4" />
               </a>
               <button type="button" class="icon-btn" onclick={() => void copyFileContent()} title="Copy content">
-                <Copy class="w-4 h-4" />
+                {#if openFileCopied}
+                  <Check class="w-4 h-4 text-success-soft" />
+                {:else}
+                  <Copy class="w-4 h-4" />
+                {/if}
               </button>
               <button
                 type="button"
@@ -3730,7 +3782,7 @@ $effect(() => {
 
   <!-- Inline file panel — between main content and right sidebar -->
   {#if inlineFile}
-    <div class="hidden lg:flex shrink-0 border-l border-border-subtle" style="width: 480px;">
+    <div class="hidden lg:flex shrink-0 relative" style={`width: ${inlineFilePanelWidth}px`}>
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
@@ -3806,7 +3858,11 @@ $effect(() => {
                 <Download class="w-4 h-4" />
               </a>
               <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
-                <Copy class="w-4 h-4" />
+                {#if inlineFileCopied}
+                  <Check class="w-4 h-4 text-success-soft" />
+                {:else}
+                  <Copy class="w-4 h-4" />
+                {/if}
               </button>
               <button
                 type="button"
@@ -3926,6 +3982,13 @@ $effect(() => {
           <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
         {/if}
       </div>
+      <button
+        type="button"
+        class="inline-panel-resize-handle"
+        aria-label="Resize file panel"
+        title="Resize file panel"
+        onpointerdown={beginInlineFilePanelResize}
+      ></button>
     </div>
   {/if}
 
@@ -4300,6 +4363,35 @@ $effect(() => {
     background: var(--border-subtle);
   }
 
+  .inline-panel-resize-handle {
+    position: absolute;
+    top: 0;
+    left: -4px;
+    bottom: 0;
+    width: 8px;
+    border: none;
+    padding: 0;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 10;
+  }
+
+  .inline-panel-resize-handle::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: var(--border-subtle);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .inline-panel-resize-handle:hover::after {
+    opacity: 1;
+  }
+
   /* File viewer */
   .icon-btn {
     display: inline-flex;
@@ -4366,21 +4458,22 @@ $effect(() => {
     justify-content: center;
     min-height: 24px;
     padding: 0 10px;
-    border-radius: 5px;
+    border-radius: 4px;
     border: none;
     background: transparent;
     color: var(--text-tertiary);
     font-size: 11px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 150ms ease;
+    transition: all 120ms ease;
     white-space: nowrap;
   }
   .segmented-btn:hover { color: var(--text-secondary); }
   .segmented-btn.active {
     background: var(--bg-elevated);
     color: var(--text-primary);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.04);
   }
 
   .markdown-preview {
