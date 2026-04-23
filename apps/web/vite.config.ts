@@ -4,49 +4,61 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+const protocolDir = fileURLToPath(
+	new URL("../../packages/protocol/src", import.meta.url),
+);
+const sdkDir = fileURLToPath(
+	new URL("../../packages/sdk/src", import.meta.url),
+);
+
 export default defineConfig({
 	resolve: {
-		alias: {
-			"@neta-art/cohub-protocol": fileURLToPath(
-				new URL("../../packages/protocol/src/index.ts", import.meta.url),
-			),
-			"@neta-art/cohub-protocol/core": fileURLToPath(
-				new URL("../../packages/protocol/src/core/index.ts", import.meta.url),
-			),
-			"@neta-art/cohub-protocol/model": fileURLToPath(
-				new URL(
-					"../../packages/protocol/src/model/session.ts",
-					import.meta.url,
-				),
-			),
-			"@neta-art/cohub-protocol/realtime": fileURLToPath(
-				new URL(
-					"../../packages/protocol/src/realtime/index.ts",
-					import.meta.url,
-				),
-			),
-			"@neta-art/cohub-protocol/gateway": fileURLToPath(
-				new URL(
-					"../../packages/protocol/src/gateway/index.ts",
-					import.meta.url,
-				),
-			),
-			"@neta-art/cohub-protocol/task": fileURLToPath(
-				new URL("../../packages/protocol/src/task/index.ts", import.meta.url),
-			),
-			"@neta-art/cohub-protocol/fs": fileURLToPath(
-				new URL("../../packages/protocol/src/fs/index.ts", import.meta.url),
-			),
-			"@neta-art/cohub": fileURLToPath(
-				new URL("../../packages/sdk/src/index.ts", import.meta.url),
-			),
-			"@neta-art/cohub/http": fileURLToPath(
-				new URL("../../packages/sdk/src/http.ts", import.meta.url),
-			),
-			"@neta-art/cohub/websocket": fileURLToPath(
-				new URL("../../packages/sdk/src/websocket.ts", import.meta.url),
-			),
-		},
+		alias: [
+			// protocol subpaths — must come before bare package name
+			{
+				find: /^@neta-art\/cohub-protocol\/core$/,
+				replacement: `${protocolDir}/core/index.ts`,
+			},
+			{
+				find: /^@neta-art\/cohub-protocol\/model$/,
+				replacement: `${protocolDir}/model/session.ts`,
+			},
+			{
+				find: /^@neta-art\/cohub-protocol\/realtime$/,
+				replacement: `${protocolDir}/realtime/index.ts`,
+			},
+			{
+				find: /^@neta-art\/cohub-protocol\/gateway$/,
+				replacement: `${protocolDir}/gateway/index.ts`,
+			},
+			{
+				find: /^@neta-art\/cohub-protocol\/task$/,
+				replacement: `${protocolDir}/task/index.ts`,
+			},
+			{
+				find: /^@neta-art\/cohub-protocol\/fs$/,
+				replacement: `${protocolDir}/fs/index.ts`,
+			},
+			// protocol bare import
+			{
+				find: /^@neta-art\/cohub-protocol$/,
+				replacement: `${protocolDir}/index.ts`,
+			},
+			// sdk subpaths
+			{
+				find: /^@neta-art\/cohub\/http$/,
+				replacement: `${sdkDir}/http.ts`,
+			},
+			{
+				find: /^@neta-art\/cohub\/websocket$/,
+				replacement: `${sdkDir}/websocket.ts`,
+			},
+			// sdk bare import
+			{
+				find: /^@neta-art\/cohub$/,
+				replacement: `${sdkDir}/index.ts`,
+			},
+		],
 	},
 	plugins: [
 		tailwindcss(),
