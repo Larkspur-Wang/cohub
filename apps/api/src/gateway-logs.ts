@@ -1,7 +1,7 @@
 import { db } from "./db/index.js";
 import { gatewayLogs, providerMessageRefs } from "./db/schema-v2.js";
 import { createBlockingRedisClient, redisCommandClient, ensureConsumerGroup, GATEWAY_LOGS_STREAM, LOG_CONSUMER_GROUP } from "./redis.js";
-import type { GatewayLogEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
+import type { GatewayLogEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 
 const LOG_STREAM = GATEWAY_LOGS_STREAM;
 const GROUP_NAME = LOG_CONSUMER_GROUP;

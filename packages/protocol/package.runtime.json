@@ -1,5 +1,5 @@
 {
-  "name": "@cohub/protocol",
+  "name": "@neta-art/cohub-protocol",
   "private": true,
   "type": "module",
   "exports": {

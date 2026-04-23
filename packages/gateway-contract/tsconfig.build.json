@@ -6,8 +6,8 @@
     "declaration": true,
     "declarationMap": false,
     "paths": {
-      "@cohub/protocol": ["../protocol/dist/index.d.ts"],
-      "@cohub/protocol/gateway": ["../protocol/dist/gateway/index.d.ts"]
+      "@neta-art/cohub-protocol": ["../protocol/dist/index.d.ts"],
+      "@neta-art/cohub-protocol/gateway": ["../protocol/dist/gateway/index.d.ts"]
     }
   },
   "include": ["src"]

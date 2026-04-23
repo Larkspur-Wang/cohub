@@ -1,8 +1,29 @@
 {
   "name": "@neta-art/cohub",
+  "version": "0.1.0",
+  "description": "Business-oriented Cohub SDK for spaces, sessions, messages, and realtime subscriptions.",
+  "license": "UNLICENSED",
   "private": false,
   "type": "module",
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/neta-art/cohub.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/neta-art/cohub",
+  "keywords": [
+    "cohub",
+    "sdk",
+    "ai",
+    "agent",
+    "spaces",
+    "realtime",
+    "websocket"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -19,14 +40,15 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@cohub/protocol": "workspace:*"
+    "@neta-art/cohub-protocol": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

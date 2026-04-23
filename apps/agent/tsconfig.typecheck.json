@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "paths": {
-      "@cohub/protocol": ["../../packages/protocol/src/index.ts"],
+      "@neta-art/cohub-protocol": ["../../packages/protocol/src/index.ts"],
       "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/src/index.ts"]
     }
   }

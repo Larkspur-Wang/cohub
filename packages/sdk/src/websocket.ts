@@ -2,8 +2,8 @@ import {
   realtimeEnvelopeSchema,
   type ChannelEnvelope,
   type WsClientEvent,
-} from "@cohub/protocol/realtime";
-import type { ContentBlock } from "@cohub/protocol/core";
+} from "@neta-art/cohub-protocol/realtime";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 
 export type WebsocketEventPayload = ChannelEnvelope;
 

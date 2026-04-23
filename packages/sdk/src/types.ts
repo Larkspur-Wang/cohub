@@ -1,20 +1,20 @@
 import type {
   SessionBindingRecord as ProtocolSessionBindingRecord,
   SessionRecord as ProtocolSessionRecord,
-} from "@cohub/protocol/model";
+} from "@neta-art/cohub-protocol/model";
 import type {
   ChannelConfig,
   DiscordChannelConfig,
-} from "@cohub/protocol/gateway";
+} from "@neta-art/cohub-protocol/gateway";
 import type {
   ContentBlock,
-} from "@cohub/protocol/core";
-import type { MessageRecord } from "@cohub/protocol/model";
+} from "@neta-art/cohub-protocol/core";
+import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 
 export type {
   ChannelConfig,
   DiscordChannelConfig,
-} from "@cohub/protocol/gateway";
+} from "@neta-art/cohub-protocol/gateway";
 
 export type ApiError = {
   message: string;

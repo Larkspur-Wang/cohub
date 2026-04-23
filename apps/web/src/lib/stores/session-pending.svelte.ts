@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@cohub/protocol/core";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 
 type PendingMessageStatus = "sending" | "sent_unconfirmed" | "failed";
 

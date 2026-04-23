@@ -7,34 +7,34 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig({
 	resolve: {
 		alias: {
-			"@cohub/protocol": fileURLToPath(
+			"@neta-art/cohub-protocol": fileURLToPath(
 				new URL("../../packages/protocol/src/index.ts", import.meta.url),
 			),
-			"@cohub/protocol/core": fileURLToPath(
+			"@neta-art/cohub-protocol/core": fileURLToPath(
 				new URL("../../packages/protocol/src/core/index.ts", import.meta.url),
 			),
-			"@cohub/protocol/model": fileURLToPath(
+			"@neta-art/cohub-protocol/model": fileURLToPath(
 				new URL(
 					"../../packages/protocol/src/model/session.ts",
 					import.meta.url,
 				),
 			),
-			"@cohub/protocol/realtime": fileURLToPath(
+			"@neta-art/cohub-protocol/realtime": fileURLToPath(
 				new URL(
 					"../../packages/protocol/src/realtime/index.ts",
 					import.meta.url,
 				),
 			),
-			"@cohub/protocol/gateway": fileURLToPath(
+			"@neta-art/cohub-protocol/gateway": fileURLToPath(
 				new URL(
 					"../../packages/protocol/src/gateway/index.ts",
 					import.meta.url,
 				),
 			),
-			"@cohub/protocol/task": fileURLToPath(
+			"@neta-art/cohub-protocol/task": fileURLToPath(
 				new URL("../../packages/protocol/src/task/index.ts", import.meta.url),
 			),
-			"@cohub/protocol/fs": fileURLToPath(
+			"@neta-art/cohub-protocol/fs": fileURLToPath(
 				new URL("../../packages/protocol/src/fs/index.ts", import.meta.url),
 			),
 			"@cohub/sdk": fileURLToPath(

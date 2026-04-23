@@ -1,7 +1,26 @@
 {
-  "name": "@cohub/protocol",
-  "private": true,
+  "name": "@neta-art/cohub-protocol",
+  "version": "0.1.0",
+  "description": "Shared Cohub protocol definitions for core models, realtime events, gateway contracts, tasks, and filesystem DTOs.",
+  "license": "UNLICENSED",
+  "private": false,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/neta-art/cohub.git",
+    "directory": "packages/protocol"
+  },
+  "homepage": "https://github.com/neta-art/cohub",
+  "keywords": [
+    "cohub",
+    "protocol",
+    "realtime",
+    "gateway",
+    "sdk"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -34,7 +53,8 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

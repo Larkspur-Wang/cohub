@@ -1,7 +1,4 @@
 <script lang="ts">
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { MessageRecord } from "@cohub/protocol/model";
-import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import {
 	type CheckpointRecord,
 	type CronJobRecord,
@@ -15,6 +12,9 @@ import {
 	type SpaceRole,
 	type TaskRunRecord,
 } from "@cohub/sdk";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { MessageRecord } from "@neta-art/cohub-protocol/model";
+import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
 	AlertCircle,
 	ArrowDown,
@@ -1414,10 +1414,10 @@ function cloneContentBlock(block: ContentBlock): ContentBlock {
 		return {
 			...block,
 			content: Array.isArray(block.content)
-				? block.content.map((item) =>
+				? block.content.flatMap((item: unknown): ContentBlock[] =>
 						typeof item === "object" && item !== null && "type" in item
-							? cloneContentBlock(item as ContentBlock)
-							: item,
+							? [cloneContentBlock(item as ContentBlock)]
+							: [],
 					)
 				: block.content,
 		};

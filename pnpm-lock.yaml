@@ -42,12 +42,9 @@ importers:
       '@mariozechner/pi-coding-agent':
         specifier: 0.68.0
         version: 0.68.0(ws@8.20.0)(zod@4.3.6)
-      ajv:
-        specifier: ^8.17.1
-        version: 8.18.0
-      ajv-formats:
-        specifier: ^3.0.1
-        version: 3.0.1(ajv@8.18.0)
+      '@sinclair/typebox':
+        specifier: ^0.34.41
+        version: 0.34.49
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1

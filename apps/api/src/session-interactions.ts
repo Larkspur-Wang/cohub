@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
 import { enqueueSpacePrompt, forkSpaceSession, registerSpaceSession } from "./space-sessions.js";

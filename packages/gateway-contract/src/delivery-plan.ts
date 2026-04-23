@@ -1,4 +1,4 @@
-import type { GatewayOutboundCommand } from "@cohub/protocol/gateway";
+import type { GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 
 export interface DiscordDeliveryPlan {
   adapter: "discord";

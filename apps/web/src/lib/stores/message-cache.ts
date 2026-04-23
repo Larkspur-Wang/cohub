@@ -1,4 +1,4 @@
-import type { MessageRecord } from "@cohub/protocol/model";
+import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 
 const DB_NAME = "cohub_messages";
 const DB_VERSION = 2;

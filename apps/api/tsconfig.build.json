@@ -4,7 +4,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@cohub/protocol": ["../../packages/protocol/dist/index.d.ts"]
+      "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"]
     }
   },
   "include": ["src"]

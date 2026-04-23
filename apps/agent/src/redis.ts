@@ -1,7 +1,7 @@
 import { Redis } from "ioredis";
 import { z } from "zod";
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { SessionStreamError, SessionStreamEvent } from "@cohub/protocol/realtime";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { env } from "./env.js";
 import {
   getAgentInstanceDeadLetterQueueKey,

@@ -3,8 +3,8 @@ import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
   RegisterSessionInput,
-} from "@cohub/protocol/model";
-import type { ContentBlock } from "@cohub/protocol/core";
+} from "@neta-art/cohub-protocol/model";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import {
   getSpaceById,
   getSpaceSessionBootstrap,

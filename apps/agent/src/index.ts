@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { SessionStreamError } from "@cohub/protocol/realtime";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { SessionStreamError } from "@neta-art/cohub-protocol/realtime";
 import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
 
 import {

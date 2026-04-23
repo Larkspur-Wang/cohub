@@ -20,7 +20,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@cohub/protocol": "workspace:*",
+    "@neta-art/cohub-protocol": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@kubernetes/client-node": "^1.4.0",
     "bullmq": "^5.75.2",

@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { DiscordChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { DiscordChannelConfig, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";

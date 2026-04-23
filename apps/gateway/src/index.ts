@@ -8,10 +8,10 @@ import type {
   RealtimeEnvelope,
   RealtimeServerEvent,
   WsClientEvent,
-} from "@cohub/protocol/realtime";
-import type { GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
+} from "@neta-art/cohub-protocol/realtime";
+import type { GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
-import { realtimeEnvelopeSchema, wsClientEventSchema } from "@cohub/protocol/realtime";
+import { realtimeEnvelopeSchema, wsClientEventSchema } from "@neta-art/cohub-protocol/realtime";
 import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
 import { gatewayConfig } from "./config.js";

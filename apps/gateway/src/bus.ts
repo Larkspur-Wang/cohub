@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayLogEvent } from "@cohub/protocol/gateway";
+import type { GatewayInboundEvent, GatewayLogEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import {
   createBlockingRedisClient,

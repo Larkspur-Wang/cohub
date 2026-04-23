@@ -1,6 +1,6 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
-import type { TaskPayload } from "@cohub/protocol/task";
+import type { TaskPayload } from "@neta-art/cohub-protocol/task";
 
 const redisUrl = process.env.BULLMQ_REDIS_URL ?? "redis://localhost:6379/3";
 

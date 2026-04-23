@@ -8,13 +8,13 @@
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@cohub/protocol": ["../protocol/dist/index.d.ts"],
-      "@cohub/protocol/core": ["../protocol/dist/core/index.d.ts"],
-      "@cohub/protocol/model": ["../protocol/dist/model/session.d.ts"],
-      "@cohub/protocol/realtime": ["../protocol/dist/realtime/index.d.ts"],
-      "@cohub/protocol/gateway": ["../protocol/dist/gateway/index.d.ts"],
-      "@cohub/protocol/task": ["../protocol/dist/task/index.d.ts"],
-      "@cohub/protocol/fs": ["../protocol/dist/fs/index.d.ts"]
+      "@neta-art/cohub-protocol": ["../protocol/dist/index.d.ts"],
+      "@neta-art/cohub-protocol/core": ["../protocol/dist/core/index.d.ts"],
+      "@neta-art/cohub-protocol/model": ["../protocol/dist/model/session.d.ts"],
+      "@neta-art/cohub-protocol/realtime": ["../protocol/dist/realtime/index.d.ts"],
+      "@neta-art/cohub-protocol/gateway": ["../protocol/dist/gateway/index.d.ts"],
+      "@neta-art/cohub-protocol/task": ["../protocol/dist/task/index.d.ts"],
+      "@neta-art/cohub-protocol/fs": ["../protocol/dist/fs/index.d.ts"]
     }
   },
   "include": ["src"]

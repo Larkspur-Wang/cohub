@@ -15,9 +15,28 @@
 			"$lib": ["./src/lib"],
 			"$lib/*": ["./src/lib/*"],
 			"$app/types": ["./.svelte-kit/types/index.d.ts"],
-			"@cohub/protocol": ["../../packages/protocol/src/index.ts"],
+			"@neta-art/cohub-protocol": ["../../packages/protocol/src/index.ts"],
+			"@neta-art/cohub-protocol/core": [
+				"../../packages/protocol/src/core/index.ts"
+			],
+			"@neta-art/cohub-protocol/model": [
+				"../../packages/protocol/src/model/session.ts"
+			],
+			"@neta-art/cohub-protocol/realtime": [
+				"../../packages/protocol/src/realtime/index.ts"
+			],
+			"@neta-art/cohub-protocol/gateway": [
+				"../../packages/protocol/src/gateway/index.ts"
+			],
+			"@neta-art/cohub-protocol/task": [
+				"../../packages/protocol/src/task/index.ts"
+			],
+			"@neta-art/cohub-protocol/fs": [
+				"../../packages/protocol/src/fs/index.ts"
+			],
 			"@cohub/sdk": ["../../packages/sdk/src/index.ts"],
-			"@cohub/sdk/gateway": ["../../packages/sdk/src/gateway.ts"]
+			"@cohub/sdk/http": ["../../packages/sdk/src/http.ts"],
+			"@cohub/sdk/websocket": ["../../packages/sdk/src/websocket.ts"]
 		}
 	}
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias

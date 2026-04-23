@@ -11,8 +11,8 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { TaskPayload } from "@cohub/protocol/task";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { TaskPayload } from "@neta-art/cohub-protocol/task";
 
 export type SpaceRole = "host" | "maker" | "guest";
 export type AccessPolicyRole = "maker" | "guest" | null;
@@ -302,7 +302,7 @@ export const sessionMessages = v2.table(
     errorMessage: text("error_message"),
     sequence: integer("sequence").notNull(),
     idempotencyKey: varchar("idempotency_key", { length: 255 }),
-    usage: jsonb("usage").$type<import("@cohub/protocol").Usage | null>(),
+    usage: jsonb("usage").$type<import("@neta-art/cohub-protocol").Usage | null>(),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
-import type { ContentBlock, Usage } from "@cohub/protocol/core";
-import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
+import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
+import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
 import { db } from "./db/index.js";
 import {
   sessionMessages,

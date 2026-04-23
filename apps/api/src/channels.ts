@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
-import type { RealtimeServerEvent } from "@cohub/protocol/realtime";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
+import type { RealtimeServerEvent } from "@neta-art/cohub-protocol/realtime";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";

@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@cohub/protocol/core";
-import type { MessageRecord } from "@cohub/protocol/model";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 
 export type ChatMessage = {
 	id: string;
