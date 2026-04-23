@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, count } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { spaceMembers } from "../../db/schema-v2.js";
 import { requireValidId, useAuth } from "../../lib/middleware.js";
@@ -9,6 +9,14 @@ import type { SpaceRole } from "../../db/schema-v2.js";
 
 const VALID_ROLES: SpaceRole[] = ["host", "maker", "guest"];
 const router = new Hono();
+
+async function isLastHost(spaceId: string): Promise<boolean> {
+  const rows = await db
+    .select({ count: count() })
+    .from(spaceMembers)
+    .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.role, "host")));
+  return (rows[0]?.count ?? 0) <= 1;
+}
 
 router.get("/", async (c) => {
   const user = useAuth(c);
@@ -46,14 +54,10 @@ router.put("/", async (c) => {
   if (!requireValidId(body.userId)) return c.json({ message: "userId must be a valid UUID" }, 400);
   if (!VALID_ROLES.includes(body.role)) return c.json({ message: "invalid role" }, 400);
 
-  const existingMembers = await db
-    .select({ userId: spaceMembers.userId, role: spaceMembers.role })
-    .from(spaceMembers)
-    .where(eq(spaceMembers.spaceId, spaceId));
-  const current = existingMembers.find((item) => item.userId === body.userId);
-  if (current?.role === "host" && body.role !== "host") {
-    const hostCount = existingMembers.filter((item) => item.role === "host").length;
-    if (hostCount <= 1) return c.json({ message: "cannot demote the last host" }, 400);
+  const currentRole = await getRoleForSpaceUser(spaceId, body.userId);
+  if (currentRole === "host" && body.role !== "host") {
+    if (await isLastHost(spaceId))
+      return c.json({ message: "cannot demote the last host" }, 400);
   }
 
   const [member] = await db
@@ -85,18 +89,11 @@ router.delete("/", async (c) => {
   const body = await c.req.json<{ userId?: string }>().catch(() => null);
   if (!body?.userId || !requireValidId(body.userId)) return c.json({ message: "userId is required" }, 400);
 
-  const existing = await db
-    .select({ role: spaceMembers.role, userId: spaceMembers.userId })
-    .from(spaceMembers)
-    .where(eq(spaceMembers.spaceId, spaceId));
+  const targetRole = await getRoleForSpaceUser(spaceId, body.userId);
+  if (!targetRole) return c.json({ ok: true });
 
-  const target = existing.find((item) => item.userId === body.userId);
-  if (!target) return c.json({ ok: true });
-
-  if (target.role === "host") {
-    const hostCount = existing.filter((item) => item.role === "host").length;
-    if (hostCount <= 1) return c.json({ message: "cannot remove the last host" }, 400);
-  }
+  if (targetRole === "host" && await isLastHost(spaceId))
+    return c.json({ message: "cannot remove the last host" }, 400);
 
   await db
     .delete(spaceMembers)
