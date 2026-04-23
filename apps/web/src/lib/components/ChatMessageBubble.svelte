@@ -1,17 +1,24 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { ChevronDown, ChevronRight } from "lucide-svelte";
+import { Check, ChevronDown, ChevronRight, Copy } from "lucide-svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
 
+type ModelCatalogItem = {
+	provider: string;
+	id: string;
+	model: Record<string, unknown>;
+};
+
 type Props = {
 	message: ChatMessage;
+	modelsCatalog?: ModelCatalogItem[];
 };
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
-const { message }: Props = $props();
+const { message, modelsCatalog }: Props = $props();
 let renderedHtml = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
@@ -190,6 +197,113 @@ $effect(() => {
 	el.addEventListener("click", onClick);
 	return () => el.removeEventListener("click", onClick);
 });
+
+// ─── Meta bar: time, model, tokens, copy ───
+
+// Time display
+const shortTime = $derived(
+	message.createdAt
+		? new Date(message.createdAt).toLocaleTimeString("en-GB", {
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit",
+			})
+		: "",
+);
+
+const fullDateTime = $derived(
+	message.createdAt
+		? new Date(message.createdAt).toLocaleString("en-GB", {
+				year: "numeric",
+				month: "2-digit",
+				day: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit",
+			})
+		: "",
+);
+
+// Model display: default show model name (matched from catalog), fallback to model id
+const modelMatch = $derived.by(() => {
+	if (!message.meta?.provider || !message.meta?.model) return null;
+	return modelsCatalog?.find(
+		(m) =>
+			m.provider === message.meta!.provider && m.id === message.meta!.model,
+	);
+});
+
+const modelName = $derived(
+	(modelMatch?.model?.name as string | undefined) ?? message.meta?.model ?? "",
+);
+
+const modelDisplayName = $derived(message.meta?.model ? modelName : "");
+
+const modelHoverText = $derived(
+	message.meta?.provider && message.meta?.model
+		? `${message.meta.provider}/${modelName}`
+		: "",
+);
+
+// Token display
+function formatTokenCount(n: number): string {
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+	return `${n}`;
+}
+
+const hasUsage = $derived(
+	!!(
+		message.meta?.usage &&
+		(message.meta.usage.input || message.meta.usage.output)
+	),
+);
+
+const tokenDisplay = $derived.by(() => {
+	const u = message.meta?.usage;
+	if (!u || (!u.input && !u.output)) return "";
+	const parts = [];
+	if (u.input) parts.push(`↑${formatTokenCount(u.input)}`);
+	if (u.output) parts.push(`↓${formatTokenCount(u.output)}`);
+	return parts.join(" ");
+});
+
+const tokenDetailText = $derived.by(() => {
+	const u = message.meta?.usage;
+	if (!u) return "";
+	const parts = [];
+	if (u.input) parts.push(`↑ Input: ${formatTokenCount(u.input)}`);
+	if (u.output) parts.push(`↓ Output: ${formatTokenCount(u.output)}`);
+	if (u.cacheRead) parts.push(`Cache read: ${formatTokenCount(u.cacheRead)}`);
+	if (u.cacheWrite)
+		parts.push(`Cache write: ${formatTokenCount(u.cacheWrite)}`);
+	if (u.totalTokens) parts.push(`Total: ${formatTokenCount(u.totalTokens)}`);
+	return parts.join("  ·  ");
+});
+
+// Copy
+let copied = $state(false);
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+function handleCopy() {
+	const text =
+		message.content
+			?.filter((block) => block.type === "text")
+			.map((block) => (block.type === "text" ? block.text : ""))
+			.join("\n\n")
+			.trim() || message.text;
+
+	navigator.clipboard.writeText(text).then(() => {
+		copied = true;
+		if (copyTimer) clearTimeout(copyTimer);
+		copyTimer = setTimeout(() => {
+			copied = false;
+		}, 1800);
+	});
+}
+
+// Mobile detail panel
+let mobileDetailOpen = $state(false);
 </script>
 
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
@@ -332,9 +446,94 @@ $effect(() => {
         </div>
       {/if}
 
-      {#if message.meta?.model}
-        <div class="mt-2 text-[10px] text-text-placeholder/30">
-          {message.meta.provider}/{message.meta.model}
+      {#if message.meta?.model || shortTime}
+        <!-- Meta bar: time | model | tokens | copy -->
+        <div class="mt-2 select-none">
+          <div
+            role="button"
+            tabindex="0"
+            class="sm:hidden w-full flex items-center gap-2 text-[11px] text-text-placeholder/50 cursor-pointer"
+            onclick={() => { mobileDetailOpen = !mobileDetailOpen; }}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); mobileDetailOpen = !mobileDetailOpen; } }}
+          >
+            <!-- Time -->
+            {#if shortTime}
+              <time datetime={message.createdAt} title={fullDateTime} class="shrink-0 tabular-nums">
+                {shortTime}
+              </time>
+            {/if}
+
+            <!-- Model -->
+            {#if modelDisplayName}
+              <span class="shrink-0 truncate flex-1 min-w-0" title={modelHoverText}>
+                {modelDisplayName}
+              </span>
+            {/if}
+
+            <!-- Copy button -->
+            <button
+              type="button"
+              class="shrink-0 inline-flex items-center cursor-pointer opacity-60"
+              onclick={(e) => { e.stopPropagation(); handleCopy(); }}
+            >
+              {#if copied}
+                <Check class="w-3 h-3 text-status-running" />
+              {:else}
+                <Copy class="w-3 h-3" />
+              {/if}
+            </button>
+          </div>
+
+          <!-- Desktop meta row (non-clickable, tokens/copy handle their own clicks) -->
+          <div class="hidden sm:flex items-center gap-2 text-[11px] text-text-placeholder/50">
+            <!-- Time -->
+            {#if shortTime}
+              <time datetime={message.createdAt} title={fullDateTime} class="shrink-0 tabular-nums">
+                {shortTime}
+              </time>
+            {/if}
+
+            <!-- Model -->
+            {#if modelDisplayName}
+              <span class="shrink-0 truncate" title={modelHoverText}>
+                {modelDisplayName}
+              </span>
+            {/if}
+
+            <!-- Tokens (desktop only) -->
+            {#if hasUsage}
+              <span class="tabular-nums shrink-0" title={tokenDetailText}>
+                {tokenDisplay}
+              </span>
+            {/if}
+
+            <!-- Copy button -->
+            <button
+              type="button"
+              class="ml-auto shrink-0 inline-flex items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+              onclick={(e) => { e.stopPropagation(); handleCopy(); }}
+              title="Copy message"
+            >
+              {#if copied}
+                <Check class="w-3 h-3 text-status-running" />
+              {:else}
+                <Copy class="w-3 h-3" />
+              {/if}
+            </button>
+          </div>
+
+          <!-- Mobile detail panel -->
+          {#if mobileDetailOpen}
+            <div class="sm:hidden mt-1.5 px-2 py-1.5 rounded bg-bg-code/60 text-[10px] text-text-tertiary space-y-0.5">
+              <div class="tabular-nums">{fullDateTime}</div>
+              {#if modelHoverText}
+                <div>{modelHoverText}</div>
+              {/if}
+              {#if hasUsage}
+                <div class="tabular-nums">{tokenDetailText}</div>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
 

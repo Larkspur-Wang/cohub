@@ -96,6 +96,7 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 		authorUuid: (msgMeta?.authorUuid as string | undefined) ?? null,
 		authorName: (msgMeta?.authorName as string | undefined) ?? null,
 		authorAvatar: (msgMeta?.authorAvatar as string | undefined) ?? null,
+		createdAt: message.createdAt,
 		meta:
 			message.role === "assistant"
 				? {
@@ -334,6 +335,7 @@ export function buildTimelineItems(input: {
 						content: previewBlocks,
 						text: previewText,
 						sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
+						createdAt: new Date().toISOString(),
 					},
 				});
 			}

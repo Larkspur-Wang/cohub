@@ -3,11 +3,18 @@ import { ChevronDown, ChevronRight } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
-type Props = {
-	messages: ChatMessage[];
+type ModelCatalogItem = {
+	provider: string;
+	id: string;
+	model: Record<string, unknown>;
 };
 
-const { messages }: Props = $props();
+type Props = {
+	messages: ChatMessage[];
+	modelsCatalog?: ModelCatalogItem[];
+};
+
+const { messages, modelsCatalog }: Props = $props();
 
 let expanded = $state(false);
 
@@ -71,7 +78,7 @@ const summaryLabel = $derived(labelParts.join(" · "));
 
 		<div class="flex flex-col gap-2 pl-2 border-l border-border-subtle/40 ml-2">
 			{#each messages as msg (msg.id)}
-				<ChatMessageBubble message={msg} />
+				<ChatMessageBubble message={msg} {modelsCatalog} />
 			{/each}
 		</div>
 

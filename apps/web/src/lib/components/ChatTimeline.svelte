@@ -5,6 +5,12 @@ import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
 import type { TimelineItem } from "$lib/session-tree";
 
+type ModelCatalogItem = {
+	provider: string;
+	id: string;
+	model: Record<string, unknown>;
+};
+
 type Props = {
 	timeline: TimelineItem[];
 	bindListEl?: HTMLDivElement | null;
@@ -13,6 +19,7 @@ type Props = {
 	onFirstVisible?: (index: number) => void;
 	/** Whether older messages are currently being loaded (scroll-up pagination) */
 	loadingOlder?: boolean;
+	modelsCatalog?: ModelCatalogItem[];
 };
 
 let {
@@ -21,6 +28,7 @@ let {
 	preloadThreshold = 10,
 	onFirstVisible,
 	loadingOlder = false,
+	modelsCatalog,
 }: Props = $props();
 
 // Track all observed elements for re-observation.
@@ -113,9 +121,9 @@ $effect(() => {
 				use:observeItem={originalIdx}
 			>
 				{#if item.kind === 'message'}
-					<ChatMessageBubble message={item.message} />
+					<ChatMessageBubble message={item.message} {modelsCatalog} />
 				{:else if item.kind === 'process'}
-					<ProcessCard messages={item.messages} />
+					<ProcessCard messages={item.messages} {modelsCatalog} />
 				{:else}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}

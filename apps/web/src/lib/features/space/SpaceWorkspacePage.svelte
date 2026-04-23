@@ -3424,6 +3424,7 @@ $effect(() => {
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
+          modelsCatalog={modelsCatalog ?? undefined}
         />
 
         {#if showScrollToBottom && timeline.length > 0}

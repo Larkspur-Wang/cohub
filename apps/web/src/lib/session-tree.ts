@@ -11,6 +11,7 @@ export type ChatMessage = {
 	authorUuid?: string | null;
 	authorName?: string | null;
 	authorAvatar?: string | null;
+	createdAt: string;
 	meta?: {
 		messageKind?: string | null;
 		model?: string | null;
@@ -100,6 +101,7 @@ export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
 			authorUuid: (msgMeta?.authorUuid as string | undefined) ?? null,
 			authorName: (msgMeta?.authorName as string | undefined) ?? null,
 			authorAvatar: (msgMeta?.authorAvatar as string | undefined) ?? null,
+			createdAt: message.createdAt,
 			meta:
 				message.role === "assistant"
 					? {
