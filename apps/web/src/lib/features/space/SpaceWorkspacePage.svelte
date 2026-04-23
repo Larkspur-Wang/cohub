@@ -3782,7 +3782,7 @@ $effect(() => {
 
   <!-- Inline file panel — between main content and right sidebar -->
   {#if inlineFile}
-    <div class="hidden lg:flex shrink-0 relative" style={`width: ${inlineFilePanelWidth}px`}>
+    <div class="hidden lg:flex shrink-0 relative border-l border-border-subtle" style={`width: ${inlineFilePanelWidth}px`}>
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
@@ -4383,13 +4383,12 @@ $effect(() => {
     top: 0;
     width: 2px;
     height: 100%;
-    background: var(--border-subtle);
-    opacity: 0;
-    transition: opacity 120ms ease;
+    background: transparent;
+    transition: background-color 120ms ease;
   }
 
   .inline-panel-resize-handle:hover::after {
-    opacity: 1;
+    background: var(--border-subtle);
   }
 
   /* File viewer */
