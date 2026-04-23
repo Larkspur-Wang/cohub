@@ -1,4 +1,4 @@
-import type { SessionRecord } from "@cohub/sdk";
+import type { SessionRecord } from "@neta-art/cohub";
 
 const STORAGE_KEY = "cohub:session_viewed";
 

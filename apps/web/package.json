@@ -31,7 +31,7 @@
 		"@codemirror/state": "^6.6.0",
 		"@codemirror/view": "^6.41.1",
 		"@neta-art/cohub-protocol": "workspace:*",
-		"@cohub/sdk": "workspace:*",
+		"@neta-art/cohub": "workspace:*",
 		"@fontsource/geist": "^5.2.8",
 		"@fontsource/geist-mono": "^5.2.7",
 		"@lezer/highlight": "^1.2.3",

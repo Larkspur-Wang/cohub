@@ -37,13 +37,13 @@ export default defineConfig({
 			"@neta-art/cohub-protocol/fs": fileURLToPath(
 				new URL("../../packages/protocol/src/fs/index.ts", import.meta.url),
 			),
-			"@cohub/sdk": fileURLToPath(
+			"@neta-art/cohub": fileURLToPath(
 				new URL("../../packages/sdk/src/index.ts", import.meta.url),
 			),
-			"@cohub/sdk/http": fileURLToPath(
+			"@neta-art/cohub/http": fileURLToPath(
 				new URL("../../packages/sdk/src/http.ts", import.meta.url),
 			),
-			"@cohub/sdk/websocket": fileURLToPath(
+			"@neta-art/cohub/websocket": fileURLToPath(
 				new URL("../../packages/sdk/src/websocket.ts", import.meta.url),
 			),
 		},

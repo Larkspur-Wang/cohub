@@ -11,7 +11,7 @@ import {
 	type SpaceRecord,
 	type SpaceRole,
 	type TaskRunRecord,
-} from "@cohub/sdk";
+} from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";

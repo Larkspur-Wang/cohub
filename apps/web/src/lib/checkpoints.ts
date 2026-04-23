@@ -1,4 +1,4 @@
-import { type CheckpointRecord, HttpError } from "@cohub/sdk";
+import { type CheckpointRecord, HttpError } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
 
 export async function pollCheckpointJob(taskRunId: string) {

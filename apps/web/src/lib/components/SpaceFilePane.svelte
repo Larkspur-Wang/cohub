@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SpaceFsFileResponse } from "@cohub/sdk";
+import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import {
 	Code,
 	Download,

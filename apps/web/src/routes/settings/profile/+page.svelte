@@ -1,5 +1,5 @@
 <script lang="ts">
-import { HttpError } from "@cohub/sdk";
+import { HttpError } from "@neta-art/cohub";
 import { Check, Copy, User } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";

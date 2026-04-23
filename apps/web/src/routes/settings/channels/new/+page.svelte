@@ -1,5 +1,5 @@
 <script lang="ts">
-import { HttpError } from "@cohub/sdk";
+import { HttpError } from "@neta-art/cohub";
 import {
 	ArrowLeft,
 	Check,

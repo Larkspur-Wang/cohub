@@ -1,4 +1,4 @@
-import { type CohubClientOptions, createCohubClient } from "@cohub/sdk";
+import { type CohubClientOptions, createCohubClient } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN, PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
 import {
 	clearAuthToken,

@@ -6,7 +6,7 @@ import {
 	type SessionRecord,
 	type SpaceRecord,
 	type TaskRunRecord,
-} from "@cohub/sdk";
+} from "@neta-art/cohub";
 import {
 	Activity,
 	ChevronDown,

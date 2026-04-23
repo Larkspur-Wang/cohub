@@ -34,9 +34,9 @@
 			"@neta-art/cohub-protocol/fs": [
 				"../../packages/protocol/src/fs/index.ts"
 			],
-			"@cohub/sdk": ["../../packages/sdk/src/index.ts"],
-			"@cohub/sdk/http": ["../../packages/sdk/src/http.ts"],
-			"@cohub/sdk/websocket": ["../../packages/sdk/src/websocket.ts"]
+			"@neta-art/cohub": ["../../packages/sdk/src/index.ts"],
+			"@neta-art/cohub/http": ["../../packages/sdk/src/http.ts"],
+			"@neta-art/cohub/websocket": ["../../packages/sdk/src/websocket.ts"]
 		}
 	}
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias

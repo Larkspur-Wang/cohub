@@ -6,7 +6,7 @@ import {
 	HttpError,
 	type SpaceChannelBindingInput,
 	type SpaceEnvInput,
-} from "@cohub/sdk";
+} from "@neta-art/cohub";
 import { ArrowLeft, Loader2, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";

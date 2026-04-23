@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { CronJobRecord, SpaceRecord, TaskRunRecord } from "@cohub/sdk";
+import type { CronJobRecord, SpaceRecord, TaskRunRecord } from "@neta-art/cohub";
 import {
 	Activity,
 	Clipboard,

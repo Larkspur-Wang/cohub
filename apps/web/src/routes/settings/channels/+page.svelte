@@ -1,5 +1,5 @@
 <script lang="ts">
-import { type Channel, HttpError } from "@cohub/sdk";
+import { type Channel, HttpError } from "@neta-art/cohub";
 import {
 	MessageSquare,
 	MonitorPlay,

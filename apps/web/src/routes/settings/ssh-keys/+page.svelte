@@ -1,5 +1,5 @@
 <script lang="ts">
-import { HttpError, type UserSshKey } from "@cohub/sdk";
+import { HttpError, type UserSshKey } from "@neta-art/cohub";
 import { KeyRound, Plus, Trash2, X } from "lucide-svelte";
 import { onMount } from "svelte";
 import { fade } from "svelte/transition";
