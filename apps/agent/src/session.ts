@@ -1,18 +1,14 @@
 import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import {
-  type AuthStorage,
-  type DefaultResourceLoader,
-  type ModelRegistry,
-  SessionManager,
-  createAgentSession,
-  type AgentSession,
-} from "@mariozechner/pi-coding-agent";
+import { SessionManager } from "@mariozechner/pi-coding-agent";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { env } from "./env.js";
 import { sendOutput } from "./redis.js";
+import type { CohubModelRegistry } from "./runtime/model-registry.js";
+import type { LoadedSkill } from "./runtime/resources.js";
+import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 
 export type PendingUserMessage = {
@@ -25,7 +21,7 @@ export type SessionHandle = {
   spaceId: string;
   sessionKey: string;
   sessionId: string;
-  session: AgentSession;
+  session: CohubAgentSession;
   sessionManager: SessionManager;
   ownerEpoch: number;
   lastActiveAt: number;
@@ -448,9 +444,10 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 export async function loadOrCreateSessionHandle(input: {
   spaceId: string;
   sessionId: string;
-  authStorage: AuthStorage;
-  modelRegistry: ModelRegistry;
-  resourceLoader: DefaultResourceLoader;
+  modelRegistry: CohubModelRegistry;
+  platformPrompt?: string;
+  appendSystemPrompt?: string;
+  skills: LoadedSkill[];
   tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
   sessionHandles: Map<string, SessionHandle>;
@@ -518,27 +515,18 @@ export async function loadOrCreateSessionHandle(input: {
     ? input.modelRegistry.find(input.model.provider, input.model.id)
     : undefined;
 
-  const { session } = await createAgentSession({
+  const { session } = await createCohubAgentSession({
     cwd: spaceWorkspaceDir,
-    authStorage: input.authStorage,
-    modelRegistry: input.modelRegistry,
-    resourceLoader: input.resourceLoader,
-    tools: input.tools.map((tool) => tool.name),
     sessionManager,
+    modelRegistry: input.modelRegistry,
+    tools: input.tools,
     ...(resolvedModel ? { model: resolvedModel } : {}),
+    customPrompt: input.platformPrompt,
+    appendSystemPrompt: input.appendSystemPrompt,
+    skills: input.skills,
   });
 
-  const sandboxBaseTools = Object.fromEntries(
-    input.tools.map((tool) => [tool.name, tool] as const),
-  ) as Record<string, unknown>;
-
-  const sessionWithOverrides = session as unknown as {
-    _baseToolsOverride?: Record<string, unknown>;
-    reload: () => Promise<void>;
-  };
-
-  sessionWithOverrides._baseToolsOverride = sandboxBaseTools;
-  await sessionWithOverrides.reload();
+  await session.reload();
 
   const handle: SessionHandle = {
     spaceId: input.spaceId,

@@ -33,9 +33,21 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@mariozechner/pi-agent-core':
+        specifier: 0.68.1
+        version: 0.68.1(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-ai':
+        specifier: 0.68.1
+        version: 0.68.1(ws@8.20.0)(zod@4.3.6)
       '@mariozechner/pi-coding-agent':
         specifier: 0.68.0
         version: 0.68.0(ws@8.20.0)(zod@4.3.6)
+      ajv:
+        specifier: ^8.17.1
+        version: 8.18.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.18.0)
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
@@ -116,6 +128,9 @@ importers:
 
   apps/gateway:
     dependencies:
+      '@cohub/gateway-contract':
+        specifier: workspace:*
+        version: link:../../packages/gateway-contract
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -328,6 +343,19 @@ importers:
         version: 6.0.3
 
   packages/agent-sandbox-protocol:
+    devDependencies:
+      '@typescript/native-preview':
+        specifier: 7.0.0-dev.20260421.1
+        version: 7.0.0-dev.20260421.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/gateway-contract:
+    dependencies:
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260421.1
@@ -2224,12 +2252,12 @@ packages:
     resolution: {integrity: sha512-faGUlTcXka5l7rv0lP3K3vGW/ejRuOS24RR2aSFWREUQqzjgdsuWNo/IiPqL3kWRGt6Ahl2+qcDAwtdeWeuGUw==}
     hasBin: true
 
-  '@mariozechner/pi-agent-core@0.68.0':
-    resolution: {integrity: sha512-y9PAWvN1dxkByHc2lthHFe0MGV6H+FiR5IzFHFrEUZC9mA2J73JEPDFOdcNVCkadmRRipI3b3qiAzwlIQ1gioA==}
+  '@mariozechner/pi-agent-core@0.68.1':
+    resolution: {integrity: sha512-7q0vHSc6IIlNNdfP5+4ktv/9Bidfo6dCFRRJVz96K9qjN+5rYJ+4V28quvcw/Vf0pfDgRMBRR0Yhjx51lb60tg==}
     engines: {node: '>=20.0.0'}
 
-  '@mariozechner/pi-ai@0.68.0':
-    resolution: {integrity: sha512-/Th1hzj33FVTStpd0Cw8TWNXe5jcLvnzD/PzReBA6h+FsfvMSropxYovHvN9B3JH+EMKLaf3wf5IePnhMjN6vg==}
+  '@mariozechner/pi-ai@0.68.1':
+    resolution: {integrity: sha512-z52kMOZK1/fxzKu7nTwdfOCHhOE/G5GwGsxzR98X6LX7yAz384iqwG4DoXn7nI05ETH7jXLET6wUrYIHMo91Qw==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -3794,6 +3822,7 @@ packages:
   glob@11.1.0:
     resolution: {integrity: sha512-vuNwKSaKiqm7g0THUBu2x7ckSs3XJLXE+2ssL7/MfTGPLLcrJQ/4Uq1CjPTtO5cCIiRxqvN6Twy1qOwhL0Xjcw==}
     engines: {node: 20 || >=22}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   glob@13.0.6:
@@ -7439,9 +7468,9 @@ snapshots:
       std-env: 3.10.0
       yoctocolors: 2.1.2
 
-  '@mariozechner/pi-agent-core@0.68.0(ws@8.20.0)(zod@4.3.6)':
+  '@mariozechner/pi-agent-core@0.68.1(ws@8.20.0)(zod@4.3.6)':
     dependencies:
-      '@mariozechner/pi-ai': 0.68.0(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.68.1(ws@8.20.0)(zod@4.3.6)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -7451,7 +7480,7 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.68.0(ws@8.20.0)(zod@4.3.6)':
+  '@mariozechner/pi-ai@0.68.1(ws@8.20.0)(zod@4.3.6)':
     dependencies:
       '@anthropic-ai/sdk': 0.90.0(zod@4.3.6)
       '@aws-sdk/client-bedrock-runtime': 3.1033.0
@@ -7478,8 +7507,8 @@ snapshots:
   '@mariozechner/pi-coding-agent@0.68.0(ws@8.20.0)(zod@4.3.6)':
     dependencies:
       '@mariozechner/jiti': 2.6.5
-      '@mariozechner/pi-agent-core': 0.68.0(ws@8.20.0)(zod@4.3.6)
-      '@mariozechner/pi-ai': 0.68.0(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-agent-core': 0.68.1(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.68.1(ws@8.20.0)(zod@4.3.6)
       '@mariozechner/pi-tui': 0.68.0
       '@silvia-odwyer/photon-node': 0.3.4
       '@sinclair/typebox': 0.34.49

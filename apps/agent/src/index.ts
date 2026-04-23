@@ -1,20 +1,10 @@
-import {
-  AuthStorage,
-  DefaultResourceLoader,
-  ModelRegistry,
-} from "@mariozechner/pi-coding-agent";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { SessionStreamError } from "@cohub/protocol/realtime";
 import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
 
 import {
   env,
-  hasPlatformSkillsDir,
-  PLATFORM_AGENT_DIR,
-  PLATFORM_AUTH_PATH,
-  PLATFORM_MODELS_PATH,
   PLATFORM_ROOT,
-  PLATFORM_SKILLS_DIR,
 } from "./env.js";
 import {
   closeOwnershipRedis,
@@ -44,8 +34,10 @@ import {
   loadOrCreateSessionHandle,
   type SessionHandle,
 } from "./session.js";
-import { runWithToolExecutionContext } from "./tool-context.js";
+import { CohubModelRegistry } from "./runtime/model-registry.js";
+import { loadPlatformPromptResources } from "./runtime/resources.js";
 
+import { runWithToolExecutionContext } from "./tool-context.js";
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 
@@ -269,18 +261,10 @@ async function main() {
   agentHeartbeatTimer = startAgentInstanceHeartbeatLoop();
   startOwnerRenewLoop();
 
-  const authStorage = AuthStorage.create(PLATFORM_AUTH_PATH);
-  const modelRegistry = ModelRegistry.create(authStorage, PLATFORM_MODELS_PATH);
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: PLATFORM_ROOT,
-    agentDir: PLATFORM_AGENT_DIR,
-    additionalSkillPaths: hasPlatformSkillsDir() ? [PLATFORM_SKILLS_DIR] : [],
-  });
-  try {
-    await resourceLoader.reload();
-  } catch (error) {
-    console.error("[Agent] Failed to load platform resources:", error);
-    throw error;
+  const modelRegistry = new CohubModelRegistry();
+  const platformResources = loadPlatformPromptResources();
+  if (modelRegistry.getError()) {
+    console.warn("[Agent] Model registry warning:", modelRegistry.getError());
   }
   const tools = createSandboxCodingTools();
 
@@ -318,9 +302,10 @@ async function main() {
           const handle = await loadOrCreateSessionHandle({
             spaceId: inputEntry.spaceId,
             sessionId,
-            authStorage,
             modelRegistry,
-            resourceLoader,
+            platformPrompt: platformResources.systemPrompt,
+            appendSystemPrompt: platformResources.appendSystemPrompt,
+            skills: platformResources.skills,
             tools,
             model: requestedModelInput,
             sessionHandles,
