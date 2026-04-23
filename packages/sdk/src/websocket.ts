@@ -247,6 +247,11 @@ export class WebsocketClient {
         });
         if (wasConnecting) {
           rejectOnce(new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()));
+          // 4001 = server-side Redis key expired, a fresh connection will create a new key.
+          // Schedule reconnect so the client recovers even if it was rejected during connect.
+          if (event.code === 4001 && willReconnect) {
+            void this.scheduleReconnect();
+          }
           return;
         }
         if (willReconnect) {
