@@ -301,9 +301,6 @@ function handleCopy() {
 		}, 1800);
 	});
 }
-
-// Mobile detail panel
-let mobileDetailOpen = $state(false);
 </script>
 
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
@@ -448,92 +445,40 @@ let mobileDetailOpen = $state(false);
 
       {#if message.role === 'assistant' && (message.meta?.model || shortTime)}
         <!-- Meta bar: copy | model | tokens | time -->
-        <div class="mt-2 select-none">
-          <div
-            role="button"
-            tabindex="0"
-            class="sm:hidden w-full flex items-center gap-2 text-[11px] text-text-placeholder/50 cursor-pointer"
-            onclick={() => { mobileDetailOpen = !mobileDetailOpen; }}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); mobileDetailOpen = !mobileDetailOpen; } }}
+        <div class="mt-2 flex items-center gap-1 text-[11px] text-text-placeholder/50 select-none">
+          <!-- Copy button -->
+          <button
+            type="button"
+            class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+            onclick={(e) => { e.stopPropagation(); handleCopy(); }}
+            title="Copy message"
           >
-            <!-- Copy button -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <span
-              class="shrink-0 inline-flex items-center opacity-60 cursor-pointer"
-              onclick={(e) => { e.stopPropagation(); handleCopy(); }}
-            >
-              {#if copied}
-                <Check class="w-3 h-3 text-status-running" />
-              {:else}
-                <Copy class="w-3 h-3" />
-              {/if}
+            {#if copied}
+              <Check class="w-3.5 h-3.5 text-status-running" />
+            {:else}
+              <Copy class="w-3.5 h-3.5" />
+            {/if}
+          </button>
+
+          <!-- Model -->
+          {#if modelDisplayName}
+            <span class="shrink-0 truncate cursor-default" title={modelHoverText}>
+              {modelDisplayName}
             </span>
+          {/if}
 
-            <!-- Model -->
-            {#if modelDisplayName}
-              <span class="shrink-0 truncate flex-1 min-w-0" title={modelHoverText}>
-                {modelDisplayName}
-              </span>
-            {/if}
+          <!-- Tokens (desktop only) -->
+          {#if hasUsage}
+            <span class="tabular-nums shrink-0 cursor-default hidden sm:inline" title={tokenDetailText}>
+              {tokenDisplay}
+            </span>
+          {/if}
 
-            <!-- Time -->
-            {#if shortTime}
-              <time datetime={message.createdAt} class="shrink-0 tabular-nums" title={fullDateTime}>
-                {shortTime}
-              </time>
-            {/if}
-          </div>
-
-          <!-- Desktop meta row -->
-          <div class="hidden sm:flex items-center gap-1 text-[11px] text-text-placeholder/50">
-            <!-- Copy button -->
-            <button
-              type="button"
-              class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 hover:bg-bg-hover transition-all"
-              onclick={(e) => { e.stopPropagation(); handleCopy(); }}
-              title="Copy message"
-            >
-              {#if copied}
-                <Check class="w-3.5 h-3.5 text-status-running" />
-              {:else}
-                <Copy class="w-3.5 h-3.5" />
-              {/if}
-            </button>
-
-            <!-- Model -->
-            {#if modelDisplayName}
-              <span class="shrink-0 truncate cursor-default" title={modelHoverText}>
-                {modelDisplayName}
-              </span>
-            {/if}
-
-            <!-- Tokens (desktop only) -->
-            {#if hasUsage}
-              <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
-                {tokenDisplay}
-              </span>
-            {/if}
-
-            <!-- Time (rightmost) -->
-            {#if shortTime}
-              <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
-                {shortTime}
-              </time>
-            {/if}
-          </div>
-
-          <!-- Mobile detail panel -->
-          {#if mobileDetailOpen}
-            <div class="sm:hidden mt-1.5 px-2 py-1.5 rounded bg-bg-code/60 text-[10px] text-text-tertiary space-y-0.5">
-              <div class="tabular-nums">{fullDateTime}</div>
-              {#if modelHoverText}
-                <div>{modelHoverText}</div>
-              {/if}
-              {#if hasUsage}
-                <div class="tabular-nums">{tokenDetailText}</div>
-              {/if}
-            </div>
+          <!-- Time (rightmost) -->
+          {#if shortTime}
+            <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
+              {shortTime}
+            </time>
           {/if}
         </div>
       {/if}
