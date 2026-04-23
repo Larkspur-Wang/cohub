@@ -330,7 +330,7 @@ let mobileDetailOpen = $state(false);
     </div>
   {/if}
 {:else}
-  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
+  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : 'max-w-full sm:max-w-[52rem]'}`}>
     {#if message.role === 'user' && message.authorName}
       <div class="flex items-center gap-2 mb-1 justify-end">
         <span class="text-[12px] text-text-tertiary font-medium">{message.authorName}</span>
@@ -457,7 +457,8 @@ let mobileDetailOpen = $state(false);
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); mobileDetailOpen = !mobileDetailOpen; } }}
           >
             <!-- Copy button -->
-            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span
               class="shrink-0 inline-flex items-center opacity-60 cursor-pointer"
               onclick={(e) => { e.stopPropagation(); handleCopy(); }}
@@ -485,38 +486,38 @@ let mobileDetailOpen = $state(false);
           </div>
 
           <!-- Desktop meta row -->
-          <div class="hidden sm:flex items-center gap-2 text-[11px] text-text-placeholder/50">
+          <div class="hidden sm:flex items-center gap-1 text-[11px] text-text-placeholder/50">
             <!-- Copy button -->
             <button
               type="button"
-              class="shrink-0 inline-flex items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+              class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 hover:bg-bg-hover transition-all"
               onclick={(e) => { e.stopPropagation(); handleCopy(); }}
               title="Copy message"
             >
               {#if copied}
-                <Check class="w-3 h-3 text-status-running" />
+                <Check class="w-3.5 h-3.5 text-status-running" />
               {:else}
-                <Copy class="w-3 h-3" />
+                <Copy class="w-3.5 h-3.5" />
               {/if}
             </button>
 
             <!-- Model -->
             {#if modelDisplayName}
-              <span class="shrink-0 truncate cursor-default hover:text-text-tertiary transition-colors" title={modelHoverText}>
+              <span class="shrink-0 truncate px-1.5 py-0.5 rounded cursor-default hover:bg-bg-hover hover:text-text-tertiary transition-colors" title={modelHoverText}>
                 {modelDisplayName}
               </span>
             {/if}
 
             <!-- Tokens (desktop only) -->
             {#if hasUsage}
-              <span class="tabular-nums shrink-0 cursor-default hover:text-text-tertiary transition-colors" title={tokenDetailText}>
+              <span class="tabular-nums shrink-0 px-1.5 py-0.5 rounded cursor-default hover:bg-bg-hover hover:text-text-tertiary transition-colors" title={tokenDetailText}>
                 {tokenDisplay}
               </span>
             {/if}
 
             <!-- Time (rightmost) -->
             {#if shortTime}
-              <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default hover:text-text-tertiary transition-colors" title={fullDateTime}>
+              <time datetime={message.createdAt} class="ml-auto shrink-0 px-1.5 py-0.5 rounded tabular-nums cursor-default hover:bg-bg-hover hover:text-text-tertiary transition-colors" title={fullDateTime}>
                 {shortTime}
               </time>
             {/if}
