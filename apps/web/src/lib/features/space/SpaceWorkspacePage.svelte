@@ -202,6 +202,60 @@ let openFileSaving = $state(false);
 let openFileError = $state<string | null>(null);
 let openFileTooLarge = $state(false);
 
+// Inline file panel state (opened from sidebar, not via route)
+let inlineFile = $state<{
+	response: SpaceFsFileResponse | null;
+	draft: string;
+	path: string;
+	loading: boolean;
+	saving: boolean;
+	error: string | null;
+	tooLarge: boolean;
+} | null>(null);
+const inlineFileDirty = $derived(
+	Boolean(
+		inlineFile &&
+			inlineFile.response?.kind === "text" &&
+			inlineFile.draft !== inlineFile.response.content,
+	),
+);
+const inlineFileIsMarkdown = $derived(
+	Boolean(
+		inlineFile?.response?.kind === "text" &&
+			/\.md$/i.test(inlineFile.response.path),
+	),
+);
+const inlineFileExt = $derived.by(() => {
+	if (!inlineFile || inlineFile.response?.kind !== "text") return "plaintext";
+	return (
+		inlineFile.response.name.split(".").pop()?.toLowerCase() ?? "plaintext"
+	);
+});
+const inlineFileIsImage = $derived(
+	Boolean(inlineFile?.response?.mimeType?.startsWith("image/")),
+);
+const inlineFileIsVideo = $derived(
+	Boolean(inlineFile?.response?.mimeType?.startsWith("video/")),
+);
+const inlineFileIsText = $derived(
+	Boolean(inlineFile?.response?.kind === "text"),
+);
+const inlineFileDataUrl = $derived.by(() => {
+	if (!inlineFile || inlineFile.response?.kind !== "binary") return null;
+	const mime = inlineFile.response.mimeType ?? "application/octet-stream";
+	return `data:${mime};base64,${inlineFile.response.content}`;
+});
+const inlineFileDownloadUrl = $derived.by(() => {
+	if (!inlineFile) return "";
+	return `/api/spaces/${spaceId}/fs/download?path=${encodeURIComponent(inlineFile.path)}`;
+});
+const inlineFileDownloadName = $derived.by(() => {
+	if (!inlineFile) return "";
+	return inlineFile.path.split("/").pop() ?? "download";
+});
+let inlineFileMarkdownHtml = $state("");
+let inlineFileEdit = $state(true);
+
 const fileDirty = $derived(
 	Boolean(
 		openFile && openFile.kind === "text" && openFileDraft !== openFile.content,
@@ -255,6 +309,26 @@ $effect(() => {
 
 $effect(() => {
 	if (openFile) fileEdit = true;
+});
+
+$effect(() => {
+	const current = inlineFile?.response;
+	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
+		inlineFileMarkdownHtml = "";
+		return;
+	}
+	void renderMarkdown(current.content)
+		.then((html) => {
+			if (inlineFile?.response?.path === current.path)
+				inlineFileMarkdownHtml = html;
+		})
+		.catch(() => {
+			inlineFileMarkdownHtml = "";
+		});
+});
+
+$effect(() => {
+	if (inlineFile) inlineFileEdit = true;
 });
 
 let pageMounted = false;
@@ -2081,7 +2155,7 @@ async function handleCreateFile(parentPath: string) {
 			.space(spaceId)
 			.files.write({ path, content: "", encoding: "utf-8" });
 		await loadFileTree(true);
-		await openSpaceFile(path);
+		await openInlineFile(path);
 	} catch (error) {
 		fileTreeError =
 			error instanceof Error ? error.message : "Failed to create file";
@@ -2112,7 +2186,10 @@ async function handleRenameNode(node: SpaceFsNode) {
 		await sdk.space(spaceId).files.move({ fromPath: node.path, toPath });
 		await loadFileTree(true);
 		if (openFile?.path === node.path) {
-			await openSpaceFile(toPath);
+			closeFile();
+		}
+		if (inlineFile?.path === node.path) {
+			await openInlineFile(toPath);
 		}
 	} catch (error) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
@@ -2125,6 +2202,7 @@ async function handleDeleteNode(node: SpaceFsNode) {
 		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
 		await loadFileTree(true);
 		if (openFile?.path === node.path) closeFile();
+		if (inlineFile?.path === node.path) closeInlineFile();
 	} catch (error) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
 	}
@@ -2138,15 +2216,111 @@ function closeFile() {
 	});
 }
 
+async function openInlineFile(path: string) {
+	inlineFile = {
+		response: null,
+		draft: "",
+		path,
+		loading: true,
+		saving: false,
+		error: null,
+		tooLarge: false,
+	};
+	inlineFileEdit = true;
+	try {
+		const file = await sdk.space(spaceId).files.read(path);
+		inlineFile = {
+			response: file,
+			draft: file.kind === "text" ? file.content : "",
+			path,
+			loading: false,
+			saving: false,
+			error: null,
+			tooLarge: false,
+		};
+	} catch (error) {
+		if (error instanceof HttpError && error.status === 413) {
+			inlineFile = {
+				response: null,
+				draft: "",
+				path,
+				loading: false,
+				saving: false,
+				error: null,
+				tooLarge: true,
+			};
+		} else {
+			inlineFile = {
+				response: null,
+				draft: "",
+				path,
+				loading: false,
+				saving: false,
+				error: error instanceof Error ? error.message : "Failed to open file",
+				tooLarge: false,
+			};
+		}
+	}
+}
+
+function closeInlineFile() {
+	inlineFile = null;
+}
+
+async function saveInlineFile() {
+	if (!inlineFile || inlineFile.response?.kind !== "text") return;
+	inlineFile.saving = true;
+	inlineFile.error = null;
+	try {
+		await sdk.space(spaceId).files.write({
+			path: inlineFile.path,
+			content: inlineFile.draft,
+			encoding: "utf-8",
+		});
+		inlineFile = {
+			...inlineFile,
+			response: {
+				...inlineFile.response,
+				content: inlineFile.draft,
+				size: new Blob([inlineFile.draft]).size,
+			} as SpaceFsFileResponse,
+		};
+		await loadFileTree(true);
+	} catch (error) {
+		inlineFile.error =
+			error instanceof Error ? error.message : "Failed to save file";
+	} finally {
+		inlineFile.saving = false;
+	}
+}
+
 async function handleFileKeyboardSave(event: KeyboardEvent) {
 	if (
 		(event.metaKey || event.ctrlKey) &&
 		event.key.toLowerCase() === "s" &&
-		fileMode === "file"
+		(fileMode === "file" || inlineFile)
 	) {
 		event.preventDefault();
-		await saveOpenFile();
+		if (inlineFile) {
+			await saveInlineFile();
+		} else {
+			await saveOpenFile();
+		}
 	}
+	if (event.key === "Escape" && inlineFile) {
+		event.preventDefault();
+		closeInlineFile();
+	}
+}
+
+async function copyFileContent() {
+	if (!openFile || openFile.kind !== "text") return;
+	await navigator.clipboard.writeText(openFileDraft);
+}
+
+async function copyInlineFileContent() {
+	if (!inlineFile || inlineFile.response?.kind !== "text") return;
+	await navigator.clipboard.writeText(inlineFile.draft);
 }
 
 function getCheckpointTitle(checkpoint: CheckpointRecord): string {
@@ -3049,26 +3223,26 @@ $effect(() => {
                 {openFile.path}
               </div>
               {#if openFileIsMarkdown}
-                <button
-                  type="button"
-                  class="toggle-btn"
-                  class:active={!fileEdit}
-                  onclick={() => fileEdit = false}
-                  title="Preview"
-                >
-                  <Eye class="w-3.5 h-3.5" />
-                  <span class="hidden sm:inline">Preview</span>
-                </button>
-                <button
-                  type="button"
-                  class="toggle-btn"
-                  class:active={fileEdit}
-                  onclick={() => fileEdit = true}
-                  title="Edit"
-                >
-                  <Pencil class="w-3.5 h-3.5" />
-                  <span class="hidden sm:inline">Edit</span>
-                </button>
+                <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    class:active={fileEdit}
+                    onclick={() => fileEdit = true}
+                    title="Edit source"
+                  >
+                    Source
+                  </button>
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    class:active={!fileEdit}
+                    onclick={() => fileEdit = false}
+                    title="Preview markdown"
+                  >
+                    Preview
+                  </button>
+                </div>
               {/if}
               <a
                 href={openFileDownloadUrl}
@@ -3078,6 +3252,9 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              <button type="button" class="icon-btn" onclick={() => void copyFileContent()} title="Copy content">
+                <Copy class="w-4 h-4" />
+              </button>
               <button
                 type="button"
                 class="action-btn"
@@ -3460,6 +3637,193 @@ $effect(() => {
   {/if}
   </div>
 
+  <!-- Inline file panel — between main content and right sidebar -->
+  {#if inlineFile}
+    <div class="hidden lg:flex shrink-0 border-l border-border-subtle" style="width: 480px;">
+      <div class="flex h-full min-w-0 flex-col bg-bg-content">
+        {#if inlineFile.loading}
+          <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
+            <span class="text-xs text-text-tertiary">Loading file…</span>
+          </div>
+          <div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
+        {:else if inlineFile.error}
+          <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
+            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+            <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-xs text-error-soft">
+            {inlineFile.error}
+          </div>
+        {:else if inlineFile.tooLarge}
+          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
+            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn" title="Download file">
+              <Download class="w-3.5 h-3.5 shrink-0" />
+              <span class="hidden sm:inline">Download</span>
+            </a>
+            <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="flex flex-1 items-center justify-center">
+            <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
+              <div class="text-4xl mb-3">📦</div>
+              <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
+              <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
+              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary">
+                <Download class="w-3.5 h-3.5" />
+                Download file
+              </a>
+            </div>
+          </div>
+        {:else if inlineFile.response}
+          {#if inlineFileIsText}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                {inlineFile.response.path}
+              </div>
+              {#if inlineFileIsMarkdown}
+                <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    class:active={inlineFileEdit}
+                    onclick={() => inlineFileEdit = true}
+                    title="Edit source"
+                  >
+                    Source
+                  </button>
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    class:active={!inlineFileEdit}
+                    onclick={() => inlineFileEdit = false}
+                    title="Preview markdown"
+                  >
+                    Preview
+                  </button>
+                </div>
+              {/if}
+              <a
+                href={inlineFileDownloadUrl}
+                download={inlineFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
+                <Copy class="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                class="action-btn"
+                onclick={() => void saveInlineFile()}
+                disabled={inlineFile.saving || !inlineFileDirty}
+                title="Save (Ctrl+S)"
+              >
+                <Save class="w-3.5 h-3.5 shrink-0" />
+                <span class="hidden sm:inline">Save</span>
+              </button>
+              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex-1 min-h-0">
+              {#if inlineFileEdit}
+                <CodeEditor
+                  value={inlineFile.draft}
+                  language={inlineFileExt}
+                  onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
+                />
+              {:else if inlineFileIsMarkdown && inlineFileMarkdownHtml}
+                <article class="markdown-preview">{@html inlineFileMarkdownHtml}</article>
+              {:else}
+                <CodeEditor
+                  value={inlineFile.draft}
+                  language={inlineFileExt}
+                  readonly={true}
+                />
+              {/if}
+            </div>
+          {:else if inlineFileIsImage && inlineFileDataUrl}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                {inlineFile.response.path}
+              </div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{inlineFile.response.size} bytes</div>
+              <a
+                href={inlineFileDownloadUrl}
+                download={inlineFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex flex-1 items-center justify-center p-4">
+              <img src={inlineFileDataUrl} alt={inlineFile.response.name} class="max-h-full max-w-full rounded-md object-contain" />
+            </div>
+          {:else if inlineFileIsVideo && inlineFileDataUrl}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                {inlineFile.response.path}
+              </div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{inlineFile.response.size} bytes</div>
+              <a
+                href={inlineFileDownloadUrl}
+                download={inlineFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex flex-1 items-center justify-center p-4">
+              <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
+                <track kind="captions" />
+              </video>
+            </div>
+          {:else}
+            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                {inlineFile.response.path}
+              </div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{inlineFile.response.size} bytes</div>
+              <a
+                href={inlineFileDownloadUrl}
+                download={inlineFileDownloadName}
+                class="icon-btn"
+                title="Download file"
+              >
+                <Download class="w-4 h-4" />
+              </a>
+              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-xs text-text-secondary">
+              <div><strong>Name:</strong> {inlineFile.response.name}</div>
+              <div><strong>Type:</strong> {inlineFile.response.mimeType ?? 'application/octet-stream'}</div>
+              <div><strong>Size:</strong> {inlineFile.response.size} bytes</div>
+              <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
+            </div>
+          {/if}
+        {:else}
+          <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <!-- Desktop right sidebar — file tree only -->
   {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
     <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
@@ -3470,7 +3834,7 @@ $effect(() => {
           loading={fileTreeLoading}
           error={fileTreeError}
           onToggle={expandDirectory}
-          onSelect={(node) => { if (node.type === "file") void openSpaceFile(node.path); }}
+          onSelect={(node) => { if (node.type === "file") void openInlineFile(node.path); }}
           onRefresh={refreshFileTree}
           onCreateFile={handleCreateFile}
           onCreateDir={handleCreateDir}
@@ -3501,7 +3865,7 @@ $effect(() => {
         loading={fileTreeLoading}
         error={fileTreeError}
         onToggle={expandDirectory}
-        onSelect={(node) => { if (node.type === "file") { void openSpaceFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
+        onSelect={(node) => { if (node.type === "file") { void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
         onRefresh={refreshFileTree}
         onCreateFile={handleCreateFile}
         onCreateDir={handleCreateDir}
@@ -3891,58 +4255,97 @@ $effect(() => {
     color: var(--text-primary);
   }
 
+  .segmented-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0 10px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 150ms ease;
+    white-space: nowrap;
+  }
+  .segmented-btn:hover { color: var(--text-secondary); }
+  .segmented-btn.active {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
   .markdown-preview {
     height: 100%;
     overflow: auto;
-    padding: 20px 24px;
+    padding: 24px 28px;
     max-width: 860px;
     margin: 0 auto;
-    line-height: 1.7;
+    line-height: 1.75;
     font-size: 14px;
+    color: var(--text-primary);
   }
   .markdown-preview :global(h1) {
-    font-size: 1.8em;
+    font-size: 1.75em;
     font-weight: 700;
     margin-top: 0;
-    margin-bottom: 0.5em;
+    margin-bottom: 0.4em;
     padding-bottom: 0.3em;
     border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
   }
   .markdown-preview :global(h2) {
     font-size: 1.4em;
     font-weight: 600;
     margin-top: 1.5em;
-    margin-bottom: 0.5em;
+    margin-bottom: 0.4em;
+    color: var(--text-primary);
   }
   .markdown-preview :global(h3) {
     font-size: 1.15em;
     font-weight: 600;
     margin-top: 1.2em;
-    margin-bottom: 0.4em;
+    margin-bottom: 0.3em;
+    color: var(--text-primary);
+  }
+  .markdown-preview :global(h4),
+  .markdown-preview :global(h5),
+  .markdown-preview :global(h6) {
+    font-weight: 600;
+    margin-top: 1.2em;
+    margin-bottom: 0.3em;
+    color: var(--text-primary);
   }
   .markdown-preview :global(p) { margin-bottom: 1em; }
+  .markdown-preview :global(strong) { font-weight: 600; }
+  .markdown-preview :global(em) { font-style: italic; }
   .markdown-preview :global(code) {
     background: var(--bg-hover);
     border: 1px solid var(--border-subtle);
-    border-radius: 4px;
-    padding: 0.15em 0.4em;
-    font-size: 0.9em;
+    border-radius: 5px;
+    padding: 0.15em 0.45em;
+    font-size: 0.88em;
     font-family: var(--font-mono, monospace);
+    color: var(--text-primary);
   }
   .markdown-preview :global(pre) {
     background: var(--bg-primary);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    padding: 16px;
+    padding: 16px 20px;
     overflow: auto;
     margin-bottom: 1em;
+    line-height: 1.55;
   }
   .markdown-preview :global(pre code) {
     background: none;
     border: none;
     padding: 0;
     font-size: 13px;
-    line-height: 1.5;
+    color: var(--text-primary);
   }
   .markdown-preview :global(ul),
   .markdown-preview :global(ol) {
@@ -3950,22 +4353,40 @@ $effect(() => {
     margin-bottom: 1em;
   }
   .markdown-preview :global(li) { margin-bottom: 0.3em; }
+  .markdown-preview :global(li) :global(ul),
+  .markdown-preview :global(li) :global(ol) {
+    margin-bottom: 0;
+  }
+  .markdown-preview :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    margin: 1.5em 0;
+  }
   .markdown-preview :global(blockquote) {
-    border-left: 3px solid var(--border-subtle);
+    border-left: 3px solid var(--brand, #FF3E00);
     padding-left: 1em;
-    color: var(--text-tertiary);
-    margin-bottom: 1em;
+    color: var(--text-secondary);
+    margin: 1em 0;
+  }
+  .markdown-preview :global(blockquote p) {
+    color: var(--text-secondary);
   }
   .markdown-preview :global(img) {
     max-width: 100%;
-    border-radius: 6px;
+    border-radius: 8px;
     margin: 0.5em 0;
+    border: 1px solid var(--border-subtle);
   }
-  .markdown-preview :global(a) { color: var(--brand, #FF3E00); }
+  .markdown-preview :global(a) {
+    color: var(--brand, #FF3E00);
+    text-decoration: none;
+  }
+  .markdown-preview :global(a:hover) { text-decoration: underline; }
   .markdown-preview :global(table) {
     border-collapse: collapse;
     width: 100%;
     margin-bottom: 1em;
+    font-size: 13px;
   }
   .markdown-preview :global(th),
   .markdown-preview :global(td) {
@@ -3976,5 +4397,12 @@ $effect(() => {
   .markdown-preview :global(th) {
     background: var(--bg-hover);
     font-weight: 600;
+    color: var(--text-primary);
+  }
+  .markdown-preview :global(td) {
+    color: var(--text-secondary);
+  }
+  .markdown-preview :global(tr:nth-child(even)) :global(td) {
+    background: var(--bg-hover-soft, rgba(0,0,0,0.02));
   }
 </style>
