@@ -460,21 +460,21 @@ function handleCopy() {
             {/if}
           </button>
 
-          <!-- Model -->
+          <!-- Model (truncates when space is tight) -->
           {#if modelDisplayName}
-            <span class="shrink-0 truncate cursor-default" title={modelHoverText}>
+            <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
               {modelDisplayName}
             </span>
           {/if}
 
-          <!-- Tokens (desktop only) -->
+          <!-- Tokens -->
           {#if hasUsage}
-            <span class="tabular-nums shrink-0 cursor-default hidden sm:inline" title={tokenDetailText}>
+            <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
               {tokenDisplay}
             </span>
           {/if}
 
-          <!-- Time (rightmost) -->
+          <!-- Time (always visible on the right) -->
           {#if shortTime}
             <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
               {shortTime}
