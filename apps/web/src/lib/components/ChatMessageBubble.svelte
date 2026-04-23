@@ -503,21 +503,21 @@ let mobileDetailOpen = $state(false);
 
             <!-- Model -->
             {#if modelDisplayName}
-              <span class="shrink-0 truncate px-1.5 py-0.5 rounded cursor-default hover:bg-bg-hover hover:text-text-tertiary transition-colors" title={modelHoverText}>
+              <span class="shrink-0 truncate cursor-default" title={modelHoverText}>
                 {modelDisplayName}
               </span>
             {/if}
 
             <!-- Tokens (desktop only) -->
             {#if hasUsage}
-              <span class="tabular-nums shrink-0 px-1.5 py-0.5 rounded cursor-default hover:bg-bg-hover hover:text-text-tertiary transition-colors" title={tokenDetailText}>
+              <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
                 {tokenDisplay}
               </span>
             {/if}
 
             <!-- Time (rightmost) -->
             {#if shortTime}
-              <time datetime={message.createdAt} class="ml-auto shrink-0 px-1.5 py-0.5 rounded tabular-nums cursor-default hover:bg-bg-hover hover:text-text-tertiary transition-colors" title={fullDateTime}>
+              <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
                 {shortTime}
               </time>
             {/if}
