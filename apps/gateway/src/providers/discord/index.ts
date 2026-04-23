@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Messag
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { DiscordChannelConfig, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
-import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import type { GatewayProvider } from "../base.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";

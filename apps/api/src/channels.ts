@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
