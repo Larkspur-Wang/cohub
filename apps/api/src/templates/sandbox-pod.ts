@@ -28,7 +28,7 @@ export const SANDBOX_POD_TEMPLATE = {
     },
   },
   spec: {
-    restartPolicy: "Never",
+    restartPolicy: "OnFailure",
     imagePullSecrets: [{ name: "gitea-registry" }],
     securityContext: {
       runAsUser: 1000,
@@ -51,7 +51,7 @@ export const SANDBOX_POD_TEMPLATE = {
         ],
         resources: {
           limits: {
-            cpu: "1",
+            cpu: "2",
             memory: "2Gi",
           },
           requests: {
