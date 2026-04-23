@@ -53,7 +53,8 @@ async function runMigrate() {
       console.log("[Migration] v2 schema exists but has no tables (stale), cleaning up...");
       await client`DROP SCHEMA v2 CASCADE`;
     } else if (schemaExists && hasTables) {
-      console.log("[Migration] v2 schema exists with tables, assuming migration already done.");
+      console.log("[Migration] v2 schema exists with tables, skipping drizzle migrate.");
+      return;
     }
 
     // 执行 migration
