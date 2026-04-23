@@ -258,7 +258,30 @@ let inlineFileEdit = $state(true);
 
 // Image zoom state (for both route-based and inline file viewers)
 let openFileZoom = $state(1);
+let openFilePanX = $state(0);
+let openFilePanY = $state(0);
+let openFileDragging = $state(false);
 let inlineFileZoom = $state(1);
+let inlineFilePanX = $state(0);
+let inlineFilePanY = $state(0);
+let inlineFileDragging = $state(false);
+
+const openFilePanHandlers = makeImagePanHandlers(
+	() => openFileZoom,
+	() => openFilePanX,
+	() => openFilePanY,
+	(v) => (openFilePanX = v),
+	(v) => (openFilePanY = v),
+	(v) => (openFileDragging = v),
+);
+const inlineFilePanHandlers = makeImagePanHandlers(
+	() => inlineFileZoom,
+	() => inlineFilePanX,
+	() => inlineFilePanY,
+	(v) => (inlineFilePanX = v),
+	(v) => (inlineFilePanY = v),
+	(v) => (inlineFileDragging = v),
+);
 
 const fileDirty = $derived(
 	Boolean(
@@ -1213,6 +1236,48 @@ function formatFileSize(bytes: number): string {
 	const i = Math.floor(Math.log(bytes) / Math.log(1024));
 	const value = bytes / 1024 ** i;
 	return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+}
+
+// Image pan handlers
+function makeImagePanHandlers(
+	zoom: () => number,
+	panX: () => number,
+	panY: () => number,
+	setPanX: (v: number) => void,
+	setPanY: (v: number) => void,
+	setDragging: (v: boolean) => void,
+) {
+	let dragStartX = 0;
+	let dragStartY = 0;
+	let startPanX = 0;
+	let startPanY = 0;
+
+	return {
+		start: (e: MouseEvent) => {
+			if (zoom() <= 1) return;
+			e.preventDefault();
+			dragStartX = e.clientX;
+			dragStartY = e.clientY;
+			startPanX = panX();
+			startPanY = panY();
+			setDragging(true);
+			document.addEventListener("mousemove", handleMove);
+			document.addEventListener("mouseup", handleEnd);
+		},
+	};
+
+	function handleMove(e: MouseEvent) {
+		const dx = e.clientX - dragStartX;
+		const dy = e.clientY - dragStartY;
+		setPanX(startPanX + dx);
+		setPanY(startPanY + dy);
+	}
+
+	function handleEnd() {
+		setDragging(false);
+		document.removeEventListener("mousemove", handleMove);
+		document.removeEventListener("mouseup", handleEnd);
+	}
 }
 
 function taskRunStatusBadge(run: TaskRunRecord) {
@@ -3304,11 +3369,11 @@ $effect(() => {
                 {openFile.path}
               </div>
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
-              <button type="button" class="zoom-btn" onclick={() => openFileZoom = Math.max(0.25, openFileZoom - 0.25)} title="Zoom out">
+              <button type="button" class="zoom-btn" onclick={() => { openFileZoom = Math.max(0.25, openFileZoom - 0.25); openFilePanX = 0; openFilePanY = 0; }} title="Zoom out">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               <span class="text-[11px] text-text-tertiary tabular-nums w-10 text-center">{Math.round(openFileZoom * 100)}%</span>
-              <button type="button" class="zoom-btn" onclick={() => openFileZoom = Math.min(4, openFileZoom + 0.25)} title="Zoom in">
+              <button type="button" class="zoom-btn" onclick={() => { openFileZoom = Math.min(4, openFileZoom + 0.25); openFilePanX = 0; openFilePanY = 0; }} title="Zoom in">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               <a
@@ -3323,13 +3388,15 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
-            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" role="img" aria-label="Image preview — scroll to zoom, double-click to reset" onwheel={(e) => {
+            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 openFileZoom = Math.max(0.25, Math.min(4, openFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
+                openFilePanX = 0;
+                openFilePanY = 0;
               }
-            }} ondblclick={() => openFileZoom = 1}>
-              <img src={openFileDataUrl} alt={openFile.name} style="transform: scale({openFileZoom}); transition: transform 150ms ease;" class="max-h-full max-w-full rounded-md object-contain" />
+            }} ondblclick={() => { openFileZoom = 1; openFilePanX = 0; openFilePanY = 0; }} onmousedown={openFilePanHandlers.start} style={openFileDragging ? 'cursor: grabbing;' : (openFileZoom > 1 ? 'cursor: grab;' : '')}>
+              <img src={openFileDataUrl} alt={openFile.name} style={`transform: translate(${openFilePanX}px, ${openFilePanY}px) scale(${openFileZoom}); ${openFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
             </div>
           {:else if openFileIsVideo && openFileDataUrl}
             <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
@@ -3778,11 +3845,11 @@ $effect(() => {
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              <button type="button" class="zoom-btn" onclick={() => inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25)} title="Zoom out">
+              <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               <span class="text-xs text-text-tertiary tabular-nums w-10 text-center">{Math.round(inlineFileZoom * 100)}%</span>
-              <button type="button" class="zoom-btn" onclick={() => inlineFileZoom = Math.min(4, inlineFileZoom + 0.25)} title="Zoom in">
+              <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               <a
@@ -3797,13 +3864,15 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
-            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" role="img" aria-label="Image preview — scroll to zoom, double-click to reset" onwheel={(e) => {
+            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
+                inlineFilePanX = 0;
+                inlineFilePanY = 0;
               }
-            }} ondblclick={() => inlineFileZoom = 1}>
-              <img src={inlineFileDataUrl} alt={inlineFile.response.name} style="transform: scale({inlineFileZoom}); transition: transform 150ms ease;" class="max-h-full max-w-full rounded-md object-contain" />
+            }} ondblclick={() => { inlineFileZoom = 1; inlineFilePanX = 0; inlineFilePanY = 0; }} onmousedown={inlineFilePanHandlers.start} style={inlineFileDragging ? 'cursor: grabbing;' : (inlineFileZoom > 1 ? 'cursor: grab;' : '')}>
+              <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
             <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
