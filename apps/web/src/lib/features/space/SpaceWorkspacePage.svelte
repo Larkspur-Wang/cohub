@@ -87,6 +87,13 @@ import {
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
+	clearCachedSpaceFsSubtree,
+	fetchSpaceFsDirWithCache,
+	getCachedSpaceFsDir,
+	getCachedSpaceFsDirMeta,
+	patchCachedSpaceFsDir,
+} from "$lib/stores/space-fs-cache";
+import {
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
 	uiState,
@@ -192,6 +199,8 @@ let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
+let fileTreeRequestToken = $state(0);
+let directoryLoadTokenByPath = $state<Record<string, number>>({});
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
 let openFileLoading = $state(false);
@@ -1003,6 +1012,46 @@ function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
 		isLoaded: false,
 		isLoading: false,
 	};
+}
+
+function buildFsEntry(path: string, type: SpaceFsEntry["type"]): SpaceFsEntry {
+	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
+	const name = normalizedPath.split("/").pop() ?? normalizedPath;
+	return {
+		name,
+		path: normalizedPath,
+		type,
+		size: 0,
+		mimeType: null,
+		mtimeMs: Date.now(),
+	};
+}
+
+function getParentDirPath(path: string): string {
+	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
+	if (!normalizedPath.includes("/")) return "";
+	return normalizedPath.slice(0, normalizedPath.lastIndexOf("/"));
+}
+
+function updateRootFsEntries(entries: SpaceFsEntry[]) {
+	fileTree = makeFsNodes(entries);
+}
+
+function patchFsDirectory(
+	dirPath: string,
+	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
+) {
+	const nextEntries = patchCachedSpaceFsDir(spaceId, dirPath, updater);
+	if (dirPath === "") {
+		updateRootFsEntries(nextEntries);
+		return nextEntries;
+	}
+	fileTree = replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries));
+	return nextEntries;
+}
+
+function makeFsNodes(entries: SpaceFsEntry[]): SpaceFsNode[] {
+	return entries.map(makeFsNode);
 }
 
 function replaceNodeChildren(
@@ -2140,17 +2189,51 @@ function beginInlineFilePanelResize(event: PointerEvent) {
 }
 
 async function loadFileTree(force = false) {
+	const requestToken = fileTreeRequestToken + 1;
+	fileTreeRequestToken = requestToken;
+
+	if (!force) {
+		const cached = getCachedSpaceFsDir(spaceId, "");
+		if (cached && cached.length > 0) {
+			fileTree = makeFsNodes(cached);
+		}
+	}
+
 	if (fileTreeLoading && !force) return;
-	fileTreeLoading = true;
+
+	const shouldShowLoading = fileTree.length === 0;
+	if (shouldShowLoading) {
+		fileTreeLoading = true;
+	}
 	fileTreeError = null;
+
+	const cacheMeta = getCachedSpaceFsDirMeta(spaceId, "");
+	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
+	if (!shouldFetch) {
+		fileTreeLoading = false;
+		return;
+	}
+
 	try {
-		const tree = await sdk.space(spaceId).files.list("");
-		fileTree = tree.entries.map(makeFsNode);
+		const entries = await fetchSpaceFsDirWithCache(
+			spaceId,
+			"",
+			async () => {
+				const tree = await sdk.space(spaceId).files.list("");
+				return tree.entries;
+			},
+			{ force },
+		);
+		if (requestToken !== fileTreeRequestToken) return;
+		fileTree = makeFsNodes(entries);
 	} catch (error) {
+		if (requestToken !== fileTreeRequestToken) return;
 		fileTreeError =
 			error instanceof Error ? error.message : "Failed to load files";
 	} finally {
-		fileTreeLoading = false;
+		if (requestToken === fileTreeRequestToken) {
+			fileTreeLoading = false;
+		}
 	}
 }
 
@@ -2170,19 +2253,50 @@ async function expandDirectory(node: SpaceFsNode) {
 		}));
 		return;
 	}
-	fileTree = updateNodeState(fileTree, node.path, (item) => ({
-		...item,
-		isLoading: true,
-		isOpen: true,
-	}));
+
+	const requestToken = (directoryLoadTokenByPath[node.path] ?? 0) + 1;
+	directoryLoadTokenByPath = {
+		...directoryLoadTokenByPath,
+		[node.path]: requestToken,
+	};
+
+	const cached = getCachedSpaceFsDir(spaceId, node.path);
+	if (cached) {
+		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(cached));
+	}
+	if (!cached) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({
+			...item,
+			isLoading: true,
+			isOpen: true,
+		}));
+	}
+
+	const cacheMeta = getCachedSpaceFsDirMeta(spaceId, node.path);
+	const shouldFetch = !cacheMeta || cacheMeta.isStale;
+	if (!shouldFetch) {
+		fileTree = updateNodeState(fileTree, node.path, (item) => ({
+			...item,
+			isLoading: false,
+			isOpen: true,
+			isLoaded: true,
+		}));
+		return;
+	}
+
 	try {
-		const tree = await sdk.space(spaceId).files.list(node.path);
-		fileTree = replaceNodeChildren(
-			fileTree,
+		const entries = await fetchSpaceFsDirWithCache(
+			spaceId,
 			node.path,
-			tree.entries.map(makeFsNode),
+			async () => {
+				const tree = await sdk.space(spaceId).files.list(node.path);
+				return tree.entries;
+			},
 		);
+		if (directoryLoadTokenByPath[node.path] !== requestToken) return;
+		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(entries));
 	} catch (error) {
+		if (directoryLoadTokenByPath[node.path] !== requestToken) return;
 		fileTree = updateNodeState(fileTree, node.path, (item) => ({
 			...item,
 			isLoading: false,
@@ -2243,7 +2357,18 @@ async function saveOpenFile() {
 			content: openFileDraft,
 			size: new Blob([openFileDraft]).size,
 		};
-		await loadFileTree(true);
+		const updatedPath = openFile.path;
+		patchFsDirectory(getParentDirPath(updatedPath), (entries) =>
+			entries.map((entry) =>
+				entry.path === updatedPath
+					? {
+							...entry,
+							size: new Blob([openFileDraft]).size,
+							mtimeMs: Date.now(),
+						}
+					: entry,
+			),
+		);
 	} catch (error) {
 		openFileError =
 			error instanceof Error ? error.message : "Failed to save file";
@@ -2260,7 +2385,10 @@ async function handleCreateFile(parentPath: string) {
 		await sdk
 			.space(spaceId)
 			.files.write({ path, content: "", encoding: "utf-8" });
-		await loadFileTree(true);
+		patchFsDirectory(parentPath, (entries) => [
+			...entries,
+			buildFsEntry(path, "file"),
+		]);
 		await openInlineFile(path);
 	} catch (error) {
 		fileTreeError =
@@ -2274,7 +2402,10 @@ async function handleCreateDir(parentPath: string) {
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
 	try {
 		await sdk.space(spaceId).files.createDir(path);
-		await loadFileTree(true);
+		patchFsDirectory(parentPath, (entries) => [
+			...entries,
+			buildFsEntry(path, "dir"),
+		]);
 	} catch (error) {
 		fileTreeError =
 			error instanceof Error ? error.message : "Failed to create folder";
@@ -2288,9 +2419,39 @@ async function handleRenameNode(node: SpaceFsNode) {
 		? node.path.slice(0, node.path.lastIndexOf("/"))
 		: "";
 	const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
+	const isDirectoryRename = node.type === "dir";
 	try {
 		await sdk.space(spaceId).files.move({ fromPath: node.path, toPath });
-		await loadFileTree(true);
+		if (parent === getParentDirPath(toPath)) {
+			patchFsDirectory(parent, (entries) =>
+				entries.map((entry) =>
+					entry.path === node.path
+						? {
+								...entry,
+								name: nextName.trim(),
+								path: toPath,
+								mtimeMs: Date.now(),
+							}
+						: entry,
+				),
+			);
+		} else {
+			patchFsDirectory(parent, (entries) =>
+				entries.filter((entry) => entry.path !== node.path),
+			);
+			patchFsDirectory(getParentDirPath(toPath), (entries) => [
+				...entries,
+				{
+					...buildFsEntry(toPath, node.type),
+					size: node.size,
+					mimeType: node.mimeType,
+					mtimeMs: Date.now(),
+				},
+			]);
+		}
+		if (isDirectoryRename) {
+			clearCachedSpaceFsSubtree(spaceId, node.path);
+		}
 		if (openFile?.path === node.path) {
 			closeFile();
 		}
@@ -2306,7 +2467,12 @@ async function handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
-		await loadFileTree(true);
+		patchFsDirectory(getParentDirPath(node.path), (entries) =>
+			entries.filter((entry) => entry.path !== node.path),
+		);
+		if (node.type === "dir") {
+			clearCachedSpaceFsSubtree(spaceId, node.path);
+		}
 		if (openFile?.path === node.path) closeFile();
 		if (inlineFile?.path === node.path) closeInlineFile();
 	} catch (error) {

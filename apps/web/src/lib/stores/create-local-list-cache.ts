@@ -163,6 +163,37 @@ export function createLocalListCache<T>({
 		}
 	}
 
+	function clearMatchingScopes(matcher: (scope: string) => boolean) {
+		const currentUserKey = getUserKey();
+		for (const key of memoryCache.keys()) {
+			const prefix = `${currentUserKey}:`;
+			if (!key.startsWith(prefix)) continue;
+			const scope = key.slice(prefix.length);
+			if (matcher(scope)) {
+				memoryCache.delete(key);
+			}
+		}
+		if (!isBrowser()) return;
+		try {
+			const storagePrefixWithUser = `${storagePrefix}:${currentUserKey}:`;
+			for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+				const key = localStorage.key(i);
+				if (!key?.startsWith(storagePrefixWithUser)) continue;
+				const versionSuffix = `:v${cacheVersion}`;
+				if (!key.endsWith(versionSuffix)) continue;
+				const scope = key.slice(
+					storagePrefixWithUser.length,
+					key.length - versionSuffix.length,
+				);
+				if (matcher(scope)) {
+					localStorage.removeItem(key);
+				}
+			}
+		} catch {
+			// ignore
+		}
+	}
+
 	function clearAllForCurrentUser() {
 		const prefix = `${storagePrefix}:${getUserKey()}:`;
 		for (const key of memoryCache.keys()) {
@@ -225,6 +256,7 @@ export function createLocalListCache<T>({
 		setCached,
 		patchCached,
 		clearCached,
+		clearMatchingScopes,
 		clearAllForCurrentUser,
 		onUpdated,
 		fetchWithCache,
