@@ -327,7 +327,7 @@ function handleCopy() {
     </div>
   {/if}
 {:else}
-  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : 'max-w-full sm:max-w-[52rem]'}`}>
+  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
     {#if message.role === 'user' && message.authorName}
       <div class="flex items-center gap-2 mb-1 justify-end">
         <span class="text-[12px] text-text-tertiary font-medium">{message.authorName}</span>
