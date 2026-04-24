@@ -1,36 +1,8 @@
 import type { SessionRecord } from "@neta-art/cohub";
-import { authStore } from "$lib/stores/auth.svelte";
+import { createLocalListCache } from "$lib/stores/create-local-list-cache";
 
-const STORAGE_PREFIX = "cohub:session-list";
-const CACHE_VERSION = 1;
-const SESSION_LIST_UPDATED_EVENT = "cohub:session-list-updated";
-
-type SessionListCacheEntry = {
-	version: number;
-	spaceId: string;
-	userKey: string;
-	updatedAt: number;
-	data: SessionRecord[];
-};
-
-const memoryCache = new Map<string, SessionListCacheEntry>();
-const inflightByScope = new Map<string, Promise<SessionRecord[]>>();
-
-function isBrowser() {
-	return typeof window !== "undefined" && typeof localStorage !== "undefined";
-}
-
-function getUserKey() {
-	return authStore.userUuid ?? authStore.claims?.sub ?? "guest";
-}
-
-function getScopeKey(spaceId: string) {
-	return `${getUserKey()}:${spaceId}`;
-}
-
-function getStorageKey(spaceId: string) {
-	return `${STORAGE_PREFIX}:${getUserKey()}:${spaceId}:v${CACHE_VERSION}`;
-}
+const SESSION_LIST_SCOPE_SEPARATOR = "::";
+const SESSION_LIST_SCOPE_ALL = "all";
 
 function sortSessions(sessions: SessionRecord[]) {
 	return [...sessions].sort((a, b) => {
@@ -48,126 +20,56 @@ function dedupeSessions(sessions: SessionRecord[]) {
 	return sortSessions(Array.from(byId.values()));
 }
 
-function toEntry(
-	spaceId: string,
-	sessions: SessionRecord[],
-): SessionListCacheEntry {
-	return {
-		version: CACHE_VERSION,
-		spaceId,
-		userKey: getUserKey(),
-		updatedAt: Date.now(),
-		data: dedupeSessions(sessions),
-	};
-}
+const cache = createLocalListCache<SessionRecord>({
+	storagePrefix: "cohub:session-list",
+	cacheVersion: 2,
+	updatedEventName: "cohub:session-list-updated",
+	ttlMs: 30_000,
+	normalize: dedupeSessions,
+});
 
-function emitSessionListUpdated(spaceId: string, sessions: SessionRecord[]) {
-	if (!isBrowser()) return;
-	window.dispatchEvent(
-		new CustomEvent(SESSION_LIST_UPDATED_EVENT, {
-			detail: {
-				spaceId,
-				sessions,
-			},
-		}),
-	);
+function getScope(spaceId: string) {
+	return `${spaceId}${SESSION_LIST_SCOPE_SEPARATOR}${SESSION_LIST_SCOPE_ALL}`;
 }
 
 export function getCachedSessionList(spaceId: string): SessionRecord[] | null {
-	const scopeKey = getScopeKey(spaceId);
-	const memory = memoryCache.get(scopeKey);
-	if (memory) {
-		return memory.data;
-	}
-	if (!isBrowser()) return null;
+	return cache.getCached(getScope(spaceId));
+}
 
-	try {
-		const raw = localStorage.getItem(getStorageKey(spaceId));
-		if (!raw) return null;
-		const parsed = JSON.parse(raw) as SessionListCacheEntry;
-		if (
-			parsed.version !== CACHE_VERSION ||
-			parsed.spaceId !== spaceId ||
-			!Array.isArray(parsed.data)
-		) {
-			localStorage.removeItem(getStorageKey(spaceId));
-			return null;
-		}
-		const normalized = toEntry(spaceId, parsed.data);
-		memoryCache.set(scopeKey, normalized);
-		return normalized.data;
-	} catch {
-		try {
-			localStorage.removeItem(getStorageKey(spaceId));
-		} catch {
-			// ignore
-		}
-		return null;
-	}
+export function getCachedSessionListMeta(spaceId: string) {
+	return cache.getCachedMeta(getScope(spaceId));
 }
 
 export function setCachedSessionList(
 	spaceId: string,
 	sessions: SessionRecord[],
 ): SessionRecord[] {
-	const entry = toEntry(spaceId, sessions);
-	memoryCache.set(getScopeKey(spaceId), entry);
-	if (isBrowser()) {
-		try {
-			localStorage.setItem(getStorageKey(spaceId), JSON.stringify(entry));
-		} catch {
-			// ignore
-		}
-	}
-	emitSessionListUpdated(spaceId, entry.data);
-	return entry.data;
+	return cache.setCached(getScope(spaceId), sessions);
 }
 
 export function patchCachedSessionList(
 	spaceId: string,
 	updater: (sessions: SessionRecord[]) => SessionRecord[],
 ): SessionRecord[] {
-	const current = getCachedSessionList(spaceId) ?? [];
-	return setCachedSessionList(spaceId, updater(current));
+	return cache.patchCached(getScope(spaceId), updater);
 }
 
 export function clearCachedSessionList(spaceId: string) {
-	memoryCache.delete(getScopeKey(spaceId));
-	if (!isBrowser()) return;
-	try {
-		localStorage.removeItem(getStorageKey(spaceId));
-	} catch {
-		// ignore
-	}
+	cache.clearCached(getScope(spaceId));
+}
+
+export function clearAllCachedSessionLists() {
+	cache.clearAllForCurrentUser();
 }
 
 export function onSessionListCacheUpdated(
 	handler: (event: { spaceId: string; sessions: SessionRecord[] }) => void,
 ) {
-	if (!isBrowser()) return () => {};
-
-	const listener = (event: Event) => {
-		const custom = event as CustomEvent<{
-			spaceId?: string;
-			sessions?: SessionRecord[];
-		}>;
-		if (!custom.detail?.spaceId || !Array.isArray(custom.detail.sessions))
-			return;
-		handler({
-			spaceId: custom.detail.spaceId,
-			sessions: custom.detail.sessions,
-		});
-	};
-
-	window.addEventListener(
-		SESSION_LIST_UPDATED_EVENT,
-		listener as EventListener,
-	);
-	return () =>
-		window.removeEventListener(
-			SESSION_LIST_UPDATED_EVENT,
-			listener as EventListener,
-		);
+	return cache.onUpdated(({ scope, data }) => {
+		const [spaceId] = scope.split(SESSION_LIST_SCOPE_SEPARATOR);
+		if (!spaceId) return;
+		handler({ spaceId, sessions: data });
+	});
 }
 
 export async function fetchSessionListWithCache(
@@ -175,21 +77,5 @@ export async function fetchSessionListWithCache(
 	fetcher: () => Promise<SessionRecord[]>,
 	options?: { force?: boolean },
 ): Promise<SessionRecord[]> {
-	const scopeKey = getScopeKey(spaceId);
-	if (!options?.force) {
-		const inflight = inflightByScope.get(scopeKey);
-		if (inflight) return inflight;
-	}
-
-	const request = (async () => {
-		const sessions = await fetcher();
-		return setCachedSessionList(spaceId, sessions);
-	})().finally(() => {
-		if (inflightByScope.get(scopeKey) === request) {
-			inflightByScope.delete(scopeKey);
-		}
-	});
-
-	inflightByScope.set(scopeKey, request);
-	return request;
+	return cache.fetchWithCache(getScope(spaceId), fetcher, options);
 }

@@ -41,12 +41,21 @@ import {
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
+	clearAllCachedSessionLists,
 	fetchSessionListWithCache,
 	getCachedSessionList,
+	getCachedSessionListMeta,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { isStreaming, unreadTracker } from "$lib/stores/session-state.svelte";
+import {
+	clearAllCachedSpaceLists,
+	fetchSpaceListWithCache,
+	getCachedSpaceList,
+	getCachedSpaceListMeta,
+	onSpaceListCacheUpdated,
+} from "$lib/stores/space-list-cache";
 
 const {
 	isMobile = false,
@@ -184,7 +193,7 @@ function statusColorClass(status: string): string {
 	}
 }
 
-async function loadSpaces(_force = false) {
+async function loadSpaces(force = false) {
 	if (!(await logtoClient.isAuthenticated())) {
 		isLoading = false;
 		// For unauthenticated users, try to fetch the space from the URL directly
@@ -203,13 +212,31 @@ async function loadSpaces(_force = false) {
 	}
 
 	loadError = "";
-	const shouldShowInitialLoading = spaces.length === 0;
-	if (shouldShowInitialLoading) {
+
+	if (!force) {
+		const cached = getCachedSpaceList();
+		if (cached && cached.length > 0) {
+			spaces = cached;
+		}
+	}
+
+	const hasVisibleSpaces = spaces.length > 0;
+	if (!hasVisibleSpaces) {
 		isLoading = true;
 	}
 
+	const cacheMeta = getCachedSpaceListMeta();
+	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
+	if (!shouldFetch) {
+		isLoading = false;
+		return;
+	}
+
 	try {
-		spaces = await sdk.spaces.list();
+		spaces = await fetchSpaceListWithCache(
+			async () => await sdk.spaces.list(),
+			{ force },
+		);
 	} catch (error) {
 		if (error instanceof HttpError && error.status === 401) {
 			await logtoClient.signIn(`${window.location.origin}/callback`);
@@ -236,6 +263,14 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 	if (shouldShowLoading) {
 		loadingSessions = true;
 	}
+
+	const cacheMeta = getCachedSessionListMeta(spaceId);
+	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
+	if (!shouldFetch) {
+		loadingSessions = false;
+		return;
+	}
+
 	try {
 		sessions = await fetchSessionListWithCache(
 			spaceId,
@@ -415,12 +450,25 @@ function getCheckpointTitle(checkpoint: CheckpointRecord): string {
 
 async function handleLogout() {
 	onClose?.();
-	await logtoClient.signOut(`${window.location.origin}/`);
+	clearAllCachedSpaceLists();
+	clearAllCachedSessionLists();
+	try {
+		await logtoClient.signOut(`${window.location.origin}/`);
+	} catch (error) {
+		console.error("[sidebar] Failed to sign out", error);
+	}
 }
 
 onMount(() => {
+	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
 	if (mode === "space") {
+		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
+			({ spaces: nextSpaces }) => {
+				if (!authStore.isAuthenticated) return;
+				spaces = nextSpaces;
+			},
+		);
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
 			({ spaceId, sessions: nextSessions }) => {
 				if (spaceId !== currentSpaceId) return;
@@ -428,7 +476,7 @@ onMount(() => {
 			},
 		);
 		void (async () => {
-			await loadSpaces(true);
+			await loadSpaces();
 
 			window.addEventListener(
 				"cohub:streaming-status",
@@ -468,6 +516,7 @@ onMount(() => {
 	document.addEventListener("click", handleClickOutside);
 
 	return () => {
+		offSpaceListCacheUpdated();
 		offSessionListCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
@@ -494,12 +543,16 @@ $effect(() => {
 	const id = currentSpaceId;
 	if (id) {
 		untrack(async () => {
+			const requestedSpaceId = id;
 			const authenticated = await logtoClient.isAuthenticated();
+			if (requestedSpaceId !== currentSpaceId) return;
 			if (!authenticated && !currentSpace) {
 				try {
-					const space = await sdk.space(id).get();
+					const space = await sdk.space(requestedSpaceId).get();
+					if (requestedSpaceId !== currentSpaceId) return;
 					spaces = [space];
 				} catch {
+					if (requestedSpaceId !== currentSpaceId) return;
 					spaces = [];
 				}
 			}
@@ -512,7 +565,7 @@ $effect(() => {
 	const id = currentSpaceId;
 	if (id) {
 		untrack(() => {
-			void loadSessionsForSpace(id, true);
+			void loadSessionsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
 			void loadTasksForSpace(id, true);
@@ -556,7 +609,12 @@ $effect(() => {
         type="button"
         data-space-switcher
         class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
-        onclick={() => { showSpaceModal = !showSpaceModal; void loadSpaces(true); }}
+        onclick={() => {
+          showSpaceModal = !showSpaceModal;
+          if (showSpaceModal) {
+            void loadSpaces();
+          }
+        }}
       >
         {#if currentSpace}
           <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
