@@ -131,7 +131,7 @@ const hasData = $derived(
 			</div>
 		{:else}
 			<!-- Table header — subdued, uppercase, tracking -->
-			<div class="grid grid-cols-[32px_1fr_96px_80px_88px] gap-x-4 gap-y-0 px-0 pb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle">
+			<div class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 pb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle">
 				<span></span>
 				<span></span>
 				<span class="text-right">Tokens</span>
@@ -143,13 +143,13 @@ const hasData = $derived(
 			<div class="mt-0">
 				{#each currentRows as row, i (row.rank)}
 					<div
-						class="grid grid-cols-[32px_1fr_96px_80px_88px] gap-x-4 gap-y-0 px-0 transition-all duration-300 ease-out"
+						class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 transition-all duration-300 ease-out"
 						class:row-top={row.rank <= 3}
 						class:row-data={row.rank > 3}
 						style="--row-index: {i}; animation: rowFadeIn 0.35s ease-out both; animation-delay: {i * 35}ms;"
 					>
 						<!-- Rank — #1 gets brand badge, #2-3 get brand number, rest muted -->
-						<div class="flex items-center justify-center py-3">
+						<div class="flex items-center justify-center py-2 sm:py-3">
 							{#if row.rank === 1}
 								<span class="flex items-center justify-center w-6 h-6 rounded-[4px] bg-brand text-[11px] font-bold text-white">1</span>
 							{:else if row.rank === 2}
@@ -162,7 +162,7 @@ const hasData = $derived(
 						</div>
 
 						<!-- Name + subline -->
-						<div class="min-w-0 py-3">
+						<div class="min-w-0 py-2 sm:py-3">
 							<div class="text-[13px] font-medium text-text-primary truncate">
 								{getDisplayName(activeTab, row)}
 							</div>
@@ -174,21 +174,21 @@ const hasData = $derived(
 						</div>
 
 						<!-- Tokens — primary metric, monospace -->
-						<div class="flex items-center justify-end py-3">
+						<div class="flex items-center justify-end py-2 sm:py-3">
 							<span class="text-[13px] text-text-primary font-mono tabular-nums">
 								{formatNumber(row.totalTokens)}
 							</span>
 						</div>
 
 						<!-- Sessions -->
-						<div class="flex items-center justify-end py-3">
+						<div class="flex items-center justify-end py-2 sm:py-3">
 							<span class="text-[13px] text-text-secondary tabular-nums">
 								{row.sessionCount}
 							</span>
 						</div>
 
 						<!-- Requests -->
-						<div class="flex items-center justify-end py-3">
+						<div class="flex items-center justify-end py-2 sm:py-3">
 							<span class="text-[13px] text-text-secondary tabular-nums">
 								{formatNumber(row.requestCount)}
 							</span>

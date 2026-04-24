@@ -329,8 +329,9 @@ body.drawer-open {
 
 /* Help long markdown content wrap cleanly instead of forcing horizontal panning. */
 .prose table {
-	table-layout: fixed;
+	table-layout: auto;
 	width: 100%;
+	min-width: 0;
 }
 
 .prose th,
@@ -338,6 +339,20 @@ body.drawer-open {
 .prose a {
 	word-break: break-word;
 	overflow-wrap: anywhere;
+}
+
+/* Allow tables to scroll on mobile instead of squishing columns */
+@media (max-width: 640px) {
+	.prose table {
+		display: block;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+	.prose table > thead,
+	.prose table > tbody {
+		display: table;
+		width: 100%;
+	}
 }
 
 /* ============================================================
@@ -427,11 +442,4 @@ body.drawer-open {
 	border-radius: 0;
 }
 
-/* Table wrap instead of horizontal scroll on mobile */
-@media (max-width: 640px) {
-	.prose table {
-		display: table;
-		overflow-x: visible;
-		white-space: normal;
-	}
-}
+
