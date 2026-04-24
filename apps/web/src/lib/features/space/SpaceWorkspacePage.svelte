@@ -373,6 +373,7 @@ $effect(() => {
 let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
+let wsConnected = $state(true);
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
@@ -1767,6 +1768,14 @@ async function reconcileSessionTail(sessionId: string) {
 	}
 }
 
+async function reconnectSync() {
+	if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
+		await reconcileSessionTail(activeSessionId);
+	}
+	await refreshSessionsList(true);
+	wsConnected = true;
+}
+
 async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
 		const currentActiveSessionId = activeSessionId;
@@ -2710,6 +2719,15 @@ onMount(() => {
 	const wsEventCleanup = sdk.space(spaceId).subscribe((event) => {
 		void handleWsEvent(event as ChannelEnvelope);
 	});
+	const wsConnectionCleanup = sdk.onConnection((state) => {
+		if (state.state === "open") {
+			void reconnectSync();
+			return;
+		}
+		if (state.state === "closed" || state.state === "error") {
+			wsConnected = false;
+		}
+	});
 
 	const handleVisibility = () => {
 		pageVisible = !document.hidden;
@@ -2721,6 +2739,9 @@ onMount(() => {
 	const handleOnline = () => {
 		pageOnline = true;
 		scheduleStatusRefresh();
+		if (wsConnected) {
+			void refreshSessionsList(true);
+		}
 	};
 	const handleOffline = () => {
 		pageOnline = false;
@@ -2760,6 +2781,7 @@ onMount(() => {
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		pageMounted = false;
 		wsEventCleanup();
+		wsConnectionCleanup();
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);

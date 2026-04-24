@@ -339,6 +339,12 @@ export class SpaceSessionsApi {
   }
 }
 
+export type WebSocketConnectionState = {
+  state: "open" | "closed" | "error";
+  willReconnect: boolean;
+  connectionId?: string | null;
+};
+
 export class SpaceEventsApi {
   constructor(
     private readonly websocketClient: WebsocketClient | null,

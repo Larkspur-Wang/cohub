@@ -2,7 +2,7 @@ import { ChannelsApi } from "./apis/channels.js";
 import { CronJobsApi } from "./apis/cron-jobs.js";
 import { ModelsApi } from "./apis/models.js";
 import { SessionAccessApi } from "./apis/session-access.js";
-import { SpaceClient, SpacesApi } from "./apis/spaces.js";
+import { SpaceClient, SpacesApi, type WebSocketConnectionState } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
@@ -42,6 +42,32 @@ export class CohubClient {
 
   space(spaceId: string) {
     return new SpaceClient(spaceId, this.transport, this.websocketClient);
+  }
+
+  onConnection(
+    handler: (state: WebSocketConnectionState) => void,
+  ): () => void {
+    const openCleanup = this.websocketClient.on("open", (payload) => {
+      handler({
+        state: "open",
+        willReconnect: false,
+        connectionId: payload.connectionId,
+      });
+    });
+    const closeCleanup = this.websocketClient.on("close", (payload) => {
+      handler({
+        state: "closed",
+        willReconnect: payload.willReconnect,
+      });
+    });
+    const errorCleanup = this.websocketClient.on("error", () => {
+      handler({ state: "error", willReconnect: true });
+    });
+    return () => {
+      openCleanup();
+      closeCleanup();
+      errorCleanup();
+    };
   }
 }
 
