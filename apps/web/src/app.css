@@ -327,11 +327,10 @@ body.drawer-open {
 	}
 }
 
-/* Help long markdown content wrap cleanly instead of forcing horizontal panning. */
+/* Tables: auto layout so columns size to content. On desktop, constrain to container; on mobile, allow horizontal scroll. */
 .prose table {
 	table-layout: auto;
 	width: 100%;
-	min-width: 0;
 }
 
 .prose th,
@@ -341,17 +340,26 @@ body.drawer-open {
 	overflow-wrap: anywhere;
 }
 
-/* Allow tables to scroll on mobile instead of squishing columns */
+/* Mobile: horizontal scroll instead of squishing columns */
 @media (max-width: 640px) {
 	.prose table {
 		display: block;
 		overflow-x: auto;
 		-webkit-overflow-scrolling: touch;
+		min-width: fit-content;
 	}
 	.prose table > thead,
 	.prose table > tbody {
 		display: table;
-		width: 100%;
+		width: max-content;
+		min-width: 100%;
+	}
+	/* Balance readability: allow wrap but cap column width */
+	.prose table th,
+	.prose table td {
+		white-space: normal;
+		min-width: 2.5em;
+		max-width: 200px;
 	}
 }
 
