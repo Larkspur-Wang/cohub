@@ -18,9 +18,9 @@ ENV PLATFORM_AGENTS_DIR=/configs/platform/.agents
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
-    curl git wget jq ca-certificates openssh-client \
+    curl git wget ca-certificates openssh-client \
     iputils-ping iproute2 dnsutils \
-    ripgrep fd-find file unzip zip \
+    file unzip zip \
     python3 python3-pip python3-venv python3-dev \
     ffmpeg imagemagick libimage-exiftool-perl \
     vim tree tmux htop xz-utils less \
@@ -31,8 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-RUN ln -sf /usr/bin/python3 /usr/bin/python && \
-    ln -sf /usr/bin/fdfind /usr/local/bin/fd
+# Install latest core CLI tools from GitHub releases (apt versions are too old)
+RUN curl -fsSL https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-unknown-linux-gnu.tar.gz | tar xz --wildcards -C /usr/local/bin --strip-components=1 '*/fd' \
+ && curl -fsSL https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz | tar xz --wildcards -C /usr/local/bin --strip-components=1 '*/rg' \
+ && curl -fsSL https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64 -o /usr/local/bin/jq \
+ && chmod +x /usr/local/bin/fd /usr/local/bin/rg /usr/local/bin/jq
+
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
