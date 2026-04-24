@@ -374,6 +374,10 @@ let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
 let wsConnected = $state(true);
+let wsStatus = $state<"connected" | "reconnecting" | "reconnected">(
+	"connected",
+);
+let wsRecoveredNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
@@ -1771,9 +1775,20 @@ async function reconcileSessionTail(sessionId: string) {
 async function reconnectSync() {
 	if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
 		await reconcileSessionTail(activeSessionId);
+		const latestMessageId =
+			sessionStateById[activeSessionId]?.session?.lastMessageId;
+		if (latestMessageId && shouldAutoFollow) {
+			unreadTracker.markViewed(activeSessionId, latestMessageId);
+		}
 	}
 	await refreshSessionsList(true);
 	wsConnected = true;
+	if (wsRecoveredNoticeTimer) clearTimeout(wsRecoveredNoticeTimer);
+	wsStatus = "reconnected";
+	wsRecoveredNoticeTimer = setTimeout(() => {
+		wsStatus = "connected";
+		wsRecoveredNoticeTimer = null;
+	}, 1800);
 }
 
 async function handleWsEvent(payload: ChannelEnvelope) {
@@ -1878,6 +1893,9 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				messages: merged,
 			},
 		};
+		if (shouldAutoFollow) {
+			unreadTracker.markViewed(currentActiveSessionId, message.id ?? null);
+		}
 
 		const updatedSession = state.session;
 		if (updatedSession) {
@@ -2726,6 +2744,11 @@ onMount(() => {
 		}
 		if (state.state === "closed" || state.state === "error") {
 			wsConnected = false;
+			if (wsRecoveredNoticeTimer) {
+				clearTimeout(wsRecoveredNoticeTimer);
+				wsRecoveredNoticeTimer = null;
+			}
+			wsStatus = "reconnecting";
 		}
 	});
 
@@ -2779,6 +2802,7 @@ onMount(() => {
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+		if (wsRecoveredNoticeTimer) clearTimeout(wsRecoveredNoticeTimer);
 		pageMounted = false;
 		wsEventCleanup();
 		wsConnectionCleanup();
@@ -2978,7 +3002,19 @@ $effect(() => {
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">{getSessionTitle(activeSessionState.session)}</span>
+        {#if wsStatus === 'reconnecting'}
+          <span class="inline-flex items-center gap-1.5 rounded-[5px] border border-warning/20 bg-warning/8 px-2 py-0.5 text-[12px] font-medium text-warning shrink-0">
+            <span class="h-1.5 w-1.5 rounded-full bg-warning animate-pulse"></span>
+            Reconnecting…
+          </span>
+        {:else if wsStatus === 'reconnected'}
+          <span class="inline-flex items-center gap-1.5 rounded-[5px] border border-success-soft/20 bg-success-soft/8 px-2 py-0.5 text-[12px] font-medium text-success-soft shrink-0">
+            <span class="h-1.5 w-1.5 rounded-full bg-success-soft"></span>
+            Reconnected
+          </span>
+        {:else}
+          <span class="text-[13px] text-text-secondary truncate">{getSessionTitle(activeSessionState.session)}</span>
+        {/if}
       {:else if routeView === "checkpoint" && checkpointDetail}
         <button
           type="button"
