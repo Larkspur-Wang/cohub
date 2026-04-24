@@ -340,13 +340,17 @@ body.drawer-open {
 	overflow-wrap: anywhere;
 }
 
-/* Mobile: horizontal scroll instead of squishing columns */
+/* Mobile: horizontal scroll inside table, not page. Table scroll takes priority over drawer gesture. */
 @media (max-width: 640px) {
 	.prose table {
 		display: block;
 		overflow-x: auto;
+		overflow-y: visible;
 		-webkit-overflow-scrolling: touch;
-		min-width: fit-content;
+		overscroll-behavior-x: contain;
+		touch-action: pan-x pan-y;
+		width: 100%;
+		min-width: 0;
 	}
 	.prose table > thead,
 	.prose table > tbody {
