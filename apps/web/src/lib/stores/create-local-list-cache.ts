@@ -231,7 +231,7 @@ export function createLocalListCache<T>({
 	async function fetchWithCache(
 		scope: string,
 		fetcher: () => Promise<T[]>,
-		options?: { force?: boolean },
+		_options?: { force?: boolean },
 	): Promise<T[]> {
 		const scopedKey = getScopedKey(scope);
 		const inflight = inflightByScope.get(scopedKey);

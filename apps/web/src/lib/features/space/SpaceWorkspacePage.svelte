@@ -2672,6 +2672,34 @@ onMount(() => {
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
+			// Avoid re-caching data that's already in cache (prevents infinite loop:
+			// applySessionsSnapshot → setCachedSessionList → emitUpdated → this handler → applySessionsSnapshot)
+			const existing = getCachedSessionList(spaceId);
+			if (
+				existing &&
+				sessions.length === existing.length &&
+				sessions.every((s, i) => s.id === existing[i].id)
+			) {
+				spaceSessions = sessions;
+				for (const session of sessions) {
+					if (!sessionStateById[session.id]) {
+						sessionStateById = {
+							...sessionStateById,
+							[session.id]: {
+								session,
+								messages: [],
+								loading: false,
+								loaded: false,
+								error: "",
+								hasMore: true,
+								loadingOlder: false,
+								oldestCursor: undefined,
+							},
+						};
+					}
+				}
+				return;
+			}
 			applySessionsSnapshot(sessions);
 		},
 	);

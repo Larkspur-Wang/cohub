@@ -229,7 +229,7 @@ const modelMatch = $derived.by(() => {
 	if (!message.meta?.provider || !message.meta?.model) return null;
 	return modelsCatalog?.find(
 		(m) =>
-			m.provider === message.meta!.provider && m.id === message.meta!.model,
+			m.provider === message.meta?.provider && m.id === message.meta?.model,
 	);
 });
 
