@@ -388,6 +388,7 @@ let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
+let hasNewMessagesBelow = $state(false);
 let autoScrollGuard = $state(false);
 let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
@@ -398,11 +399,16 @@ let chatTimelineRef = $state<{
 } | null>(null);
 let streamingSessionId: string | null = null;
 let preloadingSessionIds = new Set<string>();
-let visitedSessions = $state.raw(new Set<string>());
-let scrollPosBySession = $state.raw(new Map<string, number>());
+type SessionScrollAnchor = {
+	sequence: number;
+	offset: number;
+	updatedAt: number;
+};
+const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor";
+let scrollAnchorBySession = $state.raw(new Map<string, SessionScrollAnchor>());
 let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
-let scrollTargetSessionId = $state<string | null>(null);
-let resetScrollTargetTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingRestoreSessionId = $state<string | null>(null);
+let persistScrollAnchorsTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── Settings & Share ───
 let showSettings = $state(false);
@@ -968,11 +974,108 @@ function updateUrlSession(sessionId: string | null) {
 	});
 }
 
-function scheduleResetScrollTarget() {
-	if (resetScrollTargetTimer) clearTimeout(resetScrollTargetTimer);
-	resetScrollTargetTimer = setTimeout(() => {
-		scrollTargetSessionId = null;
-	}, 0);
+function loadSessionScrollAnchors() {
+	try {
+		const raw = localStorage.getItem(SESSION_SCROLL_ANCHOR_STORAGE_KEY);
+		if (!raw) return;
+		const parsed = JSON.parse(raw) as Record<string, SessionScrollAnchor>;
+		scrollAnchorBySession = new Map(
+			Object.entries(parsed).filter(([, anchor]) =>
+				Boolean(
+					anchor &&
+						typeof anchor.sequence === "number" &&
+						typeof anchor.offset === "number",
+				),
+			),
+		);
+	} catch {
+		// ignore
+	}
+}
+
+function persistSessionScrollAnchorsNow() {
+	try {
+		const data = Object.fromEntries(scrollAnchorBySession.entries());
+		localStorage.setItem(
+			SESSION_SCROLL_ANCHOR_STORAGE_KEY,
+			JSON.stringify(data),
+		);
+	} catch {
+		// ignore
+	}
+}
+
+function schedulePersistSessionScrollAnchors() {
+	if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
+	persistScrollAnchorsTimer = setTimeout(() => {
+		persistScrollAnchorsTimer = null;
+		persistSessionScrollAnchorsNow();
+	}, 120);
+}
+
+function setSessionScrollAnchor(
+	sessionId: string,
+	anchor: SessionScrollAnchor,
+) {
+	scrollAnchorBySession.set(sessionId, anchor);
+	schedulePersistSessionScrollAnchors();
+}
+
+function clearSessionScrollAnchor(sessionId: string) {
+	if (!scrollAnchorBySession.delete(sessionId)) return;
+	schedulePersistSessionScrollAnchors();
+}
+
+function getMessageElementAbsoluteTop(node: HTMLElement) {
+	if (!listEl) return 0;
+	const containerRect = listEl.getBoundingClientRect();
+	const nodeRect = node.getBoundingClientRect();
+	return listEl.scrollTop + (nodeRect.top - containerRect.top);
+}
+
+function captureCurrentScrollAnchor(sessionId: string) {
+	if (!listEl) return;
+	const nodes = Array.from(
+		listEl.querySelectorAll<HTMLElement>("[data-sequence]"),
+	);
+	if (nodes.length === 0) return;
+	const containerRect = listEl.getBoundingClientRect();
+	const firstVisible =
+		nodes.find(
+			(node) => node.getBoundingClientRect().bottom > containerRect.top + 8,
+		) ?? nodes[0];
+	if (!firstVisible) return;
+	const sequence = Number(firstVisible.dataset.sequence);
+	if (!Number.isFinite(sequence)) return;
+	const absoluteTop = getMessageElementAbsoluteTop(firstVisible);
+	setSessionScrollAnchor(sessionId, {
+		sequence,
+		offset: listEl.scrollTop - absoluteTop,
+		updatedAt: Date.now(),
+	});
+}
+
+function writeBottomScrollAnchor(sessionId: string) {
+	if (!listEl) return;
+	const nodes = Array.from(
+		listEl.querySelectorAll<HTMLElement>("[data-sequence]"),
+	);
+	const lastNode = nodes.at(-1);
+	if (!lastNode) {
+		clearSessionScrollAnchor(sessionId);
+		return;
+	}
+	const sequence = Number(lastNode.dataset.sequence);
+	if (!Number.isFinite(sequence)) {
+		clearSessionScrollAnchor(sessionId);
+		return;
+	}
+	const absoluteTop = getMessageElementAbsoluteTop(lastNode);
+	setSessionScrollAnchor(sessionId, {
+		sequence,
+		offset: listEl.scrollTop - absoluteTop,
+		updatedAt: Date.now(),
+	});
 }
 
 function notifyStreamingStatus(sessionId: string, isStreaming: boolean) {
@@ -1429,9 +1532,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			},
 		};
 		void syncSessionNewer(sessionId, cached);
-		suppressScrollSaveSessionIds.add(sessionId);
-		scrollTargetSessionId = sessionId;
-		scheduleResetScrollTarget();
 		return;
 	}
 
@@ -1481,9 +1581,6 @@ async function loadSessionState(sessionId: string, force = false) {
 						: undefined,
 			},
 		};
-		suppressScrollSaveSessionIds.add(sessionId);
-		scrollTargetSessionId = sessionId;
-		scheduleResetScrollTarget();
 	} catch (error) {
 		sessionStateById = {
 			...sessionStateById,
@@ -1848,6 +1945,9 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				notifyStreamingStatus(currentActiveSessionId, true);
 			}
 			streamStatus = "streaming";
+			if (userScrolledUp) {
+				hasNewMessagesBelow = true;
+			}
 			await tick();
 			if (!userScrolledUp) scrollToBottomNow();
 			return;
@@ -1864,6 +1964,9 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		if (payload.type === "session.turn.final") {
 			clearStreamingState(currentActiveSessionId);
 			streamStatus = "done";
+			if (userScrolledUp) {
+				hasNewMessagesBelow = true;
+			}
 			streamingDraftTruncatedStartBySessionId = {
 				...streamingDraftTruncatedStartBySessionId,
 				[currentActiveSessionId]: false,
@@ -1897,6 +2000,9 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		const merged = mergeMessagesById(state.messages, [message], {
 			preferIncoming: true,
 		});
+		if (userScrolledUp) {
+			hasNewMessagesBelow = true;
+		}
 		sessionStateById = {
 			...sessionStateById,
 			[currentActiveSessionId]: {
@@ -2044,6 +2150,9 @@ function scrollToBottomNow() {
 	if (!listEl) return;
 	autoScrollGuard = true;
 	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
+	if (activeSessionId) {
+		writeBottomScrollAnchor(activeSessionId);
+	}
 	requestAnimationFrame(() => {
 		autoScrollGuard = false;
 	});
@@ -2068,7 +2177,10 @@ function updateAutoFollow() {
 		userScrolledUp = true;
 	}
 	shouldAutoFollow = distanceFromBottom <= threshold;
-	if (shouldAutoFollow) userScrolledUp = false;
+	if (shouldAutoFollow) {
+		userScrolledUp = false;
+		hasNewMessagesBelow = false;
+	}
 	showScrollToBottom =
 		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
@@ -2716,6 +2828,7 @@ onMount(() => {
 	pageMounted = true;
 	pageVisible = !document.hidden;
 	pageOnline = navigator.onLine;
+	loadSessionScrollAnchors();
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
@@ -2807,6 +2920,8 @@ onMount(() => {
 			const initialSessionId = routeView === "session" ? routeSessionId : null;
 			if (initialSessionId) {
 				activeSessionId = initialSessionId;
+				pendingRestoreSessionId = initialSessionId;
+				suppressScrollSaveSessionIds.add(initialSessionId);
 				ensureSessionModelLoaded(initialSessionId);
 				void loadSessionState(initialSessionId).finally(() => {
 					bootstrapping = false;
@@ -2826,6 +2941,8 @@ onMount(() => {
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		if (wsRecoveredNoticeTimer) clearTimeout(wsRecoveredNoticeTimer);
+		if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
+		persistSessionScrollAnchorsNow();
 		pageMounted = false;
 		wsEventCleanup();
 		wsConnectionCleanup();
@@ -2846,14 +2963,13 @@ $effect(() => {
 	) {
 		clearStreamingState(activeSessionId);
 		activeSessionId = routeSessionId;
+		pendingRestoreSessionId = routeSessionId;
+		suppressScrollSaveSessionIds.add(routeSessionId);
 		ensureSessionModelLoaded(routeSessionId);
 		shouldAutoFollow = true;
 		const state = sessionStateById[routeSessionId];
 		if (state?.session?.lastMessageId)
 			unreadTracker.markViewed(routeSessionId, state.session.lastMessageId);
-		suppressScrollSaveSessionIds.add(routeSessionId);
-		scrollTargetSessionId = routeSessionId;
-		scheduleResetScrollTarget();
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {
@@ -2868,7 +2984,7 @@ $effect(() => {
 	const container = el as HTMLDivElement;
 	function handleScrollTrack() {
 		if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
-			scrollPosBySession.set(activeSessionId, container.scrollTop);
+			captureCurrentScrollAnchor(activeSessionId);
 		}
 		updateAutoFollow();
 	}
@@ -2878,41 +2994,69 @@ $effect(() => {
 
 $effect(() => {
 	if (!listEl) return;
-	const targetId = scrollTargetSessionId;
-	if (!targetId) return;
+	const targetId = pendingRestoreSessionId;
+	if (!targetId || targetId !== activeSessionId) return;
 	const state = sessionStateById[targetId];
 	if (!state?.loaded) return;
 
-	const isFirstVisit = !visitedSessions.has(targetId);
-	if (isFirstVisit) {
-		visitedSessions.add(targetId);
-	}
+	const anchor = scrollAnchorBySession.get(targetId);
+	const hasCachedAnchor =
+		anchor &&
+		state.messages.some((message) => message.sequence === anchor.sequence);
 
-	const savedPos = scrollPosBySession.get(targetId);
-	const shouldScrollToBottom = isFirstVisit || savedPos == null;
-	const doScroll = (retries = shouldScrollToBottom ? 6 : 2) => {
+	const finishRestore = () => {
+		suppressScrollSaveSessionIds.delete(targetId);
+		pendingRestoreSessionId = null;
+		updateAutoFollow();
+	};
+
+	const restoreToBottom = () => {
 		requestAnimationFrame(() => {
 			if (!listEl) {
-				suppressScrollSaveSessionIds.delete(targetId);
+				finishRestore();
 				return;
 			}
-			if (shouldScrollToBottom) {
-				scrollToBottomNow();
-				shouldAutoFollow = true;
-				userScrolledUp = false;
-			} else {
-				listEl.scrollTop = savedPos;
-			}
-			if (retries > 0) {
-				doScroll(retries - 1);
-				return;
-			}
-			suppressScrollSaveSessionIds.delete(targetId);
-			scrollPosBySession.set(targetId, listEl.scrollTop);
-			updateAutoFollow();
+			scrollToBottomNow();
+			shouldAutoFollow = true;
+			userScrolledUp = false;
+			writeBottomScrollAnchor(targetId);
+			finishRestore();
 		});
 	};
-	void tick().then(() => doScroll());
+
+	if (!anchor || !hasCachedAnchor) {
+		clearSessionScrollAnchor(targetId);
+		void tick().then(restoreToBottom);
+		return;
+	}
+
+	const restoreByAnchor = (retries = 2) => {
+		requestAnimationFrame(() => {
+			if (!listEl) {
+				finishRestore();
+				return;
+			}
+			const node = listEl.querySelector<HTMLElement>(
+				`[data-sequence="${anchor.sequence}"]`,
+			);
+			if (!node) {
+				if (retries > 0) {
+					restoreByAnchor(retries - 1);
+					return;
+				}
+				clearSessionScrollAnchor(targetId);
+				restoreToBottom();
+				return;
+			}
+			listEl.scrollTop = getMessageElementAbsoluteTop(node) + anchor.offset;
+			shouldAutoFollow = false;
+			userScrolledUp = true;
+			captureCurrentScrollAnchor(targetId);
+			finishRestore();
+		});
+	};
+
+	void tick().then(() => restoreByAnchor());
 });
 
 $effect(() => {
@@ -4018,14 +4162,23 @@ $effect(() => {
         {#if showScrollToBottom && timeline.length > 0}
           <button
             type="button"
-            class="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-elevated/92 px-3 py-1.5 text-[12px] text-text-secondary shadow-lg backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-bg-hover-strong hover:text-text-primary"
+            aria-label="Scroll to bottom"
+            class="absolute left-1/2 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-20 -translate-x-1/2 inline-flex min-h-11 items-center gap-2 rounded-full border border-border-subtle/90 bg-bg-elevated/98 px-3.5 py-2 text-[12px] font-medium text-text-primary shadow-[0_12px_28px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,transform,background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-brand/30 hover:bg-bg-content hover:shadow-[0_16px_34px_rgba(15,23,42,0.26)]"
+            style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);"
             onclick={() => {
               shouldAutoFollow = true;
+              userScrolledUp = false;
+              hasNewMessagesBelow = false;
               void forceScrollToBottom();
             }}
           >
-            <ArrowDown class="w-3.5 h-3.5" />
-            <span>Scroll to bottom</span>
+            <span class={`flex h-6 w-6 items-center justify-center rounded-full border ${hasNewMessagesBelow ? 'border-brand/28 bg-brand text-white shadow-sm' : 'border-brand/18 bg-brand/12 text-brand'}`}>
+              <ArrowDown class="w-3.5 h-3.5" />
+            </span>
+            <span class="whitespace-nowrap">Scroll to bottom</span>
+            {#if hasNewMessagesBelow}
+              <span class="rounded-full bg-brand/12 px-2 py-0.5 text-[11px] font-medium text-brand">New messages</span>
+            {/if}
           </button>
         {/if}
 
@@ -4694,6 +4847,23 @@ $effect(() => {
   :global(body.sidebar-resizing) {
     cursor: col-resize;
     user-select: none;
+  }
+
+  @keyframes cohub-scroll-to-bottom-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(button[aria-label="Scroll to bottom"]) {
+      animation: none !important;
+    }
   }
 
   .right-sidebar-resize-handle {

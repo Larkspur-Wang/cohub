@@ -118,6 +118,7 @@ $effect(() => {
 			<div
 				data-idx={originalIdx}
 				data-kind={item.kind}
+				data-sequence={item.kind === 'message' ? item.message.sequence : undefined}
 				use:observeItem={originalIdx}
 			>
 				{#if item.kind === 'message'}
