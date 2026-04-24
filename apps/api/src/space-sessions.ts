@@ -98,7 +98,15 @@ const toUtcHourBucket = (date: Date) => new Date(Date.UTC(
   0,
 ));
 
-const resolveActorUserId = async (input: { sessionId: string; anchorUserMessageId?: string | null }) => {
+const resolveActorUserId = async (input: {
+  sessionId: string;
+  anchorUserMessageId?: string | null;
+  userId?: string | null;
+}) => {
+  // Primary: direct userId from caller (agent passes it explicitly)
+  if (input.userId) return input.userId;
+
+  // Fallback: resolve from anchor user message's meta
   const anchorUserMessageId = input.anchorUserMessageId?.trim();
   if (!anchorUserMessageId) return null;
   const [anchorMessage] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(
@@ -297,6 +305,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   if (messageRole === "assistant" && content.length === 0 && !text?.trim()) throw new Error("Refusing to persist empty assistant message");
 
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
+  const userId = input.userId ?? null;
   const toolUseCount = countToolCallsInContent(content);
   const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
   const messageKind = messageRole !== "assistant" ? messageRole : hasError ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
@@ -324,10 +333,14 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   if (!messageNode) throw new Error("Failed to persist message");
 
   if (messageRole === "assistant") {
-    const userId = await resolveActorUserId({ sessionId: input.sessionId, anchorUserMessageId });
+    const actorUserId = await resolveActorUserId({
+      sessionId: input.sessionId,
+      anchorUserMessageId,
+      userId,
+    });
     await updateTokenUsageStatsHourly({
       bucketStartAt: toUtcHourBucket(messageNode.createdAt ?? new Date()),
-      userId,
+      userId: actorUserId,
       spaceId: session.spaceId,
       sessionId: input.sessionId,
       provider: input.message.provider ?? null,

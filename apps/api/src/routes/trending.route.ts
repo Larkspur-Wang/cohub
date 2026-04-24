@@ -23,7 +23,6 @@ router.get("/spaces", async (c) => {
   const rows = await db
     .select({
       spaceId: schema.tokenUsageStatsHourly.spaceId,
-      userId: schema.tokenUsageStatsHourly.userId,
       totalTokens: sql<number>`SUM(${schema.tokenUsageStatsHourly.totalTokens})`.as("total_tokens"),
       sessionCount: sql<number>`COUNT(DISTINCT ${schema.tokenUsageStatsHourly.sessionId})`.as("session_count"),
       requestCount: sql<number>`SUM(${schema.tokenUsageStatsHourly.requestCount})`.as("request_count"),
@@ -35,7 +34,7 @@ router.get("/spaces", async (c) => {
         lt(schema.tokenUsageStatsHourly.bucketStartAt, todayStart),
       ),
     )
-    .groupBy(schema.tokenUsageStatsHourly.spaceId, schema.tokenUsageStatsHourly.userId)
+    .groupBy(schema.tokenUsageStatsHourly.spaceId)
     .orderBy(sql`total_tokens DESC`)
     .limit(10);
 
@@ -45,26 +44,31 @@ router.get("/spaces", async (c) => {
 
   const spaceIds = rows.map((r) => r.spaceId as string);
 
-  const spaceNames = await db
+  const spaces = await db
     .select({
       id: schema.spaces.id,
       name: schema.spaces.name,
+      userUuid: schema.spaces.userUuid,
     })
     .from(schema.spaces)
     .where(sql`${schema.spaces.id} IN (${sql.join(spaceIds, sql`, `)})`);
 
-  const nameMap = new Map(spaceNames.map((s) => [s.id, s.name]));
+  const nameMap = new Map(spaces.map((s) => [s.id, s.name]));
+  const userMap = new Map(spaces.map((s) => [s.id, s.userUuid]));
 
-  const result = rows.map((r, i) => ({
-    rank: i + 1,
-    spaceId: r.spaceId,
-    spaceName: nameMap.get(r.spaceId) ?? r.spaceId.slice(0, 8),
-    userId: r.userId ?? "",
-    userDisplay: maskUserId(r.userId),
-    totalTokens: r.totalTokens ?? 0,
-    sessionCount: Number(r.sessionCount),
-    requestCount: r.requestCount ?? 0,
-  }));
+  const result = rows.map((r, i) => {
+    const uid = userMap.get(r.spaceId as string) ?? "";
+    return {
+      rank: i + 1,
+      spaceId: r.spaceId,
+      spaceName: nameMap.get(r.spaceId) ?? r.spaceId.slice(0, 8),
+      userId: uid,
+      userDisplay: maskUserId(uid),
+      totalTokens: r.totalTokens ?? 0,
+      sessionCount: Number(r.sessionCount),
+      requestCount: r.requestCount ?? 0,
+    };
+  });
 
   return c.json(result);
 });
@@ -141,7 +145,7 @@ router.get("/models", async (c) => {
   return c.json(result);
 });
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+
 
 function maskUserId(userId: string | null | undefined): string {
   if (!userId) return "unknown";

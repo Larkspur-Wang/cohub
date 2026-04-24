@@ -30,6 +30,7 @@ export type PersistMessageInput = {
   sessionId: string;
   previousMessageId?: string | null;
   anchorUserMessageId?: string | null;
+  userId?: string | null;
   idempotencyKey: string;
   message: {
     role?: "user" | "assistant" | "system";

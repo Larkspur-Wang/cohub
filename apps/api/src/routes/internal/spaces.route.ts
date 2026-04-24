@@ -239,6 +239,7 @@ router.post("/:spaceId/sessions/:sessionId/messages", async (c) => {
     .req.json<{
       previousMessageId?: string | null;
       anchorUserMessageId?: string | null;
+      userId?: string | null;
       idempotencyKey?: string;
       message?: PersistMessageInput["message"] & { id?: string | null };
     }>()
@@ -251,6 +252,7 @@ router.post("/:spaceId/sessions/:sessionId/messages", async (c) => {
     sessionId,
     previousMessageId: body.previousMessageId ?? null,
     anchorUserMessageId: body.anchorUserMessageId ?? null,
+    userId: body.userId ?? null,
     idempotencyKey: body.idempotencyKey,
     message: {
       ...(body.message as PersistMessageInput["message"]),

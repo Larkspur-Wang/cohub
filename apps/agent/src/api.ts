@@ -464,6 +464,7 @@ export async function persistAssistantMessage(input: {
   spaceSessionId: string;
   userMessageId: string;
   event: Record<string, unknown>;
+  userId?: string | null;
 }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults)
@@ -494,6 +495,7 @@ export async function persistAssistantMessage(input: {
     sessionId: input.spaceSessionId,
     previousMessageId: input.userMessageId,
     anchorUserMessageId: input.userMessageId,
+    userId: input.userId ?? null,
     idempotencyKey: "",
     message: {
       role: "assistant",

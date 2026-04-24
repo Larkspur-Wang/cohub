@@ -423,6 +423,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           spaceSessionId: handle.sessionId,
           userMessageId: currentUserMessageId,
           event: enrichedEvent as Record<string, unknown>,
+          userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.actorUserId as string | null | undefined) ?? null,
         });
       });
 
