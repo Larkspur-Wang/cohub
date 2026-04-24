@@ -45,6 +45,10 @@ ENV PATH="/root/.bun/bin:${PATH}"
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 RUN npm install -g typescript tsx @typescript/native-preview
 
+# Install Go toolchain
+ENV PATH="/usr/local/go/bin:${PATH}"
+RUN curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar xz -C /usr/local
+
 WORKDIR /app
 
 COPY --from=builder /out/cohub-sandbox /usr/local/bin/cohub-sandbox

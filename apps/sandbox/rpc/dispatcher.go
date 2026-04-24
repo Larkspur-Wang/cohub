@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -464,6 +465,46 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 		if exec.ErrNotFound != nil && strings.Contains(err.Error(), exec.ErrNotFound.Error()) {
 			return d.failed(request, "", "INTERNAL_ERROR", "rg is not installed in sandbox")
 		}
+
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			outputText := strings.TrimSpace(string(output))
+			if outputText == "" {
+				return map[string]interface{}{
+					"path":      resolved.path,
+					"lines":     []string{},
+					"truncated": false,
+				}
+			}
+			if params.JSON {
+				lines := make([]string, 0)
+				for _, line := range strings.Split(outputText, "\n") {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" {
+						continue
+					}
+					lines = append(lines, trimmed)
+				}
+				onlySummary := true
+				for _, line := range lines {
+					var payload struct {
+						Type string `json:"type"`
+					}
+					if json.Unmarshal([]byte(line), &payload) != nil || payload.Type != "summary" {
+						onlySummary = false
+						break
+					}
+				}
+				if onlySummary && len(lines) > 0 {
+					return map[string]interface{}{
+						"path":      resolved.path,
+						"lines":     []string{},
+						"truncated": false,
+					}
+				}
+			}
+		}
+
 		stderr := strings.TrimSpace(string(output))
 		if stderr == "" {
 			stderr = err.Error()
