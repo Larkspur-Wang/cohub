@@ -416,6 +416,8 @@ body.drawer-open {
 	border-radius: 0.75rem;
 	border: 1px solid var(--border-subtle);
 	overflow-x: auto;
+	/* Allow horizontal scroll inside code blocks on mobile without triggering drawer swipe */
+	touch-action: pan-x pan-y;
 }
 
 /* Shiki inject inline styles on <code>; reset padding/border here */
