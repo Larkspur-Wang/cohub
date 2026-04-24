@@ -318,37 +318,49 @@ export function buildTimelineItems(input: {
 			input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
 		);
-		const alreadyRendered = groupedHistory.some(
-			(item) =>
-				(item.kind === "message" && item.message.id === renderKey) ||
-				(item.kind === "process" &&
-					item.messages.some((m) => m.id === renderKey)),
-		);
-
-		if (!alreadyRendered) {
-			const previewBlocks = buildStreamingPreviewBlocks(streamingBlocks, {
-				truncatedStart: input.streaming?.truncatedStart,
-			});
-			if (previewBlocks.length > 0) {
-				const previewText =
-					previewBlocks.find((block) => block.type === "text")?.text?.trim() ??
-					"";
-				groupedHistory.push({
-					id: renderKey,
-					kind: "message",
-					message: {
-						id: renderKey,
-						role: "assistant",
-						content: previewBlocks,
-						text: previewText,
-						sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
-						createdAt: new Date().toISOString(),
-						meta: {
-							messageKind: "assistant_streaming_preview",
-						},
-					},
-				});
+		for (let index = groupedHistory.length - 1; index >= 0; index -= 1) {
+			const item = groupedHistory[index];
+			if (item.kind === "message" && item.message.id === renderKey) {
+				groupedHistory.splice(index, 1);
+				continue;
 			}
+			if (item.kind === "process") {
+				const filteredMessages = item.messages.filter(
+					(message) => message.id !== renderKey,
+				);
+				if (filteredMessages.length === 0) {
+					groupedHistory.splice(index, 1);
+				} else if (filteredMessages.length !== item.messages.length) {
+					groupedHistory[index] = {
+						...item,
+						messages: filteredMessages,
+					};
+				}
+			}
+		}
+
+		const previewBlocks = buildStreamingPreviewBlocks(streamingBlocks, {
+			truncatedStart: input.streaming?.truncatedStart,
+		});
+		if (previewBlocks.length > 0) {
+			const previewText =
+				previewBlocks.find((block) => block.type === "text")?.text?.trim() ??
+				"";
+			groupedHistory.push({
+				id: renderKey,
+				kind: "message",
+				message: {
+					id: renderKey,
+					role: "assistant",
+					content: previewBlocks,
+					text: previewText,
+					sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
+					createdAt: new Date().toISOString(),
+					meta: {
+						messageKind: "assistant_streaming_preview",
+					},
+				},
+			});
 		}
 	}
 

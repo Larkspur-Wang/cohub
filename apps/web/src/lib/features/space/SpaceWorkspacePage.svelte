@@ -1805,6 +1805,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				? (payload.payload.content as ContentBlock[])
 				: [];
 			if (content.length === 0) return;
+			const hadPreviousStreamingPreview = streamingContentBlocks.length > 0;
 			const streamingAnchorUserMessageId =
 				typeof payload.payload.anchorUserMessageId === "string"
 					? payload.payload.anchorUserMessageId
@@ -1820,6 +1821,16 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				streamingDraftAnchorUserMessageIdBySessionId = {
 					...streamingDraftAnchorUserMessageIdBySessionId,
 					[currentActiveSessionId]: streamingAnchorUserMessageId,
+				};
+			}
+			if (
+				hadPreviousStreamingPreview &&
+				streamStatus !== "streaming" &&
+				streamingSessionId === currentActiveSessionId
+			) {
+				streamingDraftTruncatedStartBySessionId = {
+					...streamingDraftTruncatedStartBySessionId,
+					[currentActiveSessionId]: false,
 				};
 			}
 			if (
@@ -1880,7 +1891,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 
 		if (message.role === "assistant") {
-			clearStreamingState(currentActiveSessionId);
+			streamStatus = "done";
 		}
 
 		const merged = mergeMessagesById(state.messages, [message], {
