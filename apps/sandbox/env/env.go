@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -20,14 +21,16 @@ const (
 )
 
 type Config struct {
-	SpaceID            string
-	WorkspaceDir       string
-	PlatformAgentsDir  string
-	ImageVersion       string
-	InternalAPIBaseURL string
-	SandboxReportToken string
-	PublicURLPrefix    string
-	PodIP              string
+	SpaceID                        string
+	WorkspaceDir                   string
+	PlatformAgentsDir              string
+	ImageVersion                   string
+	InternalAPIBaseURL             string
+	SandboxReportToken             string
+	PublicURLPrefix                string
+	PodIP                          string
+	ZombieSelfHealThreshold        int
+	ZombieSelfHealConsecutiveTicks int
 }
 
 func Load() (Config, error) {
@@ -54,15 +57,32 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		SpaceID:            spaceID,
-		WorkspaceDir:       workspaceDir,
-		PlatformAgentsDir:  platformAgentsDir,
-		ImageVersion:       imageVersion,
-		InternalAPIBaseURL: strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
-		SandboxReportToken: strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
-		PublicURLPrefix:    strings.TrimSpace(os.Getenv("PUBLIC_URL_PREFIX")),
-		PodIP:              strings.TrimSpace(os.Getenv("POD_IP")),
+		SpaceID:                        spaceID,
+		WorkspaceDir:                   workspaceDir,
+		PlatformAgentsDir:              platformAgentsDir,
+		ImageVersion:                   imageVersion,
+		InternalAPIBaseURL:             strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
+		SandboxReportToken:             strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
+		PublicURLPrefix:                strings.TrimSpace(os.Getenv("PUBLIC_URL_PREFIX")),
+		PodIP:                          strings.TrimSpace(os.Getenv("POD_IP")),
+		ZombieSelfHealThreshold:        parseIntEnv("ZOMBIE_SELF_HEAL_THRESHOLD", 0),
+		ZombieSelfHealConsecutiveTicks: parseIntEnv("ZOMBIE_SELF_HEAL_CONSECUTIVE_TICKS", 3),
 	}, nil
+}
+
+func parseIntEnv(name string, defaultValue int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return defaultValue
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultValue
+	}
+	if value < 0 {
+		return 0
+	}
+	return value
 }
 
 func (c Config) FilesystemRoots() []FilesystemRoot {

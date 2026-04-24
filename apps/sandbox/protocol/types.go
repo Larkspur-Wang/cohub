@@ -52,10 +52,28 @@ type SandboxCapabilities struct {
 	ProcessAbort bool `json:"processAbort"`
 }
 
+type SandboxProcessStats struct {
+	ActiveProcesses        int   `json:"activeProcesses,omitempty"`
+	StartedTotal           int64 `json:"startedTotal,omitempty"`
+	CompletedTotal         int64 `json:"completedTotal,omitempty"`
+	AbortedTotal           int64 `json:"abortedTotal,omitempty"`
+	TimedOutTotal          int64 `json:"timedOutTotal,omitempty"`
+	IdentityCleanupTotal   int64 `json:"identityCleanupTotal,omitempty"`
+	ForceKilledTotal       int64 `json:"forceKilledTotal,omitempty"`
+	TerminateFailuresTotal int64 `json:"terminateFailuresTotal,omitempty"`
+}
+
+type SandboxHealthStats struct {
+	ZombieProcessCount int `json:"zombieProcessCount,omitempty"`
+	AttachedSessions   int `json:"attachedSessions,omitempty"`
+}
+
 type SandboxMetadata struct {
-	Hostname     string `json:"hostname,omitempty"`
-	ImageVersion string `json:"imageVersion,omitempty"`
-	StartedAt    string `json:"startedAt,omitempty"`
+	Hostname     string               `json:"hostname,omitempty"`
+	ImageVersion string               `json:"imageVersion,omitempty"`
+	StartedAt    string               `json:"startedAt,omitempty"`
+	Process      *SandboxProcessStats `json:"process,omitempty"`
+	Health       *SandboxHealthStats  `json:"health,omitempty"`
 }
 
 type SandboxHeartbeat struct {

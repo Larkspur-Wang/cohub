@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -30,11 +33,18 @@ type Server struct {
 	prepareState   prepareState
 	hostname       string
 	logger         *slog.Logger
+	startedAt      time.Time
 
 	mu                      sync.RWMutex
 	sessionsByID            map[string]*connectionSession
 	sessionIDsByIdentity    map[string]map[string]struct{}
 	cleanupTimersByIdentity map[string]*time.Timer
+
+	healthMu                 sync.Mutex
+	cachedZombieProcessCount int
+	cachedZombieObservedAt   time.Time
+	lastSelfHealObservedAt   time.Time
+	zombieSelfHealTicks      int
 }
 
 type connectionSession struct {
@@ -66,6 +76,7 @@ func NewServer(
 		prepareState:            prepareState,
 		hostname:                hostname,
 		logger:                  logger,
+		startedAt:               time.Now(),
 		sessionsByID:            make(map[string]*connectionSession),
 		sessionIDsByIdentity:    make(map[string]map[string]struct{}),
 		cleanupTimersByIdentity: make(map[string]*time.Timer),
@@ -313,6 +324,9 @@ func (s *Server) sendToConnection(session *connectionSession, v interface{}) err
 
 func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool) error {
 	prepareStatus, _ := s.prepareState.Get()
+	attachedSessions := s.attachedSessionCount()
+	processStats := s.processManager.Stats()
+	observedZombieCount, observedAt := s.getZombieProcessCount()
 	message := protocol.SandboxHeartbeat{
 		BaseMessage: protocol.BaseMessage{
 			Version:   protocol.Version,
@@ -322,9 +336,27 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 			Timestamp: time.Now().UnixMilli(),
 		},
 		Status: prepareStatus,
+		Metadata: &protocol.SandboxMetadata{
+			Hostname:     s.hostname,
+			ImageVersion: s.cfg.ImageVersion,
+			StartedAt:    s.startedAt.UTC().Format(time.RFC3339),
+			Process: &protocol.SandboxProcessStats{
+				ActiveProcesses:        processStats.ActiveProcesses,
+				StartedTotal:           processStats.StartedTotal,
+				CompletedTotal:         processStats.CompletedTotal,
+				AbortedTotal:           processStats.AbortedTotal,
+				TimedOutTotal:          processStats.TimedOutTotal,
+				IdentityCleanupTotal:   processStats.IdentityCleanupTotal,
+				ForceKilledTotal:       processStats.ForceKilledTotal,
+				TerminateFailuresTotal: processStats.TerminateFailuresTotal,
+			},
+			Health: &protocol.SandboxHealthStats{
+				ZombieProcessCount: observedZombieCount,
+				AttachedSessions:   attachedSessions,
+			},
+		},
 	}
 	if includeSnapshot {
-		hostname, _ := os.Hostname()
 		message.Capabilities = protocol.SandboxCapabilities{
 			FSRead:       true,
 			FSWrite:      true,
@@ -348,12 +380,8 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 				{Path: "/tmp", Writable: true, Label: "tmp"},
 			},
 		}
-		message.Metadata = &protocol.SandboxMetadata{
-			Hostname:     hostname,
-			ImageVersion: s.cfg.ImageVersion,
-			StartedAt:    time.Now().Format(time.RFC3339),
-		}
 	}
+	s.maybeSelfHealOnZombies(observedZombieCount, observedAt, attachedSessions, processStats.ActiveProcesses)
 	return s.sendToConnection(session, message)
 }
 
@@ -371,6 +399,95 @@ func (s *Server) heartbeatLoop(session *connectionSession) {
 				return
 			}
 		}
+	}
+}
+
+func (s *Server) attachedSessionCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, ids := range s.sessionIDsByIdentity {
+		count += len(ids)
+	}
+	return count
+}
+
+const zombieScanInterval = 15 * time.Second
+
+func (s *Server) getZombieProcessCount() (count int, observedAt time.Time) {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	now := time.Now()
+	if !s.cachedZombieObservedAt.IsZero() && now.Sub(s.cachedZombieObservedAt) < zombieScanInterval {
+		return s.cachedZombieProcessCount, s.cachedZombieObservedAt
+	}
+	count = scanZombieProcessCount()
+	observedAt = now
+	s.cachedZombieProcessCount = count
+	s.cachedZombieObservedAt = observedAt
+	return count, observedAt
+}
+
+func scanZombieProcessCount() int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+		statusPath := "/proc/" + entry.Name() + "/status"
+		data, err := os.ReadFile(statusPath)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "State:") && strings.Contains(line, "Z") {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+func (s *Server) maybeSelfHealOnZombies(zombieCount int, observedAt time.Time, attachedSessions int, activeProcesses int) {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	threshold := s.cfg.ZombieSelfHealThreshold
+	if threshold <= 0 {
+		s.zombieSelfHealTicks = 0
+		s.lastSelfHealObservedAt = time.Time{}
+		return
+	}
+	if zombieCount < threshold || attachedSessions > 0 || activeProcesses > 0 {
+		s.zombieSelfHealTicks = 0
+		s.lastSelfHealObservedAt = time.Time{}
+		return
+	}
+	if !observedAt.After(s.lastSelfHealObservedAt) {
+		return
+	}
+	s.lastSelfHealObservedAt = observedAt
+	s.zombieSelfHealTicks++
+	if s.zombieSelfHealTicks < s.cfg.ZombieSelfHealConsecutiveTicks {
+		return
+	}
+	s.logger.Warn("sandbox self-heal triggered due to zombie accumulation",
+		slog.Int("zombieCount", zombieCount),
+		slog.Int("threshold", threshold),
+		slog.Int("attachedSessions", attachedSessions),
+		slog.Int("activeProcesses", activeProcesses),
+		slog.Int("consecutiveTicks", s.zombieSelfHealTicks),
+	)
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		s.logger.Error("failed to signal sandbox for self-heal shutdown", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 }
 

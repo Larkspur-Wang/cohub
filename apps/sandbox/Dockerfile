@@ -17,6 +17,7 @@ ENV WORKSPACE_DIR=/workspace
 ENV PLATFORM_AGENTS_DIR=/configs/platform/.agents
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
     curl git wget jq ca-certificates openssh-client \
     iputils-ping iproute2 dnsutils \
     ripgrep fd-find file unzip zip \
@@ -47,4 +48,5 @@ RUN mkdir -p "$WORKSPACE_DIR"
 
 USER node
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["cohub-sandbox"]

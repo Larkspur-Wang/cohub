@@ -3,11 +3,14 @@ package process
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,12 +21,36 @@ type ManagedProcess struct {
 	OwnerIdentity string
 	Cmd           *exec.Cmd
 	Cancel        context.CancelFunc
+
+	mu            sync.Mutex
+	terminating   bool
+	stopReason    string
+	stopRequested bool
+}
+
+type Stats struct {
+	ActiveProcesses        int   `json:"activeProcesses"`
+	StartedTotal           int64 `json:"startedTotal"`
+	CompletedTotal         int64 `json:"completedTotal"`
+	AbortedTotal           int64 `json:"abortedTotal"`
+	TimedOutTotal          int64 `json:"timedOutTotal"`
+	IdentityCleanupTotal   int64 `json:"identityCleanupTotal"`
+	ForceKilledTotal       int64 `json:"forceKilledTotal"`
+	TerminateFailuresTotal int64 `json:"terminateFailuresTotal"`
 }
 
 type Manager struct {
 	mu        sync.Mutex
 	processes map[string]*ManagedProcess
 	logger    *slog.Logger
+
+	startedTotal           atomic.Int64
+	completedTotal         atomic.Int64
+	abortedTotal           atomic.Int64
+	timedOutTotal          atomic.Int64
+	identityCleanupTotal   atomic.Int64
+	forceKilledTotal       atomic.Int64
+	terminateFailuresTotal atomic.Int64
 }
 
 func NewManager(logger *slog.Logger) *Manager {
@@ -42,8 +69,9 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 		ctx, cancel = context.WithCancel(ctx)
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
+	cmd := exec.Command("bash", "-lc", command)
 	cmd.Dir = cwd
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -61,6 +89,7 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 		return "", nil, nil, nil, fmt.Errorf("start command: %w", err)
 	}
 
+	m.startedTotal.Add(1)
 	processID := uuid.NewString()
 	managed := &ManagedProcess{ID: processID, OwnerIdentity: ownerIdentity, Cmd: cmd, Cancel: cancel}
 
@@ -68,22 +97,52 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 	m.processes[processID] = managed
 	m.mu.Unlock()
 
+	go func() {
+		<-ctx.Done()
+		reason, requested := managed.stopState()
+		if !requested {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				reason = "timeout"
+				requested = managed.requestStop(reason)
+			} else {
+				return
+			}
+		}
+		if !requested {
+			return
+		}
+		if err := m.terminateProcessGroup(managed, reason); err != nil {
+			m.terminateFailuresTotal.Add(1)
+			m.logger.Warn("process:terminate failed",
+				slog.String("processId", processID),
+				slog.String("ownerIdentity", ownerIdentity),
+				slog.String("reason", reason),
+				slog.String("error", err.Error()),
+			)
+		}
+	}()
+
 	exitCh := make(chan *int, 1)
 	go func() {
 		defer close(exitCh)
 		err := cmd.Wait()
 		var exitCode *int
-		if err == nil && cmd.ProcessState != nil {
+		if cmd.ProcessState != nil {
 			code := cmd.ProcessState.ExitCode()
 			exitCode = &code
-		} else if cmd.ProcessState != nil {
-			code := cmd.ProcessState.ExitCode()
-			exitCode = &code
+		}
+		if err != nil && exitCode == nil {
+			m.logger.Warn("process:wait failed",
+				slog.String("processId", processID),
+				slog.String("ownerIdentity", ownerIdentity),
+				slog.String("error", err.Error()),
+			)
 		}
 
 		m.mu.Lock()
 		delete(m.processes, processID)
 		m.mu.Unlock()
+		m.completedTotal.Add(1)
 		cancel()
 		exitCh <- exitCode
 	}()
@@ -98,13 +157,10 @@ func (m *Manager) Abort(processID string) error {
 	if !ok {
 		return fmt.Errorf("process not found")
 	}
-
-	managed.Cancel()
-	if managed.Cmd.Process != nil {
-		if err := managed.Cmd.Process.Kill(); err != nil {
-			return fmt.Errorf("kill process: %w", err)
-		}
+	if !managed.requestStop("abort") {
+		return nil
 	}
+	managed.Cancel()
 	return nil
 }
 
@@ -119,11 +175,82 @@ func (m *Manager) AbortByIdentity(identity string) {
 	m.mu.Unlock()
 
 	for _, managed := range processes {
+		if !managed.requestStop("identity_disconnect") {
+			continue
+		}
 		managed.Cancel()
-		if managed.Cmd.Process != nil {
-			_ = managed.Cmd.Process.Kill()
+	}
+}
+
+func (m *Manager) Stats() Stats {
+	m.mu.Lock()
+	active := len(m.processes)
+	m.mu.Unlock()
+	return Stats{
+		ActiveProcesses:        active,
+		StartedTotal:           m.startedTotal.Load(),
+		CompletedTotal:         m.completedTotal.Load(),
+		AbortedTotal:           m.abortedTotal.Load(),
+		TimedOutTotal:          m.timedOutTotal.Load(),
+		IdentityCleanupTotal:   m.identityCleanupTotal.Load(),
+		ForceKilledTotal:       m.forceKilledTotal.Load(),
+		TerminateFailuresTotal: m.terminateFailuresTotal.Load(),
+	}
+}
+
+func (m *Manager) terminateProcessGroup(managed *ManagedProcess, reason string) error {
+	managed.mu.Lock()
+	if managed.terminating {
+		managed.mu.Unlock()
+		return nil
+	}
+	managed.terminating = true
+	managed.mu.Unlock()
+
+	switch reason {
+	case "timeout":
+		m.timedOutTotal.Add(1)
+	case "identity_disconnect":
+		m.identityCleanupTotal.Add(1)
+	default:
+		m.abortedTotal.Add(1)
+	}
+
+	proc := managed.Cmd.Process
+	if proc == nil {
+		return nil
+	}
+
+	pgid, err := syscall.Getpgid(proc.Pid)
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return fmt.Errorf("getpgid: %w", err)
+	}
+
+	m.logger.Info("process:terminate",
+		slog.String("processId", managed.ID),
+		slog.String("ownerIdentity", managed.OwnerIdentity),
+		slog.Int("pid", proc.Pid),
+		slog.Int("pgid", pgid),
+		slog.String("reason", reason),
+	)
+
+	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("sigterm process group %d: %w", pgid, err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	if err := syscall.Kill(-pgid, 0); err == nil {
+		m.forceKilledTotal.Add(1)
+		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("sigkill process group %d: %w", pgid, err)
 		}
 	}
+
+	return nil
 }
 
 func StreamLines(reader io.Reader, onLine func(string)) error {
@@ -132,4 +259,21 @@ func StreamLines(reader io.Reader, onLine func(string)) error {
 		onLine(scanner.Text())
 	}
 	return scanner.Err()
+}
+
+func (p *ManagedProcess) requestStop(reason string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stopRequested {
+		return false
+	}
+	p.stopRequested = true
+	p.stopReason = reason
+	return true
+}
+
+func (p *ManagedProcess) stopState() (reason string, requested bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stopReason, p.stopRequested
 }
