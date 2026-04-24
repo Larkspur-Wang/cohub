@@ -19,7 +19,7 @@ import {
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "../../channels.js";
 import { enqueueTask } from "../../tasks.js";
-import { hasPermission } from "../../permissions.js";
+import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
 
@@ -497,19 +497,18 @@ router.get("/:id/sessions", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
-  const space = await getSpaceById(spaceId);
-  if (!space) return c.json({ message: "space not found" }, 404);
+  const sessions = await listSpaceSessions(spaceId);
 
-  const sessions = await listSpaceSessions(space.id);
-  const visibleSessions = (
-    await Promise.all(
-      sessions.map(async (session) =>
-        (await hasPermission(user, "session.view", { spaceId, sessionId: session.id })) ? session : null,
-      ),
-    )
-  ).filter((session): session is NonNullable<typeof session> => Boolean(session));
+  // Member users have space-level permission that covers all sessions.
+  // Only non-members need per-session accessPolicy checks.
+  const isMember = user?.uuid
+    ? (await getSpaceMemberRole(spaceId, user.uuid)) !== null
+    : false;
+  const visibleSessions = isMember
+    ? sessions
+    : await filterSessionsByPermission(user, "session.view", spaceId, sessions);
 
-  return c.json({ space, sessions: visibleSessions });
+  return c.json({ sessions: visibleSessions });
 });
 
 // ── Channels ─────────────────────────────────────────────────────────────────

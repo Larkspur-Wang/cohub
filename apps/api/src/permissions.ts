@@ -82,7 +82,7 @@ const roleHasPermission = (role: SpaceRole, permission: Permission) => {
   return ROLE_PERMISSIONS[role].has(permission);
 };
 
-async function getSpaceMemberRole(spaceId: string, userId: string): Promise<SpaceRole | null> {
+export async function getSpaceMemberRole(spaceId: string, userId: string): Promise<SpaceRole | null> {
   const [member] = await db
     .select({ role: spaceMembers.role })
     .from(spaceMembers)
@@ -147,4 +147,47 @@ export async function getSessionSpaceId(sessionId: string): Promise<string | nul
     .where(eq(spaceSessions.id, sessionId))
     .limit(1);
   return session?.spaceId ?? null;
+}
+
+type SpaceSessionRow = typeof spaceSessions.$inferSelect;
+type AccessPolicyRow = { signedInUserRole: SpaceRole | null; anonymousUserRole: SpaceRole | null } | null;
+
+/**
+ * Batch-filter sessions by permission for non-member users only.
+ * Throws if called for a space member — members should use space-level
+ * permission checks directly instead of this function.
+ *
+ * Callers may pass a pre-fetched spacePolicy to avoid a redundant DB query.
+ */
+export async function filterSessionsByPermission(
+  user: AuthUserProfile | null,
+  permission: Permission,
+  spaceId: string,
+  sessions: SpaceSessionRow[],
+  spacePolicy?: AccessPolicyRow,
+): Promise<SpaceSessionRow[]> {
+  if (sessions.length === 0) return [];
+
+  if (user?.uuid && (await getSpaceMemberRole(spaceId, user.uuid)) !== null) {
+    throw new Error(
+      "filterSessionsByPermission must not be called for space members. " +
+      "Use space-level permission checks instead.",
+    );
+  }
+
+  const audience = resolveAudience(user);
+  const resolvedSpacePolicy = spacePolicy ?? await getAccessPolicy("space", spaceId);
+
+  const sessionPolicies = await Promise.all(
+    sessions.map((s) => getAccessPolicy("session", s.id)),
+  );
+
+  return sessions.filter((_, i) => {
+    const effective = sessionPolicies[i] ?? resolvedSpacePolicy;
+    if (!effective) return false;
+    const role = audience === "signed_in_user"
+      ? (effective.signedInUserRole ?? null)
+      : (effective.anonymousUserRole ?? null);
+    return role !== null && roleHasPermission(role, permission);
+  });
 }

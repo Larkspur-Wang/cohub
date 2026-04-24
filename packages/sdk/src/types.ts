@@ -142,7 +142,6 @@ export type SpaceChannelBindingInput = {
 };
 
 export type SpaceSessionsResponse = {
-  space: SpaceRecord;
   sessions: SessionRecord[];
 };
 
