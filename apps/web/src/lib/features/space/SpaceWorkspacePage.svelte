@@ -64,7 +64,6 @@ import { sdk } from "$lib/sdk";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
-	extractSessionRenderState,
 } from "$lib/session-render";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -176,8 +175,6 @@ let renameSaving = $state(false);
 let renameError = $state("");
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
-let streamingAssistantText = $state("");
-let streamingThinking = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
 let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>(
 	{},
@@ -1745,9 +1742,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId],
 				);
 			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
-			const { thinking, answer } = extractSessionRenderState(mergedContent);
-			streamingThinking = thinking;
-			streamingAssistantText = answer;
 			streamingContentBlocks = mergedContent;
 			if (streamingAnchorUserMessageId) {
 				streamingDraftAnchorUserMessageIdBySessionId = {
@@ -1855,8 +1849,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 }
 
 function clearStreamingState(sessionId: string | null = activeSessionId) {
-	streamingAssistantText = "";
-	streamingThinking = "";
 	streamingContentBlocks = [];
 	if (sessionId) {
 		streamingDraftTruncatedStartBySessionId = {

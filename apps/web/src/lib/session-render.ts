@@ -190,18 +190,22 @@ export function buildStreamingPreviewBlocks(
 ): ContentBlock[] {
 	let accText = "";
 	let accThinking = "";
+	const passthroughBlocks: ContentBlock[] = [];
 
 	for (const block of streamingContentBlocks) {
 		if (block.type === "thinking") {
 			accThinking += (accThinking ? "\n" : "") + block.thinking;
 		} else if (block.type === "text") {
 			accText += (accText ? "\n\n" : "") + block.text;
+		} else {
+			passthroughBlocks.push(block);
 		}
 	}
 
 	const trimmedText = accText.trim();
 	const trimmedThinking = accThinking.trim();
-	if (!trimmedText && !trimmedThinking) return [];
+	if (!trimmedText && !trimmedThinking && passthroughBlocks.length === 0)
+		return [];
 
 	const blocks: ContentBlock[] = [];
 	if (trimmedThinking)
@@ -212,6 +216,7 @@ export function buildStreamingPreviewBlocks(
 			text: options?.truncatedStart ? `…${trimmedText}` : trimmedText,
 		});
 	}
+	blocks.push(...passthroughBlocks);
 	return blocks;
 }
 
@@ -225,8 +230,9 @@ function groupIntermediateMessages(parts: TimelineItem[]) {
 	let buffer: ChatMessage[] = [];
 	const flush = () => {
 		if (buffer.length === 0) return;
+		const firstMessageId = buffer[0]?.id ?? "process";
 		result.push({
-			id: `process-${buffer.map((message) => message.id).join("|")}`,
+			id: `process-${firstMessageId}`,
 			kind: "process",
 			messages: [...buffer],
 		});
