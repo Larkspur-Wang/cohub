@@ -4033,7 +4033,7 @@ $effect(() => {
         loading={fileTreeLoading}
         error={fileTreeError}
         onToggle={expandDirectory}
-        onSelect={(node) => { if (node.type === "file") { void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
+        onSelect={(node) => { if (node.type === "file") { void openSpaceFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
         onRefresh={refreshFileTree}
         onCreateFile={handleCreateFile}
         onCreateDir={handleCreateDir}
