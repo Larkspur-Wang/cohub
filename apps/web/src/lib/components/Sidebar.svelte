@@ -985,64 +985,64 @@ $effect(() => {
       <ChevronDown class={'w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 ' + (showUserMenu ? 'rotate-180' : '')} />
     </button>
   </div>
-
-  <!-- Space Switcher Modal -->
-  <Dialog open={showSpaceModal} onClose={() => { showSpaceModal = false; }} title="Switch Space" maxWidth="340px">
-    <div class="py-1">
-      {#if isLoading}
-        <div class="px-4 py-6 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
-          <Loader2 class="w-3 h-3 animate-spin" />
-          Loading...
-        </div>
-      {:else if loadError}
-        <div class="px-4 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
-      {:else if spaces.length === 0}
-        <div class="px-4 py-6 text-center">
-          <p class="text-[13px] text-text-tertiary">No spaces yet</p>
-          <p class="text-[11px] text-text-placeholder mt-1">Create your first space to get started</p>
-        </div>
-      {:else}
-        {#each spaces as space (space.id)}
-          {@const isActive = currentSpaceId === space.id}
-          {@const status = displayStatus(space)}
-          <button
-            type="button"
-            class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
-            onclick={() => { void handleNavigateToSpace(space.id); }}
-          >
-            <!-- Status dot -->
-            <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
-
-            <!-- Name & meta -->
-            <div class="flex-1 min-w-0">
-              <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
-                {space.name || space.title || space.id.slice(0, 12)}
-              </div>
-              {#if space.userUuid !== authStore.userUuid}
-                <div class="flex items-center gap-1 mt-0.5">
-                  <Users class="w-2.5 h-2.5 text-text-placeholder" />
-                  <span class="text-[10px] text-text-placeholder">Shared</span>
-                </div>
-              {/if}
-            </div>
-
-            <!-- Active indicator -->
-            {#if isActive}
-              <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
-            {/if}
-          </button>
-        {/each}
-      {/if}
-    </div>
-    {#snippet footer()}
-      <button
-        type="button"
-        class="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-brand hover:bg-bg-hover transition-colors duration-100"
-        onclick={() => { showSpaceModal = false; handleNavigate("/spaces/new"); }}
-      >
-        <Plus class="w-3.5 h-3.5" />
-        <span>New Space</span>
-      </button>
-    {/snippet}
-  </Dialog>
 </aside>
+
+<!-- Space Switcher Modal -->
+<Dialog open={showSpaceModal} onClose={() => { showSpaceModal = false; }} title="Switch Space" maxWidth="340px">
+  <div class="py-1">
+    {#if isLoading}
+      <div class="px-4 py-6 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
+        <Loader2 class="w-3 h-3 animate-spin" />
+        Loading...
+      </div>
+    {:else if loadError}
+      <div class="px-4 py-3 text-[12px] text-error-soft text-center">{loadError}</div>
+    {:else if spaces.length === 0}
+      <div class="px-4 py-6 text-center">
+        <p class="text-[13px] text-text-tertiary">No spaces yet</p>
+        <p class="text-[11px] text-text-placeholder mt-1">Create your first space to get started</p>
+      </div>
+    {:else}
+      {#each spaces as space (space.id)}
+        {@const isActive = currentSpaceId === space.id}
+        {@const status = displayStatus(space)}
+        <button
+          type="button"
+          class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
+          onclick={() => { void handleNavigateToSpace(space.id); }}
+        >
+          <!-- Status dot -->
+          <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
+
+          <!-- Name & meta -->
+          <div class="flex-1 min-w-0">
+            <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
+              {space.name || space.title || space.id.slice(0, 12)}
+            </div>
+            {#if space.userUuid !== authStore.userUuid}
+              <div class="flex items-center gap-1 mt-0.5">
+                <Users class="w-2.5 h-2.5 text-text-placeholder" />
+                <span class="text-[10px] text-text-placeholder">Shared</span>
+              </div>
+            {/if}
+          </div>
+
+          <!-- Active indicator -->
+          {#if isActive}
+            <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
+          {/if}
+        </button>
+      {/each}
+    {/if}
+  </div>
+  {#snippet footer()}
+    <button
+      type="button"
+      class="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-brand hover:bg-bg-hover transition-colors duration-100"
+      onclick={() => { showSpaceModal = false; handleNavigate("/spaces/new"); }}
+    >
+      <Plus class="w-3.5 h-3.5" />
+      <span>New Space</span>
+    </button>
+  {/snippet}
+</Dialog>
