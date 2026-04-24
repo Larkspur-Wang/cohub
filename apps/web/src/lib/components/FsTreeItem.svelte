@@ -97,7 +97,7 @@ function stop(handler: () => void) {
   {/if}
 </div>
 
-{#if node.type === 'dir' && node.isOpen}
+{#if node.type === 'dir' && node.isOpen && depth < 50}
   {#each node.children as child (child.path)}
     <FsTreeItem
       node={child}

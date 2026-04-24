@@ -49,7 +49,7 @@ const isActive = $derived(selectedPath === node.path);
   {/if}
 </button>
 
-{#if node.type === "dir" && node.isOpen}
+{#if node.type === "dir" && node.isOpen && depth < 50}
   {#each node.children as child (child.path)}
     <TreeItem
       node={child}
