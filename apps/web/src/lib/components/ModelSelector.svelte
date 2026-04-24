@@ -155,7 +155,7 @@ function subsequenceScore(query: string, text: string): number {
 
 <svelte:window onkeydown={handleKeyDown} />
 
-<Dialog {open} {onClose} title="Select Model" maxWidth="420px" mobile={false}>
+<Dialog {open} {onClose} title="Select Model" maxWidth="420px">
 	<!-- Search -->
 	<div class="px-3 pt-3 pb-2 border-b border-border-subtle">
 		<input
