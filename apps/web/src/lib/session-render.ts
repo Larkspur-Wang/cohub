@@ -221,6 +221,7 @@ export function buildStreamingPreviewBlocks(
 }
 
 function isIntermediate(message: ChatMessage) {
+	if (message.meta?.messageKind === "assistant_streaming_preview") return false;
 	if (message.meta?.messageKind === "assistant_intermediate") return true;
 	return message.content?.some((block) => block.type === "tool_use") ?? false;
 }
@@ -342,6 +343,9 @@ export function buildTimelineItems(input: {
 						text: previewText,
 						sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
 						createdAt: new Date().toISOString(),
+						meta: {
+							messageKind: "assistant_streaming_preview",
+						},
 					},
 				});
 			}
