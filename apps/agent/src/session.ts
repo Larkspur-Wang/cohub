@@ -240,7 +240,7 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
       }
     } else if (block.type === "tool_result") {
       const prev = toolResultBlocks.find((b) => b.tool_use_id === block.tool_use_id);
-      if (!prev || prev.content !== block.content) {
+      if (!prev || JSON.stringify(prev.content) !== JSON.stringify(block.content)) {
         delta.push(block);
       }
     }
@@ -270,6 +270,17 @@ function extractTextFromToolResult(result: unknown): string {
   const record = result as Record<string, unknown>;
   if (typeof record.text === "string") return record.text;
   if (typeof record.content === "string") return record.content;
+  // Handle structured content array: [{type: "text", text: "..."}, ...]
+  if (Array.isArray(record.content)) {
+    const texts: string[] = [];
+    for (const item of record.content) {
+      if (item && typeof item === "object" && "type" in item) {
+        const block = item as Record<string, unknown>;
+        if (block.type === "text" && typeof block.text === "string") texts.push(block.text);
+      }
+    }
+    if (texts.length > 0) return texts.join("");
+  }
   return "";
 }
 

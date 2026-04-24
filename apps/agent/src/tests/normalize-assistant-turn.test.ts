@@ -81,4 +81,58 @@ assert.deepEqual(
 );
 assert.equal(case3.toolCallRenderStates[0]?.status, "running");
 
+// Case 4: tool_result with structured array content should not override
+// the text extracted in round 1 from raw toolResults
+const case4 = normalizeAssistantTurn(
+  {
+    content: [
+      { type: "text", text: "Checking..." },
+      { type: "toolCall", id: "tool-4", name: "bash", arguments: { command: "git log --oneline" } },
+      { type: "tool_result", tool_use_id: "tool-4", content: [{ type: "text", text: "abc123 commit message" }], is_error: false },
+      { type: "text", text: "Done." },
+    ],
+  },
+  [
+    {
+      toolCallId: "tool-4",
+      toolName: "bash",
+      input: { command: "git log --oneline" },
+      content: [{ type: "text", text: "abc123 commit message" }],
+      isError: false,
+    },
+  ],
+);
+
+const tr4 = case4.content.find((b) => b.type === "tool_result") as { content: string } | undefined;
+assert.equal(
+  typeof tr4?.content,
+  "string",
+  "tool_result.content should be a string, not an array or JSON",
+);
+assert.ok(
+  tr4?.content === "abc123 commit message",
+  "tool_result.content should contain the extracted text, not be overwritten by the array",
+);
+
+// Case 5: tool_result with structured array + extra content blocks
+const case5 = normalizeAssistantTurn(
+  {
+    content: [
+      { type: "toolCall", id: "tool-5a", name: "read", arguments: { path: "/a" } },
+      { type: "toolCall", id: "tool-5b", name: "read", arguments: { path: "/b" } },
+      { type: "tool_result", tool_use_id: "tool-5a", content: [{ type: "text", text: "content A" }], is_error: false },
+      { type: "tool_result", tool_use_id: "tool-5b", content: [{ type: "text", text: "content B" }], is_error: false },
+    ],
+  },
+  [
+    { toolCallId: "tool-5a", toolName: "read", input: { path: "/a" }, content: [{ type: "text", text: "content A" }], isError: false },
+    { toolCallId: "tool-5b", toolName: "read", input: { path: "/b" }, content: [{ type: "text", text: "content B" }], isError: false },
+  ],
+);
+
+const tr5a = case5.content.find((b) => (b as { tool_use_id?: string }).tool_use_id === "tool-5a") as { content: string } | undefined;
+const tr5b = case5.content.find((b) => (b as { tool_use_id?: string }).tool_use_id === "tool-5b") as { content: string } | undefined;
+assert.equal(tr5a?.content, "content A", "tool-5a result should be plain text");
+assert.equal(tr5b?.content, "content B", "tool-5b result should be plain text");
+
 console.log("normalizeAssistantTurn checks passed");

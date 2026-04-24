@@ -191,9 +191,7 @@ const normalizeToolExecutions = (
     const rawResultContent = "content" in raw
       ? (typeof raw.content === "string"
           ? raw.content
-          : Array.isArray(raw.content)
-            ? (raw.content as ContentBlock[])
-            : extractTextFromContent(raw.content))
+          : extractTextFromContent(raw.content))
       : undefined;
 
     executions.set(id, {
@@ -225,9 +223,14 @@ const normalizeToolExecutions = (
     if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
       const existing = executions.get(block.tool_use_id);
       if (!existing) continue;
+      // Only override resultContent when block.content is a plain string.
+      // When content is a structured array (e.g. [{type:"text",text:"..."}])
+      // the text was already extracted in round 1 from the raw toolResults;
+      // using the array here would replace the extracted text with an object
+      // and cause downstream duplication / garbled output.
       executions.set(block.tool_use_id, {
         ...existing,
-        resultContent: typeof block.content === "string" ? block.content : ((block.content as string | ContentBlock[] | null) ?? existing.resultContent ?? ""),
+        resultContent: typeof block.content === "string" ? block.content : (existing.resultContent ?? ""),
         isError: Boolean(block.is_error) || existing.isError,
       });
     }
