@@ -1974,6 +1974,14 @@ async function handleSend() {
 	const sessionId = activeSessionState.session.id;
 	const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+	// Clear input immediately so it disappears from the composer at the same
+	// time the pending message appears in the list — avoids the awkward "stuck"
+	// feeling where the message shows in the list but lingers in the input.
+	const pendingInput = input;
+	const pendingAttachments = imageAttachments;
+	input = "";
+	imageAttachments = [];
+
 	try {
 		const model = activeSessionModel;
 		sessionPendingStore.upsert({
@@ -2000,10 +2008,11 @@ async function handleSend() {
 			clientMessageId,
 			"sent_unconfirmed",
 		);
-		input = "";
-		imageAttachments = [];
 		clearStreamingState();
 	} catch (error) {
+		// Restore input and attachments on failure so user doesn't lose their message
+		input = pendingInput;
+		imageAttachments = pendingAttachments;
 		streamError =
 			error instanceof Error ? error.message : "Failed to send message";
 		streamStatus = "error";
@@ -2757,6 +2766,9 @@ onMount(() => {
 		scheduleStatusRefresh();
 		if (pageVisible) {
 			void refreshSessionsList(true);
+			if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
+				void reconcileSessionTail(activeSessionId);
+			}
 		}
 	};
 	const handleOnline = () => {
@@ -3002,19 +3014,20 @@ $effect(() => {
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        {#if wsStatus === 'reconnecting'}
-          <span class="inline-flex items-center gap-1.5 rounded-[5px] border border-warning/20 bg-warning/8 px-2 py-0.5 text-[12px] font-medium text-warning shrink-0">
-            <span class="h-1.5 w-1.5 rounded-full bg-warning animate-pulse"></span>
-            Reconnecting…
-          </span>
-        {:else if wsStatus === 'reconnected'}
-          <span class="inline-flex items-center gap-1.5 rounded-[5px] border border-success-soft/20 bg-success-soft/8 px-2 py-0.5 text-[12px] font-medium text-success-soft shrink-0">
-            <span class="h-1.5 w-1.5 rounded-full bg-success-soft"></span>
-            Reconnected
-          </span>
-        {:else}
-          <span class="text-[13px] text-text-secondary truncate">{getSessionTitle(activeSessionState.session)}</span>
-        {/if}
+        <div class="min-w-0 flex items-center gap-2">
+          <span class="min-w-0 truncate text-[13px] text-text-secondary">{getSessionTitle(activeSessionState.session)}</span>
+          {#if wsStatus === 'reconnecting'}
+            <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-warning">
+              <span class="h-1.5 w-1.5 rounded-full bg-warning animate-pulse"></span>
+              Reconnecting…
+            </span>
+          {:else if wsStatus === 'reconnected'}
+            <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-success-soft">
+              <span class="h-1.5 w-1.5 rounded-full bg-success-soft"></span>
+              Reconnected
+            </span>
+          {/if}
+        </div>
       {:else if routeView === "checkpoint" && checkpointDetail}
         <button
           type="button"
@@ -4024,8 +4037,98 @@ $effect(() => {
   {/if}
   </div>
 
-  <!-- Inline file panel — between main content and right sidebar -->
+  <!-- Inline file panel — desktop: side panel, mobile: full-screen overlay -->
   {#if inlineFile}
+    <!-- Mobile full-screen overlay -->
+    <div class="lg:hidden fixed inset-0 z-50 flex flex-col bg-bg-content">
+      <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0 bg-bg-surface">
+        <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+          <X class="w-5 h-5" />
+        </button>
+        <div class="min-w-0 flex-1 truncate text-sm text-text-secondary">
+          {#if inlineFile.response}{inlineFile.response.path}{:else}{inlineFile.path}{/if}
+        </div>
+        {#if inlineFile.response && inlineFile.response.kind === "text"}
+          <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="icon-btn" title="Download file">
+            <Download class="w-4 h-4" />
+          </a>
+        {/if}
+      </div>
+
+      {#if inlineFile.loading}
+        <div class="flex flex-1 items-center justify-center text-sm text-text-tertiary">Loading…</div>
+      {:else if inlineFile.error}
+        <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-sm text-error-soft">
+          {inlineFile.error}
+        </div>
+      {:else if inlineFile.tooLarge}
+        <div class="flex flex-1 items-center justify-center">
+          <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
+            <div class="text-4xl mb-3">📦</div>
+            <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
+            <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
+            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary">
+              <Download class="w-3.5 h-3.5" />
+              Download file
+            </a>
+          </div>
+        </div>
+      {:else if inlineFile.response}
+        {#if inlineFileIsText}
+          <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
+            {#if inlineFileIsMarkdown}
+              <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
+                <button type="button" class="segmented-btn" class:active={inlineFileEdit} onclick={() => inlineFileEdit = true} title="Edit source">Source</button>
+                <button type="button" class="segmented-btn" class:active={!inlineFileEdit} onclick={() => inlineFileEdit = false} title="Preview markdown">Preview</button>
+              </div>
+            {/if}
+            <div class="flex-1"></div>
+            <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
+              {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
+            </button>
+            <button type="button" class="action-btn" onclick={() => void saveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty} title="Save">
+              <Save class="w-4 h-4 shrink-0" />
+            </button>
+          </div>
+          <div class="flex-1 min-h-0">
+            {#if inlineFileEdit}
+              <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} />
+            {:else if inlineFileIsMarkdown && inlineFileMarkdownHtml}
+              <article class="markdown-preview">{@html inlineFileMarkdownHtml}</article>
+            {:else}
+              <CodeEditor value={inlineFile.draft} language={inlineFileExt} readonly={true} />
+            {/if}
+          </div>
+        {:else if inlineFileIsImage && inlineFileDataUrl}
+          <div class="flex flex-1 items-center justify-center overflow-hidden p-4">
+            <img src={inlineFileDataUrl} alt={inlineFile.response.name} class="max-h-full max-w-full rounded-md" />
+          </div>
+        {:else if inlineFileIsVideo && inlineFileDataUrl}
+          <div class="flex flex-1 items-center justify-center p-4">
+            <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
+              <track kind="captions" />
+            </video>
+          </div>
+        {:else}
+          <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-sm text-text-secondary">
+            <div><strong>Name:</strong> {inlineFile.response.name}</div>
+            <div><strong>Type:</strong> {inlineFile.response.mimeType ?? 'application/octet-stream'}</div>
+            <div><strong>Size:</strong> {formatFileSize(inlineFile.response.size)}</div>
+            <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
+            <div class="mt-3">
+              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary">
+                <Download class="w-3.5 h-3.5" />
+                Download file
+              </a>
+            </div>
+          </div>
+        {/if}
+      {:else}
+        <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">No file selected</div>
+      {/if}
+    </div>
+
+    <!-- Desktop side panel -->
     <div class="hidden lg:flex shrink-0 relative border-l border-border-subtle" style={`width: ${inlineFilePanelWidth}px`}>
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
@@ -4277,7 +4380,7 @@ $effect(() => {
         loading={fileTreeLoading}
         error={fileTreeError}
         onToggle={expandDirectory}
-        onSelect={(node) => { if (node.type === "file") { void openSpaceFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
+        onSelect={(node) => { if (node.type === "file") { void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
         onRefresh={refreshFileTree}
         onCreateFile={handleCreateFile}
         onCreateDir={handleCreateDir}

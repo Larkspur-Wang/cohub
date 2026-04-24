@@ -45,6 +45,16 @@ let fileInputEl = $state<HTMLInputElement | null>(null);
 let isDragOver = $state(false);
 let dragCounter = 0;
 
+// Detect mobile/touch — on mobile, Enter should insert newline, not send
+function isMobile(): boolean {
+	if (typeof window === "undefined") return false;
+	return (
+		"ontouchstart" in window ||
+		window.matchMedia("(pointer: coarse)").matches ||
+		navigator.maxTouchPoints > 0
+	);
+}
+
 function resizeTextarea() {
 	if (!textareaEl) return;
 	textareaEl.style.height = "0px";
@@ -177,6 +187,8 @@ $effect(() => {
 						onpaste={handlePaste}
 						onkeydown={(event) => {
 							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+								// On mobile, Enter should insert a newline, not send
+								if (isMobile()) return;
 								event.preventDefault();
 								if (!disabled && (value.trim() || attachments.length > 0)) {
 									onsubmit();

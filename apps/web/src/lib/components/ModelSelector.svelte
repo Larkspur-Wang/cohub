@@ -78,10 +78,17 @@ $effect(() => {
 		searchQuery = "";
 		selectedIndex = 0;
 		navigationMode = "mouse";
-		// Focus search input after render
-		requestAnimationFrame(() => {
-			searchInputEl?.focus();
-		});
+		// Focus search input after render — skip on mobile to avoid keyboard popup
+		const isMobile =
+			typeof window !== "undefined" &&
+			("ontouchstart" in window ||
+				window.matchMedia("(pointer: coarse)").matches ||
+				navigator.maxTouchPoints > 0);
+		if (!isMobile) {
+			requestAnimationFrame(() => {
+				searchInputEl?.focus();
+			});
+		}
 	}
 });
 
