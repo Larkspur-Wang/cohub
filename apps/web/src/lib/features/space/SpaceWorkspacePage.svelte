@@ -474,33 +474,9 @@ let savingMember = $state(false);
 let addingMemberError = $state("");
 
 // ─── Token Usage ───
-type TokenUsageData = {
-	hourly: Array<{
-		bucketStartAt: Date;
-		totalTokens: number;
-		inputTokens: number;
-		outputTokens: number;
-		cacheReadTokens: number;
-		cacheWriteTokens: number;
-		costTotal: number;
-		requestCount: number;
-		successCount: number;
-		errorCount: number;
-		models: string[];
-	}>;
-	summary: {
-		totalTokens: number;
-		inputTokens: number;
-		outputTokens: number;
-		cacheReadTokens: number;
-		cacheWriteTokens: number;
-		costTotal: number;
-		requestCount: number;
-		successCount: number;
-		errorCount: number;
-	};
-	days: number;
-};
+import type { SpaceUsageResponse } from "@neta-art/cohub";
+
+type TokenUsageData = SpaceUsageResponse;
 let tokenUsage = $state<TokenUsageData | null>(null);
 
 // ─── Heatmap helpers ───

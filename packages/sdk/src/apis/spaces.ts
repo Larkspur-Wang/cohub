@@ -16,6 +16,7 @@ import type {
   SpaceFsFileResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
+  SpaceUsageResponse,
   SpaceFsWriteFileInput,
   SpaceMember,
   SpaceRecord,
@@ -432,6 +433,21 @@ export class SpaceAccessApi {
   }
 }
 
+export class SpaceUsageApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  get(days = 30, customFetch?: Fetch) {
+    const params = new URLSearchParams({ days: String(days) });
+    return this.transport.request<SpaceUsageResponse>(
+      `/api/spaces/${this.spaceId}/usage?${params.toString()}`,
+      { fetch: customFetch },
+    );
+  }
+}
+
 export class SpaceCheckpointsApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -469,6 +485,7 @@ export class SpaceClient {
   readonly members: SpaceMembersApi;
   readonly access: SpaceAccessApi;
   readonly checkpoints: SpaceCheckpointsApi;
+  readonly usage: SpaceUsageApi;
 
   constructor(
     readonly id: string,
@@ -480,6 +497,7 @@ export class SpaceClient {
     this.members = new SpaceMembersApi(transport, id);
     this.access = new SpaceAccessApi(transport, id);
     this.checkpoints = new SpaceCheckpointsApi(transport, id);
+    this.usage = new SpaceUsageApi(transport, id);
   }
 
   get(customFetch?: Fetch) {

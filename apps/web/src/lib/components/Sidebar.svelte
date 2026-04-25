@@ -40,6 +40,7 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
+import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
 	clearAllCachedSessionLists,
 	fetchSessionListWithCache,
@@ -452,6 +453,8 @@ async function handleLogout() {
 	onClose?.();
 	clearAllCachedSpaceLists();
 	clearAllCachedSessionLists();
+	const userUuid = authStore.userUuid;
+	if (userUuid) clearRecentSpace(userUuid);
 	try {
 		await logtoClient.signOut(`${window.location.origin}/`);
 	} catch (error) {
@@ -576,6 +579,17 @@ $effect(() => {
 		cronjobs = [];
 		tasks = [];
 	}
+});
+
+// Track the most recently visited space in localStorage
+$effect(() => {
+	if (mode !== "space") return;
+	const userUuid = authStore.userUuid;
+	if (!userUuid || !currentSpaceId) return;
+	untrack(() => {
+		const sessionId = activeSession?.id ?? null;
+		setRecentSpace(userUuid, currentSpaceId, sessionId);
+	});
 });
 
 // Close space modal on Escape

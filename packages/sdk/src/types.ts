@@ -235,3 +235,35 @@ export type SpaceAccessPolicy = {
   signed_in_user: SpaceRole | null;
   anonymous_user: SpaceRole | null;
 };
+
+export type SpaceUsageHourlyStat = {
+  bucketStartAt: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costTotal: number;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  models: string[];
+};
+
+export type SpaceUsageSummary = {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costTotal: number;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+};
+
+export type SpaceUsageResponse = {
+  hourly: SpaceUsageHourlyStat[];
+  summary: SpaceUsageSummary;
+  days: number;
+};
