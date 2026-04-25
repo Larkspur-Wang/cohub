@@ -14,11 +14,13 @@ const subClient = redis.duplicate();
 
 const LIST_KEY_IN = getAgentInstanceInputQueueKey(env.AGENT_INSTANCE_ID);
 const PROCESSING_KEY = getAgentInstanceProcessingQueueKey(env.AGENT_INSTANCE_ID);
+const RECOVERING_KEY = `${PROCESSING_KEY}:recovering`;
 const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID);
 
 const STREAM_MAXLEN = 2000;
 const STREAM_APPROX = "~";
 const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
+const DEAD_LETTER_MAX_ITEMS = 200;
 
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
@@ -123,14 +125,82 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   });
 }
 
-async function moveToDeadLetterQueue(rawMessage: string, reason: string) {
+async function pushDeadLetterEntry(entry: Record<string, unknown>) {
+  await redis
+    .multi()
+    .rpush(DEAD_LETTER_KEY, JSON.stringify(entry))
+    .ltrim(DEAD_LETTER_KEY, -DEAD_LETTER_MAX_ITEMS, -1)
+    .exec();
+}
+
+async function moveToDeadLetterQueue(rawMessage: string, reason: string, extra?: Record<string, unknown>) {
   try {
-    await redis.rpush(
-      DEAD_LETTER_KEY,
-      JSON.stringify({ rawMessage, reason, failedAt: new Date().toISOString() }),
-    );
+    await pushDeadLetterEntry({
+      rawMessage,
+      reason,
+      failedAt: new Date().toISOString(),
+      ...extra,
+    });
   } catch (error) {
     console.error("[Redis] Failed to push message to dead letter queue:", error);
+  }
+}
+
+export async function recoverProcessingQueueOnStartup() {
+  try {
+    const recoveringExists = await redis.exists(RECOVERING_KEY);
+
+    if (!recoveringExists) {
+      const processingExists = await redis.exists(PROCESSING_KEY);
+      if (!processingExists) return;
+
+      const renamed = await redis.renamenx(PROCESSING_KEY, RECOVERING_KEY);
+      if (renamed !== 1) {
+        console.warn(
+          `[Redis] Failed to claim processing recovery queue for ${PROCESSING_KEY}; another recovery key may already exist`,
+        );
+      }
+    }
+
+    const pendingCount = await redis.llen(RECOVERING_KEY);
+    if (pendingCount === 0) {
+      await redis.del(RECOVERING_KEY);
+      return;
+    }
+
+    console.warn(
+      `[Redis] Recovering ${pendingCount} stale processing message(s) from ${RECOVERING_KEY} to ${DEAD_LETTER_KEY}`,
+    );
+
+    while (true) {
+      const rawMessage = await redis.lindex(RECOVERING_KEY, 0);
+      if (!rawMessage) break;
+
+      try {
+        await pushDeadLetterEntry({
+          rawMessage,
+          reason: "recovered_on_startup",
+          failedAt: new Date().toISOString(),
+          recoveredFrom: PROCESSING_KEY,
+        });
+        await redis.lpop(RECOVERING_KEY);
+      } catch (error) {
+        console.error("[Redis] Failed to recover one processing message on startup:", error);
+        break;
+      }
+    }
+
+    const remaining = await redis.llen(RECOVERING_KEY);
+    if (remaining === 0) {
+      await redis.del(RECOVERING_KEY);
+      return;
+    }
+
+    console.warn(
+      `[Redis] Startup recovery stopped with ${remaining} message(s) still in ${RECOVERING_KEY}; will retry on next startup`,
+    );
+  } catch (error) {
+    console.error("[Redis] Failed to recover processing queue on startup:", error);
   }
 }
 

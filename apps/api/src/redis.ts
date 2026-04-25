@@ -22,11 +22,6 @@ export const isRedisReady = async () => {
   }
 };
 
-const redisSpacePrefix = (spaceId: string) => `spaces:${spaceId}`;
-
-export const getSpaceMetaKey = (spaceId: string) =>
-  `${redisSpacePrefix(spaceId)}:meta`;
-
 export const getAgentInstanceInputQueueKey = (instanceId: string) =>
   `agent:instance:${instanceId}:input_queue`;
 

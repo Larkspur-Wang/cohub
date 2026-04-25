@@ -4,6 +4,8 @@ import { DiscordProvider } from "../providers/discord/index.js";
 import { FeishuProvider } from "../providers/feishu/index.js";
 import type { GatewayProvider } from "../providers/base.js";
 
+const GATEWAY_NODE_TTL_MS = 15_000;
+
 interface ChannelConfig {
   provider: string;
   credentials: Record<string, string>;
@@ -92,8 +94,13 @@ export class GatewayManager {
   private async registerNode() {
     try {
       const now = Date.now();
+      const staleBefore = now - GATEWAY_NODE_TTL_MS;
       // 使用 ZSET 记录节点和它的最后心跳时间 (用于 API 剔除死节点)
-      await redisCommandClient.zadd("gateway:nodes", now, this.nodeId);
+      await redisCommandClient
+        .multi()
+        .zadd("gateway:nodes", now, this.nodeId)
+        .zremrangebyscore("gateway:nodes", 0, staleBefore)
+        .exec();
     } catch (error) {
       console.error("[Manager] Failed to send heartbeat:", error);
     }

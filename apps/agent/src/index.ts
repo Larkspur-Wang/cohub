@@ -19,6 +19,7 @@ import {
   extractContentImages,
   extractContentText,
   listenForInput,
+  recoverProcessingQueueOnStartup,
   sendOutput,
 } from "./redis.js";
 import { getSpaceSandbox } from "./api.js";
@@ -261,6 +262,7 @@ async function main() {
 
   agentHeartbeatTimer = startAgentInstanceHeartbeatLoop();
   startOwnerRenewLoop();
+  await recoverProcessingQueueOnStartup();
 
   const modelRegistry = new CohubModelRegistry();
   if (modelRegistry.getError()) {

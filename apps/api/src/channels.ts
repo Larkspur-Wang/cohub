@@ -17,10 +17,17 @@ import { hasPermission } from "./permissions.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 
 const bindingLocks = new Map<string, Promise<unknown>>();
+const GATEWAY_NODE_TTL_MS = 15_000;
+
+async function pruneStaleGatewayNodes() {
+  const staleBefore = Date.now() - GATEWAY_NODE_TTL_MS;
+  await redisCommandClient.zremrangebyscore("gateway:nodes", 0, staleBefore);
+}
 
 async function pickGatewayNode(): Promise<string> {
   const now = Date.now();
-  const activeNodes = await redisCommandClient.zrangebyscore("gateway:nodes", now - 15000, "+inf");
+  await pruneStaleGatewayNodes();
+  const activeNodes = await redisCommandClient.zrangebyscore("gateway:nodes", now - GATEWAY_NODE_TTL_MS, "+inf");
   if (activeNodes.length === 0) throw new Error("No active gateway nodes available");
   const nodeId = activeNodes[Math.floor(Math.random() * activeNodes.length)];
   if (!nodeId) throw new Error("Failed to pick gateway node");
@@ -58,7 +65,7 @@ export async function bindSpaceChannelsToGateway(spaceId: string) {
     if (existingNodeId) {
       const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
       const nodeLastHeartbeat = typeof nodeLastHeartbeatStr === "string" ? Number.parseFloat(nodeLastHeartbeatStr) : null;
-      if (nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < 15000) continue;
+      if (nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < GATEWAY_NODE_TTL_MS) continue;
     }
 
     const nodeId = await pickGatewayNode();
