@@ -1,5 +1,4 @@
 import { existsSync, renameSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
@@ -13,6 +12,14 @@ import {
 } from "./runtime/paths.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
+import {
+  applyAssistantMessageEvent,
+  applyToolExecutionEnd,
+  applyToolExecutionStart,
+  createAssistantStreamState,
+  projectAssistantStreamState,
+  type AssistantStreamState,
+} from "./stream/assistant-stream-state.js";
 
 export type PendingUserMessage = {
   userMessageId: string;
@@ -36,6 +43,7 @@ export type SessionHandle = {
   currentUserMessageMeta: Record<string, unknown> | null;
   persistenceChain: Promise<void>;
   streamState: {
+    assistantState: AssistantStreamState;
     content: ContentBlock[];
     preferredDisplayMode: "full" | "compact" | "minimal";
     /** Snapshot of the content sent in the last stream_update, used for delta computation. */
@@ -74,71 +82,6 @@ function summarizeToolArgs(toolName: string, args: unknown): string {
   return first.slice(0, 120);
 }
 
-function sdkContentToBlocks(content: unknown, existing: ContentBlock[]): ContentBlock[] {
-  if (!Array.isArray(content)) return [];
-  const blocks: ContentBlock[] = [];
-
-  // Track processed ids separately for toolCall and tool_result.
-  // SDK sends both in the same content array, so sharing a single Set
-  // would incorrectly skip tool_result entries that share an id with a toolCall.
-  const seenToolCallIds = new Set<string>();
-  const seenToolResultIds = new Set<string>();
-
-  for (const item of content) {
-    if (!item || typeof item !== "object") continue;
-    const block = item as Record<string, unknown>;
-    const type = block.type as string | undefined;
-
-    if (type === "text" && typeof block.text === "string") {
-      blocks.push({ type: "text", text: block.text });
-    } else if (type === "thinking" && typeof block.thinking === "string") {
-      blocks.push({ type: "thinking", thinking: block.thinking });
-    } else if (type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      if (seenToolCallIds.has(block.id)) continue;
-      seenToolCallIds.add(block.id);
-      const existingBlock = existing.find(
-        (b) => b.type === "tool_use" && b.id === block.id,
-      ) as Extract<ContentBlock, { type: "tool_use" }> | undefined;
-      blocks.push({
-        type: "tool_use",
-        id: block.id as string,
-        name: block.name as string,
-        input: (block.arguments as Record<string, unknown> | null) ?? {},
-        _meta: existingBlock?._meta,
-      });
-    } else if (type === "image" && typeof block.uri === "string") {
-      blocks.push({ type: "image", source: { type: "url", url: block.uri } });
-    } else if (type === "tool_result" && typeof block.tool_use_id === "string") {
-      if (seenToolResultIds.has(block.tool_use_id)) continue;
-      seenToolResultIds.add(block.tool_use_id);
-      const existingBlock = existing.find(
-        (b) => b.type === "tool_result" && b.tool_use_id === block.tool_use_id,
-      ) as Extract<ContentBlock, { type: "tool_result" }> | undefined;
-      blocks.push({
-        type: "tool_result",
-        tool_use_id: block.tool_use_id as string,
-        content: typeof block.content === "string" ? block.content : (block.content as string | ContentBlock[] | null) ?? "",
-        is_error: Boolean(block.is_error),
-        _meta: existingBlock?._meta,
-      });
-    }
-  }
-  return blocks;
-}
-
-function upsertBlock(content: ContentBlock[], block: ContentBlock): ContentBlock[] {
-  const idx = content.findIndex((b) => {
-    if (b.type === "tool_use" && block.type === "tool_use") return b.id === block.id;
-    if (b.type === "tool_result" && block.type === "tool_result") return b.tool_use_id === block.tool_use_id;
-    return false;
-  });
-  if (idx !== -1) {
-    const updated = [...content];
-    updated[idx] = block;
-    return updated;
-  }
-  return [...content, block];
-}
 
 async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
@@ -178,6 +121,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
 
 function resetStreamState(handle: SessionHandle) {
   handle.streamState = {
+    assistantState: createAssistantStreamState(),
     content: [],
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
     lastSent: [],
@@ -308,8 +252,11 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "message_update") {
-      const message = event.message as unknown as Record<string, unknown>;
-      handle.streamState.content = sdkContentToBlocks(message.content, handle.streamState.content);
+      handle.streamState.assistantState = applyAssistantMessageEvent(
+        handle.streamState.assistantState,
+        event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
+      );
+      handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
       void emitProviderRenderUpdate(handle);
     }
 
@@ -337,66 +284,23 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "tool_execution_start") {
       console.log(`[Session] tool:start tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)}`);
-      const existingIdx = handle.streamState.content.findIndex(
-        (b) => b.type === "tool_use" && b.id === event.toolCallId,
-      );
-      if (existingIdx !== -1) {
-        const block = handle.streamState.content[existingIdx] as Extract<ContentBlock, { type: "tool_use" }>;
-        handle.streamState.content = [
-          ...handle.streamState.content.slice(0, existingIdx),
-          {
-            type: "tool_use",
-            id: block.id,
-            name: block.name,
-            input: block.input,
-            _meta: { ...block._meta, toolStatus: "running", summary: summarizeToolArgs(event.toolName, event.args) },
-          },
-          ...handle.streamState.content.slice(existingIdx + 1),
-        ];
-      } else {
-        handle.streamState.content = [
-          ...handle.streamState.content,
-          {
-            type: "tool_use",
-            id: event.toolCallId,
-            name: event.toolName,
-            input: (event.args as Record<string, unknown>) ?? {},
-            _meta: { toolStatus: "running", summary: summarizeToolArgs(event.toolName, event.args) },
-          },
-        ];
-      }
+      handle.streamState.assistantState = applyToolExecutionStart(handle.streamState.assistantState, {
+        toolCallId: event.toolCallId,
+        summary: summarizeToolArgs(event.toolName, event.args),
+      });
+      handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
       void emitProviderRenderUpdate(handle);
     }
 
     if (event.type === "tool_execution_end") {
       console.log(`[Session] tool:end tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)} error=${event.isError}`);
-      const status = event.isError ? "failed" : "done";
-      const existingIdx = handle.streamState.content.findIndex(
-        (b) => b.type === "tool_use" && b.id === event.toolCallId,
-      );
-      if (existingIdx !== -1) {
-        const block = handle.streamState.content[existingIdx] as Extract<ContentBlock, { type: "tool_use" }>;
-        handle.streamState.content = [
-          ...handle.streamState.content.slice(0, existingIdx),
-          {
-            type: "tool_use",
-            id: block.id,
-            name: block.name,
-            input: block.input,
-            _meta: { ...block._meta, toolStatus: status },
-          },
-          ...handle.streamState.content.slice(existingIdx + 1),
-        ];
-      }
-
       const resultContent = event.result ? extractTextFromToolResult(event.result) : "";
-      handle.streamState.content = upsertBlock(handle.streamState.content, {
-        type: "tool_result",
-        tool_use_id: event.toolCallId,
+      handle.streamState.assistantState = applyToolExecutionEnd(handle.streamState.assistantState, {
+        toolCallId: event.toolCallId,
         content: resultContent || JSON.stringify(event.result ?? null),
-        is_error: event.isError,
-        _meta: { toolStatus: status },
+        isError: event.isError,
       });
+      handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
       void emitProviderRenderUpdate(handle);
     }
 
@@ -536,6 +440,7 @@ export async function loadOrCreateSessionHandle(input: {
     currentUserMessageMeta: null,
     persistenceChain: Promise.resolve(),
     streamState: {
+      assistantState: createAssistantStreamState(),
       content: [],
       preferredDisplayMode: "compact",
       lastSent: [],
