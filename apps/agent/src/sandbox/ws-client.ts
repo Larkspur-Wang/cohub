@@ -39,6 +39,8 @@ type SandboxClientRegistration = {
 };
 
 export class SandboxConnection {
+  private closed = false;
+
   constructor(
     readonly spaceId: string,
     readonly sandboxId: string,
@@ -142,6 +144,16 @@ export class SandboxConnection {
       }
     }
   }
+
+  close(reason = "sandbox connection closed") {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.socket.close(1000, reason);
+    } catch (error) {
+      console.warn(`[SandboxWS] Failed to close socket spaceId=${this.spaceId} identity=${this.identity}`, error);
+    }
+  }
 }
 
 const registrations = new Map<string, SandboxClientRegistration>();
@@ -180,6 +192,7 @@ function setActiveConnection(spaceId: string, connection: SandboxConnection | nu
   }
   if (previous && previous !== connection) {
     previous.dispose(new Error("sandbox connection replaced"));
+    previous.close("sandbox connection replaced");
   }
 }
 
@@ -219,6 +232,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
   const registration = registrations.get(spaceId);
   if (!registration) return;
   registration.started = false;
+  const previous = registration.connection;
   setActiveConnection(spaceId, null);
 
   if (registration.pendingByRequestId.size > 0) {
@@ -232,6 +246,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
     }
   }
 
+  previous?.close(reason);
   console.log(`[SandboxWS] disconnect spaceId=${spaceId} reason=${reason}`);
   void registration.hooks?.onDisconnected?.({ spaceId, reason });
 }
@@ -271,6 +286,8 @@ async function connectOnce(registration: SandboxClientRegistration) {
     let settled = false;
     let attachSent = false;
     const attachRequestId = randomUUID();
+
+    const isActiveConnection = () => registrations.get(registration.spaceId)?.connection === connection;
 
     const finishResolve = () => {
       if (settled) return;
@@ -337,34 +354,43 @@ async function connectOnce(registration: SandboxClientRegistration) {
 
     socket.on("close", (_code, reason) => {
       connection?.dispose();
-      if (registrations.get(registration.spaceId)?.connection === connection) {
-        setActiveConnection(registration.spaceId, null);
-      }
       const reasonStr = reason?.toString() || "unknown";
-      void registration.hooks?.onDisconnected?.({
-        spaceId: registration.spaceId,
-        reason: reasonStr,
-      });
+      const isActive = isActiveConnection();
+      if (isActive) {
+        setActiveConnection(registration.spaceId, null);
+        void registration.hooks?.onDisconnected?.({
+          spaceId: registration.spaceId,
+          reason: reasonStr,
+        });
+      }
       if (!attached) {
         console.warn(`[SandboxWS] closed before attach spaceId=${registration.spaceId} reason=${reasonStr}`);
         finishReject(new Error(`Sandbox websocket closed before attach: ${reasonStr}`));
         return;
       }
-      console.log(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reasonStr}`);
+      if (isActive) {
+        console.log(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reasonStr}`);
+      } else {
+        console.log(`[SandboxWS] stale connection closed spaceId=${registration.spaceId} reason=${reasonStr}`);
+      }
       finishResolve();
     });
 
     socket.on("error", (error: Error) => {
       console.error(`[SandboxWS] Socket error for ${registration.spaceId}:`, error);
-      connection?.dispose(error instanceof Error ? error : new Error(String(error)));
-      if (registrations.get(registration.spaceId)?.connection === connection) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      connection?.dispose(normalizedError);
+      const isActive = isActiveConnection();
+      if (isActive) {
         setActiveConnection(registration.spaceId, null);
+        void registration.hooks?.onConnectionError?.({
+          spaceId: registration.spaceId,
+          error: normalizedError,
+        });
+      } else {
+        console.warn(`[SandboxWS] stale connection error ignored spaceId=${registration.spaceId} error=${normalizedError.message}`);
       }
-      void registration.hooks?.onConnectionError?.({
-        spaceId: registration.spaceId,
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      finishReject(error instanceof Error ? error : new Error(String(error)));
+      finishReject(normalizedError);
     });
   });
 }
