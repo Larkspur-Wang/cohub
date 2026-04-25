@@ -1,0 +1,33 @@
+# Changelog
+
+## v0.10.0 (2026-04-25)
+
+### Features
+
+- **agent**: recover stale processing messages on startup; improve gateway node lifecycle
+- **api**: add space usage endpoint with auth, permission check, and error handling
+- always show scroll-to-bottom button, clean up dead scroll state
+
+### Bug Fixes
+
+- **api**: propagate actor user id in web session prompts
+- restore scroll-to-bottom affordance off bottom
+- **api**: eliminate N+1 query risks across multiple endpoints
+- **agent**: prevent stale websocket connections from leaking in sandbox client
+- **web**: reset tool blocks when next preview starts
+- improve session scroll restoration stability and bottom CTA positioning
+- correct user attribution in message persistence and trending spaces
+
+### Refactoring
+
+- **agent**: extract assistant stream state into dedicated immutable state machine
+- **api**: remove unused space field from GET /sessions/:id/messages
+- simplify scroll-to-bottom button with unread state
+
+### Performance
+
+- **web**: skip unnecessary message fetch for new sessions
+
+### Chores
+
+- remove attachment-layout-analysis debug document
