@@ -387,6 +387,15 @@ let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
+let hasUnread = $derived.by(() => {
+	if (
+		!activeSessionState?.session ||
+		!activeSessionState?.loaded ||
+		!activeSessionState.messages.length
+	)
+		return false;
+	return unreadTracker.isUnread(activeSessionState.session);
+});
 let autoScrollGuard = $state(false);
 let restoringBottomSessionId = $state<string | null>(null);
 let rightSidebarResizeCleanup: (() => void) | null = null;
@@ -4180,22 +4189,27 @@ $effect(() => {
           modelsCatalog={modelsCatalog ?? undefined}
         />
 
-        <button
-            type="button"
-            aria-label="Scroll to bottom"
-            class="absolute left-1/2 z-20 -translate-x-1/2 inline-flex min-h-11 items-center gap-2 rounded-full border border-border-subtle/90 bg-bg-elevated/98 px-3.5 py-2 text-[12px] font-medium text-text-primary shadow-[0_12px_28px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,transform,background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-brand/30 hover:bg-bg-content hover:shadow-[0_16px_34px_rgba(15,23,42,0.26)]"
-            style:bottom={imageAttachments.length > 0 ? "calc(env(safe-area-inset-bottom) + 13.25rem)" : "calc(env(safe-area-inset-bottom) + 5.75rem)"}
-            style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);"
-            onclick={() => {
-              shouldAutoFollow = true;
-              void forceScrollToBottom();
-            }}
-          >
-            <span class="flex h-6 w-6 items-center justify-center rounded-full border border-brand/18 bg-brand/12 text-brand">
-              <ArrowDown class="w-3.5 h-3.5" />
-            </span>
-            <span class="whitespace-nowrap">Scroll to bottom</span>
-          </button>
+        {#if !shouldAutoFollow}
+          <div class="absolute left-1/2 z-20 -translate-x-1/2"
+            style:bottom={imageAttachments.length > 0 ? "calc(env(safe-area-inset-bottom) + 11.5rem)" : "calc(env(safe-area-inset-bottom) + 7rem)"}
+            style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
+            <button
+              type="button"
+              aria-label="Scroll to bottom"
+              class="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] transition-all duration-150 hover:bg-brand-hover active:scale-95"
+              onclick={() => {
+                shouldAutoFollow = true;
+                void forceScrollToBottom();
+              }}
+            >
+              {#if hasUnread}
+                <span class="text-[10px] font-medium leading-none">New</span>
+              {:else}
+                <ArrowDown class="w-4 h-4" />
+              {/if}
+            </button>
+          </div>
+        {/if}
 
         <SessionComposer
           bind:value={input}
