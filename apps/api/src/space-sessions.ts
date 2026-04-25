@@ -427,21 +427,23 @@ export const forkSpaceSession = async (input: { spaceId: string; parentSessionId
 
   const sourceMessages = await db.select().from(sessionMessages).where(eq(sessionMessages.sessionId, parentSession.id)).orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
   const messagesToCopy = sourceMessages.filter((message) => message.sequence <= fromMessage.sequence);
-  for (const message of messagesToCopy) {
-    await db.insert(sessionMessages).values({
-      sessionId: childSession.id,
-      role: message.role,
-      content: message.content,
-      text: message.text,
-      meta: message.meta,
-      idempotencyKey: null,
-      sequence: message.sequence,
-      provider: message.provider,
-      model: message.model,
-      stopReason: message.stopReason,
-      errorMessage: message.errorMessage,
-      usage: (message.usage as Usage | null | undefined) ?? null,
-    });
+  if (messagesToCopy.length > 0) {
+    await db.insert(sessionMessages).values(
+      messagesToCopy.map((message) => ({
+        sessionId: childSession.id,
+        role: message.role,
+        content: message.content,
+        text: message.text,
+        meta: message.meta,
+        idempotencyKey: null,
+        sequence: message.sequence,
+        provider: message.provider,
+        model: message.model,
+        stopReason: message.stopReason,
+        errorMessage: message.errorMessage,
+        usage: (message.usage as Usage | null | undefined) ?? null,
+      })),
+    );
   }
 
   const copiedMessages = await listSessionMessages(childSession.id);

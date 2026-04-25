@@ -7,7 +7,7 @@ import {
   spaceMembers,
 } from "../../db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { useAuth, requireValidId, buildSpaceListItem, buildStorageRepoName } from "../../lib/middleware.js";
+import { useAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { getSpaceSandboxBySpaceId, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
@@ -63,7 +63,7 @@ router.get("/", async (c) => {
     .where(inArray(spaces.id, spaceIds))
     .orderBy(desc(spaces.updatedAt), desc(spaces.createdAt));
 
-  const items = await Promise.all(spaceList.map((space) => buildSpaceListItem(space)));
+  const items = await buildSpaceListItems(spaceList);
   return c.json(items);
 });
 

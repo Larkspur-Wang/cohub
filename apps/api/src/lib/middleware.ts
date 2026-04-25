@@ -8,6 +8,9 @@ export type AuthUser = AuthUserProfile & { uuid: string };
 
 import { config } from "../config.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
+import { spaceSandboxes } from "../db/schema-v2.js";
+import { db } from "../db/index.js";
+import { inArray } from "drizzle-orm";
 import type { spaces } from "../db/schema-v2.js";
 
 // ── ID validation ────────────────────────────────────────────────────────────
@@ -94,6 +97,26 @@ export const buildSpaceListItem = async (space: typeof spaces.$inferSelect) => {
     ...space,
     sandboxStatus: sandbox?.status ?? null,
   };
+};
+
+/**
+ * Batch version: fetches sandbox statuses for all spaces in a single query
+ * and returns the space list with sandboxStatus attached.
+ */
+export const buildSpaceListItems = async (spaceList: typeof spaces.$inferSelect[]) => {
+  if (spaceList.length === 0) return [];
+
+  const sandboxRows = await db
+    .select({ spaceId: spaceSandboxes.spaceId, status: spaceSandboxes.status })
+    .from(spaceSandboxes)
+    .where(inArray(spaceSandboxes.spaceId, spaceList.map((s) => s.id)));
+
+  const statusBySpaceId = new Map(sandboxRows.map((r) => [r.spaceId, r.status]));
+
+  return spaceList.map((space) => ({
+    ...space,
+    sandboxStatus: statusBySpaceId.get(space.id) ?? null,
+  }));
 };
 
 export const buildStorageRepoName = (spaceId: string) => `space-${spaceId}`;

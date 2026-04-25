@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { accessPolicies, spaceMembers, spaceSessions } from "./db/schema-v2.js";
 import type { AuthUserProfile } from "./auth.js";
@@ -178,12 +178,20 @@ export async function filterSessionsByPermission(
   const audience = resolveAudience(user);
   const resolvedSpacePolicy = spacePolicy ?? await getAccessPolicy("space", spaceId);
 
-  const sessionPolicies = await Promise.all(
-    sessions.map((s) => getAccessPolicy("session", s.id)),
-  );
+  // Batch query all session policies in a single query
+  const sessionIds = sessions.map((s) => s.id);
+  const sessionPolicyRows = await db
+    .select({
+      resourceId: accessPolicies.resourceId,
+      signedInUserRole: accessPolicies.signedInUserRole,
+      anonymousUserRole: accessPolicies.anonymousUserRole,
+    })
+    .from(accessPolicies)
+    .where(and(eq(accessPolicies.resourceType, "session"), inArray(accessPolicies.resourceId, sessionIds)));
+  const sessionPolicyMap = new Map(sessionPolicyRows.map((p) => [p.resourceId, p]));
 
-  return sessions.filter((_, i) => {
-    const effective = sessionPolicies[i] ?? resolvedSpacePolicy;
+  return sessions.filter((session) => {
+    const effective = sessionPolicyMap.get(session.id) ?? resolvedSpacePolicy;
     if (!effective) return false;
     const role = audience === "signed_in_user"
       ? (effective.signedInUserRole ?? null)

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
@@ -40,8 +40,18 @@ export async function getSpaceChannelRecord(spaceChannelId: string) {
 
 export async function bindSpaceChannelsToGateway(spaceId: string) {
   const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, spaceId));
+  if (channels.length === 0) return;
+
+  // Batch fetch all user channels in a single query
+  const channelIds = channels.map((ch) => ch.channelId);
+  const userChannelRows = await db
+    .select()
+    .from(userChannels)
+    .where(inArray(userChannels.id, channelIds));
+  const userChannelMap = new Map(userChannelRows.map((uc) => [uc.id, uc]));
+
   for (const channel of channels) {
-    const [userChannel] = await db.select().from(userChannels).where(eq(userChannels.id, channel.channelId)).limit(1);
+    const userChannel = userChannelMap.get(channel.channelId);
     if (!userChannel || userChannel.status !== "active") continue;
 
     const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", channel.id);
