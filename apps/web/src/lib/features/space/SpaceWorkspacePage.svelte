@@ -387,11 +387,8 @@ let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
-let userScrolledUp = $state(false);
-let hasNewMessagesBelow = $state(false);
 let autoScrollGuard = $state(false);
 let restoringBottomSessionId = $state<string | null>(null);
-let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<{
@@ -1961,11 +1958,10 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				notifyStreamingStatus(currentActiveSessionId, true);
 			}
 			streamStatus = "streaming";
-			if (userScrolledUp) {
-				hasNewMessagesBelow = true;
+			if (shouldAutoFollow) {
+				await tick();
+				scrollToBottomNow();
 			}
-			await tick();
-			if (!userScrolledUp) scrollToBottomNow();
 			return;
 		}
 
@@ -1980,9 +1976,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		if (payload.type === "session.turn.final") {
 			clearStreamingState(currentActiveSessionId);
 			streamStatus = "done";
-			if (userScrolledUp) {
-				hasNewMessagesBelow = true;
-			}
 			streamingDraftTruncatedStartBySessionId = {
 				...streamingDraftTruncatedStartBySessionId,
 				[currentActiveSessionId]: false,
@@ -1991,7 +1984,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			streamingSessionId = null;
 			void reconcileSessionTail(currentActiveSessionId);
 			void refreshSessionsList(true);
-			if (!userScrolledUp) scrollToBottomNow();
+			if (shouldAutoFollow) scrollToBottomNow();
 			return;
 		}
 
@@ -2016,9 +2009,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		const merged = mergeMessagesById(state.messages, [message], {
 			preferIncoming: true,
 		});
-		if (userScrolledUp) {
-			hasNewMessagesBelow = true;
-		}
 		sessionStateById = {
 			...sessionStateById,
 			[currentActiveSessionId]: {
@@ -2189,18 +2179,7 @@ function updateAutoFollow() {
 	const threshold = 60;
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
-	if (!autoScrollGuard && distanceFromBottom > threshold) {
-		userScrolledUp = true;
-	}
 	shouldAutoFollow = distanceFromBottom <= threshold;
-	if (shouldAutoFollow) {
-		userScrolledUp = false;
-		hasNewMessagesBelow = false;
-	}
-	// Button shows whenever user scrolled up and content is actually scrollable.
-	// hasNewMessagesBelow only affects the label/style, not visibility.
-	showScrollToBottom =
-		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
 
 async function fileToDataUrl(file: Blob): Promise<string> {
@@ -3034,8 +3013,6 @@ $effect(() => {
 	const restoreToBottom = () => {
 		restoringBottomSessionId = targetId;
 		shouldAutoFollow = true;
-		userScrolledUp = false;
-		hasNewMessagesBelow = false;
 		const stabilizeBottom = (
 			remainingFrames = 8,
 			lastHeight = -1,
@@ -3091,7 +3068,6 @@ $effect(() => {
 			}
 			listEl.scrollTop = getMessageElementAbsoluteTop(node) + anchor.offset;
 			shouldAutoFollow = false;
-			userScrolledUp = true;
 			captureCurrentScrollAnchor(targetId);
 			finishRestore();
 		});
@@ -4204,8 +4180,7 @@ $effect(() => {
           modelsCatalog={modelsCatalog ?? undefined}
         />
 
-        {#if showScrollToBottom && timeline.length > 0}
-          <button
+        <button
             type="button"
             aria-label="Scroll to bottom"
             class="absolute left-1/2 z-20 -translate-x-1/2 inline-flex min-h-11 items-center gap-2 rounded-full border border-border-subtle/90 bg-bg-elevated/98 px-3.5 py-2 text-[12px] font-medium text-text-primary shadow-[0_12px_28px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,transform,background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-brand/30 hover:bg-bg-content hover:shadow-[0_16px_34px_rgba(15,23,42,0.26)]"
@@ -4213,20 +4188,14 @@ $effect(() => {
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);"
             onclick={() => {
               shouldAutoFollow = true;
-              userScrolledUp = false;
-              hasNewMessagesBelow = false;
               void forceScrollToBottom();
             }}
           >
-            <span class={`flex h-6 w-6 items-center justify-center rounded-full border ${hasNewMessagesBelow ? 'border-brand/28 bg-brand text-white shadow-sm' : 'border-brand/18 bg-brand/12 text-brand'}`}>
+            <span class="flex h-6 w-6 items-center justify-center rounded-full border border-brand/18 bg-brand/12 text-brand">
               <ArrowDown class="w-3.5 h-3.5" />
             </span>
             <span class="whitespace-nowrap">Scroll to bottom</span>
-            {#if hasNewMessagesBelow}
-              <span class="rounded-full bg-brand/12 px-2 py-0.5 text-[11px] font-medium text-brand">New messages</span>
-            {/if}
           </button>
-        {/if}
 
         <SessionComposer
           bind:value={input}
