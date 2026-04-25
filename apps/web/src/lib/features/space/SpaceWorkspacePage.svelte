@@ -16,6 +16,7 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
+	Activity,
 	AlertCircle,
 	ArrowDown,
 	Check,
@@ -45,6 +46,7 @@ import {
 	Share2,
 	Terminal,
 	Trash2,
+	Users,
 	X,
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
@@ -57,7 +59,7 @@ import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SettingsOverlay from "$lib/components/SettingsOverlay.svelte";
+// SettingsOverlay removed — settings merged inline into detail page
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
@@ -387,6 +389,8 @@ let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
+let composerHostEl = $state<HTMLDivElement | null>(null);
+let composerHeight = $state(0);
 let hasUnread = $derived.by(() => {
 	if (
 		!activeSessionState?.session ||
@@ -417,8 +421,7 @@ let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
 let pendingRestoreSessionId = $state<string | null>(null);
 let persistScrollAnchorsTimer: ReturnType<typeof setTimeout> | null = null;
 
-// ─── Settings & Share ───
-let showSettings = $state(false);
+// ─── Share ───
 let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
 let shareCopied = $state(false);
@@ -469,6 +472,90 @@ let addingMemberUuid = $state("");
 let addingMemberRole = $state<SpaceRole>("guest");
 let savingMember = $state(false);
 let addingMemberError = $state("");
+
+// ─── Token Usage ───
+type TokenUsageData = {
+	hourly: Array<{
+		bucketStartAt: Date;
+		totalTokens: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheWriteTokens: number;
+		costTotal: number;
+		requestCount: number;
+		successCount: number;
+		errorCount: number;
+		models: string[];
+	}>;
+	summary: {
+		totalTokens: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheWriteTokens: number;
+		costTotal: number;
+		requestCount: number;
+		successCount: number;
+		errorCount: number;
+	};
+	days: number;
+};
+let tokenUsage = $state<TokenUsageData | null>(null);
+
+// ─── Heatmap helpers ───
+type HeatmapCell = { date: string; tokens: number; dayOfWeek: number };
+
+function buildHeatmapWeeks(
+	hourlyStats: TokenUsageData["hourly"],
+	days: number,
+): HeatmapCell[][] {
+	const dateTotals = new Map<string, number>();
+	for (const stat of hourlyStats) {
+		const d = new Date(stat.bucketStartAt);
+		const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+		dateTotals.set(key, (dateTotals.get(key) ?? 0) + (stat.totalTokens ?? 0));
+	}
+	const today = new Date();
+	today.setUTCHours(0, 0, 0, 0);
+	const grid: HeatmapCell[] = [];
+	for (let i = days - 1; i >= 0; i--) {
+		const d = new Date(today.getTime() - i * 86400000);
+		const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+		grid.push({
+			date: key,
+			tokens: dateTotals.get(key) ?? 0,
+			dayOfWeek: d.getUTCDay(),
+		});
+	}
+	const weeks: HeatmapCell[][] = [];
+	for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
+	return weeks;
+}
+
+function heatmapIntensity(tokens: number, maxTokens: number): number {
+	if (maxTokens === 0 || tokens === 0) return 0;
+	return Math.min(
+		4,
+		Math.round((Math.log1p(tokens) / Math.log1p(maxTokens)) * 4),
+	);
+}
+
+function heatmapLevelClass(level: number): string {
+	return `heatmap-${level}`;
+}
+
+function formatTokenCount(n: number): string {
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+	return String(n);
+}
+
+function formatCost(n: number): string {
+	if (n >= 1) return `${n.toFixed(2)}`;
+	if (n >= 0.01) return `${n.toFixed(3)}`;
+	return `${n.toFixed(4)}`;
+}
 
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
@@ -1306,9 +1393,10 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				await loadPermissions();
+				const access = await sdk.space(spaceId).access.get();
+				spaceAccess = access;
 			} catch {
-				// Non-blocking
+				/* Non-blocking */
 			}
 		})(),
 	);
@@ -1316,9 +1404,21 @@ async function loadSpace(_options?: { force?: boolean }) {
 	tasks.push(
 		(async () => {
 			try {
-				await loadMembers();
+				const result = await sdk.space(spaceId).members.list();
+				spaceMembers = result.items;
 			} catch {
-				// Non-blocking
+				/* Non-blocking */
+			}
+		})(),
+	);
+
+	tasks.push(
+		(async () => {
+			try {
+				const result = await sdk.space(spaceId).usage.get(30);
+				tokenUsage = result;
+			} catch {
+				/* Non-blocking */
 			}
 		})(),
 	);
@@ -3188,6 +3288,24 @@ $effect(() => {
 });
 
 $effect(() => {
+	const el = composerHostEl;
+	if (!el) {
+		composerHeight = 0;
+		return;
+	}
+
+	const updateComposerHeight = () => {
+		composerHeight = el.offsetHeight;
+	};
+
+	updateComposerHeight();
+	const ro = new ResizeObserver(() => updateComposerHeight());
+	ro.observe(el);
+
+	return () => ro.disconnect();
+});
+
+$effect(() => {
 	if (!listEl || !activeSessionId) return;
 	requestAnimationFrame(() => updateAutoFollow());
 });
@@ -3310,18 +3428,6 @@ $effect(() => {
           <Share2 class="w-4 h-4 shrink-0" />
           <span class="hidden lg:inline text-[13px] font-medium">Share</span>
         {/if}
-      </button>
-    {/if}
-
-    <!-- Settings -->
-    {#if !spaceHasMinimalAccess}
-      <button
-        type="button"
-        class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-        onclick={() => { showSettings = true; }}
-        title="Settings"
-      >
-        <Settings class="w-4 h-4 shrink-0" />
       </button>
     {/if}
 
@@ -3995,190 +4101,382 @@ $effect(() => {
       </div>
     {:else if !activeSessionState && routeView === "space"}
       <div class="flex-1 overflow-y-auto px-4 py-6">
-        <div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
+        <div class="mx-auto flex w-full max-w-3xl flex-col gap-5">
           {#if spaceStatusNotice}
             <div class="inline-flex items-center gap-2 self-start rounded-full border border-success-soft/20 bg-success-soft/8 px-3 py-1.5 text-[12px] text-success-soft">
               <Check class="w-3.5 h-3.5" />
               <span>{spaceStatusNotice}</span>
             </div>
           {/if}
-          <div class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div class="min-w-0 space-y-2">
-                <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
-                <div>
-                  <div class="flex items-center gap-1.5 group">
-                    {#if renamingSpace}
-                      <input
-                        type="text"
-                        bind:value={renameInput}
-                        disabled={renameSaving}
-                        class="text-[20px] font-medium text-text-primary bg-bg-input border border-border-subtle rounded-[6px] px-2 py-1 focus:border-brand/40 focus:outline-none transition-colors w-full max-w-xs disabled:opacity-60"
-                        onkeydown={(e) => {
-                          if (e.key === "Enter" && !renameSaving) {
-                            e.preventDefault();
-                            const trimmed = renameInput.trim();
-                            if (trimmed && trimmed !== space?.name) {
-                              void handleRenameSpace(trimmed);
-                            } else {
-                              renamingSpace = false;
-                              renameError = "";
-                            }
-                          }
-                          if (e.key === "Escape" && !renameSaving) {
-                            renamingSpace = false;
-                            renameError = "";
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        class="shrink-0 p-1 rounded text-success-soft hover:text-success hover:bg-bg-hover transition-colors disabled:opacity-50"
-                        title="Save"
-                        disabled={renameSaving}
-                        onclick={() => {
-                          const trimmed = renameInput.trim();
-                          if (trimmed && trimmed !== space?.name) {
-                            void handleRenameSpace(trimmed);
-                          } else {
-                            renamingSpace = false;
-                            renameError = "";
-                          }
-                        }}
-                      >
-                        {#if renameSaving}
-                          <Loader2 class="w-4 h-4 animate-spin" />
-                        {:else}
-                          <Check class="w-4 h-4" />
-                        {/if}
-                      </button>
-                      <button
-                        type="button"
-                        class="shrink-0 p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
-                        title="Cancel"
-                        disabled={renameSaving}
-                        onclick={() => { renamingSpace = false; renameError = ""; }}
-                      >
-                        <X class="w-4 h-4" />
-                      </button>
-                      {#if renameError}
-                        <span class="text-[11px] text-status-error ml-1">{renameError}</span>
-                      {/if}
-                    {:else}
-                      <h1 class="truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
-                      <button
-                        type="button"
-                        class="shrink-0 p-1 rounded text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-text-secondary hover:bg-bg-hover transition-all"
-                        title="Rename space"
-                        onclick={() => { renameInput = space?.name ?? ""; renamingSpace = true; renameError = ""; }}
-                      >
-                        <Pencil class="w-3.5 h-3.5" />
-                      </button>
-                    {/if}
-                  </div>
-                  {#if space?.description}
-                    <p class="mt-1 text-[13px] leading-6 text-text-secondary">{space.description}</p>
-                  {/if}
-                </div>
-              </div>
 
-              {#if !spaceHasMinimalAccess}
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
-                  onclick={() => handleCreateNewSession()}
-                  disabled={!canCreateSession}
-                >
-                  {#if creatingSession}
-                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                    Creating…
-                  {:else}
-                    <Plus class="w-3.5 h-3.5" />
-                    New chat
+          <!-- Space Header -->
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0 space-y-1.5">
+              <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
+              <div class="flex items-center gap-1.5 group">
+                {#if renamingSpace}
+                  <input
+                    type="text"
+                    bind:value={renameInput}
+                    disabled={renameSaving}
+                    class="text-[20px] font-medium text-text-primary bg-bg-input border border-border-subtle rounded-[6px] px-2 py-1 focus:border-brand/40 focus:outline-none transition-colors w-full max-w-xs disabled:opacity-60"
+                    onkeydown={(e) => {
+                      if (e.key === "Enter" && !renameSaving) {
+                        e.preventDefault();
+                        const trimmed = renameInput.trim();
+                        if (trimmed && trimmed !== space?.name) {
+                          void handleRenameSpace(trimmed);
+                        } else {
+                          renamingSpace = false;
+                          renameError = "";
+                        }
+                      }
+                      if (e.key === "Escape" && !renameSaving) {
+                        renamingSpace = false;
+                        renameError = "";
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    class="shrink-0 p-1 rounded text-success-soft hover:text-success hover:bg-bg-hover transition-colors disabled:opacity-50"
+                    title="Save"
+                    disabled={renameSaving}
+                    onclick={() => {
+                      const trimmed = renameInput.trim();
+                      if (trimmed && trimmed !== space?.name) {
+                        void handleRenameSpace(trimmed);
+                      } else {
+                        renamingSpace = false;
+                        renameError = "";
+                      }
+                    }}
+                  >
+                    {#if renameSaving}
+                      <Loader2 class="w-4 h-4 animate-spin" />
+                    {:else}
+                      <Check class="w-4 h-4" />
+                    {/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="shrink-0 p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
+                    title="Cancel"
+                    disabled={renameSaving}
+                    onclick={() => { renamingSpace = false; renameError = ""; }}
+                  >
+                    <X class="w-4 h-4" />
+                  </button>
+                  {#if renameError}
+                    <span class="text-[11px] text-status-error ml-1">{renameError}</span>
                   {/if}
-                </button>
+                {:else}
+                  <h1 class="truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
+                  <button
+                    type="button"
+                    class="shrink-0 p-1 rounded text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-text-secondary hover:bg-bg-hover transition-all"
+                    title="Rename space"
+                    onclick={() => { renameInput = space?.name ?? ""; renamingSpace = true; renameError = ""; }}
+                  >
+                    <Pencil class="w-3.5 h-3.5" />
+                  </button>
+                {/if}
+              </div>
+              {#if space?.description}
+                <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
               {/if}
             </div>
-          </div>
 
-          <div class="grid gap-4">
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Workspace</div>
-                  <div class="mt-1 text-[15px] font-medium text-text-primary">Initialization status</div>
-                </div>
-                <div class={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${bootstrapStatusTone}`}>
-                  {formatBootstrapStatus(bootstrapStatus)}
-                </div>
-              </div>
-
-              <div class="mt-4 space-y-2 text-[13px] text-text-secondary">
-                <p>Source: <span class="text-text-primary">{bootstrapSourceLabel}</span></p>
-                <p>Stage: <span class="text-text-primary">{formatBootstrapStage(bootstrapStage)}</span></p>
-                {#if bootstrapStatus === "ready"}
-                  <p>The initial workspace content has been prepared.</p>
-                {:else if bootstrapStatus === "failed"}
-                  <p>Workspace initialization failed.</p>
+            {#if !spaceHasMinimalAccess}
+              <button
+                type="button"
+                class="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                onclick={() => handleCreateNewSession()}
+                disabled={!canCreateSession}
+              >
+                {#if creatingSession}
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  Creating…
                 {:else}
-                  <p>Workspace initialization is still in progress.</p>
-                  <div class="text-[12px] font-mono text-text-placeholder">
-                    {#if bootstrapStatus === "pending" || bootstrapStatus === "running"}
-                      refreshing every ~4s
-                    {:else if bootstrapStatus === "failed"}
-                      refreshing every ~15s
-                    {:else}
-                      refresh paused
-                    {/if}
-                  </div>
+                  <Plus class="w-3.5 h-3.5" />
+                  New chat
                 {/if}
-                {#if bootstrapErrorMessage}
-                  <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3 text-[12px] font-mono text-error-soft break-all">
-                    {bootstrapErrorMessage}
-                  </div>
-                {/if}
-              </div>
-            </section>
+              </button>
+            {/if}
           </div>
 
+          <!-- Workspace Status -->
           <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Chats</div>
-                <div class="mt-1 text-[15px] font-medium text-text-primary">Start a new conversation</div>
+                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Workspace</div>
+                <div class="mt-1 text-[15px] font-medium text-text-primary">Initialization status</div>
               </div>
-              <div class="text-[12px] text-text-tertiary">{spaceSessions.length} existing</div>
+              <div class={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${bootstrapStatusTone}`}>
+                {formatBootstrapStatus(bootstrapStatus)}
+              </div>
             </div>
-
-            <div class="mt-4 text-[13px] text-text-secondary">
-              {#if canCreateSession}
-                <p>You can create a new chat immediately.</p>
+            <div class="mt-4 space-y-2 text-[13px] text-text-secondary">
+              <p>Source: <span class="text-text-primary">{bootstrapSourceLabel}</span></p>
+              <p>Stage: <span class="text-text-primary">{formatBootstrapStage(bootstrapStage)}</span></p>
+              {#if bootstrapStatus === "ready"}
+                <p>The initial workspace content has been prepared.</p>
+              {:else if bootstrapStatus === "failed"}
+                <p>Workspace initialization failed.</p>
               {:else}
-                <p>You can create a new chat at any time.</p>
+                <p>Workspace initialization is still in progress.</p>
+              {/if}
+              {#if bootstrapErrorMessage}
+                <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3 text-[12px] font-mono text-error-soft break-all">{bootstrapErrorMessage}</div>
+              {/if}
+            </div>
+          </section>
+
+          <!-- Token Usage Heatmap -->
+          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <div class="flex items-center gap-2">
+                <Activity class="w-4 h-4 text-text-tertiary" />
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Usage</div>
+                  <div class="mt-0.5 text-[15px] font-medium text-text-primary">Token consumption</div>
+                </div>
+              </div>
+              {#if tokenUsage}
+                <div class="text-right">
+                  <div class="text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.totalTokens)}</div>
+                  <div class="text-[11px] text-text-tertiary">tokens · {formatCost(tokenUsage.summary.costTotal)}</div>
+                </div>
               {/if}
             </div>
 
-            {#if spaceSessions.length > 0}
-              <div class="mt-4 space-y-2 border-t border-border-subtle pt-4">
-                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Recent chats</div>
-                <div class="space-y-2">
-                  {#each spaceSessions.slice(0, 5) as session (session.id)}
-                    <button
-                      type="button"
-                      class="flex w-full items-center justify-between rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-left transition-colors hover:bg-bg-hover"
-                      onclick={() => goto(buildSpaceSessionRoute(spaceId, session.id))}
-                    >
-                      <div class="min-w-0">
-                        <div class="truncate text-[13px] text-text-primary">{getSessionTitle(session)}</div>
-                        <div class="mt-0.5 text-[11px] text-text-placeholder">Updated {formatCheckpointTimestamp(session.updatedAt ?? session.createdAt)}</div>
-                      </div>
-                      <ArrowDown class="w-3.5 h-3.5 shrink-0 rotate-[-90deg] text-text-tertiary" />
-                    </button>
-                  {/each}
+            {#if tokenUsage && tokenUsage.hourly.length > 0}
+              {@const heatmapWeeks = buildHeatmapWeeks(tokenUsage.hourly, tokenUsage.days)}
+              {@const allCells = heatmapWeeks.flat()}
+              {@const maxTokens = Math.max(...allCells.map(d => d.tokens), 1)}
+
+              <!-- Heatmap grid -->
+              <div class="flex gap-[3px] overflow-x-auto pb-2">
+                {#each heatmapWeeks as week (week)}
+                  <div class="flex flex-col gap-[3px]">
+                    {#each week as cell (cell.date)}
+                      {@const level = heatmapIntensity(cell.tokens, maxTokens)}
+                      <div
+                        class="heatmap-cell {heatmapLevelClass(level)}"
+                        title="{cell.date}: {formatTokenCount(cell.tokens)} tokens"
+                      ></div>
+                    {/each}
+                    {#each Array(7 - week.length) as _}
+                      <div class="heatmap-cell heatmap-0"></div>
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+
+              <!-- Legend -->
+              <div class="flex items-center justify-between mt-3 text-[11px] text-text-tertiary">
+                <span>Less</span>
+                <div class="flex gap-[3px]">
+                  <div class="heatmap-cell heatmap-0"></div>
+                  <div class="heatmap-cell heatmap-1"></div>
+                  <div class="heatmap-cell heatmap-2"></div>
+                  <div class="heatmap-cell heatmap-3"></div>
+                  <div class="heatmap-cell heatmap-4"></div>
                 </div>
+                <span>More</span>
+              </div>
+
+              <!-- Summary stats -->
+              <div class="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-border-subtle">
+                <div class="text-center">
+                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{tokenUsage.summary.requestCount}</div>
+                  <div class="text-[11px] text-text-tertiary mt-0.5">Requests</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.inputTokens)}</div>
+                  <div class="text-[11px] text-text-tertiary mt-0.5">Input tokens</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.outputTokens)}</div>
+                  <div class="text-[11px] text-text-tertiary mt-0.5">Output tokens</div>
+                </div>
+              </div>
+            {:else}
+              <div class="flex items-center justify-center py-8 text-[13px] text-text-tertiary">
+                {#if tokenUsage}No usage data for the last {tokenUsage.days} days.{:else}Loading usage data…{/if}
               </div>
             {/if}
           </section>
+
+          {#if !spaceHasMinimalAccess}
+            <!-- Sharing -->
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
+              <div class="flex items-center gap-2">
+                <Globe class="w-4 h-4 text-text-tertiary" />
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sharing</div>
+                  <div class="text-[15px] font-medium text-text-primary">Space access & sharing</div>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <div class="text-[11px] text-text-placeholder">Space access</div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[12px] text-text-secondary">Signed-in users</span>
+                  <select
+                    value={spaceAccess?.signed_in_user ?? ''}
+                    onchange={(event) => {
+                      const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
+                      void setSpaceAccess({ signed_in_user: val || null });
+                    }}
+                    disabled={savingAccess}
+                    class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
+                  >
+                    <option value="">None</option>
+                    <option value="maker">Maker (edit)</option>
+                    <option value="guest">Guest (read)</option>
+                  </select>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[12px] text-text-secondary">Anonymous</span>
+                  <select
+                    value={spaceAccess?.anonymous_user ?? ''}
+                    onchange={(event) => {
+                      const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
+                      void setSpaceAccess({ anonymous_user: val || null });
+                    }}
+                    disabled={savingAccess}
+                    class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
+                  >
+                    <option value="">None</option>
+                    <option value="guest">Guest (read)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="w-full h-px bg-border-subtle"></div>
+
+              <div class="space-y-1">
+                <div class="text-[11px] text-text-placeholder">Shared sessions</div>
+                {#each Object.entries(sessionAccessById).filter(([_, v]) => v) as [sid, acc] (sid)}
+                  <div class="flex items-center gap-2 py-1.5 group">
+                    <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
+                    <span class="text-[12.5px] text-text-secondary truncate flex-1">Session {sid.slice(0, 8)}</span>
+                    <button
+                      type="button"
+                      class="p-1 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                      onclick={() => { void navigator.clipboard.writeText(`${window.location.origin}${buildSpaceSessionRoute(spaceId, sid)}`); }}
+                      title="Copy link"
+                    >
+                      <Copy class="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                      onclick={() => { void removeSessionAccess(sid); }}
+                      title="Remove access"
+                    >
+                      <X class="w-3 h-3" />
+                    </button>
+                  </div>
+                {:else}
+                  <div class="py-1 text-[12px] text-text-tertiary italic">No shared sessions</div>
+                {/each}
+              </div>
+            </section>
+
+            <!-- Members -->
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
+              <div class="flex items-center gap-2">
+                <Users class="w-4 h-4 text-text-tertiary" />
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Members</div>
+                  <div class="text-[15px] font-medium text-text-primary">{spaceMembers.length} member{spaceMembers.length !== 1 ? 's' : ''}</div>
+                </div>
+              </div>
+
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  bind:value={addingMemberUuid}
+                  placeholder="Paste user UUID"
+                  class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddMember(); } }}
+                />
+                <select
+                  bind:value={addingMemberRole}
+                  class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
+                >
+                  <option value="guest">Guest</option>
+                  <option value="maker">Maker</option>
+                  <option value="host">Host</option>
+                </select>
+                <button
+                  type="button"
+                  onclick={() => { void handleAddMember(); }}
+                  disabled={savingMember || !addingMemberUuid.trim()}
+                  class="px-2.5 py-[5px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
+                >
+                  {savingMember ? '...' : 'Add'}
+                </button>
+              </div>
+              {#if addingMemberError}
+                <div class="text-[11px] text-error-soft break-all">{addingMemberError}</div>
+              {/if}
+
+              {#if spaceMembers.length > 0}
+                <div class="space-y-1">
+                  {#each spaceMembers as member (member.userId)}
+                    <div class="flex items-center gap-2 py-1.5 group hover:bg-bg-hover rounded-[4px]">
+                      {#if member.role === 'host'}<span class="text-[10px]">👑</span>
+                      {:else if member.role === 'maker'}<Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
+                      {:else}<Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
+                      <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{member.userId}</code>
+                      <span class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium w-10 text-right">{member.role}</span>
+                      <button
+                        type="button"
+                        class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
+                        onclick={() => { void handleRemoveMember(member.userId); }}
+                        title="Remove member"
+                      >
+                        <X class="w-3 h-3" />
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <div class="py-1 text-[12px] text-text-tertiary italic">No members</div>
+              {/if}
+            </section>
+
+            <!-- Channels -->
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
+              <div class="flex items-center gap-2">
+                <Hash class="w-4 h-4 text-text-tertiary" />
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Channels</div>
+                  <div class="text-[15px] font-medium text-text-primary">{space?.channels?.length ?? 0} bound</div>
+                </div>
+              </div>
+
+              {#if !space?.channels || space.channels.length === 0}
+                <div class="text-[13px] text-text-tertiary">No channels bound.</div>
+              {:else}
+                {#each space.channels as channel (channel.id)}
+                  <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50">
+                    <div class="px-3 py-2 border-b border-border-subtle flex items-center gap-2">
+                      <Hash class="w-3 h-3 text-text-tertiary" />
+                      <span class="text-[12px] font-medium text-text-primary truncate">{channel.name || channel.provider}</span>
+                    </div>
+                    <div class="p-3 text-[12px] text-text-tertiary">
+                      {#if channel.provider === "discord"}Status: <span class="capitalize text-text-secondary">{channel.status}</span>
+                      {:else}No configuration available.{/if}
+                    </div>
+                  </div>
+                {/each}
+              {/if}
+            </section>
+          {/if}
         </div>
       </div>
     {:else if !activeSessionState}
@@ -4221,14 +4519,14 @@ $effect(() => {
           modelsCatalog={modelsCatalog ?? undefined}
         />
 
-        {#if !shouldAutoFollow}
+        {#if hasUnread || !shouldAutoFollow}
           <div class="absolute left-1/2 z-20 -translate-x-1/2"
-            style:bottom={imageAttachments.length > 0 ? "calc(env(safe-area-inset-bottom) + 11.5rem)" : "calc(env(safe-area-inset-bottom) + 7rem)"}
+            style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
             <button
               type="button"
               aria-label="Scroll to bottom"
-              class="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] transition-all duration-150 hover:bg-brand-hover active:scale-95"
+              class="flex h-8 min-w-8 items-center justify-center rounded-full bg-brand px-2.5 text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] transition-transform duration-150 active:scale-95"
               onclick={() => {
                 shouldAutoFollow = true;
                 void forceScrollToBottom();
@@ -4243,20 +4541,22 @@ $effect(() => {
           </div>
         {/if}
 
-        <SessionComposer
-          bind:value={input}
-          disabled={sending || !activeSessionState}
-          streamError={streamError}
-          attachments={imageAttachments}
-          currentModel={activeSessionModel}
-          onpickimage={handlePickImages}
-          onremoveattachment={handleRemoveAttachment}
-          onsubmit={handleSend}
-          onModelSelect={() => {
-            void loadModelsCatalog();
-            showModelSelector = true;
-          }}
-        />
+        <div bind:this={composerHostEl}>
+          <SessionComposer
+            bind:value={input}
+            disabled={sending || !activeSessionState}
+            streamError={streamError}
+            attachments={imageAttachments}
+            currentModel={activeSessionModel}
+            onpickimage={handlePickImages}
+            onremoveattachment={handleRemoveAttachment}
+            onsubmit={handleSend}
+            onModelSelect={() => {
+              void loadModelsCatalog();
+              showModelSelector = true;
+            }}
+          />
+        </div>
       </div>
     {/if}
   {/if}
@@ -4616,210 +4916,6 @@ $effect(() => {
     {/if}
   </MobileRightDrawer>
 
-  <!-- Settings Overlay (desktop: right drawer, mobile: bottom sheet) -->
-  <SettingsOverlay open={showSettings} onClose={() => { showSettings = false; }}>
-    <div class="p-4 space-y-6">
-      <!-- Sharing section -->
-      <section class="space-y-3">
-        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
-          <span>Sharing</span>
-        </div>
-
-        <!-- Space-level access -->
-        <div class="space-y-3">
-          <div class="text-[11px] text-text-placeholder px-2">Space access</div>
-          <div class="space-y-2 px-2">
-            <div class="flex items-center justify-between">
-              <span class="text-[12px] text-text-secondary">Signed-in users</span>
-              <select
-                value={spaceAccess?.signed_in_user ?? ''}
-                onchange={(event) => {
-                  const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
-                  void setSpaceAccess({ signed_in_user: val || null });
-                }}
-                disabled={savingAccess}
-                class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
-              >
-                <option value="">None</option>
-                <option value="maker">Maker (edit)</option>
-                <option value="guest">Guest (read)</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-[12px] text-text-secondary">Anonymous</span>
-              <select
-                value={spaceAccess?.anonymous_user ?? ''}
-                onchange={(event) => {
-                  const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
-                  void setSpaceAccess({ anonymous_user: val || null });
-                }}
-                disabled={savingAccess}
-                class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
-              >
-                <option value="">None</option>
-                <option value="guest">Guest (read)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div class="w-full h-px bg-border-subtle"></div>
-
-        <!-- Session-level permissions -->
-        <div class="space-y-1">
-          <div class="text-[11px] text-text-placeholder px-2">Shared sessions</div>
-          {#each Object.entries(sessionAccessById).filter(([_, v]) => v) as [sid, acc] (sid)}
-            <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group">
-              <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
-              <span class="text-[12.5px] text-text-secondary truncate flex-1">
-                {'Session ' + sid.slice(0, 8)}
-              </span>
-              <div class="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  class="p-1 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
-                  onclick={() => {
-                    const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, sid)}`;
-                    void navigator.clipboard.writeText(url);
-                    shareCopied = true;
-                    if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
-                    shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
-                  }}
-                  title="Copy link"
-                >
-                  <Copy class="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
-                  onclick={() => { void removeSessionAccess(sid); }}
-                  title="Remove access"
-                >
-                  <X class="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          {:else}
-            <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No shared sessions</div>
-          {/each}
-        </div>
-
-        <div class="w-full h-px bg-border-subtle"></div>
-      </section>
-
-      <!-- Members section -->
-      <section class="space-y-3">
-        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
-          <span>Members</span>
-          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{spaceMembers.length}</span>
-        </div>
-
-        <!-- Add member form -->
-        <div class="space-y-2">
-          <div class="flex gap-2">
-            <input
-              type="text"
-              bind:value={addingMemberUuid}
-              placeholder="Paste user UUID"
-              class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
-              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddMember(); } }}
-            />
-            <select
-              bind:value={addingMemberRole}
-              class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
-            >
-              <option value="guest">Guest</option>
-              <option value="maker">Maker</option>
-              <option value="host">Host</option>
-            </select>
-            <button
-              type="button"
-              onclick={() => { void handleAddMember(); }}
-              disabled={savingMember || !addingMemberUuid.trim()}
-              class="px-2.5 py-[5px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              {savingMember ? '...' : 'Add'}
-            </button>
-          </div>
-          {#if addingMemberError}
-            <div class="text-[11px] text-error-soft break-all">{addingMemberError}</div>
-          {/if}
-        </div>
-
-        <!-- Members list -->
-        {#if loadingMembers}
-          <div class="flex items-center justify-center py-4 text-[12px] text-text-tertiary">
-            <div class="w-3.5 h-3.5 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
-            Loading...
-          </div>
-        {:else if spaceMembers.length === 0}
-          <div class="px-2 py-1 text-[12px] text-text-tertiary italic">No members</div>
-        {:else}
-          <div class="space-y-1">
-            {#each spaceMembers as member (member.userId)}
-              <div class="flex items-center gap-2 px-2 py-1.5 rounded-[4px] group hover:bg-bg-hover transition-colors">
-                {#if member.role === 'host'}
-                  <span class="w-3.5 h-3.5 shrink-0 text-[10px] text-amber-400 font-bold">👑</span>
-                {:else if member.role === 'maker'}
-                  <Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
-                {:else}
-                  <Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-                {/if}
-                <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{member.userId}</code>
-                <span class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium w-10 text-right">{member.role}</span>
-                <button
-                  type="button"
-                  class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
-                  onclick={() => { void handleRemoveMember(member.userId); }}
-                  title="Remove member"
-                >
-                  <X class="w-3 h-3" />
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        <div class="w-full h-px bg-border-subtle"></div>
-      </section>
-
-      <!-- Channels section -->
-      <section class="space-y-3">
-        <div class="text-[10px] font-bold text-text-tertiary uppercase tracking-widest flex items-center justify-between">
-          <span>Channels</span>
-          <span class="px-1.5 py-0.5 rounded-sm bg-bg-hover-strong text-text-secondary">{space?.channels?.length ?? 0}</span>
-        </div>
-
-        {#if !space?.channels || space.channels.length === 0}
-          <div class="rounded-md border border-border-subtle bg-bg-hover p-3 text-[13px] text-text-tertiary">No channels bound.</div>
-        {:else}
-          <div class="space-y-3">
-            {#each space.channels as channel (channel.id)}
-              <div class="border border-border-subtle rounded-[5px] bg-bg-surface overflow-hidden">
-                <div class="px-3 py-2 border-b border-border-subtle bg-bg-header-alt flex items-center gap-2">
-                  <Hash class="w-3 h-3 text-text-tertiary" />
-                  <span class="text-[12px] font-medium text-text-primary truncate">{channel.name || channel.provider}</span>
-                </div>
-                <div class="p-3">
-                  {#if channel.provider === "discord"}
-                    <div class="space-y-2 text-[12px] text-text-tertiary">
-                      <div class="flex items-center gap-2">
-                        <span class="text-text-secondary">Status:</span>
-                        <span class="capitalize">{channel.status}</span>
-                      </div>
-                    </div>
-                  {:else}
-                    <div class="text-[13px] text-text-tertiary">No configuration available.</div>
-                  {/if}
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </section>
-    </div>
-  </SettingsOverlay>
-
   <!-- Share Modal -->
   <Dialog open={showShareModal && !!shareModalSessionId} onClose={() => { showShareModal = false; }} title={hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'} maxWidth="380px">
     <div class="p-4 space-y-4">
@@ -4908,6 +5004,27 @@ $effect(() => {
   :global(body.sidebar-resizing) {
     cursor: col-resize;
     user-select: none;
+  }
+
+  /* Heatmap */
+  .heatmap-cell {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    transition: background-color 120ms ease;
+  }
+  .heatmap-0 { background: var(--bg-elevated, rgba(0,0,0,0.03)); }
+  .heatmap-1 { background: oklch(0.55 0.22 25 / 0.35); }
+  .heatmap-2 { background: oklch(0.55 0.22 25 / 0.55); }
+  .heatmap-3 { background: oklch(0.55 0.22 25 / 0.75); }
+  .heatmap-4 { background: oklch(0.55 0.22 25 / 0.95); }
+
+  @media (prefers-color-scheme: dark) {
+    .heatmap-0 { background: var(--bg-elevated, rgba(255,255,255,0.05)); }
+    .heatmap-1 { background: oklch(0.65 0.2 25 / 0.35); }
+    .heatmap-2 { background: oklch(0.65 0.2 25 / 0.55); }
+    .heatmap-3 { background: oklch(0.65 0.2 25 / 0.75); }
+    .heatmap-4 { background: oklch(0.65 0.2 25 / 0.95); }
   }
 
   @keyframes cohub-scroll-to-bottom-in {
