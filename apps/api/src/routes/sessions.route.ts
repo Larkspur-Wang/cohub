@@ -40,9 +40,6 @@ router.get("/:id/messages", async (c) => {
     return c.json({ message: "not found" }, 404);
   }
 
-  const space = await getSpaceById(session.spaceId);
-  if (!space) return c.json({ message: "space not found" }, 404);
-
   const cursorParam = c.req.query("cursor");
   const cursor = cursorParam ? Number(cursorParam) : undefined;
   const pageLimit = Math.min(Number(c.req.query("limit") ?? 30), 100) || 30;
@@ -58,7 +55,6 @@ router.get("/:id/messages", async (c) => {
   const messages = hasMore ? rows.slice(0, pageLimit) : rows;
 
   return c.json({
-    space,
     session,
     messages,
     hasMore,

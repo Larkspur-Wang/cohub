@@ -97,13 +97,11 @@ export type SpaceCreateResponse = {
 export type SpaceListItem = SpaceRecord;
 
 export type SessionMessagesResponse = {
-  space: SpaceRecord;
   session: SessionRecord;
   messages: MessageRecord[];
 };
 
 export type SessionMessagesPaginatedResponse = {
-  space: SpaceRecord;
   session: SessionRecord;
   messages: MessageRecord[];
   hasMore: boolean;
