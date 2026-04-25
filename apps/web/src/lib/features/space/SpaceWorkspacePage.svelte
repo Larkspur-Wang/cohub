@@ -390,6 +390,7 @@ let shouldAutoFollow = $state(true);
 let userScrolledUp = $state(false);
 let hasNewMessagesBelow = $state(false);
 let autoScrollGuard = $state(false);
+let restoringBottomSessionId = $state<string | null>(null);
 let showScrollToBottom = $state(false);
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
@@ -1515,7 +1516,15 @@ async function loadSessionState(sessionId: string, force = false) {
 	if (existing?.loaded && !force) return;
 
 	const cached = await messageCache.get(sessionId);
-	if (cached && cached.messages.length > 0 && !force) {
+	const anchor = scrollAnchorBySession.get(sessionId);
+	const canBootstrapFromCache = Boolean(
+		!force &&
+			cached &&
+			cached.messages.length > 0 &&
+			anchor &&
+			cached.messages.some((message) => message.sequence === anchor.sequence),
+	);
+	if (cached && canBootstrapFromCache) {
 		sessionPendingStore.reconcilePersisted(sessionId, cached.messages);
 		sessionStateById = {
 			...sessionStateById,
@@ -2170,7 +2179,7 @@ async function forceScrollToBottom() {
 
 function updateAutoFollow() {
 	if (!listEl) return;
-	const threshold = 140;
+	const threshold = 60;
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
 	if (!autoScrollGuard && distanceFromBottom > threshold) {
@@ -2181,6 +2190,8 @@ function updateAutoFollow() {
 		userScrolledUp = false;
 		hasNewMessagesBelow = false;
 	}
+	// Button shows whenever user scrolled up and content is actually scrollable.
+	// hasNewMessagesBelow only affects the label/style, not visibility.
 	showScrollToBottom =
 		userScrolledUp && listEl.scrollHeight > listEl.clientHeight + 24;
 }
@@ -3007,21 +3018,44 @@ $effect(() => {
 	const finishRestore = () => {
 		suppressScrollSaveSessionIds.delete(targetId);
 		pendingRestoreSessionId = null;
+		if (restoringBottomSessionId === targetId) {
+			restoringBottomSessionId = null;
+		}
 		updateAutoFollow();
 	};
 
 	const restoreToBottom = () => {
-		requestAnimationFrame(() => {
-			if (!listEl) {
+		restoringBottomSessionId = targetId;
+		shouldAutoFollow = true;
+		userScrolledUp = false;
+		hasNewMessagesBelow = false;
+		const stabilizeBottom = (
+			remainingFrames = 8,
+			lastHeight = -1,
+			sameHeightFrames = 0,
+		) => {
+			requestAnimationFrame(() => {
+				if (!listEl || activeSessionId !== targetId) {
+					finishRestore();
+					return;
+				}
+				scrollToBottomNow();
+				const currentHeight = listEl.scrollHeight;
+				const nextSameHeightFrames =
+					currentHeight === lastHeight ? sameHeightFrames + 1 : 0;
+				if (remainingFrames > 0 && nextSameHeightFrames < 2) {
+					stabilizeBottom(
+						remainingFrames - 1,
+						currentHeight,
+						nextSameHeightFrames,
+					);
+					return;
+				}
+				writeBottomScrollAnchor(targetId);
 				finishRestore();
-				return;
-			}
-			scrollToBottomNow();
-			shouldAutoFollow = true;
-			userScrolledUp = false;
-			writeBottomScrollAnchor(targetId);
-			finishRestore();
-		});
+			});
+		};
+		stabilizeBottom();
 	};
 
 	if (!anchor || !hasCachedAnchor) {
@@ -3147,7 +3181,11 @@ $effect(() => {
 	const ro = new ResizeObserver(() => {
 		if (!listEl) return;
 		const currentHeight = listEl.scrollHeight;
-		if (currentHeight > prevHeight && shouldAutoFollow && !autoScrollGuard) {
+		if (
+			currentHeight > prevHeight &&
+			(shouldAutoFollow || restoringBottomSessionId === activeSessionId) &&
+			!autoScrollGuard
+		) {
 			scrollToBottomNow();
 		}
 		prevHeight = currentHeight;
@@ -4163,7 +4201,8 @@ $effect(() => {
           <button
             type="button"
             aria-label="Scroll to bottom"
-            class="absolute left-1/2 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-20 -translate-x-1/2 inline-flex min-h-11 items-center gap-2 rounded-full border border-border-subtle/90 bg-bg-elevated/98 px-3.5 py-2 text-[12px] font-medium text-text-primary shadow-[0_12px_28px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,transform,background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-brand/30 hover:bg-bg-content hover:shadow-[0_16px_34px_rgba(15,23,42,0.26)]"
+            class="absolute left-1/2 z-20 -translate-x-1/2 inline-flex min-h-11 items-center gap-2 rounded-full border border-border-subtle/90 bg-bg-elevated/98 px-3.5 py-2 text-[12px] font-medium text-text-primary shadow-[0_12px_28px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,transform,background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-brand/30 hover:bg-bg-content hover:shadow-[0_16px_34px_rgba(15,23,42,0.26)]"
+            style:bottom={imageAttachments.length > 0 ? "calc(env(safe-area-inset-bottom) + 13.25rem)" : "calc(env(safe-area-inset-bottom) + 5.75rem)"}
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);"
             onclick={() => {
               shouldAutoFollow = true;
