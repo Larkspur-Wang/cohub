@@ -1550,12 +1550,31 @@ async function loadSessionState(sessionId: string, force = false) {
 		return;
 	}
 
+	const sessionObj =
+		existing?.session ?? spaceSessions.find((s) => s.id === sessionId);
+	// New session with no messages — skip the unnecessary listPaginated call
+	if (sessionObj && !sessionObj.lastMessageId) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: sessionObj,
+				messages: [],
+				loading: false,
+				loaded: true,
+				error: "",
+				hasMore: false,
+				loadingOlder: false,
+				oldestCursor: undefined,
+			},
+		};
+		return;
+	}
+
 	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
 	sessionStateById = {
 		...sessionStateById,
 		[sessionId]: {
-			session:
-				existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
+			session: sessionObj,
 			messages: existing?.messages ?? [],
 			loading: true,
 			loaded: existing?.loaded ?? false,
@@ -2804,7 +2823,20 @@ function handleCreateNewSession() {
 			activeSessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			updateUrlSession(newSession.id);
-			await loadSessionState(newSession.id, true);
+			// New session has no messages — skip the unnecessary listPaginated call
+			sessionStateById = {
+				...sessionStateById,
+				[newSession.id]: {
+					session: newSession,
+					messages: [],
+					loading: false,
+					loaded: true,
+					error: "",
+					hasMore: false,
+					loadingOlder: false,
+					oldestCursor: undefined,
+				},
+			};
 			shouldAutoFollow = true;
 			await forceScrollToBottom();
 		})
