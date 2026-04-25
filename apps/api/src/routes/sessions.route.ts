@@ -104,6 +104,7 @@ router.post("/:id/messages", async (c) => {
         source: "web",
         model: body.model ?? null,
         provider: body.provider ?? null,
+        actorUserId: user?.uuid ?? null,
         authorUuid: user?.uuid ?? null,
         authorName: (user?.nick_name as string | undefined) ?? null,
         authorAvatar: (user?.avatar_url as string | undefined) ?? null,
