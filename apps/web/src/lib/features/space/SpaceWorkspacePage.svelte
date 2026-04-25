@@ -1921,7 +1921,12 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				Boolean(
 					streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId],
 				);
-			const mergedContent = mergeDeltaBlocks(streamingContentBlocks, content);
+			const shouldStartFreshPreview =
+				hadPreviousStreamingPreview &&
+				streamStatus !== "streaming" &&
+				streamingSessionId === currentActiveSessionId;
+			const previewBase = shouldStartFreshPreview ? [] : streamingContentBlocks;
+			const mergedContent = mergeDeltaBlocks(previewBase, content);
 			streamingContentBlocks = mergedContent;
 			if (streamingAnchorUserMessageId) {
 				streamingDraftAnchorUserMessageIdBySessionId = {
@@ -1929,15 +1934,17 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					[currentActiveSessionId]: streamingAnchorUserMessageId,
 				};
 			}
-			if (
-				hadPreviousStreamingPreview &&
-				streamStatus !== "streaming" &&
-				streamingSessionId === currentActiveSessionId
-			) {
+			if (shouldStartFreshPreview) {
 				streamingDraftTruncatedStartBySessionId = {
 					...streamingDraftTruncatedStartBySessionId,
 					[currentActiveSessionId]: false,
 				};
+				if (!streamingAnchorUserMessageId) {
+					streamingDraftAnchorUserMessageIdBySessionId = {
+						...streamingDraftAnchorUserMessageIdBySessionId,
+						[currentActiveSessionId]: null,
+					};
+				}
 			}
 			if (
 				!hasExistingStreamingState &&
