@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.1 (2026-04-26)
+
+### Bug Fixes
+
+- **observability**: ensure OTel instrumentation runs before modules are loaded
+- **agent**: set anchorUserMessageId in stream_update events
+
+### Refactoring
+
+- **web**: move mobile session rename action sheet to global layout
+
 ## v1.1.0 (2026-04-26)
 
 ### Features
