@@ -95,7 +95,9 @@ import {
   const toolResult = content[1] as Extract<ContentBlock, { type: "tool_result" }>;
   assert.equal(toolUse._meta?.toolStatus, "done");
   assert.equal(toolUse._meta?.summary, "/tmp/a");
+  assert.equal(toolUse._meta?.streamIndex, 0);
   assert.equal(toolResult.content, "file content");
+  assert.equal(toolResult._meta?.streamIndex, 0);
 }
 
 {
@@ -113,7 +115,9 @@ import {
   const toolResult = content.find((block) => block.type === "tool_result") as Extract<ContentBlock, { type: "tool_result" }>;
   assert.equal(toolUse._meta?.toolStatus, "failed", "should preserve failed tool status");
   assert.equal(toolUse._meta?.summary, "/tmp/b", "should preserve summary when tool_use appears after start event");
+  assert.equal(toolUse._meta?.streamIndex, 1);
   assert.equal(toolResult.is_error, true);
+  assert.equal(toolResult._meta?.streamIndex, 1);
 }
 
 {
@@ -137,6 +141,10 @@ import {
     ["text", "tool_use", "tool_result", "text"],
     "full flow should preserve assistant order and injected tool result position",
   );
+  assert.equal(content[0]?._meta?.streamIndex, 0);
+  assert.equal(content[1]?._meta?.streamIndex, 1);
+  assert.equal(content[2]?._meta?.streamIndex, 1);
+  assert.equal(content[3]?._meta?.streamIndex, 2);
 }
 
 console.log("assistant-stream-state checks passed");

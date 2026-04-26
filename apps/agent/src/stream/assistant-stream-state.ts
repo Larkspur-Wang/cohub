@@ -27,7 +27,7 @@ type StreamBlock =
   | {
       kind: "image";
       contentIndex: number;
-      source: Extract<ContentBlock, { type: "image" }>['source'];
+      source: Extract<ContentBlock, { type: "image" }>["source"];
     };
 
 type ToolMeta = {
@@ -250,23 +250,46 @@ export function applyToolExecutionEnd(
   return { ...state, toolMetaById, toolResultsById };
 }
 
+function withStreamIndexMeta(
+  meta: Record<string, unknown> | undefined,
+  streamIndex: number,
+): Record<string, unknown> {
+  return {
+    ...(meta ?? {}),
+    streamIndex,
+  };
+}
+
 export function projectAssistantStreamState(state: AssistantStreamState): ContentBlock[] {
   const orderedBlocks = [...state.blocks].sort((a, b) => a.contentIndex - b.contentIndex);
   const content: ContentBlock[] = [];
 
   for (const block of orderedBlocks) {
     if (block.kind === "thinking") {
-      content.push({ type: "thinking", thinking: block.thinking, ...(block.signature ? { signature: block.signature } : {}) });
+      content.push({
+        type: "thinking",
+        thinking: block.thinking,
+        ...(block.signature ? { signature: block.signature } : {}),
+        _meta: withStreamIndexMeta(undefined, block.contentIndex),
+      });
       continue;
     }
 
     if (block.kind === "text") {
-      content.push({ type: "text", text: block.text });
+      content.push({
+        type: "text",
+        text: block.text,
+        _meta: withStreamIndexMeta(undefined, block.contentIndex),
+      });
       continue;
     }
 
     if (block.kind === "image") {
-      content.push({ type: "image", source: block.source });
+      content.push({
+        type: "image",
+        source: block.source,
+        _meta: withStreamIndexMeta(undefined, block.contentIndex),
+      });
       continue;
     }
 
@@ -277,7 +300,7 @@ export function projectAssistantStreamState(state: AssistantStreamState): Conten
       id: block.id,
       name: block.name,
       input: block.input,
-      ...(meta ? { _meta: meta } : {}),
+      _meta: withStreamIndexMeta(meta, block.contentIndex),
     });
 
     const result = state.toolResultsById.get(block.id);
@@ -287,7 +310,10 @@ export function projectAssistantStreamState(state: AssistantStreamState): Conten
         tool_use_id: result.tool_use_id,
         content: result.content,
         is_error: result.is_error,
-        ...(result._meta ? { _meta: result._meta } : {}),
+        _meta: withStreamIndexMeta(
+          (result._meta as Record<string, unknown> | undefined) ?? undefined,
+          block.contentIndex,
+        ),
       });
     }
   }

@@ -66,6 +66,7 @@ import { sdk } from "$lib/sdk";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
+	mergeStreamingDeltaBlocks,
 } from "$lib/session-render";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -1841,94 +1842,6 @@ function shouldHandleWsEvents(): boolean {
 	return pageMounted && pageVisible && pageOnline;
 }
 
-/**
- * Merge delta content blocks into existing streaming state.
- * Uses ordinal indexing (matching the backend's `computeDelta`) to
- * correctly append to the nth text/thinking block, even when multiple
- * blocks of the same type exist (e.g. text → tool_use → text).
- * tool_use/tool_result blocks are upserted by id/tool_use_id.
- */
-function cloneContentBlock(block: ContentBlock): ContentBlock {
-	if (block.type === "text") return { ...block };
-	if (block.type === "thinking") return { ...block };
-	if (block.type === "image") {
-		return {
-			...block,
-			source: { ...block.source },
-		};
-	}
-	if (block.type === "tool_use") {
-		return {
-			...block,
-			input: { ...block.input },
-		};
-	}
-	if (block.type === "tool_result") {
-		return {
-			...block,
-			content: Array.isArray(block.content)
-				? block.content.flatMap((item: unknown): ContentBlock[] =>
-						typeof item === "object" && item !== null && "type" in item
-							? [cloneContentBlock(item as ContentBlock)]
-							: [],
-					)
-				: block.content,
-		};
-	}
-	return { ...block };
-}
-
-function mergeDeltaBlocks(
-	existing: ContentBlock[],
-	delta: ContentBlock[],
-): ContentBlock[] {
-	if (delta.length === 0) return existing;
-
-	const result = existing.map((block) => cloneContentBlock(block));
-	// Track ordinal position per append-only type, matching backend computeDelta
-	const ordinal = { text: 0, thinking: 0 };
-
-	for (const block of delta) {
-		if (block.type === "text") {
-			const idx = ordinal.text++;
-			const existingTexts = result.filter(
-				(b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
-			);
-			const target = existingTexts[idx];
-			if (target) {
-				target.text += block.text;
-			} else {
-				result.push(cloneContentBlock(block));
-			}
-		} else if (block.type === "thinking") {
-			const idx = ordinal.thinking++;
-			const existingThinkings = result.filter(
-				(b): b is Extract<ContentBlock, { type: "thinking" }> =>
-					b.type === "thinking",
-			);
-			const target = existingThinkings[idx];
-			if (target) {
-				target.thinking += block.thinking;
-			} else {
-				result.push(cloneContentBlock(block));
-			}
-		} else {
-			const idKey = block.type === "tool_use" ? "id" : "tool_use_id";
-			const idx = result.findIndex(
-				(b) =>
-					(b as Record<string, unknown>)[idKey] ===
-					(block as Record<string, unknown>)[idKey],
-			);
-			if (idx !== -1) {
-				Object.assign(result[idx], cloneContentBlock(block));
-			} else {
-				result.push(cloneContentBlock(block));
-			}
-		}
-	}
-	return result;
-}
-
 async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
@@ -2027,7 +1940,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				streamStatus !== "streaming" &&
 				streamingSessionId === currentActiveSessionId;
 			const previewBase = shouldStartFreshPreview ? [] : streamingContentBlocks;
-			const mergedContent = mergeDeltaBlocks(previewBase, content);
+			const mergedContent = mergeStreamingDeltaBlocks(previewBase, content);
 			streamingContentBlocks = mergedContent;
 			if (streamingAnchorUserMessageId) {
 				streamingDraftAnchorUserMessageIdBySessionId = {

@@ -131,61 +131,77 @@ function resetStreamState(handle: SessionHandle) {
   };
 }
 
-function groupByType(blocks: ContentBlock[]) {
-  const result: Record<string, ContentBlock[]> = {
-    text: [],
-    thinking: [],
-    tool_use: [],
-    tool_result: [],
-  };
-  for (const b of blocks) {
-    const arr = result[b.type];
-    if (arr) {
-      arr.push(b);
-    }
-  }
-  return result;
+function getStreamIndex(block: ContentBlock): number | null {
+  const value = block._meta?.streamIndex;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function buildBlockIdentity(block: ContentBlock): string {
+  const streamIndex = getStreamIndex(block);
+  if (streamIndex != null) return `stream:${streamIndex}`;
+  if (block.type === "tool_use") return `tool_use:${block.id}`;
+  if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
+  return `${block.type}:${JSON.stringify(block)}`;
 }
 
 /** Compute the minimal delta between the current full content and the last-sent snapshot. */
 function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[] {
   const delta: ContentBlock[] = [];
-  const lastByType = groupByType(last);
-  const textBlocks = lastByType.text as Extract<ContentBlock, { type: "text" }>[];
-  const thinkingBlocks = lastByType.thinking as Extract<ContentBlock, { type: "thinking" }>[];
-  const toolUseBlocks = lastByType.tool_use as Extract<ContentBlock, { type: "tool_use" }>[];
-  const toolResultBlocks = lastByType.tool_result as Extract<ContentBlock, { type: "tool_result" }>[];
-
-  // Track ordinal position per type (only for append-only types)
-  const ordinal = { text: 0, thinking: 0 };
+  const lastByIdentity = new Map(last.map((block) => [buildBlockIdentity(block), block]));
 
   for (const block of full) {
+    const prev = lastByIdentity.get(buildBlockIdentity(block));
+
     if (block.type === "text") {
-      const idx = ordinal.text++;
-      const prev = textBlocks[idx];
-      if (!prev) {
+      const prevText = prev?.type === "text" ? prev.text : null;
+      if (prevText == null) {
         delta.push(block);
-      } else if (block.text.length > prev.text.length) {
-        const suffix = block.text.slice(prev.text.length);
-        if (suffix) delta.push({ type: "text", text: suffix, _meta: block._meta });
+      } else if (block.text.length > prevText.length) {
+        const suffix = block.text.slice(prevText.length);
+        if (suffix) {
+          delta.push({
+            type: "text",
+            text: suffix,
+            ...(block._meta ? { _meta: block._meta } : {}),
+          });
+        }
       }
     } else if (block.type === "thinking") {
-      const idx = ordinal.thinking++;
-      const prev = thinkingBlocks[idx];
-      if (!prev) {
+      const prevThinking = prev?.type === "thinking" ? prev.thinking : null;
+      if (prevThinking == null) {
         delta.push(block);
-      } else if (block.thinking.length > prev.thinking.length) {
-        const suffix = block.thinking.slice(prev.thinking.length);
-        if (suffix) delta.push({ type: "thinking", thinking: suffix, signature: block.signature, _meta: block._meta });
+      } else if (block.thinking.length > prevThinking.length) {
+        const suffix = block.thinking.slice(prevThinking.length);
+        if (suffix) {
+          delta.push({
+            type: "thinking",
+            thinking: suffix,
+            ...(block.signature ? { signature: block.signature } : {}),
+            ...(block._meta ? { _meta: block._meta } : {}),
+          });
+        }
       }
     } else if (block.type === "tool_use") {
-      const prev = toolUseBlocks.find((b) => b.id === block.id);
-      if (!prev || prev._meta?.toolStatus !== block._meta?.toolStatus) {
+      if (
+        !prev ||
+        prev.type !== "tool_use" ||
+        prev._meta?.toolStatus !== block._meta?.toolStatus ||
+        JSON.stringify(prev.input) !== JSON.stringify(block.input) ||
+        prev.name !== block.name
+      ) {
         delta.push(block);
       }
     } else if (block.type === "tool_result") {
-      const prev = toolResultBlocks.find((b) => b.tool_use_id === block.tool_use_id);
-      if (!prev || JSON.stringify(prev.content) !== JSON.stringify(block.content)) {
+      if (
+        !prev ||
+        prev.type !== "tool_result" ||
+        JSON.stringify(prev.content) !== JSON.stringify(block.content) ||
+        prev.is_error !== block.is_error
+      ) {
+        delta.push(block);
+      }
+    } else {
+      if (!prev || JSON.stringify(prev) !== JSON.stringify(block)) {
         delta.push(block);
       }
     }

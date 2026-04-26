@@ -184,7 +184,9 @@ async function getMessages(sessionId: string): Promise<MessageRecord[]> {
 
 type ToolUseBlock = { type: "tool_use"; id: string; name: string; input: Record<string, unknown>; _meta?: Record<string, unknown> };
 type ToolResultBlock = { type: "tool_result"; tool_use_id: string; content: string | unknown[]; is_error?: boolean; _meta?: Record<string, unknown> };
-type ContentBlock = ToolUseBlock | ToolResultBlock | { type: "text"; text: string } | { type: "thinking"; thinking: string };
+type TextBlock = { type: "text"; text: string; _meta?: Record<string, unknown> };
+type ThinkingBlock = { type: "thinking"; thinking: string; _meta?: Record<string, unknown> };
+type ContentBlock = ToolUseBlock | ToolResultBlock | TextBlock | ThinkingBlock;
 
 interface WsSessionEvent {
   type: string;
@@ -412,6 +414,33 @@ async function main() {
 
         ok("progress 事件 content 块", `tool_use=${toolUseBlocks.length}, tool_result=${toolResultBlocks.length}, 总事件=${progressEvents.length}`);
 
+        const streamIndexedBlocks = allBlocks.filter((b) => {
+          const meta = (b as { _meta?: Record<string, unknown> })._meta;
+          return typeof meta?.streamIndex === "number";
+        });
+        if (allBlocks.length > 0) {
+          assert.equal(
+            streamIndexedBlocks.length,
+            allBlocks.length,
+            "所有 progress content block 都应带 _meta.streamIndex",
+          );
+          ok("progress streamIndex", `全部 ${streamIndexedBlocks.length} 个块都带 streamIndex`);
+        }
+
+        if (toolUseBlocks.length > 0 && toolResultBlocks.length > 0) {
+          const toolUseById = new Map(toolUseBlocks.map((b) => [b.id, b]));
+          for (const tr of toolResultBlocks.slice(0, 10)) {
+            const toolUse = toolUseById.get(tr.tool_use_id);
+            if (!toolUse) continue;
+            assert.equal(
+              tr._meta?.streamIndex,
+              toolUse._meta?.streamIndex,
+              `tool_result(${tr.tool_use_id}) 应与对应 tool_use 共享 streamIndex`,
+            );
+          }
+          ok("progress tool streamIndex 对齐", `已验证 ${Math.min(toolResultBlocks.length, 10)} 个 tool_result`);
+        }
+
         if (toolUseBlocks.length > 0) {
           const toolNames = [...new Set(toolUseBlocks.map((b) => b.name))];
           ok("tool_use 块", `工具名: ${toolNames.join(", ")}`);
@@ -442,6 +471,9 @@ async function main() {
             ok("turn.final content", `块类型: ${types.join(", ")}, 共 ${content.length} 块`);
             const toolUseCount = content.filter((b) => b.type === "tool_use").length;
             const toolResultCount = content.filter((b) => b.type === "tool_result").length;
+            const indexedCount = content.filter((b) => typeof (b as { _meta?: Record<string, unknown> })._meta?.streamIndex === "number").length;
+            assert.equal(indexedCount, content.length, "turn.final content block 都应带 _meta.streamIndex");
+            ok("turn.final streamIndex", `全部 ${indexedCount} 个块都带 streamIndex`);
             if (toolUseCount > 0) {
               ok("turn.final 中 tool_use", `${toolUseCount} 个`);
             }
@@ -464,6 +496,11 @@ async function main() {
             ok("message.persisted", `role=${msg.role}, sequence=${msg.sequence}`);
             const toolUseCount = msg.content?.filter((b) => (b as Record<string, unknown>).type === "tool_use").length ?? 0;
             const toolResultCount = msg.content?.filter((b) => (b as Record<string, unknown>).type === "tool_result").length ?? 0;
+            const indexedCount = msg.content?.filter((b) => typeof (b as { _meta?: Record<string, unknown> })._meta?.streamIndex === "number").length ?? 0;
+            if ((msg.content?.length ?? 0) > 0) {
+              assert.equal(indexedCount, msg.content.length, "persisted message content block 都应带 _meta.streamIndex");
+              console.log(`      ${C.dim}streamIndex=${indexedCount}/${msg.content.length}${C.reset}`);
+            }
             if (toolUseCount > 0 || toolResultCount > 0) {
               console.log(`      ${C.dim}tool_use=${toolUseCount}, tool_result=${toolResultCount}${C.reset}`);
             }
