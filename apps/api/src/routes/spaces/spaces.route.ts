@@ -38,6 +38,7 @@ function getSpaceProvisionParams(
   return {
     spaceId: space.id,
     userUuid: user.uuid,
+    ownerUserUuid: space.userUuid,
     extraEnv,
   };
 }
@@ -380,11 +381,23 @@ router.patch("/:id", async (c) => {
 router.post("/:id/checkpoints", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
-  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "checkpoint.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const body = await c.req.json<{ description?: string }>().catch(() => null);
   const description = body?.description?.trim() || null;
+
+  if (space.name === "config") {
+    const duplicateConfigSpaces = await db
+      .select({ id: spaces.id })
+      .from(spaces)
+      .where(and(eq(spaces.userUuid, space.userUuid), eq(spaces.name, "config")))
+      .limit(2);
+    if (duplicateConfigSpaces.length > 1) {
+      return c.json({ message: "multiple config spaces found for this user" }, 409);
+    }
+  }
 
   const { taskRunId } = await enqueueTask({
     type: "save_checkpoint",

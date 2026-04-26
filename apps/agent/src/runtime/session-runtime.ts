@@ -27,6 +27,7 @@ type ToolLike = {
 
 export type CreateCohubAgentSessionOptions = {
   cwd: string;
+  userId?: string | null;
   sessionManager: SessionManager;
   modelRegistry: CohubModelRegistry;
   tools: ToolLike[];
@@ -85,6 +86,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
 
   const systemPrompt = buildCohubSystemPrompt({
     cwd: options.cwd,
+    userId: options.userId,
     selectedTools: options.tools.map((tool) => tool.name),
     toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
   });
@@ -132,6 +134,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     async reload() {
       const nextPrompt = buildCohubSystemPrompt({
         cwd: options.cwd,
+        userId: options.userId,
         selectedTools: options.tools.map((tool) => tool.name),
         toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
       });

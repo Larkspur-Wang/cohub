@@ -73,6 +73,7 @@ class FakeSession {
 function createHandle(session: FakeSession): SessionHandle {
   return {
     spaceId: "space-1",
+    spaceOwnerUserId: null,
     sessionKey: "space-1:session-1",
     sessionId: "session-1",
     session: session as unknown as SessionHandle["session"],

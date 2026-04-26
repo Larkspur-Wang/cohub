@@ -123,6 +123,7 @@ const tryCreatePod = async (spaceId: string, pod: V1Pod, retry = 0): Promise<{ p
 export const reconcileSpaceSandbox = async (input: {
   spaceId: string;
   userUuid: string;
+  ownerUserUuid?: string;
   mode: "ensure" | "replace";
   reason: "space_created" | "manual_recreate";
   extraEnv?: Array<{ name: string; value: string }>;
@@ -167,6 +168,7 @@ export const reconcileSpaceSandbox = async (input: {
   const pod = renderSandboxPodTemplate({
     SPACE_ID: input.spaceId,
     USER_ID: input.userUuid,
+    OWNER_USER_ID: input.ownerUserUuid ?? input.userUuid,
     ENV: config.env,
     SPACE_STORAGE_PVC: config.spaceStoragePvc,
     SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
@@ -177,6 +179,8 @@ export const reconcileSpaceSandbox = async (input: {
       { name: "SPACE_ID", value: input.spaceId },
       { name: "WORKSPACE_DIR", value: "/workspace" },
       { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
+      { name: "PLATFORM_AGENT_DIR", value: "/configs/platform/.pi/agent" },
+      { name: "USER_CONFIG_DIR", value: "/configs/user" },
       { name: "IMAGE_VERSION", value: toSandboxImageVersion(config.sandboxImage) },
       { name: "POD_IP", valueFrom: { fieldRef: { fieldPath: "status.podIP" } } },
       {
@@ -215,11 +219,13 @@ export const reconcileSpaceSandbox = async (input: {
 export const provisionSpaceSandbox = async (input: {
   spaceId: string;
   userUuid: string;
+  ownerUserUuid?: string;
   extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   return reconcileSpaceSandbox({
     spaceId: input.spaceId,
     userUuid: input.userUuid,
+    ownerUserUuid: input.ownerUserUuid,
     mode: "ensure",
     reason: "space_created",
     extraEnv: input.extraEnv,

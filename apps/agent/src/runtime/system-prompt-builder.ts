@@ -3,9 +3,14 @@ import { basename, join } from "node:path";
 import {
   getAgentPlatformAgentPath,
   getAgentPlatformSkillsPath,
+  getAgentUserAgentsPath,
+  getAgentUserConfigPath,
+  getAgentUserSkillsPath,
   getAgentWorkspaceAgentsPath,
   getAgentWorkspaceSkillsPath,
   SANDBOX_PLATFORM_SKILLS_PATH,
+  SANDBOX_USER_CONFIG_PATH,
+  SANDBOX_USER_SKILLS_PATH,
   SANDBOX_WORKSPACE_PATH,
   SANDBOX_WORKSPACE_SKILLS_PATH,
 } from "./paths.js";
@@ -30,6 +35,7 @@ type LoadedSkill = {
 
 export type BuildCohubSystemPromptOptions = {
   cwd: string;
+  userId?: string | null;
   selectedTools?: string[];
   toolSnippets?: Record<string, string>;
   promptGuidelines?: string[];
@@ -68,20 +74,20 @@ function loadFirstExisting(paths: string[]): string | undefined {
   return undefined;
 }
 
-function loadProjectContextFiles(cwd: string): LoadedContextFile[] {
+function loadContextFilesFromRoot(root: string, sandboxRoot: string): LoadedContextFile[] {
   const files: LoadedContextFile[] = [];
-  const agentsContent = readTextIfExists(join(cwd, "AGENTS.md"));
+  const agentsContent = readTextIfExists(join(root, "AGENTS.md"));
   if (agentsContent) {
     files.push({
-      sandboxPath: `${SANDBOX_WORKSPACE_PATH}/AGENTS.md`,
+      sandboxPath: `${sandboxRoot}/AGENTS.md`,
       content: agentsContent,
     });
   }
 
-  const claudeContent = readTextIfExists(join(cwd, "CLAUDE.md"));
+  const claudeContent = readTextIfExists(join(root, "CLAUDE.md"));
   if (claudeContent) {
     files.push({
-      sandboxPath: `${SANDBOX_WORKSPACE_PATH}/CLAUDE.md`,
+      sandboxPath: `${sandboxRoot}/CLAUDE.md`,
       content: claudeContent,
     });
   }
@@ -146,11 +152,17 @@ function loadSkillsFromDir(input: {
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function loadMergedSkills(cwd: string): LoadedSkill[] {
+function loadMergedSkills(cwd: string, userId?: string | null): LoadedSkill[] {
   const platformSkills = loadSkillsFromDir({
     agentDir: getAgentPlatformSkillsPath(),
     sandboxDir: SANDBOX_PLATFORM_SKILLS_PATH,
   });
+  const userSkills = userId
+    ? loadSkillsFromDir({
+        agentDir: getAgentUserSkillsPath(userId),
+        sandboxDir: SANDBOX_USER_SKILLS_PATH,
+      })
+    : [];
   const workspaceSkills = loadSkillsFromDir({
     agentDir: getAgentWorkspaceSkillsPath(cwd),
     sandboxDir: SANDBOX_WORKSPACE_SKILLS_PATH,
@@ -158,6 +170,7 @@ function loadMergedSkills(cwd: string): LoadedSkill[] {
 
   const merged = new Map<string, LoadedSkill>();
   for (const skill of platformSkills) merged.set(skill.name, skill);
+  for (const skill of userSkills) merged.set(skill.name, skill);
   for (const skill of workspaceSkills) merged.set(skill.name, skill);
   return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -183,27 +196,38 @@ function formatSkillsForPrompt(skills: LoadedSkill[]): string {
 export function buildCohubSystemPrompt(options: BuildCohubSystemPromptOptions): string {
   const {
     cwd,
+    userId,
     selectedTools = ["read", "bash", "edit", "write"],
     toolSnippets = {},
     promptGuidelines = [],
   } = options;
 
   const workspaceAgentDir = getAgentWorkspaceAgentsPath(cwd);
+  const userAgentDir = userId ? getAgentUserAgentsPath(userId) : null;
   const systemPrompt = loadFirstExisting([
     join(workspaceAgentDir, "SYSTEM.md"),
+    ...(userAgentDir ? [join(userAgentDir, "SYSTEM.md")] : []),
     join(getAgentPlatformAgentPath(), "SYSTEM.md"),
   ]) ?? FALLBACK_SYSTEM_PROMPT;
-  const appendSystemPrompt = loadFirstExisting([
-    join(workspaceAgentDir, "APPEND_SYSTEM.md"),
-    join(getAgentPlatformAgentPath(), "APPEND_SYSTEM.md"),
-  ]);
-  const projectContextFiles = loadProjectContextFiles(cwd);
-  const skills = selectedTools.includes("read") ? loadMergedSkills(cwd) : [];
 
-  const sections: string[] = [systemPrompt];
+  const appendSystemPrompts = [
+    readTextIfExists(join(getAgentPlatformAgentPath(), "APPEND_SYSTEM.md")),
+    ...(userAgentDir ? [readTextIfExists(join(userAgentDir, "APPEND_SYSTEM.md"))] : []),
+    readTextIfExists(join(workspaceAgentDir, "APPEND_SYSTEM.md")),
+  ].filter((value): value is string => Boolean(value));
 
-  if (appendSystemPrompt) {
-    sections.push(appendSystemPrompt);
+  const userContextFiles = userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : [];
+  const projectContextFiles = loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH);
+  const skills = selectedTools.includes("read") ? loadMergedSkills(cwd, userId) : [];
+
+  const sections: string[] = [systemPrompt, ...appendSystemPrompts];
+
+  if (userContextFiles.length > 0) {
+    let userContext = "# User Context\n\nUser-specific instructions and preferences:";
+    for (const file of userContextFiles) {
+      userContext += `\n\n## ${file.sandboxPath}\n\n${file.content}`;
+    }
+    sections.push(userContext);
   }
 
   if (projectContextFiles.length > 0) {

@@ -3,6 +3,7 @@ import { config } from "../config.js";
 type SandboxPodTemplateVariables = {
   SPACE_ID: string;
   USER_ID: string;
+  OWNER_USER_ID?: string;
   ENV?: string;
   SPACE_STORAGE_PVC?: string;
   SPACE_STORAGE_SUBPATH?: string;
@@ -72,6 +73,18 @@ export const SANDBOX_POD_TEMPLATE = {
             readOnly: true,
           },
           {
+            name: "space-storage",
+            mountPath: "/configs/platform/.pi/agent",
+            subPath: `${config.env === "prod" ? "configs/prod" : "configs/dev"}/platform/.pi/agent`,
+            readOnly: true,
+          },
+          {
+            name: "space-storage",
+            mountPath: "/configs/user",
+            subPath: "${SPACE_STORAGE_SUBPATH}/configs/users/${OWNER_USER_ID}",
+            readOnly: true,
+          },
+          {
             name: "public-storage",
             mountPath: "/public",
             subPath:
@@ -104,6 +117,9 @@ export function validateSandboxPodTemplateVariables(
 ) {
   assertK8sSafeName(variables.SPACE_ID, "SPACE_ID");
   assertK8sSafeName(variables.USER_ID, "USER_ID");
+  if (variables.OWNER_USER_ID) {
+    assertK8sSafeName(variables.OWNER_USER_ID, "OWNER_USER_ID");
+  }
   return variables;
 }
 

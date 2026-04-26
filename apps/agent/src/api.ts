@@ -410,6 +410,27 @@ export async function getSpaceSandbox(input: { spaceId: string }) {
   } | null>;
 }
 
+export async function getSpace(input: { spaceId: string }) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: internalHeaders(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Get space failed ${response.status}: ${text}`);
+  }
+
+  return response.json().catch(() => null) as Promise<{
+    space: {
+      id: string;
+      userUuid: string;
+      name: string;
+    } | null;
+  } | null>;
+}
+
 export async function persistUserMessage(input: {
   spaceId: string;
   sessionId: string;

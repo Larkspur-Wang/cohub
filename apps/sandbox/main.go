@@ -89,6 +89,7 @@ func main() {
 			logger.Info("workspace mount ready",
 				slog.String("workspaceDir", summary.WorkspaceDir),
 				slog.String("platformAgentsDir", summary.PlatformAgentsDir),
+				slog.String("userConfigDir", cfg.UserConfigDir),
 			)
 			state.Set("ready", nil)
 			if reportErr := reporter.Report(report.Payload{
@@ -98,6 +99,7 @@ func main() {
 					"imageVersion":      cfg.ImageVersion,
 					"workspaceDir":      summary.WorkspaceDir,
 					"platformAgentsDir": summary.PlatformAgentsDir,
+					"userConfigDir":     cfg.UserConfigDir,
 					"podIp":             cfg.PodIP,
 				},
 			}); reportErr != nil {

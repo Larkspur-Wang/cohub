@@ -2,11 +2,25 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { env } from "../env.js";
 
+const USER_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertValidUserId(userId: string) {
+  const value = userId.trim();
+  if (!USER_ID_REGEX.test(value)) {
+    throw new Error(`Invalid userId: ${userId}`);
+  }
+  return value;
+}
+
 export const SANDBOX_WORKSPACE_PATH = "/workspace";
 export const SANDBOX_PLATFORM_CONFIG_PATH = "/configs/platform";
 export const SANDBOX_PLATFORM_AGENT_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.pi/agent`;
 export const SANDBOX_PLATFORM_AGENTS_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.agents`;
 export const SANDBOX_PLATFORM_SKILLS_PATH = `${SANDBOX_PLATFORM_AGENTS_PATH}/skills`;
+export const SANDBOX_USER_CONFIG_PATH = "/configs/user";
+export const SANDBOX_USER_AGENT_PATH = `${SANDBOX_USER_CONFIG_PATH}/.pi/agent`;
+export const SANDBOX_USER_AGENTS_PATH = `${SANDBOX_USER_CONFIG_PATH}/.agents`;
+export const SANDBOX_USER_SKILLS_PATH = `${SANDBOX_USER_AGENTS_PATH}/skills`;
 export const SANDBOX_WORKSPACE_AGENTS_PATH = `${SANDBOX_WORKSPACE_PATH}/.agents`;
 export const SANDBOX_WORKSPACE_SKILLS_PATH = `${SANDBOX_WORKSPACE_AGENTS_PATH}/skills`;
 
@@ -32,6 +46,26 @@ export function getAgentPlatformModelsPath() {
 
 export function getAgentPlatformAuthPath() {
   return join(getAgentPlatformAgentPath(), "auth.json");
+}
+
+export function getAgentUserConfigPath(userId: string) {
+  return join(env.PLATFORM_CONFIG_ROOT, "users", assertValidUserId(userId));
+}
+
+export function getAgentUserAgentPath(userId: string) {
+  return join(getAgentUserConfigPath(userId), ".pi", "agent");
+}
+
+export function getAgentUserAgentsPath(userId: string) {
+  return join(getAgentUserConfigPath(userId), ".agents");
+}
+
+export function getAgentUserSkillsPath(userId: string) {
+  return join(getAgentUserAgentsPath(userId), "skills");
+}
+
+export function getAgentUserModelsPath(userId: string) {
+  return join(getAgentUserAgentPath(userId), "models.json");
 }
 
 export function getAgentWorkspacePath(spaceId: string) {

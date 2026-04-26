@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { getAgentPlatformModelsPath } from "./paths.js";
+import { getAgentPlatformModelsPath, getAgentUserModelsPath } from "./paths.js";
 
 type ModelCompat = Model<Api>["compat"];
 
@@ -55,8 +55,10 @@ export class CohubModelRegistry {
   private providerApiKeys = new Map<string, string>();
   private providerHeaders = new Map<string, Record<string, string>>();
   private loadError: string | undefined;
+  private readonly userId?: string | null;
 
-  constructor(private readonly modelsPath: string = getAgentPlatformModelsPath()) {
+  constructor(input?: { userId?: string | null }) {
+    this.userId = input?.userId ?? null;
     this.refresh();
   }
 
@@ -66,45 +68,60 @@ export class CohubModelRegistry {
     this.providerHeaders.clear();
     this.loadError = undefined;
 
-    if (!existsSync(this.modelsPath)) {
-      return;
+    const modelsPaths = [
+      getAgentPlatformModelsPath(),
+      ...(this.userId ? [getAgentUserModelsPath(this.userId)] : []),
+    ];
+
+    const mergedModels = new Map<string, Model<Api>>();
+    const errors: string[] = [];
+
+    for (const modelsPath of modelsPaths) {
+      if (!existsSync(modelsPath)) {
+        continue;
+      }
+
+      try {
+        const content = readFileSync(modelsPath, "utf-8");
+        const parsedUnknown = JSON.parse(content) as unknown;
+        if (!isModelsConfig(parsedUnknown)) {
+          errors.push(`Invalid models.json schema: missing providers object\n\nFile: ${modelsPath}`);
+          continue;
+        }
+
+        for (const [provider, providerConfig] of Object.entries(parsedUnknown.providers)) {
+          const apiKey = resolveApiKey(providerConfig.apiKey);
+          if (apiKey) this.providerApiKeys.set(provider, apiKey);
+          if (providerConfig.headers) this.providerHeaders.set(provider, providerConfig.headers);
+
+          for (const modelDef of providerConfig.models ?? []) {
+            const api = modelDef.api ?? providerConfig.api;
+            const baseUrl = modelDef.baseUrl ?? providerConfig.baseUrl;
+            if (!api || !baseUrl || !modelDef.id) continue;
+            mergedModels.set(`${provider}:${modelDef.id}`, {
+              id: modelDef.id,
+              name: modelDef.name ?? modelDef.id,
+              api: api as Api,
+              provider,
+              baseUrl,
+              reasoning: modelDef.reasoning ?? false,
+              input: modelDef.input ?? ["text"],
+              cost: modelDef.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: modelDef.contextWindow ?? 128000,
+              maxTokens: modelDef.maxTokens ?? 16384,
+              headers: modelDef.headers,
+              compat: modelDef.compat ?? providerConfig.compat,
+            } as Model<Api>);
+          }
+        }
+      } catch (error) {
+        errors.push(`Failed to load models.json: ${error instanceof Error ? error.message : String(error)}\n\nFile: ${modelsPath}`);
+      }
     }
 
-    try {
-      const content = readFileSync(this.modelsPath, "utf-8");
-      const parsedUnknown = JSON.parse(content) as unknown;
-      if (!isModelsConfig(parsedUnknown)) {
-        this.loadError = `Invalid models.json schema: missing providers object\n\nFile: ${this.modelsPath}`;
-        return;
-      }
-
-      for (const [provider, providerConfig] of Object.entries(parsedUnknown.providers)) {
-        const apiKey = resolveApiKey(providerConfig.apiKey);
-        if (apiKey) this.providerApiKeys.set(provider, apiKey);
-        if (providerConfig.headers) this.providerHeaders.set(provider, providerConfig.headers);
-
-        for (const modelDef of providerConfig.models ?? []) {
-          const api = modelDef.api ?? providerConfig.api;
-          const baseUrl = modelDef.baseUrl ?? providerConfig.baseUrl;
-          if (!api || !baseUrl || !modelDef.id) continue;
-          this.models.push({
-            id: modelDef.id,
-            name: modelDef.name ?? modelDef.id,
-            api: api as Api,
-            provider,
-            baseUrl,
-            reasoning: modelDef.reasoning ?? false,
-            input: modelDef.input ?? ["text"],
-            cost: modelDef.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: modelDef.contextWindow ?? 128000,
-            maxTokens: modelDef.maxTokens ?? 16384,
-            headers: modelDef.headers,
-            compat: modelDef.compat ?? providerConfig.compat,
-          } as Model<Api>);
-        }
-      }
-    } catch (error) {
-      this.loadError = `Failed to load models.json: ${error instanceof Error ? error.message : String(error)}\n\nFile: ${this.modelsPath}`;
+    this.models = [...mergedModels.values()];
+    if (errors.length > 0) {
+      this.loadError = errors.join("\n\n");
     }
   }
 

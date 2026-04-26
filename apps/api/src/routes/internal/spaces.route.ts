@@ -57,6 +57,25 @@ function sanitizeSandboxMeta(input: Record<string, unknown> | null | undefined) 
 
 const router = new Hono();
 
+// GET /internal/spaces/:id
+router.get("/:id", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const space = await getSpaceById(spaceId);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  return c.json({
+    space: {
+      id: space.id,
+      userUuid: space.userUuid,
+      name: space.name,
+    },
+  });
+});
+
 // POST /internal/spaces/:id/status
 router.post("/:id/status", async (c) => {
   const forbidden = ensureInternalRequest(c);

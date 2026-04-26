@@ -22,7 +22,7 @@ import {
   recoverProcessingQueueOnStartup,
   sendOutput,
 } from "./redis.js";
-import { getSpaceSandbox } from "./api.js";
+import { getSpace, getSpaceSandbox } from "./api.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
   disconnectSandboxWsClient,
@@ -46,8 +46,15 @@ const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 type NormalizedSandboxStatus = "provisioning" | "ready" | "error";
 type RuntimeSandboxStatus = "idle" | "ready" | "error";
 
+type CachedModelRegistry = {
+  registry: CohubModelRegistry;
+  lastUsedAt: number;
+};
+
+const MAX_CACHED_MODEL_REGISTRIES = 128;
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
+const modelRegistries = new Map<string, CachedModelRegistry>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
 const SESSION_IDLE_EVICTION_MS = 5 * 60 * 1000;
@@ -103,6 +110,7 @@ async function disposeSessionHandle(handle: SessionHandle, reason: string) {
     console.error(`[Agent] Failed to dispose session ${handle.sessionId}:`, error);
   } finally {
     sessionHandles.delete(handle.sessionKey);
+    evictUnusedModelRegistries();
   }
 
   try {
@@ -240,6 +248,42 @@ async function verifyInputOwnership(inputEntry: { spaceId: string; sessionId?: s
   return true;
 }
 
+function evictUnusedModelRegistries() {
+  if (modelRegistries.size <= MAX_CACHED_MODEL_REGISTRIES) return;
+
+  const activeUserIds = new Set(
+    Array.from(sessionHandles.values())
+      .map((handle) => handle.spaceOwnerUserId?.trim() || "__platform__"),
+  );
+
+  const candidates = Array.from(modelRegistries.entries())
+    .filter(([key]) => key !== "__platform__" && !activeUserIds.has(key))
+    .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+
+  while (modelRegistries.size > MAX_CACHED_MODEL_REGISTRIES && candidates.length > 0) {
+    const [key] = candidates.shift()!;
+    modelRegistries.delete(key);
+  }
+}
+
+function getModelRegistryForUser(userId: string | null | undefined) {
+  const key = userId?.trim() || "__platform__";
+  const now = Date.now();
+  const cached = modelRegistries.get(key);
+  if (cached) {
+    cached.lastUsedAt = now;
+    return cached.registry;
+  }
+
+  const registry = new CohubModelRegistry({ userId: userId?.trim() || null });
+  if (registry.getError()) {
+    console.warn(`[Agent] Model registry warning for ${key}:`, registry.getError());
+  }
+  modelRegistries.set(key, { registry, lastUsedAt: now });
+  evictUnusedModelRegistries();
+  return registry;
+}
+
 async function main() {
   console.log(`[Agent] Starting instance: ${env.AGENT_INSTANCE_ID}`);
   console.log(`[Agent] Workspace root: ${env.WORKSPACE_ROOT}`);
@@ -264,10 +308,6 @@ async function main() {
   startOwnerRenewLoop();
   await recoverProcessingQueueOnStartup();
 
-  const modelRegistry = new CohubModelRegistry();
-  if (modelRegistry.getError()) {
-    console.warn("[Agent] Model registry warning:", modelRegistry.getError());
-  }
   const tools = createSandboxCodingTools();
 
   console.log("[Agent] Listening for owner-routed input.");
@@ -295,6 +335,15 @@ async function main() {
           }
 
           const meta = (inputEntry as { meta?: Record<string, unknown> | null }).meta;
+          let spaceOwnerUserId = sessionHandles.get(getSessionKey(inputEntry.spaceId, sessionId))?.spaceOwnerUserId ?? null;
+          if (!spaceOwnerUserId) {
+            const spaceInfo = await getSpace({ spaceId: inputEntry.spaceId }).catch((error) => {
+              console.warn(`[Agent] Failed to resolve space owner for ${inputEntry.spaceId}; falling back to platform config`, error);
+              return null;
+            });
+            spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
+          }
+          const modelRegistry = getModelRegistryForUser(spaceOwnerUserId);
           const requestedProvider = meta?.provider as string | undefined;
           const requestedModel = meta?.model as string | undefined;
           const requestedModelInput = (requestedProvider && requestedModel)

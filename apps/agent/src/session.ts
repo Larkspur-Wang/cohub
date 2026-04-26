@@ -1,7 +1,7 @@
 import { existsSync, renameSync } from "node:fs";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
+import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { sendOutput } from "./redis.js";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
 import {
@@ -29,6 +29,7 @@ export type PendingUserMessage = {
 
 export type SessionHandle = {
   spaceId: string;
+  spaceOwnerUserId: string | null;
   sessionKey: string;
   sessionId: string;
   session: CohubAgentSession;
@@ -371,6 +372,12 @@ export async function loadOrCreateSessionHandle(input: {
     return null;
   });
 
+  const spaceInfo = await getSpace({ spaceId: input.spaceId }).catch((error: unknown) => {
+    console.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);
+    return null;
+  });
+  const spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
+
   const existingSessionFile = getAgentSessionFilePath(input.spaceId, input.sessionId);
   const spaceWorkspaceDir = getAgentWorkspacePath(input.spaceId);
   const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
@@ -416,6 +423,7 @@ export async function loadOrCreateSessionHandle(input: {
 
   const { session } = await createCohubAgentSession({
     cwd: spaceWorkspaceDir,
+    userId: spaceOwnerUserId,
     sessionManager,
     modelRegistry: input.modelRegistry,
     tools: input.tools,
@@ -426,6 +434,7 @@ export async function loadOrCreateSessionHandle(input: {
 
   const handle: SessionHandle = {
     spaceId: input.spaceId,
+    spaceOwnerUserId,
     sessionKey,
     sessionId: input.sessionId,
     session,
