@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.10.1 (2026-04-26)
+
+### Bug Fixes
+
+- **api**: strip correct sentinel row in message pagination
+- mount usage route under /api/spaces/:id/usage
+
 ## v0.10.0 (2026-04-25)
 
 ### Features
