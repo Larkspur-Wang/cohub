@@ -7,7 +7,7 @@ import { hasPermission } from "../../permissions.js";
 import type { AccessPolicyRole } from "../../db/schema-v2.js";
 
 const router = new Hono();
-const SIGNED_IN_VALID_ROLES = new Set<AccessPolicyRole>(["maker", "guest", null]);
+const SIGNED_IN_VALID_ROLES = new Set<AccessPolicyRole>(["builder", "guest", null]);
 const ANONYMOUS_VALID_ROLES = new Set<AccessPolicyRole>(["guest", null]);
 
 router.get("/", async (c) => {
@@ -40,7 +40,7 @@ router.put("/", async (c) => {
   const body = await c.req.json<{ signed_in_user?: AccessPolicyRole; anonymous_user?: AccessPolicyRole }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
   if (!SIGNED_IN_VALID_ROLES.has(body.signed_in_user ?? null) || !ANONYMOUS_VALID_ROLES.has(body.anonymous_user ?? null)) {
-    return c.json({ message: "access role must be guest, maker (signed-in only), or null" }, 400);
+    return c.json({ message: "access role must be guest, builder (signed-in only), or null" }, 400);
   }
 
   const [policy] = await db

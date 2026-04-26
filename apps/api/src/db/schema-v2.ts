@@ -14,8 +14,8 @@ import {
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { TaskPayload } from "@neta-art/cohub-protocol/task";
 
-export type SpaceRole = "host" | "maker" | "guest";
-export type AccessPolicyRole = "maker" | "guest" | null;
+export type SpaceRole = "host" | "builder" | "guest";
+export type AccessPolicyRole = "builder" | "guest" | null;
 export type AccessPolicyResourceType = "space" | "session";
 
 export const v2 = pgSchema("v2");

@@ -46,7 +46,7 @@ const ROLE_PERMISSIONS: Record<SpaceRole, Set<Permission>> = {
     "sandbox.view",
     "sandbox.manage",
   ]),
-  maker: new Set([
+  builder: new Set([
     "space.view",
     "session.view",
     "session.prompt.readonly",

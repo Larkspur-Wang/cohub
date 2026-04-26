@@ -554,9 +554,9 @@ function hasSessionPermission(sessionId: string): boolean {
 	return (
 		!!access &&
 		(access.anonymous_user === "guest" ||
-			access.anonymous_user === "maker" ||
+			access.anonymous_user === "builder" ||
 			access.signed_in_user === "guest" ||
-			access.signed_in_user === "maker")
+			access.signed_in_user === "builder")
 	);
 }
 
@@ -4237,7 +4237,7 @@ $effect(() => {
                     class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
                   >
                     <option value="">None</option>
-                    <option value="maker">Maker (edit)</option>
+                    <option value="builder">Builder (edit)</option>
                     <option value="guest">Guest (read)</option>
                   </select>
                 </div>
@@ -4312,7 +4312,7 @@ $effect(() => {
                   class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
                 >
                   <option value="guest">Guest</option>
-                  <option value="maker">Maker</option>
+                  <option value="builder">Builder</option>
                   <option value="host">Host</option>
                 </select>
                 <button
@@ -4333,7 +4333,7 @@ $effect(() => {
                   {#each spaceMembers as member (member.userId)}
                     <div class="flex items-center gap-2 py-1.5 group hover:bg-bg-hover rounded-[4px]">
                       {#if member.role === 'host'}<span class="text-[10px]">👑</span>
-                      {:else if member.role === 'maker'}<Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
+                      {:else if member.role === 'builder'}<Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
                       {:else}<Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
                       <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{member.userId}</code>
                       <span class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium w-10 text-right">{member.role}</span>

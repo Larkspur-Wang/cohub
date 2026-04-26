@@ -64,7 +64,7 @@
 
 ### 权限系统：从 flat permission 迁移到 RBAC
 - 废弃 `resourcePermissions` 表，新建 `spaceMembers` 表 + `accessPolicies` 表
-- 角色模型：`host` / `maker` / `guest`，每个角色映射一套精细权限（space.view、session.prompt.fullaccess、file.edit 等 17 种权限）
+- 角色模型：`host` / `builder` / `guest`，每个角色映射一套精细权限（space.view、session.prompt.fullaccess、file.edit 等 17 种权限）
 - 新增 `isLastHost` 守卫（防止 host 把自己踢出去导致 space 无人认领）
 - API 路由全面适配：collaborators → members，permissions → access policies
 - **好处**：多人协作空间终于有了清晰的权限边界，不再是"要么全有要么全无"

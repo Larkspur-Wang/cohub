@@ -234,7 +234,7 @@ export type CreateScheduledTaskInput = {
 
 // ─── RBAC types ───
 
-export type SpaceRole = "host" | "maker" | "guest";
+export type SpaceRole = "host" | "builder" | "guest";
 
 export type SpaceMember = {
   userId: string;

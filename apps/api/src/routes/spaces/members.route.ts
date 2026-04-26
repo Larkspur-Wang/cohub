@@ -7,7 +7,7 @@ import { getSpaceById } from "../../space-sessions.js";
 import { hasPermission, getRoleForSpaceUser } from "../../permissions.js";
 import type { SpaceRole } from "../../db/schema-v2.js";
 
-const VALID_ROLES: SpaceRole[] = ["host", "maker", "guest"];
+const VALID_ROLES: SpaceRole[] = ["host", "builder", "guest"];
 const router = new Hono();
 
 async function isLastHost(spaceId: string): Promise<boolean> {

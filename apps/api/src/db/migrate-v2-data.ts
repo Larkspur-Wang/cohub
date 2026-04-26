@@ -390,7 +390,7 @@ async function migrateV2Data() {
           VALUES (
             ${permission.resource_id},
             ${permission.grantee_uuid},
-            ${permission.level === "write" ? "maker" : "guest"},
+            ${permission.level === "write" ? "builder" : "guest"},
             ${permission.created_by},
             ${permission.created_by},
             ${permission.created_at},
