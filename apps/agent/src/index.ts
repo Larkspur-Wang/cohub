@@ -2,6 +2,9 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError } from "@neta-art/cohub-protocol/realtime";
 import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
 
+import { initTracing } from "./tracing.js";
+initTracing();
+
 import {
   env,
 } from "./env.js";

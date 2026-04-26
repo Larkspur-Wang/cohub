@@ -1,4 +1,5 @@
 import { Queue, type JobsOptions } from "bullmq";
+import { BullMQOtel } from "bullmq-otel";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
@@ -9,7 +10,10 @@ const QUEUE_NAME = "cohub-tasks";
 
 const connection = { url: config.bullmqRedisUrl };
 
-export const taskQueue = new Queue(QUEUE_NAME, { connection });
+export const taskQueue = new Queue(QUEUE_NAME, {
+  connection,
+  telemetry: new BullMQOtel("cohub-api"),
+});
 
 export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space"]);
 

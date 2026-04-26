@@ -1,5 +1,9 @@
 import "dotenv/config";
+import { initTracing } from "./tracing.js";
+initTracing();
+
 import { Worker, type Processor } from "bullmq";
+import { BullMQOtel } from "bullmq-otel";
 import { Redis } from "ioredis";
 import { config, assertRequiredConfig } from "./config.js";
 import { getTaskHandler, getRegisteredTasks } from "./tasks/registry.js";
@@ -26,6 +30,7 @@ const processor: Processor = async (job) => {
 const taskWorker = new Worker("cohub-tasks", processor, {
   connection,
   concurrency: 5,
+  telemetry: new BullMQOtel("cohub-worker"),
 });
 
 taskWorker.on("completed", (job, result) => {

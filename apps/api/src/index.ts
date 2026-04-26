@@ -1,7 +1,11 @@
 import "dotenv/config";
+import { initTracing } from "./tracing.js";
+initTracing();
+
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { httpInstrumentationMiddleware } from "@hono/otel";
 
 import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile } from "./auth.js";
 import { assertRequiredConfig } from "./config.js";
@@ -134,6 +138,15 @@ const app = new Hono<{
     authUser: AuthUserProfile | null;
   };
 }>();
+
+app.use(
+  "*",
+  httpInstrumentationMiddleware({
+    serviceName: "cohub-api",
+    serviceVersion: process.env.IMAGE_TAG ?? "latest",
+    captureRequestHeaders: ["authorization"],
+  }),
+);
 
 app.use(
   cors({

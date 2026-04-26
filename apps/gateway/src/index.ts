@@ -1,8 +1,12 @@
 import "dotenv/config";
+import { initTracing } from "./tracing.js";
+initTracing();
+
 import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { httpInstrumentationMiddleware } from "@hono/otel";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type {
   RealtimeEnvelope,
@@ -356,6 +360,12 @@ async function main() {
   });
 
   const app = new Hono();
+  app.use(
+    "*",
+    httpInstrumentationMiddleware({
+      serviceName: "cohub-gateway",
+    }),
+  );
   app.use("*", cors());
 
   app.get("/healthz", (c) => c.json({ ok: true }));
