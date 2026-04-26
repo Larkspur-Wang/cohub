@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { asc, eq, isNull, ne, or } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { spaceSandboxes } from "./db/schema-v2.js";
+import { spaceSandboxes, spaces } from "./db/schema-v2.js";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
@@ -12,6 +12,43 @@ export const toSandboxImageVersion = (image: string) => {
   const normalized = image.trim();
   if (!normalized) return "cohub-sandbox:unknown";
   return normalized.split("/").pop() ?? normalized;
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getK8sStatusCode = (error: unknown) => {
+  return (error as { statusCode?: number; code?: number }).statusCode
+    ?? (error as { statusCode?: number; code?: number }).code
+    ?? null;
+};
+
+const getK8sErrorMessage = (error: unknown) => {
+  const body = (error as { body?: unknown }).body;
+  if (typeof body === "string" && body.trim()) return body;
+  if (body && typeof body === "object") {
+    const message = (body as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return String(error);
+};
+
+export const waitForSandboxPodDeleted = async (podName: string, timeoutMs = 120_000) => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await k8sCoreApi.readNamespacedPod({
+        name: podName,
+        namespace: sessionsNamespace,
+      });
+      await sleep(1000);
+    } catch (error: unknown) {
+      const statusCode = getK8sStatusCode(error);
+      if (statusCode === 404) return true;
+      throw error;
+    }
+  }
+  return false;
 };
 
 export const getSpaceSandboxBySpaceId = async (spaceId: string) => {
@@ -99,6 +136,39 @@ export const updateSpaceSandbox = async (input: {
   return sandbox ?? null;
 };
 
+export const listSandboxRolloutTargets = async (input?: {
+  targetImageVersion?: string;
+  limit?: number;
+}) => {
+  const baseQuery = db
+    .select({
+      spaceId: spaceSandboxes.spaceId,
+      userUuid: spaces.userUuid,
+      podName: spaceSandboxes.podName,
+      status: spaceSandboxes.status,
+      desiredImage: spaceSandboxes.desiredImage,
+      reportedImageVersion: spaceSandboxes.reportedImageVersion,
+      updatedAt: spaceSandboxes.updatedAt,
+      createdAt: spaceSandboxes.createdAt,
+    })
+    .from(spaceSandboxes)
+    .innerJoin(spaces, eq(spaceSandboxes.spaceId, spaces.id))
+    .orderBy(asc(spaceSandboxes.updatedAt), asc(spaceSandboxes.createdAt));
+
+  if (input?.targetImageVersion) {
+    return baseQuery
+      .where(or(
+        isNull(spaceSandboxes.desiredImage),
+        ne(spaceSandboxes.desiredImage, input.targetImageVersion),
+        isNull(spaceSandboxes.reportedImageVersion),
+        ne(spaceSandboxes.reportedImageVersion, input.targetImageVersion),
+      ))
+      .limit(input.limit ?? 10_000);
+  }
+
+  return baseQuery.limit(input?.limit ?? 10_000);
+};
+
 const tryCreatePod = async (spaceId: string, pod: V1Pod, retry = 0): Promise<{ podName: string; created: boolean }> => {
   try {
     await k8sCoreApi.createNamespacedPod({
@@ -107,10 +177,19 @@ const tryCreatePod = async (spaceId: string, pod: V1Pod, retry = 0): Promise<{ p
     });
     return { podName: `sandbox-${spaceId}`, created: true };
   } catch (error: unknown) {
-    const statusCode = (error as { statusCode?: number }).statusCode;
+    const statusCode = getK8sStatusCode(error);
+    const message = getK8sErrorMessage(error).toLowerCase();
+    const podName = `sandbox-${spaceId}`;
+
+    if (statusCode === 409 && message.includes("object is being deleted")) {
+      const deleted = await waitForSandboxPodDeleted(podName);
+      if (!deleted) throw new Error(`timed out waiting for deleted sandbox pod: ${podName}`);
+      return tryCreatePod(spaceId, pod, retry + 1);
+    }
+
     if (statusCode === 409 && retry < 10) {
       const backoffMs = Math.min(250 * 2 ** retry, 4000);
-      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      await sleep(backoffMs);
       return tryCreatePod(spaceId, pod, retry + 1);
     }
     if (statusCode === 409) {
@@ -132,15 +211,21 @@ export const reconcileSpaceSandbox = async (input: {
   const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   const existingMeta = (existingSandbox?.meta as Record<string, unknown> | null) ?? {};
 
-  if (input.mode === "replace" && existingSandbox?.podName) {
+  if (input.mode === "replace") {
+    const podToReplace = existingSandbox?.podName ?? podName;
     try {
       await k8sCoreApi.deleteNamespacedPod({
-        name: existingSandbox.podName,
+        name: podToReplace,
         namespace: sessionsNamespace,
       });
     } catch (error: unknown) {
-      const statusCode = (error as { statusCode?: number }).statusCode;
+      const statusCode = getK8sStatusCode(error);
       if (statusCode !== 404) throw error;
+    }
+
+    const deleted = await waitForSandboxPodDeleted(podToReplace);
+    if (!deleted) {
+      throw new Error(`Timed out waiting for sandbox pod deletion: ${podToReplace}`);
     }
   }
 
@@ -245,5 +330,3 @@ export const provisionSpaceSandbox = async (input: {
     throw error;
   });
 };
-
-
