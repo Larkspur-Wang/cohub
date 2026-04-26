@@ -42,16 +42,14 @@ const saveCheckpointHandler = async (job: Job) => {
     .split("\n")
     .map((line) => line.trimEnd())
     .filter(Boolean);
-  if (changedLines.length === 0) {
-    throw new Error("no changes to checkpoint");
-  }
+  const hasChanges = changedLines.length > 0;
 
   const branchResult = await runGitWithOutput(["rev-parse", "--abbrev-ref", "HEAD"], workspaceDir);
   const branch = branchResult.stdout.trim() || "main";
   const commitMessage = buildCommitMessage(description);
 
-  const originResult = await runGitWithOutput(["remote", "get-url", "origin"], workspaceDir);
-  const originalRemoteUrl = originResult.stdout.trim();
+  // Use a dedicated remote to avoid touching the user's "origin"
+  const COHUB_REMOTE = "cohub";
   const accessToken = decryptSecret(gitAccount.giteaAccessTokenEncrypted);
   const authenticatedRemoteUrl = buildAuthenticatedRemoteUrl({
     username: gitAccount.giteaUsername,
@@ -59,16 +57,24 @@ const saveCheckpointHandler = async (job: Job) => {
     repoName: space.storageRepoName,
   });
 
-  await runGit(["add", "-A"], workspaceDir);
-  await runGit(["config", "user.name", "Cohub Worker"], workspaceDir);
-  await runGit(["config", "user.email", "noreply@cohub.run"], workspaceDir);
-  await runGit(["commit", "-m", commitMessage], workspaceDir);
+  // Ensure the cohub remote exists with the authenticated URL
+  // (re-create each time in case access token was rotated)
+  await runGit(["remote", "remove", COHUB_REMOTE], workspaceDir).catch(() => undefined);
+  await runGit(["remote", "add", COHUB_REMOTE, authenticatedRemoteUrl], workspaceDir);
 
+  if (hasChanges) {
+    await runGit(["add", "-A"], workspaceDir);
+    await runGit(["config", "user.name", "Cohub Worker"], workspaceDir);
+    await runGit(["config", "user.email", "noreply@cohub.run"], workspaceDir);
+    await runGit(["commit", "-m", commitMessage], workspaceDir);
+  }
+
+  // Always push in case the remote was updated via another remote
   try {
-    await runGit(["remote", "set-url", "origin", authenticatedRemoteUrl], workspaceDir);
-    await runGit(["push", "origin", branch], workspaceDir);
+    await runGit(["push", COHUB_REMOTE, branch], workspaceDir);
   } finally {
-    await runGit(["remote", "set-url", "origin", originalRemoteUrl], workspaceDir).catch(() => undefined);
+    // Clean up the cohub remote so authenticated URL is not left on disk
+    await runGit(["remote", "remove", COHUB_REMOTE], workspaceDir).catch(() => undefined);
   }
 
   const head = await runGitWithOutput(["rev-parse", "HEAD"], workspaceDir);
