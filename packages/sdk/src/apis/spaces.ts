@@ -297,6 +297,17 @@ export class SessionClient {
     );
   }
 
+  rename(title: string | null, customFetch?: Fetch) {
+    return this.transport.request<{ session: SessionRecord }>(
+      `/api/sessions/${this.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ title }),
+        fetch: customFetch,
+      },
+    );
+  }
+
   subscribe(handlers: SessionSubscriptionHandlers) {
     return this.realtime.subscribe(handlers);
   }

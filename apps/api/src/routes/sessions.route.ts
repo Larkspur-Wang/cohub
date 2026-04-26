@@ -8,6 +8,7 @@ import {
   listSessionMessages,
   enqueueSpacePrompt,
   SandboxNotReadyError,
+  updateSpaceSessionInfo,
 } from "../space-sessions.js";
 import { expandPromptTemplate } from "../prompt-templates.js";
 
@@ -28,6 +29,31 @@ router.get("/:id", async (c) => {
   if (!space) return c.json({ message: "session not found" }, 404);
 
   return c.json({ space, session, user });
+});
+
+// ── PATCH /api/sessions/:id (rename) ─────────────────────────────────────────
+
+router.patch("/:id", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.edit", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const body = await c.req.json<{ title?: string }>().catch(() => null);
+  const title = body?.title ?? null;
+  const newTitle = title?.trim() || null;
+
+  if (newTitle === session.title) return c.json({ session });
+
+  await updateSpaceSessionInfo({ spaceId: session.spaceId, sessionId: session.id, title: newTitle });
+
+  const refreshed = await getSpaceSessionById(sessionId);
+  return c.json({ session: refreshed ?? session });
 });
 
 router.get("/:id/messages", async (c) => {

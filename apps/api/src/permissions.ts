@@ -9,6 +9,7 @@ export type Permission =
   | "space.view"
   | "space.edit"
   | "session.view"
+  | "session.edit"
   | "session.prompt.readonly"
   | "session.prompt.fullaccess"
   | "file.view"
@@ -30,6 +31,7 @@ const ROLE_PERMISSIONS: Record<SpaceRole, Set<Permission>> = {
     "space.view",
     "space.edit",
     "session.view",
+    "session.edit",
     "session.prompt.readonly",
     "session.prompt.fullaccess",
     "file.view",
@@ -49,6 +51,7 @@ const ROLE_PERMISSIONS: Record<SpaceRole, Set<Permission>> = {
   builder: new Set([
     "space.view",
     "session.view",
+    "session.edit",
     "session.prompt.readonly",
     "session.prompt.fullaccess",
     "file.view",

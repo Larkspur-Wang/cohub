@@ -9,6 +9,7 @@ import {
 } from "@neta-art/cohub";
 import {
 	Activity,
+	Check,
 	ChevronDown,
 	Clock,
 	FolderKanban,
@@ -19,12 +20,15 @@ import {
 	LogOut,
 	Network,
 	Palette,
+	Pencil,
 	Plus,
 	Settings,
+	Trash2,
 	User,
 	Users,
+	X,
 } from "lucide-svelte";
-import { onMount, untrack } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { logtoClient } from "$lib/auth";
@@ -84,6 +88,18 @@ let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
+
+// Session rename state
+let renamingSessionId = $state<string | null>(null);
+let renameTitleValue = $state("");
+let renameSaving = $state(false);
+let renameInputElement: HTMLInputElement | null = $state(null);
+
+// Session context menu (desktop right-click / mobile long-press)
+let contextMenuSession = $state<SessionRecord | null>(null);
+let contextMenuX = $state(0);
+let contextMenuY = $state(0);
+let isMobileContextMenu = $state(false);
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
@@ -429,6 +445,96 @@ async function handleCreateNewSession() {
 	}
 }
 
+// ── Session rename ──────────────────────────────────────────────────────
+
+function startRenameSession(session: SessionRecord) {
+	closeContextMenu();
+	renamingSessionId = session.id;
+	renameTitleValue = session.title ?? getSessionTitle(session, 0);
+	void tick().then(() => {
+		renameInputElement?.focus();
+		renameInputElement?.select();
+	});
+}
+
+function cancelRenameSession() {
+	renamingSessionId = null;
+	renameTitleValue = "";
+}
+
+async function submitRenameSession(session: SessionRecord) {
+	if (renameSaving || !currentSpaceId) return;
+	const trimmed = renameTitleValue.trim();
+	if (!trimmed) {
+		cancelRenameSession();
+		return;
+	}
+	if (trimmed === (session.title ?? getSessionTitle(session, 0))) {
+		cancelRenameSession();
+		return;
+	}
+	renameSaving = true;
+	try {
+		await sdk.space(currentSpaceId).session(session.id).rename(trimmed);
+		sessions = patchCachedSessionList(currentSpaceId, (current) =>
+			current.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s)),
+		);
+	} catch {
+		// Silently fail
+	} finally {
+		renameSaving = false;
+		cancelRenameSession();
+	}
+}
+
+// ── Context menu (desktop right-click / mobile long-press) ──────────────
+
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+function openContextMenu(
+	session: SessionRecord,
+	e: MouseEvent | TouchEvent | undefined,
+	mobile = false,
+) {
+	contextMenuSession = session;
+	isMobileContextMenu = mobile;
+	if (e && "clientX" in e) {
+		contextMenuX = e.clientX;
+		contextMenuY = e.clientY;
+	} else {
+		contextMenuX = window.innerWidth / 2;
+		contextMenuY = window.innerHeight / 2;
+	}
+}
+
+function closeContextMenu() {
+	contextMenuSession = null;
+	isMobileContextMenu = false;
+}
+
+function handleContextMenu(e: MouseEvent, session: SessionRecord) {
+	if (isMobile) {
+		return; // Mobile uses long-press, not right-click
+	}
+	e.preventDefault();
+	openContextMenu(session, e, false);
+}
+
+function handleLongPressStart(session: SessionRecord) {
+	if (!isMobile) return;
+	longPressTimer = setTimeout(() => {
+		openContextMenu(session, undefined, true);
+		longPressTimer = null;
+	}, 500);
+}
+
+function handleLongPressCancel() {
+	if (longPressTimer) {
+		clearTimeout(longPressTimer);
+		longPressTimer = null;
+	}
+}
+
 function sessionIsStreaming(session: SessionRecord): boolean {
 	return isStreaming(session, streamingSessionIds);
 }
@@ -706,36 +812,132 @@ $effect(() => {
               <div class="space-y-[2px] mt-1">
                 {#each sessions as session, index (session.id)}
                   {@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                  <a
-                    href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                    class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                    onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
-                    title={sourceTooltip(session.source) || undefined}
-                  >
-                    <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
-                    {#if sourceBadge(session.source)}
-                      <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
-                        {sourceBadge(session.source)}
-                      </span>
-                    {/if}
-                    {#if sessionIsStreaming(session)}
-                      <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                    {:else if unreadTracker.isUnread(session)}
-                      <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
-                    {/if}
-                  </a>
+                  {@const isRenaming = renamingSessionId === session.id}
+
+                  {#if isRenaming}
+                    <!-- Inline rename input -->
+                    <div class="flex items-center gap-1 px-1.5 py-1 mx-[-2px] rounded-[6px] bg-bg-active">
+                      <input
+                        bind:this={renameInputElement}
+                        bind:value={renameTitleValue}
+                        type="text"
+                        class="flex-1 min-w-0 bg-transparent text-[13px] text-text-primary outline-none leading-tight"
+                        placeholder="Session name"
+                        maxlength={80}
+                        disabled={renameSaving}
+                        onkeydown={(e) => {
+                          if (e.key === "Enter" && !renameSaving) {
+                            e.preventDefault();
+                            void submitRenameSession(session);
+                          }
+                          if (e.key === "Escape" && !renameSaving) {
+                            e.preventDefault();
+                            cancelRenameSession();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        class="p-0.5 rounded text-status-running hover:bg-bg-hover transition-colors shrink-0"
+                        disabled={renameSaving}
+                        onclick={() => void submitRenameSession(session)}
+                        title="Save"
+                      >
+                        <Check class="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+                        disabled={renameSaving}
+                        onclick={cancelRenameSession}
+                        title="Cancel"
+                      >
+                        <X class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  {:else}
+                    <a
+                      href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
+                      class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+                      oncontextmenu={(e) => { e.preventDefault(); handleContextMenu(e, session); }}
+                      ontouchstart={() => handleLongPressStart(session)}
+                      ontouchend={handleLongPressCancel}
+                      ontouchmove={handleLongPressCancel}
+                      title={sourceTooltip(session.source) || undefined}
+                    >
+                      <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+                      {#if sourceBadge(session.source)}
+                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                          {sourceBadge(session.source)}
+                        </span>
+                      {/if}
+                      {#if sessionIsStreaming(session)}
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                      {:else if unreadTracker.isUnread(session)}
+                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                      {/if}
+                    </a>
+                  {/if}
                 {/each}
               </div>
             {/if}
           {:else if activeSession}
-            <a
-              href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
-              class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
-              onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
-              title={sourceTooltip(activeSession.source) || undefined}
-            >
-              <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
-            </a>
+            {@const isRenamingActive = renamingSessionId === activeSession.id}
+            {#if isRenamingActive}
+              <div class="flex items-center gap-1 px-1.5 py-1 mx-[-2px] mt-1 rounded-[6px] bg-bg-active">
+                <input
+                  bind:this={renameInputElement}
+                  bind:value={renameTitleValue}
+                  type="text"
+                  class="flex-1 min-w-0 bg-transparent text-[13px] text-text-primary outline-none leading-tight"
+                  placeholder="Session name"
+                  maxlength={80}
+                  disabled={renameSaving}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" && !renameSaving) {
+                      e.preventDefault();
+                      void submitRenameSession(activeSession);
+                    }
+                    if (e.key === "Escape" && !renameSaving) {
+                      e.preventDefault();
+                      cancelRenameSession();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  class="p-0.5 rounded text-status-running hover:bg-bg-hover transition-colors shrink-0"
+                  disabled={renameSaving}
+                  onclick={() => void submitRenameSession(activeSession)}
+                  title="Save"
+                >
+                  <Check class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+                  disabled={renameSaving}
+                  onclick={cancelRenameSession}
+                  title="Cancel"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            {:else}
+              <a
+                href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
+                class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
+                oncontextmenu={(e) => { e.preventDefault(); handleContextMenu(e, activeSession); }}
+                ontouchstart={() => handleLongPressStart(activeSession)}
+                ontouchend={handleLongPressCancel}
+                ontouchmove={handleLongPressCancel}
+                title={sourceTooltip(activeSession.source) || undefined}
+              >
+                <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
+              </a>
+            {/if}
           {/if}
 
           <div class="mt-3">
@@ -1000,6 +1202,67 @@ $effect(() => {
     </button>
   </div>
 </aside>
+
+<!-- Desktop context menu (right-click on session) -->
+{#if contextMenuSession && !isMobileContextMenu}
+  <div
+    class="fixed inset-0 z-[100]"
+    onclick={closeContextMenu}
+    onkeydown={(e) => { if (e.key === "Escape") closeContextMenu(); }}
+    role="presentation"
+  >
+    <div
+      class="absolute bg-bg-primary border border-border-subtle rounded-md shadow-lg py-1 min-w-[160px] z-50"
+      style="left: {contextMenuX}px; top: {contextMenuY}px;"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        class="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+        onclick={() => {
+          if (contextMenuSession) startRenameSession(contextMenuSession);
+        }}
+      >
+        <Pencil class="w-3.5 h-3.5" />
+        <span>Rename</span>
+      </button>
+    </div>
+  </div>
+{/if}
+
+<!-- Mobile action sheet (long-press on session) -->
+{#if contextMenuSession && isMobileContextMenu}
+  <div
+    class="fixed inset-0 z-[100] lg:hidden"
+    onclick={closeContextMenu}
+  >
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/40"></div>
+
+    <!-- Action sheet -->
+    <div
+      class="absolute bottom-0 left-0 right-0 bg-bg-primary border-t border-border-subtle rounded-t-xl overflow-hidden z-50"
+      onclick={(e) => e.stopPropagation()}
+    >
+      {#if contextMenuSession}
+        <div class="px-4 py-3 border-b border-border-subtle">
+          <p class="text-[13px] text-text-secondary truncate">{getSessionTitle(contextMenuSession, 0)}</p>
+        </div>
+        <button
+          type="button"
+          class="flex items-center gap-3 w-full px-4 py-3.5 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
+          onclick={() => {
+            if (contextMenuSession) startRenameSession(contextMenuSession);
+          }}
+        >
+          <Pencil class="w-5 h-5" />
+          <span>Rename</span>
+        </button>
+      {/if}
+      <div class="h-2"></div> <!-- Safe area -->
+    </div>
+  </div>
+{/if}
 
 <!-- Space Switcher Modal -->
 <Dialog open={showSpaceModal} onClose={() => { showSpaceModal = false; }} title="Switch Space" maxWidth="340px">

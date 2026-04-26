@@ -184,6 +184,12 @@ let renamingSpace = $state(false);
 let renameInput = $state("");
 let renameSaving = $state(false);
 let renameError = $state("");
+
+// Session rename (header inline edit)
+let sessionRenaming = $state(false);
+let sessionRenameValue = $state("");
+let sessionRenameSaving = $state(false);
+let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
 let streamError = $state("");
 let streamingContentBlocks = $state<ContentBlock[]>([]);
@@ -1604,6 +1610,63 @@ async function handleRenameSpace(newName: string) {
 			error instanceof Error ? error.message : "Failed to rename space";
 	} finally {
 		renameSaving = false;
+	}
+}
+
+// ── Session rename (header inline edit) ────────────────────────────────
+
+function startSessionRename() {
+	const session = activeSessionState?.session;
+	if (!session) return;
+	sessionRenaming = true;
+	sessionRenameValue = session.title ?? getSessionTitle(session);
+	void tick().then(() => {
+		sessionRenameInputEl?.focus();
+		sessionRenameInputEl?.select();
+	});
+}
+
+function cancelSessionRename() {
+	sessionRenaming = false;
+	sessionRenameValue = "";
+}
+
+async function submitSessionRename() {
+	if (sessionRenameSaving || !activeSessionId) return;
+	const trimmed = sessionRenameValue.trim();
+	if (!trimmed) {
+		cancelSessionRename();
+		return;
+	}
+	const session = activeSessionState?.session;
+	if (!session) return;
+	if (trimmed === (session.title ?? getSessionTitle(session))) {
+		cancelSessionRename();
+		return;
+	}
+	sessionRenameSaving = true;
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.session(activeSessionId)
+			.rename(trimmed);
+		spaceSessions = patchCachedSessionList(spaceId, (current) =>
+			current.map((s) => (s.id === activeSessionId ? result.session : s)),
+		);
+		if (sessionStateById[activeSessionId]) {
+			sessionStateById = {
+				...sessionStateById,
+				[activeSessionId]: {
+					...sessionStateById[activeSessionId],
+					session: result.session,
+				},
+			};
+		}
+	} catch {
+		// Silently fail
+	} finally {
+		sessionRenameSaving = false;
+		cancelSessionRename();
 	}
 }
 
@@ -3254,17 +3317,64 @@ $effect(() => {
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <div class="min-w-0 flex items-center gap-2">
-          <span class="min-w-0 truncate text-[13px] text-text-secondary">{getSessionTitle(activeSessionState.session)}</span>
-          {#if wsStatus === 'reconnecting'}
-            <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-warning">
-              <span class="h-1.5 w-1.5 rounded-full bg-warning animate-pulse"></span>
-              Reconnecting…
-            </span>
-          {:else if wsStatus === 'reconnected'}
-            <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-success-soft">
-              <span class="h-1.5 w-1.5 rounded-full bg-success-soft"></span>
-              Reconnected
-            </span>
+          {#if sessionRenaming}
+            <input
+              bind:this={sessionRenameInputEl}
+              bind:value={sessionRenameValue}
+              type="text"
+              class="min-w-0 flex-1 bg-bg-hover-strong text-[13px] text-text-primary outline-none rounded px-1 py-0.5 leading-tight max-w-[40vw]"
+              placeholder="Session name"
+              maxlength={80}
+              disabled={sessionRenameSaving}
+              onkeydown={(e) => {
+                if (e.key === "Enter" && !sessionRenameSaving) {
+                  e.preventDefault();
+                  void submitSessionRename();
+                }
+                if (e.key === "Escape" && !sessionRenameSaving) {
+                  e.preventDefault();
+                  cancelSessionRename();
+                }
+              }}
+            />
+            <button
+              type="button"
+              class="p-0.5 rounded text-status-running hover:bg-bg-hover transition-colors shrink-0"
+              disabled={sessionRenameSaving}
+              onclick={() => void submitSessionRename()}
+              title="Save"
+            >
+              <Check class="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+              disabled={sessionRenameSaving}
+              onclick={cancelSessionRename}
+              title="Cancel"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="min-w-0 truncate text-[13px] text-text-secondary hover:text-text-primary transition-colors"
+              onclick={startSessionRename}
+              title="Click to rename"
+            >
+              {getSessionTitle(activeSessionState.session)}
+            </button>
+            {#if wsStatus === 'reconnecting'}
+              <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-warning">
+                <span class="h-1.5 w-1.5 rounded-full bg-warning animate-pulse"></span>
+                Reconnecting…
+              </span>
+            {:else if wsStatus === 'reconnected'}
+              <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-success-soft">
+                <span class="h-1.5 w-1.5 rounded-full bg-success-soft"></span>
+                Reconnected
+              </span>
+            {/if}
           {/if}
         </div>
       {:else if routeView === "checkpoint" && checkpointDetail}
