@@ -46,6 +46,11 @@ import {
 import { authStore } from "$lib/stores/auth.svelte";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
+	closeSessionContextMenu,
+	openSessionContextMenu,
+	sessionContextMenu,
+} from "$lib/stores/session-context-menu.svelte";
+import {
 	clearAllCachedSessionLists,
 	fetchSessionListWithCache,
 	getCachedSessionList,
@@ -95,11 +100,9 @@ let renameTitleValue = $state("");
 let renameSaving = $state(false);
 let renameInputElement: HTMLInputElement | null = $state(null);
 
-// Session context menu (desktop right-click / mobile long-press)
-let contextMenuSession = $state<SessionRecord | null>(null);
-let contextMenuX = $state(0);
-let contextMenuY = $state(0);
-let isMobileContextMenu = $state(false);
+// Desktop context menu state (position only, session comes from store)
+let desktopMenuX = $state(0);
+let desktopMenuY = $state(0);
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
@@ -448,7 +451,7 @@ async function handleCreateNewSession() {
 // ── Session rename ──────────────────────────────────────────────────────
 
 function startRenameSession(session: SessionRecord) {
-	closeContextMenu();
+	closeDesktopMenu();
 	renamingSessionId = session.id;
 	renameTitleValue = session.title ?? getSessionTitle(session, 0);
 	void tick().then(() => {
@@ -491,39 +494,20 @@ async function submitRenameSession(session: SessionRecord) {
 
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
-function openContextMenu(
-	session: SessionRecord,
-	e: MouseEvent | TouchEvent | undefined,
-	mobile = false,
-) {
-	contextMenuSession = session;
-	isMobileContextMenu = mobile;
-	if (e && "clientX" in e) {
-		contextMenuX = e.clientX;
-		contextMenuY = e.clientY;
-	} else {
-		contextMenuX = window.innerWidth / 2;
-		contextMenuY = window.innerHeight / 2;
-	}
-}
-
-function closeContextMenu() {
-	contextMenuSession = null;
-	isMobileContextMenu = false;
-}
-
 function handleContextMenu(e: MouseEvent, session: SessionRecord) {
-	if (isMobile) {
-		return; // Mobile uses long-press, not right-click
-	}
 	e.preventDefault();
-	openContextMenu(session, e, false);
+	desktopMenuX = e.clientX;
+	desktopMenuY = e.clientY;
+	sessionContextMenu.session = session;
+}
+
+function closeDesktopMenu() {
+	sessionContextMenu.session = null;
 }
 
 function handleLongPressStart(session: SessionRecord) {
-	if (!isMobile) return;
 	longPressTimer = setTimeout(() => {
-		openContextMenu(session, undefined, true);
+		openSessionContextMenu(session);
 		longPressTimer = null;
 	}, 500);
 }
@@ -1204,62 +1188,29 @@ $effect(() => {
 </aside>
 
 <!-- Desktop context menu (right-click on session) -->
-{#if contextMenuSession && !isMobileContextMenu}
+{#if sessionContextMenu.session && desktopMenuX}
   <div
     class="fixed inset-0 z-[100]"
-    onclick={closeContextMenu}
-    onkeydown={(e) => { if (e.key === "Escape") closeContextMenu(); }}
+    onclick={closeDesktopMenu}
+    onkeydown={(e) => { if (e.key === "Escape") closeDesktopMenu(); }}
     role="presentation"
   >
     <div
       class="absolute bg-bg-primary border border-border-subtle rounded-md shadow-lg py-1 min-w-[160px] z-50"
-      style="left: {contextMenuX}px; top: {contextMenuY}px;"
+      style="left: {desktopMenuX}px; top: {desktopMenuY}px;"
       onclick={(e) => e.stopPropagation()}
     >
       <button
         type="button"
         class="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
         onclick={() => {
-          if (contextMenuSession) startRenameSession(contextMenuSession);
+          const session = sessionContextMenu.session;
+          if (session) startRenameSession(session);
         }}
       >
         <Pencil class="w-3.5 h-3.5" />
         <span>Rename</span>
       </button>
-    </div>
-  </div>
-{/if}
-
-<!-- Mobile action sheet (long-press on session) -->
-{#if contextMenuSession && isMobileContextMenu}
-  <div
-    class="fixed inset-0 z-[100] lg:hidden"
-    onclick={closeContextMenu}
-  >
-    <!-- Backdrop -->
-    <div class="absolute inset-0 bg-black/40"></div>
-
-    <!-- Action sheet -->
-    <div
-      class="absolute bottom-0 left-0 right-0 bg-bg-primary border-t border-border-subtle rounded-t-xl overflow-hidden z-50"
-      onclick={(e) => e.stopPropagation()}
-    >
-      {#if contextMenuSession}
-        <div class="px-4 py-3 border-b border-border-subtle">
-          <p class="text-[13px] text-text-secondary truncate">{getSessionTitle(contextMenuSession, 0)}</p>
-        </div>
-        <button
-          type="button"
-          class="flex items-center gap-3 w-full px-4 py-3.5 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
-          onclick={() => {
-            if (contextMenuSession) startRenameSession(contextMenuSession);
-          }}
-        >
-          <Pencil class="w-5 h-5" />
-          <span>Rename</span>
-        </button>
-      {/if}
-      <div class="h-2"></div> <!-- Safe area -->
     </div>
   </div>
 {/if}
