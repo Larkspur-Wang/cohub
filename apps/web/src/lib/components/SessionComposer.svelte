@@ -47,6 +47,7 @@ let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let fileInputEl = $state<HTMLInputElement | null>(null);
 let isDragOver = $state(false);
 let dragCounter = 0;
+let isPathDragOver = $state(false);
 let showPromptSuggestions = $state(false);
 let selectedPromptIndex = $state(0);
 
@@ -134,6 +135,34 @@ function handleDrop(event: DragEvent) {
 	onpickimage?.(event.dataTransfer?.files ?? null);
 }
 
+function handlePathDragOver(event: DragEvent) {
+	if (!event.dataTransfer?.types.includes("text/cohub-path")) return;
+	event.preventDefault();
+	event.dataTransfer.dropEffect = "copy";
+	isPathDragOver = true;
+}
+
+function handlePathDragLeave() {
+	isPathDragOver = false;
+}
+
+function handlePathDrop(event: DragEvent) {
+	isPathDragOver = false;
+	const path = event.dataTransfer?.getData("text/cohub-path");
+	if (!path || !textareaEl) return;
+	event.preventDefault();
+	const snippet = ` \`${path}\` `;
+	const start = textareaEl.selectionStart;
+	const end = textareaEl.selectionEnd;
+	value = value.slice(0, start) + snippet + value.slice(end);
+	requestAnimationFrame(() => {
+		const pos = start + snippet.length;
+		textareaEl?.setSelectionRange(pos, pos);
+		textareaEl?.focus();
+		resizeTextarea();
+	});
+}
+
 function handlePaste(event: ClipboardEvent) {
 	const files = Array.from(event.clipboardData?.items ?? [])
 		.filter((item) => item.type.startsWith("image/"))
@@ -175,7 +204,7 @@ $effect(() => {
 		{/if}
 
 		<form
-			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${isDragOver ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
+			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
 			onsubmit={(event) => {
 				event.preventDefault();
 				onsubmit();
@@ -233,6 +262,9 @@ $effect(() => {
 						placeholder="Send a message..."
 						class="block min-h-[44px] max-h-[168px] w-full resize-none bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
 						oninput={() => resizeTextarea()}
+						ondragover={handlePathDragOver}
+						ondragleave={handlePathDragLeave}
+						ondrop={handlePathDrop}
 						onpaste={handlePaste}
 						onblur={() => {
 							setTimeout(() => {

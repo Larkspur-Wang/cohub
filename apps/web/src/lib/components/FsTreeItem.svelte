@@ -66,9 +66,16 @@ function stop(handler: () => void) {
   class="tree-item"
   role="button"
   tabindex="0"
+  draggable="true"
   style={`padding-left: ${indent}px`}
   onclick={handleClick}
   onkeydown={handleKeydown}
+  ondragstart={(e) => {
+    const path = node.type === "dir" ? `${node.path}/` : node.path;
+    e.dataTransfer?.setData("text/cohub-path", path);
+    e.dataTransfer?.setData("text/plain", path);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+  }}
 >
   <span class="icon shrink-0">
     {#if node.type === 'dir'}
