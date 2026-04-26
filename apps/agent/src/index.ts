@@ -1,3 +1,5 @@
+import { extractTrace, runInActiveSpan } from "@cohub/tracing/propagator";
+import { getAgentTracer } from "@cohub/tracing/agent";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError } from "@neta-art/cohub-protocol/realtime";
 import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
@@ -316,10 +318,21 @@ async function main() {
 
   console.log("[Agent] Listening for owner-routed input.");
 
-  await listenForInput((inputEntry, _rawMessage, ack, reject) => {
+  const agentTracer = getAgentTracer();
+
+  await listenForInput((inputEntry, _rawMessage, ack, reject, rawParsed) => {
     console.log("[Agent] Received input from Redis:", inputEntry);
 
-    (async () => {
+    // Extract trace context from the message (injected by API)
+    const parentCtx = extractTrace(rawParsed);
+
+    void runInActiveSpan(agentTracer, "agent.input.consume", {
+      attributes: {
+        "agent.action": inputEntry.action,
+        "cohub.space_id": inputEntry.spaceId,
+        "cohub.session_id": inputEntry.sessionId ?? "",
+      },
+    }, parentCtx, async () => {
       try {
         if (!inputEntry.sessionId) {
           throw new Error("sessionId is required for session-owned input");
@@ -472,8 +485,9 @@ async function main() {
         };
         await sendOutput(errEvent);
         await reject(error instanceof Error ? error.message : String(error));
+        throw error;
       }
-    })();
+    });
   });
 }
 

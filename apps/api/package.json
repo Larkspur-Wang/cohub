@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@neta-art/cohub-protocol": "workspace:*",
+    "@cohub/tracing": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@hono/otel": "^1.1.0",
     "@kubernetes/client-node": "^1.4.0",

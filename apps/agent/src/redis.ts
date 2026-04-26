@@ -2,6 +2,7 @@ import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import { injectTrace } from "@cohub/tracing/propagator";
 import { env } from "./env.js";
 import {
   getAgentInstanceDeadLetterQueueKey,
@@ -60,7 +61,7 @@ const PromptInputSchema = z.object({
   timestamp: z.string().optional(),
   expectedOwnerId: z.string().min(1),
   expectedEpoch: z.coerce.number().int().positive(),
-});
+}).passthrough();
 
 const AbortInputSchema = z.object({
   id: z.string().optional(),
@@ -70,7 +71,7 @@ const AbortInputSchema = z.object({
   timestamp: z.string().optional(),
   expectedOwnerId: z.string().min(1),
   expectedEpoch: z.coerce.number().int().positive(),
-});
+}).passthrough();
 
 export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
@@ -107,7 +108,9 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   }
 
   const sessionId = parsed.data.sessionId ?? "";
-  const payload = JSON.stringify(parsed.data);
+  // Inject trace context so downstream (API → Gateway) can continue the same trace
+  const traceCarrier = injectTrace();
+  const payload = JSON.stringify({ ...parsed.data, ...traceCarrier });
   await redis.xadd(
     AGENT_SESSION_UPDATES_STREAM,
     "MAXLEN",
@@ -210,6 +213,7 @@ export async function listenForInput(
     rawMessage: string,
     ack: () => Promise<void>,
     reject: (reason: string) => Promise<void>,
+    rawParsed: Record<string, unknown>,
   ) => void,
 ) {
   console.log(`[Redis] Listening for input on ${LIST_KEY_IN}...`);
@@ -220,7 +224,8 @@ export async function listenForInput(
       rawMessage = await subClient.brpoplpush(LIST_KEY_IN, PROCESSING_KEY, 0);
       if (!rawMessage) continue;
 
-      const parsed = InputSchema.parse(JSON.parse(rawMessage));
+      const rawParsed = JSON.parse(rawMessage) as Record<string, unknown>;
+      const parsed = InputSchema.parse(rawParsed);
       const currentRawMessage = rawMessage;
       let handled = false;
 
@@ -244,7 +249,7 @@ export async function listenForInput(
       };
 
       try {
-        handler(parsed, currentRawMessage, ack, reject);
+        handler(parsed, currentRawMessage, ack, reject, rawParsed);
       } catch (syncErr) {
         console.error("[Redis] Sync error in handler:", syncErr);
         await reject(syncErr instanceof Error ? syncErr.message : String(syncErr));

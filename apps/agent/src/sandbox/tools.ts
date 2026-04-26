@@ -23,6 +23,7 @@ import {
 
 const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
+import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/tracing/agent";
 import {
   getAgentPlatformAgentsPath,
   getAgentPlatformConfigPath,
@@ -96,39 +97,56 @@ async function getCurrentConnection() {
   return waitForSandboxConnection(getCurrentSpaceId());
 }
 
-async function rpc<M extends RpcMethod>(
+async function tracedRpc<M extends RpcMethod>(
   connection: SandboxConnection,
   method: M,
   params: RpcRequestMap[M]["params"],
+  options?: {
+    onEvent?: (event: import("@cohub/agent-sandbox-protocol").RpcEventPayload) => void;
+  },
 ) {
-  return connection.request(method, params, {
-    requestId: randomUUID(),
-    spaceId: getCurrentSpaceId(),
+  const tracer = getAgentTracer();
+  const spaceId = getCurrentSpaceId();
+  return wrapSandboxRpc(tracer, {
+    method,
     sandboxId: connection.sandboxId,
+    spaceId,
+    params: params as Record<string, unknown>,
+  }, async () => {
+    return connection.request(method, params, {
+      requestId: randomUUID(),
+      spaceId,
+      sandboxId: connection.sandboxId,
+      onEvent: options?.onEvent,
+    });
   });
 }
 
 function createRemoteReadOperations(): ReadOperations {
+  const tracer = getAgentTracer();
   return {
     async readFile(absolutePath) {
-      const connection = await getCurrentConnection();
-      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-      console.log(`[Tool:read] path=${path}`);
-      // Use binary mode so sandbox detects MIME type and returns base64 for binary files.
-      const result = await rpc(connection, "fs.read", { path, binary: true });
-      if (result.contentBase64) {
-        return Buffer.from(result.contentBase64, "base64");
-      }
-      return Buffer.from(result.content, "utf8");
+      const spaceId = getCurrentSpaceId();
+      return wrapToolCall(tracer, { toolName: "read", input: { path: absolutePath }, spaceId }, async () => {
+        const connection = await getCurrentConnection();
+        const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+        console.log(`[Tool:read] path=${path}`);
+        // Use binary mode so sandbox detects MIME type and returns base64 for binary files.
+        const result = await tracedRpc(connection, "fs.read", { path, binary: true });
+        if (result.contentBase64) {
+          return Buffer.from(result.contentBase64, "base64");
+        }
+        return Buffer.from(result.content, "utf8");
+      });
     },
     async access(absolutePath) {
       const connection = await getCurrentConnection();
-      await rpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath), offset: 1, limit: 1 });
+      await tracedRpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath), offset: 1, limit: 1 });
     },
     async detectImageMimeType(absolutePath) {
       const connection = await getCurrentConnection();
       const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-      const result = await rpc(connection, "fs.read", { path, binary: true });
+      const result = await tracedRpc(connection, "fs.read", { path, binary: true });
       const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
       // Only return image MIME types. The upstream read tool treats any truthy
       // return value here as an image and will otherwise misclassify text files.
@@ -138,12 +156,16 @@ function createRemoteReadOperations(): ReadOperations {
 }
 
 function createRemoteWriteOperations(): WriteOperations {
+  const tracer = getAgentTracer();
   return {
     async writeFile(absolutePath, content) {
-      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-      console.log(`[Tool:write] path=${path} bytes=${content.length}`);
-      const connection = await getCurrentConnection();
-      await rpc(connection, "fs.write", { path, content });
+      const spaceId = getCurrentSpaceId();
+      return wrapToolCall(tracer, { toolName: "write", input: { path: absolutePath, bytes: content.length }, spaceId }, async () => {
+        const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+        console.log(`[Tool:write] path=${path} bytes=${content.length}`);
+        const connection = await getCurrentConnection();
+        await tracedRpc(connection, "fs.write", { path, content });
+      });
     },
     async mkdir(_dir) {
       // sandbox fs.write already creates parent directories recursively
@@ -164,6 +186,7 @@ function createRemoteEditOperations(): EditOperations {
 }
 
 function createRemoteBashOperations(): BashOperations {
+  const tracer = getAgentTracer();
   return {
     exec(command, cwd, { onData, signal, timeout }) {
       return new Promise((resolve, reject) => {
@@ -180,58 +203,59 @@ function createRemoteBashOperations(): BashOperations {
 
         void (async () => {
           try {
-            const connection = await getCurrentConnection();
-            const sandboxCwd = mapLocalAbsolutePathToSandboxPath(cwd);
-            console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);
+            const spaceId = getCurrentSpaceId();
+            return wrapToolCall(tracer, { toolName: "bash", input: { command: cmdSummary, cwd }, spaceId }, async () => {
+              const connection = await getCurrentConnection();
+              const sandboxCwd = mapLocalAbsolutePathToSandboxPath(cwd);
+              console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);
 
-            const cleanupAbort = () => {
-              signal?.removeEventListener("abort", onAbort);
-            };
+              const cleanupAbort = () => {
+                signal?.removeEventListener("abort", onAbort);
+              };
 
-            const onAbort = () => {
-              aborting = true;
-              if (!processId) return;
-              void rpc(connection, "process.abort", { processId }).catch(() => undefined);
-            };
+              const onAbort = () => {
+                aborting = true;
+                if (!processId) return;
+                void tracedRpc(connection, "process.abort", { processId }).catch(() => undefined);
+              };
 
-            if (signal) {
-              if (signal.aborted) onAbort();
-              else signal.addEventListener("abort", onAbort, { once: true });
-            }
+              if (signal) {
+                if (signal.aborted) onAbort();
+                else signal.addEventListener("abort", onAbort, { once: true });
+              }
 
-            await connection.request(
-              "process.start",
-              {
-                command,
-                timeoutSecs: timeout,
-                cwd: sandboxCwd,
-              },
-              {
-                requestId: randomUUID(),
-                spaceId: getCurrentSpaceId(),
-                sandboxId: connection.sandboxId,
-                onEvent(event) {
-                  if (event.type === "started") {
-                    processId = event.processId;
-                    if (aborting) {
-                      void rpc(connection, "process.abort", { processId: event.processId }).catch(() => undefined);
-                    }
-                    return;
-                  }
-
-                  if (event.type === "stdout" || event.type === "stderr") {
-                    onData(Buffer.from(`${event.chunk}\n`, "utf8"));
-                    return;
-                  }
-
-                  if (event.type === "exit") {
-                    cleanupAbort();
-                    console.log(`[Tool:bash] exit code=${event.exitCode} cmd="${cmdSummary}"`);
-                    finish(() => resolve({ exitCode: event.exitCode ?? null }));
-                  }
+              await tracedRpc(
+                connection,
+                "process.start",
+                {
+                  command,
+                  timeoutSecs: timeout,
+                  cwd: sandboxCwd,
                 },
-              },
-            );
+                {
+                  onEvent(event) {
+                    if (event.type === "started") {
+                      processId = event.processId;
+                      if (aborting) {
+                        void tracedRpc(connection, "process.abort", { processId: event.processId }).catch(() => undefined);
+                      }
+                      return;
+                    }
+
+                    if (event.type === "stdout" || event.type === "stderr") {
+                      onData(Buffer.from(`${event.chunk}\n`, "utf8"));
+                      return;
+                    }
+
+                    if (event.type === "exit") {
+                      cleanupAbort();
+                      console.log(`[Tool:bash] exit code=${event.exitCode} cmd="${cmdSummary}"`);
+                      finish(() => resolve({ exitCode: event.exitCode ?? null }));
+                    }
+                  },
+                },
+              );
+            });
           } catch (error) {
             console.error(`[Tool:bash] error cmd="${cmdSummary}"`, error);
             finish(() => reject(error));
@@ -243,68 +267,76 @@ function createRemoteBashOperations(): BashOperations {
 }
 
 function createRemoteLsOperations(): LsOperations {
+  const tracer = getAgentTracer();
   return {
     async exists(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
+      const result = await tracedRpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
       return result.exists;
     },
     async stat(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
+      const result = await tracedRpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
       return {
         isDirectory: () => result.isDirectory,
       };
     },
     async readdir(absolutePath) {
-      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-      console.log(`[Tool:ls] path=${path}`);
-      const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.ls", { path });
-      return result.entries.map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
+      const spaceId = getCurrentSpaceId();
+      return wrapToolCall(tracer, { toolName: "ls", input: { path: absolutePath }, spaceId }, async () => {
+        const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+        console.log(`[Tool:ls] path=${path}`);
+        const connection = await getCurrentConnection();
+        const result = await tracedRpc(connection, "fs.ls", { path });
+        return result.entries.map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
+      });
     },
   };
 }
 
 function createRemoteFindOperations(): FindOperations {
+  const tracer = getAgentTracer();
   return {
     async exists(absolutePath) {
       const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
+      const result = await tracedRpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
       return result.exists;
     },
     async glob(pattern, cwd, options) {
-      const path = mapLocalAbsolutePathToSandboxPath(cwd);
-      console.log(`[Tool:find] pattern=${pattern} path=${path}`);
+      const spaceId = getCurrentSpaceId();
+      return wrapToolCall(tracer, { toolName: "find", input: { pattern, path: cwd }, spaceId }, async () => {
+        const path = mapLocalAbsolutePathToSandboxPath(cwd);
+        console.log(`[Tool:find] pattern=${pattern} path=${path}`);
 
-      // Agent owns tool semantics: match pi-coding-agent fd behavior.
-      // In --full-path mode fd matches against the absolute candidate path,
-      // so a path-containing pattern like 'src/**/*.spec.ts' needs a leading
-      // '**/' to match anything (matching pi-coding-agent logic).
-      let effectivePattern = pattern;
-      const useFullPath = pattern.includes("/");
-      if (useFullPath && !pattern.startsWith("/") && !pattern.startsWith("**/") && pattern !== "**") {
-        effectivePattern = `**/${pattern}`;
-      }
+        // Agent owns tool semantics: match pi-coding-agent fd behavior.
+        // In --full-path mode fd matches against the absolute candidate path,
+        // so a path-containing pattern like 'src/**/*.spec.ts' needs a leading
+        // '**/' to match anything (matching pi-coding-agent logic).
+        let effectivePattern = pattern;
+        const useFullPath = pattern.includes("/");
+        if (useFullPath && !pattern.startsWith("/") && !pattern.startsWith("**/") && pattern !== "**") {
+          effectivePattern = `**/${pattern}`;
+        }
 
-      const connection = await getCurrentConnection();
-      const result = await rpc(connection, "fs.find", {
-        pattern: effectivePattern,
-        path,
-        limit: options.limit,
-        maxResults: options.limit,
-        mode: "glob",
-        // Always include hidden files (matching pi-coding-agent `--hidden`).
-        hidden: true,
-        // Apply .gitignore even outside a git repo (matching pi-coding-agent `--no-require-git`).
-        requireGit: false,
-        // Don't skip VCS ignore rules — let .gitignore work naturally.
-        ignoreVcs: false,
-        fullPath: useFullPath,
-        // Pass through ignore patterns from the caller (e.g. node_modules).
-        ignore: options.ignore,
+        const connection = await getCurrentConnection();
+        const result = await tracedRpc(connection, "fs.find", {
+          pattern: effectivePattern,
+          path,
+          limit: options.limit,
+          maxResults: options.limit,
+          mode: "glob",
+          // Always include hidden files (matching pi-coding-agent `--hidden`).
+          hidden: true,
+          // Apply .gitignore even outside a git repo (matching pi-coding-agent `--no-require-git`).
+          requireGit: false,
+          // Don't skip VCS ignore rules — let .gitignore work naturally.
+          ignoreVcs: false,
+          fullPath: useFullPath,
+          // Pass through ignore patterns from the caller (e.g. node_modules).
+          ignore: options.ignore,
+        });
+        return result.matches;
       });
-      return result.matches;
     },
   };
 }
@@ -319,6 +351,7 @@ function createRemoteFindOperations(): FindOperations {
  *   Long lines are truncated to GREP_MAX_LINE_LENGTH.
  */
 function createRemoteGrepTool() {
+  const tracer = getAgentTracer();
   const definition = createGrepToolDefinition(SANDBOX_WORKSPACE_PATH);
 
   definition.execute = async (
@@ -329,184 +362,185 @@ function createRemoteGrepTool() {
     _ctx?: unknown,
   ) => {
     const grepInput = input as GrepToolInput;
+    const spaceId = getCurrentSpaceId();
     console.log(`[Tool:grep] pattern=${grepInput.pattern} path=${grepInput.path}`);
 
-    // Check abort before starting.
-    if (signal?.aborted) {
-      throw new Error("Operation aborted");
-    }
-
-    const contextValue = grepInput.context && grepInput.context > 0 ? grepInput.context : 0;
-    const effectiveLimit = Math.max(1, grepInput.limit ?? 100);
-
-    // Set up abort handling.
-    let aborted = false;
-    let activeProcessId: string | null = null;
-    const onAbort = () => {
-      aborted = true;
-      if (activeProcessId) {
-        void rpcAbortProcess(activeProcessId);
-      }
-    };
-    if (signal) {
-      if (signal.aborted) onAbort();
-      else signal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    try {
-      const connection = await getCurrentConnection();
-      const result = await connection.request(
-        "fs.grep",
-        {
-          pattern: grepInput.pattern,
-          path: mapSandboxInputPath(grepInput.path),
-          glob: grepInput.glob,
-          ignoreCase: grepInput.ignoreCase,
-          literal: grepInput.literal,
-          context: grepInput.context,
-          limit: effectiveLimit,
-          // Agent owns semantics: match pi-coding-agent behavior.
-          maxCount: grepInput.limit,
-          json: true,
-          hidden: true,
-        },
-        {
-          requestId: randomUUID(),
-          spaceId: getCurrentSpaceId(),
-          sandboxId: connection.sandboxId,
-          onEvent(event) {
-            if (event.type === "started") {
-              activeProcessId = event.processId;
-              if (aborted) {
-                void rpcAbortProcess(event.processId);
-              }
-            }
-          },
-        },
-      );
-
-      if (aborted) {
+    return wrapToolCall(tracer, { toolName: "grep", input: { pattern: grepInput.pattern, path: grepInput.path }, spaceId }, async () => {
+      // Check abort before starting.
+      if (signal?.aborted) {
         throw new Error("Operation aborted");
       }
 
-      // Phase 1: Parse all matches from rg JSON output.
-      const matches: Array<{
-        filePath: string;
-        lineNumber: number;
-        lineText?: string;
-      }> = [];
-      for (const rawLine of result.lines) {
-        if (!rawLine.trim()) continue;
-        let rgEvent: {
-          type: string;
-          data?: {
-            path?: { text?: string };
-            line_number?: number;
-            lines?: { text?: string };
-          };
-        };
-        try {
-          rgEvent = JSON.parse(rawLine);
-        } catch {
-          continue;
+      const contextValue = grepInput.context && grepInput.context > 0 ? grepInput.context : 0;
+      const effectiveLimit = Math.max(1, grepInput.limit ?? 100);
+
+      // Set up abort handling.
+      let aborted = false;
+      let activeProcessId: string | null = null;
+      const onAbort = () => {
+        aborted = true;
+        if (activeProcessId) {
+          void tracedRpcAbortProcess(activeProcessId);
         }
-        if (rgEvent.type === "match") {
-          const filePath = rgEvent.data?.path?.text;
-          const lineNumber = rgEvent.data?.line_number;
-          const lineText = rgEvent.data?.lines?.text;
-          if (filePath && typeof lineNumber === "number") {
-            matches.push({ filePath, lineNumber, lineText });
-          }
-          if (matches.length >= effectiveLimit) break;
-        }
-      }
-
-      if (matches.length === 0) {
-        return {
-          content: [{ type: "text", text: "No matches found" }],
-          details: undefined,
-        };
-      }
-
-      const matchLimitReached = matches.length >= effectiveLimit;
-
-      // Phase 2: If context mode, pre-fetch all needed files in parallel with caching.
-      const fileCache = new Map<string, string[]>();
-      if (contextValue > 0) {
-        // Collect unique file paths.
-        const filePaths = [...new Set(matches.map((m) => m.filePath))];
-        // Fetch all files in parallel.
-        const fetchResults = await Promise.all(
-          filePaths.map(async (filePath) => {
-            const connection = await getCurrentConnection();
-            const fileResult = await rpc(connection, "fs.read", { path: filePath });
-            return { filePath, lines: fileResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") };
-          }),
-        );
-        for (const r of fetchResults) {
-          fileCache.set(r.filePath, r.lines);
-        }
-      }
-
-      // Phase 3: Format output lines from parsed matches (with cache hits for context).
-      const outputLines: string[] = [];
-      let linesTruncated = false;
-
-      for (const match of matches) {
-        const relativePath = formatRelativePath(match.filePath, grepInput.path);
-
-        if (contextValue === 0 && match.lineText !== undefined) {
-          // No context: format directly from rg line text (native behavior).
-          const sanitized = match.lineText.replace(/\r\n/g, "\n").replace(/\r/g, "").replace(/\n$/, "");
-          const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
-          if (wasTruncated) linesTruncated = true;
-          outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
-        } else {
-          // Context mode: use pre-fetched file content from cache.
-          const cachedLines = fileCache.get(match.filePath);
-          if (cachedLines) {
-            const block = formatContextBlockFromCache(match.filePath, match.lineNumber, contextValue, cachedLines);
-            if (block.anyTruncated) linesTruncated = true;
-            outputLines.push(...block.lines);
-          } else {
-            // Fallback: shouldn't happen after parallel fetch, but handle gracefully.
-            const relativePathFallback = match.filePath.includes("/") ? match.filePath.split("/").pop() ?? match.filePath : match.filePath;
-            outputLines.push(`${relativePathFallback}:${match.lineNumber}: (unable to read file)`);
-          }
-        }
-      }
-
-      // Apply byte truncation (matching native behavior).
-      const rawOutput = outputLines.join("\n");
-      const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
-      let output = truncation.content;
-
-      // Build details (matching native behavior).
-      const details: GrepToolDetails = {};
-      const notices: string[] = [];
-      if (matchLimitReached) {
-        notices.push(`${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`);
-        details.matchLimitReached = effectiveLimit;
-      }
-      if (truncation.truncated) {
-        notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
-        details.truncation = truncation;
-      }
-      if (linesTruncated) {
-        notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
-        details.linesTruncated = true;
-      }
-      if (notices.length > 0) {
-        output += `\n\n[${notices.join(". ")}]`;
-      }
-
-      return {
-        content: [{ type: "text", text: output }],
-        details: Object.keys(details).length > 0 ? details : undefined,
       };
-    } finally {
-      if (signal) signal.removeEventListener("abort", onAbort);
-    }
+      if (signal) {
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      const connection = await getCurrentConnection();
+      try {
+        const result = await tracedRpc(
+          connection,
+          "fs.grep",
+          {
+            pattern: grepInput.pattern,
+            path: mapSandboxInputPath(grepInput.path),
+            glob: grepInput.glob,
+            ignoreCase: grepInput.ignoreCase,
+            literal: grepInput.literal,
+            context: grepInput.context,
+            limit: effectiveLimit,
+            // Agent owns semantics: match pi-coding-agent behavior.
+            maxCount: grepInput.limit,
+            json: true,
+            hidden: true,
+          },
+          {
+            onEvent(event) {
+              if (event.type === "started") {
+                activeProcessId = event.processId;
+                if (aborted) {
+                  void tracedRpcAbortProcess(event.processId);
+                }
+              }
+            },
+          },
+        );
+
+        if (aborted) {
+          throw new Error("Operation aborted");
+        }
+
+        // Phase 1: Parse all matches from rg JSON output.
+        const matches: Array<{
+          filePath: string;
+          lineNumber: number;
+          lineText?: string;
+        }> = [];
+        for (const rawLine of result.lines) {
+          if (!rawLine.trim()) continue;
+          let rgEvent: {
+            type: string;
+            data?: {
+              path?: { text?: string };
+              line_number?: number;
+              lines?: { text?: string };
+            };
+          };
+          try {
+            rgEvent = JSON.parse(rawLine);
+          } catch {
+            continue;
+          }
+          if (rgEvent.type === "match") {
+            const filePath = rgEvent.data?.path?.text;
+            const lineNumber = rgEvent.data?.line_number;
+            const lineText = rgEvent.data?.lines?.text;
+            if (filePath && typeof lineNumber === "number") {
+              matches.push({ filePath, lineNumber, lineText });
+            }
+            if (matches.length >= effectiveLimit) break;
+          }
+        }
+
+        if (matches.length === 0) {
+          return {
+            content: [{ type: "text", text: "No matches found" }],
+            details: undefined,
+          };
+        }
+
+        const matchLimitReached = matches.length >= effectiveLimit;
+
+        // Phase 2: If context mode, pre-fetch all needed files in parallel with caching.
+        const fileCache = new Map<string, string[]>();
+        if (contextValue > 0) {
+          // Collect unique file paths.
+          const filePaths = [...new Set(matches.map((m) => m.filePath))];
+          // Fetch all files in parallel.
+          const fetchResults = await Promise.all(
+            filePaths.map(async (filePath) => {
+              const connection = await getCurrentConnection();
+              const fileResult = await tracedRpc(connection, "fs.read", { path: filePath });
+              return { filePath, lines: fileResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") };
+            }),
+          );
+          for (const r of fetchResults) {
+            fileCache.set(r.filePath, r.lines);
+          }
+        }
+
+        // Phase 3: Format output lines from parsed matches (with cache hits for context).
+        const outputLines: string[] = [];
+        let linesTruncated = false;
+
+        for (const match of matches) {
+          const relativePath = formatRelativePath(match.filePath, grepInput.path);
+
+          if (contextValue === 0 && match.lineText !== undefined) {
+            // No context: format directly from rg line text (native behavior).
+            const sanitized = match.lineText.replace(/\r\n/g, "\n").replace(/\r/g, "").replace(/\n$/, "");
+            const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
+            if (wasTruncated) linesTruncated = true;
+            outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
+          } else {
+            // Context mode: use pre-fetched file content from cache.
+            const cachedLines = fileCache.get(match.filePath);
+            if (cachedLines) {
+              const block = formatContextBlockFromCache(match.filePath, match.lineNumber, contextValue, cachedLines);
+              if (block.anyTruncated) linesTruncated = true;
+              outputLines.push(...block.lines);
+            } else {
+              // Fallback: shouldn't happen after parallel fetch, but handle gracefully.
+              const relativePathFallback = match.filePath.includes("/") ? match.filePath.split("/").pop() ?? match.filePath : match.filePath;
+              outputLines.push(`${relativePathFallback}:${match.lineNumber}: (unable to read file)`);
+            }
+          }
+        }
+
+        // Apply byte truncation (matching native behavior).
+        const rawOutput = outputLines.join("\n");
+        const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+        let output = truncation.content;
+
+        // Build details (matching native behavior).
+        const details: GrepToolDetails = {};
+        const notices: string[] = [];
+        if (matchLimitReached) {
+          notices.push(`${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`);
+          details.matchLimitReached = effectiveLimit;
+        }
+        if (truncation.truncated) {
+          notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+          details.truncation = truncation;
+        }
+        if (linesTruncated) {
+          notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
+          details.linesTruncated = true;
+        }
+        if (notices.length > 0) {
+          output += `\n\n[${notices.join(". ")}]`;
+        }
+
+        return {
+          content: [{ type: "text", text: output }],
+          details: Object.keys(details).length > 0 ? details : undefined,
+        };
+      } finally {
+        if (signal) signal.removeEventListener("abort", onAbort);
+      }
+    });
   };
 
   // Keep native renderCall and renderResult for TUI consistency.
@@ -562,10 +596,10 @@ function formatContextBlockFromCache(
 }
 
 /** Abort a running process via sandbox RPC. */
-async function rpcAbortProcess(processId: string) {
+async function tracedRpcAbortProcess(processId: string) {
   try {
     const connection = await getCurrentConnection();
-    await rpc(connection, "process.abort", { processId });
+    await tracedRpc(connection, "process.abort", { processId });
   } catch {
     // Ignore abort errors.
   }

@@ -1,6 +1,10 @@
 import "dotenv/config";
 import "./tracing.js";
 
+import { context, trace, SpanStatusCode } from "@opentelemetry/api";
+import { getTracer, extractTrace } from "@cohub/tracing/propagator";
+
+const tracer = getTracer("cohub-worker");
 import { Worker, type Processor } from "bullmq";
 import { BullMQOtel } from "bullmq-otel";
 import { Redis } from "ioredis";
@@ -23,7 +27,26 @@ const processor: Processor = async (job) => {
   if (!handler) {
     throw new Error(`No handler registered for task type: ${job.name}`);
   }
-  return handler(job);
+  // Extract trace context from job data (if enqueued with trace propagation)
+  const parentCtx = extractTrace(job.data as unknown as Record<string, unknown>);
+  const span = tracer.startSpan("worker.job.process", {
+    attributes: {
+      "job.id": job.id ?? "",
+      "job.name": job.name,
+      "job.queue": job.queueName,
+    },
+  });
+  return context.with(trace.setSpan(parentCtx, span), async () => {
+    try {
+      return await handler(job);
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
 };
 
 const taskWorker = new Worker("cohub-tasks", processor, {

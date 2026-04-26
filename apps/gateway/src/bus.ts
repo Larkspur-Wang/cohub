@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { GatewayInboundEvent, GatewayLogEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import { injectTrace } from "@cohub/tracing/propagator";
 import {
   createBlockingRedisClient,
   type RedisStreamEntry,
@@ -64,8 +65,12 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     correlationId: event.eventId,
   };
 
+  // Inject trace context so downstream services (API → Agent) can continue the same trace
+  const traceCarrier = injectTrace();
+  const enrichedEvent = Object.keys(traceCarrier).length > 0 ? { ...event, ...traceCarrier } : event;
+
   await Promise.all([
-    xaddWithMaxlen(redisCommandClient, INBOUND_STREAM, "*", "payload", JSON.stringify(event)),
+    xaddWithMaxlen(redisCommandClient, INBOUND_STREAM, "*", "payload", JSON.stringify(enrichedEvent)),
     publishLogEvent(logEvent),
   ]);
 

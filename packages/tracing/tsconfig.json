@@ -2,9 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "paths": {
-      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"]
-    }
+    "rootDir": "./src"
   },
   "include": ["src"]
 }

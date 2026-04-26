@@ -6,6 +6,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
+import { context, trace, SpanStatusCode } from "@opentelemetry/api";
+import { getTracer, extractTrace } from "@cohub/tracing/propagator";
 import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile } from "./auth.js";
 import { assertRequiredConfig } from "./config.js";
 import {
@@ -21,6 +23,8 @@ import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
 import router from "./routes/index.js";
+
+const tracer = getTracer("cohub-api");
 
 // ── Gateway inbound listener (background task) ───────────────────────────────
 
@@ -60,13 +64,34 @@ const startGatewayInboundListener = async () => {
           if (!payload) continue;
           try {
             const event = JSON.parse(payload) as GatewayInboundEvent;
-            if (event.provider === "websocket") {
-              await handleWebsocketInboundEvent(event);
-            } else {
-              await handleInboundEvent(event);
+            // Extract trace context from the message (injected by Gateway)
+            const parentCtx = extractTrace(event as unknown as Record<string, unknown>);
+            const span = tracer.startSpan("api.inbound.consume", {
+              attributes: {
+                "event.id": event.eventId,
+                "event.type": event.eventType,
+                "channel.id": event.channelId,
+                "provider": event.provider,
+              },
+            });
+            try {
+              await context.with(trace.setSpan(parentCtx, span), async () => {
+                if (event.provider === "websocket") {
+                  await handleWebsocketInboundEvent(event);
+                } else {
+                  await handleInboundEvent(event);
+                }
+              });
+            } catch (err) {
+              span.recordException(err instanceof Error ? err : new Error(String(err)));
+              span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+              throw err;
+            } finally {
+              span.end();
             }
             await client.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
-          } catch {
+          } catch (err) {
+            console.error("[API] Failed to process inbound event:", err);
             await client.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id).catch(() => undefined);
           }
         }
@@ -111,8 +136,27 @@ const startSessionUpdatesBridge = async () => {
           }
 
           try {
-            const outputs = await buildSessionOutputsForStreamEvent(event);
-            await dispatchSessionOutputs(outputs);
+            // Extract trace context from the message (injected by Agent)
+            const parentCtx = extractTrace(event as unknown as Record<string, unknown>);
+            const span = tracer.startSpan("api.session_updates.consume", {
+              attributes: {
+                "event.type": event.type,
+                "space.id": event.spaceId,
+                "session.id": (event as { sessionId?: string }).sessionId ?? "",
+              },
+            });
+            try {
+              await context.with(trace.setSpan(parentCtx, span), async () => {
+                const outputs = await buildSessionOutputsForStreamEvent(event);
+                await dispatchSessionOutputs(outputs);
+              });
+            } catch (err) {
+              span.recordException(err instanceof Error ? err : new Error(String(err)));
+              span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+              throw err;
+            } finally {
+              span.end();
+            }
             await client.xack(AGENT_SESSION_UPDATES_STREAM, SESSION_UPDATES_CONSUMER_GROUP, id);
           } catch (error) {
             console.error("[API] Failed to bridge agent session update event:", error);

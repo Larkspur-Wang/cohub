@@ -1,7 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
+      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]
+    }
   },
   "include": ["src"]
 }

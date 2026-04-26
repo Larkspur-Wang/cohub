@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
+import { injectTrace } from "@cohub/tracing/propagator";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -464,6 +465,9 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
 
   const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
 
+  // Inject trace context so the Agent can continue the same trace
+  const traceCarrier = injectTrace();
+
   await redisCommandClient.rpush(
     getAgentInstanceInputQueueKey(lease.ownerId),
     JSON.stringify({
@@ -477,6 +481,7 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
       timestamp: new Date().toISOString(),
       expectedOwnerId: lease.ownerId,
       expectedEpoch: lease.epoch,
+      ...traceCarrier,
     }),
   );
 };

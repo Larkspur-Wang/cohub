@@ -4,6 +4,7 @@ import { streamSimple, type Api, type Context, type ImageContent, type Model, ty
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
+import { wrapLlmCompletion, recordLlmUsage, getAgentTracer } from "@cohub/tracing/agent";
 
 export type CohubAgentSessionEvent = AgentEvent;
 
@@ -42,11 +43,47 @@ function toLlmMessages(messages: AgentMessage[]) {
 }
 
 function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
-  return (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
-    const headers = modelRegistry.getHeaders(model.provider, model.id);
-    return streamSimple(model, context, {
-      ...options,
-      headers: headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers,
+  const tracer = getAgentTracer();
+  let llmTurnCounter = 0;
+
+  return async (model: Model<Api>, ctx: Context, options?: SimpleStreamOptions) => {
+    llmTurnCounter += 1;
+    const turn = llmTurnCounter;
+
+    return wrapLlmCompletion(tracer, {
+      provider: model.provider,
+      model: model.id,
+      turn,
+      messageCount: ctx.messages.length,
+    }, async (span) => {
+      const headers = modelRegistry.getHeaders(model.provider, model.id);
+      const stream = await streamSimple(model, ctx, {
+        ...options,
+        headers: headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers,
+      });
+
+      // Wrap the stream to capture usage information when it completes
+      const originalOnUsage = (stream as unknown as { onUsage?: (u: Record<string, unknown>) => void }).onUsage;
+      (stream as unknown as { onUsage?: (u: Record<string, unknown>) => void }).onUsage = (usage: Record<string, unknown>) => {
+        try {
+          recordLlmUsage(span, {
+            inputTokens: usage.inputTokens as number | undefined,
+            outputTokens: usage.outputTokens as number | undefined,
+            totalTokens: usage.totalTokens as number | undefined,
+            cacheReadTokens: usage.cacheReadTokens as number | undefined,
+            cacheWriteTokens: usage.cacheWriteTokens as number | undefined,
+          });
+        } catch {
+          // Ignore recording errors to avoid breaking the stream
+        }
+        try {
+          originalOnUsage?.(usage);
+        } catch {
+          // Ignore original callback errors
+        }
+      };
+
+      return stream;
     });
   };
 }

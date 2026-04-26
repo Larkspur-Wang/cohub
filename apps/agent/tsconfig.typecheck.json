@@ -9,7 +9,10 @@
       "@neta-art/cohub-protocol/gateway": ["../../packages/protocol/src/gateway/index.ts"],
       "@neta-art/cohub-protocol/task": ["../../packages/protocol/src/task/index.ts"],
       "@neta-art/cohub-protocol/fs": ["../../packages/protocol/src/fs/index.ts"],
-      "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/src/index.ts"]
+      "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/src/index.ts"],
+      "@cohub/tracing": ["../../packages/tracing/src/index.ts"],
+      "@cohub/tracing/propagator": ["../../packages/tracing/src/propagator.ts"],
+      "@cohub/tracing/agent": ["../../packages/tracing/src/spans/agent.ts"]
     }
   }
 }
