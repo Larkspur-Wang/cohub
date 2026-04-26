@@ -3,6 +3,7 @@ import {
 	type CheckpointRecord,
 	type CronJobRecord,
 	HttpError,
+	type PromptTemplateCatalogEntry,
 	type SessionRecord,
 	type SpaceAccessPolicy,
 	type SpaceFsEntry,
@@ -197,6 +198,8 @@ let modelsCatalog = $state<Array<{
 	id: string;
 	model: Record<string, unknown>;
 }> | null>(null);
+let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
+let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
@@ -1001,6 +1004,17 @@ async function loadModelsCatalog() {
 		modelsCatalog = items;
 	} catch (error) {
 		console.error("Failed to load models catalog:", error);
+	}
+}
+
+async function loadPromptTemplates() {
+	if (promptTemplatesLoaded) return;
+	try {
+		const response = await sdk.prompts.list({ spaceId });
+		promptTemplates = response.prompts;
+		promptTemplatesLoaded = true;
+	} catch (error) {
+		console.error("Failed to load prompt templates:", error);
 	}
 }
 
@@ -2893,6 +2907,7 @@ onMount(() => {
 
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
+	void loadPromptTemplates();
 
 	const wsEventCleanup = sdk.space(spaceId).subscribe((event) => {
 		void handleWsEvent(event as ChannelEnvelope);
@@ -4437,6 +4452,7 @@ $effect(() => {
             streamError={streamError}
             attachments={imageAttachments}
             currentModel={activeSessionModel}
+            promptTemplates={promptTemplates}
             onpickimage={handlePickImages}
             onremoveattachment={handleRemoveAttachment}
             onsubmit={handleSend}

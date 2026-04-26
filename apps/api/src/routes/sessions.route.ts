@@ -9,6 +9,7 @@ import {
   enqueueSpacePrompt,
   SandboxNotReadyError,
 } from "../space-sessions.js";
+import { expandPromptTemplate } from "../prompt-templates.js";
 
 const router = new Hono();
 
@@ -100,17 +101,42 @@ router.post("/:id/messages", async (c) => {
 
   const userMessageId = crypto.randomUUID();
 
+  let content = body.content;
+  let promptTemplateMeta: Record<string, unknown> | null = null;
+  if (body.content.length === 1 && body.content[0]?.type === "text") {
+    const rawText = typeof body.content[0].text === "string" ? body.content[0].text.trim() : "";
+    if (rawText.startsWith("/")) {
+      const expanded = await expandPromptTemplate(rawText, {
+        userId: user?.uuid ?? null,
+        spaceId: space.id,
+      });
+      if (expanded) {
+        content = [{ type: "text", text: expanded.renderedText } satisfies ContentBlock];
+        promptTemplateMeta = {
+          name: expanded.template.name,
+          description: expanded.template.description,
+          argumentHint: expanded.template.argumentHint ?? null,
+          category: expanded.template.category ?? null,
+          scope: expanded.template.scope,
+          rawInput: expanded.rawInput,
+          args: expanded.args,
+        };
+      }
+    }
+  }
+
   try {
     await enqueueSpacePrompt({
       spaceId: space.id,
       sessionId: session.id,
       userMessageId,
-      content: body.content,
+      content,
       meta: {
         intent: "continue",
         source: "web",
         model: body.model ?? null,
         provider: body.provider ?? null,
+        promptTemplate: promptTemplateMeta,
         actorUserId: user?.uuid ?? null,
         authorUuid: user?.uuid ?? null,
         authorName: (user?.nick_name as string | undefined) ?? null,

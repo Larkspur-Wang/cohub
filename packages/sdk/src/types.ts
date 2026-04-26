@@ -114,6 +114,18 @@ export type ModelCatalogEntry = {
   model: Record<string, unknown>;
 };
 
+export type PromptTemplateCatalogEntry = {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  category?: string;
+  scope: "platform";
+};
+
+export type PromptTemplateCatalogResponse = {
+  prompts: PromptTemplateCatalogEntry[];
+};
+
 export type Channel = {
   id: string;
   userUuid: string;

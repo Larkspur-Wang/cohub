@@ -11,11 +11,13 @@ import internalRouter from "./internal/index.js";
 import cronJobsRouter from "./cron-jobs.route.js";
 import tasksRouter from "./tasks.route.js";
 import trendingRouter from "./trending.route.js";
+import promptsRouter from "./prompts.route.js";
 
 const router = new Hono();
 
 router.route("/", healthRouter);
 router.route("/api/models", modelsRouter);
+router.route("/api/prompts", promptsRouter);
 router.route("/api/me", meRouter);
 router.route("/api/channels", channelsRouter);
 router.route("/api/user", userRouter);

@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import { ArrowUp, ChevronDown, Plus, Upload, X } from "lucide-svelte";
 
 type ComposerImageAttachment = {
@@ -22,6 +23,7 @@ type Props = {
 	streamError?: string;
 	attachments?: ComposerImageAttachment[];
 	currentModel?: SelectedModel | null;
+	promptTemplates?: PromptTemplateCatalogEntry[];
 	onsubmit: () => void;
 	onpickimage?: (files: FileList | File[] | null) => void;
 	onremoveattachment?: (id: string) => void;
@@ -34,6 +36,7 @@ let {
 	streamError = "",
 	attachments = [],
 	currentModel = null,
+	promptTemplates = [],
 	onsubmit,
 	onpickimage,
 	onremoveattachment,
@@ -44,6 +47,23 @@ let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let fileInputEl = $state<HTMLInputElement | null>(null);
 let isDragOver = $state(false);
 let dragCounter = 0;
+let showPromptSuggestions = $state(false);
+let selectedPromptIndex = $state(0);
+
+const filteredPromptTemplates = $derived.by(() => {
+	const trimmed = value.trimStart();
+	if (!trimmed.startsWith("/")) return [];
+	if (trimmed.includes("\n")) return [];
+	const firstToken = trimmed.split(/\s+/, 1)[0] ?? "";
+	const query = firstToken.slice(1).toLowerCase();
+	return promptTemplates.filter((item) => {
+		if (!query) return true;
+		return (
+			item.name.toLowerCase().includes(query) ||
+			item.description.toLowerCase().includes(query)
+		);
+	});
+});
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
 function isMobile(): boolean {
@@ -60,6 +80,21 @@ function resizeTextarea() {
 	textareaEl.style.height = "0px";
 	const nextHeight = Math.min(textareaEl.scrollHeight, 168);
 	textareaEl.style.height = `${Math.max(nextHeight, 44)}px`;
+}
+
+function applyPromptTemplate(item: PromptTemplateCatalogEntry) {
+	const trimmedStart = value.trimStart();
+	const leadingWhitespace = value.slice(0, value.length - trimmedStart.length);
+	const firstSpace = trimmedStart.indexOf(" ");
+	const suffix = firstSpace === -1 ? "" : trimmedStart.slice(firstSpace);
+	value = `${leadingWhitespace}/${item.name}${suffix || " "}`;
+	showPromptSuggestions = false;
+	selectedPromptIndex = 0;
+	requestAnimationFrame(() => {
+		textareaEl?.focus();
+		const pos = value.length;
+		textareaEl?.setSelectionRange(pos, pos);
+	});
 }
 
 function hasImageFiles(dataTransfer: DataTransfer | null) {
@@ -114,6 +149,20 @@ $effect(() => {
 	value;
 	attachments.length;
 	resizeTextarea();
+});
+
+$effect(() => {
+	const shouldShow =
+		filteredPromptTemplates.length > 0 && value.trimStart().startsWith("/");
+	showPromptSuggestions = shouldShow;
+	if (!shouldShow) {
+		selectedPromptIndex = 0;
+		return;
+	}
+	selectedPromptIndex = Math.min(
+		selectedPromptIndex,
+		filteredPromptTemplates.length - 1,
+	);
 });
 </script>
 
@@ -185,9 +234,42 @@ $effect(() => {
 						class="block min-h-[44px] max-h-[168px] w-full resize-none bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
 						oninput={() => resizeTextarea()}
 						onpaste={handlePaste}
+						onblur={() => {
+							setTimeout(() => {
+								showPromptSuggestions = false;
+							}, 120);
+						}}
+						onfocus={() => {
+							if (!isMobile() && filteredPromptTemplates.length > 0 && value.trimStart().startsWith('/')) {
+								showPromptSuggestions = true;
+							}
+						}}
 						onkeydown={(event) => {
+							if (showPromptSuggestions && filteredPromptTemplates.length > 0) {
+								if (event.key === 'ArrowDown') {
+									event.preventDefault();
+									selectedPromptIndex = Math.min(selectedPromptIndex + 1, filteredPromptTemplates.length - 1);
+									return;
+								}
+								if (event.key === 'ArrowUp') {
+									event.preventDefault();
+									selectedPromptIndex = Math.max(selectedPromptIndex - 1, 0);
+									return;
+								}
+								if (event.key === 'Tab' || event.key === 'Enter') {
+									if (!(event.key === 'Enter' && event.shiftKey)) {
+										event.preventDefault();
+										const selected = filteredPromptTemplates[selectedPromptIndex];
+										if (selected) applyPromptTemplate(selected);
+										return;
+									}
+								}
+								if (event.key === 'Escape') {
+									showPromptSuggestions = false;
+									return;
+								}
+							}
 							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-								// On mobile, Enter should insert a newline, not send
 								if (isMobile()) return;
 								event.preventDefault();
 								if (!disabled && (value.trim() || attachments.length > 0)) {
@@ -196,6 +278,31 @@ $effect(() => {
 							}
 						}}
 					></textarea>
+
+					{#if showPromptSuggestions && filteredPromptTemplates.length > 0}
+						<div class="mt-2 hidden overflow-hidden rounded-2xl border border-border-subtle bg-bg-content shadow-[0_12px_30px_rgba(15,23,42,0.12)] md:block">
+							<div class="max-h-56 overflow-y-auto py-1">
+								{#each filteredPromptTemplates as item, index (item.name)}
+									<button
+										type="button"
+										class={`flex w-full items-start gap-3 px-3 py-2 text-left transition-colors ${index === selectedPromptIndex ? 'bg-accent' : 'hover:bg-bg-hover'}`}
+										onmousedown={(event) => event.preventDefault()}
+										onclick={() => applyPromptTemplate(item)}
+									>
+										<div class="min-w-0 flex-1">
+											<div class="flex items-center gap-2 text-[12px] text-text-primary">
+												<span class="font-medium">/{item.name}</span>
+												{#if item.argumentHint}
+													<span class="text-text-tertiary">{item.argumentHint}</span>
+												{/if}
+											</div>
+											<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{item.description}</div>
+										</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1">
