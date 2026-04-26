@@ -51,3 +51,6 @@ export function initTracing() {
 
   provider.register();
 }
+
+// 模块加载时立即执行，确保在所有其他模块 import 之前完成 instrumentation 注册
+initTracing();

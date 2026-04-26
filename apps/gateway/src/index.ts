@@ -1,6 +1,5 @@
 import "dotenv/config";
-import { initTracing } from "./tracing.js";
-initTracing();
+import "./tracing.js";
 
 import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";

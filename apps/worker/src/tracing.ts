@@ -48,3 +48,5 @@ export function initTracing() {
 
   provider.register();
 }
+
+initTracing();

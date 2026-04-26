@@ -1,6 +1,5 @@
 import "dotenv/config";
-import { initTracing } from "./tracing.js";
-initTracing();
+import "./tracing.js";
 
 import { Worker, type Processor } from "bullmq";
 import { BullMQOtel } from "bullmq-otel";
