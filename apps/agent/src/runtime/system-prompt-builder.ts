@@ -15,7 +15,6 @@ import {
   SANDBOX_WORKSPACE_SKILLS_PATH,
 } from "./paths.js";
 
-const WORKSPACE_AGENT_DIRNAME = ".agents";
 const FALLBACK_SYSTEM_PROMPT = "You are a helpful assistant.";
 
 type LoadedContextFile = {

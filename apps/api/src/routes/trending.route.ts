@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, sql, and, gte, lt } from "drizzle-orm";
+import { sql, and, gte, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as schema from "../db/schema-v2.js";
 

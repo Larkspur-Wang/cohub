@@ -290,7 +290,7 @@ export class SessionManager {
       parentSession: this.sessionFile,
     };
     mkdirSync(this.sessionDir, { recursive: true });
-    const lines = [JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n") + "\n";
+    const lines = `${[JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
     writeFileSync(newSessionFile, lines, "utf-8");
     return newSessionFile;
   }

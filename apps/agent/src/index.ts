@@ -264,7 +264,9 @@ function evictUnusedModelRegistries() {
     .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
 
   while (modelRegistries.size > MAX_CACHED_MODEL_REGISTRIES && candidates.length > 0) {
-    const [key] = candidates.shift()!;
+    const entry = candidates.shift();
+    if (!entry) break;
+    const [key] = entry;
     modelRegistries.delete(key);
   }
 }

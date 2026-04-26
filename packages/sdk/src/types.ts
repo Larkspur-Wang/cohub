@@ -4,7 +4,6 @@ import type {
 } from "@neta-art/cohub-protocol/model";
 import type {
   ChannelConfig,
-  DiscordChannelConfig,
 } from "@neta-art/cohub-protocol/gateway";
 import type {
   ContentBlock,
