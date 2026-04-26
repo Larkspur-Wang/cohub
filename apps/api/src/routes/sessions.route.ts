@@ -44,6 +44,11 @@ router.get("/:id/messages", async (c) => {
   const cursor = cursorParam ? Number(cursorParam) : undefined;
   const pageLimit = Math.min(Number(c.req.query("limit") ?? 30), 100) || 30;
   const direction = (c.req.query("direction") as "older" | "newer" | undefined) ?? "older";
+
+  // Always fetch +1 sentinel to correctly detect hasMore.
+  // The sentinel position depends on the query direction:
+  //   - Initial load (no cursor) or "older": sentinel is the oldest (index 0)
+  //   - "newer": sentinel is the newest (last element)
   const fetchLimit = Math.min(pageLimit + 1, 101);
 
   const rows = await listSessionMessages(session.id, {
@@ -52,7 +57,9 @@ router.get("/:id/messages", async (c) => {
     direction,
   });
   const hasMore = rows.length > pageLimit;
-  const messages = hasMore ? rows.slice(0, pageLimit) : rows;
+  const messages = hasMore
+    ? (direction === "newer" ? rows.slice(0, -1) : rows.slice(1))
+    : rows;
 
   return c.json({
     session,
