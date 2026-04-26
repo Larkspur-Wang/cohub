@@ -11,10 +11,10 @@ const router = new Hono();
  * GET /api/spaces/:spaceId/usage?days=N
  * Returns hourly token usage stats for a space over the last N days (default 30).
  */
-router.get("/:spaceId", async (c) => {
+router.get("/", async (c) => {
   const user = useAuth(c);
-  const spaceId = c.req.param("spaceId");
-  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const spaceId = c.req.param("id");
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const daysParam = c.req.query("days");
