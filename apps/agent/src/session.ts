@@ -107,6 +107,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
       sessionId: handle.sessionId,
       content: delta,
       sourceMessageId,
+      anchorUserMessageId: handle.currentUserMessageId,
       timestamp: Date.now(),
     });
 
