@@ -13,6 +13,9 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY packages/agent-sandbox-protocol/package.json ./packages/agent-sandbox-protocol/package.json
 COPY packages/agent-sandbox-protocol/tsconfig.json ./packages/agent-sandbox-protocol/tsconfig.json
 COPY packages/agent-sandbox-protocol/tsconfig.build.json ./packages/agent-sandbox-protocol/tsconfig.build.json
+COPY packages/tracing/package.json ./packages/tracing/package.json
+COPY packages/tracing/tsconfig.json ./packages/tracing/tsconfig.json
+COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
 COPY apps/agent/package.json ./apps/agent/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
@@ -21,11 +24,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 COPY packages/protocol ./packages/protocol
 COPY packages/agent-sandbox-protocol ./packages/agent-sandbox-protocol
+COPY packages/tracing ./packages/tracing
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
 
 RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/agent-sandbox-protocol build
+RUN pnpm --filter @cohub/tracing build
 RUN pnpm --filter @cohub/agent build
 RUN pnpm --filter @cohub/agent --prod deploy /prod/agent
 
