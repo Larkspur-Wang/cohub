@@ -436,7 +436,7 @@ export class SpaceAccessApi {
     return this.transport.request<SpaceAccessPolicy>(
       `/api/spaces/${this.spaceId}/access`,
       {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },

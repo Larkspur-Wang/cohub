@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.1.0 (2026-04-26)
+
+### Features
+
+- **session**: add inline rename support
+- **api**: add space usage endpoint with auth and permission check
+- **api**: add layered prompt templates support
+- **web**: reconcile session state after websocket reconnect
+
+### Bug Fixes
+
+- **api**: change access routes from PUT to PATCH for partial updates
+- **packages**: correct GitHub repository URLs to talesofai/cohub
+
+### Refactoring
+
+- **api**: remove unused space field from GET /sessions/:id/messages
+- **api**: optimize space sessions list endpoint with batch permission filtering
+- rename role 'maker' to 'builder' across the codebase
+
 ## v0.10.1 (2026-04-26)
 
 ### Bug Fixes

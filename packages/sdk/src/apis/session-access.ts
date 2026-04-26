@@ -14,7 +14,7 @@ export class SessionAccessApi {
     return this.transport.request<SpaceAccessPolicy>(
       `/api/sessions/${sessionId}/access`,
       {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },

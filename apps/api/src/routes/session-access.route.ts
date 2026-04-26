@@ -31,7 +31,7 @@ router.get("/:id/access", async (c) => {
   });
 });
 
-router.put("/:id/access", async (c) => {
+router.patch("/:id/access", async (c) => {
   const user = useAuth(c);
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
@@ -41,10 +41,22 @@ router.put("/:id/access", async (c) => {
   if (!(await hasPermission(user, "member.manage", { spaceId: session.spaceId, sessionId }))) return c.json({ message: "not found" }, 404);
 
   const body = await c.req.json<{ signed_in_user?: AccessPolicyRole; anonymous_user?: AccessPolicyRole }>().catch(() => null);
-  if (!body) return c.json({ message: "invalid body" }, 400);
-  if (!SIGNED_IN_VALID_ROLES.has(body.signed_in_user ?? null) || !ANONYMOUS_VALID_ROLES.has(body.anonymous_user ?? null)) {
+  if (!body || (body.signed_in_user === undefined && body.anonymous_user === undefined)) {
+    return c.json({ message: "invalid body" }, 400);
+  }
+  if (body.signed_in_user !== undefined && !SIGNED_IN_VALID_ROLES.has(body.signed_in_user)) {
     return c.json({ message: "access role must be guest, builder (signed-in only), or null" }, 400);
   }
+  if (body.anonymous_user !== undefined && !ANONYMOUS_VALID_ROLES.has(body.anonymous_user)) {
+    return c.json({ message: "access role must be guest or null" }, 400);
+  }
+
+  const updateSet: { signedInUserRole?: AccessPolicyRole; anonymousUserRole?: AccessPolicyRole; updatedBy: string; updatedAt: Date } = {
+    updatedBy: user.uuid,
+    updatedAt: new Date(),
+  };
+  if (body.signed_in_user !== undefined) updateSet.signedInUserRole = body.signed_in_user;
+  if (body.anonymous_user !== undefined) updateSet.anonymousUserRole = body.anonymous_user;
 
   const [policy] = await db
     .insert(accessPolicies)
@@ -58,12 +70,7 @@ router.put("/:id/access", async (c) => {
     })
     .onConflictDoUpdate({
       target: [accessPolicies.resourceType, accessPolicies.resourceId],
-      set: {
-        signedInUserRole: body.signed_in_user ?? null,
-        anonymousUserRole: body.anonymous_user ?? null,
-        updatedBy: user.uuid,
-        updatedAt: new Date(),
-      },
+      set: updateSet,
     })
     .returning();
 
