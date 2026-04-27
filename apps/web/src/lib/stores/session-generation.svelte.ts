@@ -135,6 +135,10 @@ class SessionGenerationStore {
 			[sessionId]: createIdleState(sessionId),
 		};
 	}
+
+	resetAll() {
+		this.bySessionId = {};
+	}
 }
 
 export const sessionGenerationStore = new SessionGenerationStore();

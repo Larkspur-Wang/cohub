@@ -95,7 +95,6 @@ import {
 	getCachedSessionList,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
-	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
@@ -435,6 +434,17 @@ let chatTimelineRef = $state<{
 	finalizePrepend: () => void;
 } | null>(null);
 let preloadingSessionIds = new Set<string>();
+let refreshSessionsListInFlight: Promise<void> | null = null;
+let refreshSessionsListQueued = false;
+let refreshSessionsListQueuedForce = false;
+let reconnectSyncInFlight: Promise<void> | null = null;
+let lastConnectionState:
+	| "idle"
+	| "connecting"
+	| "reconnecting"
+	| "open"
+	| "closed"
+	| "error" = "idle";
 type SessionScrollAnchor = {
 	sequence: number;
 	offset: number;
@@ -1300,24 +1310,29 @@ function updateNodeState(
 }
 
 function applySessionsSnapshot(sessions: SessionRecord[]) {
-	const sorted = setCachedSessionList(spaceId, sessions);
-	spaceSessions = sorted;
-	for (const session of sorted) {
+	spaceSessions = sessions;
+	const nextState: Record<string, SessionViewState> = {};
+	for (const session of sessions) {
 		const existing = sessionStateById[session.id];
-		sessionStateById = {
-			...sessionStateById,
-			[session.id]: {
-				session,
-				messages: existing?.messages ?? [],
-				loading: existing?.loading ?? false,
-				loaded: existing?.loaded ?? false,
-				error: existing?.error ?? "",
-				hasMore: existing?.hasMore ?? true,
-				loadingOlder: existing?.loadingOlder ?? false,
-				oldestCursor: existing?.oldestCursor,
-			},
+		nextState[session.id] = {
+			session,
+			messages: existing?.messages ?? [],
+			loading: existing?.loading ?? false,
+			loaded: existing?.loaded ?? false,
+			error: existing?.error ?? "",
+			hasMore: existing?.hasMore ?? true,
+			loadingOlder: existing?.loadingOlder ?? false,
+			oldestCursor: existing?.oldestCursor,
 		};
 	}
+	if (
+		activeSessionId &&
+		sessionStateById[activeSessionId] &&
+		!nextState[activeSessionId]
+	) {
+		nextState[activeSessionId] = sessionStateById[activeSessionId];
+	}
+	sessionStateById = nextState;
 }
 
 function seedSessions(sessions: SessionRecord[]) {
@@ -1325,19 +1340,39 @@ function seedSessions(sessions: SessionRecord[]) {
 }
 
 async function refreshSessionsList(force = true) {
-	try {
-		const sessions = await fetchSessionListWithCache(
-			spaceId,
-			async () => {
-				const result = await sdk.space(spaceId).sessions.list();
-				return result.sessions ?? [];
-			},
-			{ force },
-		);
-		applySessionsSnapshot(sessions);
-	} catch {
-		// Non-blocking
+	if (refreshSessionsListInFlight) {
+		refreshSessionsListQueued = true;
+		refreshSessionsListQueuedForce ||= force;
+		return refreshSessionsListInFlight;
 	}
+
+	const run = (async () => {
+		try {
+			const sessions = await fetchSessionListWithCache(
+				spaceId,
+				async () => {
+					const result = await sdk.space(spaceId).sessions.list();
+					return result.sessions ?? [];
+				},
+				{ force },
+			);
+			applySessionsSnapshot(sessions);
+		} catch {
+			// Non-blocking
+		}
+	})();
+
+	refreshSessionsListInFlight = run.finally(() => {
+		refreshSessionsListInFlight = null;
+		if (refreshSessionsListQueued) {
+			const rerunForce = refreshSessionsListQueuedForce;
+			refreshSessionsListQueued = false;
+			refreshSessionsListQueuedForce = false;
+			void refreshSessionsList(rerunForce);
+		}
+	});
+
+	return refreshSessionsListInFlight;
 }
 
 async function loadSpace(_options?: { force?: boolean }) {
@@ -1988,20 +2023,28 @@ const recoveryCoordinator = new SessionRecoveryCoordinator({
 });
 
 async function reconnectSync() {
-	await recoveryCoordinator.reconcileAfterReconnect(
-		activeSessionId && sessionStateById[activeSessionId]?.loaded
-			? activeSessionId
-			: null,
-	);
-	if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
-		const latestMessageId =
-			sessionStateById[activeSessionId]?.session?.lastMessageId;
-		if (latestMessageId && shouldAutoFollow) {
-			unreadTracker.markViewed(activeSessionId, latestMessageId);
+	if (reconnectSyncInFlight) return reconnectSyncInFlight;
+	const run = (async () => {
+		await recoveryCoordinator.reconcileAfterReconnect(
+			activeSessionId && sessionStateById[activeSessionId]?.loaded
+				? activeSessionId
+				: null,
+		);
+		if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
+			const latestMessageId =
+				sessionStateById[activeSessionId]?.session?.lastMessageId;
+			if (latestMessageId && shouldAutoFollow) {
+				unreadTracker.markViewed(activeSessionId, latestMessageId);
+			}
 		}
-	}
-	wsConnectionState = "open";
-	wsCanRecover = false;
+		wsConnectionState = "open";
+		wsCanRecover = false;
+	})();
+
+	reconnectSyncInFlight = run.finally(() => {
+		reconnectSyncInFlight = null;
+	});
+	return reconnectSyncInFlight;
 }
 
 async function handleWsEvent(payload: ChannelEnvelope) {
@@ -2877,34 +2920,6 @@ onMount(() => {
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
-			// Avoid re-caching data that's already in cache (prevents infinite loop:
-			// applySessionsSnapshot → setCachedSessionList → emitUpdated → this handler → applySessionsSnapshot)
-			const existing = getCachedSessionList(spaceId);
-			if (
-				existing &&
-				sessions.length === existing.length &&
-				sessions.every((s, i) => s.id === existing[i].id)
-			) {
-				spaceSessions = sessions;
-				for (const session of sessions) {
-					if (!sessionStateById[session.id]) {
-						sessionStateById = {
-							...sessionStateById,
-							[session.id]: {
-								session,
-								messages: [],
-								loading: false,
-								loaded: false,
-								error: "",
-								hasMore: true,
-								loadingOlder: false,
-								oldestCursor: undefined,
-							},
-						};
-					}
-				}
-				return;
-			}
 			applySessionsSnapshot(sessions);
 		},
 	);
@@ -2914,11 +2929,15 @@ onMount(() => {
 	void loadPromptTemplates();
 
 	const wsConnectionCleanup = sdk.onConnection((state) => {
+		const previousState = lastConnectionState;
+		lastConnectionState = state.state;
 		if (state.state === "open") {
 			recoveryCoordinator.onTransportOpen();
 			wsConnectionState = "open";
 			wsCanRecover = false;
-			void reconnectSync();
+			if (previousState !== "open") {
+				void reconnectSync();
+			}
 			return;
 		}
 		if (state.state === "connecting") {
@@ -2999,6 +3018,7 @@ $effect(() => {
 	spaceLoadError = "";
 	spaceSessions = [];
 	sessionStateById = {};
+	loadingSessionIds = {};
 	activeSessionId = null;
 	fileTree = [];
 	fileTreeLoading = false;
@@ -3014,19 +3034,32 @@ $effect(() => {
 	tokenUsage = null;
 	creatingSession = false;
 	createSessionError = "";
+	sessionGenerationStore.resetAll();
 
 	bootstrapping = true;
 
-	void loadSpace()
-		.then(async () => {
+	void (async () => {
+		try {
+			await loadSpace();
 			if (spaceId !== currentSpaceId) return;
 			void loadFileTree(true);
-			bootstrapping = false;
-		})
-		.catch(() => {
-			if (spaceId !== currentSpaceId) return;
-			bootstrapping = false;
-		});
+
+			if (routeView === "session" && routeSessionId) {
+				activeSessionId = routeSessionId;
+				pendingRestoreSessionId = routeSessionId;
+				suppressScrollSaveSessionIds.add(routeSessionId);
+				ensureSessionModelLoaded(routeSessionId);
+				shouldAutoFollow = true;
+				await loadSessionState(routeSessionId).catch(() => undefined);
+			}
+		} catch {
+			// Non-blocking; bootstrapping released below
+		} finally {
+			if (spaceId === currentSpaceId) {
+				bootstrapping = false;
+			}
+		}
+	})();
 });
 
 // React to space changes: subscribe to WS events for the new space
