@@ -1,16 +1,19 @@
 <script lang="ts">
 import {
+	type Channel,
 	type CheckpointRecord,
 	type CronJobRecord,
 	HttpError,
 	type PromptTemplateCatalogEntry,
 	type SessionRecord,
 	type SpaceAccessPolicy,
+	type SpaceChannelBindingRecord,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceMember,
 	type SpaceRecord,
 	type SpaceRole,
+	type SpaceUsageResponse,
 	type TaskRunRecord,
 } from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
@@ -33,6 +36,7 @@ import {
 	Hash,
 	Loader2,
 	Lock,
+	MessageSquare,
 	Network,
 	PanelLeftClose,
 	PanelRightClose,
@@ -48,6 +52,7 @@ import {
 	Terminal,
 	Trash2,
 	Users,
+	Webhook,
 	X,
 } from "lucide-svelte";
 import { onMount, tick, untrack } from "svelte";
@@ -131,7 +136,6 @@ type Props = {
 		taskId?: string | null;
 	};
 };
-
 type ComposerImageAttachment = {
 	id: string;
 	name: string;
@@ -140,13 +144,11 @@ type ComposerImageAttachment = {
 	previewUrl: string;
 	size: number;
 };
-
 type SelectedModel = {
 	provider: string;
 	id: string;
 	name?: string;
 };
-
 type SessionViewState = {
 	session: SessionRecord | undefined;
 	messages: MessageRecord[];
@@ -157,12 +159,10 @@ type SessionViewState = {
 	loadingOlder: boolean;
 	oldestCursor: number | undefined;
 };
-
 const MAX_IMAGE_EDGE = 2160;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const WEBP_QUALITIES = [0.88, 0.82, 0.76, 0.7, 0.62, 0.54];
 const PRELOAD_THRESHOLD = 10;
-
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -178,7 +178,6 @@ const fileMode = $derived<"chat" | "file">(
 const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
 );
-
 let space = $state<SpaceRecord | null>(null);
 // True when the backend returned only minimal info (session-level access only)
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
@@ -193,7 +192,6 @@ let renamingSpace = $state(false);
 let renameInput = $state("");
 let renameSaving = $state(false);
 let renameError = $state("");
-
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -220,7 +218,6 @@ let openFileLoading = $state(false);
 let openFileSaving = $state(false);
 let openFileError = $state<string | null>(null);
 let openFileTooLarge = $state(false);
-
 // Inline file panel state (opened from sidebar, not via route)
 let inlineFile = $state<{
 	response: SpaceFsFileResponse | null;
@@ -274,7 +271,6 @@ const inlineFileDownloadName = $derived.by(() => {
 });
 let inlineFileMarkdownHtml = $state("");
 let inlineFileEdit = $state(true);
-
 // Image zoom state (for both route-based and inline file viewers)
 let openFileZoom = $state(1);
 let openFilePanX = $state(0);
@@ -292,22 +288,18 @@ let gitRepoCopied = $state(false);
 let gitRepoCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let inlineFilePanelWidth = $state(480);
 let inlineFilePanelResizeCleanup: (() => void) | null = null;
-
 // ─── File upload ───
 let uploadPaneVisible = $state(false);
 let uploadPaneTargetDir = $state("");
 let pendingUploadFiles = $state<File[]>([]);
-
 function handleUploadFiles(files: File[], targetDir: string) {
 	uploadPaneTargetDir = targetDir;
 	pendingUploadFiles = files;
 	uploadPaneVisible = true;
 }
-
 async function handleUploadComplete() {
 	await refreshFileTree();
 }
-
 const openFilePanHandlers = makeImagePanHandlers(
 	() => openFileZoom,
 	() => openFilePanX,
@@ -324,7 +316,6 @@ const inlineFilePanHandlers = makeImagePanHandlers(
 	(v) => (inlineFilePanY = v),
 	(v) => (inlineFileDragging = v),
 );
-
 const fileDirty = $derived(
 	Boolean(
 		openFile && openFile.kind === "text" && openFileDraft !== openFile.content,
@@ -357,10 +348,8 @@ const openFileDownloadName = $derived.by(() => {
 	if (!routeFilePath) return "";
 	return routeFilePath.split("/").pop() ?? "download";
 });
-
 let fileMarkdownHtml = $state("");
 let fileEdit = $state(true);
-
 $effect(() => {
 	const current = openFile;
 	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
@@ -375,11 +364,9 @@ $effect(() => {
 			fileMarkdownHtml = "";
 		});
 });
-
 $effect(() => {
 	if (openFile) fileEdit = true;
 });
-
 $effect(() => {
 	const current = inlineFile?.response;
 	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
@@ -395,11 +382,9 @@ $effect(() => {
 			inlineFileMarkdownHtml = "";
 		});
 });
-
 $effect(() => {
 	if (inlineFile) inlineFileEdit = true;
 });
-
 let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
@@ -458,7 +443,6 @@ let scrollAnchorBySession = $state.raw(new Map<string, SessionScrollAnchor>());
 let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
 let pendingRestoreSessionId = $state<string | null>(null);
 let persistScrollAnchorsTimer: ReturnType<typeof setTimeout> | null = null;
-
 // ─── Share ───
 let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
@@ -474,7 +458,6 @@ let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let checkpointCreateDescription = $state("");
 let checkpointCreateSubmitting = $state(false);
 let checkpointCreateError = $state("");
-
 // ─── Cronjobs ───
 let cronjobDetail = $state<CronJobRecord | null>(null);
 let cronjobDetailLoading = $state(false);
@@ -483,26 +466,21 @@ let cronjobRuns = $state<TaskRunRecord[]>([]);
 let cronjobRunsLoading = $state(false);
 let cronjobActionInProgress = $state(false);
 let cronjobToggleError = $state("");
-
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
 let cronjobNewPrompt = $state("");
 let cronjobNewSubmitting = $state(false);
 let cronjobNewError = $state("");
-
 // ─── Tasks ───
 let taskRunDetail = $state<TaskRunRecord | null>(null);
 let taskRunDetailLoading = $state(false);
 let taskRunDetailError = $state("");
-
 // ─── Space access & members ───
 let spaceAccess = $state<SpaceAccessPolicy | null>(null);
 let savingAccess = $state(false);
-
 // Session-level access cache
 let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
-
 // Members
 let spaceMembers = $state<SpaceMember[]>([]);
 let loadingMembers = $state(false);
@@ -511,15 +489,79 @@ let addingMemberRole = $state<SpaceRole>("guest");
 let savingMember = $state(false);
 let addingMemberError = $state("");
 
-// ─── Token Usage ───
-import type { SpaceUsageResponse } from "@neta-art/cohub";
+// ─── Current user ───
+let myUuid = $state<string | null>(null);
 
+// ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
 let tokenUsage = $state<TokenUsageData | null>(null);
 
+// ─── Space Channels ───
+let spaceChannelBindings = $state<SpaceChannelBindingRecord[]>([]);
+let spaceChannelsLoading = $state(false);
+let availableChannels = $state<Channel[]>([]);
+let showBindDialog = $state(false);
+let bindChannelId = $state("");
+let bindSubmitting = $state(false);
+let bindError = $state("");
+let unbindingChannelId = $state<string | null>(null);
+
+const canManageChannels = $derived.by(() => {
+	if (!myUuid) return false;
+	const member = spaceMembers.find((m) => m.userId === myUuid);
+	if (member) return member.role === "host";
+	return spaceAccess?.signed_in_user === "host";
+});
+
+async function loadSpaceChannels() {
+	spaceChannelsLoading = true;
+	try {
+		const [bindings, allChannels] = await Promise.all([
+			sdk.space(spaceId).channels.list(),
+			sdk.channels.list(),
+		]);
+		spaceChannelBindings = bindings;
+		const boundIds = new Set(bindings.map((b) => b.channelId));
+		availableChannels = allChannels.filter((ch) => !boundIds.has(ch.id));
+	} catch {
+		// Non-blocking
+	} finally {
+		spaceChannelsLoading = false;
+	}
+}
+
+async function handleBindChannel() {
+	if (!bindChannelId || bindSubmitting) return;
+	bindError = "";
+	bindSubmitting = true;
+	try {
+		await sdk.space(spaceId).channels.bind(bindChannelId);
+		showBindDialog = false;
+		bindChannelId = "";
+		await loadSpaceChannels();
+	} catch (error) {
+		bindError =
+			error instanceof Error ? error.message : "Failed to bind channel";
+	} finally {
+		bindSubmitting = false;
+	}
+}
+
+async function handleUnbindChannel(channelId: string) {
+	if (unbindingChannelId) return;
+	unbindingChannelId = channelId;
+	try {
+		await sdk.space(spaceId).channels.unbind(channelId);
+		await loadSpaceChannels();
+	} catch {
+		// Silently fail
+	} finally {
+		unbindingChannelId = null;
+	}
+}
+
 // ─── Heatmap helpers ───
 type HeatmapCell = { date: string; tokens: number; dayOfWeek: number };
-
 function buildHeatmapWeeks(
 	hourlyStats: TokenUsageData["hourly"],
 	days: number,
@@ -546,7 +588,6 @@ function buildHeatmapWeeks(
 	for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
 	return weeks;
 }
-
 function heatmapIntensity(tokens: number, maxTokens: number): number {
 	if (maxTokens === 0 || tokens === 0) return 0;
 	return Math.min(
@@ -554,23 +595,19 @@ function heatmapIntensity(tokens: number, maxTokens: number): number {
 		Math.round((Math.log1p(tokens) / Math.log1p(maxTokens)) * 4),
 	);
 }
-
 function heatmapLevelClass(level: number): string {
 	return `heatmap-${level}`;
 }
-
 function formatTokenCount(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
 	return String(n);
 }
-
 function formatCost(n: number): string {
 	if (n >= 1) return `${n.toFixed(2)}`;
 	if (n >= 0.01) return `${n.toFixed(3)}`;
 	return `${n.toFixed(4)}`;
 }
-
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
 	for (const candidate of candidates) {
@@ -582,7 +619,6 @@ function getSessionTitle(session: SessionRecord): string {
 	}
 	return "New chat";
 }
-
 function hasSessionPermission(sessionId: string): boolean {
 	const access = sessionAccessById[sessionId];
 	return (
@@ -593,7 +629,6 @@ function hasSessionPermission(sessionId: string): boolean {
 			access.signed_in_user === "builder")
 	);
 }
-
 async function loadPermissions() {
 	try {
 		const access = await sdk.space(spaceId).access.get();
@@ -602,7 +637,6 @@ async function loadPermissions() {
 		// Non-blocking
 	}
 }
-
 async function setSpaceAccess(body: {
 	signed_in_user?: SpaceRole | null;
 	anonymous_user?: SpaceRole | null;
@@ -616,7 +650,6 @@ async function setSpaceAccess(body: {
 		savingAccess = false;
 	}
 }
-
 async function removeSessionAccess(sessionId: string) {
 	try {
 		await sdk.sessionAccess.remove(sessionId);
@@ -625,7 +658,6 @@ async function removeSessionAccess(sessionId: string) {
 		// Silently fail
 	}
 }
-
 // Member management
 async function loadMembers() {
 	loadingMembers = true;
@@ -638,7 +670,6 @@ async function loadMembers() {
 		loadingMembers = false;
 	}
 }
-
 async function handleAddMember() {
 	if (!addingMemberUuid.trim()) return;
 	savingMember = true;
@@ -656,7 +687,6 @@ async function handleAddMember() {
 		savingMember = false;
 	}
 }
-
 async function handleUpdateMemberRole(userId: string, role: SpaceRole) {
 	try {
 		await sdk.space(spaceId).members.update(userId, role);
@@ -665,7 +695,6 @@ async function handleUpdateMemberRole(userId: string, role: SpaceRole) {
 		// Silently fail
 	}
 }
-
 async function handleRemoveMember(userId: string) {
 	try {
 		await sdk.space(spaceId).members.remove(userId);
@@ -674,7 +703,6 @@ async function handleRemoveMember(userId: string) {
 		// Silently fail
 	}
 }
-
 async function loadCheckpointDetail(checkpointId: string) {
 	checkpointDetailLoading = true;
 	checkpointDetailError = "";
@@ -689,10 +717,8 @@ async function loadCheckpointDetail(checkpointId: string) {
 		checkpointDetailLoading = false;
 	}
 }
-
 let checkpointIdCopied = $state(false);
 let checkpointIdCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-
 async function handleCopyCheckpointId() {
 	if (!checkpointDetail) return;
 	await navigator.clipboard.writeText(checkpointDetail.id);
@@ -702,7 +728,6 @@ async function handleCopyCheckpointId() {
 		checkpointIdCopied = false;
 	}, 1800);
 }
-
 async function handleCopyCheckpointCommitHash() {
 	if (!checkpointDetail) return;
 	await navigator.clipboard.writeText(checkpointDetail.commitHash);
@@ -712,7 +737,6 @@ async function handleCopyCheckpointCommitHash() {
 		checkpointCopied = false;
 	}, 1800);
 }
-
 async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (checkpointCreateSubmitting) return;
@@ -745,9 +769,7 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 		checkpointCreateSubmitting = false;
 	}
 }
-
 // ─── Cronjob detail & actions ───
-
 async function loadCronjobDetail(cronjobId: string) {
 	cronjobDetailLoading = true;
 	cronjobDetailError = "";
@@ -771,7 +793,6 @@ async function loadCronjobDetail(cronjobId: string) {
 		cronjobDetailLoading = false;
 	}
 }
-
 async function handleToggleCronjob(enabled: boolean) {
 	if (!cronjobDetail || cronjobActionInProgress) return;
 	cronjobActionInProgress = true;
@@ -786,7 +807,6 @@ async function handleToggleCronjob(enabled: boolean) {
 		cronjobActionInProgress = false;
 	}
 }
-
 async function handleDeleteCronjob() {
 	if (
 		!cronjobDetail ||
@@ -803,7 +823,6 @@ async function handleDeleteCronjob() {
 		cronjobActionInProgress = false;
 	}
 }
-
 async function handleCreateCronjobSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (cronjobNewSubmitting) return;
@@ -845,9 +864,7 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 		cronjobNewSubmitting = false;
 	}
 }
-
 // ─── Task detail ───
-
 async function loadTaskDetail(taskId: string) {
 	taskRunDetailLoading = true;
 	taskRunDetailError = "";
@@ -862,14 +879,12 @@ async function loadTaskDetail(taskId: string) {
 		taskRunDetailLoading = false;
 	}
 }
-
 function openShareModal(sessionId: string) {
 	shareModalSessionId = sessionId;
 	showShareModal = true;
 	shareCopied = false;
 	shareModalError = "";
 }
-
 async function shareAndCopyLink() {
 	if (!shareModalSessionId) return;
 	shareModalError = "";
@@ -896,7 +911,6 @@ async function shareAndCopyLink() {
 		shareModalSaving = false;
 	}
 }
-
 async function makeSessionPrivate() {
 	if (!shareModalSessionId) return;
 	shareModalError = "";
@@ -912,7 +926,6 @@ async function makeSessionPrivate() {
 		shareModalSaving = false;
 	}
 }
-
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
 );
@@ -959,14 +972,12 @@ const bootstrapStatusTone = $derived.by(() => {
 		return "text-success-soft border-success-soft/20 bg-success-soft/8";
 	return "text-text-secondary border-border-subtle bg-bg-surface";
 });
-
 const gitSshUrl = $derived.by(() => {
 	const info = space?.gitInfo;
 	const repoName = space?.storageRepoName;
 	if (!info || !repoName) return null;
 	return `git@${info.giteaHost}:${info.giteaUsername}/${repoName}.git`;
 });
-
 async function handleCopyGitUrl() {
 	if (!gitSshUrl) return;
 	await navigator.clipboard.writeText(gitSshUrl);
@@ -976,7 +987,6 @@ async function handleCopyGitUrl() {
 		gitRepoCopied = false;
 	}, 1800);
 }
-
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
@@ -1025,11 +1035,9 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 				: null,
 	});
 });
-
 function getSessionModelKey(sessionId: string) {
 	return `cohub:model:${sessionId}`;
 }
-
 function loadSessionModel(sessionId: string): SelectedModel | null {
 	try {
 		const raw = localStorage.getItem(getSessionModelKey(sessionId));
@@ -1038,7 +1046,6 @@ function loadSessionModel(sessionId: string): SelectedModel | null {
 		return null;
 	}
 }
-
 function saveSessionModel(sessionId: string, model: SelectedModel | null) {
 	if (!model) {
 		localStorage.removeItem(getSessionModelKey(sessionId));
@@ -1046,7 +1053,6 @@ function saveSessionModel(sessionId: string, model: SelectedModel | null) {
 		localStorage.setItem(getSessionModelKey(sessionId), JSON.stringify(model));
 	}
 }
-
 function ensureSessionModelLoaded(sessionId: string) {
 	if (sessionModelById[sessionId]) return;
 	sessionModelById = {
@@ -1054,7 +1060,6 @@ function ensureSessionModelLoaded(sessionId: string) {
 		[sessionId]: loadSessionModel(sessionId),
 	};
 }
-
 async function loadModelsCatalog() {
 	if (modelsCatalog) return;
 	try {
@@ -1072,7 +1077,6 @@ async function loadModelsCatalog() {
 		console.error("Failed to load models catalog:", error);
 	}
 }
-
 async function loadPromptTemplates() {
 	if (promptTemplatesLoaded) return;
 	try {
@@ -1083,7 +1087,6 @@ async function loadPromptTemplates() {
 		console.error("Failed to load prompt templates:", error);
 	}
 }
-
 function handleModelSelect(model: { provider: string; id: string }) {
 	if (!activeSessionId) return;
 	const catalogItem = modelsCatalog?.find(
@@ -1101,7 +1104,6 @@ function handleModelSelect(model: { provider: string; id: string }) {
 	saveSessionModel(activeSessionId, selected);
 	showModelSelector = false;
 }
-
 function navigateToSession(
 	sessionId: string,
 	options?: { replaceState?: boolean },
@@ -1112,7 +1114,6 @@ function navigateToSession(
 		noScroll: true,
 	});
 }
-
 function updateUrlSession(sessionId: string | null) {
 	if (sessionId) {
 		navigateToSession(sessionId, { replaceState: true });
@@ -1124,7 +1125,6 @@ function updateUrlSession(sessionId: string | null) {
 		noScroll: true,
 	});
 }
-
 function loadSessionScrollAnchors() {
 	try {
 		const raw = localStorage.getItem(SESSION_SCROLL_ANCHOR_STORAGE_KEY);
@@ -1143,7 +1143,6 @@ function loadSessionScrollAnchors() {
 		// ignore
 	}
 }
-
 function persistSessionScrollAnchorsNow() {
 	try {
 		const data = Object.fromEntries(scrollAnchorBySession.entries());
@@ -1155,7 +1154,6 @@ function persistSessionScrollAnchorsNow() {
 		// ignore
 	}
 }
-
 function schedulePersistSessionScrollAnchors() {
 	if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
 	persistScrollAnchorsTimer = setTimeout(() => {
@@ -1163,7 +1161,6 @@ function schedulePersistSessionScrollAnchors() {
 		persistSessionScrollAnchorsNow();
 	}, 120);
 }
-
 function setSessionScrollAnchor(
 	sessionId: string,
 	anchor: SessionScrollAnchor,
@@ -1171,19 +1168,16 @@ function setSessionScrollAnchor(
 	scrollAnchorBySession.set(sessionId, anchor);
 	schedulePersistSessionScrollAnchors();
 }
-
 function clearSessionScrollAnchor(sessionId: string) {
 	if (!scrollAnchorBySession.delete(sessionId)) return;
 	schedulePersistSessionScrollAnchors();
 }
-
 function getMessageElementAbsoluteTop(node: HTMLElement) {
 	if (!listEl) return 0;
 	const containerRect = listEl.getBoundingClientRect();
 	const nodeRect = node.getBoundingClientRect();
 	return listEl.scrollTop + (nodeRect.top - containerRect.top);
 }
-
 function captureCurrentScrollAnchor(sessionId: string) {
 	if (!listEl) return;
 	const nodes = Array.from(
@@ -1205,7 +1199,6 @@ function captureCurrentScrollAnchor(sessionId: string) {
 		updatedAt: Date.now(),
 	});
 }
-
 function writeBottomScrollAnchor(sessionId: string) {
 	if (!listEl) return;
 	const nodes = Array.from(
@@ -1228,7 +1221,6 @@ function writeBottomScrollAnchor(sessionId: string) {
 		updatedAt: Date.now(),
 	});
 }
-
 function mergeMessagesById(
 	existing: MessageRecord[],
 	incoming: MessageRecord[],
@@ -1249,12 +1241,10 @@ function mergeMessagesById(
 	}
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
 }
-
 function _getPendingMessages(sessionId: string | null) {
 	if (!sessionId) return [];
 	return sessionPendingStore.list(sessionId);
 }
-
 function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
 	return {
 		...entry,
@@ -1264,7 +1254,6 @@ function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
 		isLoading: false,
 	};
 }
-
 function buildFsEntry(path: string, type: SpaceFsEntry["type"]): SpaceFsEntry {
 	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
 	const name = normalizedPath.split("/").pop() ?? normalizedPath;
@@ -1277,17 +1266,14 @@ function buildFsEntry(path: string, type: SpaceFsEntry["type"]): SpaceFsEntry {
 		mtimeMs: Date.now(),
 	};
 }
-
 function getParentDirPath(path: string): string {
 	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
 	if (!normalizedPath.includes("/")) return "";
 	return normalizedPath.slice(0, normalizedPath.lastIndexOf("/"));
 }
-
 function updateRootFsEntries(entries: SpaceFsEntry[]) {
 	fileTree = makeFsNodes(entries);
 }
-
 function patchFsDirectory(
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
@@ -1300,11 +1286,9 @@ function patchFsDirectory(
 	fileTree = replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries));
 	return nextEntries;
 }
-
 function makeFsNodes(entries: SpaceFsEntry[]): SpaceFsNode[] {
 	return entries.map(makeFsNode);
 }
-
 function replaceNodeChildren(
 	nodes: SpaceFsNode[],
 	nodePath: string,
@@ -1327,7 +1311,6 @@ function replaceNodeChildren(
 		return node;
 	});
 }
-
 function updateNodeState(
 	nodes: SpaceFsNode[],
 	nodePath: string,
@@ -1343,7 +1326,6 @@ function updateNodeState(
 		return node;
 	});
 }
-
 function applySessionsSnapshot(sessions: SessionRecord[]) {
 	spaceSessions = sessions;
 	const nextState: Record<string, SessionViewState> = {};
@@ -1369,18 +1351,15 @@ function applySessionsSnapshot(sessions: SessionRecord[]) {
 	}
 	sessionStateById = nextState;
 }
-
 function seedSessions(sessions: SessionRecord[]) {
 	applySessionsSnapshot(sessions);
 }
-
 async function refreshSessionsList(force = true) {
 	if (refreshSessionsListInFlight) {
 		refreshSessionsListQueued = true;
 		refreshSessionsListQueuedForce ||= force;
 		return refreshSessionsListInFlight;
 	}
-
 	const run = (async () => {
 		try {
 			const sessions = await fetchSessionListWithCache(
@@ -1396,7 +1375,6 @@ async function refreshSessionsList(force = true) {
 			// Non-blocking
 		}
 	})();
-
 	refreshSessionsListInFlight = run.finally(() => {
 		refreshSessionsListInFlight = null;
 		if (refreshSessionsListQueued) {
@@ -1406,21 +1384,17 @@ async function refreshSessionsList(force = true) {
 			void refreshSessionsList(rerunForce);
 		}
 	});
-
 	return refreshSessionsListInFlight;
 }
-
 async function loadSpace(_options?: { force?: boolean }) {
 	spaceLoadError = "";
 	const force = _options?.force ?? false;
-
 	if (!force) {
 		const cachedSessions = getCachedSessionList(spaceId);
 		if (cachedSessions && cachedSessions.length > 0) {
 			seedSessions(cachedSessions);
 		}
 	}
-
 	const tasks: Array<Promise<void>> = [];
 	tasks.push(
 		(async () => {
@@ -1432,7 +1406,6 @@ async function loadSpace(_options?: { force?: boolean }) {
 			}
 		})(),
 	);
-
 	tasks.push(
 		(async () => {
 			try {
@@ -1463,7 +1436,6 @@ async function loadSpace(_options?: { force?: boolean }) {
 			}
 		})(),
 	);
-
 	tasks.push(
 		(async () => {
 			try {
@@ -1474,7 +1446,6 @@ async function loadSpace(_options?: { force?: boolean }) {
 			}
 		})(),
 	);
-
 	tasks.push(
 		(async () => {
 			try {
@@ -1485,7 +1456,6 @@ async function loadSpace(_options?: { force?: boolean }) {
 			}
 		})(),
 	);
-
 	tasks.push(
 		(async () => {
 			try {
@@ -1496,10 +1466,27 @@ async function loadSpace(_options?: { force?: boolean }) {
 			}
 		})(),
 	);
-
+	tasks.push(
+		(async () => {
+			try {
+				const me = (await sdk.user.getMe()) as { uuid?: string };
+				if (me?.uuid) myUuid = me.uuid;
+			} catch {
+				/* Non-blocking */
+			}
+		})(),
+	);
+	tasks.push(
+		(async () => {
+			try {
+				await loadSpaceChannels();
+			} catch {
+				/* Non-blocking */
+			}
+		})(),
+	);
 	await Promise.all(tasks);
 }
-
 function showSpaceStatusNotice(message: string) {
 	spaceStatusNotice = message;
 	if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
@@ -1508,7 +1495,6 @@ function showSpaceStatusNotice(message: string) {
 		spaceStatusNoticeTimer = null;
 	}, 2800);
 }
-
 function getStatusRefreshIntervalMs() {
 	if (!pageVisible || !pageOnline) return null;
 	if (bootstrapStatus === "pending" || bootstrapStatus === "running") {
@@ -1519,7 +1505,6 @@ function getStatusRefreshIntervalMs() {
 	}
 	return null;
 }
-
 async function refreshSpaceStatus() {
 	if (statusRefreshInFlight) return;
 	statusRefreshInFlight = true;
@@ -1547,7 +1532,6 @@ async function refreshSpaceStatus() {
 		statusRefreshInFlight = false;
 	}
 }
-
 function formatDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
@@ -1559,7 +1543,6 @@ function formatDateTime(dateStr: string | null | undefined): string {
 		second: "2-digit",
 	});
 }
-
 function formatShortDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
@@ -1570,7 +1553,6 @@ function formatShortDateTime(dateStr: string | null | undefined): string {
 		minute: "2-digit",
 	});
 }
-
 function formatFileSize(bytes: number): string {
 	if (bytes === 0) return "0 B";
 	const units = ["B", "KB", "MB", "GB"];
@@ -1578,7 +1560,6 @@ function formatFileSize(bytes: number): string {
 	const value = bytes / 1024 ** i;
 	return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
 }
-
 // Image pan handlers
 function makeImagePanHandlers(
 	zoom: () => number,
@@ -1592,7 +1573,6 @@ function makeImagePanHandlers(
 	let dragStartY = 0;
 	let startPanX = 0;
 	let startPanY = 0;
-
 	return {
 		start: (e: MouseEvent) => {
 			if (zoom() <= 1) return;
@@ -1606,21 +1586,18 @@ function makeImagePanHandlers(
 			document.addEventListener("mouseup", handleEnd);
 		},
 	};
-
 	function handleMove(e: MouseEvent) {
 		const dx = e.clientX - dragStartX;
 		const dy = e.clientY - dragStartY;
 		setPanX(startPanX + dx);
 		setPanY(startPanY + dy);
 	}
-
 	function handleEnd() {
 		setDragging(false);
 		document.removeEventListener("mousemove", handleMove);
 		document.removeEventListener("mouseup", handleEnd);
 	}
 }
-
 function taskRunStatusBadge(run: TaskRunRecord) {
 	switch (run.status) {
 		case "completed":
@@ -1647,7 +1624,6 @@ function taskRunStatusBadge(run: TaskRunRecord) {
 			};
 	}
 }
-
 function taskRunDuration(run: TaskRunRecord): string {
 	if (!run.startedAt || !run.finishedAt) return "—";
 	const ms = Math.max(
@@ -1656,7 +1632,6 @@ function taskRunDuration(run: TaskRunRecord): string {
 	);
 	return `${(ms / 1000).toFixed(1)}s`;
 }
-
 function formatBootstrapStage(stage: string | null) {
 	if (!stage) return "Waiting";
 	if (stage === "prepare") return "Preparing workspace";
@@ -1666,7 +1641,6 @@ function formatBootstrapStage(stage: string | null) {
 	if (stage === "finalize") return "Finalizing";
 	return stage.replace(/_/g, " ");
 }
-
 function formatBootstrapStatus(status: string | null) {
 	if (!status) return "Pending";
 	if (status === "running") return "Running";
@@ -1674,7 +1648,6 @@ function formatBootstrapStatus(status: string | null) {
 	if (status === "failed") return "Failed";
 	return "Pending";
 }
-
 async function handleRenameSpace(newName: string) {
 	renameSaving = true;
 	renameError = "";
@@ -1689,9 +1662,7 @@ async function handleRenameSpace(newName: string) {
 		renameSaving = false;
 	}
 }
-
 // ── Session rename (header inline edit) ────────────────────────────────
-
 function startSessionRename() {
 	const session = activeSessionState?.session;
 	if (!session) return;
@@ -1702,12 +1673,10 @@ function startSessionRename() {
 		sessionRenameInputEl?.select();
 	});
 }
-
 function cancelSessionRename() {
 	sessionRenaming = false;
 	sessionRenameValue = "";
 }
-
 async function submitSessionRename() {
 	if (sessionRenameSaving || !activeSessionId) return;
 	const trimmed = sessionRenameValue.trim();
@@ -1746,12 +1715,10 @@ async function submitSessionRename() {
 		cancelSessionRename();
 	}
 }
-
 async function loadSessionState(sessionId: string, force = false) {
 	const existing = sessionStateById[sessionId];
 	if (loadingSessionIds[sessionId] && !force) return;
 	if (existing?.loaded && !force) return;
-
 	// Mark loading immediately to prevent concurrent calls during async ops
 	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
 	sessionStateById = {
@@ -1768,7 +1735,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			oldestCursor: existing?.oldestCursor,
 		},
 	};
-
 	const cached = await messageCache.get(sessionId);
 	// Check again after await — another call may have completed while we waited
 	const refreshed = sessionStateById[sessionId];
@@ -1776,7 +1742,6 @@ async function loadSessionState(sessionId: string, force = false) {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		return;
 	}
-
 	const anchor = scrollAnchorBySession.get(sessionId);
 	const canBootstrapFromCache = Boolean(
 		!force &&
@@ -1805,7 +1770,6 @@ async function loadSessionState(sessionId: string, force = false) {
 		void syncSessionNewer(sessionId, cached);
 		return;
 	}
-
 	const sessionObj =
 		refreshed?.session ?? spaceSessions.find((s) => s.id === sessionId);
 	// New session with no messages — skip the unnecessary listPaginated call
@@ -1826,7 +1790,6 @@ async function loadSessionState(sessionId: string, force = false) {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		return;
 	}
-
 	try {
 		const response = await sdk
 			.space(spaceId)
@@ -1877,7 +1840,6 @@ async function loadSessionState(sessionId: string, force = false) {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 	}
 }
-
 async function syncSessionNewer(
 	sessionId: string,
 	cached: Awaited<ReturnType<typeof messageCache.get>>,
@@ -1917,7 +1879,6 @@ async function syncSessionNewer(
 		console.warn("[syncSessionNewer] Failed to sync newer messages:", error);
 	}
 }
-
 async function loadOlderMessages(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.hasMore || state.loadingOlder) return;
@@ -1986,7 +1947,6 @@ async function loadOlderMessages(sessionId: string) {
 		};
 	}
 }
-
 function handleFirstVisible(index: number) {
 	if (!activeSessionId) return;
 	const state = sessionStateById[activeSessionId];
@@ -2002,7 +1962,6 @@ function handleFirstVisible(index: number) {
 		);
 	}
 }
-
 async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
@@ -2052,7 +2011,6 @@ async function reconcileSessionTail(sessionId: string) {
 		);
 	}
 }
-
 const recoveryCoordinator = new SessionRecoveryCoordinator({
 	isTransportOpen: () => wsConnectionState === "open",
 	reconcileSessionTail: (sessionId) => reconcileSessionTail(sessionId),
@@ -2067,7 +2025,6 @@ const recoveryCoordinator = new SessionRecoveryCoordinator({
 		});
 	},
 });
-
 async function reconnectSync() {
 	if (reconnectSyncInFlight) return reconnectSyncInFlight;
 	const run = (async () => {
@@ -2086,22 +2043,18 @@ async function reconnectSync() {
 		wsConnectionState = "open";
 		wsCanRecover = false;
 	})();
-
 	reconnectSyncInFlight = run.finally(() => {
 		reconnectSyncInFlight = null;
 	});
 	return reconnectSyncInFlight;
 }
-
 async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
 		const currentActiveSessionId = activeSessionId;
 		if (!currentActiveSessionId) return;
 		if (payload.sessionId !== currentActiveSessionId) return;
-
 		const state = sessionStateById[currentActiveSessionId];
 		if (!state) return;
-
 		const generationEffect = applyGenerationRealtimeEnvelope(
 			currentActiveSessionId,
 			payload,
@@ -2119,12 +2072,10 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			}
 			return;
 		}
-
 		if (payload.type !== "session.message.persisted") return;
 		const message = payload.payload.message as MessageRecord | undefined;
 		if (!message) return;
 		if (state.messages.some((m) => m.id === message.id)) return;
-
 		const clientMessageId =
 			typeof message.meta?.clientMessageId === "string"
 				? (message.meta.clientMessageId as string)
@@ -2133,11 +2084,9 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
 			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
 		}
-
 		if (message.role === "assistant") {
 			completeGeneration(currentActiveSessionId);
 		}
-
 		const merged = mergeMessagesById(state.messages, [message], {
 			preferIncoming: true,
 		});
@@ -2151,7 +2100,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		if (shouldAutoFollow) {
 			unreadTracker.markViewed(currentActiveSessionId, message.id ?? null);
 		}
-
 		const updatedSession = state.session;
 		if (updatedSession) {
 			const refreshedSession: SessionRecord = {
@@ -2175,7 +2123,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
 }
-
 async function handleSend() {
 	if (
 		!activeSessionState?.session ||
@@ -2187,7 +2134,6 @@ async function handleSend() {
 	sending = true;
 	composerError = "";
 	clearGenerationError(activeSessionId);
-
 	const text = input.trim();
 	const attachmentBlocks: ContentBlock[] = imageAttachments.map(
 		(attachment) => ({
@@ -2209,7 +2155,6 @@ async function handleSend() {
 	];
 	const sessionId = activeSessionState.session.id;
 	const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
 	// Clear input immediately so it disappears from the composer at the same
 	// time the pending message appears in the list — avoids the awkward "stuck"
 	// feeling where the message shows in the list but lingers in the input.
@@ -2217,7 +2162,6 @@ async function handleSend() {
 	const pendingAttachments = imageAttachments;
 	input = "";
 	imageAttachments = [];
-
 	try {
 		const model = activeSessionModel;
 		sessionPendingStore.upsert({
@@ -2231,7 +2175,6 @@ async function handleSend() {
 			error: null,
 			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
 		});
-
 		startGenerationRequest(sessionId, { clientMessageId });
 		await sdk.space(spaceId).session(sessionId).messages.send({
 			content,
@@ -2239,7 +2182,6 @@ async function handleSend() {
 			provider: model?.provider,
 			clientMessageId,
 		});
-
 		sessionPendingStore.markStatus(
 			sessionId,
 			clientMessageId,
@@ -2272,7 +2214,6 @@ async function handleSend() {
 		sending = false;
 	}
 }
-
 function scrollToBottomNow() {
 	if (!listEl) return;
 	autoScrollGuard = true;
@@ -2284,7 +2225,6 @@ function scrollToBottomNow() {
 		autoScrollGuard = false;
 	});
 }
-
 async function forceScrollToBottom() {
 	await tick();
 	await new Promise<void>((resolve) => {
@@ -2294,7 +2234,6 @@ async function forceScrollToBottom() {
 		});
 	});
 }
-
 function updateAutoFollow() {
 	if (!listEl) return;
 	const threshold = 60;
@@ -2302,7 +2241,6 @@ function updateAutoFollow() {
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
 	shouldAutoFollow = distanceFromBottom <= threshold;
 }
-
 async function fileToDataUrl(file: Blob): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const reader = new FileReader();
@@ -2312,7 +2250,6 @@ async function fileToDataUrl(file: Blob): Promise<string> {
 		reader.readAsDataURL(file);
 	});
 }
-
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
 	return new Promise((resolve, reject) => {
 		const objectUrl = URL.createObjectURL(file);
@@ -2328,7 +2265,6 @@ async function loadImageElement(file: File): Promise<HTMLImageElement> {
 		image.src = objectUrl;
 	});
 }
-
 async function canvasToWebpBlob(
 	canvas: HTMLCanvasElement,
 	quality: number,
@@ -2344,7 +2280,6 @@ async function canvasToWebpBlob(
 		);
 	});
 }
-
 async function compressImageFile(file: File) {
 	const image = await loadImageElement(file);
 	const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
@@ -2357,7 +2292,6 @@ async function compressImageFile(file: File) {
 	const context = canvas.getContext("2d");
 	if (!context) throw new Error("Canvas is not supported");
 	context.drawImage(image, 0, 0, width, height);
-
 	let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
 	for (const quality of WEBP_QUALITIES.slice(1)) {
 		if (blob.size <= MAX_IMAGE_BYTES) break;
@@ -2368,7 +2302,6 @@ async function compressImageFile(file: File) {
 	const dataUrl = await fileToDataUrl(blob);
 	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
-
 async function handlePickImages(files: FileList | File[] | null) {
 	if (!files) return;
 	const validFiles = Array.from(files).filter((file) =>
@@ -2397,13 +2330,11 @@ async function handlePickImages(files: FileList | File[] | null) {
 			error instanceof Error ? error.message : "Failed to read image";
 	}
 }
-
 function handleRemoveAttachment(id: string) {
 	imageAttachments = imageAttachments.filter(
 		(attachment) => attachment.id !== id,
 	);
 }
-
 function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024 || uiState.rightSidebarCollapsed) return;
@@ -2433,7 +2364,6 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointerup", stop);
 	window.addEventListener("pointercancel", stop);
 }
-
 function beginInlineFilePanelResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024) return;
@@ -2441,14 +2371,12 @@ function beginInlineFilePanelResize(event: PointerEvent) {
 	const startX = event.clientX;
 	const startWidth = inlineFilePanelWidth;
 	const minMainWidth = 400;
-
 	const onPointerMove = (moveEvent: PointerEvent) => {
 		const delta = startX - moveEvent.clientX;
 		const maxAllowed = window.innerWidth - minMainWidth - RIGHT_SIDEBAR_MIN;
 		const nextWidth = Math.min(Math.max(280, startWidth + delta), maxAllowed);
 		inlineFilePanelWidth = nextWidth;
 	};
-
 	const stop = () => {
 		document.body.classList.remove("sidebar-resizing");
 		window.removeEventListener("pointermove", onPointerMove);
@@ -2457,40 +2385,33 @@ function beginInlineFilePanelResize(event: PointerEvent) {
 		if (inlineFilePanelResizeCleanup === stop)
 			inlineFilePanelResizeCleanup = null;
 	};
-
 	inlineFilePanelResizeCleanup = stop;
 	document.body.classList.add("sidebar-resizing");
 	window.addEventListener("pointermove", onPointerMove);
 	window.addEventListener("pointerup", stop);
 	window.addEventListener("pointercancel", stop);
 }
-
 async function loadFileTree(force = false) {
 	const requestToken = fileTreeRequestToken + 1;
 	fileTreeRequestToken = requestToken;
-
 	if (!force) {
 		const cached = getCachedSpaceFsDir(spaceId, "");
 		if (cached && cached.length > 0) {
 			fileTree = makeFsNodes(cached);
 		}
 	}
-
 	if (fileTreeLoading && !force) return;
-
 	const shouldShowLoading = fileTree.length === 0;
 	if (shouldShowLoading) {
 		fileTreeLoading = true;
 	}
 	fileTreeError = null;
-
 	const cacheMeta = getCachedSpaceFsDirMeta(spaceId, "");
 	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
 	if (!shouldFetch) {
 		fileTreeLoading = false;
 		return;
 	}
-
 	try {
 		const entries = await fetchSpaceFsDirWithCache(
 			spaceId,
@@ -2513,7 +2434,6 @@ async function loadFileTree(force = false) {
 		}
 	}
 }
-
 async function expandDirectory(node: SpaceFsNode) {
 	if (node.type !== "dir") return;
 	if (node.isOpen) {
@@ -2530,13 +2450,11 @@ async function expandDirectory(node: SpaceFsNode) {
 		}));
 		return;
 	}
-
 	const requestToken = (directoryLoadTokenByPath[node.path] ?? 0) + 1;
 	directoryLoadTokenByPath = {
 		...directoryLoadTokenByPath,
 		[node.path]: requestToken,
 	};
-
 	const cached = getCachedSpaceFsDir(spaceId, node.path);
 	if (cached) {
 		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(cached));
@@ -2548,7 +2466,6 @@ async function expandDirectory(node: SpaceFsNode) {
 			isOpen: true,
 		}));
 	}
-
 	const cacheMeta = getCachedSpaceFsDirMeta(spaceId, node.path);
 	const shouldFetch = !cacheMeta || cacheMeta.isStale;
 	if (!shouldFetch) {
@@ -2560,7 +2477,6 @@ async function expandDirectory(node: SpaceFsNode) {
 		}));
 		return;
 	}
-
 	try {
 		const entries = await fetchSpaceFsDirWithCache(
 			spaceId,
@@ -2582,7 +2498,6 @@ async function expandDirectory(node: SpaceFsNode) {
 			error instanceof Error ? error.message : "Failed to load directory";
 	}
 }
-
 async function openSpaceFile(path: string) {
 	void goto(buildSpaceFileRoute(spaceId, path), {
 		replaceState: true,
@@ -2590,11 +2505,9 @@ async function openSpaceFile(path: string) {
 		keepFocus: true,
 	});
 }
-
 async function refreshFileTree() {
 	await loadFileTree(true);
 }
-
 async function openFileFromUrl(path: string) {
 	openFileLoading = true;
 	openFileError = null;
@@ -2618,7 +2531,6 @@ async function openFileFromUrl(path: string) {
 		openFileLoading = false;
 	}
 }
-
 async function saveOpenFile() {
 	if (!openFile || openFile.kind !== "text") return;
 	openFileSaving = true;
@@ -2653,7 +2565,6 @@ async function saveOpenFile() {
 		openFileSaving = false;
 	}
 }
-
 async function handleCreateFile(parentPath: string) {
 	const name = prompt("New file name");
 	if (!name?.trim()) return;
@@ -2672,7 +2583,6 @@ async function handleCreateFile(parentPath: string) {
 			error instanceof Error ? error.message : "Failed to create file";
 	}
 }
-
 async function handleCreateDir(parentPath: string) {
 	const name = prompt("New folder name");
 	if (!name?.trim()) return;
@@ -2688,7 +2598,6 @@ async function handleCreateDir(parentPath: string) {
 			error instanceof Error ? error.message : "Failed to create folder";
 	}
 }
-
 async function handleRenameNode(node: SpaceFsNode) {
 	const nextName = prompt("Rename", node.name);
 	if (!nextName?.trim() || nextName.trim() === node.name) return;
@@ -2739,7 +2648,6 @@ async function handleRenameNode(node: SpaceFsNode) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
 	}
 }
-
 async function handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
@@ -2756,7 +2664,6 @@ async function handleDeleteNode(node: SpaceFsNode) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
 	}
 }
-
 function closeFile() {
 	void goto(buildSpaceDetailRoute(spaceId), {
 		replaceState: true,
@@ -2764,7 +2671,6 @@ function closeFile() {
 		keepFocus: true,
 	});
 }
-
 async function openInlineFile(path: string) {
 	inlineFile = {
 		response: null,
@@ -2811,11 +2717,9 @@ async function openInlineFile(path: string) {
 		}
 	}
 }
-
 function closeInlineFile() {
 	inlineFile = null;
 }
-
 async function saveInlineFile() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
 	inlineFile.saving = true;
@@ -2842,7 +2746,6 @@ async function saveInlineFile() {
 		inlineFile.saving = false;
 	}
 }
-
 async function handleFileKeyboardSave(event: KeyboardEvent) {
 	if (
 		(event.metaKey || event.ctrlKey) &&
@@ -2861,7 +2764,6 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 		closeInlineFile();
 	}
 }
-
 async function copyFileContent() {
 	if (!openFile || openFile.kind !== "text") return;
 	await navigator.clipboard.writeText(openFileDraft);
@@ -2871,7 +2773,6 @@ async function copyFileContent() {
 		openFileCopied = false;
 	}, 1500);
 }
-
 async function copyInlineFileContent() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
 	await navigator.clipboard.writeText(inlineFile.draft);
@@ -2881,7 +2782,6 @@ async function copyInlineFileContent() {
 		inlineFileCopied = false;
 	}, 1500);
 }
-
 function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
@@ -2892,7 +2792,6 @@ function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 		minute: "2-digit",
 	});
 }
-
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	creatingSession = true;
@@ -2936,7 +2835,6 @@ function handleCreateNewSession() {
 			creatingSession = false;
 		});
 }
-
 function scheduleStatusRefresh() {
 	if (statusRefreshTimer) {
 		clearTimeout(statusRefreshTimer);
@@ -2949,7 +2847,6 @@ function scheduleStatusRefresh() {
 		scheduleStatusRefresh();
 	}, intervalMs);
 }
-
 onMount(() => {
 	pageMounted = true;
 	pageVisible = !document.hidden;
@@ -2961,11 +2858,9 @@ onMount(() => {
 			applySessionsSnapshot(sessions);
 		},
 	);
-
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
 	void loadPromptTemplates();
-
 	const wsConnectionCleanup = sdk.onConnection((state) => {
 		const previousState = lastConnectionState;
 		lastConnectionState = state.state;
@@ -3006,7 +2901,6 @@ onMount(() => {
 			wsCanRecover = state.willReconnect;
 		}
 	});
-
 	const handleVisibility = () => {
 		pageVisible = !document.hidden;
 		scheduleStatusRefresh();
@@ -3028,13 +2922,11 @@ onMount(() => {
 		pageOnline = false;
 		scheduleStatusRefresh();
 	};
-
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	scheduleStatusRefresh();
-
 	return () => {
 		offSessionListCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
@@ -3053,12 +2945,10 @@ onMount(() => {
 		inlineFilePanelResizeCleanup?.();
 	};
 });
-
 // React to space changes: reset state and reload data
 $effect(() => {
 	const currentSpaceId = spaceId;
 	if (!pageMounted || !currentSpaceId) return;
-
 	// Reset space-specific state
 	space = null;
 	spaceLoadError = "";
@@ -3081,16 +2971,13 @@ $effect(() => {
 	creatingSession = false;
 	createSessionError = "";
 	sessionGenerationStore.resetAll();
-
 	bootstrapping = true;
-
 	untrack(() => {
 		void (async () => {
 			try {
 				await loadSpace();
 				if (spaceId !== currentSpaceId) return;
 				void loadFileTree(true);
-
 				if (routeView === "session" && routeSessionId) {
 					activeSessionId = routeSessionId;
 					pendingRestoreSessionId = routeSessionId;
@@ -3109,19 +2996,15 @@ $effect(() => {
 		})();
 	});
 });
-
 // React to space changes: subscribe to WS events for the new space
 $effect(() => {
 	const currentSpaceId = spaceId;
 	if (!pageMounted || !currentSpaceId) return;
-
 	const wsEventCleanup = sdk.space(currentSpaceId).subscribe((event) => {
 		void handleWsEvent(event as ChannelEnvelope);
 	});
-
 	return wsEventCleanup;
 });
-
 $effect(() => {
 	if (
 		routeView === "session" &&
@@ -3144,7 +3027,6 @@ $effect(() => {
 		activeSessionId = null;
 	}
 });
-
 $effect(() => {
 	const el = listEl;
 	if (!el) return;
@@ -3158,19 +3040,16 @@ $effect(() => {
 	container.addEventListener("scroll", handleScrollTrack, { passive: true });
 	return () => container.removeEventListener("scroll", handleScrollTrack);
 });
-
 $effect(() => {
 	if (!listEl) return;
 	const targetId = pendingRestoreSessionId;
 	if (!targetId || targetId !== activeSessionId) return;
 	const state = sessionStateById[targetId];
 	if (!state?.loaded) return;
-
 	const anchor = scrollAnchorBySession.get(targetId);
 	const hasCachedAnchor =
 		anchor &&
 		state.messages.some((message) => message.sequence === anchor.sequence);
-
 	const finishRestore = () => {
 		suppressScrollSaveSessionIds.delete(targetId);
 		pendingRestoreSessionId = null;
@@ -3179,7 +3058,6 @@ $effect(() => {
 		}
 		updateAutoFollow();
 	};
-
 	const restoreToBottom = () => {
 		restoringBottomSessionId = targetId;
 		shouldAutoFollow = true;
@@ -3211,13 +3089,11 @@ $effect(() => {
 		};
 		stabilizeBottom();
 	};
-
 	if (!anchor || !hasCachedAnchor) {
 		clearSessionScrollAnchor(targetId);
 		void tick().then(restoreToBottom);
 		return;
 	}
-
 	const restoreByAnchor = (retries = 2) => {
 		requestAnimationFrame(() => {
 			if (!listEl) {
@@ -3242,10 +3118,8 @@ $effect(() => {
 			finishRestore();
 		});
 	};
-
 	void tick().then(() => restoreByAnchor());
 });
-
 $effect(() => {
 	const sessionId = activeSessionId;
 	if (!sessionId) return;
@@ -3256,7 +3130,6 @@ $effect(() => {
 		});
 	}
 });
-
 $effect(() => {
 	if (routeView !== "file" || !routeFilePath) {
 		openFile = null;
@@ -3269,7 +3142,6 @@ $effect(() => {
 	}
 	void openFileFromUrl(routeFilePath);
 });
-
 $effect(() => {
 	if (routeView === "checkpoint" && routeCheckpointId) {
 		void loadCheckpointDetail(routeCheckpointId);
@@ -3278,13 +3150,11 @@ $effect(() => {
 	checkpointDetail = null;
 	checkpointDetailError = "";
 });
-
 $effect(() => {
 	if (routeView === "checkpoint-new") {
 		checkpointCreateError = "";
 	}
 });
-
 $effect(() => {
 	if (
 		(routeView === "cronjob" || routeView === "cronjob-new") &&
@@ -3309,7 +3179,6 @@ $effect(() => {
 	cronjobRuns = [];
 	cronjobToggleError = "";
 });
-
 $effect(() => {
 	if (routeView === "task" && routeTaskId) {
 		void loadTaskDetail(routeTaskId);
@@ -3318,30 +3187,24 @@ $effect(() => {
 	taskRunDetail = null;
 	taskRunDetailError = "";
 });
-
 $effect(() => {
 	const el = composerHostEl;
 	if (!el) {
 		composerHeight = 0;
 		return;
 	}
-
 	const updateComposerHeight = () => {
 		composerHeight = el.offsetHeight;
 	};
-
 	updateComposerHeight();
 	const ro = new ResizeObserver(() => updateComposerHeight());
 	ro.observe(el);
-
 	return () => ro.disconnect();
 });
-
 $effect(() => {
 	if (!listEl || !activeSessionId) return;
 	requestAnimationFrame(() => updateAutoFollow());
 });
-
 // ResizeObserver: when the scroll container's content grows and the user
 // is already near the bottom (shouldAutoFollow), keep them pinned. This
 // replaces fragile tick()/setTimeout-based scroll logic and naturally
@@ -3349,9 +3212,7 @@ $effect(() => {
 $effect(() => {
 	const el = listEl;
 	if (!el) return;
-
 	let prevHeight = el.scrollHeight;
-
 	const ro = new ResizeObserver(() => {
 		if (!listEl) return;
 		const currentHeight = listEl.scrollHeight;
@@ -3366,11 +3227,9 @@ $effect(() => {
 		updateAutoFollow();
 	});
 	ro.observe(el);
-
 	return () => ro.disconnect();
 });
 </script>
-
 <PageHeader>
   {#snippet left()}
     <div class="flex items-center gap-1.5 min-w-0">
@@ -3503,7 +3362,6 @@ $effect(() => {
         {/if}
       </button>
     {/if}
-
     <!-- Toggle right sidebar -->
     {#if !spaceHasMinimalAccess}
       <div class="relative">
@@ -3531,7 +3389,6 @@ $effect(() => {
     {/if}
   {/snippet}
 </PageHeader>
-
 <div class="relative flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if routeView === 'checkpoint-new'}
@@ -3545,7 +3402,6 @@ $effect(() => {
                 <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
                 <p class="text-[13px] text-text-tertiary mt-1">Save the current workspace state of <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> as a reusable checkpoint.</p>
               </div>
-
               <div>
                 <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="checkpoint-description">Description</label>
                 <textarea
@@ -3556,16 +3412,13 @@ $effect(() => {
                   class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
                 ></textarea>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/50 p-3 text-[12px] text-text-secondary">
                 If left empty, the checkpoint will still be saved and shown using its commit hash.
               </div>
             </div>
-
             {#if checkpointCreateError}
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointCreateError}</div>
             {/if}
-
             <div class="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -3622,17 +3475,13 @@ $effect(() => {
                   </button>
                 </div>
               </div>
-
               {#if checkpointDetail.description?.trim()}
                 <div class="text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</div>
               {/if}
-
               <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> · {formatCheckpointTimestamp(checkpointDetail.createdAt)}</p>
             </div>
-
             <!-- Divider -->
             <div class="border-t border-border-subtle"></div>
-
             <!-- Metadata: flattened label-value list -->
             <div class="p-5">
               <div class="space-y-4">
@@ -3657,7 +3506,6 @@ $effect(() => {
                     {/if}
                   </button>
                 </div>
-
                 <!-- Parent Checkpoint -->
                 <div>
                   <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
@@ -3676,7 +3524,6 @@ $effect(() => {
                     {/if}
                   </div>
                 </div>
-
                 <!-- Fork Count -->
                 <div>
                   <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Forks</div>
@@ -3689,7 +3536,6 @@ $effect(() => {
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[13px] text-text-tertiary">Checkpoint not found.</div>
         {/if}
       </div>
-
     {:else if routeView === 'cronjob-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
         {#if spaceLoadError && !spaceHasMinimalAccess}
@@ -3701,7 +3547,6 @@ $effect(() => {
                 <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Scheduled</div>
                 <p class="text-[13px] text-text-tertiary mt-1">Create a repeating task that sends a message to <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> on a schedule.</p>
               </div>
-
               <div>
                 <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="cronjob-title">Title</label>
                 <input
@@ -3712,7 +3557,6 @@ $effect(() => {
                   class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 />
               </div>
-
               <div>
                 <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="cronjob-expression">Cron Expression</label>
                 <input
@@ -3724,7 +3568,6 @@ $effect(() => {
                 />
                 <p class="mt-1 text-[11px] text-text-placeholder">Format: min hour day month weekday · Example: */30 * * * * (every 30 min)</p>
               </div>
-
               <div>
                 <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="cronjob-prompt">Prompt Message</label>
                 <textarea
@@ -3735,16 +3578,13 @@ $effect(() => {
                   class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
                 ></textarea>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/50 p-3 text-[12px] text-text-secondary">
                 The cronjob will send this message to the space on every scheduled run.
               </div>
             </div>
-
             {#if cronjobNewError}
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobNewError}</div>
             {/if}
-
             <div class="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -3769,7 +3609,6 @@ $effect(() => {
           </form>
         {/if}
       </div>
-
     {:else if routeView === 'cronjob'}
       <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
         {#if cronjobDetailLoading}
@@ -3788,7 +3627,6 @@ $effect(() => {
               </div>
               <p class="text-[13px] text-text-tertiary">Running in <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
             </div>
-
             <div class="grid gap-3 md:grid-cols-2">
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
@@ -3797,7 +3635,6 @@ $effect(() => {
                 </div>
                 <div class="mt-2 font-mono text-[14px] text-text-primary">{cronjobDetail.cronExpression}</div>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <Clock3 class="w-3.5 h-3.5" />
@@ -3805,7 +3642,6 @@ $effect(() => {
                 </div>
                 <div class="mt-2 text-[13px] text-text-primary">{cronjobDetail.timezone}</div>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <Terminal class="w-3.5 h-3.5" />
@@ -3813,7 +3649,6 @@ $effect(() => {
                 </div>
                 <div class="mt-2 text-[13px] text-text-primary">{cronjobDetail.taskType}</div>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <Clock3 class="w-3.5 h-3.5" />
@@ -3822,7 +3657,6 @@ $effect(() => {
                 <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(cronjobDetail.createdAt)}</div>
               </div>
             </div>
-
             <div class="flex items-center gap-2">
               <button
                 type="button"
@@ -3849,11 +3683,9 @@ $effect(() => {
                 <span>Delete</span>
               </button>
             </div>
-
             {#if cronjobToggleError}
               <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft">{cronjobToggleError}</div>
             {/if}
-
             {#if cronjobRuns.length > 0}
               <div class="border-t border-border-subtle pt-4">
                 <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium mb-3">Recent Runs</div>
@@ -3884,7 +3716,6 @@ $effect(() => {
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Scheduled job not found.</div>
         {/if}
       </div>
-
     {:else if routeView === 'task'}
       <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
         {#if taskRunDetailLoading}
@@ -3917,18 +3748,15 @@ $effect(() => {
                 {/if}
               </p>
             </div>
-
             <div class="grid gap-3 md:grid-cols-2">
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Task Type</div>
                 <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.taskType}</div>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Attempts</div>
                 <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.attemptCount}</div>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <Clock class="w-3.5 h-3.5" />
@@ -3936,7 +3764,6 @@ $effect(() => {
                 </div>
                 <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
               </div>
-
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <Clock3 class="w-3.5 h-3.5" />
@@ -3945,7 +3772,6 @@ $effect(() => {
                 <div class="mt-2 text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
               </div>
             </div>
-
             {#if taskRunDetail.startedAt || taskRunDetail.finishedAt}
               <div class="grid gap-3 md:grid-cols-2">
                 <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
@@ -3958,19 +3784,16 @@ $effect(() => {
                 </div>
               </div>
             {/if}
-
             <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
               <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Payload</div>
               <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.payload, null, 2)}</pre>
             </div>
-
             {#if taskRunDetail.result}
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
                 <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Result</div>
                 <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.result, null, 2)}</pre>
               </div>
             {/if}
-
             {#if taskRunDetail.errorMessage}
               <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-4">
                 <div class="text-[11px] uppercase tracking-wider text-error-soft font-medium">Error</div>
@@ -3982,7 +3805,6 @@ $effect(() => {
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Task run not found.</div>
         {/if}
       </div>
-
     {:else if fileMode === 'file'}
       <!-- File Viewer -->
       {#if openFileLoading}
@@ -4194,11 +4016,9 @@ $effect(() => {
     {#if spaceLoadError && !spaceHasMinimalAccess}
       <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
     {/if}
-
     {#if createSessionError}
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
     {/if}
-
     {#if bootstrapping && !activeSessionState}
       <div class="flex-1 flex items-center justify-center">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
@@ -4215,7 +4035,6 @@ $effect(() => {
               <span>{spaceStatusNotice}</span>
             </div>
           {/if}
-
           <!-- Space Header -->
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0 space-y-1.5">
@@ -4293,7 +4112,6 @@ $effect(() => {
                 <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
               {/if}
             </div>
-
             {#if !spaceHasMinimalAccess}
               <button
                 type="button"
@@ -4311,7 +4129,6 @@ $effect(() => {
               </button>
             {/if}
           </div>
-
           <!-- Repository -->
           <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
             {#if gitSshUrl}
@@ -4337,7 +4154,6 @@ $effect(() => {
                 </div>
               </div>
             {/if}
-
             {#if bootstrapSourceLabel !== "Blank"}
               {@const source = bootstrapMeta?.source as Record<string, unknown> | undefined}
               <div class="text-[13px] text-text-secondary">
@@ -4349,7 +4165,6 @@ $effect(() => {
                 {/if}
               </div>
             {/if}
-
             {#if bootstrapStatus === "failed"}
               <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3">
                 <div class="flex items-center gap-1.5 text-[12px] text-error-soft font-medium mb-1">
@@ -4362,7 +4177,6 @@ $effect(() => {
               </div>
             {/if}
           </section>
-
           <!-- Token Usage Heatmap -->
           <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
             <div class="flex items-center justify-between gap-3 mb-4">
@@ -4380,12 +4194,10 @@ $effect(() => {
                 </div>
               {/if}
             </div>
-
             {#if tokenUsage && tokenUsage.hourly.length > 0}
               {@const heatmapWeeks = buildHeatmapWeeks(tokenUsage.hourly, tokenUsage.days)}
               {@const allCells = heatmapWeeks.flat()}
               {@const maxTokens = Math.max(...allCells.map(d => d.tokens), 1)}
-
               <!-- Heatmap grid -->
               <div class="flex gap-[3px] overflow-x-auto pb-2">
                 {#each heatmapWeeks as week (week)}
@@ -4403,7 +4215,6 @@ $effect(() => {
                   </div>
                 {/each}
               </div>
-
               <!-- Legend -->
               <div class="flex items-center justify-between mt-3 text-[11px] text-text-tertiary">
                 <span>Less</span>
@@ -4416,7 +4227,6 @@ $effect(() => {
                 </div>
                 <span>More</span>
               </div>
-
               <!-- Summary stats -->
               <div class="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-border-subtle">
                 <div class="text-center">
@@ -4438,7 +4248,6 @@ $effect(() => {
               </div>
             {/if}
           </section>
-
           {#if !spaceHasMinimalAccess}
             <!-- Sharing -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
@@ -4449,12 +4258,11 @@ $effect(() => {
                   <div class="text-[15px] font-medium text-text-primary">Space access & sharing</div>
                 </div>
               </div>
-
               <div class="space-y-2">
                 <div class="text-[11px] text-text-placeholder">Space access</div>
                 <div class="flex items-center justify-between">
                   <span class="text-[12px] text-text-secondary">Signed-in users</span>
-                  <select
+                  <select id="bind-channel-select"
                     value={spaceAccess?.signed_in_user ?? ''}
                     onchange={(event) => {
                       const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
@@ -4470,7 +4278,7 @@ $effect(() => {
                 </div>
                 <div class="flex items-center justify-between">
                   <span class="text-[12px] text-text-secondary">Anonymous</span>
-                  <select
+                  <select id="bind-channel-select"
                     value={spaceAccess?.anonymous_user ?? ''}
                     onchange={(event) => {
                       const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
@@ -4484,9 +4292,7 @@ $effect(() => {
                   </select>
                 </div>
               </div>
-
               <div class="w-full h-px bg-border-subtle"></div>
-
               <div class="space-y-1">
                 <div class="text-[11px] text-text-placeholder">Shared sessions</div>
                 {#each Object.entries(sessionAccessById).filter(([_, v]) => v) as [sid, acc] (sid)}
@@ -4515,7 +4321,6 @@ $effect(() => {
                 {/each}
               </div>
             </section>
-
             <!-- Members -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
               <div class="flex items-center gap-2">
@@ -4525,7 +4330,6 @@ $effect(() => {
                   <div class="text-[15px] font-medium text-text-primary">{spaceMembers.length} member{spaceMembers.length !== 1 ? 's' : ''}</div>
                 </div>
               </div>
-
               <div class="flex gap-2">
                 <input
                   type="text"
@@ -4534,7 +4338,7 @@ $effect(() => {
                   class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
                   onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddMember(); } }}
                 />
-                <select
+                <select id="bind-channel-select"
                   bind:value={addingMemberRole}
                   class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
                 >
@@ -4554,7 +4358,6 @@ $effect(() => {
               {#if addingMemberError}
                 <div class="text-[11px] text-error-soft break-all">{addingMemberError}</div>
               {/if}
-
               {#if spaceMembers.length > 0}
                 <div class="space-y-1">
                   {#each spaceMembers as member (member.userId)}
@@ -4579,34 +4382,136 @@ $effect(() => {
                 <div class="py-1 text-[12px] text-text-tertiary italic">No members</div>
               {/if}
             </section>
-
             <!-- Channels -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
-              <div class="flex items-center gap-2">
-                <Hash class="w-4 h-4 text-text-tertiary" />
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Channels</div>
-                  <div class="text-[15px] font-medium text-text-primary">{space?.channels?.length ?? 0} bound</div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <Hash class="w-4 h-4 text-text-tertiary" />
+                  <div>
+                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Channels</div>
+                    <div class="text-[15px] font-medium text-text-primary">{spaceChannelBindings.length} bound</div>
+                  </div>
                 </div>
+                {#if availableChannels.length > 0 && canManageChannels}
+                  <button
+                    type="button"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+                    onclick={() => { showBindDialog = true; bindChannelId = ""; bindError = ""; }}
+                  >
+                    <Plus class="w-3.5 h-3.5" />
+                    Bind
+                  </button>
+                {/if}
               </div>
 
-              {#if !space?.channels || space.channels.length === 0}
-                <div class="text-[13px] text-text-tertiary">No channels bound.</div>
+              {#if spaceChannelsLoading}
+                <div class="flex items-center justify-center py-6 text-[12px] text-text-tertiary">
+                  <Loader2 class="w-4 h-4 animate-spin mr-2" />
+                  Loading channels...
+                </div>
+              {:else if spaceChannelBindings.length === 0}
+                <div class="py-2">
+                  <div class="text-[13px] text-text-tertiary">No channels bound.</div>
+                  {#if availableChannels.length === 0}
+                    <a href="/settings/channels/new" class="text-[12px] text-brand hover:underline mt-1 inline-block">Create a channel first →</a>
+                  {/if}
+                </div>
               {:else}
-                {#each space.channels as channel (channel.id)}
-                  <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50">
-                    <div class="px-3 py-2 border-b border-border-subtle flex items-center gap-2">
-                      <Hash class="w-3 h-3 text-text-tertiary" />
-                      <span class="text-[12px] font-medium text-text-primary truncate">{channel.name || channel.provider}</span>
+                <div class="space-y-2">
+                  {#each spaceChannelBindings as binding (binding.id)}
+                    {@const ch = binding.channel}
+                    {@const providerDotColor = ch?.provider === "discord" ? "bg-indigo-400" : ch?.provider === "feishu" ? "bg-cyan-400" : "bg-status-running"}
+                    <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50 flex items-center justify-between">
+                      <div class="flex items-center gap-2 px-3 py-2.5 min-w-0 flex-1">
+                        <div class="w-6 h-6 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0">
+                          <div class="w-1.5 h-1.5 rounded-full {providerDotColor}"></div>
+                          {#if ch?.provider === "discord"}<MessageSquare class="w-3 h-3 text-text-tertiary ml-0.5" />
+                          {:else if ch?.provider === "feishu"}<Webhook class="w-3 h-3 text-text-tertiary ml-0.5" />
+                          {:else}<Hash class="w-3 h-3 text-text-tertiary ml-0.5" />{/if}
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-[13px] font-medium text-text-primary truncate">{ch?.name || ch?.provider || "Unnamed"}</div>
+                          <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{ch?.provider ?? "unknown"}</div>
+                        </div>
+                      </div>
+                      {#if canManageChannels}
+                        <button
+                          type="button"
+                          class="shrink-0 p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors ml-2"
+                          title="Unbind channel"
+                          disabled={unbindingChannelId === binding.channelId}
+                          onclick={() => void handleUnbindChannel(binding.channelId)}
+                        >
+                          {#if unbindingChannelId === binding.channelId}
+                            <Loader2 class="w-4 h-4 animate-spin" />
+                          {:else}
+                            <Trash2 class="w-4 h-4" />
+                          {/if}
+                        </button>
+                      {/if}
                     </div>
-                    <div class="p-3 text-[12px] text-text-tertiary">
-                      {#if channel.provider === "discord"}Status: <span class="capitalize text-text-secondary">{channel.status}</span>
-                      {:else}No configuration available.{/if}
-                    </div>
-                  </div>
-                {/each}
+                  {/each}
+                </div>
               {/if}
             </section>
+
+            <!-- Bind Channel Dialog -->
+            {#if showBindDialog}
+              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => { showBindDialog = false; }}>
+                <div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 space-y-4" onclick={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-[15px] font-medium text-text-primary">Bind Channel</h3>
+                    <button
+                      type="button"
+                      class="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                      onclick={() => { showBindDialog = false; }}
+                    >
+                      <X class="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {#if bindError}
+                    <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{bindError}</div>
+                  {/if}
+
+                  <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="bind-channel-select">Available Channels</label>
+                    <select id="bind-channel-select"
+                      bind:value={bindChannelId}
+                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                    >
+                      <option value="" disabled>Select a channel</option>
+                      {#each availableChannels as ch (ch.id)}
+                        <option value={ch.id}>{ch.name} ({ch.provider})</option>
+                      {/each}
+                    </select>
+                  </div>
+
+                  <div class="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onclick={() => { showBindDialog = false; }}
+                      class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bindSubmitting || !bindChannelId}
+                      onclick={() => void handleBindChannel()}
+                      class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {#if bindSubmitting}
+                        <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
+                        Binding...
+                      {:else}
+                        Bind
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {/if}
           {/if}
         </div>
       </div>
@@ -4638,7 +4543,6 @@ $effect(() => {
           {activeSessionState.error}
         </div>
       {/if}
-
       <div class="relative flex-1 min-h-0 flex flex-col">
         <ChatTimeline
           bind:this={chatTimelineRef}
@@ -4649,7 +4553,6 @@ $effect(() => {
           loadingOlder={activeSessionState?.loadingOlder ?? false}
           modelsCatalog={modelsCatalog ?? undefined}
         />
-
         {#if hasUnread || !shouldAutoFollow}
           <div class="absolute left-1/2 z-20 -translate-x-1/2"
             style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
@@ -4671,7 +4574,6 @@ $effect(() => {
             </button>
           </div>
         {/if}
-
         <div bind:this={composerHostEl}>
           <SessionComposer
             bind:value={input}
@@ -4693,7 +4595,6 @@ $effect(() => {
     {/if}
   {/if}
   </div>
-
   <!-- Inline file panel — desktop: side panel, mobile: full-screen overlay -->
   {#if inlineFile}
     <!-- Mobile full-screen overlay -->
@@ -4711,7 +4612,6 @@ $effect(() => {
           </a>
         {/if}
       </div>
-
       {#if inlineFile.loading}
         <div class="flex flex-1 items-center justify-center text-sm text-text-tertiary">Loading…</div>
       {:else if inlineFile.error}
@@ -4784,7 +4684,6 @@ $effect(() => {
         <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">No file selected</div>
       {/if}
     </div>
-
     <!-- Desktop side panel -->
     <div class="hidden lg:flex shrink-0 relative border-l border-border-subtle" style={`width: ${inlineFilePanelWidth}px`}>
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
@@ -4996,7 +4895,6 @@ $effect(() => {
       ></button>
     </div>
   {/if}
-
   <!-- Desktop right sidebar — file tree only -->
   {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
     <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
@@ -5034,7 +4932,6 @@ $effect(() => {
       </div>
     </div>
   {/if}
-
   <MobileRightDrawer
     dragOffsetPx={uiState.rightDragOffsetPx}
     isDragging={uiState.rightIsDragging}
@@ -5066,7 +4963,6 @@ $effect(() => {
       />
     {/if}
   </MobileRightDrawer>
-
   <!-- Share Modal -->
   <Dialog open={showShareModal && !!shareModalSessionId} onClose={() => { showShareModal = false; }} title={hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'} maxWidth="380px">
     <div class="p-4 space-y-4">
@@ -5135,13 +5031,11 @@ $effect(() => {
           {/if}
         </button>
       {/if}
-
       {#if shareModalError}
         <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
       {/if}
     </div>
   </Dialog>
-
   <ModelSelector
     open={showModelSelector}
     onClose={() => { showModelSelector = false; }}
@@ -5150,13 +5044,11 @@ $effect(() => {
     currentModel={activeSessionModel}
   />
 </div>
-
 <style>
   :global(body.sidebar-resizing) {
     cursor: col-resize;
     user-select: none;
   }
-
   /* Heatmap */
   .heatmap-cell {
     width: 12px;
@@ -5169,7 +5061,6 @@ $effect(() => {
   .heatmap-2 { background: oklch(0.55 0.22 25 / 0.55); }
   .heatmap-3 { background: oklch(0.55 0.22 25 / 0.75); }
   .heatmap-4 { background: oklch(0.55 0.22 25 / 0.95); }
-
   @media (prefers-color-scheme: dark) {
     .heatmap-0 { background: var(--bg-elevated, rgba(255,255,255,0.05)); }
     .heatmap-1 { background: oklch(0.65 0.2 25 / 0.35); }
@@ -5177,7 +5068,6 @@ $effect(() => {
     .heatmap-3 { background: oklch(0.65 0.2 25 / 0.75); }
     .heatmap-4 { background: oklch(0.65 0.2 25 / 0.95); }
   }
-
   @keyframes cohub-scroll-to-bottom-in {
     from {
       opacity: 0;
@@ -5188,13 +5078,11 @@ $effect(() => {
       transform: translate(-50%, 0);
     }
   }
-
   @media (prefers-reduced-motion: reduce) {
     :global(button[aria-label="Scroll to bottom"]) {
       animation: none !important;
     }
   }
-
   .right-sidebar-resize-handle {
     position: absolute;
     top: 0;
@@ -5204,7 +5092,6 @@ $effect(() => {
     cursor: col-resize;
     background: transparent;
   }
-
   .right-sidebar-resize-handle::after {
     content: "";
     position: absolute;
@@ -5215,11 +5102,9 @@ $effect(() => {
     background: transparent;
     transition: background-color 120ms ease;
   }
-
   .right-sidebar-resize-handle:hover::after {
     background: var(--border-subtle);
   }
-
   .inline-panel-resize-handle {
     position: absolute;
     top: 0;
@@ -5232,7 +5117,6 @@ $effect(() => {
     background: transparent;
     z-index: 10;
   }
-
   .inline-panel-resize-handle::after {
     content: "";
     position: absolute;
@@ -5243,11 +5127,9 @@ $effect(() => {
     background: transparent;
     transition: background-color 120ms ease;
   }
-
   .inline-panel-resize-handle:hover::after {
     background: var(--border-subtle);
   }
-
   /* File viewer */
   .icon-btn {
     display: inline-flex;
@@ -5263,7 +5145,6 @@ $effect(() => {
     cursor: pointer;
   }
   .icon-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
-
   .action-btn {
     display: inline-flex;
     align-items: center;
@@ -5286,7 +5167,6 @@ $effect(() => {
     color: #fff;
   }
   .action-btn.primary:hover { opacity: 0.9; }
-
   .toggle-btn {
     display: inline-flex;
     align-items: center;
@@ -5307,7 +5187,6 @@ $effect(() => {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
-
   .segmented-btn {
     display: inline-flex;
     align-items: center;
@@ -5331,7 +5210,6 @@ $effect(() => {
     font-weight: 600;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.04);
   }
-
   .markdown-preview {
     height: 100%;
     overflow: auto;
@@ -5459,7 +5337,6 @@ $effect(() => {
   .markdown-preview :global(tr:nth-child(even)) :global(td) {
     background: var(--bg-hover-soft, rgba(0,0,0,0.02));
   }
-
   .zoom-btn {
     display: inline-flex;
     align-items: center;
