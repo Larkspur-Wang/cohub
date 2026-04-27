@@ -1,0 +1,108 @@
+import type { Command } from "commander";
+import { resolveToken } from "../auth.js";
+import { createClient } from "../client.js";
+import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+
+export function registerTasks(program: Command): void {
+  const cmd = program.command("tasks").description("Task management");
+
+  cmd
+    .command("ls")
+    .alias("list")
+    .description("List task runs")
+    .option("--cron-job <id>", "Filter by cron job")
+    .option("--space <id>", "Filter by space")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { cronJob?: string; space?: string; json?: boolean }) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
+
+      const client = createClient(token);
+      try {
+        const filters: { cronJobId?: string; spaceId?: string } = {};
+        if (opts.cronJob) filters.cronJobId = opts.cronJob;
+        if (opts.space) filters.spaceId = opts.space;
+
+        const result = await client.tasks.list(filters);
+        if (opts.json) return outJson(result);
+        if (result.runs.length === 0) return console.log("  (empty)");
+        table(result.runs, [
+          { key: "id", label: "ID" },
+          { key: "taskType", label: "Type" },
+          { key: "status", label: "Status" },
+          { key: "createdAt", label: "Created" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cmd
+    .command("get <id>")
+    .description("Task run details")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated");
+
+      const client = createClient(token);
+      try {
+        const result = await client.tasks.get(id);
+        if (opts.json) return outJson(result);
+        table([result.run], [
+          { key: "id", label: "ID" },
+          { key: "taskType", label: "Type" },
+          { key: "status", label: "Status" },
+          { key: "attemptCount", label: "Attempts" },
+          { key: "createdAt", label: "Created" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cmd
+    .command("create")
+    .description("Create a scheduled task")
+    .requiredOption("-t, --task-type <type>", "Task type")
+    .requiredOption("--schedule-at <time>", "ISO timestamp")
+    .option("--payload <json>", "Task payload as JSON")
+    .option("--space <id>", "Space ID")
+    .option("--session <id>", "Session ID")
+    .option("--json", "Output as JSON")
+    .action(async (opts: {
+      taskType: string;
+      scheduleAt: string;
+      payload?: string;
+      space?: string;
+      session?: string;
+      json?: boolean;
+    }) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated");
+
+      let payload: Record<string, unknown> = {};
+      if (opts.payload) {
+        try {
+          payload = JSON.parse(opts.payload);
+        } catch {
+          return error("Invalid JSON", "--payload must be valid JSON");
+        }
+      }
+
+      const client = createClient(token);
+      try {
+        const result = await client.tasks.createScheduled({
+          taskType: opts.taskType,
+          payload,
+          scheduleAt: opts.scheduleAt,
+          spaceId: opts.space,
+          sessionId: opts.session,
+        });
+        if (opts.json) return outJson(result);
+        ok(`Task scheduled — taskRunId: ${result.taskRunId}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+}

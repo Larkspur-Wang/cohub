@@ -1,0 +1,142 @@
+import type { Command } from "commander";
+import { resolveToken } from "../auth.js";
+import { createClient } from "../client.js";
+import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+
+export function registerCronJobs(program: Command): void {
+  const cmd = program.command("cron-jobs").description("Cron job management");
+
+  cmd
+    .command("ls [spaceId]")
+    .alias("list")
+    .description("List cron jobs")
+    .option("--json", "Output as JSON")
+    .action(async (spaceId: string | undefined, opts: { json?: boolean }) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
+
+      const client = createClient(token);
+      try {
+        const result = await client.cronJobs.list(spaceId);
+        if (opts.json) return outJson(result);
+        if (result.jobs.length === 0) return console.log("  (empty)");
+        table(result.jobs, [
+          { key: "id", label: "ID" },
+          { key: "title", label: "Title" },
+          { key: "cronExpression", label: "Schedule" },
+          { key: "enabled", label: "Enabled" },
+          { key: "spaceId", label: "Space" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cmd
+    .command("create")
+    .description("Create a cron job")
+    .requiredOption("-t, --title <title>", "Job title")
+    .requiredOption("--task-type <type>", "Task type")
+    .requiredOption("--cron <expression>", "Cron expression")
+    .option("--payload <json>", "Payload as JSON")
+    .option("--timezone <tz>", "Timezone", "UTC")
+    .option("--space <id>", "Space ID")
+    .option("--session <id>", "Session ID")
+    .option("--json", "Output as JSON")
+    .action(async (opts: {
+      title: string;
+      taskType: string;
+      cron: string;
+      payload?: string;
+      timezone?: string;
+      space?: string;
+      session?: string;
+      json?: boolean;
+    }) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated");
+
+      let payload: Record<string, unknown> = {};
+      if (opts.payload) {
+        try {
+          payload = JSON.parse(opts.payload);
+        } catch {
+          return error("Invalid JSON", "--payload must be valid JSON");
+        }
+      }
+
+      const client = createClient(token);
+      try {
+        const result = await client.cronJobs.create({
+          title: opts.title,
+          taskType: opts.taskType,
+          cronExpression: opts.cron,
+          payload,
+          timezone: opts.timezone,
+          spaceId: opts.space,
+          sessionId: opts.session,
+        });
+        if (opts.json) return outJson(result);
+        ok(`Cron job created: ${result.id}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cmd
+    .command("delete <id>")
+    .description("Delete a cron job")
+    .action(async (id: string) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated");
+
+      const client = createClient(token);
+      try {
+        await client.cronJobs.delete(id);
+        ok(`Cron job deleted: ${id}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cmd
+    .command("toggle <id> <on|off>")
+    .description("Enable or disable a cron job")
+    .action(async (id: string, state: string) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated");
+
+      const enabled = state === "on";
+      const client = createClient(token);
+      try {
+        await client.cronJobs.toggle(id, enabled);
+        ok(`Cron job ${enabled ? "enabled" : "disabled"}: ${id}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cmd
+    .command("runs <id>")
+    .description("List cron job runs")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const token = resolveToken();
+      if (!token) return error("Not authenticated");
+
+      const client = createClient(token);
+      try {
+        const result = await client.cronJobs.runs(id);
+        if (opts.json) return outJson(result);
+        if (result.runs.length === 0) return console.log("  (empty)");
+        table(result.runs, [
+          { key: "id", label: "ID" },
+          { key: "status", label: "Status" },
+          { key: "startedAt", label: "Started" },
+          { key: "finishedAt", label: "Finished" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+}

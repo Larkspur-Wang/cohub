@@ -1,0 +1,26 @@
+{
+  "name": "@neta-art/cohub-cli",
+  "version": "1.0.0",
+  "description": "CLI for Cohub — spaces, sessions, and agent collaboration.",
+  "type": "module",
+  "bin": {
+    "cohub": "./bin/cohub.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@neta-art/cohub": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
+  }
+}
