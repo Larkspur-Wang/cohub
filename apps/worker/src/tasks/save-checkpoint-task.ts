@@ -44,7 +44,14 @@ const saveCheckpointHandler = async (job: Job) => {
     .filter(Boolean);
   const hasChanges = changedLines.length > 0;
 
-  const branchResult = await runGitWithOutput(["rev-parse", "--abbrev-ref", "HEAD"], workspaceDir);
+  // Check if HEAD exists (repo has at least one commit)
+  const hasHead = await runGitWithOutput(["rev-parse", "--verify", "HEAD"], workspaceDir).then(
+    () => true,
+    () => false,
+  );
+  const branchResult = hasHead
+    ? await runGitWithOutput(["rev-parse", "--abbrev-ref", "HEAD"], workspaceDir)
+    : { stdout: "" };
   const branch = branchResult.stdout.trim() || "main";
   const commitMessage = buildCommitMessage(description);
 
