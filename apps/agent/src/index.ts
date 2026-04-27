@@ -34,6 +34,7 @@ import {
   startSandboxWsClient,
   waitForSandboxConnection,
 } from "./sandbox/ws-client.js";
+import { clearCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import {
   getSessionKey,
   loadOrCreateSessionHandle,
@@ -111,6 +112,7 @@ async function disposeSessionHandle(handle: SessionHandle, reason: string) {
   console.warn(`[Agent] Disposing session ${handle.sessionId}: ${reason}`);
   try {
     await handle.persistenceChain.catch(() => undefined);
+    clearCurrentSessionExecutionAuth(handle.sessionId);
     handle.session.dispose();
   } catch (error) {
     console.error(`[Agent] Failed to dispose session ${handle.sessionId}:`, error);
@@ -282,7 +284,9 @@ function nextTurnSequence(sessionKey: string) {
 }
 
 async function runInSessionOperation<T>(handle: SessionHandle, fn: () => Promise<T>): Promise<T> {
-  const previous = handle.operationChain.catch(() => undefined);
+  const previous = handle.operationChain.catch((error) => {
+    console.error(`[Agent] Previous session operation failed for ${handle.sessionId}:`, error);
+  });
   let resolveCurrent!: () => void;
   handle.operationChain = new Promise<void>((resolve) => {
     resolveCurrent = resolve;

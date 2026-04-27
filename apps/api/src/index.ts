@@ -210,7 +210,10 @@ app.use(async (c, next) => {
   c.set("principal", null);
 
   if (token) {
-    const executionAuth = await consumeExecutionAuthFromToken(token).catch(() => null);
+    const executionAuth = await consumeExecutionAuthFromToken(token).catch((error) => {
+      console.warn("[API] Failed to verify execution token:", error);
+      return null;
+    });
     if (executionAuth) {
       c.set("executionAuth", executionAuth);
       c.set("principal", { type: "execution", execution: executionAuth });

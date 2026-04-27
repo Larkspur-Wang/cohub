@@ -8,6 +8,7 @@ export type AppConfig = {
   env: "dev" | "prod";
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
+  executionGrantSigningKey: string;
   sandboxImage: string;
   bullmqRedisUrl: string;
   workerSecret: string;
@@ -42,6 +43,7 @@ export const config: AppConfig = {
   env,
   giteaManagedEmailDomain: process.env.GITEA_MANAGED_EMAIL_DOMAIN ?? "cohub.local",
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
+  executionGrantSigningKey: process.env.EXECUTION_GRANT_SIGNING_KEY ?? process.env.APP_ENCRYPTION_KEY ?? "",
   sandboxImage:
     process.env.SANDBOX_IMAGE ?? getDefaultSandboxImage(env),
   bullmqRedisUrl:
@@ -69,6 +71,9 @@ export const assertRequiredConfig = () => {
   }
   if (!config.workerSecret) {
     throw new Error("Missing required env: WORKER_SECRET");
+  }
+  if (!config.executionGrantSigningKey) {
+    throw new Error("Missing required env: EXECUTION_GRANT_SIGNING_KEY (or APP_ENCRYPTION_KEY fallback)");
   }
   if (!config.bullmqRedisUrl) {
     throw new Error("Missing required env: BULLMQ_REDIS_URL");

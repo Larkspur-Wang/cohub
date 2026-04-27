@@ -22,7 +22,7 @@ function base64UrlDecode(value: string) {
 }
 
 function sign(input: string) {
-  return createHmac("sha256", config.appEncryptionKey).update(input).digest("base64url");
+  return createHmac("sha256", config.executionGrantSigningKey).update(input).digest("base64url");
 }
 
 export async function createExecutionGrant(input: {
@@ -31,10 +31,14 @@ export async function createExecutionGrant(input: {
   sessionId?: string | null;
   source?: string | null;
 }) {
+  const spaceId = input.spaceId?.trim();
+  if (!spaceId) {
+    throw new Error("Execution grant requires a non-empty spaceId");
+  }
   const nowSeconds = Math.floor(Date.now() / 1000);
   const payload: ExecutionGrantPayload = {
     actorUserId: input.actorUserId?.trim() || null,
-    spaceId: input.spaceId,
+    spaceId,
     sessionId: input.sessionId?.trim() || null,
     source: input.source?.trim() || "prompt",
     iat: nowSeconds,

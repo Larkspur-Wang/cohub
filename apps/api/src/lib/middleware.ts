@@ -40,7 +40,13 @@ export const requireAuth = (c: Context): AuthUser | Response => {
     return principal.user;
   }
   if (principal?.type === "execution" && principal.execution.actorUserId) {
-    return { uuid: principal.execution.actorUserId } as AuthUser;
+    return {
+      uuid: principal.execution.actorUserId,
+      id: undefined,
+      nick_name: undefined,
+      phone_num: undefined,
+      avatar_url: undefined,
+    } satisfies AuthUser;
   }
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
