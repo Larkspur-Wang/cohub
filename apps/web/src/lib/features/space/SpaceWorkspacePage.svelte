@@ -98,6 +98,7 @@ import {
 	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
+import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
 	clearCachedSpaceFsSubtree,
@@ -406,7 +407,6 @@ let wsConnectionState = $state<
 >("idle");
 let wsCanRecover = $state(false);
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-let wsFallbackSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
 let createSessionError = $state("");
@@ -1976,44 +1976,30 @@ async function reconcileSessionTail(sessionId: string) {
 	}
 }
 
+const recoveryCoordinator = new SessionRecoveryCoordinator({
+	isTransportOpen: () => wsConnectionState === "open",
+	reconcileSessionTail: (sessionId) => reconcileSessionTail(sessionId),
+	refreshSessionsList: () => refreshSessionsList(true),
+	onRecovered: () => {
+		wsCanRecover = false;
+	},
+});
+
 async function reconnectSync() {
-	if (wsFallbackSyncTimer) {
-		clearTimeout(wsFallbackSyncTimer);
-		wsFallbackSyncTimer = null;
-	}
+	await recoveryCoordinator.reconcileAfterReconnect(
+		activeSessionId && sessionStateById[activeSessionId]?.loaded
+			? activeSessionId
+			: null,
+	);
 	if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
-		await reconcileSessionTail(activeSessionId);
 		const latestMessageId =
 			sessionStateById[activeSessionId]?.session?.lastMessageId;
 		if (latestMessageId && shouldAutoFollow) {
 			unreadTracker.markViewed(activeSessionId, latestMessageId);
 		}
 	}
-	await refreshSessionsList(true);
 	wsConnectionState = "open";
 	wsCanRecover = false;
-}
-
-function scheduleHttpFallbackSync(sessionId: string, attempt = 0) {
-	if (wsFallbackSyncTimer) {
-		clearTimeout(wsFallbackSyncTimer);
-		wsFallbackSyncTimer = null;
-	}
-	if (wsConnectionState === "open") return;
-	if (attempt >= 20) return;
-	wsFallbackSyncTimer = setTimeout(
-		() => {
-			wsFallbackSyncTimer = null;
-			if (wsConnectionState === "open") return;
-			void reconcileSessionTail(sessionId)
-				.catch(() => undefined)
-				.finally(() => {
-					void refreshSessionsList(true).catch(() => undefined);
-					scheduleHttpFallbackSync(sessionId, attempt + 1);
-				});
-		},
-		attempt === 0 ? 1200 : 1500,
-	);
 }
 
 async function handleWsEvent(payload: ChannelEnvelope) {
@@ -2187,12 +2173,13 @@ async function handleSend() {
 			"sent_unconfirmed",
 		);
 		if (wsConnectionState !== "open") {
-			void reconcileSessionTail(sessionId)
+			void recoveryCoordinator
+				.reconcileAfterSendWhileOffline(sessionId)
 				.then(() => {
 					completeGeneration(sessionId);
 				})
 				.catch(() => undefined);
-			scheduleHttpFallbackSync(sessionId);
+			recoveryCoordinator.scheduleFallbackSync(sessionId);
 		}
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
@@ -2944,6 +2931,7 @@ onMount(() => {
 	});
 	const wsConnectionCleanup = sdk.onConnection((state) => {
 		if (state.state === "open") {
+			recoveryCoordinator.onTransportOpen();
 			wsConnectionState = "open";
 			wsCanRecover = false;
 			void reconnectSync();
@@ -3025,7 +3013,7 @@ onMount(() => {
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
-		if (wsFallbackSyncTimer) clearTimeout(wsFallbackSyncTimer);
+		recoveryCoordinator.dispose();
 		if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
