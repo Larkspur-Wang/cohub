@@ -28,7 +28,10 @@
     "test:stress": "tsx test/e2e-stress-test.ts",
     "test:load": "tsx test/e2e-load-test.ts",
     "test:tool-call": "tsx test/e2e-tool-call-test.ts",
-    "test:all": "pnpm test:e2e && pnpm test:stress && pnpm test:concurrency"
+    "test:all": "pnpm test:e2e && pnpm test:stress && pnpm test:concurrency",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",
