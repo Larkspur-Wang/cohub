@@ -116,7 +116,7 @@ async function resolveNonMemberRole(input: {
   const effectivePolicy = sessionPolicy ?? await getAccessPolicy("space", input.spaceId);
   if (!effectivePolicy) return null;
   return audience === "signed_in_user"
-    ? (effectivePolicy.signedInUserRole ?? null)
+    ? (effectivePolicy.signedInUserRole ?? effectivePolicy.anonymousUserRole ?? null)
     : (effectivePolicy.anonymousUserRole ?? null);
 }
 
@@ -197,7 +197,7 @@ export async function filterSessionsByPermission(
     const effective = sessionPolicyMap.get(session.id) ?? resolvedSpacePolicy;
     if (!effective) return false;
     const role = audience === "signed_in_user"
-      ? (effective.signedInUserRole ?? null)
+      ? (effective.signedInUserRole ?? effective.anonymousUserRole ?? null)
       : (effective.anonymousUserRole ?? null);
     return role !== null && roleHasPermission(role, permission);
   });
