@@ -5,10 +5,12 @@ import {
   spaceChannels,
   spaces,
   spaceMembers,
+  userGitAccounts,
 } from "../../db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
+import { config } from "../../config.js";
 import { getSpaceSandboxBySpaceId, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
@@ -323,6 +325,69 @@ router.post("/", async (c) => {
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────
 
+function sanitizeRepoUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function sanitizeSpaceMeta(meta: unknown): Record<string, unknown> | null {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    return meta as null;
+  }
+  const metaObj = meta as Record<string, unknown>;
+  const bootstrap = metaObj.bootstrap;
+  if (
+    !bootstrap ||
+    typeof bootstrap !== "object" ||
+    Array.isArray(bootstrap)
+  ) {
+    return metaObj;
+  }
+  const bootstrapObj = bootstrap as Record<string, unknown>;
+  const source = bootstrapObj.source;
+  if (
+    !source ||
+    typeof source !== "object" ||
+    Array.isArray(source)
+  ) {
+    return metaObj;
+  }
+  const sourceObj = source as Record<string, unknown>;
+  if (sourceObj.type === "git_repo" && typeof sourceObj.repoUrl === "string") {
+    return {
+      ...metaObj,
+      bootstrap: {
+        ...bootstrapObj,
+        source: {
+          ...sourceObj,
+          repoUrl: sanitizeRepoUrl(sourceObj.repoUrl as string),
+        },
+      },
+    };
+  }
+  return metaObj;
+}
+
+async function getGiteaUsernameForUser(userUuid: string): Promise<string | null> {
+  const [account] = await db
+    .select({ giteaUsername: userGitAccounts.giteaUsername })
+    .from(userGitAccounts)
+    .where(
+      and(
+        eq(userGitAccounts.userUuid, userUuid),
+        eq(userGitAccounts.provider, "gitea"),
+      ),
+    )
+    .limit(1);
+  return account?.giteaUsername ?? null;
+}
+
 router.get("/:id", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
@@ -333,7 +398,26 @@ router.get("/:id", async (c) => {
 
   if (await hasPermission(user, "space.view", { spaceId })) {
     const sandbox = await getSpaceSandboxBySpaceId(space.id);
-    return c.json({ ...space, sandboxStatus: sandbox?.status ?? null });
+    const sanitizedMeta = sanitizeSpaceMeta(space.meta);
+
+    // Only include git info when the requester is the space creator
+    let gitInfo: { giteaHost: string; giteaUsername: string } | undefined;
+    if (user.uuid === space.userUuid) {
+      const giteaUsername = await getGiteaUsernameForUser(space.userUuid);
+      if (giteaUsername) {
+        gitInfo = {
+          giteaHost: new URL(config.giteaBaseUrl).host,
+          giteaUsername,
+        };
+      }
+    }
+
+    return c.json({
+      ...space,
+      meta: sanitizedMeta,
+      sandboxStatus: sandbox?.status ?? null,
+      gitInfo: gitInfo ?? null,
+    });
   }
 
   // Fallback: only session-level access — return minimal info

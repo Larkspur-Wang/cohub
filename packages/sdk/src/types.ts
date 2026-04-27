@@ -77,6 +77,11 @@ export type SessionRecord = ProtocolSessionRecord & {
   totalCost?: string | number | null;
 };
 
+export type SpaceGitInfo = {
+  giteaHost: string;
+  giteaUsername: string;
+};
+
 export type SpaceRecord = {
   id: string;
   userUuid: string;
@@ -97,6 +102,7 @@ export type SpaceRecord = {
     status: string;
   }[];
   accessLevel?: "minimal";
+  gitInfo?: SpaceGitInfo | null;
 };
 
 export type SpaceBootstrapSource =

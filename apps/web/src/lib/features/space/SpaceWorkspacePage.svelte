@@ -288,6 +288,8 @@ let inlineFileCopied = $state(false);
 let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let gitRepoCopied = $state(false);
+let gitRepoCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let inlineFilePanelWidth = $state(480);
 let inlineFilePanelResizeCleanup: (() => void) | null = null;
 
@@ -688,6 +690,19 @@ async function loadCheckpointDetail(checkpointId: string) {
 	}
 }
 
+let checkpointIdCopied = $state(false);
+let checkpointIdCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function handleCopyCheckpointId() {
+	if (!checkpointDetail) return;
+	await navigator.clipboard.writeText(checkpointDetail.id);
+	checkpointIdCopied = true;
+	if (checkpointIdCopiedTimer) clearTimeout(checkpointIdCopiedTimer);
+	checkpointIdCopiedTimer = setTimeout(() => {
+		checkpointIdCopied = false;
+	}, 1800);
+}
+
 async function handleCopyCheckpointCommitHash() {
 	if (!checkpointDetail) return;
 	await navigator.clipboard.writeText(checkpointDetail.commitHash);
@@ -944,6 +959,24 @@ const bootstrapStatusTone = $derived.by(() => {
 		return "text-success-soft border-success-soft/20 bg-success-soft/8";
 	return "text-text-secondary border-border-subtle bg-bg-surface";
 });
+
+const gitSshUrl = $derived.by(() => {
+	const info = space?.gitInfo;
+	const repoName = space?.storageRepoName;
+	if (!info || !repoName) return null;
+	return `git@${info.giteaHost}:${info.giteaUsername}/${repoName}.git`;
+});
+
+async function handleCopyGitUrl() {
+	if (!gitSshUrl) return;
+	await navigator.clipboard.writeText(gitSshUrl);
+	gitRepoCopied = true;
+	if (gitRepoCopiedTimer) clearTimeout(gitRepoCopiedTimer);
+	gitRepoCopiedTimer = setTimeout(() => {
+		gitRepoCopied = false;
+	}, 1800);
+}
+
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
@@ -3570,57 +3603,69 @@ $effect(() => {
         {:else if checkpointDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
         {:else if checkpointDetail}
-          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
-            <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
-              <h1 class="text-[22px] font-semibold text-text-primary tracking-tight break-words">{getCheckpointTitle(checkpointDetail)}</h1>
-              <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
+          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-5">
+            <!-- Hero: Checkpoint ID -->
+            <div class="space-y-3">
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint ID</div>
+              <div class="flex items-center gap-3">
+                <div class="font-mono text-[18px] font-semibold text-text-primary tracking-tight break-all leading-snug">{checkpointDetail.id}</div>
+                <button
+                  type="button"
+                  class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                  onclick={handleCopyCheckpointId}
+                >
+                  {#if checkpointIdCopied}
+                    <Check class="w-3.5 h-3.5 text-success-soft" />
+                    <span class="text-success-soft">Copied</span>
+                  {:else}
+                    <Copy class="w-3.5 h-3.5" />
+                    <span>Copy</span>
+                  {/if}
+                </button>
+              </div>
             </div>
 
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+            {#if checkpointDetail.description?.trim()}
+              <div class="text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</div>
+            {/if}
+
+            <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> · {formatCheckpointTimestamp(checkpointDetail.createdAt)}</p>
+
+            <!-- Secondary info: compact 2-col grid -->
+            <div class="grid gap-2.5 md:grid-cols-2">
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <GitCommitHorizontal class="w-3.5 h-3.5" />
                   Commit Hash
                 </div>
                 <div class="mt-2 flex items-center justify-between gap-3">
-                  <div class="font-mono text-[13px] text-text-primary break-all">{checkpointDetail.commitHash}</div>
+                  <div class="font-mono text-[12px] text-text-secondary break-all leading-snug">{checkpointDetail.commitHash}</div>
                   <button
                     type="button"
-                    class="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-[5px] border border-border-subtle text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                    class="shrink-0 inline-flex items-center gap-1 px-1.5 py-1 rounded-[4px] text-[11px] text-text-placeholder hover:text-text-secondary hover:bg-bg-hover transition-colors"
                     onclick={handleCopyCheckpointCommitHash}
                   >
-                    <Copy class="w-3 h-3" />
-                    <span>{checkpointCopied ? 'Copied' : 'Copy'}</span>
+                    {#if checkpointCopied}
+                      <Check class="w-3 h-3 text-success-soft" />
+                    {:else}
+                      <Copy class="w-3 h-3" />
+                    {/if}
                   </button>
                 </div>
               </div>
 
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Clock3 class="w-3.5 h-3.5" />
-                  Created At
-                </div>
-                <div class="mt-2 text-[13px] text-text-primary">{formatCheckpointTimestamp(checkpointDetail.createdAt)}</div>
-              </div>
-
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
                 <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
                   <Network class="w-3.5 h-3.5" />
-                  Parent Checkpoint
+                  Parent
                 </div>
-                <div class="mt-2 font-mono text-[13px] text-text-primary break-all">{checkpointDetail.parentCheckpointId ?? 'None'}</div>
+                <div class="mt-2 font-mono text-[12px] text-text-secondary break-all leading-snug">{checkpointDetail.parentCheckpointId ?? 'None (root)'}</div>
               </div>
 
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
                 <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Fork Count</div>
-                <div class="mt-2 text-[13px] text-text-primary">{checkpointDetail.forkCount}</div>
+                <div class="mt-2 text-[13px] text-text-secondary">{checkpointDetail.forkCount}</div>
               </div>
-            </div>
-
-            <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
-              <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Description</div>
-              <div class="mt-2 text-[14px] leading-6 text-text-primary whitespace-pre-wrap">{checkpointDetail.description?.trim() || 'No description provided.'}</div>
             </div>
           </div>
         {:else}
@@ -4250,31 +4295,55 @@ $effect(() => {
             {/if}
           </div>
 
-          <!-- Workspace Status -->
-          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-            <div class="flex items-center justify-between gap-3">
+          <!-- Repository -->
+          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
+            {#if gitSshUrl}
               <div>
-                <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Workspace</div>
-                <div class="mt-1 text-[15px] font-medium text-text-primary">Initialization status</div>
+                <div class="flex items-center gap-2">
+                  <GitCommitHorizontal class="w-4 h-4 text-text-tertiary" />
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Repository</div>
+                </div>
+                <div class="mt-2 flex items-center gap-2">
+                  <code class="flex-1 text-[12px] font-mono text-text-secondary bg-bg-code px-2.5 py-1.5 rounded-[5px] border border-border-subtle truncate select-all">{gitSshUrl}</code>
+                  <button
+                    type="button"
+                    class="shrink-0 p-2 rounded-[5px] border border-border-subtle bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                    title="Copy SSH URL"
+                    onclick={() => void handleCopyGitUrl()}
+                  >
+                    {#if gitRepoCopied}
+                      <Check class="w-4 h-4 text-status-running" />
+                    {:else}
+                      <Copy class="w-4 h-4" />
+                    {/if}
+                  </button>
+                </div>
               </div>
-              <div class={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${bootstrapStatusTone}`}>
-                {formatBootstrapStatus(bootstrapStatus)}
+            {/if}
+
+            {#if bootstrapSourceLabel !== "Blank"}
+              {@const source = bootstrapMeta?.source as Record<string, unknown> | undefined}
+              <div class="text-[13px] text-text-secondary">
+                Source: <span class="text-text-primary">{bootstrapSourceLabel}</span>
+                {#if bootstrapSourceLabel === "Git Repo" && source?.repoUrl}
+                  <span class="text-text-tertiary ml-1 font-mono text-[11px]">{String(source.repoUrl)}</span>
+                {:else if bootstrapSourceLabel === "Checkpoint" && source?.checkpointId}
+                  <span class="text-text-tertiary ml-1 font-mono text-[11px]">{String(source.checkpointId).slice(0, 8)}</span>
+                {/if}
               </div>
-            </div>
-            <div class="mt-4 space-y-2 text-[13px] text-text-secondary">
-              <p>Source: <span class="text-text-primary">{bootstrapSourceLabel}</span></p>
-              <p>Stage: <span class="text-text-primary">{formatBootstrapStage(bootstrapStage)}</span></p>
-              {#if bootstrapStatus === "ready"}
-                <p>The initial workspace content has been prepared.</p>
-              {:else if bootstrapStatus === "failed"}
-                <p>Workspace initialization failed.</p>
-              {:else}
-                <p>Workspace initialization is still in progress.</p>
-              {/if}
-              {#if bootstrapErrorMessage}
-                <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3 text-[12px] font-mono text-error-soft break-all">{bootstrapErrorMessage}</div>
-              {/if}
-            </div>
+            {/if}
+
+            {#if bootstrapStatus === "failed"}
+              <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3">
+                <div class="flex items-center gap-1.5 text-[12px] text-error-soft font-medium mb-1">
+                  <AlertCircle class="w-3.5 h-3.5" />
+                  Initialization failed
+                </div>
+                {#if bootstrapErrorMessage}
+                  <div class="text-[11px] font-mono text-error-soft/80 break-all">{bootstrapErrorMessage}</div>
+                {/if}
+              </div>
+            {/if}
           </section>
 
           <!-- Token Usage Heatmap -->
