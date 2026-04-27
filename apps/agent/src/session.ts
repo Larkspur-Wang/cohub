@@ -335,9 +335,6 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "message_update") {
-      addLifecycleEvent(handle, "session.message_update", {
-        "message.event_type": event.assistantMessageEvent.type,
-      });
       handle.streamState.assistantState = applyAssistantMessageEvent(
         handle.streamState.assistantState,
         event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
