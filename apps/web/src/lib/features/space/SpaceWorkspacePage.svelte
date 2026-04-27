@@ -401,12 +401,12 @@ $effect(() => {
 let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
-let wsConnected = $state(true);
-let wsStatus = $state<"connected" | "reconnecting" | "reconnected">(
-	"connected",
-);
-let wsRecoveredNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+let wsConnectionState = $state<
+	"idle" | "connecting" | "reconnecting" | "open" | "closed" | "error"
+>("idle");
+let wsCanRecover = $state(false);
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let wsFallbackSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
 let createSessionError = $state("");
@@ -1986,6 +1986,10 @@ async function reconcileSessionTail(sessionId: string) {
 }
 
 async function reconnectSync() {
+	if (wsFallbackSyncTimer) {
+		clearTimeout(wsFallbackSyncTimer);
+		wsFallbackSyncTimer = null;
+	}
 	if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
 		await reconcileSessionTail(activeSessionId);
 		const latestMessageId =
@@ -1995,13 +1999,30 @@ async function reconnectSync() {
 		}
 	}
 	await refreshSessionsList(true);
-	wsConnected = true;
-	if (wsRecoveredNoticeTimer) clearTimeout(wsRecoveredNoticeTimer);
-	wsStatus = "reconnected";
-	wsRecoveredNoticeTimer = setTimeout(() => {
-		wsStatus = "connected";
-		wsRecoveredNoticeTimer = null;
-	}, 1800);
+	wsConnectionState = "open";
+	wsCanRecover = false;
+}
+
+function scheduleHttpFallbackSync(sessionId: string, attempt = 0) {
+	if (wsFallbackSyncTimer) {
+		clearTimeout(wsFallbackSyncTimer);
+		wsFallbackSyncTimer = null;
+	}
+	if (wsConnectionState === "open") return;
+	if (attempt >= 20) return;
+	wsFallbackSyncTimer = setTimeout(
+		() => {
+			wsFallbackSyncTimer = null;
+			if (wsConnectionState === "open") return;
+			void reconcileSessionTail(sessionId)
+				.catch(() => undefined)
+				.finally(() => {
+					void refreshSessionsList(true).catch(() => undefined);
+					scheduleHttpFallbackSync(sessionId, attempt + 1);
+				});
+		},
+		attempt === 0 ? 1200 : 1500,
+	);
 }
 
 async function handleWsEvent(payload: ChannelEnvelope) {
@@ -2242,6 +2263,11 @@ async function handleSend() {
 			"sent_unconfirmed",
 		);
 		clearStreamingState();
+		if (wsConnectionState !== "open") {
+			streamStatus = "idle";
+			void reconcileSessionTail(sessionId).catch(() => undefined);
+			scheduleHttpFallbackSync(sessionId);
+		}
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
 		input = pendingInput;
@@ -2993,16 +3019,29 @@ onMount(() => {
 	});
 	const wsConnectionCleanup = sdk.onConnection((state) => {
 		if (state.state === "open") {
+			wsConnectionState = "open";
+			wsCanRecover = false;
 			void reconnectSync();
 			return;
 		}
-		if (state.state === "closed" || state.state === "error") {
-			wsConnected = false;
-			if (wsRecoveredNoticeTimer) {
-				clearTimeout(wsRecoveredNoticeTimer);
-				wsRecoveredNoticeTimer = null;
-			}
-			wsStatus = "reconnecting";
+		if (state.state === "connecting") {
+			wsConnectionState = "connecting";
+			wsCanRecover = false;
+			return;
+		}
+		if (state.state === "reconnecting") {
+			wsConnectionState = "reconnecting";
+			wsCanRecover = true;
+			return;
+		}
+		if (state.state === "error") {
+			wsConnectionState = "error";
+			wsCanRecover = state.recoverable ?? false;
+			return;
+		}
+		if (state.state === "closed") {
+			wsConnectionState = "closed";
+			wsCanRecover = state.willReconnect;
 		}
 	});
 
@@ -3019,7 +3058,7 @@ onMount(() => {
 	const handleOnline = () => {
 		pageOnline = true;
 		scheduleStatusRefresh();
-		if (wsConnected) {
+		if (wsConnectionState === "open") {
 			void refreshSessionsList(true);
 		}
 	};
@@ -3061,7 +3100,7 @@ onMount(() => {
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
-		if (wsRecoveredNoticeTimer) clearTimeout(wsRecoveredNoticeTimer);
+		if (wsFallbackSyncTimer) clearTimeout(wsFallbackSyncTimer);
 		if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
@@ -3380,15 +3419,9 @@ $effect(() => {
             >
               {getSessionTitle(activeSessionState.session)}
             </button>
-            {#if wsStatus === 'reconnecting'}
-              <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-warning">
-                <span class="h-1.5 w-1.5 rounded-full bg-warning animate-pulse"></span>
-                Reconnecting…
-              </span>
-            {:else if wsStatus === 'reconnected'}
-              <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-success-soft">
-                <span class="h-1.5 w-1.5 rounded-full bg-success-soft"></span>
-                Reconnected
+            {#if wsConnectionState === 'reconnecting'}
+              <span class="inline-flex shrink-0 items-center text-[12px] text-warning">
+                Reconnecting...
               </span>
             {/if}
           {/if}

@@ -21,6 +21,7 @@ type Props = {
 	value: string;
 	disabled?: boolean;
 	streamError?: string;
+	placeholder?: string;
 	attachments?: ComposerImageAttachment[];
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
@@ -34,6 +35,7 @@ let {
 	value = $bindable(""),
 	disabled = false,
 	streamError = "",
+	placeholder = "Send a message...",
 	attachments = [],
 	currentModel = null,
 	promptTemplates = [],
@@ -259,7 +261,7 @@ $effect(() => {
 						bind:this={textareaEl}
 						bind:value
 						rows="1"
-						placeholder="Send a message..."
+						placeholder={placeholder}
 						class="block min-h-[44px] max-h-[168px] w-full resize-none bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
 						oninput={() => resizeTextarea()}
 						ondragover={handlePathDragOver}

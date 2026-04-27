@@ -31,12 +31,14 @@ export type WebsocketClientOptions = {
   WebSocketImpl?: WebSocketConstructor;
 };
 
-export type WebsocketClientState = "idle" | "connecting" | "open" | "closed";
+export type WebsocketClientState = "idle" | "connecting" | "reconnecting" | "open" | "closed";
 
 export type WebsocketClientEvents = {
+  connecting: { isReconnect: boolean; attempt: number };
+  reconnecting: { attempt: number; delayMs: number; reason?: string; code?: number };
   open: { connectionId?: string | null };
   close: { code: number; reason: string; willReconnect: boolean };
-  error: { error: unknown };
+  error: { error: unknown; recoverable: boolean };
   event: WebsocketEventPayload;
   ready: { connectionId: string };
   auth: { connectionId: string; user: Record<string, unknown> };
@@ -64,6 +66,8 @@ type EventMap = {
 };
 
 const createEventMap = (): EventMap => ({
+  connecting: new Set(),
+  reconnecting: new Set(),
   open: new Set(),
   close: new Set(),
   error: new Set(),
@@ -98,6 +102,15 @@ const normalizeOptions = (options: WebsocketClientOptions = {}) => ({
   pongTimeoutMs: options.pongTimeoutMs ?? 15000,
   debug: options.debug === true,
 });
+
+const formatCloseMessage = (code?: number, reason?: string) =>
+  `WebSocket closed: ${code ?? 0} ${reason || ""}`.trim();
+
+const isRetryableCloseCode = (code: number) => {
+  if (code === 1000) return false;
+  if (code === 4003) return false;
+  return true;
+};
 
 class WebsocketAuthError extends Error {
   constructor(message: string) {
@@ -182,8 +195,11 @@ export class WebsocketClient {
     if (this.connectPromise) return this.connectPromise;
     if (this.state === "open" && this.ws?.readyState === WebSocket.OPEN) return;
 
+    const isReconnect = this.reconnectAttempt > 0 || this.state === "reconnecting";
     this.manuallyClosed = false;
-    this.state = "connecting";
+    this.clearReconnectTimer();
+    this.state = isReconnect ? "reconnecting" : "connecting";
+    this.emit("connecting", { isReconnect, attempt: this.reconnectAttempt });
     this.connectPromise = new Promise<void>((resolve, reject) => {
       const ws = new this.WebSocketImpl(this.url);
       this.ws = ws;
@@ -205,7 +221,7 @@ export class WebsocketClient {
 
       ws.onopen = async () => {
         try {
-          this.log("connected", this.url);
+          this.log("connected", { url: this.url, isReconnect, attempt: this.reconnectAttempt });
           this.startPingLoop();
           await this.authenticate();
           this.state = "open";
@@ -215,6 +231,7 @@ export class WebsocketClient {
         } catch (error) {
           const authError =
             error instanceof Error ? error : new Error("authentication failed");
+          this.emit("error", { error: authError, recoverable: false });
           rejectOnce(authError);
           ws.close(4003, authError.message);
         }
@@ -225,32 +242,28 @@ export class WebsocketClient {
       };
 
       ws.onerror = (error) => {
-        this.emit("error", { error });
+        this.emit("error", { error, recoverable: !this.manuallyClosed });
       };
 
       ws.onclose = (event) => {
         this.stopPingLoop();
-        const wasConnecting = this.state === "connecting";
+        const wasConnecting = this.state === "connecting" || this.state === "reconnecting";
         this.state = "closed";
         this.ws = null;
-        this.rejectAuthWaiter(
-          new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()),
-        );
-        const willReconnect = !this.manuallyClosed && this.autoReconnect;
+        const closeError = new Error(formatCloseMessage(event.code, event.reason));
+        this.rejectAuthWaiter(closeError);
+        const willReconnect = !this.manuallyClosed && this.autoReconnect && isRetryableCloseCode(event.code);
+        this.log("closed", { code: event.code, reason: event.reason, willReconnect, wasConnecting });
         this.emit("close", {
           code: event.code,
           reason: event.reason,
           willReconnect,
         });
         if (wasConnecting) {
-          rejectOnce(new Error(`WebSocket closed: ${event.code} ${event.reason || ""}`.trim()));
-          if (event.code === 4001 && willReconnect) {
-            void this.scheduleReconnect();
-          }
-          return;
+          rejectOnce(closeError);
         }
         if (willReconnect) {
-          void this.scheduleReconnect();
+          void this.scheduleReconnect(event.code, event.reason);
         }
       };
     });
@@ -360,13 +373,13 @@ export class WebsocketClient {
     try {
       parsed = typeof raw === "string" ? JSON.parse(raw) : JSON.parse(String(raw));
     } catch {
-      this.emit("error", { error: new Error("invalid websocket payload") });
+      this.emit("error", { error: new Error("invalid websocket payload"), recoverable: true });
       return;
     }
 
     const result = realtimeEnvelopeSchema.safeParse(parsed);
     if (!result.success) {
-      this.emit("error", { error: new Error("invalid realtime envelope") });
+      this.emit("error", { error: new Error("invalid realtime envelope"), recoverable: true });
       return;
     }
 
@@ -472,7 +485,7 @@ export class WebsocketClient {
         this.pongDeadlineAt > 0 &&
         Date.now() > this.pongDeadlineAt
       ) {
-        this.emit("error", { error: new Error("websocket pong timeout") });
+        this.emit("error", { error: new Error("websocket pong timeout"), recoverable: true });
         this.ws.close(4002, "pong timeout");
         return;
       }
@@ -496,19 +509,31 @@ export class WebsocketClient {
     this.reconnectTimer = null;
   }
 
-  private async scheduleReconnect() {
+  private async scheduleReconnect(code?: number, reason?: string) {
     this.clearReconnectTimer();
+    const attempt = this.reconnectAttempt + 1;
     const delay = Math.min(
       this.reconnectBaseDelayMs * 2 ** this.reconnectAttempt,
       this.reconnectMaxDelayMs,
     );
-    this.reconnectAttempt += 1;
+    this.reconnectAttempt = attempt;
+    this.state = "reconnecting";
+    this.log("schedule reconnect", { attempt, delay, code, reason });
+    this.emit("reconnecting", {
+      attempt,
+      delayMs: delay,
+      code,
+      reason,
+    });
     await new Promise<void>((resolve) => {
-      this.reconnectTimer = setTimeout(() => resolve(), delay);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        resolve();
+      }, delay);
     });
     if (this.manuallyClosed) return;
     await this.connect().catch((error) => {
-      this.emit("error", { error });
+      this.emit("error", { error, recoverable: true });
     });
   }
 }

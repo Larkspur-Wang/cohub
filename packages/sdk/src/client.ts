@@ -50,6 +50,21 @@ export class CohubClient {
   onConnection(
     handler: (state: WebSocketConnectionState) => void,
   ): () => void {
+    const connectingCleanup = this.websocketClient.on("connecting", (payload) => {
+      handler({
+        state: payload.isReconnect ? "reconnecting" : "connecting",
+        willReconnect: payload.isReconnect,
+        attempt: payload.attempt,
+      });
+    });
+    const reconnectingCleanup = this.websocketClient.on("reconnecting", (payload) => {
+      handler({
+        state: "reconnecting",
+        willReconnect: true,
+        attempt: payload.attempt,
+        delayMs: payload.delayMs,
+      });
+    });
     const openCleanup = this.websocketClient.on("open", (payload) => {
       handler({
         state: "open",
@@ -63,10 +78,16 @@ export class CohubClient {
         willReconnect: payload.willReconnect,
       });
     });
-    const errorCleanup = this.websocketClient.on("error", () => {
-      handler({ state: "error", willReconnect: true });
+    const errorCleanup = this.websocketClient.on("error", (payload) => {
+      handler({
+        state: "error",
+        willReconnect: payload.recoverable,
+        recoverable: payload.recoverable,
+      });
     });
     return () => {
+      connectingCleanup();
+      reconnectingCleanup();
       openCleanup();
       closeCleanup();
       errorCleanup();
