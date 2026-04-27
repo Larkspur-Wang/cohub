@@ -70,7 +70,7 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 		ctx, cancel = context.WithCancel(ctx)
 	}
 
-	cmd := exec.Command("bash", "-lc", command)
+	cmd := exec.Command("bash", "-c", command)
 	cmd.Dir = cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if len(extraEnv) > 0 {
