@@ -151,7 +151,7 @@ const saveCheckpointHandler = async (job: Job) => {
       workspaceDir,
       checkpointId: checkpoint.id,
       targetDir: "/configs/platform",
-      whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub/models.json"],
+      whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub"],
       sourceLabel: "platform",
     });
   }
