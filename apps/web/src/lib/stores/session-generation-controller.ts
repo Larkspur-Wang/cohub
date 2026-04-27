@@ -30,8 +30,16 @@ export function applyRealtimeGenerationProgress(
 		anchorUserMessageId?: string | null;
 	},
 ) {
-	if (input.content.length === 0) return;
 	const current = sessionGenerationStore.get(sessionId);
+	if (input.content.length === 0) {
+		if (!input.anchorUserMessageId) return;
+		sessionGenerationStore.applyProgress(sessionId, {
+			contentBlocks: current?.contentBlocks ?? [],
+			anchorUserMessageId: input.anchorUserMessageId,
+			truncatedStart: current?.truncatedStart ?? false,
+		});
+		return;
+	}
 	const hadPreviousStreamingPreview = (current?.contentBlocks.length ?? 0) > 0;
 	const hasExistingStreamingState =
 		(current?.contentBlocks.length ?? 0) > 0 ||

@@ -3,10 +3,12 @@ type RecoveryCoordinatorOptions = {
 	reconcileSessionTail: (sessionId: string) => Promise<void>;
 	refreshSessionsList: () => Promise<void>;
 	onRecovered?: () => void;
+	onExhausted?: (sessionId: string) => void;
 };
 
 export class SessionRecoveryCoordinator {
 	private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+	private disposed = false;
 
 	constructor(private readonly options: RecoveryCoordinatorOptions) {}
 
@@ -17,22 +19,28 @@ export class SessionRecoveryCoordinator {
 	}
 
 	onTransportOpen() {
+		this.disposed = false;
 		this.clear();
 		this.options.onRecovered?.();
 	}
 
 	scheduleFallbackSync(sessionId: string, attempt = 0) {
 		this.clear();
+		if (this.disposed) return;
 		if (this.options.isTransportOpen()) return;
-		if (attempt >= 20) return;
+		if (attempt >= 20) {
+			this.options.onExhausted?.(sessionId);
+			return;
+		}
 		this.fallbackTimer = setTimeout(
 			() => {
 				this.fallbackTimer = null;
-				if (this.options.isTransportOpen()) return;
+				if (this.disposed || this.options.isTransportOpen()) return;
 				void this.options
 					.reconcileSessionTail(sessionId)
 					.catch(() => undefined)
 					.finally(() => {
+						if (this.disposed) return;
 						void this.options.refreshSessionsList().catch(() => undefined);
 						this.scheduleFallbackSync(sessionId, attempt + 1);
 					});
@@ -53,6 +61,7 @@ export class SessionRecoveryCoordinator {
 	}
 
 	dispose() {
+		this.disposed = true;
 		this.clear();
 	}
 }

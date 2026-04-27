@@ -112,6 +112,8 @@ const isRetryableCloseCode = (code: number) => {
   return true;
 };
 
+const AUTH_CLOSE_REASON = "authentication failed";
+
 class WebsocketAuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -133,6 +135,7 @@ export class WebsocketClient {
   private ws: WebSocketLike | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimerResolver: (() => void) | null = null;
   private reconnectAttempt = 0;
   private manuallyClosed = false;
   private connectPromise: Promise<void> | null = null;
@@ -233,7 +236,7 @@ export class WebsocketClient {
             error instanceof Error ? error : new Error("authentication failed");
           this.emit("error", { error: authError, recoverable: false });
           rejectOnce(authError);
-          ws.close(4003, authError.message);
+          ws.close(4003, AUTH_CLOSE_REASON);
         }
       };
 
@@ -504,9 +507,15 @@ export class WebsocketClient {
   }
 
   private clearReconnectTimer() {
-    if (!this.reconnectTimer) return;
-    clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.reconnectTimerResolver) {
+      const resolve = this.reconnectTimerResolver;
+      this.reconnectTimerResolver = null;
+      resolve();
+    }
   }
 
   private async scheduleReconnect(code?: number, reason?: string) {
@@ -526,8 +535,10 @@ export class WebsocketClient {
       reason,
     });
     await new Promise<void>((resolve) => {
+      this.reconnectTimerResolver = resolve;
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
+        this.reconnectTimerResolver = null;
         resolve();
       }, delay);
     });

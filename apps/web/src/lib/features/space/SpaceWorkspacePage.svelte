@@ -1979,6 +1979,12 @@ const recoveryCoordinator = new SessionRecoveryCoordinator({
 	onRecovered: () => {
 		wsCanRecover = false;
 	},
+	onExhausted: (sessionId) => {
+		console.warn("[SessionRecoveryCoordinator] Fallback sync exhausted", {
+			sessionId,
+			spaceId,
+		});
+	},
 });
 
 async function reconnectSync() {
@@ -2907,9 +2913,6 @@ onMount(() => {
 	void loadModelsCatalog();
 	void loadPromptTemplates();
 
-	const wsEventCleanup = sdk.space(spaceId).subscribe((event) => {
-		void handleWsEvent(event as ChannelEnvelope);
-	});
 	const wsConnectionCleanup = sdk.onConnection((state) => {
 		if (state.state === "open") {
 			recoveryCoordinator.onTransportOpen();
@@ -2967,28 +2970,6 @@ onMount(() => {
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	scheduleStatusRefresh();
 
-	void loadSpace()
-		.then(async () => {
-			void loadFileTree(true);
-
-			const initialSessionId = routeView === "session" ? routeSessionId : null;
-			if (initialSessionId) {
-				activeSessionId = initialSessionId;
-				pendingRestoreSessionId = initialSessionId;
-				suppressScrollSaveSessionIds.add(initialSessionId);
-				ensureSessionModelLoaded(initialSessionId);
-				void loadSessionState(initialSessionId).finally(() => {
-					bootstrapping = false;
-				});
-				return;
-			}
-
-			bootstrapping = false;
-		})
-		.catch(() => {
-			bootstrapping = false;
-		});
-
 	return () => {
 		offSessionListCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
@@ -2998,7 +2979,6 @@ onMount(() => {
 		if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
-		wsEventCleanup();
 		wsConnectionCleanup();
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
@@ -3007,6 +2987,58 @@ onMount(() => {
 		rightSidebarResizeCleanup?.();
 		inlineFilePanelResizeCleanup?.();
 	};
+});
+
+// React to space changes: reset state and reload data
+$effect(() => {
+	const currentSpaceId = spaceId;
+	if (!pageMounted || !currentSpaceId) return;
+
+	// Reset space-specific state
+	space = null;
+	spaceLoadError = "";
+	spaceSessions = [];
+	sessionStateById = {};
+	activeSessionId = null;
+	fileTree = [];
+	fileTreeLoading = false;
+	fileTreeError = null;
+	openFile = null;
+	openFileDraft = "";
+	inlineFile = null;
+	checkpointDetail = null;
+	cronjobDetail = null;
+	taskRunDetail = null;
+	spaceAccess = null;
+	spaceMembers = [];
+	tokenUsage = null;
+	creatingSession = false;
+	createSessionError = "";
+
+	bootstrapping = true;
+
+	void loadSpace()
+		.then(async () => {
+			if (spaceId !== currentSpaceId) return;
+			void loadFileTree(true);
+			bootstrapping = false;
+		})
+		.catch(() => {
+			if (spaceId !== currentSpaceId) return;
+			bootstrapping = false;
+		});
+});
+
+// React to space changes: subscribe to WS events for the new space
+$effect(() => {
+	const currentSpaceId = spaceId;
+	if (!pageMounted || !currentSpaceId) return;
+
+	const wsEventCleanup = sdk.space(currentSpaceId).subscribe((event) => {
+		void handleWsEvent(event as ChannelEnvelope);
+	});
+
+	return wsEventCleanup;
 });
 
 $effect(() => {
