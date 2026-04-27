@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
@@ -100,6 +100,22 @@ export async function publishConfigFromWorkspace(input: {
   await mkdir(join(tmpDir, ".cohub"), { recursive: true, mode: 0o775 });
   await writeFile(join(tmpDir, ".cohub", "config-meta.json"), JSON.stringify(meta, null, 2));
 
+  // Recursively chmod everything under a directory to ensure it can be deleted.
+  // This handles cases where files were created with restrictive permissions
+  // (e.g. different UID in init containers, read-only files, etc.).
+  const forceChmod = async (dir: string): Promise<void> => {
+    await chmod(dir, 0o755).catch(() => undefined);
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await forceChmod(fullPath);
+      } else {
+        await chmod(fullPath, 0o644).catch(() => undefined);
+      }
+    }
+  };
+
   const hadExistingTarget = await pathExists(input.targetDir);
   try {
     if (hadExistingTarget) {
@@ -107,11 +123,13 @@ export async function publishConfigFromWorkspace(input: {
     }
     await rename(tmpDir, input.targetDir);
     if (hadExistingTarget) {
+      await forceChmod(backupDir);
       await rm(backupDir, { recursive: true, force: true });
     }
   } catch (error) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
     if (hadExistingTarget && (await pathExists(backupDir)) && !(await pathExists(input.targetDir))) {
+      await forceChmod(backupDir).catch(() => undefined);
       await rename(backupDir, input.targetDir).catch(() => undefined);
     }
     throw error;
