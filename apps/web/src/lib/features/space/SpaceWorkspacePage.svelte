@@ -1718,7 +1718,31 @@ async function loadSessionState(sessionId: string, force = false) {
 	if (loadingSessionIds[sessionId] && !force) return;
 	if (existing?.loaded && !force) return;
 
+	// Mark loading immediately to prevent concurrent calls during async ops
+	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
+	sessionStateById = {
+		...sessionStateById,
+		[sessionId]: {
+			session:
+				existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
+			messages: existing?.messages ?? [],
+			loading: true,
+			loaded: existing?.loaded ?? false,
+			error: existing?.error ?? "",
+			hasMore: existing?.hasMore ?? true,
+			loadingOlder: false,
+			oldestCursor: existing?.oldestCursor,
+		},
+	};
+
 	const cached = await messageCache.get(sessionId);
+	// Check again after await — another call may have completed while we waited
+	const refreshed = sessionStateById[sessionId];
+	if (refreshed?.loaded && !force) {
+		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
+		return;
+	}
+
 	const anchor = scrollAnchorBySession.get(sessionId);
 	const canBootstrapFromCache = Boolean(
 		!force &&
@@ -1733,7 +1757,7 @@ async function loadSessionState(sessionId: string, force = false) {
 			...sessionStateById,
 			[sessionId]: {
 				session:
-					existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
+					refreshed?.session ?? spaceSessions.find((s) => s.id === sessionId),
 				messages: cached.messages,
 				loading: false,
 				loaded: true,
@@ -1743,12 +1767,13 @@ async function loadSessionState(sessionId: string, force = false) {
 				oldestCursor: cached.oldestSeq != null ? cached.oldestSeq : undefined,
 			},
 		};
+		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		void syncSessionNewer(sessionId, cached);
 		return;
 	}
 
 	const sessionObj =
-		existing?.session ?? spaceSessions.find((s) => s.id === sessionId);
+		refreshed?.session ?? spaceSessions.find((s) => s.id === sessionId);
 	// New session with no messages — skip the unnecessary listPaginated call
 	if (sessionObj && !sessionObj.lastMessageId) {
 		sessionStateById = {
@@ -1764,23 +1789,9 @@ async function loadSessionState(sessionId: string, force = false) {
 				oldestCursor: undefined,
 			},
 		};
+		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		return;
 	}
-
-	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
-	sessionStateById = {
-		...sessionStateById,
-		[sessionId]: {
-			session: sessionObj,
-			messages: existing?.messages ?? [],
-			loading: true,
-			loaded: existing?.loaded ?? false,
-			error: existing?.error ?? "",
-			hasMore: existing?.hasMore ?? true,
-			loadingOlder: false,
-			oldestCursor: existing?.oldestCursor,
-		},
-	};
 
 	try {
 		const response = await sdk
