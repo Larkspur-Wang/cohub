@@ -76,21 +76,33 @@ router.delete("/:id", async (c) => {
   const channelId = c.req.param("id");
   if (!requireValidId(channelId)) return c.json({ message: "channel not found" }, 404);
 
-  const [channel] = await db
-    .select()
-    .from(userChannels)
-    .where(and(eq(userChannels.id, channelId), eq(userChannels.userUuid, user.uuid)))
-    .limit(1);
-  if (!channel) return c.json({ message: "channel not found" }, 404);
+  // Use a transaction with FOR UPDATE to prevent TOCTOU race:
+  // without it, a concurrent space channel binding could leave orphaned spaceChannels rows.
+  await db.transaction(async (tx) => {
+    const [channel] = await tx
+      .select()
+      .from(userChannels)
+      .where(and(eq(userChannels.id, channelId), eq(userChannels.userUuid, user.uuid)))
+      .limit(1)
+      .for("update");
+    if (!channel) {
+      tx.rollback();
+      return;
+    }
 
-  const bound = await db
-    .select({ id: spaceChannels.id })
-    .from(spaceChannels)
-    .where(eq(spaceChannels.channelId, channelId))
-    .limit(1);
-  if (bound.length > 0) return c.json({ message: "channel is still bound to a space" }, 409);
+    const bound = await tx
+      .select({ id: spaceChannels.id })
+      .from(spaceChannels)
+      .where(eq(spaceChannels.channelId, channelId))
+      .limit(1);
+    if (bound.length > 0) {
+      tx.rollback();
+      return;
+    }
 
-  await db.delete(userChannels).where(eq(userChannels.id, channelId));
+    await tx.delete(userChannels).where(eq(userChannels.id, channelId));
+  });
+
   return c.json({ ok: true });
 });
 

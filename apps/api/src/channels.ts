@@ -58,25 +58,40 @@ export async function bindSpaceChannelsToGateway(spaceId: string) {
   const userChannelMap = new Map(userChannelRows.map((uc) => [uc.id, uc]));
 
   for (const channel of channels) {
-    const userChannel = userChannelMap.get(channel.channelId);
-    if (!userChannel || userChannel.status !== "active") continue;
-
-    const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", channel.id);
-    if (existingNodeId) {
-      const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
-      const nodeLastHeartbeat = typeof nodeLastHeartbeatStr === "string" ? Number.parseFloat(nodeLastHeartbeatStr) : null;
-      if (nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < GATEWAY_NODE_TTL_MS) continue;
-    }
-
-    const nodeId = await pickGatewayNode();
-    await syncSpaceChannelConfigCache({ spaceChannelId: channel.id, config: (channel.config as ChannelConfig | Record<string, unknown> | null) ?? null });
-    await redisCommandClient.hset(`gateway:node:${nodeId}:channels`, channel.id, JSON.stringify({
-      channelId: channel.id,
-      provider: userChannel.provider,
-      credentials: userChannel.credentials,
-    }));
-    await redisCommandClient.hset("gateway:channel_routing", channel.id, nodeId);
+    await bindSingleChannelToGateway(channel, userChannelMap.get(channel.channelId));
   }
+}
+
+async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$inferSelect, userChannel: typeof userChannels.$inferSelect | undefined) {
+  if (!userChannel || userChannel.status !== "active") return;
+
+  const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", spaceChannel.id);
+  if (existingNodeId) {
+    const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
+    const nodeLastHeartbeat = typeof nodeLastHeartbeatStr === "string" ? Number.parseFloat(nodeLastHeartbeatStr) : null;
+    if (nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < GATEWAY_NODE_TTL_MS) return;
+  }
+
+  const nodeId = await pickGatewayNode();
+  await syncSpaceChannelConfigCache({ spaceChannelId: spaceChannel.id, config: (spaceChannel.config as ChannelConfig | Record<string, unknown> | null) ?? null });
+  await redisCommandClient.hset(`gateway:node:${nodeId}:channels`, spaceChannel.id, JSON.stringify({
+    channelId: spaceChannel.id,
+    provider: userChannel.provider,
+    credentials: userChannel.credentials,
+  }));
+  await redisCommandClient.hset("gateway:channel_routing", spaceChannel.id, nodeId);
+}
+
+export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {
+  const nodeId = await redisCommandClient.hget("gateway:channel_routing", spaceChannelId);
+  if (!nodeId) return;
+
+  // Remove from gateway node's channel list
+  await redisCommandClient.hdel(`gateway:node:${nodeId}:channels`, spaceChannelId);
+  // Remove from global routing table
+  await redisCommandClient.hdel("gateway:channel_routing", spaceChannelId);
+  // Clear config cache
+  await redisCommandClient.del(getSpaceChannelConfigKey(spaceChannelId));
 }
 
 export async function dispatchOutboundMessage(input: {

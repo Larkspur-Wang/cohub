@@ -19,7 +19,7 @@ import {
   normalizeSpaceEnv,
   validateSpaceEnv,
 } from "../../space-sessions.js";
-import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId } from "../../channels.js";
+import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { enqueueTask } from "../../tasks.js";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
@@ -237,6 +237,8 @@ router.post("/", async (c) => {
         }),
       ),
     );
+    // Push channel config to gateway so it starts long-polling
+    void bindSpaceChannelsToGateway(space.id).catch(console.error);
   }
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
@@ -634,6 +636,62 @@ router.get("/:id/channels", async (c) => {
       channel: userChannelById.get(channel.channelId) ?? null,
     })),
   );
+});
+
+// ── POST /api/spaces/:id/channels/:channelId — bind a channel at runtime ─────────────────
+
+router.post("/:id/channels/:channelId", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  if (!requireValidId(spaceId) || !requireValidId(channelId)) {
+    return c.json({ message: "space or channel not found" }, 404);
+  }
+  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  // Verify ownership: the channel must belong to the same user
+  const [userChannel] = await db.select().from(userChannels).where(and(eq(userChannels.id, channelId), eq(userChannels.userUuid, user.uuid))).limit(1);
+  if (!userChannel) return c.json({ message: "channel not found or not owned by you" }, 404);
+
+  // Check if already bound to any space
+  const [existingBinding] = await db.select({ id: spaceChannels.id }).from(spaceChannels).where(eq(spaceChannels.channelId, channelId)).limit(1);
+  if (existingBinding) return c.json({ message: "channel is already bound to another space" }, 409);
+
+  const body = (await c.req.json<{ config?: Record<string, unknown> | null }>().catch(() => ({}))) as { config?: Record<string, unknown> | null };
+
+  const [spaceChannel] = await db.insert(spaceChannels).values({
+    spaceId,
+    channelId,
+    config: body.config ?? null,
+  }).returning();
+
+  if (!spaceChannel) return c.json({ message: "failed to bind channel" }, 500);
+
+  // Push to gateway so it starts listening (bindSingleChannelToGateway handles config cache internally)
+  void bindSpaceChannelsToGateway(spaceId).catch(console.error);
+
+  return c.json(spaceChannel, 201);
+});
+
+// ── DELETE /api/spaces/:id/channels/:channelId — unbind a channel at runtime ─────────────
+
+router.delete("/:id/channels/:channelId", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  if (!requireValidId(spaceId) || !requireValidId(channelId)) {
+    return c.json({ message: "space or channel not found" }, 404);
+  }
+  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  const [spaceChannel] = await db.select().from(spaceChannels).where(and(eq(spaceChannels.spaceId, spaceId), eq(spaceChannels.channelId, channelId))).limit(1);
+  if (!spaceChannel) return c.json({ message: "channel not bound to this space" }, 404);
+
+  await db.delete(spaceChannels).where(eq(spaceChannels.id, spaceChannel.id));
+  // Remove from gateway routing
+  void unbindSpaceChannelFromGateway(spaceChannel.id).catch(console.error);
+
+  return c.json({ ok: true });
 });
 
 export default router;
