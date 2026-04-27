@@ -2,7 +2,7 @@ import process from "node:process";
 
 // -- Table rendering ---------------------------------------------------------
 
-type Row = Record<string, unknown>;
+export type Row = Record<string, unknown>;
 
 function colWidth(rows: Row[], key: string, label: string): number {
   const maxVal = rows.reduce((m, r) => {

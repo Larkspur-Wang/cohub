@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
-import { table, json as outJson, error, handleHttp } from "../output.js";
+import { table, json as outJson, error, handleHttp, type Row } from "../output.js";
 
 export function registerModels(program: Command): void {
   const cmd = program.command("models").description("Model management");
@@ -24,7 +24,7 @@ export function registerModels(program: Command): void {
         for (const [provider, entries] of Object.entries(catalog)) {
           console.log(`\n  ${provider}`);
           console.log("  " + "─".repeat(provider.length));
-          table(entries, [
+          table(entries as Row[], [
             { key: "id", label: "ID" },
             { key: "provider", label: "Provider" },
           ]);

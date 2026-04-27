@@ -389,7 +389,7 @@ function registerSessions(spacesCmd: Command): void {
 
       process.stdout.write("  Listening for events...\n\n");
 
-      session.on("turn.progress", (e) => {
+      session.on("turn.progress", (e: { payload?: Record<string, unknown> }) => {
         if (opts.json) {
           console.log(JSON.stringify(e));
         } else {
@@ -404,7 +404,7 @@ function registerSessions(spacesCmd: Command): void {
         process.exit(0);
       });
 
-      session.on("turn.error", (e) => {
+      session.on("turn.error", (e: unknown) => {
         process.stderr.write(`\n  ✗ Error\n`);
         if (opts.json) process.stderr.write(JSON.stringify(e) + "\n");
         process.exit(1);
