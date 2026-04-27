@@ -60,6 +60,12 @@ export default defineConfig({
 			},
 		],
 	},
+	server: {
+		sourcemap: {
+			js: true,
+			css: true,
+		},
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit(),

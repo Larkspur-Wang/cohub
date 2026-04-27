@@ -438,6 +438,7 @@ let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
 let reconnectSyncInFlight: Promise<void> | null = null;
+let lastRecoveredConnectionId: string | null = null;
 let lastConnectionState:
 	| "idle"
 	| "connecting"
@@ -2935,7 +2936,15 @@ onMount(() => {
 			recoveryCoordinator.onTransportOpen();
 			wsConnectionState = "open";
 			wsCanRecover = false;
-			if (previousState !== "open") {
+			const connectionId = state.connectionId ?? null;
+			const recoveredFromDisconnect =
+				previousState === "reconnecting" ||
+				previousState === "closed" ||
+				previousState === "error";
+			const isNewRecoveredConnection =
+				Boolean(connectionId) && connectionId !== lastRecoveredConnectionId;
+			if (recoveredFromDisconnect || isNewRecoveredConnection) {
+				lastRecoveredConnectionId = connectionId;
 				void reconnectSync();
 			}
 			return;
