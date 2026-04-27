@@ -99,8 +99,7 @@ func resolveSandboxPath(cfg env.Config, rawPath string, cwd string) (resolvedSan
 func isReadOnlyPath(cfg env.Config, path string) bool {
 	roots := []string{
 		filepath.Clean(cfg.PlatformAgentsDir),
-		filepath.Clean(cfg.PlatformAgentDir),
-		filepath.Clean(cfg.UserConfigDir),
+		filepath.Clean(cfg.UserAgentsDir),
 	}
 	candidate := filepath.Clean(path)
 	for _, root := range roots {

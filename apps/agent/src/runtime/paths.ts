@@ -21,11 +21,11 @@ function assertValidUserId(userId: string) {
 
 export const SANDBOX_WORKSPACE_PATH = "/workspace";
 export const SANDBOX_PLATFORM_CONFIG_PATH = "/configs/platform";
-export const SANDBOX_PLATFORM_AGENT_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.pi/agent`;
+export const SANDBOX_PLATFORM_AGENT_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.cohub`;
 export const SANDBOX_PLATFORM_AGENTS_PATH = `${SANDBOX_PLATFORM_CONFIG_PATH}/.agents`;
 export const SANDBOX_PLATFORM_SKILLS_PATH = `${SANDBOX_PLATFORM_AGENTS_PATH}/skills`;
 export const SANDBOX_USER_CONFIG_PATH = "/configs/user";
-export const SANDBOX_USER_AGENT_PATH = `${SANDBOX_USER_CONFIG_PATH}/.pi/agent`;
+export const SANDBOX_USER_AGENT_PATH = `${SANDBOX_USER_CONFIG_PATH}/.cohub`;
 export const SANDBOX_USER_AGENTS_PATH = `${SANDBOX_USER_CONFIG_PATH}/.agents`;
 export const SANDBOX_USER_SKILLS_PATH = `${SANDBOX_USER_AGENTS_PATH}/skills`;
 export const SANDBOX_WORKSPACE_AGENTS_PATH = `${SANDBOX_WORKSPACE_PATH}/.agents`;
@@ -36,7 +36,7 @@ export function getAgentPlatformConfigPath() {
 }
 
 export function getAgentPlatformAgentPath() {
-  return join(getAgentPlatformConfigPath(), ".pi", "agent");
+  return join(getAgentPlatformConfigPath(), ".cohub");
 }
 
 export function getAgentPlatformAgentsPath() {
@@ -60,7 +60,7 @@ export function getAgentUserConfigPath(userId: string) {
 }
 
 export function getAgentUserAgentPath(userId: string) {
-  return join(getAgentUserConfigPath(userId), ".pi", "agent");
+  return join(getAgentUserConfigPath(userId), ".cohub");
 }
 
 export function getAgentUserAgentsPath(userId: string) {

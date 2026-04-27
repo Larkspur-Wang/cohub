@@ -6,7 +6,7 @@ import { redisCommandClient } from "../redis.js";
 
 const MODELS_REDIS_KEY = "configs:models";
 const MODELS_CACHE_TTL_SEC = 30 * 60;
-const MODELS_PATH = join(config.platformConfigRoot, "platform", ".pi", "agent", "models.json");
+const MODELS_PATH = join(config.platformConfigRoot, "platform", ".cohub", "models.json");
 
 type ModelCatalogEntry = {
   provider: string;

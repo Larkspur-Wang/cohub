@@ -23,9 +23,8 @@ const (
 type Config struct {
 	SpaceID                        string
 	WorkspaceDir                   string
-	PlatformAgentsDir              string
-	PlatformAgentDir               string
-	UserConfigDir                  string
+	PlatformAgentsDir string
+	UserAgentsDir     string
 	ImageVersion                   string
 	InternalAPIBaseURL             string
 	SandboxReportToken             string
@@ -53,17 +52,11 @@ func Load() (Config, error) {
 	}
 	platformAgentsDir = filepath.Clean(platformAgentsDir)
 
-	platformAgentDir := strings.TrimSpace(os.Getenv("PLATFORM_AGENT_DIR"))
-	if platformAgentDir == "" {
-		platformAgentDir = "/configs/platform/.pi/agent"
+	userAgentsDir := strings.TrimSpace(os.Getenv("USER_AGENTS_DIR"))
+	if userAgentsDir == "" {
+		userAgentsDir = "/configs/user/.agents"
 	}
-	platformAgentDir = filepath.Clean(platformAgentDir)
-
-	userConfigDir := strings.TrimSpace(os.Getenv("USER_CONFIG_DIR"))
-	if userConfigDir == "" {
-		userConfigDir = "/configs/user"
-	}
-	userConfigDir = filepath.Clean(userConfigDir)
+	userAgentsDir = filepath.Clean(userAgentsDir)
 
 	imageVersion := strings.TrimSpace(os.Getenv("IMAGE_VERSION"))
 	if imageVersion == "" {
@@ -73,9 +66,8 @@ func Load() (Config, error) {
 	return Config{
 		SpaceID:                        spaceID,
 		WorkspaceDir:                   workspaceDir,
-		PlatformAgentsDir:              platformAgentsDir,
-		PlatformAgentDir:               platformAgentDir,
-		UserConfigDir:                  userConfigDir,
+		PlatformAgentsDir: platformAgentsDir,
+		UserAgentsDir:     userAgentsDir,
 		ImageVersion:                   imageVersion,
 		InternalAPIBaseURL:             strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
 		SandboxReportToken:             strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
@@ -104,9 +96,8 @@ func parseIntEnv(name string, defaultValue int) int {
 func (c Config) FilesystemRoots() []FilesystemRoot {
 	return []FilesystemRoot{
 		{Path: c.WorkspaceDir, Writable: true, Label: "cwd"},
-		{Path: c.PlatformAgentsDir, Writable: false, Label: "platform-skills"},
-		{Path: c.PlatformAgentDir, Writable: false, Label: "platform-agent"},
-		{Path: c.UserConfigDir, Writable: false, Label: "user-config"},
+		{Path: c.PlatformAgentsDir, Writable: false, Label: "platform-agents"},
+		{Path: c.UserAgentsDir, Writable: false, Label: "user-agents"},
 		{Path: "/tmp", Writable: true, Label: "tmp"},
 	}
 }

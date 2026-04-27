@@ -74,14 +74,8 @@ export const SANDBOX_POD_TEMPLATE = {
           },
           {
             name: "space-storage",
-            mountPath: "/configs/platform/.pi/agent",
-            subPath: `${config.env === "prod" ? "configs/prod" : "configs/dev"}/platform/.pi/agent`,
-            readOnly: true,
-          },
-          {
-            name: "space-storage",
-            mountPath: "/configs/user",
-            subPath: "${SPACE_STORAGE_SUBPATH}/configs/users/${OWNER_USER_ID}",
+            mountPath: "/configs/user/.agents",
+            subPath: "${SPACE_STORAGE_SUBPATH}/configs/users/${OWNER_USER_ID}/.agents",
             readOnly: true,
           },
           {

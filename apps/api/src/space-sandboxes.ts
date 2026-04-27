@@ -264,8 +264,7 @@ export const reconcileSpaceSandbox = async (input: {
       { name: "SPACE_ID", value: input.spaceId },
       { name: "WORKSPACE_DIR", value: "/workspace" },
       { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
-      { name: "PLATFORM_AGENT_DIR", value: "/configs/platform/.pi/agent" },
-      { name: "USER_CONFIG_DIR", value: "/configs/user" },
+      { name: "USER_AGENTS_DIR", value: "/configs/user/.agents" },
       { name: "IMAGE_VERSION", value: toSandboxImageVersion(config.sandboxImage) },
       { name: "POD_IP", valueFrom: { fieldRef: { fieldPath: "status.podIP" } } },
       {

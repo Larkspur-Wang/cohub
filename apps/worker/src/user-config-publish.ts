@@ -7,7 +7,7 @@ const USER_CONFIG_PUBLISH_WHITELIST = [
   "AGENTS.md",
   "CLAUDE.md",
   ".agents",
-  ".pi/agent/models.json",
+  ".cohub/models.json",
 ] as const;
 const USER_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_COPY_DEPTH = 16;
