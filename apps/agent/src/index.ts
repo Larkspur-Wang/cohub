@@ -49,8 +49,7 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 
-type NormalizedSandboxStatus = "provisioning" | "ready" | "error";
-type RuntimeSandboxStatus = "idle" | "ready" | "error";
+type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
 
 type CachedModelRegistry = {
   registry: CohubModelRegistry;
@@ -69,22 +68,36 @@ const sessionTurnCounters = new Map<string, number>();
 function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
     ? "ready"
-    : status === "error"
-      ? "error"
-      : "provisioning";
+    : status === "degraded"
+      ? "degraded"
+      : status === "error"
+        ? "error"
+        : "provisioning";
 }
 
-function toRuntimeSandboxStatus(status: NormalizedSandboxStatus): RuntimeSandboxStatus {
-  return status === "ready" ? "ready" : status === "error" ? "error" : "idle";
+function toRuntimeSandboxStatus(status: NormalizedSandboxStatus): "idle" | "ready" | "error" {
+  // "degraded" maps to "ready" because sandbox functions are usable;
+  // the setup failure detail is carried via the error field instead.
+  return status === "ready" || status === "degraded" ? "ready" : status === "error" ? "error" : "idle";
 }
 
 async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) {
   const normalized = normalizeSandboxStatus(message.status);
+  const setup = message.metadata?.setup;
+  if (normalized === "degraded" && setup) {
+    console.warn(`[Agent] sandbox degraded spaceId=${spaceId} setup exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
+  }
   await updateSpaceRuntime({
     spaceId,
     status: toRuntimeSandboxStatus(normalized),
     sandboxId: message.sandboxId,
-    error: normalized === "error" ? `sandbox heartbeat reported ${message.status}` : null,
+    error: normalized === "error"
+      ? `sandbox heartbeat reported ${message.status}`
+      : normalized === "degraded"
+        ? setup
+          ? `sandbox setup.sh failed (exitCode=${setup.exitCode}, error=${setup.error ?? "unknown"})`
+          : "sandbox setup.sh failed (no details)"
+        : null,
   }).catch(() => undefined);
 }
 

@@ -68,12 +68,22 @@ type SandboxHealthStats struct {
 	AttachedSessions   int `json:"attachedSessions,omitempty"`
 }
 
+type SandboxSetupInfo struct {
+	Ran      bool   `json:"ran"`
+	ExitCode int    `json:"exitCode"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	Duration string `json:"duration"`
+	Error    string `json:"error,omitempty"`
+}
+
 type SandboxMetadata struct {
 	Hostname     string               `json:"hostname,omitempty"`
 	ImageVersion string               `json:"imageVersion,omitempty"`
 	StartedAt    string               `json:"startedAt,omitempty"`
 	Process      *SandboxProcessStats `json:"process,omitempty"`
 	Health       *SandboxHealthStats  `json:"health,omitempty"`
+	Setup        *SandboxSetupInfo    `json:"setup,omitempty"`
 }
 
 type SandboxHeartbeat struct {

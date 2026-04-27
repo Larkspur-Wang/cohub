@@ -4,6 +4,7 @@ export const SANDBOX_STATUSES = [
   "connecting",
   "preparing",
   "ready",
+  "degraded",
   "busy",
   "error",
 ] as const;
@@ -94,7 +95,17 @@ export type SandboxHeartbeat = BaseMessage & {
     hostname?: string;
     imageVersion?: string;
     startedAt?: string;
+    setup?: SandboxSetupInfo;
   };
+};
+
+export type SandboxSetupInfo = {
+  ran: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  duration: string;
+  error?: string;
 };
 
 export type SessionAttach = BaseMessage & {

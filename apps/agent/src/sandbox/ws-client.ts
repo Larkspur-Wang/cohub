@@ -317,6 +317,18 @@ async function connectOnce(registration: SandboxClientRegistration) {
             return;
           }
           heartbeat = message;
+          const setup = message.metadata?.setup;
+          if (setup) {
+            if (setup.ran) {
+              if (setup.exitCode === 0 && !setup.error) {
+                console.log(`[SandboxWS] setup.sh completed ok spaceId=${registration.spaceId} duration=${setup.duration}`);
+              } else {
+                console.warn(`[SandboxWS] setup.sh failed spaceId=${registration.spaceId} exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
+              }
+            } else {
+              console.log(`[SandboxWS] setup.sh not found, skipped spaceId=${registration.spaceId}`);
+            }
+          }
           void registration.hooks?.onHeartbeat?.(message);
           if (!attachSent) {
             attachSent = true;
@@ -342,7 +354,14 @@ async function connectOnce(registration: SandboxClientRegistration) {
           attached = true;
           connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, socket, registration);
           setActiveConnection(registration.spaceId, connection);
-          console.log(`[SandboxWS] attached spaceId=${registration.spaceId} identity=${message.identity} connectionId=${message.connectionId.slice(0, 8)}`);
+          const setupSummary = heartbeat.metadata?.setup
+            ? heartbeat.metadata.setup.ran
+              ? heartbeat.metadata.setup.exitCode === 0 && !heartbeat.metadata.setup.error
+                ? `setup=ok(${heartbeat.metadata.setup.duration})`
+                : `setup=failed(exitCode=${heartbeat.metadata.setup.exitCode}, duration=${heartbeat.metadata.setup.duration})`
+              : "setup=skipped"
+            : "setup=unknown";
+          console.log(`[SandboxWS] attached spaceId=${registration.spaceId} identity=${message.identity} connectionId=${message.connectionId.slice(0, 8)} status=${heartbeat.status} ${setupSummary}`);
           return;
         }
 

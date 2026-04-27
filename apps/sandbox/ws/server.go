@@ -24,6 +24,7 @@ import (
 
 type prepareState interface {
 	Get() (status string, errMsg string)
+	GetSetup() *protocol.SandboxSetupInfo
 }
 
 type Server struct {
@@ -327,6 +328,7 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 	attachedSessions := s.attachedSessionCount()
 	processStats := s.processManager.Stats()
 	observedZombieCount, observedAt := s.getZombieProcessCount()
+	setupInfo := s.prepareState.GetSetup()
 	message := protocol.SandboxHeartbeat{
 		BaseMessage: protocol.BaseMessage{
 			Version:   protocol.Version,
@@ -354,6 +356,7 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 				ZombieProcessCount: observedZombieCount,
 				AttachedSessions:   attachedSessions,
 			},
+			Setup: setupInfo,
 		},
 	}
 	if includeSnapshot {
@@ -373,10 +376,13 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 			Notes: []string{
 				"sandbox paths follow host-like semantics; cwd defaults to /workspace",
 				"/configs/platform/.agents is mounted read-only for platform skills",
+				"/configs/user/.agents is mounted read-only for user skills and setup.sh",
+				"if /configs/user/.agents/setup.sh exists, sandbox runs it on startup",
 			},
 			Roots: []protocol.SandboxFilesystemRoot{
 				{Path: s.cfg.WorkspaceDir, Writable: true, Label: "cwd"},
 				{Path: s.cfg.PlatformAgentsDir, Writable: false, Label: "platform-skills"},
+				{Path: s.cfg.UserAgentsDir, Writable: false, Label: "user-agents"},
 				{Path: "/tmp", Writable: true, Label: "tmp"},
 			},
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/process"
+	"github.com/cohub/apps/sandbox/protocol"
 	"github.com/cohub/apps/sandbox/report"
 	"github.com/cohub/apps/sandbox/rpc"
 	"github.com/cohub/apps/sandbox/workspace"
@@ -16,8 +17,9 @@ import (
 
 type prepareState struct {
 	mu     sync.RWMutex
-	status string // "preparing" | "ready" | "error"
+	status string // "preparing" | "ready" | "degraded" | "error"
 	err    string
+	setup  *protocol.SandboxSetupInfo
 }
 
 func (s *prepareState) Set(status string, err error) {
@@ -31,10 +33,22 @@ func (s *prepareState) Set(status string, err error) {
 	}
 }
 
+func (s *prepareState) SetSetup(setup *protocol.SandboxSetupInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setup = setup
+}
+
 func (s *prepareState) Get() (string, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.status, s.err
+}
+
+func (s *prepareState) GetSetup() *protocol.SandboxSetupInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.setup
 }
 
 func main() {
@@ -70,7 +84,7 @@ func main() {
 
 	// Ensure workspace mount exists in background while WS server starts.
 	go func() {
-		summary, err := workspace.Prepare(cfg)
+		summary, err := workspace.Prepare(cfg, logger)
 		if err != nil {
 			logger.Error("workspace prepare failed", slog.String("error", err.Error()))
 			state.Set("error", err)
@@ -86,14 +100,35 @@ func main() {
 				logger.Warn("failed to report sandbox error", slog.String("error", reportErr.Error()))
 			}
 		} else {
+			// Persist setup result into state for heartbeat visibility.
+			// Both SetSetup and Set are called sequentially in the same goroutine;
+			// heartbeat reads use GetSetup/Get with RLock, so race risk is negligible.
+			if summary.Setup != nil {
+				si := &protocol.SandboxSetupInfo{
+					Ran:      summary.Setup.Ran,
+					ExitCode: summary.Setup.ExitCode,
+					Stdout:   summary.Setup.Stdout,
+					Stderr:   summary.Setup.Stderr,
+					Duration: summary.Setup.Duration,
+					Error:    summary.Setup.Error,
+				}
+				state.SetSetup(si)
+				if summary.Setup.ExitCode != 0 || summary.Setup.Error != "" {
+					state.Set("degraded", nil)
+				}
+			}
+
 			logger.Info("workspace mount ready",
 				slog.String("workspaceDir", summary.WorkspaceDir),
 				slog.String("platformAgentsDir", summary.PlatformAgentsDir),
 				slog.String("userAgentsDir", cfg.UserAgentsDir),
 			)
-			state.Set("ready", nil)
+			currentStatus, _ := state.Get()
+			if currentStatus == "preparing" {
+				state.Set("ready", nil)
+			}
 			if reportErr := reporter.Report(report.Payload{
-				Status: "ready",
+				Status: state.status,
 				Meta: map[string]interface{}{
 					"hostname":          hostname,
 					"imageVersion":      cfg.ImageVersion,
