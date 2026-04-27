@@ -979,14 +979,15 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 	return buildTimelineItems({
 		messages: activeRenderableMessages,
 		streaming:
-			activeGenerationState?.status === "streaming" &&
-			activeGenerationState.contentBlocks.length > 0
+			activeGenerationState?.status === "streaming" ||
+			activeGenerationState?.status === "pending"
 				? {
 						sessionId: activeSessionId ?? "active",
 						anchorUserMessageId:
 							activeGenerationState.anchorUserMessageId ?? null,
 						contentBlocks: activeGenerationState.contentBlocks,
 						truncatedStart: activeGenerationState.truncatedStart,
+						status: activeGenerationState.status,
 					}
 				: null,
 	});

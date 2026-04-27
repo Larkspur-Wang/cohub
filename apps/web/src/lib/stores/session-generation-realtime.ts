@@ -2,7 +2,6 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
 	applyRealtimeGenerationProgress,
-	completeGeneration,
 	failGeneration,
 } from "./session-generation-controller";
 
@@ -56,7 +55,6 @@ export function applyGenerationRealtimeEnvelope(
 	}
 
 	if (payload.type === "session.turn.final") {
-		completeGeneration(sessionId);
 		return {
 			handled: true,
 			shouldScroll: true,

@@ -365,6 +365,7 @@ export function buildTimelineItems(input: {
 		anchorUserMessageId?: string | null;
 		contentBlocks: ContentBlock[];
 		truncatedStart?: boolean;
+		status?: "pending" | "streaming";
 	} | null;
 }): TimelineItem[] {
 	const items: TimelineItem[] = input.messages
@@ -412,7 +413,9 @@ export function buildTimelineItems(input: {
 	}
 
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
-	if (streamingBlocks.length > 0) {
+	const showPendingPlaceholder =
+		input.streaming?.status === "pending" && streamingBlocks.length === 0;
+	if (streamingBlocks.length > 0 || showPendingPlaceholder) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
@@ -441,9 +444,13 @@ export function buildTimelineItems(input: {
 		const previewBlocks = buildStreamingPreviewBlocks(streamingBlocks, {
 			truncatedStart: input.streaming?.truncatedStart,
 		});
-		if (previewBlocks.length > 0) {
+		if (previewBlocks.length > 0 || showPendingPlaceholder) {
+			const effectiveBlocks =
+				previewBlocks.length > 0
+					? previewBlocks
+					: ([{ type: "thinking", thinking: "Thinking…" }] as ContentBlock[]);
 			const previewText =
-				previewBlocks.find((block) => block.type === "text")?.text?.trim() ??
+				effectiveBlocks.find((block) => block.type === "text")?.text?.trim() ??
 				"";
 			groupedHistory.push({
 				id: renderKey,
@@ -451,7 +458,7 @@ export function buildTimelineItems(input: {
 				message: {
 					id: renderKey,
 					role: "assistant",
-					content: previewBlocks,
+					content: effectiveBlocks,
 					text: previewText,
 					sequence: (input.messages.at(-1)?.sequence ?? 0) + 1,
 					createdAt: new Date().toISOString(),
