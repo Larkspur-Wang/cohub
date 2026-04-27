@@ -49,6 +49,22 @@ export type SpaceFsWriteFileInput = {
   encoding: SpaceFsEncoding;
 };
 export type SpaceFsMoveInput = { fromPath: string; toPath: string };
+export type SpaceFsUploadEntry = {
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  mtimeMs: number;
+};
+export type SpaceFsUploadError = {
+  name: string;
+  code: "file_too_large" | "name_invalid" | "write_failed";
+  message: string;
+};
+export type SpaceFsUploadResponse = {
+  uploaded: SpaceFsUploadEntry[];
+  errors: SpaceFsUploadError[];
+};
 
 export type SessionBindingRecord = ProtocolSessionBindingRecord;
 

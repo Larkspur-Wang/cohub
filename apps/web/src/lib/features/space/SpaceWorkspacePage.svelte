@@ -56,6 +56,7 @@ import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
@@ -289,6 +290,21 @@ let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let inlineFilePanelWidth = $state(480);
 let inlineFilePanelResizeCleanup: (() => void) | null = null;
+
+// ─── File upload ───
+let uploadPaneVisible = $state(false);
+let uploadPaneTargetDir = $state("");
+let pendingUploadFiles = $state<File[]>([]);
+
+function handleUploadFiles(files: File[], targetDir: string) {
+	uploadPaneTargetDir = targetDir;
+	pendingUploadFiles = files;
+	uploadPaneVisible = true;
+}
+
+async function handleUploadComplete() {
+	await refreshFileTree();
+}
 
 const openFilePanHandlers = makeImagePanHandlers(
 	() => openFileZoom,
@@ -4895,7 +4911,16 @@ $effect(() => {
           onCreateDir={handleCreateDir}
           onRename={handleRenameNode}
           onDelete={handleDeleteNode}
+          onUpload={handleUploadFiles}
           canWrite={true}
+        />
+        <FileUploadPane
+          {spaceId}
+          targetDir={uploadPaneTargetDir}
+          files={pendingUploadFiles}
+          open={uploadPaneVisible}
+          onClose={() => { uploadPaneVisible = false; }}
+          onComplete={handleUploadComplete}
         />
         <button
           type="button"
@@ -4926,7 +4951,16 @@ $effect(() => {
         onCreateDir={handleCreateDir}
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
+        onUpload={handleUploadFiles}
         canWrite={true}
+      />
+      <FileUploadPane
+        {spaceId}
+        targetDir={uploadPaneTargetDir}
+        files={pendingUploadFiles}
+        open={uploadPaneVisible}
+        onClose={() => { uploadPaneVisible = false; }}
+        onComplete={handleUploadComplete}
       />
     {/if}
   </MobileRightDrawer>

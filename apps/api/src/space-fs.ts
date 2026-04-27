@@ -8,11 +8,14 @@ import type {
   SpaceFsFileResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
+  SpaceFsUploadResponse,
   SpaceFsWriteFileInput,
 } from "@neta-art/cohub-protocol/fs";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_DIR_ENTRIES = 1000;
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+const MAX_UPLOAD_COUNT = 20;
 
 export class SpaceFsError extends Error {
   constructor(
@@ -282,6 +285,61 @@ export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
   await mkdir(dirname(to.target), { recursive: true });
   await rename(from.target, to.target);
   return { fromPath: from.relativePath, toPath: to.relativePath };
+}
+
+function sanitizeFileName(name: string): string | null {
+  const cleaned = name
+    .replace(/[<>:"/\\|?*]/g, "")
+    .split("")
+    .filter((c) => c.charCodeAt(0) > 0x1f)
+    .join("")
+    .replace(/^\.+/, "")
+    .trim()
+    .slice(0, 255);
+  return cleaned || null;
+}
+
+export async function uploadSpaceFiles(
+  spaceId: string,
+  files: File[],
+  targetDir: string,
+): Promise<SpaceFsUploadResponse> {
+  const { workspaceDir } = await ensureSpaceWorkspaceReady(spaceId);
+  const dir = targetDir ? resolve(workspaceDir, targetDir) : workspaceDir;
+  assertInsideRoot(dir, workspaceDir);
+  await mkdir(dir, { recursive: true });
+
+  const uploaded: SpaceFsUploadResponse["uploaded"] = [];
+  const errors: SpaceFsUploadResponse["errors"] = [];
+
+  for (const file of files.slice(0, MAX_UPLOAD_COUNT)) {
+    const safeName = sanitizeFileName(file.name);
+    if (!safeName) {
+      errors.push({ name: file.name, code: "name_invalid", message: "Invalid file name." });
+      continue;
+    }
+    if (file.size > MAX_UPLOAD_SIZE) {
+      errors.push({ name: safeName, code: "file_too_large", message: "File exceeds 50MB limit." });
+      continue;
+    }
+    const targetPath = join(dir, safeName);
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      await writeFile(targetPath, buffer);
+      const stats = await stat(targetPath);
+      uploaded.push({
+        path: targetDir ? `${targetDir}/${safeName}` : safeName,
+        name: safeName,
+        size: stats.size,
+        mimeType: getMimeType(safeName),
+        mtimeMs: stats.mtimeMs,
+      });
+    } catch {
+      errors.push({ name: safeName, code: "write_failed", message: "Failed to write file." });
+    }
+  }
+
+  return { uploaded, errors };
 }
 
 export function spaceFsJsonError(error: unknown) {

@@ -1,5 +1,13 @@
 <script lang="ts">
-import { AlertCircle, FolderPlus, Lock, Plus, RefreshCw } from "lucide-svelte";
+import {
+	AlertCircle,
+	FolderPlus,
+	Lock,
+	Plus,
+	RefreshCw,
+	Upload,
+} from "lucide-svelte";
+import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 
@@ -15,6 +23,7 @@ const {
 	onCreateDir,
 	onRename,
 	onDelete,
+	onUpload,
 	canWrite = true,
 }: {
 	nodes: SpaceFsNode[];
@@ -28,6 +37,7 @@ const {
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
+	onUpload?: (files: File[], targetDir: string) => void;
 	canWrite?: boolean;
 } = $props();
 
@@ -38,15 +48,32 @@ function handleCreateFileAtRoot() {
 function handleCreateDirAtRoot() {
 	onCreateDir("");
 }
+
+function handleUploadClick() {
+	const input = document.createElement("input");
+	input.type = "file";
+	input.multiple = true;
+	input.onchange = () => {
+		if (input.files?.length && onUpload) {
+			onUpload(Array.from(input.files), "");
+		}
+	};
+	input.click();
+}
 </script>
 
-<div class="flex h-full flex-col bg-bg-primary min-w-0">
+<div class="flex h-full flex-col bg-bg-primary min-w-0 relative">
   <div class="flex items-center gap-1 border-b border-border-subtle px-3 py-2 shrink-0">
     <div class="min-w-0 flex-1">
       <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Files</div>
       <div class="text-[12px] text-text-secondary">Space files</div>
     </div>
     {#if canWrite}
+      {#if onUpload}
+        <button class="icon-btn" type="button" title="Upload files" onclick={handleUploadClick}>
+          <Upload class="w-3.5 h-3.5" />
+        </button>
+      {/if}
       <button class="icon-btn" type="button" title="New file" onclick={handleCreateFileAtRoot}>
         <Plus class="w-3.5 h-3.5" />
       </button>
@@ -85,6 +112,7 @@ function handleCreateDirAtRoot() {
           {onCreateDir}
           {onRename}
           {onDelete}
+          {onUpload}
           {canWrite}
         />
       {/each}

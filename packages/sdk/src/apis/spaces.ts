@@ -16,6 +16,7 @@ import type {
   SpaceFsFileResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
+  SpaceFsUploadResponse,
   SpaceUsageResponse,
   SpaceFsWriteFileInput,
   SpaceMember,
@@ -164,6 +165,21 @@ export class SpaceFilesApi {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
+      },
+    );
+  }
+
+  upload(files: File[], dir = "") {
+    const params = new URLSearchParams();
+    if (dir) params.set("dir", dir);
+    const query = params.toString();
+    const formData = new FormData();
+    for (const file of files) formData.append("files", file);
+    return this.transport.request<SpaceFsUploadResponse>(
+      `/api/spaces/${this.spaceId}/fs/upload${query ? `?${query}` : ""}`,
+      {
+        method: "POST",
+        body: formData,
       },
     );
   }

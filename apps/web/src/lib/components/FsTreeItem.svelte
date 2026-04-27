@@ -1,12 +1,13 @@
 <script lang="ts">
 import {
-	File,
+	File as FileIcon,
 	Folder,
 	FolderOpen,
 	FolderPlus,
 	Pencil,
 	Plus,
 	Trash2,
+	Upload,
 } from "lucide-svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -21,6 +22,7 @@ const {
 	onCreateDir,
 	onRename,
 	onDelete,
+	onUpload,
 	canWrite = true,
 }: {
 	node: SpaceFsNode;
@@ -32,11 +34,14 @@ const {
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
+	onUpload?: (files: File[], targetDir: string) => void;
 	canWrite?: boolean;
 } = $props();
 
 const indent = $derived(10 + depth * 14);
 const isActive = $derived(selectedPath === node.path);
+const isDir = $derived(node.type === "dir");
+let isDragOver = $state(false);
 
 function handleClick() {
 	if (node.type === "dir") {
@@ -59,11 +64,58 @@ function stop(handler: () => void) {
 		handler();
 	};
 }
+
+function handleDragOver(e: DragEvent) {
+	if (!isDir || !onUpload) return;
+	e.preventDefault();
+	e.stopPropagation();
+	if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+	isDragOver = true;
+}
+
+function handleDragLeave(e: DragEvent) {
+	if (!isDir) return;
+	// Only reset if we actually left the element (not entered a child)
+	const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+	const x = e.clientX;
+	const y = e.clientY;
+	if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+		isDragOver = false;
+	}
+}
+
+function handleDrop(e: DragEvent) {
+	if (!isDir || !onUpload) return;
+	e.preventDefault();
+	e.stopPropagation();
+	isDragOver = false;
+
+	const files = e.dataTransfer?.files;
+	if (!files?.length) return;
+
+	// Only handle actual files, ignore internal drags
+	if (!e.dataTransfer) return;
+	if (e.dataTransfer.types.includes("text/cohub-path")) return;
+
+	onUpload(Array.from(files), node.path);
+}
+
+function handleDirUploadClick() {
+	if (!onUpload) return;
+	const input = document.createElement("input");
+	input.type = "file";
+	input.multiple = true;
+	input.onchange = () => {
+		if (input.files?.length) onUpload(Array.from(input.files), node.path);
+	};
+	input.click();
+}
 </script>
 
 <div
   class:selected={isActive}
   class="tree-item"
+  class:drop-target={isDragOver}
   role="button"
   tabindex="0"
   draggable="true"
@@ -76,16 +128,19 @@ function stop(handler: () => void) {
     e.dataTransfer?.setData("text/plain", path);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
   }}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
 >
   <span class="icon shrink-0">
-    {#if node.type === 'dir'}
+    {#if isDir}
       {#if node.isOpen}
         <FolderOpen class="w-3.5 h-3.5" />
       {:else}
         <Folder class="w-3.5 h-3.5" />
       {/if}
     {:else}
-      <File class="w-3.5 h-3.5" />
+      <FileIcon class="w-3.5 h-3.5" />
     {/if}
   </span>
   <span class="name">{node.name}</span>
@@ -94,9 +149,12 @@ function stop(handler: () => void) {
   {/if}
   {#if canWrite}
     <span class="actions">
-      {#if node.type === 'dir'}
+      {#if isDir}
         <button type="button" class="action" title="New file" onclick={stop(() => onCreateFile(node.path))}><Plus class="w-3 h-3" /></button>
         <button type="button" class="action" title="New folder" onclick={stop(() => onCreateDir(node.path))}><FolderPlus class="w-3 h-3" /></button>
+        {#if onUpload}
+          <button type="button" class="action" title="Upload here" onclick={stop(handleDirUploadClick)}><Upload class="w-3 h-3" /></button>
+        {/if}
       {/if}
       <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3 h-3" /></button>
       <button type="button" class="action danger" title="Delete" onclick={stop(() => onDelete(node))}><Trash2 class="w-3 h-3" /></button>
@@ -104,7 +162,7 @@ function stop(handler: () => void) {
   {/if}
 </div>
 
-{#if node.type === 'dir' && node.isOpen && depth < 50}
+{#if isDir && node.isOpen && depth < 50}
   {#each node.children as child (child.path)}
     <FsTreeItem
       node={child}
@@ -116,6 +174,7 @@ function stop(handler: () => void) {
       {onCreateDir}
       {onRename}
       {onDelete}
+      {onUpload}
       {canWrite}
     />
   {/each}
@@ -144,6 +203,12 @@ function stop(handler: () => void) {
   .tree-item.selected {
     background: var(--bg-hover-strong);
     color: var(--text-primary);
+  }
+
+  .tree-item.drop-target {
+    background: var(--bg-hover-strong);
+    outline: 1px dashed var(--brand, #58a6ff);
+    outline-offset: -1px;
   }
 
   .icon {

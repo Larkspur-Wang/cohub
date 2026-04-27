@@ -10,6 +10,7 @@ import {
   readSpaceFile,
   spaceFsJsonError,
   streamSpaceFile,
+  uploadSpaceFiles,
   writeSpaceFile,
 } from "../../space-fs.js";
 
@@ -130,6 +131,28 @@ router.get("/download", async (c) => {
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
+  }
+});
+
+router.post("/upload", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  const dir = c.req.query("dir") ?? "";
+  const formData = await c.req.formData().catch(() => null);
+  if (!formData) return c.json({ message: "multipart/form-data required" }, 400);
+
+  const fileEntries = formData.getAll("files");
+  const files = fileEntries.filter((e): e is File => e instanceof File);
+  if (files.length === 0) return c.json({ message: "at least one file is required" }, 400);
+
+  try {
+    return c.json(await uploadSpaceFiles(spaceId, files, dir));
+  } catch (error) {
+    const { status, body } = spaceFsJsonError(error);
+    return c.json(body, status as never);
   }
 });
 
