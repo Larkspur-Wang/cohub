@@ -2882,10 +2882,6 @@ async function copyInlineFileContent() {
 	}, 1500);
 }
 
-function getCheckpointTitle(checkpoint: CheckpointRecord): string {
-	return checkpoint.description || checkpoint.commitHash.slice(0, 12);
-}
-
 function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
@@ -3447,7 +3443,7 @@ $effect(() => {
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">{getCheckpointTitle(checkpointDetail)}</span>
+        <span class="text-[13px] text-text-secondary truncate">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
       {:else if routeView === "checkpoint-new"}
         <button
           type="button"
@@ -3595,54 +3591,63 @@ $effect(() => {
         {/if}
       </div>
     {:else if routeView === 'checkpoint'}
-      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
+      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl">
         {#if checkpointDetailLoading}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
-            Loading save...
+          <div class="flex items-center gap-3 rounded-md border border-border-subtle bg-bg-surface p-4 text-[13px] text-text-tertiary">
+            <Loader2 class="w-4 h-4 animate-spin shrink-0" />
+            Loading checkpoint…
           </div>
         {:else if checkpointDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
         {:else if checkpointDetail}
-          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-5">
-            <!-- Hero: Checkpoint ID -->
-            <div class="space-y-3">
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint ID</div>
-              <div class="flex items-center gap-3">
-                <div class="font-mono text-[18px] font-semibold text-text-primary tracking-tight break-all leading-snug">{checkpointDetail.id}</div>
-                <button
-                  type="button"
-                  class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-                  onclick={handleCopyCheckpointId}
-                >
-                  {#if checkpointIdCopied}
-                    <Check class="w-3.5 h-3.5 text-success-soft" />
-                    <span class="text-success-soft">Copied</span>
-                  {:else}
-                    <Copy class="w-3.5 h-3.5" />
-                    <span>Copy</span>
-                  {/if}
-                </button>
-              </div>
-            </div>
-
-            {#if checkpointDetail.description?.trim()}
-              <div class="text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</div>
-            {/if}
-
-            <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> · {formatCheckpointTimestamp(checkpointDetail.createdAt)}</p>
-
-            <!-- Secondary info: compact 2-col grid -->
-            <div class="grid gap-2.5 md:grid-cols-2">
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <GitCommitHorizontal class="w-3.5 h-3.5" />
-                  Commit Hash
-                </div>
-                <div class="mt-2 flex items-center justify-between gap-3">
-                  <div class="font-mono text-[12px] text-text-secondary break-all leading-snug">{checkpointDetail.commitHash}</div>
+          <div class="border border-border-subtle rounded-md bg-bg-surface">
+            <!-- Hero section: ID + description -->
+            <div class="p-5 space-y-4">
+              <div class="space-y-2">
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint ID</div>
+                <div class="flex items-center gap-3">
+                  <div class="font-mono text-[18px] font-semibold text-text-primary tracking-tight break-all leading-snug">{checkpointDetail.id}</div>
                   <button
                     type="button"
-                    class="shrink-0 inline-flex items-center gap-1 px-1.5 py-1 rounded-[4px] text-[11px] text-text-placeholder hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                    class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                    onclick={handleCopyCheckpointId}
+                  >
+                    {#if checkpointIdCopied}
+                      <Check class="w-3.5 h-3.5 text-success-soft" />
+                      <span class="text-success-soft">Copied</span>
+                    {:else}
+                      <Copy class="w-3.5 h-3.5" />
+                      <span>Copy</span>
+                    {/if}
+                  </button>
+                </div>
+              </div>
+
+              {#if checkpointDetail.description?.trim()}
+                <div class="text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</div>
+              {/if}
+
+              <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> · {formatCheckpointTimestamp(checkpointDetail.createdAt)}</p>
+            </div>
+
+            <!-- Divider -->
+            <div class="border-t border-border-subtle"></div>
+
+            <!-- Metadata: flattened label-value list -->
+            <div class="p-5">
+              <div class="space-y-4">
+                <!-- Commit Hash -->
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                      <GitCommitHorizontal class="w-3.5 h-3.5 shrink-0" />
+                      Commit Hash
+                    </div>
+                    <div class="mt-1.5 font-mono text-[12px] text-text-secondary break-all leading-snug">{checkpointDetail.commitHash}</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 rounded-[4px] text-[11px] text-text-placeholder hover:text-text-secondary hover:bg-bg-hover transition-colors"
                     onclick={handleCopyCheckpointCommitHash}
                   >
                     {#if checkpointCopied}
@@ -3652,24 +3657,36 @@ $effect(() => {
                     {/if}
                   </button>
                 </div>
-              </div>
 
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Network class="w-3.5 h-3.5" />
-                  Parent
+                <!-- Parent Checkpoint -->
+                <div>
+                  <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                    <Network class="w-3.5 h-3.5 shrink-0" />
+                    Parent
+                  </div>
+                  <div class="mt-1.5">
+                    {#if checkpointDetail.parentCheckpointId}
+                      <a
+                        href="/spaces/{spaceId}/checkpoints/{checkpointDetail.parentCheckpointId}"
+                        class="font-mono text-[12px] text-brand hover:underline break-all leading-snug"
+                        data-sveltekit-preload-data="hover"
+                      >{checkpointDetail.parentCheckpointId}</a>
+                    {:else}
+                      <span class="text-[12px] text-text-secondary">None (root checkpoint)</span>
+                    {/if}
+                  </div>
                 </div>
-                <div class="mt-2 font-mono text-[12px] text-text-secondary break-all leading-snug">{checkpointDetail.parentCheckpointId ?? 'None (root)'}</div>
-              </div>
 
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
-                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Fork Count</div>
-                <div class="mt-2 text-[13px] text-text-secondary">{checkpointDetail.forkCount}</div>
+                <!-- Fork Count -->
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Forks</div>
+                  <div class="mt-1.5 text-[13px] text-text-secondary">{checkpointDetail.forkCount}</div>
+                </div>
               </div>
             </div>
           </div>
         {:else}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Save not found.</div>
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[13px] text-text-tertiary">Checkpoint not found.</div>
         {/if}
       </div>
 
