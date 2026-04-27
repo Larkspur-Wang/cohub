@@ -86,7 +86,13 @@ const textContent = $derived(
 		.trim() || "",
 );
 
+const isUserMessage = $derived(message.role === "user");
+
 $effect(() => {
+	if (isUserMessage) {
+		renderedHtml = "";
+		return;
+	}
 	let cancelled = false;
 
 	const markdownSource =
@@ -380,12 +386,18 @@ function handleCopy() {
         </div>
       {/if}
 
-      <div
-        bind:this={markdownEl}
-        class="prose prose-sm prose-invert max-w-none text-inherit"
-      >
-        {@html renderedHtml}
-      </div>
+      {#if isUserMessage}
+        <div class="whitespace-pre-wrap break-words text-inherit">
+          {textContent || (message.content?.length ? "" : message.text)}
+        </div>
+      {:else}
+        <div
+          bind:this={markdownEl}
+          class="prose prose-sm prose-invert max-w-none text-inherit"
+        >
+          {@html renderedHtml}
+        </div>
+      {/if}
 
       {#if message.content?.some((block) => block.type === 'tool_use')}
         <div class="mt-4">
