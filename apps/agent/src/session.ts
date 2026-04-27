@@ -1,8 +1,10 @@
 import { existsSync, renameSync } from "node:fs";
+import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
 import { sendOutput } from "./redis.js";
+import { getAgentTracer } from "@cohub/tracing/agent";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
 import {
   ensureAgentSpaceSessionPath,
@@ -34,6 +36,10 @@ export type SessionHandle = {
   sessionId: string;
   session: CohubAgentSession;
   sessionManager: SessionManager;
+  turnTracer: ReturnType<typeof getAgentTracer>;
+  currentTurnId?: string | null;
+  currentTurnSeq?: number | null;
+  currentLlmRound?: number | null;
   ownerEpoch: number;
   lastActiveAt: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -61,6 +67,7 @@ export function getSessionKey(spaceId: string, sessionId: string) {
 function setSessionManagerFilePath(sessionManager: SessionManager, sessionFile: string) {
   ((sessionManager as unknown) as { sessionFile?: string }).sessionFile = sessionFile;
 }
+
 function summarizeToolArgs(toolName: string, args: unknown): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
@@ -83,6 +90,36 @@ function summarizeToolArgs(toolName: string, args: unknown): string {
   return first.slice(0, 120);
 }
 
+type SessionTraceContext = {
+  turnId?: string;
+  turnSeq?: number;
+  llmRound?: number;
+};
+
+function getSessionTraceAttributes(handle: SessionHandle): Record<string, string | number> {
+  return {
+    ...(handle.currentTurnId ? { "agent.turn_id": handle.currentTurnId } : {}),
+    ...(handle.currentTurnSeq != null ? { "agent.turn_seq": handle.currentTurnSeq } : {}),
+    ...(handle.currentLlmRound != null ? { "agent.llm_round": handle.currentLlmRound } : {}),
+  };
+}
+
+function getCurrentSessionTraceContext(handle: SessionHandle): SessionTraceContext {
+  return {
+    turnId: handle.currentTurnId ?? undefined,
+    turnSeq: handle.currentTurnSeq ?? undefined,
+    llmRound: handle.currentLlmRound ?? undefined,
+  };
+}
+
+function addLifecycleEvent(handle: SessionHandle, name: string, attributes?: Record<string, string | number | boolean | undefined>) {
+  const span = trace.getActiveSpan();
+  if (!span) return;
+  const cleanAttributes = Object.fromEntries(
+    Object.entries(attributes ?? {}).filter(([, value]) => value !== undefined),
+  );
+  span.addEvent(name, cleanAttributes);
+}
 
 async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
@@ -94,22 +131,42 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   }
 
   const flush = async () => {
-    const full = handle.streamState.content;
-    const last = handle.streamState.lastSent ?? [];
-    const delta = computeDelta(full, last);
-
-    handle.streamState.lastSent = structuredClone(full);
-    handle.streamState.pendingFlush = false;
-
-    await sendOutput({
-      type: "stream_update",
-      spaceId: handle.spaceId,
-      sessionId: handle.sessionId,
-      content: delta,
-      sourceMessageId,
-      anchorUserMessageId: handle.currentUserMessageId,
-      timestamp: Date.now(),
+    const span = handle.turnTracer.startSpan("agent.output.publish", {
+      attributes: {
+        "cohub.space_id": handle.spaceId,
+        "cohub.session_id": handle.sessionId,
+        "agent.input_message_id": sourceMessageId,
+        ...(handle.currentUserMessageId ? { "agent.anchor_user_message_id": handle.currentUserMessageId } : {}),
+        ...getSessionTraceAttributes(handle),
+      },
     });
+
+    try {
+      const full = handle.streamState.content;
+      const last = handle.streamState.lastSent ?? [];
+      const delta = computeDelta(full, last);
+
+      handle.streamState.lastSent = structuredClone(full);
+      handle.streamState.pendingFlush = false;
+
+      span.setAttribute("agent.output.delta_block_count", delta.length);
+      await sendOutput({
+        type: "stream_update",
+        spaceId: handle.spaceId,
+        sessionId: handle.sessionId,
+        content: delta,
+        sourceMessageId,
+        anchorUserMessageId: handle.currentUserMessageId,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        span.recordException(error);
+      }
+      throw error;
+    } finally {
+      span.end();
+    }
 
     handle.streamState.flushPromise = null;
     if (handle.streamState.pendingFlush) {
@@ -249,8 +306,15 @@ function extractTextFromToolResult(result: unknown): string {
 export function subscribeSessionEvents(handle: SessionHandle) {
   handle.session.subscribe((event) => {
     if (event.type === "message_start") {
+      const traceCtx = getCurrentSessionTraceContext(handle);
+      if (event.message.role === "assistant") {
+        handle.currentLlmRound = traceCtx.llmRound ?? handle.currentLlmRound ?? 1;
+      }
       const message = event.message as unknown as Record<string, unknown>;
       console.log(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
+      addLifecycleEvent(handle, "session.message_start", {
+        "message.role": typeof message.role === "string" ? message.role : undefined,
+      });
       if (message.role === "user") {
         const pending = handle.pendingUserMessages.shift();
         if (pending) {
@@ -267,9 +331,13 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "agent_start") {
       console.log(`[Session] agent:start sessionId=${handle.sessionId}`);
+      addLifecycleEvent(handle, "session.agent_start");
     }
 
     if (event.type === "message_update") {
+      addLifecycleEvent(handle, "session.message_update", {
+        "message.event_type": event.assistantMessageEvent.type,
+      });
       handle.streamState.assistantState = applyAssistantMessageEvent(
         handle.streamState.assistantState,
         event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
@@ -280,6 +348,9 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "message_end") {
       const message = event.message as unknown as Record<string, unknown>;
+      addLifecycleEvent(handle, "session.message_end", {
+        "message.role": typeof message.role === "string" ? message.role : undefined,
+      });
       if (message.role === "user" && handle.currentUserMessageId && handle.currentUserMessageContent) {
         const userMessageId = handle.currentUserMessageId;
         const content = handle.currentUserMessageContent;
@@ -288,13 +359,29 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         handle.currentUserMessageMeta = null;
 
         void enqueuePersistence(handle, `user:${userMessageId}`, async () => {
-          await persistUserMessage({
-            spaceId: handle.spaceId,
-            sessionId: handle.sessionId,
-            userMessageId,
-            content,
-            meta,
+          const span = handle.turnTracer.startSpan("agent.persistence.user_message", {
+            attributes: {
+              "cohub.space_id": handle.spaceId,
+              "cohub.session_id": handle.sessionId,
+              "agent.input_message_id": userMessageId,
+              ...(handle.currentUserMessageId ? { "agent.anchor_user_message_id": handle.currentUserMessageId } : {}),
+              ...getSessionTraceAttributes(handle),
+            },
           });
+          try {
+            await persistUserMessage({
+              spaceId: handle.spaceId,
+              sessionId: handle.sessionId,
+              userMessageId,
+              content,
+              meta,
+            });
+          } catch (error) {
+            if (error instanceof Error) span.recordException(error);
+            throw error;
+          } finally {
+            span.end();
+          }
         });
       }
       void emitProviderRenderUpdate(handle);
@@ -302,6 +389,11 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "tool_execution_start") {
       console.log(`[Session] tool:start tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)}`);
+      addLifecycleEvent(handle, "session.tool_execution_start", {
+        "tool.name": event.toolName,
+        "agent.tool_call_id": event.toolCallId,
+      });
+      handle.currentLlmRound = handle.currentLlmRound ?? 1;
       handle.streamState.assistantState = applyToolExecutionStart(handle.streamState.assistantState, {
         toolCallId: event.toolCallId,
         summary: summarizeToolArgs(event.toolName, event.args),
@@ -312,6 +404,11 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "tool_execution_end") {
       console.log(`[Session] tool:end tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)} error=${event.isError}`);
+      addLifecycleEvent(handle, "session.tool_execution_end", {
+        "tool.name": event.toolName,
+        "agent.tool_call_id": event.toolCallId,
+        "tool.is_error": event.isError,
+      });
       const resultContent = event.result ? extractTextFromToolResult(event.result) : "";
       handle.streamState.assistantState = applyToolExecutionEnd(handle.streamState.assistantState, {
         toolCallId: event.toolCallId,
@@ -325,6 +422,9 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     if (event.type === "turn_end" && handle.currentUserMessageId) {
       const toolCount = (event as unknown as { toolResults?: unknown[] }).toolResults?.length ?? 0;
       console.log(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
+      addLifecycleEvent(handle, "session.turn_end", {
+        "agent.tool_count": toolCount,
+      });
       const currentUserMessageId = handle.currentUserMessageId;
       const currentModel = handle.session.agent.state.model;
 
@@ -340,13 +440,29 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       const enrichedEvent = { ...event, message: enrichedMessage };
 
       void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
-        await persistAssistantMessage({
-          spaceId: handle.spaceId,
-          spaceSessionId: handle.sessionId,
-          userMessageId: currentUserMessageId,
-          event: enrichedEvent as Record<string, unknown>,
-          userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.actorUserId as string | null | undefined) ?? null,
+        const span = handle.turnTracer.startSpan("agent.persistence.assistant_message", {
+          attributes: {
+            "cohub.space_id": handle.spaceId,
+            "cohub.session_id": handle.sessionId,
+            "agent.input_message_id": currentUserMessageId,
+            "agent.tool_count": toolCount,
+            ...getSessionTraceAttributes(handle),
+          },
         });
+        try {
+          await persistAssistantMessage({
+            spaceId: handle.spaceId,
+            spaceSessionId: handle.sessionId,
+            userMessageId: currentUserMessageId,
+            event: enrichedEvent as Record<string, unknown>,
+            userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.actorUserId as string | null | undefined) ?? null,
+          });
+        } catch (error) {
+          if (error instanceof Error) span.recordException(error);
+          throw error;
+        } finally {
+          span.end();
+        }
       });
 
       resetStreamState(handle);
@@ -355,6 +471,10 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "agent_end") {
       console.log(`[Session] agent:end sessionId=${handle.sessionId}`);
+      addLifecycleEvent(handle, "session.agent_end");
+      handle.currentLlmRound = null;
+      handle.currentTurnId = null;
+      handle.currentTurnSeq = null;
       handle.currentUserMessageId = null;
       handle.onIdle?.(handle);
     }
@@ -456,6 +576,10 @@ export async function loadOrCreateSessionHandle(input: {
     sessionId: input.sessionId,
     session,
     sessionManager,
+    turnTracer: getAgentTracer(),
+    currentTurnId: null,
+    currentTurnSeq: null,
+    currentLlmRound: null,
     ownerEpoch: 0,
     lastActiveAt: Date.now(),
     idleTimer: null,

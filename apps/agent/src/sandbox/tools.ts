@@ -31,8 +31,25 @@ import {
   SANDBOX_PLATFORM_AGENTS_PATH,
   SANDBOX_WORKSPACE_PATH,
 } from "../runtime/paths.js";
-import { getCurrentToolExecutionContext } from "../tool-context.js";
+import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
 import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
+
+function getCurrentTraceContext() {
+  const ctx = getCurrentToolExecutionContext();
+  return {
+    spaceId: ctx?.spaceId,
+    sessionId: ctx?.sessionId,
+    turnId: ctx?.turnId,
+    turnSeq: ctx?.turnSeq,
+    llmRound: ctx?.llmRound,
+    toolCallId: ctx?.toolCallId,
+  };
+}
+
+function incrementToolCallCount(metrics: TurnTelemetryMetrics | undefined) {
+  if (!metrics) return;
+  metrics.toolCallCount += 1;
+}
 
 function getCurrentSpaceId() {
   const ctx = getCurrentToolExecutionContext();
@@ -107,10 +124,16 @@ async function tracedRpc<M extends RpcMethod>(
 ) {
   const tracer = getAgentTracer();
   const spaceId = getCurrentSpaceId();
+  const traceCtx = getCurrentTraceContext();
   return wrapSandboxRpc(tracer, {
     method,
     sandboxId: connection.sandboxId,
     spaceId,
+    sessionId: traceCtx.sessionId,
+    turnId: traceCtx.turnId,
+    turnSeq: traceCtx.turnSeq,
+    llmRound: traceCtx.llmRound,
+    toolCallId: traceCtx.toolCallId,
     params: params as Record<string, unknown>,
   }, async () => {
     return connection.request(method, params, {
@@ -127,7 +150,18 @@ function createRemoteReadOperations(): ReadOperations {
   return {
     async readFile(absolutePath) {
       const spaceId = getCurrentSpaceId();
-      return wrapToolCall(tracer, { toolName: "read", input: { path: absolutePath }, spaceId }, async () => {
+      const toolCtx = getCurrentToolExecutionContext();
+      incrementToolCallCount(toolCtx?.metrics);
+      const toolCallId = randomUUID();
+      return runWithToolExecutionContext({
+        spaceId: toolCtx?.spaceId ?? spaceId,
+        sessionId: toolCtx?.sessionId ?? "",
+        toolCallId,
+      }, async () => wrapToolCall(tracer, {
+        toolName: "read",
+        input: { path: absolutePath },
+        ...getCurrentTraceContext(),
+      }, async () => {
         const connection = await getCurrentConnection();
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
         console.log(`[Tool:read] path=${path}`);
@@ -137,7 +171,7 @@ function createRemoteReadOperations(): ReadOperations {
           return Buffer.from(result.contentBase64, "base64");
         }
         return Buffer.from(result.content, "utf8");
-      });
+      }));
     },
     async access(absolutePath) {
       const connection = await getCurrentConnection();
@@ -160,12 +194,23 @@ function createRemoteWriteOperations(): WriteOperations {
   return {
     async writeFile(absolutePath, content) {
       const spaceId = getCurrentSpaceId();
-      return wrapToolCall(tracer, { toolName: "write", input: { path: absolutePath, bytes: content.length }, spaceId }, async () => {
+      const toolCtx = getCurrentToolExecutionContext();
+      incrementToolCallCount(toolCtx?.metrics);
+      const toolCallId = randomUUID();
+      return runWithToolExecutionContext({
+        spaceId: toolCtx?.spaceId ?? spaceId,
+        sessionId: toolCtx?.sessionId ?? "",
+        toolCallId,
+      }, async () => wrapToolCall(tracer, {
+        toolName: "write",
+        input: { path: absolutePath, bytes: content.length },
+        ...getCurrentTraceContext(),
+      }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
         console.log(`[Tool:write] path=${path} bytes=${content.length}`);
         const connection = await getCurrentConnection();
         await tracedRpc(connection, "fs.write", { path, content });
-      });
+      }));
     },
     async mkdir(_dir) {
       // sandbox fs.write already creates parent directories recursively
@@ -204,7 +249,18 @@ function createRemoteBashOperations(): BashOperations {
         void (async () => {
           try {
             const spaceId = getCurrentSpaceId();
-            return wrapToolCall(tracer, { toolName: "bash", input: { command: cmdSummary, cwd }, spaceId }, async () => {
+            const toolCtx = getCurrentToolExecutionContext();
+            incrementToolCallCount(toolCtx?.metrics);
+            const toolCallId = randomUUID();
+            return runWithToolExecutionContext({
+              spaceId: toolCtx?.spaceId ?? spaceId,
+              sessionId: toolCtx?.sessionId ?? "",
+              toolCallId,
+            }, async () => wrapToolCall(tracer, {
+              toolName: "bash",
+              input: { command: cmdSummary, cwd },
+              ...getCurrentTraceContext(),
+            }, async () => {
               const connection = await getCurrentConnection();
               const sandboxCwd = mapLocalAbsolutePathToSandboxPath(cwd);
               console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);
@@ -255,7 +311,7 @@ function createRemoteBashOperations(): BashOperations {
                   },
                 },
               );
-            });
+            }));
           } catch (error) {
             console.error(`[Tool:bash] error cmd="${cmdSummary}"`, error);
             finish(() => reject(error));
@@ -283,13 +339,24 @@ function createRemoteLsOperations(): LsOperations {
     },
     async readdir(absolutePath) {
       const spaceId = getCurrentSpaceId();
-      return wrapToolCall(tracer, { toolName: "ls", input: { path: absolutePath }, spaceId }, async () => {
+      const toolCtx = getCurrentToolExecutionContext();
+      incrementToolCallCount(toolCtx?.metrics);
+      const toolCallId = randomUUID();
+      return runWithToolExecutionContext({
+        spaceId: toolCtx?.spaceId ?? spaceId,
+        sessionId: toolCtx?.sessionId ?? "",
+        toolCallId,
+      }, async () => wrapToolCall(tracer, {
+        toolName: "ls",
+        input: { path: absolutePath },
+        ...getCurrentTraceContext(),
+      }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
         console.log(`[Tool:ls] path=${path}`);
         const connection = await getCurrentConnection();
         const result = await tracedRpc(connection, "fs.ls", { path });
         return result.entries.map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
-      });
+      }));
     },
   };
 }
@@ -304,7 +371,18 @@ function createRemoteFindOperations(): FindOperations {
     },
     async glob(pattern, cwd, options) {
       const spaceId = getCurrentSpaceId();
-      return wrapToolCall(tracer, { toolName: "find", input: { pattern, path: cwd }, spaceId }, async () => {
+      const toolCtx = getCurrentToolExecutionContext();
+      incrementToolCallCount(toolCtx?.metrics);
+      const toolCallId = randomUUID();
+      return runWithToolExecutionContext({
+        spaceId: toolCtx?.spaceId ?? spaceId,
+        sessionId: toolCtx?.sessionId ?? "",
+        toolCallId,
+      }, async () => wrapToolCall(tracer, {
+        toolName: "find",
+        input: { pattern, path: cwd },
+        ...getCurrentTraceContext(),
+      }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(cwd);
         console.log(`[Tool:find] pattern=${pattern} path=${path}`);
 
@@ -336,7 +414,7 @@ function createRemoteFindOperations(): FindOperations {
           ignore: options.ignore,
         });
         return result.matches;
-      });
+      }));
     },
   };
 }
@@ -363,9 +441,20 @@ function createRemoteGrepTool() {
   ) => {
     const grepInput = input as GrepToolInput;
     const spaceId = getCurrentSpaceId();
+    const toolCtx = getCurrentToolExecutionContext();
+    incrementToolCallCount(toolCtx?.metrics);
+    const toolCallId = _toolCallId || randomUUID();
     console.log(`[Tool:grep] pattern=${grepInput.pattern} path=${grepInput.path}`);
 
-    return wrapToolCall(tracer, { toolName: "grep", input: { pattern: grepInput.pattern, path: grepInput.path }, spaceId }, async () => {
+    return runWithToolExecutionContext({
+      spaceId: toolCtx?.spaceId ?? spaceId,
+      sessionId: toolCtx?.sessionId ?? "",
+      toolCallId,
+    }, async () => wrapToolCall(tracer, {
+      toolName: "grep",
+      input: { pattern: grepInput.pattern, path: grepInput.path },
+      ...getCurrentTraceContext(),
+    }, async () => {
       // Check abort before starting.
       if (signal?.aborted) {
         throw new Error("Operation aborted");
@@ -540,7 +629,7 @@ function createRemoteGrepTool() {
       } finally {
         if (signal) signal.removeEventListener("abort", onAbort);
       }
-    });
+    }));
   };
 
   // Keep native renderCall and renderResult for TUI consistency.

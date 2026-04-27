@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { injectTrace } from "@cohub/tracing/propagator";
+import { getAgentTracer } from "@cohub/tracing/agent";
 import { env } from "./env.js";
 import {
   getAgentInstanceDeadLetterQueueKey,
@@ -22,6 +23,7 @@ const STREAM_MAXLEN = 2000;
 const STREAM_APPROX = "~";
 const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
 const DEAD_LETTER_MAX_ITEMS = 200;
+const redisTracer = getAgentTracer();
 
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
@@ -107,25 +109,47 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
     return;
   }
 
-  const sessionId = parsed.data.sessionId ?? "";
-  // Inject trace context so downstream (API → Gateway) can continue the same trace
-  const traceCarrier = injectTrace();
-  const payload = JSON.stringify({ ...parsed.data, ...traceCarrier });
-  await redis.xadd(
-    AGENT_SESSION_UPDATES_STREAM,
-    "MAXLEN",
-    STREAM_APPROX,
-    STREAM_MAXLEN,
-    "*",
-    "spaceId",
-    parsed.data.spaceId,
-    "sessionId",
-    sessionId,
-    "payload",
-    payload,
-  ).catch((err) => {
-    console.error("[Redis] Failed to send output:", err);
+  const span = redisTracer.startSpan("agent.output.publish", {
+    attributes: {
+      "cohub.space_id": parsed.data.spaceId,
+      "cohub.session_id": parsed.data.sessionId ?? "",
+      "agent.output.type": parsed.data.type,
+    },
   });
+
+  try {
+    const sessionId = parsed.data.sessionId ?? "";
+    // Inject trace context so downstream (API → Gateway) can continue the same trace
+    const traceCarrier = injectTrace();
+    const payload = JSON.stringify({ ...parsed.data, ...traceCarrier });
+    if (parsed.data.type === "stream_update") {
+      span.setAttribute("agent.output.delta_block_count", parsed.data.content.length);
+    }
+    await redis.xadd(
+      AGENT_SESSION_UPDATES_STREAM,
+      "MAXLEN",
+      STREAM_APPROX,
+      STREAM_MAXLEN,
+      "*",
+      "spaceId",
+      parsed.data.spaceId,
+      "sessionId",
+      sessionId,
+      "payload",
+      payload,
+    ).catch((err) => {
+      console.error("[Redis] Failed to send output:", err);
+      throw err;
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      span.recordException(error);
+      throw error;
+    }
+    throw error;
+  } finally {
+    span.end();
+  }
 }
 
 async function pushDeadLetterEntry(entry: Record<string, unknown>) {

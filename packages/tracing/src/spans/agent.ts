@@ -1,4 +1,4 @@
-import { trace, context, type Span, SpanStatusCode, type Tracer } from "@opentelemetry/api";
+import { context, trace, type Span, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -11,41 +11,63 @@ export function getAgentTracer(): Tracer {
 }
 
 // ---------------------------------------------------------------------------
-// LLM completion spans
+// Shared types / helpers
 // ---------------------------------------------------------------------------
 
-type LlmSpanOptions = {
-  provider: string;
-  model: string;
-  turn?: number;
-  messageCount?: number;
+type AgentContextAttributes = {
   spaceId?: string;
   sessionId?: string;
+  turnId?: string;
+  turnSeq?: number;
+  llmRound?: number;
+  toolCallId?: string;
 };
 
-/**
- * Wrap an LLM stream call with a span that records provider, model, turn number,
- * and usage information (tokens, cost) when available.
- *
- * Usage in session-runtime.ts createStreamFn:
- *   return wrapLlmCompletion(tracer, stream, { provider, model, turn: 1 }, async () => {
- *     return streamSimple(model, context, options);
- *   });
- */
-export async function wrapLlmCompletion<T>(
+function buildAgentContextAttributes(options: AgentContextAttributes) {
+  return {
+    ...(options.spaceId ? { "cohub.space_id": options.spaceId } : {}),
+    ...(options.sessionId ? { "cohub.session_id": options.sessionId } : {}),
+    ...(options.turnId ? { "agent.turn_id": options.turnId } : {}),
+    ...(options.turnSeq != null ? { "agent.turn_seq": options.turnSeq } : {}),
+    ...(options.llmRound != null ? { "agent.llm_round": options.llmRound } : {}),
+    ...(options.toolCallId ? { "agent.tool_call_id": options.toolCallId } : {}),
+  };
+}
+
+function markSpanError(span: Span, error: unknown) {
+  if (error instanceof Error) {
+    span.recordException(error);
+  }
+  span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+}
+
+// ---------------------------------------------------------------------------
+// Agent turn spans
+// ---------------------------------------------------------------------------
+
+type AgentTurnSpanOptions = AgentContextAttributes & {
+  action: string;
+  mode?: "prompt" | "steer" | "abort";
+  userMessageId?: string | null;
+  modelProvider?: string;
+  modelId?: string;
+  isResumedSession?: boolean;
+};
+
+export async function wrapAgentTurn<T>(
   tracer: Tracer,
-  options: LlmSpanOptions,
+  options: AgentTurnSpanOptions,
   fn: (span: Span) => Promise<T>,
 ): Promise<T> {
-  const span = tracer.startSpan("llm.completion", {
+  const span = tracer.startSpan("agent.turn", {
     attributes: {
-      "llm.provider": options.provider,
-      "llm.model": options.model,
-      "llm.turn": options.turn ?? 0,
-      "llm.message_count": options.messageCount ?? 0,
-      "gen_ai.system": mapProviderToGenAiSystem(options.provider),
-      ...(options.spaceId ? { "cohub.space_id": options.spaceId } : {}),
-      ...(options.sessionId ? { "cohub.session_id": options.sessionId } : {}),
+      "agent.action": options.action,
+      ...(options.mode ? { "agent.execution_mode": options.mode } : {}),
+      ...(options.userMessageId ? { "agent.input_message_id": options.userMessageId } : {}),
+      ...(options.modelProvider ? { "agent.model.provider": options.modelProvider } : {}),
+      ...(options.modelId ? { "agent.model.id": options.modelId } : {}),
+      ...(options.isResumedSession != null ? { "agent.is_resumed_session": options.isResumedSession } : {}),
+      ...buildAgentContextAttributes(options),
     },
   });
 
@@ -54,15 +76,74 @@ export async function wrapLlmCompletion<T>(
       const result = await fn(span);
       return result;
     } catch (error) {
-      if (error instanceof Error) {
-        span.recordException(error);
-      }
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+      markSpanError(span, error);
       throw error;
     } finally {
       span.end();
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// LLM round spans
+// ---------------------------------------------------------------------------
+
+type LlmSpanOptions = AgentContextAttributes & {
+  provider: string;
+  model: string;
+  messageCount?: number;
+};
+
+export function startLlmRoundSpan(
+  tracer: Tracer,
+  options: LlmSpanOptions,
+) {
+  const span = tracer.startSpan("llm.round", {
+    attributes: {
+      "llm.provider": options.provider,
+      "llm.model": options.model,
+      "llm.message_count": options.messageCount ?? 0,
+      "gen_ai.system": mapProviderToGenAiSystem(options.provider),
+      "gen_ai.request.model": options.model,
+      ...buildAgentContextAttributes(options),
+    },
+  });
+
+  const startedAt = performance.now();
+  let ended = false;
+  let firstTokenRecorded = false;
+
+  return {
+    span,
+    context: trace.setSpan(context.active(), span),
+    markFirstToken() {
+      if (firstTokenRecorded) return;
+      firstTokenRecorded = true;
+      span.setAttribute("llm.first_token_ms", Math.round(performance.now() - startedAt));
+      span.addEvent("llm.first_token");
+    },
+    finish(result?: {
+      finishReason?: string;
+      outcome?: "ok" | "error" | "aborted";
+    }) {
+      if (ended) return;
+      ended = true;
+      if (result?.finishReason) {
+        span.setAttribute("llm.finish_reason", result.finishReason);
+      }
+      if (result?.outcome) {
+        span.setAttribute("llm.outcome", result.outcome);
+      }
+      span.end();
+    },
+    fail(error: unknown, outcome: "error" | "aborted" = "error") {
+      if (ended) return;
+      ended = true;
+      span.setAttribute("llm.outcome", outcome);
+      markSpanError(span, error);
+      span.end();
+    },
+  };
 }
 
 /** Record usage information on an LLM span. */
@@ -89,11 +170,9 @@ export function recordLlmUsage(
 // Tool call spans
 // ---------------------------------------------------------------------------
 
-type ToolCallOptions = {
+type ToolCallOptions = AgentContextAttributes & {
   toolName: string;
   input?: Record<string, unknown>;
-  spaceId?: string;
-  sessionId?: string;
 };
 
 /**
@@ -106,24 +185,22 @@ export async function wrapToolCall<T>(
   fn: (span: Span) => Promise<T>,
 ): Promise<T> {
   const inputSummary = summarizeToolInput(options.toolName, options.input);
-  const span = tracer.startSpan(`tool.call:${options.toolName}`, {
+  const span = tracer.startSpan("tool.call", {
     attributes: {
       "tool.name": options.toolName,
       "tool.input.summary": inputSummary,
-      ...(options.spaceId ? { "cohub.space_id": options.spaceId } : {}),
-      ...(options.sessionId ? { "cohub.session_id": options.sessionId } : {}),
+      ...buildAgentContextAttributes(options),
     },
   });
 
   return context.with(trace.setSpan(context.active(), span), async () => {
     try {
       const result = await fn(span);
+      span.setAttribute("tool.outcome", "ok");
       return result;
     } catch (error) {
-      if (error instanceof Error) {
-        span.recordException(error);
-      }
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+      span.setAttribute("tool.outcome", "error");
+      markSpanError(span, error);
       throw error;
     } finally {
       span.end();
@@ -135,10 +212,9 @@ export async function wrapToolCall<T>(
 // Sandbox RPC spans
 // ---------------------------------------------------------------------------
 
-type SandboxRpcOptions = {
+type SandboxRpcOptions = AgentContextAttributes & {
   method: string;
   sandboxId?: string;
-  spaceId?: string;
   params?: Record<string, unknown>;
 };
 
@@ -151,27 +227,21 @@ export async function wrapSandboxRpc<T>(
   fn: (span: Span) => Promise<T>,
 ): Promise<T> {
   const paramsSummary = summarizeRpcParams(options.method, options.params);
-  const span = tracer.startSpan(`sandbox.rpc:${options.method}`, {
+  const span = tracer.startSpan("sandbox.rpc", {
     attributes: {
       "sandbox.rpc.method": options.method,
       "sandbox.rpc.params.summary": paramsSummary,
       ...(options.sandboxId ? { "sandbox.id": options.sandboxId } : {}),
-      ...(options.spaceId ? { "cohub.space_id": options.spaceId } : {}),
+      ...buildAgentContextAttributes(options),
     },
   });
 
   return context.with(trace.setSpan(context.active(), span), async () => {
     try {
-      const start = performance.now();
       const result = await fn(span);
-      span.setAttribute("sandbox.rpc.duration_ms", Math.round(performance.now() - start));
       return result;
     } catch (error) {
-      span.setAttribute("sandbox.rpc.duration_ms", 0);
-      if (error instanceof Error) {
-        span.recordException(error);
-      }
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+      markSpanError(span, error);
       throw error;
     } finally {
       span.end();

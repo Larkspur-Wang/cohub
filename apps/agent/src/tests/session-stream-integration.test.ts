@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getAgentTracer } from "@cohub/tracing/agent";
 
 process.env.SESSIONS_NAMESPACE ??= "test";
 process.env.REDIS_URL ??= "redis://localhost:6379";
@@ -78,6 +79,10 @@ function createHandle(session: FakeSession): SessionHandle {
     sessionId: "session-1",
     session: session as unknown as SessionHandle["session"],
     sessionManager: {} as SessionHandle["sessionManager"],
+    turnTracer: getAgentTracer(),
+    currentTurnId: null,
+    currentTurnSeq: null,
+    currentLlmRound: null,
     ownerEpoch: 0,
     lastActiveAt: Date.now(),
     idleTimer: null,

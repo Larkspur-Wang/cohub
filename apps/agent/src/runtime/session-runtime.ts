@@ -1,10 +1,12 @@
 import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
-import { streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
+import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
+import { context } from "@opentelemetry/api";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
-import { wrapLlmCompletion, recordLlmUsage, getAgentTracer } from "@cohub/tracing/agent";
+import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/tracing/agent";
+import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../tool-context.js";
 
 export type CohubAgentSessionEvent = AgentEvent;
 
@@ -44,46 +46,84 @@ function toLlmMessages(messages: AgentMessage[]) {
 
 function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
   const tracer = getAgentTracer();
-  let llmTurnCounter = 0;
 
   return async (model: Model<Api>, ctx: Context, options?: SimpleStreamOptions) => {
-    llmTurnCounter += 1;
-    const turn = llmTurnCounter;
+    const toolCtx = getCurrentToolExecutionContext();
+    const round = (toolCtx?.llmRound ?? 0) + 1;
+    if (toolCtx) {
+      toolCtx.llmRound = round;
+    }
+    const metrics = toolCtx?.metrics;
+    if (metrics) {
+      metrics.llmRoundCount = Math.max(metrics.llmRoundCount, round);
+    }
 
-    return wrapLlmCompletion(tracer, {
+    const llmRound = startLlmRoundSpan(tracer, {
       provider: model.provider,
       model: model.id,
-      turn,
       messageCount: ctx.messages.length,
-    }, async (span) => {
-      const headers = modelRegistry.getHeaders(model.provider, model.id);
-      const stream = await streamSimple(model, ctx, {
-        ...options,
-        headers: headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers,
-      });
+      spaceId: toolCtx?.spaceId,
+      sessionId: toolCtx?.sessionId,
+      turnId: toolCtx?.turnId,
+      turnSeq: toolCtx?.turnSeq,
+      llmRound: round,
+    });
 
-      // Wrap the stream to capture usage information when it completes
-      const originalOnUsage = (stream as unknown as { onUsage?: (u: Record<string, unknown>) => void }).onUsage;
-      (stream as unknown as { onUsage?: (u: Record<string, unknown>) => void }).onUsage = (usage: Record<string, unknown>) => {
-        try {
-          recordLlmUsage(span, {
-            inputTokens: usage.inputTokens as number | undefined,
-            outputTokens: usage.outputTokens as number | undefined,
-            totalTokens: usage.totalTokens as number | undefined,
-            cacheReadTokens: usage.cacheReadTokens as number | undefined,
-            cacheWriteTokens: usage.cacheWriteTokens as number | undefined,
-          });
-        } catch {
-          // Ignore recording errors to avoid breaking the stream
-        }
-        try {
-          originalOnUsage?.(usage);
-        } catch {
-          // Ignore original callback errors
-        }
-      };
+    return context.with(llmRound.context, async () => {
+      try {
+        const headers = modelRegistry.getHeaders(model.provider, model.id);
+        const stream = await streamSimple(model, ctx, {
+          ...options,
+          headers: headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers,
+        });
 
-      return stream;
+        const wrapped = createAssistantMessageEventStream();
+        void context.with(llmRound.context, async () => {
+          try {
+            for await (const event of stream) {
+              if (event.type !== "start") {
+                llmRound.markFirstToken();
+              }
+
+              wrapped.push(event);
+
+              if (event.type === "done") {
+                recordLlmUsage(llmRound.span, {
+                  inputTokens: event.message.usage?.input,
+                  outputTokens: event.message.usage?.output,
+                  totalTokens: event.message.usage?.totalTokens,
+                  cacheReadTokens: event.message.usage?.cacheRead,
+                  cacheWriteTokens: event.message.usage?.cacheWrite,
+                  cost: event.message.usage?.cost?.total,
+                });
+                llmRound.finish({ finishReason: event.reason, outcome: "ok" });
+              } else if (event.type === "error") {
+                recordLlmUsage(llmRound.span, {
+                  inputTokens: event.error.usage?.input,
+                  outputTokens: event.error.usage?.output,
+                  totalTokens: event.error.usage?.totalTokens,
+                  cacheReadTokens: event.error.usage?.cacheRead,
+                  cacheWriteTokens: event.error.usage?.cacheWrite,
+                  cost: event.error.usage?.cost?.total,
+                });
+                llmRound.finish({ finishReason: event.reason, outcome: event.reason === "aborted" ? "aborted" : "error" });
+              }
+            }
+          } catch (error) {
+            llmRound.fail(error);
+            wrapped.end();
+          } finally {
+            if (toolCtx) {
+              toolCtx.llmRound = round - 1;
+            }
+          }
+        });
+
+        return wrapped;
+      } catch (error) {
+        llmRound.fail(error);
+        throw error;
+      }
     });
   };
 }
@@ -159,6 +199,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async prompt(text, inputOptions) {
       await agent.prompt(text, inputOptions?.images);
+      await agent.waitForIdle();
     },
     async steer(text, images) {
       agent.steer(createUserMessage(text, images));

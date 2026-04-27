@@ -1,5 +1,6 @@
 import { extractTrace, runInActiveSpan } from "@cohub/tracing/propagator";
-import { getAgentTracer } from "@cohub/tracing/agent";
+import { getAgentTracer, wrapAgentTurn } from "@cohub/tracing/agent";
+import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError } from "@neta-art/cohub-protocol/realtime";
 import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
@@ -62,6 +63,7 @@ const modelRegistries = new Map<string, CachedModelRegistry>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
 const SESSION_IDLE_EVICTION_MS = 5 * 60 * 1000;
+const sessionTurnCounters = new Map<string, number>();
 
 function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
@@ -114,6 +116,7 @@ async function disposeSessionHandle(handle: SessionHandle, reason: string) {
     console.error(`[Agent] Failed to dispose session ${handle.sessionId}:`, error);
   } finally {
     sessionHandles.delete(handle.sessionKey);
+    sessionTurnCounters.delete(handle.sessionKey);
     evictUnusedModelRegistries();
   }
 
@@ -272,6 +275,12 @@ function evictUnusedModelRegistries() {
   }
 }
 
+function nextTurnSequence(sessionKey: string) {
+  const next = (sessionTurnCounters.get(sessionKey) ?? 0) + 1;
+  sessionTurnCounters.set(sessionKey, next);
+  return next;
+}
+
 function getModelRegistryForUser(userId: string | null | undefined) {
   const key = userId?.trim() || "__platform__";
   const now = Date.now();
@@ -416,36 +425,70 @@ async function main() {
             });
           }
 
+          const sessionKey = getSessionKey(inputEntry.spaceId, sessionId);
+          const turnSeq = nextTurnSequence(sessionKey);
+          const turnId = randomUUID();
+          const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
+          const mode = handle.session.isStreaming ? "steer" : "prompt";
           const text = extractContentText(content);
           const images = extractContentImages(content);
 
-          if (handle.session.isStreaming) {
-            console.log(
-              `[Agent] Session ${sessionId} is streaming, using steer for new message`,
-            );
-            await runWithToolExecutionContext({
-              spaceId: inputEntry.spaceId,
-              sessionId,
-            }, async () => {
-              console.log(`[Agent] steer:start sessionId=${sessionId}`);
-              await handle.session.steer(text, images);
-              console.log(`[Agent] steer:end sessionId=${sessionId}`);
-            });
-          } else {
-            console.log(
-              `[Agent] Session ${sessionId} is idle, using prompt for new message`,
-            );
-            await runWithToolExecutionContext({
-              spaceId: inputEntry.spaceId,
-              sessionId,
-            }, async () => {
-              console.log(`[Agent] prompt:start sessionId=${sessionId}`);
-              await handle.session.prompt(text, {
-                images,
+          await wrapAgentTurn(agentTracer, {
+            action: inputEntry.action,
+            mode,
+            spaceId: inputEntry.spaceId,
+            sessionId,
+            turnId,
+            turnSeq,
+            userMessageId,
+            modelProvider: handle.session.agent.state.model.provider,
+            modelId: handle.session.agent.state.model.id,
+            isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
+          }, async (turnSpan) => {
+            handle.currentTurnId = turnId;
+            handle.currentTurnSeq = turnSeq;
+            handle.currentLlmRound = 0;
+            if (handle.session.isStreaming) {
+              console.log(
+                `[Agent] Session ${sessionId} is streaming, using steer for new message`,
+              );
+              await runWithToolExecutionContext({
+                spaceId: inputEntry.spaceId,
+                sessionId,
+                turnId,
+                turnSeq,
+                llmRound: 0,
+                metrics: turnMetrics,
+              }, async () => {
+                console.log(`[Agent] steer:start sessionId=${sessionId}`);
+                await handle.session.steer(text, images);
+                console.log(`[Agent] steer:end sessionId=${sessionId}`);
               });
-              console.log(`[Agent] prompt:end sessionId=${sessionId}`);
-            });
-          }
+            } else {
+              console.log(
+                `[Agent] Session ${sessionId} is idle, using prompt for new message`,
+              );
+              await runWithToolExecutionContext({
+                spaceId: inputEntry.spaceId,
+                sessionId,
+                turnId,
+                turnSeq,
+                llmRound: 0,
+                metrics: turnMetrics,
+              }, async () => {
+                console.log(`[Agent] prompt:start sessionId=${sessionId}`);
+                await handle.session.prompt(text, {
+                  images,
+                });
+                console.log(`[Agent] prompt:end sessionId=${sessionId}`);
+              });
+            }
+
+            turnSpan.setAttribute("agent.llm_round_count", turnMetrics.llmRoundCount);
+            turnSpan.setAttribute("agent.tool_count", turnMetrics.toolCallCount);
+            turnSpan.setAttribute("agent.outcome", "ok");
+            handle.currentLlmRound = turnMetrics.llmRoundCount;
+          });
 
           console.log(`[Agent] ack input sessionId=${sessionId}`);
           await ack();
