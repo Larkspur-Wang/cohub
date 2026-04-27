@@ -32,6 +32,8 @@ GITEA_BASE_URL=$(get_value "GITEA_BASE_URL")
 SPACE_STORAGE_ROOT=$(get_value "SPACE_STORAGE_ROOT")
 SPACE_STORAGE_PVC=$(get_value "SPACE_STORAGE_PVC")
 SPACE_STORAGE_SUBPATH=$(get_value "SPACE_STORAGE_SUBPATH")
+PLATFORM_SPACE_ID=$(get_value "PLATFORM_SPACE_ID")
+CONFIGS_SUBPATH=$(get_value "CONFIGS_SUBPATH")
 ENV=$(get_value "ENV")
 
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
@@ -78,6 +80,8 @@ PY
     -e "s|__SPACE_STORAGE_ROOT__|${SPACE_STORAGE_ROOT}|g" \
     -e "s|__SPACE_STORAGE_PVC__|${SPACE_STORAGE_PVC}|g" \
     -e "s|__SPACE_STORAGE_SUBPATH__|${SPACE_STORAGE_SUBPATH}|g" \
+    -e "s|__PLATFORM_SPACE_ID__|${PLATFORM_SPACE_ID}|g" \
+    -e "s|__CONFIGS_SUBPATH__|${CONFIGS_SUBPATH}|g" \
     -e "s|__ENV__|${ENV}|g" \
     "$dst"
   rm -f "$dst.bak"

@@ -6,7 +6,8 @@ import { db } from "../db.js";
 import { checkpoints, spaces, userGitAccounts } from "../db-schema.js";
 import { decryptSecret } from "../crypto.js";
 import { buildAuthenticatedRemoteUrl, getSpaceWorkspaceDir, runGit, runGitWithOutput } from "../git.js";
-import { publishUserConfigFromWorkspace } from "../user-config-publish.js";
+import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../config-publish.js";
+import { config } from "../config.js";
 
 const buildCommitMessage = (description?: string | null) => {
   const trimmed = description?.trim();
@@ -129,6 +130,22 @@ const saveCheckpointHandler = async (job: Job) => {
     });
   }
 
+  let publishedPlatformConfig: {
+    targetDir: string;
+    copiedPaths: string[];
+    meta: Record<string, unknown>;
+  } | null = null;
+
+  if (config.platformSpaceId && spaceId === config.platformSpaceId) {
+    publishedPlatformConfig = await publishConfigFromWorkspace({
+      workspaceDir,
+      checkpointId: checkpoint.id,
+      targetDir: "/configs/platform",
+      whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub/models.json"],
+      sourceLabel: "platform",
+    });
+  }
+
   return {
     checkpointId: checkpoint.id,
     commitHash,
@@ -137,6 +154,7 @@ const saveCheckpointHandler = async (job: Job) => {
     changedFiles: changedLines.length,
     spaceId,
     ...(publishedUserConfig ? { publishedUserConfig } : {}),
+    ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}),
   };
 };
 

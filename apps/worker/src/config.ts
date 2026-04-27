@@ -7,6 +7,7 @@ export interface WorkerConfig {
   appEncryptionKey: string;
   spaceStorageRoot: string;
   spaceStorageSubpath: string;
+  platformSpaceId: string;
   env: "dev" | "prod";
 }
 
@@ -21,6 +22,7 @@ export const config: WorkerConfig = {
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
+  platformSpaceId: process.env.PLATFORM_SPACE_ID ?? "",
   env,
 };
 

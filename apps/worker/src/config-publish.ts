@@ -9,7 +9,7 @@ const USER_CONFIG_PUBLISH_WHITELIST = [
   ".agents",
   ".cohub/models.json",
 ] as const;
-const USER_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const USER_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_COPY_DEPTH = 16;
 
 function assertValidUserId(userId: string) {
@@ -35,12 +35,12 @@ async function pathExists(path: string) {
 
 async function copyRecursive(src: string, dest: string, depth = 0): Promise<void> {
   if (depth > MAX_COPY_DEPTH) {
-    throw new Error(`user config publish exceeded max depth at ${src}`);
+    throw new Error(`config publish exceeded max depth at ${src}`);
   }
 
   const info = await lstat(src);
   if (info.isSymbolicLink()) {
-    throw new Error(`symbolic links are not allowed in published user config: ${src}`);
+    throw new Error(`symbolic links are not allowed in published config: ${src}`);
   }
 
   if (info.isDirectory()) {
@@ -63,30 +63,36 @@ async function copyIfExists(srcRoot: string, destRoot: string, relativePath: str
   return true;
 }
 
-export async function publishUserConfigFromWorkspace(input: {
-  userId: string;
-  spaceId: string;
-  checkpointId: string;
+export interface PublishConfigResult {
+  targetDir: string;
+  copiedPaths: string[];
+  meta: Record<string, unknown>;
+}
+
+export async function publishConfigFromWorkspace(input: {
   workspaceDir: string;
-}) {
-  const targetDir = getPublishedUserConfigDir(input.userId);
+  checkpointId: string;
+  targetDir: string;
+  whitelist: readonly string[];
+  sourceLabel: string;
+}): Promise<PublishConfigResult> {
   const opId = `${input.checkpointId}-${randomUUID()}`;
-  const tmpDir = `${targetDir}.__tmp__.${opId}`;
-  const backupDir = `${targetDir}.__bak__.${opId}`;
+  const tmpDir = `${input.targetDir}.__tmp__.${opId}`;
+  const backupDir = `${input.targetDir}.__bak__.${opId}`;
 
   await rm(tmpDir, { recursive: true, force: true });
   await rm(backupDir, { recursive: true, force: true });
   await mkdir(tmpDir, { recursive: true, mode: 0o775 });
 
   const copiedPaths: string[] = [];
-  for (const relativePath of USER_CONFIG_PUBLISH_WHITELIST) {
+  for (const relativePath of input.whitelist) {
     if (await copyIfExists(input.workspaceDir, tmpDir, relativePath)) {
       copiedPaths.push(relativePath);
     }
   }
 
   const meta = {
-    sourceSpaceId: input.spaceId,
+    sourceSpaceId: input.sourceLabel,
     sourceCheckpointId: input.checkpointId,
     publishedAt: new Date().toISOString(),
     copiedPaths,
@@ -94,28 +100,43 @@ export async function publishUserConfigFromWorkspace(input: {
   await mkdir(join(tmpDir, ".cohub"), { recursive: true, mode: 0o775 });
   await writeFile(join(tmpDir, ".cohub", "config-meta.json"), JSON.stringify(meta, null, 2));
 
-  const hadExistingTarget = await pathExists(targetDir);
+  const hadExistingTarget = await pathExists(input.targetDir);
   try {
     if (hadExistingTarget) {
-      await rename(targetDir, backupDir);
+      await rename(input.targetDir, backupDir);
     }
-    await rename(tmpDir, targetDir);
+    await rename(tmpDir, input.targetDir);
     if (hadExistingTarget) {
       await rm(backupDir, { recursive: true, force: true });
     }
   } catch (error) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
-    if (hadExistingTarget && (await pathExists(backupDir)) && !(await pathExists(targetDir))) {
-      await rename(backupDir, targetDir).catch(() => undefined);
+    if (hadExistingTarget && (await pathExists(backupDir)) && !(await pathExists(input.targetDir))) {
+      await rename(backupDir, input.targetDir).catch(() => undefined);
     }
     throw error;
   }
 
   return {
-    targetDir,
+    targetDir: input.targetDir,
     copiedPaths,
     meta,
   };
+}
+
+export async function publishUserConfigFromWorkspace(input: {
+  userId: string;
+  spaceId: string;
+  checkpointId: string;
+  workspaceDir: string;
+}): Promise<PublishConfigResult> {
+  return publishConfigFromWorkspace({
+    workspaceDir: input.workspaceDir,
+    checkpointId: input.checkpointId,
+    targetDir: getPublishedUserConfigDir(input.userId),
+    whitelist: USER_CONFIG_PUBLISH_WHITELIST,
+    sourceLabel: input.spaceId,
+  });
 }
 
 export async function readPublishedUserConfigMeta(userId: string) {

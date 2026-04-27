@@ -33,6 +33,9 @@ __IMAGE_PULL_SECRETS_BLOCK__
             - name: space-storage
               mountPath: /space-storage
               subPath: __SPACE_STORAGE_SUBPATH__
+            - name: space-storage
+              mountPath: /configs
+              subPath: __CONFIGS_SUBPATH__
           resources:
             requests:
               cpu: "__REQUEST_CPU__"
