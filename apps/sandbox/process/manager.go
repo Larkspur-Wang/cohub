@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -60,7 +61,7 @@ func NewManager(logger *slog.Logger) *Manager {
 	}
 }
 
-func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeoutSecs int) (string, io.ReadCloser, io.ReadCloser, <-chan *int, error) {
+func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeoutSecs int, extraEnv map[string]string) (string, io.ReadCloser, io.ReadCloser, <-chan *int, error) {
 	ctx := context.Background()
 	var cancel context.CancelFunc
 	if timeoutSecs > 0 {
@@ -72,6 +73,16 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 	cmd := exec.Command("bash", "-lc", command)
 	cmd.Dir = cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if len(extraEnv) > 0 {
+		envValues := os.Environ()
+		for key, value := range extraEnv {
+			if key == "" {
+				continue
+			}
+			envValues = append(envValues, fmt.Sprintf("%s=%s", key, value))
+		}
+		cmd.Env = envValues
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

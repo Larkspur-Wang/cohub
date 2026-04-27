@@ -218,6 +218,7 @@ export type ProcessStartParams = {
   command: string;
   timeoutSecs?: number;
   cwd?: string;
+  env?: Record<string, string>;
 };
 
 export type ProcessStartResult = {

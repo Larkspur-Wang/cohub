@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 
 import { config } from "./config.js";
+import { verifyExecutionGrant, type ExecutionGrantPayload } from "./execution-grants.js";
 
 const parseBearer = (value?: string | null) => {
   if (!value) {
@@ -26,6 +27,15 @@ export type AuthUserProfile = {
   [key: string]: unknown;
 };
 
+export type ExecutionAuthPrincipal = {
+  type: "execution";
+  actorUserId: string | null;
+  spaceId: string;
+  sessionId: string | null;
+  source: string;
+  expiresAt: number;
+};
+
 export const fetchAuthUser = async (token: string) => {
   const response = await fetch(`${config.authBaseUrl}/v1/user/`, {
     headers: {
@@ -44,3 +54,20 @@ export const fetchAuthUser = async (token: string) => {
 
   return (await response.json()) as AuthUserProfile;
 };
+
+export const consumeExecutionAuthFromToken = async (token: string): Promise<ExecutionAuthPrincipal | null> => {
+  const grant = await verifyExecutionGrant(token);
+  if (!grant) return null;
+  return toExecutionAuthPrincipal(grant);
+};
+
+function toExecutionAuthPrincipal(grant: ExecutionGrantPayload): ExecutionAuthPrincipal {
+  return {
+    type: "execution",
+    actorUserId: grant.actorUserId,
+    spaceId: grant.spaceId,
+    sessionId: grant.sessionId,
+    source: grant.source,
+    expiresAt: grant.exp * 1000,
+  };
+}

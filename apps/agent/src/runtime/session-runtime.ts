@@ -176,6 +176,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       tools: options.tools as never,
       messages: sessionContext.messages,
     },
+    steeringMode: "all",
     convertToLlm: toLlmMessages,
     streamFn: createStreamFn(options.modelRegistry),
     getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),

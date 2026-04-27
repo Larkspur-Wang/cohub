@@ -17,6 +17,7 @@ import {
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs } from "./session-output.js";
+import { createExecutionGrant } from "./execution-grants.js";
 
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
@@ -464,6 +465,18 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
 
   const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
+  const actorUserId = typeof input.meta?.actorUserId === "string" && input.meta.actorUserId.trim()
+    ? input.meta.actorUserId.trim()
+    : null;
+  const source = typeof input.meta?.source === "string" && input.meta.source.trim()
+    ? input.meta.source.trim()
+    : "prompt";
+  const executionGrant = await createExecutionGrant({
+    actorUserId,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    source,
+  });
 
   // Inject trace context so the Agent can continue the same trace
   const traceCarrier = injectTrace();
@@ -478,6 +491,7 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
       userMessageId: input.userMessageId ?? null,
       content: input.content,
       meta: input.meta ?? null,
+      executionAuth: executionGrant,
       timestamp: new Date().toISOString(),
       expectedOwnerId: lease.ownerId,
       expectedEpoch: lease.epoch,

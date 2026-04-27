@@ -23,7 +23,7 @@ export interface BashOperations {
   exec: (
     command: string,
     cwd: string,
-    options: { onData: (chunk: Buffer) => void; signal?: AbortSignal; timeout?: number },
+    options: { onData: (chunk: Buffer) => void; signal?: AbortSignal; timeout?: number; env?: Record<string, string> },
   ) => Promise<{ exitCode: number | null }>;
 }
 

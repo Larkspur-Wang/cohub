@@ -12,6 +12,8 @@ export type ToolExecutionContext = {
   turnSeq?: number;
   llmRound?: number;
   toolCallId?: string;
+  actorUserId?: string | null;
+  executionToken?: string | null;
   metrics?: TurnTelemetryMetrics;
 };
 

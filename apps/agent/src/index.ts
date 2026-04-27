@@ -281,6 +281,21 @@ function nextTurnSequence(sessionKey: string) {
   return next;
 }
 
+async function runInSessionOperation<T>(handle: SessionHandle, fn: () => Promise<T>): Promise<T> {
+  const previous = handle.operationChain.catch(() => undefined);
+  let resolveCurrent!: () => void;
+  handle.operationChain = new Promise<void>((resolve) => {
+    resolveCurrent = resolve;
+  });
+
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    resolveCurrent();
+  }
+}
+
 function getModelRegistryForUser(userId: string | null | undefined) {
   const key = userId?.trim() || "__platform__";
   const now = Date.now();
@@ -385,116 +400,140 @@ async function main() {
             sessionHandles,
           });
 
-          handle.ownerEpoch = inputEntry.expectedEpoch;
-          handle.lastActiveAt = Date.now();
-          if (handle.idleTimer) {
-            clearTimeout(handle.idleTimer);
-            handle.idleTimer = null;
-          }
-
-          if (!handle.onIdle) {
-            handle.onIdle = (idleHandle) => {
-              scheduleSessionIdleEviction(idleHandle);
-            };
-          }
-
-          const currentModel = handle.session.agent.state.model;
-          if (requestedProvider && requestedModel && currentModel) {
-            if (!(currentModel.provider === requestedProvider && currentModel.id === requestedModel)) {
-              const targetModel = handle.session.modelRegistry.find(requestedProvider, requestedModel);
-              if (targetModel) {
-                console.log(
-                  `[Agent] Switching model from ${currentModel.provider}/${currentModel.id} to ${requestedProvider}/${requestedModel}`,
-                );
-                await handle.session.setModel(targetModel);
-              } else {
-                console.warn(
-                  `[Agent] Requested model ${requestedProvider}/${requestedModel} not found, keeping current model`,
-                );
-              }
-            }
-          }
-
           const content = inputEntry.content as ContentBlock[];
           const userMessageId = inputEntry.userMessageId;
-          if (userMessageId) {
-            handle.pendingUserMessages.push({
-              userMessageId,
-              content,
-              meta: meta ?? null,
-            });
-          }
+          const executionAuth = (inputEntry as { executionAuth?: { token?: string; expiresAt?: number } | null }).executionAuth ?? null;
+          const executionToken = typeof executionAuth?.token === "string" && executionAuth.token.trim()
+            ? executionAuth.token.trim()
+            : null;
+          const actorUserId = typeof meta?.actorUserId === "string" && meta.actorUserId.trim()
+            ? meta.actorUserId.trim()
+            : null;
 
-          const sessionKey = getSessionKey(inputEntry.spaceId, sessionId);
-          const turnSeq = nextTurnSequence(sessionKey);
-          const turnId = randomUUID();
-          const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
-          const mode = handle.session.isStreaming ? "steer" : "prompt";
-          const text = extractContentText(content);
-          const images = extractContentImages(content);
+          const runPromptTurn = async () => {
+            handle.ownerEpoch = inputEntry.expectedEpoch;
+            handle.lastActiveAt = Date.now();
+            if (handle.idleTimer) {
+              clearTimeout(handle.idleTimer);
+              handle.idleTimer = null;
+            }
 
-          await wrapAgentTurn(agentTracer, {
-            action: inputEntry.action,
-            mode,
-            spaceId: inputEntry.spaceId,
-            sessionId,
-            turnId,
-            turnSeq,
-            userMessageId,
-            modelProvider: handle.session.agent.state.model.provider,
-            modelId: handle.session.agent.state.model.id,
-            isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
-          }, async (turnSpan) => {
-            handle.currentTurnId = turnId;
-            handle.currentTurnSeq = turnSeq;
-            handle.currentLlmRound = 0;
-            if (handle.session.isStreaming) {
-              console.log(
-                `[Agent] Session ${sessionId} is streaming, using steer for new message`,
-              );
-              await runWithToolExecutionContext({
-                spaceId: inputEntry.spaceId,
-                sessionId,
-                turnId,
-                turnSeq,
-                llmRound: 0,
-                metrics: turnMetrics,
-              }, async () => {
-                console.log(`[Agent] steer:start sessionId=${sessionId}`);
-                await handle.session.steer(text, images);
-                console.log(`[Agent] steer:end sessionId=${sessionId}`);
+            if (!handle.onIdle) {
+              handle.onIdle = (idleHandle) => {
+                scheduleSessionIdleEviction(idleHandle);
+              };
+            }
+
+            const currentModel = handle.session.agent.state.model;
+            if (requestedProvider && requestedModel && currentModel) {
+              if (!(currentModel.provider === requestedProvider && currentModel.id === requestedModel)) {
+                const targetModel = handle.session.modelRegistry.find(requestedProvider, requestedModel);
+                if (targetModel) {
+                  console.log(
+                    `[Agent] Switching model from ${currentModel.provider}/${currentModel.id} to ${requestedProvider}/${requestedModel}`,
+                  );
+                  await handle.session.setModel(targetModel);
+                } else {
+                  console.warn(
+                    `[Agent] Requested model ${requestedProvider}/${requestedModel} not found, keeping current model`,
+                  );
+                }
+              }
+            }
+
+            if (userMessageId) {
+              handle.pendingUserMessages.push({
+                userMessageId,
+                content,
+                meta: meta ?? null,
               });
-            } else {
-              console.log(
-                `[Agent] Session ${sessionId} is idle, using prompt for new message`,
-              );
-              await runWithToolExecutionContext({
-                spaceId: inputEntry.spaceId,
-                sessionId,
-                turnId,
-                turnSeq,
-                llmRound: 0,
-                metrics: turnMetrics,
-              }, async () => {
-                console.log(`[Agent] prompt:start sessionId=${sessionId}`);
-                await handle.session.prompt(text, {
-                  images,
-                });
-                console.log(`[Agent] prompt:end sessionId=${sessionId}`);
+              handle.pendingExecutionAuths.push({
+                actorUserId,
+                executionToken,
               });
             }
 
-            turnSpan.setAttribute("agent.llm_round_count", turnMetrics.llmRoundCount);
-            turnSpan.setAttribute("agent.tool_count", turnMetrics.toolCallCount);
-            turnSpan.setAttribute("agent.outcome", "ok");
-            handle.currentLlmRound = turnMetrics.llmRoundCount;
-          });
+            const sessionKey = getSessionKey(inputEntry.spaceId, sessionId);
+            const turnSeq = nextTurnSequence(sessionKey);
+            const turnId = randomUUID();
+            const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
+            const mode = handle.session.isStreaming ? "steer" : "prompt";
+            const text = extractContentText(content);
+            const images = extractContentImages(content);
 
-          console.log(`[Agent] ack input sessionId=${sessionId}`);
-          await ack();
-          handle.lastActiveAt = Date.now();
-          if (!handle.session.isStreaming) {
-            scheduleSessionIdleEviction(handle);
+            await wrapAgentTurn(agentTracer, {
+              action: inputEntry.action,
+              mode,
+              spaceId: inputEntry.spaceId,
+              sessionId,
+              turnId,
+              turnSeq,
+              userMessageId,
+              modelProvider: handle.session.agent.state.model.provider,
+              modelId: handle.session.agent.state.model.id,
+              isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
+            }, async (turnSpan) => {
+              handle.currentTurnId = turnId;
+              handle.currentTurnSeq = turnSeq;
+              handle.currentLlmRound = 0;
+              if (handle.session.isStreaming) {
+                console.log(
+                  `[Agent] Session ${sessionId} is streaming, using steer for new message`,
+                );
+                await runWithToolExecutionContext({
+                  spaceId: inputEntry.spaceId,
+                  sessionId,
+                  turnId,
+                  turnSeq,
+                  llmRound: 0,
+                  actorUserId,
+                  executionToken,
+                  metrics: turnMetrics,
+                }, async () => {
+                  console.log(`[Agent] steer:start sessionId=${sessionId}`);
+                  await handle.session.steer(text, images);
+                  console.log(`[Agent] steer:end sessionId=${sessionId}`);
+                });
+              } else {
+                console.log(
+                  `[Agent] Session ${sessionId} is idle, using prompt for new message`,
+                );
+                await runWithToolExecutionContext({
+                  spaceId: inputEntry.spaceId,
+                  sessionId,
+                  turnId,
+                  turnSeq,
+                  llmRound: 0,
+                  actorUserId,
+                  executionToken,
+                  metrics: turnMetrics,
+                }, async () => {
+                  console.log(`[Agent] prompt:start sessionId=${sessionId}`);
+                  await handle.session.prompt(text, {
+                    images,
+                  });
+                  console.log(`[Agent] prompt:end sessionId=${sessionId}`);
+                });
+              }
+
+              turnSpan.setAttribute("agent.llm_round_count", turnMetrics.llmRoundCount);
+              turnSpan.setAttribute("agent.tool_count", turnMetrics.toolCallCount);
+              turnSpan.setAttribute("agent.outcome", "ok");
+              handle.currentLlmRound = turnMetrics.llmRoundCount;
+            });
+
+            console.log(`[Agent] ack input sessionId=${sessionId}`);
+            await ack();
+            handle.lastActiveAt = Date.now();
+            if (!handle.session.isStreaming) {
+              scheduleSessionIdleEviction(handle);
+            }
+          };
+
+          if (handle.session.isStreaming) {
+            await runPromptTurn();
+          } else {
+            await runInSessionOperation(handle, runPromptTurn);
           }
         } else if (inputEntry.action === "abort") {
           if (inputEntry.sessionId) {

@@ -60,6 +60,13 @@ const PromptInputSchema = z.object({
     .passthrough()
     .nullable()
     .optional(),
+  executionAuth: z
+    .object({
+      token: z.string().min(1),
+      expiresAt: z.number(),
+    })
+    .nullable()
+    .optional(),
   timestamp: z.string().optional(),
   expectedOwnerId: z.string().min(1),
   expectedEpoch: z.coerce.number().int().positive(),

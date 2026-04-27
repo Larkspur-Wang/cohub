@@ -88,10 +88,12 @@ function createHandle(session: FakeSession): SessionHandle {
     idleTimer: null,
     onIdle: null,
     pendingUserMessages: [],
+    pendingExecutionAuths: [],
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
     persistenceChain: Promise.resolve(),
+    operationChain: Promise.resolve(),
     streamState: {
       assistantState: createAssistantStreamState(),
       content: [],

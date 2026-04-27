@@ -12,6 +12,7 @@ import {
   getAgentSpaceSessionsPath,
   getAgentWorkspacePath,
 } from "./runtime/paths.js";
+import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
@@ -45,10 +46,12 @@ export type SessionHandle = {
   idleTimer: ReturnType<typeof setTimeout> | null;
   onIdle?: ((handle: SessionHandle) => void) | null;
   pendingUserMessages: PendingUserMessage[];
+  pendingExecutionAuths: Array<{ actorUserId: string | null; executionToken: string | null }>;
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
   currentUserMessageMeta: Record<string, unknown> | null;
   persistenceChain: Promise<void>;
+  operationChain: Promise<void>;
   streamState: {
     assistantState: AssistantStreamState;
     content: ContentBlock[];
@@ -322,6 +325,14 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           handle.currentUserMessageContent = pending.content;
           handle.currentUserMessageMeta = pending.meta ?? null;
         }
+        const nextExecutionAuth = handle.pendingExecutionAuths.shift();
+        if (nextExecutionAuth) {
+          setCurrentSessionExecutionAuth({
+            sessionId: handle.sessionId,
+            actorUserId: nextExecutionAuth.actorUserId,
+            executionToken: nextExecutionAuth.executionToken,
+          });
+        }
       }
       if (message.role === "assistant") {
         resetStreamState(handle);
@@ -473,6 +484,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       handle.currentTurnId = null;
       handle.currentTurnSeq = null;
       handle.currentUserMessageId = null;
+      clearCurrentSessionExecutionAuth(handle.sessionId);
       handle.onIdle?.(handle);
     }
   });
@@ -582,10 +594,12 @@ export async function loadOrCreateSessionHandle(input: {
     idleTimer: null,
     onIdle: null,
     pendingUserMessages: [],
+    pendingExecutionAuths: [],
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
     persistenceChain: Promise.resolve(),
+    operationChain: Promise.resolve(),
     streamState: {
       assistantState: createAssistantStreamState(),
       content: [],

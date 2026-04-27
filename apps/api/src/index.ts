@@ -8,7 +8,7 @@ import { httpInstrumentationMiddleware } from "@hono/otel";
 
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
-import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile } from "./auth.js";
+import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
 import { assertRequiredConfig } from "./config.js";
 import {
   createBlockingRedisClient,
@@ -179,6 +179,8 @@ const app = new Hono<{
   Variables: {
     token: string | null;
     authUser: AuthUserProfile | null;
+    executionAuth: ExecutionAuthPrincipal | null;
+    principal: { type: "user"; user: AuthUserProfile & { uuid: string } } | { type: "execution"; execution: ExecutionAuthPrincipal } | null;
   };
 }>();
 
@@ -203,15 +205,30 @@ app.use(
 app.use(async (c, next) => {
   const token = getTokenFromRequest(c);
   c.set("token", token);
+  c.set("authUser", null);
+  c.set("executionAuth", null);
+  c.set("principal", null);
+
   if (token) {
+    const executionAuth = await consumeExecutionAuthFromToken(token).catch(() => null);
+    if (executionAuth) {
+      c.set("executionAuth", executionAuth);
+      c.set("principal", { type: "execution", execution: executionAuth });
+      await next();
+      return;
+    }
+
     try {
-      c.set("authUser", await fetchAuthUser(token));
+      const authUser = await fetchAuthUser(token);
+      c.set("authUser", authUser);
+      if (authUser?.uuid) {
+        c.set("principal", { type: "user", user: authUser as AuthUserProfile & { uuid: string } });
+      }
     } catch {
       c.set("authUser", null);
     }
-  } else {
-    c.set("authUser", null);
   }
+
   await next();
 });
 

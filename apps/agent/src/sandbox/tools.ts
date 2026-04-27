@@ -31,6 +31,7 @@ import {
   SANDBOX_PLATFORM_AGENTS_PATH,
   SANDBOX_WORKSPACE_PATH,
 } from "../runtime/paths.js";
+import { getCurrentSessionExecutionAuth } from "../runtime/session-execution-auth.js";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
 import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
 
@@ -233,7 +234,7 @@ function createRemoteEditOperations(): EditOperations {
 function createRemoteBashOperations(): BashOperations {
   const tracer = getAgentTracer();
   return {
-    exec(command, cwd, { onData, signal, timeout }) {
+    exec(command, cwd, { onData, signal, timeout, env }) {
       return new Promise((resolve, reject) => {
         let processId: string | null = null;
         let settled = false;
@@ -263,6 +264,12 @@ function createRemoteBashOperations(): BashOperations {
             }, async () => {
               const connection = await getCurrentConnection();
               const sandboxCwd = mapLocalAbsolutePathToSandboxPath(cwd);
+              const ctx = getCurrentToolExecutionContext();
+              const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
+              const injectedEnv: Record<string, string> = {
+                ...(env ?? {}),
+                ...(sessionExecutionAuth?.executionToken ? { COHUB_EXECUTION_TOKEN: sessionExecutionAuth.executionToken } : {}),
+              };
               console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);
 
               const cleanupAbort = () => {
@@ -287,6 +294,7 @@ function createRemoteBashOperations(): BashOperations {
                   command,
                   timeoutSecs: timeout,
                   cwd: sandboxCwd,
+                  env: Object.keys(injectedEnv).length > 0 ? injectedEnv : undefined,
                 },
                 {
                   onEvent(event) {
@@ -299,7 +307,12 @@ function createRemoteBashOperations(): BashOperations {
                     }
 
                     if (event.type === "stdout" || event.type === "stderr") {
-                      onData(Buffer.from(`${event.chunk}\n`, "utf8"));
+                      let chunk = `${event.chunk}\n`;
+                      const token = injectedEnv.COHUB_EXECUTION_TOKEN;
+                      if (token) {
+                        chunk = chunk.split(token).join("[REDACTED_TOKEN]");
+                      }
+                      onData(Buffer.from(chunk, "utf8"));
                       return;
                     }
 

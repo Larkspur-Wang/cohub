@@ -136,9 +136,10 @@ type fsGrepParams struct {
 }
 
 type processStartParams struct {
-	Command     string `json:"command"`
-	TimeoutSecs int    `json:"timeoutSecs"`
-	CWD         string `json:"cwd"`
+	Command     string            `json:"command"`
+	TimeoutSecs int               `json:"timeoutSecs"`
+	CWD         string            `json:"cwd"`
+	Env         map[string]string `json:"env"`
 }
 
 type processAbortParams struct {
@@ -560,7 +561,7 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string
 		return d.failed(request, opID, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
 	}
 
-	processID, stdout, stderr, exitCh, err := d.processManager.Start(ownerIdentity, params.Command, resolved.path, params.TimeoutSecs)
+	processID, stdout, stderr, exitCh, err := d.processManager.Start(ownerIdentity, params.Command, resolved.path, params.TimeoutSecs, params.Env)
 	if err != nil {
 		d.logger.Error("process:start failed", slog.String("cmd", cmdSummary), slog.String("error", err.Error()))
 		return d.failed(request, opID, "PROCESS_SPAWN_FAILED", err.Error())

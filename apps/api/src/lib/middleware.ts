@@ -2,9 +2,13 @@ import { timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthUserProfile } from "../auth.js";
+import type { ExecutionAuthPrincipal } from "../auth.js";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
 export type AuthUser = AuthUserProfile & { uuid: string };
+export type RequestPrincipal =
+  | { type: "user"; user: AuthUser }
+  | { type: "execution"; execution: ExecutionAuthPrincipal };
 
 import { config } from "../config.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
@@ -31,11 +35,16 @@ export const requireValidId = (value: string | null | undefined) =>
  * Callers should use `useAuth(c)` for a type-safe return.
  */
 export const requireAuth = (c: Context): AuthUser | Response => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  if (principal?.type === "user") {
+    return principal.user;
+  }
+  if (principal?.type === "execution" && principal.execution.actorUserId) {
+    return { uuid: principal.execution.actorUserId } as AuthUser;
+  }
   const token = c.get("token");
   if (!token) return c.json({ message: "unauthorized" }, 401);
-  const user = c.get("authUser");
-  if (!user?.uuid) return c.json({ message: "unauthorized" }, 401);
-  return user as AuthUser;
+  return c.json({ message: "unauthorized" }, 401);
 };
 
 /**
@@ -46,6 +55,11 @@ export const requireAuth = (c: Context): AuthUser | Response => {
 export const useAuth = (c: Context): AuthUser => {
   const result = requireAuth(c);
   return result as AuthUser;
+};
+
+export const getExecutionPrincipal = (c: Context): ExecutionAuthPrincipal | null => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  return principal?.type === "execution" ? principal.execution : null;
 };
 
 // ── Internal request validation ──────────────────────────────────────────────
