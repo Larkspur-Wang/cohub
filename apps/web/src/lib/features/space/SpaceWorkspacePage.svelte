@@ -50,7 +50,7 @@ import {
 	Users,
 	X,
 } from "lucide-svelte";
-import { onMount, tick } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
@@ -3038,28 +3038,30 @@ $effect(() => {
 
 	bootstrapping = true;
 
-	void (async () => {
-		try {
-			await loadSpace();
-			if (spaceId !== currentSpaceId) return;
-			void loadFileTree(true);
+	untrack(() => {
+		void (async () => {
+			try {
+				await loadSpace();
+				if (spaceId !== currentSpaceId) return;
+				void loadFileTree(true);
 
-			if (routeView === "session" && routeSessionId) {
-				activeSessionId = routeSessionId;
-				pendingRestoreSessionId = routeSessionId;
-				suppressScrollSaveSessionIds.add(routeSessionId);
-				ensureSessionModelLoaded(routeSessionId);
-				shouldAutoFollow = true;
-				await loadSessionState(routeSessionId).catch(() => undefined);
+				if (routeView === "session" && routeSessionId) {
+					activeSessionId = routeSessionId;
+					pendingRestoreSessionId = routeSessionId;
+					suppressScrollSaveSessionIds.add(routeSessionId);
+					ensureSessionModelLoaded(routeSessionId);
+					shouldAutoFollow = true;
+					await loadSessionState(routeSessionId).catch(() => undefined);
+				}
+			} catch {
+				// Non-blocking; bootstrapping released below
+			} finally {
+				if (spaceId === currentSpaceId) {
+					bootstrapping = false;
+				}
 			}
-		} catch {
-			// Non-blocking; bootstrapping released below
-		} finally {
-			if (spaceId === currentSpaceId) {
-				bootstrapping = false;
-			}
-		}
-	})();
+		})();
+	});
 });
 
 // React to space changes: subscribe to WS events for the new space
@@ -3199,10 +3201,13 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (!activeSessionId) return;
-	const state = sessionStateById[activeSessionId];
+	const sessionId = activeSessionId;
+	if (!sessionId) return;
+	const state = sessionStateById[sessionId];
 	if (!state?.loaded && !state?.loading) {
-		void loadSessionState(activeSessionId);
+		untrack(() => {
+			void loadSessionState(sessionId);
+		});
 	}
 });
 
