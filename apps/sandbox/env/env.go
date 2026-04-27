@@ -23,8 +23,8 @@ const (
 type Config struct {
 	SpaceID                        string
 	WorkspaceDir                   string
-	PlatformAgentsDir string
-	UserAgentsDir     string
+	PlatformAgentsDir              string
+	UserAgentsDir                  string
 	ImageVersion                   string
 	InternalAPIBaseURL             string
 	SandboxReportToken             string
@@ -66,8 +66,8 @@ func Load() (Config, error) {
 	return Config{
 		SpaceID:                        spaceID,
 		WorkspaceDir:                   workspaceDir,
-		PlatformAgentsDir: platformAgentsDir,
-		UserAgentsDir:     userAgentsDir,
+		PlatformAgentsDir:              platformAgentsDir,
+		UserAgentsDir:                  userAgentsDir,
 		ImageVersion:                   imageVersion,
 		InternalAPIBaseURL:             strings.TrimSpace(os.Getenv("INTERNAL_API_BASE_URL")),
 		SandboxReportToken:             strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
