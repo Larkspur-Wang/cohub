@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.2 (2026-04-27)
+
+### Features
+
+- **tracing**: extract shared OTel tracing package and add full distributed trace propagation
+
+### Bug Fixes
+
+- **worker**: add missing @cohub/tracing paths to typecheck config
+- update Dockerfiles to include packages/tracing for multi-stage builds
+
 ## v1.1.1 (2026-04-26)
 
 ### Bug Fixes
