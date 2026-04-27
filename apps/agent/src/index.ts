@@ -300,6 +300,81 @@ async function runInSessionOperation<T>(handle: SessionHandle, fn: () => Promise
   }
 }
 
+async function enqueueStreamingSteerAndWait(input: {
+  handle: SessionHandle;
+  sessionId: string;
+  text: string;
+  images: ReturnType<typeof extractContentImages>;
+  ack: () => Promise<void>;
+  reject: (reason: string) => Promise<void>;
+}) {
+  if (!input.handle.session.isStreaming) {
+    const inFlightDrain = input.handle.steerDrainPromise;
+    if (inFlightDrain) {
+      await inFlightDrain;
+    }
+    console.log(`[Agent] steer:fallback-to-prompt sessionId=${input.sessionId}`);
+    await input.handle.session.prompt(input.text, {
+      images: input.images,
+    });
+    console.log(`[Agent] ack input sessionId=${input.sessionId}`);
+    await input.ack();
+    input.handle.lastActiveAt = Date.now();
+    scheduleSessionIdleEviction(input.handle);
+    return;
+  }
+
+  const waiter = new Promise<void>((resolve) => {
+    input.handle.pendingSteerCompletions.push({
+      ack: input.ack,
+      reject: input.reject,
+      done: resolve,
+    });
+  });
+
+  input.handle.session.enqueueSteer(input.text, input.images);
+
+  if (!input.handle.steerDrainPromise) {
+    input.handle.steerDrainPromise = (async () => {
+      try {
+        console.log(`[Agent] steer:drain:start sessionId=${input.handle.sessionId}`);
+        await input.handle.session.waitForIdle();
+        console.log(`[Agent] steer:drain:end sessionId=${input.handle.sessionId}`);
+        while (input.handle.pendingSteerCompletions.length > 0) {
+          const completions = input.handle.pendingSteerCompletions.splice(
+            0,
+            input.handle.pendingSteerCompletions.length,
+          );
+          for (const completion of completions) {
+            await completion.ack();
+            completion.done();
+          }
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        while (input.handle.pendingSteerCompletions.length > 0) {
+          const completions = input.handle.pendingSteerCompletions.splice(
+            0,
+            input.handle.pendingSteerCompletions.length,
+          );
+          for (const completion of completions) {
+            await completion.reject(reason);
+            completion.done();
+          }
+        }
+      } finally {
+        input.handle.steerDrainPromise = null;
+        input.handle.lastActiveAt = Date.now();
+        if (!input.handle.session.isStreaming) {
+          scheduleSessionIdleEviction(input.handle);
+        }
+      }
+    })();
+  }
+
+  await waiter;
+}
+
 function getModelRegistryForUser(userId: string | null | undefined) {
   const key = userId?.trim() || "__platform__";
   const now = Date.now();
@@ -495,7 +570,14 @@ async function main() {
                   metrics: turnMetrics,
                 }, async () => {
                   console.log(`[Agent] steer:start sessionId=${sessionId}`);
-                  await handle.session.steer(text, images);
+                  await enqueueStreamingSteerAndWait({
+                    handle,
+                    sessionId,
+                    text,
+                    images,
+                    ack,
+                    reject,
+                  });
                   console.log(`[Agent] steer:end sessionId=${sessionId}`);
                 });
               } else {
@@ -526,10 +608,10 @@ async function main() {
               handle.currentLlmRound = turnMetrics.llmRoundCount;
             });
 
-            console.log(`[Agent] ack input sessionId=${sessionId}`);
-            await ack();
-            handle.lastActiveAt = Date.now();
-            if (!handle.session.isStreaming) {
+            if (mode === "prompt") {
+              console.log(`[Agent] ack input sessionId=${sessionId}`);
+              await ack();
+              handle.lastActiveAt = Date.now();
               scheduleSessionIdleEviction(handle);
             }
           };

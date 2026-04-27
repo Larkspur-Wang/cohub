@@ -17,6 +17,8 @@ export type CohubAgentSession = {
   isStreaming: boolean;
   prompt(text: string, options?: { images?: ImageContent[] }): Promise<void>;
   steer(text: string, images?: ImageContent[]): Promise<void>;
+  enqueueSteer(text: string, images?: ImageContent[]): void;
+  waitForIdle(): Promise<void>;
   setModel(model: Model<Api>): Promise<void>;
   reload(): Promise<void>;
   abort(): Promise<void>;
@@ -204,6 +206,12 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async steer(text, images) {
       agent.steer(createUserMessage(text, images));
+      await agent.waitForIdle();
+    },
+    enqueueSteer(text, images) {
+      agent.steer(createUserMessage(text, images));
+    },
+    async waitForIdle() {
       await agent.waitForIdle();
     },
     async setModel(nextModel) {

@@ -89,6 +89,8 @@ function createHandle(session: FakeSession): SessionHandle {
     onIdle: null,
     pendingUserMessages: [],
     pendingExecutionAuths: [],
+    steerDrainPromise: null,
+    pendingSteerCompletions: [],
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,

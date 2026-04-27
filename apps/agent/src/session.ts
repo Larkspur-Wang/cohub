@@ -47,6 +47,12 @@ export type SessionHandle = {
   onIdle?: ((handle: SessionHandle) => void) | null;
   pendingUserMessages: PendingUserMessage[];
   pendingExecutionAuths: Array<{ actorUserId: string | null; executionToken: string | null }>;
+  steerDrainPromise: Promise<void> | null;
+  pendingSteerCompletions: Array<{
+    ack: () => Promise<void>;
+    reject: (reason: string) => Promise<void>;
+    done: () => void;
+  }>;
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
   currentUserMessageMeta: Record<string, unknown> | null;
@@ -595,6 +601,8 @@ export async function loadOrCreateSessionHandle(input: {
     onIdle: null,
     pendingUserMessages: [],
     pendingExecutionAuths: [],
+    steerDrainPromise: null,
+    pendingSteerCompletions: [],
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
