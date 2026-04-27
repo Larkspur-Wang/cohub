@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@neta-art/cohub-protocol/task";
 import { registerTask } from "./registry.js";
@@ -88,7 +88,10 @@ const saveCheckpointHandler = async (job: Job) => {
   const head = await runGitWithOutput(["rev-parse", "HEAD"], workspaceDir);
   const commitHash = head.stdout.trim();
 
-  const [checkpoint] = await db
+  // Insert with conflict handling — when there are no new git changes (changedFiles=0),
+  // the commitHash stays the same and the unique constraint on (space_id, commit_hash)
+  // would be violated on retries or repeated saves.
+  const insertResult = await db
     .insert(checkpoints)
     .values({
       spaceId,
@@ -103,9 +106,16 @@ const saveCheckpointHandler = async (job: Job) => {
         source: "worker_save_checkpoint",
       },
     })
+    .onConflictDoNothing()
     .returning();
 
-  if (!checkpoint) throw new Error("failed to create checkpoint record");
+  const checkpoint = insertResult[0] ?? (
+    await db.select().from(checkpoints).where(
+      and(eq(checkpoints.spaceId, spaceId), eq(checkpoints.commitHash, commitHash)),
+    ).limit(1)
+  )[0];
+
+  if (!checkpoint) throw new Error("failed to create or find checkpoint record");
 
   await db
     .update(spaces)
