@@ -41,7 +41,6 @@ export class SessionRecoveryCoordinator {
 					.catch(() => undefined)
 					.finally(() => {
 						if (this.disposed) return;
-						void this.options.refreshSessionsList().catch(() => undefined);
 						this.scheduleFallbackSync(sessionId, attempt + 1);
 					});
 			},

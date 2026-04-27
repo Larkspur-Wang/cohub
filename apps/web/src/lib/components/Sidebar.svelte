@@ -417,7 +417,6 @@ async function handleCreateNewSession() {
 			result.session,
 			...current.filter((session) => session.id !== result.session.id),
 		]);
-		void loadSessionsForSpace(currentSpaceId, true);
 		await handleNavigateToSession(result.session.id);
 	} catch (error) {
 		createSessionError =

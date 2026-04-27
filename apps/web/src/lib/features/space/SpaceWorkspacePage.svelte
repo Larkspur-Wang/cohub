@@ -2136,9 +2136,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					session: refreshedSession,
 				},
 			};
-			if (message.role === "user") {
-				void refreshSessionsList(true);
-			}
 		}
 	} catch (error) {
 		console.error("[WS] handleWsEvent error:", error);
@@ -2881,7 +2878,6 @@ function handleCreateNewSession() {
 				...current.filter((session) => session.id !== newSession.id),
 			]);
 			seedSessions(nextSessions);
-			void loadSpace({ force: true });
 			activeSessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			updateUrlSession(newSession.id);
@@ -2985,7 +2981,7 @@ onMount(() => {
 		pageVisible = !document.hidden;
 		scheduleStatusRefresh();
 		if (pageVisible) {
-			void refreshSessionsList(true);
+			void refreshSessionsList(false);
 			if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
 				void reconcileSessionTail(activeSessionId);
 			}
@@ -2995,7 +2991,7 @@ onMount(() => {
 		pageOnline = true;
 		scheduleStatusRefresh();
 		if (wsConnectionState === "open") {
-			void refreshSessionsList(true);
+			void refreshSessionsList(false);
 		}
 	};
 	const handleOffline = () => {
