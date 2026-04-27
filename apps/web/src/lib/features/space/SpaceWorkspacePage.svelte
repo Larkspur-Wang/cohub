@@ -83,13 +83,13 @@ import {
 import { messageCache } from "$lib/stores/message-cache";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
-	applyRealtimeGenerationProgress,
 	clearGenerationError,
 	completeGeneration,
 	failGeneration,
 	resetGeneration,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
+import { applyGenerationRealtimeEnvelope } from "$lib/stores/session-generation-realtime";
 import {
 	fetchSessionListWithCache,
 	getCachedSessionList,
@@ -1922,10 +1922,6 @@ function handleFirstVisible(index: number) {
 	}
 }
 
-function shouldHandleWsEvents(): boolean {
-	return pageMounted && pageVisible && pageOnline;
-}
-
 async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
@@ -2011,36 +2007,21 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		const state = sessionStateById[currentActiveSessionId];
 		if (!state) return;
 
-		if (payload.type === "session.turn.progress") {
-			const content = Array.isArray(payload.payload.content)
-				? (payload.payload.content as ContentBlock[])
-				: [];
-			if (content.length === 0) return;
-			const streamingAnchorUserMessageId =
-				typeof payload.payload.anchorUserMessageId === "string"
-					? payload.payload.anchorUserMessageId
-					: null;
-			applyRealtimeGenerationProgress(currentActiveSessionId, {
-				content,
-				anchorUserMessageId: streamingAnchorUserMessageId,
-			});
-			if (shouldAutoFollow) {
+		const generationEffect = applyGenerationRealtimeEnvelope(
+			currentActiveSessionId,
+			payload,
+		);
+		if (generationEffect.handled) {
+			if (generationEffect.shouldReconcile) {
+				void reconcileSessionTail(currentActiveSessionId);
+			}
+			if (generationEffect.shouldRefreshSessions) {
+				void refreshSessionsList(true);
+			}
+			if (generationEffect.shouldScroll && shouldAutoFollow) {
 				await tick();
 				scrollToBottomNow();
 			}
-			return;
-		}
-
-		if (payload.type === "session.turn.error") {
-			failGeneration(currentActiveSessionId, "Generation failed");
-			return;
-		}
-
-		if (payload.type === "session.turn.final") {
-			completeGeneration(currentActiveSessionId);
-			void reconcileSessionTail(currentActiveSessionId);
-			void refreshSessionsList(true);
-			if (shouldAutoFollow) scrollToBottomNow();
 			return;
 		}
 
