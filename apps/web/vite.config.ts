@@ -60,7 +60,7 @@ export default defineConfig({
 			},
 		],
 	},
-	server: {
+	dev: {
 		sourcemap: {
 			js: true,
 			css: true,
