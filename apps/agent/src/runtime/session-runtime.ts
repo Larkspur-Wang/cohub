@@ -6,7 +6,7 @@ import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/tracing/agent";
-import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../tool-context.js";
+import { getCurrentToolExecutionContext } from "../tool-context.js";
 
 export type CohubAgentSessionEvent = AgentEvent;
 

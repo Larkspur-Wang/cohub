@@ -1178,6 +1178,7 @@ $effect(() => {
       class="absolute bg-bg-primary border border-border-subtle rounded-md shadow-lg py-1 min-w-[160px] z-50"
       style="left: {desktopMenuX}px; top: {desktopMenuY}px;"
       onclick={(e) => e.stopPropagation()}
+      role="presentation"
     >
       <button
         type="button"

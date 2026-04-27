@@ -4056,6 +4056,7 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
@@ -4829,6 +4830,7 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();

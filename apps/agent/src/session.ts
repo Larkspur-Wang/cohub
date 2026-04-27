@@ -115,7 +115,7 @@ function getCurrentSessionTraceContext(handle: SessionHandle): SessionTraceConte
   };
 }
 
-function addLifecycleEvent(handle: SessionHandle, name: string, attributes?: Record<string, string | number | boolean | undefined>) {
+function addLifecycleEvent(name: string, attributes?: Record<string, string | number | boolean | undefined>) {
   const span = trace.getActiveSpan();
   if (!span) return;
   const cleanAttributes = Object.fromEntries(
@@ -315,7 +315,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       }
       const message = event.message as unknown as Record<string, unknown>;
       console.log(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
-      addLifecycleEvent(handle, "session.message_start", {
+      addLifecycleEvent("session.message_start", {
         "message.role": typeof message.role === "string" ? message.role : undefined,
       });
       if (message.role === "user") {
@@ -342,7 +342,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "agent_start") {
       console.log(`[Session] agent:start sessionId=${handle.sessionId}`);
-      addLifecycleEvent(handle, "session.agent_start");
+      addLifecycleEvent("session.agent_start");
     }
 
     if (event.type === "message_update") {
@@ -356,7 +356,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "message_end") {
       const message = event.message as unknown as Record<string, unknown>;
-      addLifecycleEvent(handle, "session.message_end", {
+      addLifecycleEvent("session.message_end", {
         "message.role": typeof message.role === "string" ? message.role : undefined,
       });
       if (message.role === "user" && handle.currentUserMessageId && handle.currentUserMessageContent) {
@@ -397,7 +397,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "tool_execution_start") {
       console.log(`[Session] tool:start tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)}`);
-      addLifecycleEvent(handle, "session.tool_execution_start", {
+      addLifecycleEvent("session.tool_execution_start", {
         "tool.name": event.toolName,
         "agent.tool_call_id": event.toolCallId,
       });
@@ -412,7 +412,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "tool_execution_end") {
       console.log(`[Session] tool:end tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)} error=${event.isError}`);
-      addLifecycleEvent(handle, "session.tool_execution_end", {
+      addLifecycleEvent("session.tool_execution_end", {
         "tool.name": event.toolName,
         "agent.tool_call_id": event.toolCallId,
         "tool.is_error": event.isError,
@@ -430,7 +430,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     if (event.type === "turn_end" && handle.currentUserMessageId) {
       const toolCount = (event as unknown as { toolResults?: unknown[] }).toolResults?.length ?? 0;
       console.log(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
-      addLifecycleEvent(handle, "session.turn_end", {
+      addLifecycleEvent("session.turn_end", {
         "agent.tool_count": toolCount,
       });
       const currentUserMessageId = handle.currentUserMessageId;
@@ -479,7 +479,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
     if (event.type === "agent_end") {
       console.log(`[Session] agent:end sessionId=${handle.sessionId}`);
-      addLifecycleEvent(handle, "session.agent_end");
+      addLifecycleEvent("session.agent_end");
       handle.currentLlmRound = null;
       handle.currentTurnId = null;
       handle.currentTurnSeq = null;

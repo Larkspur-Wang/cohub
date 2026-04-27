@@ -496,6 +496,9 @@ async function submitGlobalRename() {
     <div
       class="fixed inset-0 z-[200] lg:hidden"
       onclick={closeSessionContextMenu}
+      onkeydown={(e) => { if (e.key === "Escape") closeSessionContextMenu(); }}
+      role="presentation"
+      tabindex="-1"
     >
       <!-- Backdrop -->
       <div class="absolute inset-0 bg-black/40"></div>
@@ -504,6 +507,7 @@ async function submitGlobalRename() {
       <div
         class="absolute bottom-0 left-0 right-0 bg-bg-primary border-t border-border-subtle rounded-t-xl overflow-hidden z-50"
         onclick={(e) => e.stopPropagation()}
+        role="presentation"
       >
         {#if globalRenamingSessionId === sessionContextMenu.session.id}
           <!-- Inline rename input -->
