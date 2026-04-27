@@ -1,4 +1,5 @@
 import type { SessionRecord } from "@neta-art/cohub";
+import { sessionGenerationStore } from "./session-generation.svelte";
 
 const STORAGE_KEY = "cohub:session_viewed";
 
@@ -63,9 +64,6 @@ export const unreadTracker = new UnreadTracker();
 /**
  * Whether the session is actively streaming right now.
  */
-export function isStreaming(
-	session: SessionRecord,
-	streamingIds: Set<string>,
-): boolean {
-	return streamingIds.has(session.id);
+export function isStreaming(session: SessionRecord): boolean {
+	return sessionGenerationStore.isStreaming(session.id);
 }

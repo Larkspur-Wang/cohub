@@ -142,8 +142,6 @@ const activeTaskId = $derived.by(() => {
 	return match?.[1] ?? null;
 });
 
-let streamingSessionIds = $state<Set<string>>(new Set());
-
 const currentSpaceId = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/([^/]+)/);
 	const id = match?.[1] ?? null;
@@ -356,26 +354,6 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 	}
 }
 
-function markSessionStreaming(sessionId: string, isSessionStreaming: boolean) {
-	const next = new Set(streamingSessionIds);
-	if (isSessionStreaming) {
-		next.add(sessionId);
-	} else {
-		next.delete(sessionId);
-	}
-	streamingSessionIds = next;
-}
-
-function handleStreamingStatusEvent(e: Event) {
-	const custom = e as CustomEvent;
-	if (
-		custom.detail?.sessionId != null &&
-		typeof custom.detail?.isStreaming === "boolean"
-	) {
-		markSessionStreaming(custom.detail.sessionId, custom.detail.isStreaming);
-	}
-}
-
 async function handleNavigate(href: string) {
 	onClose?.();
 	await goto(href);
@@ -521,7 +499,7 @@ function handleLongPressCancel() {
 }
 
 function sessionIsStreaming(session: SessionRecord): boolean {
-	return isStreaming(session, streamingSessionIds);
+	return isStreaming(session);
 }
 
 function getSessionTitle(session: SessionRecord, _index: number) {
@@ -573,10 +551,6 @@ onMount(() => {
 			await loadSpaces();
 
 			window.addEventListener(
-				"cohub:streaming-status",
-				handleStreamingStatusEvent as EventListener,
-			);
-			window.addEventListener(
 				"cohub:space-created",
 				handleSpaceCreated as EventListener,
 			);
@@ -614,10 +588,6 @@ onMount(() => {
 		offSessionListCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
-			window.removeEventListener(
-				"cohub:streaming-status",
-				handleStreamingStatusEvent as EventListener,
-			);
 			window.removeEventListener(
 				"cohub:space-created",
 				handleSpaceCreated as EventListener,

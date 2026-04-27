@@ -82,6 +82,7 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { messageCache } from "$lib/stores/message-cache";
+import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	fetchSessionListWithCache,
 	getCachedSessionList,
@@ -191,15 +192,8 @@ let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
-let streamStatus = $state<"idle" | "streaming" | "done" | "error">("idle");
-let streamError = $state("");
-let streamingContentBlocks = $state<ContentBlock[]>([]);
-let streamingDraftTruncatedStartBySessionId = $state<Record<string, boolean>>(
-	{},
-);
-let streamingDraftAnchorUserMessageIdBySessionId = $state<
-	Record<string, string | null>
->({});
+let generationErrorBySessionId = $state<Record<string, string>>({});
+let composerError = $state("");
 let modelsCatalog = $state<Array<{
 	provider: string;
 	id: string;
@@ -434,7 +428,6 @@ let chatTimelineRef = $state<{
 	preparePrepend: () => void;
 	finalizePrepend: () => void;
 } | null>(null);
-let streamingSessionId: string | null = null;
 let preloadingSessionIds = new Set<string>();
 type SessionScrollAnchor = {
 	sequence: number;
@@ -948,6 +941,13 @@ const activeSessionModel = $derived.by(() => {
 	if (!activeSessionId) return null;
 	return sessionModelById[activeSessionId] ?? firstCatalogModel;
 });
+const activeGenerationState = $derived.by(() =>
+	sessionGenerationStore.get(activeSessionId),
+);
+const activeStreamError = $derived.by(() =>
+	activeSessionId ? (generationErrorBySessionId[activeSessionId] ?? "") : "",
+);
+const composerNotice = $derived.by(() => activeStreamError || composerError);
 const activePendingMessages = $derived.by(() =>
 	activeSessionId
 		? (sessionPendingStore.pendingBySessionId[activeSessionId] ?? [])
@@ -964,19 +964,14 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 	return buildTimelineItems({
 		messages: activeRenderableMessages,
 		streaming:
-			streamStatus === "streaming" || streamingContentBlocks.length > 0
+			activeGenerationState?.status === "streaming" &&
+			activeGenerationState.contentBlocks.length > 0
 				? {
 						sessionId: activeSessionId ?? "active",
-						anchorUserMessageId: activeSessionId
-							? (streamingDraftAnchorUserMessageIdBySessionId[
-									activeSessionId
-								] ?? null)
-							: null,
-						contentBlocks: streamingContentBlocks,
-						truncatedStart: activeSessionId
-							? (streamingDraftTruncatedStartBySessionId[activeSessionId] ??
-								false)
-							: false,
+						anchorUserMessageId:
+							activeGenerationState.anchorUserMessageId ?? null,
+						contentBlocks: activeGenerationState.contentBlocks,
+						truncatedStart: activeGenerationState.truncatedStart,
 					}
 				: null,
 	});
@@ -1183,14 +1178,6 @@ function writeBottomScrollAnchor(sessionId: string) {
 		offset: listEl.scrollTop - absoluteTop,
 		updatedAt: Date.now(),
 	});
-}
-
-function notifyStreamingStatus(sessionId: string, isStreaming: boolean) {
-	window.dispatchEvent(
-		new CustomEvent("cohub:streaming-status", {
-			detail: { spaceId, sessionId, isStreaming },
-		}),
-	);
 }
 
 function mergeMessagesById(
@@ -2039,56 +2026,35 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				? (payload.payload.content as ContentBlock[])
 				: [];
 			if (content.length === 0) return;
-			const hadPreviousStreamingPreview = streamingContentBlocks.length > 0;
+			const currentGeneration = sessionGenerationStore.get(
+				currentActiveSessionId,
+			);
+			const hadPreviousStreamingPreview =
+				(currentGeneration?.contentBlocks.length ?? 0) > 0;
 			const streamingAnchorUserMessageId =
 				typeof payload.payload.anchorUserMessageId === "string"
 					? payload.payload.anchorUserMessageId
 					: null;
 			const hasExistingStreamingState =
-				streamingContentBlocks.length > 0 ||
-				Boolean(
-					streamingDraftAnchorUserMessageIdBySessionId[currentActiveSessionId],
-				);
+				(currentGeneration?.contentBlocks.length ?? 0) > 0 ||
+				Boolean(currentGeneration?.anchorUserMessageId);
 			const shouldStartFreshPreview =
 				hadPreviousStreamingPreview &&
-				streamStatus !== "streaming" &&
-				streamingSessionId === currentActiveSessionId;
-			const previewBase = shouldStartFreshPreview ? [] : streamingContentBlocks;
+				currentGeneration?.status !== "streaming";
+			const previewBase = shouldStartFreshPreview
+				? []
+				: (currentGeneration?.contentBlocks ?? []);
 			const mergedContent = mergeStreamingDeltaBlocks(previewBase, content);
-			streamingContentBlocks = mergedContent;
-			if (streamingAnchorUserMessageId) {
-				streamingDraftAnchorUserMessageIdBySessionId = {
-					...streamingDraftAnchorUserMessageIdBySessionId,
-					[currentActiveSessionId]: streamingAnchorUserMessageId,
-				};
-			}
-			if (shouldStartFreshPreview) {
-				streamingDraftTruncatedStartBySessionId = {
-					...streamingDraftTruncatedStartBySessionId,
-					[currentActiveSessionId]: false,
-				};
-				if (!streamingAnchorUserMessageId) {
-					streamingDraftAnchorUserMessageIdBySessionId = {
-						...streamingDraftAnchorUserMessageIdBySessionId,
-						[currentActiveSessionId]: null,
-					};
-				}
-			}
-			if (
-				!hasExistingStreamingState &&
-				streamStatus === "streaming" &&
-				streamingSessionId === currentActiveSessionId
-			) {
-				streamingDraftTruncatedStartBySessionId = {
-					...streamingDraftTruncatedStartBySessionId,
-					[currentActiveSessionId]: true,
-				};
-			}
-			if (streamingSessionId !== currentActiveSessionId) {
-				streamingSessionId = currentActiveSessionId;
-				notifyStreamingStatus(currentActiveSessionId, true);
-			}
-			streamStatus = "streaming";
+			sessionGenerationStore.applyProgress(currentActiveSessionId, {
+				contentBlocks: mergedContent,
+				anchorUserMessageId: streamingAnchorUserMessageId,
+				truncatedStart:
+					!hasExistingStreamingState && currentGeneration?.status === "pending"
+						? true
+						: shouldStartFreshPreview
+							? false
+							: (currentGeneration?.truncatedStart ?? false),
+			});
 			if (shouldAutoFollow) {
 				await tick();
 				scrollToBottomNow();
@@ -2097,22 +2063,12 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 
 		if (payload.type === "session.turn.error") {
-			clearStreamingState(currentActiveSessionId);
-			streamStatus = "error";
-			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-			streamingSessionId = null;
+			sessionGenerationStore.fail(currentActiveSessionId, "Generation failed");
 			return;
 		}
 
 		if (payload.type === "session.turn.final") {
-			clearStreamingState(currentActiveSessionId);
-			streamStatus = "done";
-			streamingDraftTruncatedStartBySessionId = {
-				...streamingDraftTruncatedStartBySessionId,
-				[currentActiveSessionId]: false,
-			};
-			if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-			streamingSessionId = null;
+			sessionGenerationStore.complete(currentActiveSessionId);
 			void reconcileSessionTail(currentActiveSessionId);
 			void refreshSessionsList(true);
 			if (shouldAutoFollow) scrollToBottomNow();
@@ -2134,7 +2090,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 
 		if (message.role === "assistant") {
-			streamStatus = "done";
+			sessionGenerationStore.complete(currentActiveSessionId);
 		}
 
 		const merged = mergeMessagesById(state.messages, [message], {
@@ -2178,22 +2134,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 	}
 }
 
-function clearStreamingState(sessionId: string | null = activeSessionId) {
-	streamingContentBlocks = [];
-	if (sessionId) {
-		streamingDraftTruncatedStartBySessionId = {
-			...streamingDraftTruncatedStartBySessionId,
-			[sessionId]: false,
-		};
-		streamingDraftAnchorUserMessageIdBySessionId = {
-			...streamingDraftAnchorUserMessageIdBySessionId,
-			[sessionId]: null,
-		};
-	}
-	if (streamingSessionId) notifyStreamingStatus(streamingSessionId, false);
-	streamingSessionId = null;
-}
-
 async function handleSend() {
 	if (
 		!activeSessionState?.session ||
@@ -2203,8 +2143,13 @@ async function handleSend() {
 	)
 		return;
 	sending = true;
-	streamError = "";
-	streamStatus = "streaming";
+	composerError = "";
+	if (activeSessionId) {
+		generationErrorBySessionId = {
+			...generationErrorBySessionId,
+			[activeSessionId]: "",
+		};
+	}
 
 	const text = input.trim();
 	const attachmentBlocks: ContentBlock[] = imageAttachments.map(
@@ -2250,6 +2195,7 @@ async function handleSend() {
 			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
 		});
 
+		sessionGenerationStore.startPending(sessionId, { clientMessageId });
 		await sdk.space(spaceId).session(sessionId).messages.send({
 			content,
 			model: model?.id,
@@ -2262,26 +2208,31 @@ async function handleSend() {
 			clientMessageId,
 			"sent_unconfirmed",
 		);
-		clearStreamingState();
 		if (wsConnectionState !== "open") {
-			streamStatus = "idle";
-			void reconcileSessionTail(sessionId).catch(() => undefined);
+			void reconcileSessionTail(sessionId)
+				.then(() => {
+					sessionGenerationStore.complete(sessionId);
+				})
+				.catch(() => undefined);
 			scheduleHttpFallbackSync(sessionId);
 		}
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
 		input = pendingInput;
 		imageAttachments = pendingAttachments;
-		streamError =
+		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
-		streamStatus = "error";
+		generationErrorBySessionId = {
+			...generationErrorBySessionId,
+			[sessionId]: sendError,
+		};
+		sessionGenerationStore.fail(sessionId, sendError);
 		sessionPendingStore.markStatus(
 			sessionId,
 			clientMessageId,
 			"failed",
-			streamError,
+			sendError,
 		);
-		clearStreamingState();
 		await loadSessionState(sessionId, true).catch(() => undefined);
 	} finally {
 		sending = false;
@@ -2408,7 +2359,7 @@ async function handlePickImages(files: FileList | File[] | null) {
 		);
 		imageAttachments = [...imageAttachments, ...nextAttachments];
 	} catch (error) {
-		streamError =
+		composerError =
 			error instanceof Error ? error.message : "Failed to read image";
 	}
 }
@@ -3121,7 +3072,7 @@ $effect(() => {
 		routeSessionId &&
 		routeSessionId !== activeSessionId
 	) {
-		clearStreamingState(activeSessionId);
+		sessionGenerationStore.reset(activeSessionId);
 		activeSessionId = routeSessionId;
 		pendingRestoreSessionId = routeSessionId;
 		suppressScrollSaveSessionIds.add(routeSessionId);
@@ -3133,7 +3084,7 @@ $effect(() => {
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {
-		clearStreamingState(activeSessionId);
+		sessionGenerationStore.reset(activeSessionId);
 		activeSessionId = null;
 	}
 });
@@ -4608,7 +4559,7 @@ $effect(() => {
           <SessionComposer
             bind:value={input}
             disabled={sending || !activeSessionState}
-            streamError={streamError}
+            streamError={composerNotice}
             attachments={imageAttachments}
             currentModel={activeSessionModel}
             promptTemplates={promptTemplates}
