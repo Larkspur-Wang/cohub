@@ -9,6 +9,7 @@ import {
 } from "@neta-art/cohub";
 import {
 	Activity,
+	BarChart3,
 	Check,
 	ChevronDown,
 	Clock,
@@ -1152,6 +1153,14 @@ $effect(() => {
             <span>Spaces</span>
           </a>
         {/if}
+        <a
+          href="/trending"
+          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}
+        >
+          <BarChart3 class="w-3.5 h-3.5" />
+          <span>Trending</span>
+        </a>
         <button
           class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors duration-100"
           onclick={() => { showUserMenu = false; void handleLogout(); }}

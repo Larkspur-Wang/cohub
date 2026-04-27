@@ -39,6 +39,7 @@ const { children } = $props();
 const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
 const isHome = $derived(currentPath === "/");
+const isTrending = $derived(currentPath === "/trending");
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
@@ -449,7 +450,7 @@ async function submitGlobalRename() {
 }
 </script>
 
-{#if isLogin || isHome}
+{#if isLogin || isHome || isTrending}
   <main class="min-h-screen bg-bg-primary text-text-primary">
     {@render children?.()}
   </main>
