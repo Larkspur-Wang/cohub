@@ -68,7 +68,6 @@ import { sdk } from "$lib/sdk";
 import {
 	buildRenderableChatMessages,
 	buildTimelineItems,
-	mergeStreamingDeltaBlocks,
 } from "$lib/session-render";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -83,6 +82,14 @@ import {
 } from "$lib/space-routes";
 import { messageCache } from "$lib/stores/message-cache";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
+import {
+	applyRealtimeGenerationProgress,
+	clearGenerationError,
+	completeGeneration,
+	failGeneration,
+	resetGeneration,
+	startGenerationRequest,
+} from "$lib/stores/session-generation-controller";
 import {
 	fetchSessionListWithCache,
 	getCachedSessionList,
@@ -192,7 +199,6 @@ let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
-let generationErrorBySessionId = $state<Record<string, string>>({});
 let composerError = $state("");
 let modelsCatalog = $state<Array<{
 	provider: string;
@@ -944,9 +950,7 @@ const activeSessionModel = $derived.by(() => {
 const activeGenerationState = $derived.by(() =>
 	sessionGenerationStore.get(activeSessionId),
 );
-const activeStreamError = $derived.by(() =>
-	activeSessionId ? (generationErrorBySessionId[activeSessionId] ?? "") : "",
-);
+const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");
 const composerNotice = $derived.by(() => activeStreamError || composerError);
 const activePendingMessages = $derived.by(() =>
 	activeSessionId
@@ -2026,34 +2030,13 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				? (payload.payload.content as ContentBlock[])
 				: [];
 			if (content.length === 0) return;
-			const currentGeneration = sessionGenerationStore.get(
-				currentActiveSessionId,
-			);
-			const hadPreviousStreamingPreview =
-				(currentGeneration?.contentBlocks.length ?? 0) > 0;
 			const streamingAnchorUserMessageId =
 				typeof payload.payload.anchorUserMessageId === "string"
 					? payload.payload.anchorUserMessageId
 					: null;
-			const hasExistingStreamingState =
-				(currentGeneration?.contentBlocks.length ?? 0) > 0 ||
-				Boolean(currentGeneration?.anchorUserMessageId);
-			const shouldStartFreshPreview =
-				hadPreviousStreamingPreview &&
-				currentGeneration?.status !== "streaming";
-			const previewBase = shouldStartFreshPreview
-				? []
-				: (currentGeneration?.contentBlocks ?? []);
-			const mergedContent = mergeStreamingDeltaBlocks(previewBase, content);
-			sessionGenerationStore.applyProgress(currentActiveSessionId, {
-				contentBlocks: mergedContent,
+			applyRealtimeGenerationProgress(currentActiveSessionId, {
+				content,
 				anchorUserMessageId: streamingAnchorUserMessageId,
-				truncatedStart:
-					!hasExistingStreamingState && currentGeneration?.status === "pending"
-						? true
-						: shouldStartFreshPreview
-							? false
-							: (currentGeneration?.truncatedStart ?? false),
 			});
 			if (shouldAutoFollow) {
 				await tick();
@@ -2063,12 +2046,12 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 
 		if (payload.type === "session.turn.error") {
-			sessionGenerationStore.fail(currentActiveSessionId, "Generation failed");
+			failGeneration(currentActiveSessionId, "Generation failed");
 			return;
 		}
 
 		if (payload.type === "session.turn.final") {
-			sessionGenerationStore.complete(currentActiveSessionId);
+			completeGeneration(currentActiveSessionId);
 			void reconcileSessionTail(currentActiveSessionId);
 			void refreshSessionsList(true);
 			if (shouldAutoFollow) scrollToBottomNow();
@@ -2090,7 +2073,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 
 		if (message.role === "assistant") {
-			sessionGenerationStore.complete(currentActiveSessionId);
+			completeGeneration(currentActiveSessionId);
 		}
 
 		const merged = mergeMessagesById(state.messages, [message], {
@@ -2144,12 +2127,7 @@ async function handleSend() {
 		return;
 	sending = true;
 	composerError = "";
-	if (activeSessionId) {
-		generationErrorBySessionId = {
-			...generationErrorBySessionId,
-			[activeSessionId]: "",
-		};
-	}
+	clearGenerationError(activeSessionId);
 
 	const text = input.trim();
 	const attachmentBlocks: ContentBlock[] = imageAttachments.map(
@@ -2195,7 +2173,7 @@ async function handleSend() {
 			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
 		});
 
-		sessionGenerationStore.startPending(sessionId, { clientMessageId });
+		startGenerationRequest(sessionId, { clientMessageId });
 		await sdk.space(spaceId).session(sessionId).messages.send({
 			content,
 			model: model?.id,
@@ -2211,7 +2189,7 @@ async function handleSend() {
 		if (wsConnectionState !== "open") {
 			void reconcileSessionTail(sessionId)
 				.then(() => {
-					sessionGenerationStore.complete(sessionId);
+					completeGeneration(sessionId);
 				})
 				.catch(() => undefined);
 			scheduleHttpFallbackSync(sessionId);
@@ -2222,11 +2200,7 @@ async function handleSend() {
 		imageAttachments = pendingAttachments;
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
-		generationErrorBySessionId = {
-			...generationErrorBySessionId,
-			[sessionId]: sendError,
-		};
-		sessionGenerationStore.fail(sessionId, sendError);
+		failGeneration(sessionId, sendError);
 		sessionPendingStore.markStatus(
 			sessionId,
 			clientMessageId,
@@ -3072,7 +3046,7 @@ $effect(() => {
 		routeSessionId &&
 		routeSessionId !== activeSessionId
 	) {
-		sessionGenerationStore.reset(activeSessionId);
+		resetGeneration(activeSessionId);
 		activeSessionId = routeSessionId;
 		pendingRestoreSessionId = routeSessionId;
 		suppressScrollSaveSessionIds.add(routeSessionId);
@@ -3084,7 +3058,7 @@ $effect(() => {
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {
-		sessionGenerationStore.reset(activeSessionId);
+		resetGeneration(activeSessionId);
 		activeSessionId = null;
 	}
 });
