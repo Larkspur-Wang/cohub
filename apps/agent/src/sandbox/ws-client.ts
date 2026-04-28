@@ -10,6 +10,7 @@ import type {
 } from "@cohub/agent-sandbox-protocol";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
+import { sendSpaceFsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
 
 type PendingOperation = {
@@ -382,6 +383,16 @@ async function connectOnce(registration: SandboxClientRegistration) {
               : "setup=skipped"
             : "setup=unknown";
           console.log(`[SandboxWS] attached spaceId=${registration.spaceId} identity=${message.identity} connectionId=${message.connectionId.slice(0, 8)} status=${heartbeat.status} ${setupSummary}`);
+          return;
+        }
+
+        if (message.type === "fs.changed") {
+          void sendSpaceFsChanged(registration.spaceId, {
+            source: message.payload.resync && message.payload.changes.length === 0 ? "sandbox-watch-started" : "sandbox-inotify",
+            seq: message.payload.seq,
+            resync: message.payload.resync,
+            changes: message.payload.changes,
+          });
           return;
         }
 

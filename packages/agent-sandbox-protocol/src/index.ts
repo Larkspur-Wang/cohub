@@ -24,6 +24,24 @@ export const RPC_METHODS = [
   "process.abort",
 ] as const;
 
+export type FsChange = {
+  path?: string;
+  oldPath?: string;
+  kind: "create" | "modify" | "delete" | "rename";
+  nodeType?: "file" | "dir" | "unknown";
+  mtimeMs?: number;
+  size?: number;
+};
+
+export type FsChanged = BaseMessage & {
+  type: "fs.changed";
+  payload: {
+    seq: number;
+    resync?: boolean;
+    changes: FsChange[];
+  };
+};
+
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
 export const RPC_ERROR_CODES = [
@@ -323,6 +341,7 @@ export type AgentSandboxMessage =
   | SandboxHeartbeat
   | SessionAttach
   | SessionAttachOk
+  | FsChanged
   | RpcRequest
   | RpcAccepted
   | RpcEvent

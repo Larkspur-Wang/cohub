@@ -1,3 +1,19 @@
+export type SpaceFsChange = {
+  path?: string;
+  oldPath?: string;
+  kind: "create" | "modify" | "delete" | "rename";
+  nodeType?: "file" | "dir" | "unknown";
+  mtimeMs?: number;
+  size?: number;
+};
+
+export type SpaceFsChangedPayload = {
+  source: "sandbox-inotify" | "api-fs" | "bootstrap" | "sandbox-watch-started";
+  seq?: number;
+  resync?: boolean;
+  changes: SpaceFsChange[];
+};
+
 export type SpaceFsEntry = {
   name: string;
   path: string;

@@ -101,6 +101,34 @@ func (s *Server) Run() error {
 
 const wsReadLimit = 50 * 1024 * 1024 // 50MB per websocket message
 
+func (s *Server) BroadcastFSChanged(payload protocol.FSChangedPayload) {
+	message := protocol.FSChanged{
+		BaseMessage: protocol.BaseMessage{
+			Version:   protocol.Version,
+			Type:      "fs.changed",
+			SpaceID:   s.cfg.SpaceID,
+			SandboxID: s.hostname,
+			Timestamp: time.Now().UnixMilli(),
+		},
+		Payload: payload,
+	}
+
+	s.mu.RLock()
+	targets := make([]*connectionSession, 0, len(s.sessionsByID))
+	for _, session := range s.sessionsByID {
+		if session.attached {
+			targets = append(targets, session)
+		}
+	}
+	s.mu.RUnlock()
+
+	for _, session := range targets {
+		if err := s.sendToConnection(session, message); err != nil {
+			s.logger.Warn("failed to enqueue fs.changed", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("error", err.Error()))
+		}
+	}
+}
+
 func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {

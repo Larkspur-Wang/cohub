@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cohub/apps/sandbox/env"
+	"github.com/cohub/apps/sandbox/filewatch"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
 	"github.com/cohub/apps/sandbox/report"
@@ -51,6 +52,21 @@ func (s *prepareState) GetSetup() *protocol.SandboxSetupInfo {
 	return s.setup
 }
 
+func toProtocolFSChanges(changes []filewatch.Change) []protocol.FSChange {
+	out := make([]protocol.FSChange, 0, len(changes))
+	for _, change := range changes {
+		out = append(out, protocol.FSChange{
+			Path:     change.Path,
+			OldPath:  change.OldPath,
+			Kind:     change.Kind,
+			NodeType: change.NodeType,
+			MtimeMs:  change.MtimeMs,
+			Size:     change.Size,
+		})
+	}
+	return out
+}
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -68,6 +84,19 @@ func main() {
 	processManager := process.NewManager(logger)
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
 	server := ws.NewServer(cfg, dispatcher, processManager, state, hostname, logger)
+
+	if watcher, err := filewatch.Start(cfg.WorkspaceDir, logger, func(batch filewatch.Batch) {
+		server.BroadcastFSChanged(protocol.FSChangedPayload{
+			Seq:     batch.Seq,
+			Resync:  batch.Resync,
+			Changes: toProtocolFSChanges(batch.Changes),
+		})
+	}); err != nil {
+		logger.Warn("file watcher disabled", slog.String("error", err.Error()))
+	} else {
+		defer watcher.Close()
+		logger.Info("file watcher started", slog.String("workspaceDir", cfg.WorkspaceDir))
+	}
 
 	initialMeta := map[string]interface{}{
 		"hostname":     hostname,

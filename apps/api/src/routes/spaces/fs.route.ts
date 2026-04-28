@@ -13,6 +13,7 @@ import {
   uploadSpaceFiles,
   writeSpaceFile,
 } from "../../space-fs.js";
+import { dispatchSpaceFsChanged } from "../../space-events.js";
 
 const router = new Hono();
 
@@ -59,7 +60,12 @@ router.put("/file", async (c) => {
     return c.json({ message: "path, content and encoding are required" }, 400);
   }
   try {
-    return c.json(await writeSpaceFile(spaceId, body));
+    const result = await writeSpaceFile(spaceId, body);
+    await dispatchSpaceFsChanged(spaceId, {
+      source: "api-fs",
+      changes: [{ path: result.path, kind: "modify", nodeType: "file", size: result.size, mtimeMs: result.mtimeMs }],
+    }).catch(console.error);
+    return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -75,7 +81,12 @@ router.post("/dir", async (c) => {
   const body = await c.req.json<{ path: string }>().catch(() => null);
   if (!body?.path) return c.json({ message: "path is required" }, 400);
   try {
-    return c.json(await createSpaceDirectory(spaceId, body.path));
+    const result = await createSpaceDirectory(spaceId, body.path);
+    await dispatchSpaceFsChanged(spaceId, {
+      source: "api-fs",
+      changes: [{ path: result.path, kind: "create", nodeType: "dir", mtimeMs: result.mtimeMs }],
+    }).catch(console.error);
+    return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -91,7 +102,12 @@ router.delete("/node", async (c) => {
   const path = c.req.query("path") ?? "";
   const recursive = c.req.query("recursive") === "true";
   try {
-    return c.json(await deleteSpaceNode(spaceId, path, recursive));
+    const result = await deleteSpaceNode(spaceId, path, recursive);
+    await dispatchSpaceFsChanged(spaceId, {
+      source: "api-fs",
+      changes: [{ path: result.path, kind: "delete", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType }],
+    }).catch(console.error);
+    return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -107,7 +123,12 @@ router.post("/move", async (c) => {
   const body = await c.req.json<{ fromPath: string; toPath: string }>().catch(() => null);
   if (!body?.fromPath || !body?.toPath) return c.json({ message: "fromPath and toPath are required" }, 400);
   try {
-    return c.json(await moveSpaceNode(spaceId, body));
+    const result = await moveSpaceNode(spaceId, body);
+    await dispatchSpaceFsChanged(spaceId, {
+      source: "api-fs",
+      changes: [{ path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: "unknown" }],
+    }).catch(console.error);
+    return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -149,7 +170,20 @@ router.post("/upload", async (c) => {
   if (files.length === 0) return c.json({ message: "at least one file is required" }, 400);
 
   try {
-    return c.json(await uploadSpaceFiles(spaceId, files, dir));
+    const result = await uploadSpaceFiles(spaceId, files, dir);
+    if (result.uploaded.length > 0) {
+      await dispatchSpaceFsChanged(spaceId, {
+        source: "api-fs",
+        changes: result.uploaded.map((file) => ({
+          path: file.path,
+          kind: "create" as const,
+          nodeType: "file" as const,
+          size: file.size,
+          mtimeMs: file.mtimeMs,
+        })),
+      }).catch(console.error);
+    }
+    return c.json(result);
   } catch (error) {
     const { status, body } = spaceFsJsonError(error);
     return c.json(body, status as never);

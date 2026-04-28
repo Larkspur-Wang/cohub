@@ -14,6 +14,7 @@ import {
   runGit,
   runGitWithOutput,
 } from "../git.js";
+import { publishSpaceFsChanged } from "../space-events.js";
 
 type BootstrapStatus = "pending" | "running" | "ready" | "failed";
 type BootstrapStage = "prepare" | "import" | "checkpoint_restore" | "push" | "finalize";
@@ -355,6 +356,14 @@ const createSpaceHandler = async (job: Job) => {
       status: "ready",
       stage: "finalize",
       finishedAt: new Date().toISOString(),
+    });
+
+    await publishSpaceFsChanged(currentSpace.id, {
+      source: "bootstrap",
+      resync: true,
+      changes: [],
+    }).catch((error) => {
+      console.warn(`[CreateSpace] Failed to publish bootstrap fs resync for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`);
     });
 
     return {

@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import type { SpaceFsChangedPayload } from "@neta-art/cohub-protocol/fs";
 import { injectTrace } from "@cohub/tracing/propagator";
 import { env } from "./env.js";
 import {
@@ -24,6 +25,7 @@ const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID
 const STREAM_MAXLEN = 2000;
 const STREAM_APPROX = "~";
 const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
+const SPACE_EVENTS_STREAM = "stream:space:events";
 const DEAD_LETTER_MAX_ITEMS = 200;
 
 export function extractContentText(blocks: ContentBlock[]): string {
@@ -149,6 +151,27 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   } catch (error) {
     if (error instanceof Error) activeSpan?.recordException(error);
     throw error;
+  }
+}
+
+export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
+  try {
+    const traceCarrier = injectTrace();
+    await redis.xadd(
+      SPACE_EVENTS_STREAM,
+      "MAXLEN",
+      STREAM_APPROX,
+      STREAM_MAXLEN,
+      "*",
+      "spaceId",
+      spaceId,
+      "type",
+      "space.fs.changed",
+      "payload",
+      JSON.stringify({ type: "space.fs.changed", spaceId, payload, trace: traceCarrier }),
+    );
+  } catch (err) {
+    console.error("[Redis] Failed to send space fs changed event:", err);
   }
 }
 

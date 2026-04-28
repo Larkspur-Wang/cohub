@@ -17,13 +17,16 @@ import {
   ensureConsumerGroup,
   GATEWAY_INBOUND_STREAM,
   AGENT_SESSION_UPDATES_STREAM,
+  SPACE_EVENTS_STREAM,
   INBOUND_CONSUMER_GROUP,
   SESSION_UPDATES_CONSUMER_GROUP,
+  SPACE_EVENTS_CONSUMER_GROUP,
 } from "./redis.js";
 import { handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
 import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
+import { dispatchSpaceFsChanged, type SpaceFsChangedStreamEvent } from "./space-events.js";
 import router from "./routes/index.js";
 
 const tracer = getTracer("cohub-api");
@@ -35,6 +38,8 @@ const INBOUND_BATCH_SIZE = 10;
 const INBOUND_BLOCK_MS = 5000;
 const SESSION_UPDATES_BATCH_SIZE = 50;
 const SESSION_UPDATES_BLOCK_MS = 5000;
+const SPACE_EVENTS_BATCH_SIZE = 50;
+const SPACE_EVENTS_BLOCK_MS = 5000;
 
 const initInboundConsumerGroup = async () => {
   await ensureConsumerGroup(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, "0");
@@ -170,8 +175,57 @@ const startSessionUpdatesBridge = async () => {
   }
 };
 
+const startSpaceEventsBridge = async () => {
+  await ensureConsumerGroup(SPACE_EVENTS_STREAM, SPACE_EVENTS_CONSUMER_GROUP, "0");
+  const client = createBlockingRedisClient();
+  await client.connect();
+  while (true) {
+    try {
+      const entries = await client.xreadgroup(
+        "GROUP",
+        SPACE_EVENTS_CONSUMER_GROUP,
+        CONSUMER_NAME,
+        "COUNT",
+        SPACE_EVENTS_BATCH_SIZE,
+        "BLOCK",
+        SPACE_EVENTS_BLOCK_MS,
+        "STREAMS",
+        SPACE_EVENTS_STREAM,
+        ">",
+      );
+      if (!entries || entries.length === 0) continue;
+      for (const [, messages] of entries as Array<[string, Array<[string, string[]]>]>) {
+        for (const [id, fields] of messages) {
+          const payloadIndex = fields.indexOf("payload");
+          const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
+          if (!payload) {
+            await client.xack(SPACE_EVENTS_STREAM, SPACE_EVENTS_CONSUMER_GROUP, id).catch(() => undefined);
+            continue;
+          }
+          try {
+            const event = JSON.parse(payload) as SpaceFsChangedStreamEvent;
+            if (event.type === "space.fs.changed" && event.spaceId) {
+              await dispatchSpaceFsChanged(event.spaceId, event.payload);
+            }
+            await client.xack(SPACE_EVENTS_STREAM, SPACE_EVENTS_CONSUMER_GROUP, id);
+          } catch (error) {
+            console.error("[API] Failed to bridge space event:", error);
+            // Do not ACK on dispatch/permission failures. Keep the event pending so
+            // it can be retried by this or a future consumer instead of silently
+            // dropping collaborative invalidation signals.
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[API] Space events bridge error:", error);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+};
+
 startGatewayInboundListener().catch(console.error);
 startSessionUpdatesBridge().catch(console.error);
+startSpaceEventsBridge().catch(console.error);
 
 // ── Hono app ─────────────────────────────────────────────────────────────────
 

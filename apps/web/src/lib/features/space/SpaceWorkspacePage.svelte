@@ -107,6 +107,7 @@ import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
+	clearCachedSpaceFsDir,
 	clearCachedSpaceFsSubtree,
 	fetchSpaceFsDirWithCache,
 	getCachedSpaceFsDir,
@@ -2414,8 +2415,90 @@ async function reconnectSync() {
 	});
 	return reconnectSyncInFlight;
 }
+async function handleSpaceFsChanged(payload: ChannelEnvelope) {
+	const eventPayload = payload.payload as {
+		resync?: boolean;
+		changes?: Array<{
+			path?: string;
+			oldPath?: string;
+			kind?: string;
+			nodeType?: string;
+		}>;
+	};
+	const dirsToRefresh = new Set<string>();
+	if (eventPayload.resync) {
+		clearCachedSpaceFsSubtree(spaceId, "");
+		await loadFileTree(true);
+		if (routeView === "file" && routeFilePath && !fileDirty) {
+			await openFileFromUrl(routeFilePath).catch(() => undefined);
+		}
+		if (inlineFile?.path && !inlineFileDirty) {
+			await openInlineFile(inlineFile.path).catch(() => undefined);
+		}
+		return;
+	}
+	for (const change of eventPayload.changes ?? []) {
+		if (change.path) dirsToRefresh.add(getParentDirPath(change.path));
+		if (change.oldPath) dirsToRefresh.add(getParentDirPath(change.oldPath));
+		if (change.nodeType === "dir" && change.path)
+			clearCachedSpaceFsSubtree(spaceId, change.path);
+		if (change.oldPath && change.nodeType === "dir")
+			clearCachedSpaceFsSubtree(spaceId, change.oldPath);
+		if (
+			openFile?.path &&
+			(change.path === openFile.path || change.oldPath === openFile.path)
+		) {
+			if (change.kind === "delete") closeFile();
+			else if (!fileDirty && change.path)
+				await openFileFromUrl(change.path).catch(() => undefined);
+			else if (fileDirty)
+				openFileError =
+					"File changed externally. Save carefully or reload before editing further.";
+		}
+		if (
+			inlineFile?.path &&
+			(change.path === inlineFile.path || change.oldPath === inlineFile.path)
+		) {
+			if (change.kind === "delete") closeInlineFile();
+			else if (!inlineFileDirty && change.path)
+				await openInlineFile(change.path).catch(() => undefined);
+			else if (inlineFileDirty)
+				inlineFile.error =
+					"File changed externally. Save carefully or reload before editing further.";
+		}
+	}
+	for (const dir of dirsToRefresh) {
+		clearCachedSpaceFsDir(spaceId, dir);
+	}
+	if (dirsToRefresh.has("")) await loadFileTree(true);
+	for (const dir of dirsToRefresh) {
+		if (!dir) continue;
+		const node = findFsNode(fileTree, dir);
+		if (node?.isOpen) {
+			fileTree = updateNodeState(fileTree, dir, (item) => ({
+				...item,
+				isLoaded: false,
+			}));
+			await expandDirectory({ ...node, isOpen: false, isLoaded: false });
+		}
+	}
+}
+
+function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
+	for (const node of nodes) {
+		if (node.path === path) return node;
+		const child = findFsNode(node.children, path);
+		if (child) return child;
+	}
+	return null;
+}
+
 async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
+		if (payload.type === "space.fs.changed") {
+			await handleSpaceFsChanged(payload);
+			return;
+		}
 		const currentActiveSessionId = activeSessionId;
 		if (!currentActiveSessionId) return;
 		if (payload.sessionId !== currentActiveSessionId) return;

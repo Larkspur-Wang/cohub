@@ -146,6 +146,26 @@ type RPCEvent struct {
 	Event RPCEventPayload `json:"event"`
 }
 
+type FSChange struct {
+	Path     string `json:"path,omitempty"`
+	OldPath  string `json:"oldPath,omitempty"`
+	Kind     string `json:"kind"`
+	NodeType string `json:"nodeType,omitempty"`
+	MtimeMs  int64  `json:"mtimeMs,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+}
+
+type FSChangedPayload struct {
+	Seq     int64      `json:"seq"`
+	Resync  bool       `json:"resync,omitempty"`
+	Changes []FSChange `json:"changes"`
+}
+
+type FSChanged struct {
+	BaseMessage
+	Payload FSChangedPayload `json:"payload"`
+}
+
 type IncomingEnvelope struct {
 	Type string `json:"type"`
 }

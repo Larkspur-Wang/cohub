@@ -266,9 +266,12 @@ export async function createSpaceDirectory(spaceId: string, path: string) {
   return { path: relativePath, mtimeMs: info.mtimeMs };
 }
 
-export async function deleteSpaceNode(spaceId: string, path: string, recursive = false) {
+export const deleteSpaceNode = async (spaceId: string, path: string, recursive = false) => {
   const { target, relativePath } = await resolveTarget(spaceId, path);
+  let nodeType: SpaceFsEntry["type"] | "unknown" = "unknown";
   try {
+    const before = await lstat(target);
+    nodeType = entryType(before);
     await rm(target, { recursive, force: false });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | null)?.code;
@@ -276,7 +279,7 @@ export async function deleteSpaceNode(spaceId: string, path: string, recursive =
     if (code === "ENOTEMPTY") throw new SpaceFsError(400, "directory_not_empty", "Directory is not empty.");
     throw error;
   }
-  return { path: relativePath, deleted: true };
+  return { path: relativePath, deleted: true, nodeType };
 }
 
 export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
