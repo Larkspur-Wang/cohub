@@ -113,8 +113,8 @@ router.get("/", async (c) => {
       token,
       role: data.role as SpaceRole,
       status: data.status,
-      useCount: Number.parseInt(data.use_count ?? "0"),
-      maxUses: Number.parseInt(data.max_uses ?? "0") || null,
+      useCount: Number.parseInt(data.use_count ?? "0", 10),
+      maxUses: Number.parseInt(data.max_uses ?? "0", 10) || null,
       createdAt: data.created_at ?? null,
       expiresInSeconds: ttl > 0 ? ttl : null,
     });

@@ -3,7 +3,7 @@ import { db } from "../db/index.js";
 import { spaceMembers, spaces } from "../db/schema-v2.js";
 import { and, eq } from "drizzle-orm";
 import { redisCommandClient } from "../redis.js";
-import { useAuth, requireValidId } from "../lib/middleware.js";
+import { useAuth } from "../lib/middleware.js";
 import type { AuthUser } from "../lib/middleware.js";
 
 const INVITE_PREFIX = "invite";
@@ -30,8 +30,8 @@ router.get("/:token", async (c) => {
     return c.json({ message: "invitation has been revoked" }, 410);
   }
 
-  const maxUses = Number.parseInt(data.max_uses ?? "0");
-  const useCount = Number.parseInt(data.use_count ?? "0");
+  const maxUses = Number.parseInt(data.max_uses ?? "0", 10);
+  const useCount = Number.parseInt(data.use_count ?? "0", 10);
   if (maxUses > 0 && useCount >= maxUses) {
     return c.json({ message: "invitation has reached its usage limit" }, 410);
   }
@@ -82,8 +82,8 @@ router.post("/:token/accept", async (c) => {
     return c.json({ message: "invitation has been revoked" }, 410);
   }
 
-  const maxUses = Number.parseInt(data.max_uses ?? "0");
-  const useCount = Number.parseInt(data.use_count ?? "0");
+  const maxUses = Number.parseInt(data.max_uses ?? "0", 10);
+  const useCount = Number.parseInt(data.use_count ?? "0", 10);
   if (maxUses > 0 && useCount >= maxUses) {
     await redisCommandClient.unwatch();
     return c.json({ message: "invitation has reached its usage limit" }, 410);
