@@ -8,6 +8,7 @@ import {
   ConsoleSpanExporter,
 } from "@opentelemetry/sdk-trace-base";
 import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
+import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { IORedisInstrumentation } from "@opentelemetry/instrumentation-ioredis";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
 
@@ -55,11 +56,12 @@ export function initTracing(options: TracingOptions) {
     spanProcessors,
   });
 
-  // Auto-instrument: outbound HTTP + Redis
+  // Auto-instrument: inbound/outbound HTTP, fetch (undici), and Redis
   registerInstrumentations({
     tracerProvider: provider,
     instrumentations: [
       new HttpInstrumentation(),
+      new UndiciInstrumentation(),
       new IORedisInstrumentation(),
     ],
   });

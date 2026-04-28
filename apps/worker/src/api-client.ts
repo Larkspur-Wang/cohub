@@ -1,11 +1,6 @@
-import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { PersistMessageInput, RegisterSessionInput } from "@neta-art/cohub-protocol/model";
 import { config } from "./config.js";
-
-const tracer = trace.getTracer("cohub-worker");
-const INTERNAL_FETCH_SLOW_THRESHOLD_MS = Number(process.env.WORKER_INTERNAL_FETCH_SLOW_THRESHOLD_MS ?? 1000);
-const formatDuration = (durationMs: number) => Math.round(durationMs * 10) / 10;
 
 export class InternalApiError extends Error {
   constructor(
@@ -19,58 +14,22 @@ export class InternalApiError extends Error {
 
 const internalFetch = async (path: string, options: RequestInit = {}) => {
   const url = `${config.internalApiBaseUrl}${path}`;
-  const method = options.method ?? "GET";
-  const activeSpan = trace.getActiveSpan();
-  const span = activeSpan
-    ? tracer.startSpan("worker.internal_api.request", {
-      kind: SpanKind.CLIENT,
-      attributes: {
-        "http.request.method": method,
-        "url.path": path,
-      },
-    })
-    : null;
-
-  return context.with(span ? trace.setSpan(context.active(), span) : context.active(), async () => {
-    const startedAt = performance.now();
-    try {
-      const res = await fetch(url, {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          "x-worker-secret": config.workerSecret,
-          ...options.headers,
-        },
-      });
-      span?.setAttribute("http.response.status_code", res.status);
-
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new InternalApiError(
-          `Internal API ${res.status} ${res.statusText}: ${body}`,
-          res.status,
-        );
-      }
-      return res.json();
-    } catch (error) {
-      span?.recordException(error instanceof Error ? error : new Error(String(error)));
-      span?.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
-      throw error;
-    } finally {
-      const durationMs = performance.now() - startedAt;
-      span?.setAttribute("http.request.duration_ms", formatDuration(durationMs));
-      if (durationMs >= INTERNAL_FETCH_SLOW_THRESHOLD_MS) {
-        console.warn("[Worker Slow Internal API]", JSON.stringify({
-          method,
-          path,
-          durationMs: formatDuration(durationMs),
-          traceId: span?.spanContext().traceId,
-          spanId: span?.spanContext().spanId,
-        }));
-      }
-      span?.end();
-    }
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "x-worker-secret": config.workerSecret,
+      ...options.headers,
+    },
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new InternalApiError(
+      `Internal API ${res.status} ${res.statusText}: ${body}`,
+      res.status,
+    );
+  }
+  return res.json();
 };
 
 export const sendSessionMessage = async (

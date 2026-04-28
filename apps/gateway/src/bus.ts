@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { trace } from "@opentelemetry/api";
 import type { GatewayInboundEvent, GatewayLogEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import { injectTrace } from "@cohub/tracing/propagator";
@@ -34,13 +33,6 @@ const DEDUP_TTL_MS = 5 * 60 * 1000;
 const DEDUP_MAX_ENTRIES = 10000;
 
 const publishLogEvent = async (event: GatewayLogEvent) => {
-  trace.getActiveSpan()?.addEvent("gateway.log.publish", {
-    "gateway.log.direction": event.direction,
-    "gateway.provider": event.provider,
-    "gateway.channel_id": event.channelId,
-    "gateway.status": event.status,
-    "gateway.correlation_id": event.correlationId,
-  });
   await xaddWithMaxlen(redisCommandClient, LOG_STREAM, "*", "payload", JSON.stringify(event));
 };
 
@@ -72,13 +64,6 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     status: "success",
     correlationId: event.eventId,
   };
-
-  trace.getActiveSpan()?.addEvent("gateway.inbound.publish", {
-    "gateway.event_id": event.eventId,
-    "gateway.event_type": event.eventType,
-    "gateway.provider": event.provider,
-    "gateway.channel_id": event.channelId,
-  });
 
   // Inject trace context so downstream services (API → Agent) can continue the same trace
   const traceCarrier = injectTrace();
@@ -179,22 +164,7 @@ export const listenOutboundCommands = async (
               externalChatId: cmd.externalChatId,
               replyToExternalMessageId: cmd.replyToExternalMessageId ?? null,
             });
-            const span = trace.getActiveSpan();
-            span?.addEvent("gateway.outbound.consume", {
-              "gateway.stream_id": id,
-              "gateway.command_id": cmd.commandId,
-              "gateway.channel_id": cmd.channelId,
-              "gateway.provider": cmd.provider,
-            });
-            const startedAt = performance.now();
             const result = await onCommand(cmd);
-            span?.addEvent("gateway.outbound.handled", {
-              "gateway.command_id": cmd.commandId,
-              "gateway.success": result.success,
-              "gateway.duration_ms": Math.round((performance.now() - startedAt) * 10) / 10,
-              ...(result.externalMessageId ? { "gateway.external_message_id": result.externalMessageId } : {}),
-              ...(result.error ? { "gateway.error": result.error } : {}),
-            });
             await publishOutboundLog({ cmd, result });
             await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
             console.log("[Bus] Acked outbound command", {

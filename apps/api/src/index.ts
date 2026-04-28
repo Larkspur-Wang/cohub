@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
-import { context, trace, SpanStatusCode, type Span, SpanKind } from "@opentelemetry/api";
+import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
 import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
 import { assertRequiredConfig } from "./config.js";
@@ -175,8 +175,6 @@ startSessionUpdatesBridge().catch(console.error);
 
 const app = new Hono<{
   Variables: {
-    requestTimings: string[];
-    routeStartedAt: number;
     token: string | null;
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
@@ -193,49 +191,10 @@ app.use(
   }),
 );
 
-const SLOW_REQUEST_THRESHOLD_MS = Number(process.env.SLOW_REQUEST_THRESHOLD_MS ?? 1000);
-const SLOW_HANDLER_GAP_THRESHOLD_MS = Number(process.env.SLOW_HANDLER_GAP_THRESHOLD_MS ?? 100);
-const formatDuration = (durationMs: number) => Math.round(durationMs * 10) / 10;
-
-const recordSpanError = (span: Span, error: unknown) => {
+const recordSpanError = (span: ReturnType<typeof tracer.startSpan>, error: unknown) => {
   span.recordException(error instanceof Error ? error : new Error(String(error)));
   span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
 };
-
-const addTiming = (c: { get: (key: "requestTimings") => string[] | undefined }, name: string, durationMs: number, desc?: string) => {
-  const duration = formatDuration(durationMs);
-  c.get("requestTimings")?.push(desc ? `${name};dur=${duration};desc="${desc}"` : `${name};dur=${duration}`);
-};
-
-const getActiveSpanContext = () => trace.getActiveSpan()?.spanContext();
-
-app.use("*", async (c, next) => {
-  const startedAt = performance.now();
-  const requestTimings: string[] = [];
-  c.set("requestTimings", requestTimings);
-  c.set("routeStartedAt", startedAt);
-
-  try {
-    await next();
-  } finally {
-    const totalMs = performance.now() - startedAt;
-    const serverTiming = [...requestTimings, `total;dur=${formatDuration(totalMs)}`].join(", ");
-    if (serverTiming) c.header("Server-Timing", serverTiming);
-
-    if (totalMs >= SLOW_REQUEST_THRESHOLD_MS) {
-      const spanContext = getActiveSpanContext();
-      console.warn("[API Slow Request]", JSON.stringify({
-        method: c.req.method,
-        path: c.req.path,
-        status: c.res.status,
-        totalMs: formatDuration(totalMs),
-        timings: requestTimings,
-        traceId: spanContext?.traceId,
-        spanId: spanContext?.spanId,
-      }));
-    }
-  }
-});
 
 app.use(
   cors({
@@ -254,68 +213,29 @@ app.use(async (c, next) => {
   c.set("principal", null);
 
   if (token) {
-    const authStartedAt = performance.now();
-    let authSource = "none";
-    try {
-      const executionAuthStartedAt = performance.now();
-      const executionAuth = await consumeExecutionAuthFromToken(token).catch((error) => {
-        console.warn("[API] Failed to verify execution token:", error);
-        return null;
-      });
-      addTiming(c, "auth.execution", performance.now() - executionAuthStartedAt);
-      if (executionAuth) {
-        authSource = "execution";
-        c.set("executionAuth", executionAuth);
-        c.set("principal", { type: "execution", execution: executionAuth });
-        await next();
-        return;
-      }
+    const executionAuth = await consumeExecutionAuthFromToken(token).catch((error) => {
+      console.warn("[API] Failed to verify execution token:", error);
+      return null;
+    });
+    if (executionAuth) {
+      c.set("executionAuth", executionAuth);
+      c.set("principal", { type: "execution", execution: executionAuth });
+      await next();
+      return;
+    }
 
-      const authUserStartedAt = performance.now();
-      try {
-        const authUser = await fetchAuthUser(token);
-        authSource = authUser?.uuid ? "user" : "anonymous";
-        c.set("authUser", authUser);
-        if (authUser?.uuid) {
-          c.set("principal", { type: "user", user: authUser as AuthUserProfile & { uuid: string } });
-        }
-      } catch {
-        authSource = "failed";
-        c.set("authUser", null);
-      } finally {
-        addTiming(c, "auth.user", performance.now() - authUserStartedAt);
+    try {
+      const authUser = await fetchAuthUser(token);
+      c.set("authUser", authUser);
+      if (authUser?.uuid) {
+        c.set("principal", { type: "user", user: authUser as AuthUserProfile & { uuid: string } });
       }
-    } finally {
-      addTiming(c, "auth", performance.now() - authStartedAt, authSource);
+    } catch {
+      c.set("authUser", null);
     }
   }
 
   await next();
-});
-
-app.use(async (c, next) => {
-  const routeStartedAt = performance.now();
-  c.set("routeStartedAt", routeStartedAt);
-
-  await next();
-
-  const routeMs = performance.now() - routeStartedAt;
-  addTiming(c, "route", routeMs);
-
-  const dbMs = c.get("requestTimings")
-    ?.map((timing) => timing.match(/^db(?:\.[^;]+)?;dur=([\d.]+)/)?.[1])
-    .filter((value): value is string => Boolean(value))
-    .reduce((sum, value) => sum + Number(value), 0) ?? 0;
-  const handlerGapMs = Math.max(0, routeMs - dbMs);
-  if (handlerGapMs >= SLOW_HANDLER_GAP_THRESHOLD_MS) {
-    addTiming(c, "handler_gap", handlerGapMs);
-    trace.getActiveSpan()?.addEvent("api.handler_gap", {
-      "http.route": c.req.path,
-      "api.route_ms": formatDuration(routeMs),
-      "api.db_ms": formatDuration(dbMs),
-      "api.handler_gap_ms": formatDuration(handlerGapMs),
-    });
-  }
 });
 
 app.route("/", router);

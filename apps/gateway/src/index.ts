@@ -2,7 +2,6 @@ import "dotenv/config";
 import "./tracing.js";
 
 import { randomUUID } from "node:crypto";
-import { trace } from "@opentelemetry/api";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -44,8 +43,6 @@ type GatewayWsBroadcastPayload = RealtimeServerEvent & {
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
-const WS_SLOW_MESSAGE_THRESHOLD_MS = Number(process.env.WS_SLOW_MESSAGE_THRESHOLD_MS ?? 1000);
-const formatDuration = (durationMs: number) => Math.round(durationMs * 10) / 10;
 
 const wsConnections = new Map<string, WsConnectionContext>();
 const wsConnectionsByUserId = new Map<string, Set<string>>();
@@ -399,7 +396,6 @@ async function main() {
     }));
 
     socket.on("message", async (data: RawData) => {
-      const messageStartedAt = performance.now();
       try {
         const raw = typeof data === "string"
           ? data
@@ -414,12 +410,6 @@ async function main() {
         }
 
         const message = parseWsJson(raw);
-        const activeSpan = trace.getActiveSpan();
-        activeSpan?.addEvent("gateway.ws.message", {
-          "gateway.connection_id": connectionId,
-          "gateway.message_type": message.type,
-          "gateway.user_id": ctx.userId ?? "",
-        });
         const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
 
         if (message.type === "ping") {
@@ -499,15 +489,6 @@ async function main() {
         }
         console.error("[Gateway] WebSocket message handling failed:", error);
         sendWsError(socket, "INTERNAL_ERROR", "internal error", requestId);
-      } finally {
-        const durationMs = performance.now() - messageStartedAt;
-        if (durationMs >= WS_SLOW_MESSAGE_THRESHOLD_MS) {
-          console.warn("[Gateway Slow WS Message]", JSON.stringify({
-            connectionId,
-            userId: ctx.userId ?? null,
-            durationMs: formatDuration(durationMs),
-          }));
-        }
       }
     });
 

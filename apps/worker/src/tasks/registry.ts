@@ -1,5 +1,4 @@
 import type { Job } from "bullmq";
-import { trace } from "@opentelemetry/api";
 import type { TaskPayload } from "@neta-art/cohub-protocol/task";
 import { eq } from "drizzle-orm";
 import { db } from "../db.js";
@@ -27,15 +26,6 @@ export const registerTask = (type: string, handler: TaskHandler) => {
 
     const payload = job.data as TaskPayload;
     const now = new Date();
-    const span = trace.getActiveSpan();
-    span?.addEvent("worker.task_run.start", {
-      "task.job_id": jobId,
-      "task.type": job.name,
-      "task.attempt": job.attemptsMade,
-      ...(payload.spaceId ? { "cohub.space_id": payload.spaceId } : {}),
-      ...(payload.sessionId ? { "cohub.session_id": payload.sessionId } : {}),
-      ...(payload.cronJobId ? { "task.cron_job_id": payload.cronJobId } : {}),
-    });
 
     // UPSERT: insert if cron-spawned, or update pending → running
     const existing = await db
@@ -85,11 +75,6 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         })
         .where(eq(taskRuns.jobId, jobId));
 
-      span?.addEvent("worker.task_run.completed", {
-        "task.job_id": jobId,
-        "task.type": job.name,
-      });
-
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -103,12 +88,6 @@ export const registerTask = (type: string, handler: TaskHandler) => {
           updatedAt: new Date(),
         })
         .where(eq(taskRuns.jobId, jobId));
-
-      span?.addEvent("worker.task_run.failed", {
-        "task.job_id": jobId,
-        "task.type": job.name,
-        "exception.message": errorMessage,
-      });
 
       throw error; // Rethrow so BullMQ handles retry/backoff
     }
