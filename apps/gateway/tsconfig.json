@@ -5,6 +5,7 @@
     "rootDir": "src",
     "paths": {
       "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"],
+      "@cohub/auth": ["../../packages/auth/dist/index.d.ts"],
       "@cohub/gateway-contract": ["../../packages/gateway-contract/dist/index.d.ts"],
       "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
       "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]

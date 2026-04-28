@@ -6,10 +6,11 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
+import { verifyUserAccessToken } from "@cohub/auth";
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
-import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
-import { assertRequiredConfig } from "./config.js";
+import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
+import { assertRequiredConfig, config } from "./config.js";
 import {
   createBlockingRedisClient,
   ensureConsumerGroup,
@@ -178,7 +179,7 @@ const app = new Hono<{
     token: string | null;
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
-    principal: { type: "user"; user: AuthUserProfile & { uuid: string } } | { type: "execution"; execution: ExecutionAuthPrincipal } | null;
+    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | null;
   };
 }>();
 
@@ -225,11 +226,9 @@ app.use(async (c, next) => {
     }
 
     try {
-      const authUser = await fetchAuthUser(token);
+      const authUser = await verifyUserAccessToken({ token, logtoEndpoint: config.logtoEndpoint });
       c.set("authUser", authUser);
-      if (authUser?.uuid) {
-        c.set("principal", { type: "user", user: authUser as AuthUserProfile & { uuid: string } });
-      }
+      c.set("principal", { type: "user", user: authUser });
     } catch {
       c.set("authUser", null);
     }

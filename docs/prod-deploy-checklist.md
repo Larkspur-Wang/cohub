@@ -36,7 +36,7 @@
 
 | 变量 | 示例 | 说明 |
 | --- | --- | --- |
-| `AUTH_BASE_URL` | `https://auth.talesofai.cn` | 现有鉴权服务 base URL |
+| `LOGTO_ENDPOINT` | `https://auth.neta.art` | Logto issuer endpoint，用于本地校验 access token |
 | `GITEA_BASE_URL` | `https://gitea.cohub.run` | Gitea base URL |
 | `GITEA_TOKEN` | `xxx` | 可选：用于访问私有仓库或提高限额 |
 | `WEB_ORIGIN` | `https://cohub.run` | 用于 CORS 允许来源 |
@@ -50,7 +50,7 @@
 - CORS 允许 `WEB_ORIGIN`
 - `credentials: true`
 - `/api/auth/token` 写入 HttpOnly cookie
-- `/api/me` 使用 cookie / header 校验
+- `/api/me` 使用 Bearer access token 本地 JWT 校验
 
 ## 4) Gitea（ACK）
 

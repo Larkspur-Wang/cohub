@@ -35,7 +35,7 @@ READINESS_TIMEOUT: "2"
 READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== API 配置 ==========
-AUTH_BASE_URL: "https://api.talesofai.com"
+LOGTO_ENDPOINT: "https://auth.neta.art"
 GITEA_BASE_URL: "https://gitea.cohub.run/"
 GITEA_MANAGED_EMAIL_DOMAIN: "cohub.run"
 WEB_ORIGIN: "https://cohub.run"

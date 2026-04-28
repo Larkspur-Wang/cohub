@@ -1,5 +1,7 @@
+import { resolveLogtoEndpoint } from "@cohub/auth";
+
 export type AppConfig = {
-  authBaseUrl: string;
+  logtoEndpoint: string;
   giteaBaseUrl: string;
   giteaToken?: string;
   webOrigin?: string;
@@ -18,7 +20,7 @@ export type AppConfig = {
   platformConfigRoot: string;
 };
 
-const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
+const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
 
 const getSessionsNamespace = (env: string): string => {
   return env === "dev" ? "cohub-sessions-dev" : "cohub-sessions";
@@ -34,7 +36,7 @@ const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
 
 export const config: AppConfig = {
   workerSecret: process.env.WORKER_SECRET ?? "",
-  authBaseUrl: normalizeBaseUrl(process.env.AUTH_BASE_URL ?? ""),
+  logtoEndpoint: resolveLogtoEndpoint({ endpoint: process.env.LOGTO_ENDPOINT, env }),
   giteaBaseUrl: normalizeBaseUrl(process.env.GITEA_BASE_URL ?? ""),
   giteaToken: process.env.GITEA_TOKEN,
   webOrigin: process.env.WEB_ORIGIN,
@@ -59,9 +61,6 @@ export const sessionsNamespace = getSessionsNamespace(config.env);
 export const assertRequiredConfig = () => {
   if (!config.giteaBaseUrl) {
     throw new Error("Missing required env: GITEA_BASE_URL");
-  }
-  if (!config.authBaseUrl) {
-    throw new Error("Missing required env: AUTH_BASE_URL");
   }
   if (!config.redisUrl) {
     throw new Error("Missing required env: REDIS_URL");

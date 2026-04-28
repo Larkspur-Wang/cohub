@@ -21,6 +21,9 @@ RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 FROM base AS builder
 
 COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/auth/package.json ./packages/auth/package.json
+COPY packages/auth/tsconfig.json ./packages/auth/tsconfig.json
+COPY packages/auth/tsconfig.build.json ./packages/auth/tsconfig.build.json
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
@@ -37,12 +40,14 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store && \
   pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway...
 
+COPY packages/auth ./packages/auth
 COPY packages/protocol ./packages/protocol
 COPY packages/gateway-contract ./packages/gateway-contract
 COPY packages/tracing ./packages/tracing
 COPY apps/gateway/src ./apps/gateway/src
 COPY apps/gateway/tsconfig.json ./apps/gateway/tsconfig.json
 
+RUN pnpm --filter @cohub/auth build
 RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/gateway-contract build
 RUN pnpm --filter @cohub/tracing build

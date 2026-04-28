@@ -14,6 +14,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@cohub/auth": "workspace:*",
     "@neta-art/cohub-protocol": "workspace:*",
     "@cohub/gateway-contract": "workspace:*",
     "@cohub/tracing": "workspace:*",

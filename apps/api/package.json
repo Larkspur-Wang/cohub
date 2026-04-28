@@ -20,6 +20,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@cohub/auth": "workspace:*",
     "@neta-art/cohub-protocol": "workspace:*",
     "@cohub/agent-sandbox-protocol": "workspace:*",
     "@cohub/tracing": "workspace:*",

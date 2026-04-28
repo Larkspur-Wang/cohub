@@ -1,3 +1,5 @@
+import type { AuthUserProfile } from "@cohub/auth";
+import { AuthorizationError, verifyUserAccessToken } from "@cohub/auth";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";
 
@@ -36,35 +38,16 @@ export type SessionAuthorizationResult =
     };
 
 export const authenticateRealtimeToken = async (input: { token: string }): Promise<RealtimeAuthResult> => {
-  const response = await fetch(`${gatewayConfig.apiBaseUrl}/api/me`, {
-    headers: {
-      authorization: `Bearer ${input.token}`,
-    },
-  });
-
-  if (response.status === 401 || response.status === 403) {
+  let user: AuthUserProfile;
+  try {
+    user = await verifyUserAccessToken({ token: input.token, logtoEndpoint: gatewayConfig.logtoEndpoint });
+  } catch (error) {
+    const status = error instanceof AuthorizationError ? error.status : 401;
     return {
       ok: false,
-      status: response.status,
+      status,
       error: {
-        message: response.status === 403 ? "Forbidden" : "Unauthorized",
-        type: "authentication_error",
-      },
-    };
-  }
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Realtime auth failed ${response.status}: ${text}`);
-  }
-
-  const user = await parseJson<GatewayAuthUser>(response);
-  if (!user?.uuid) {
-    return {
-      ok: false,
-      status: 401,
-      error: {
-        message: "Unauthorized",
+        message: status === 403 ? "Forbidden" : "Unauthorized",
         type: "authentication_error",
       },
     };
@@ -72,7 +55,7 @@ export const authenticateRealtimeToken = async (input: { token: string }): Promi
 
   return {
     ok: true,
-    user: user as GatewayAuthUser & { uuid: string },
+    user,
   };
 };
 

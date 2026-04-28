@@ -103,6 +103,9 @@ importers:
       '@cohub/agent-sandbox-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-sandbox-protocol
+      '@cohub/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@cohub/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
@@ -191,6 +194,9 @@ importers:
 
   apps/gateway:
     dependencies:
+      '@cohub/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@cohub/gateway-contract':
         specifier: workspace:*
         version: link:../../packages/gateway-contract
@@ -476,6 +482,19 @@ importers:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260421.1
         version: 7.0.0-dev.20260421.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/auth:
+    dependencies:
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -4440,8 +4459,8 @@ packages:
   jose@5.10.0:
     resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
 
-  jose@6.2.2:
-    resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
+  jose@6.2.3:
+    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
 
   js-base64@3.7.8:
     resolution: {integrity: sha512-hNngCeKxIUQiEUN3GPJOkz4wF/YvdUdbNL9hsBcMQTkKzboD7T/q3OYOuuPZLUE6dBxSGpwhk5mwuDud7JVAow==}
@@ -10119,7 +10138,7 @@ snapshots:
 
   jose@5.10.0: {}
 
-  jose@6.2.2: {}
+  jose@6.2.3: {}
 
   js-base64@3.7.8: {}
 
@@ -10500,7 +10519,7 @@ snapshots:
 
   openid-client@6.8.3:
     dependencies:
-      jose: 6.2.2
+      jose: 6.2.3
       oauth4webapi: 3.8.5
 
   outdent@0.5.0: {}
