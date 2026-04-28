@@ -21,6 +21,7 @@ type Props = {
 	loadingOlder?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
+	onLoadMessageSummary?: (message: ChatMessage) => Promise<void>;
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
 };
@@ -33,6 +34,7 @@ let {
 	loadingOlder = false,
 	modelsCatalog,
 	onLoadMessageDetail,
+	onLoadMessageSummary,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
 }: Props = $props();
@@ -130,7 +132,7 @@ $effect(() => {
 					{#if item.kind === 'message'}
 						<ChatMessageBubble message={item.message} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
 					{:else if item.kind === 'process'}
-						<ProcessCard messages={item.messages} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
+						<ProcessCard messages={item.messages} {modelsCatalog} {onLoadMessageDetail} {onLoadMessageSummary} {onMarkdownRenderStart} {onMarkdownRendered} />
 				{:else}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}

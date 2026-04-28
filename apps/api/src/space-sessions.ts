@@ -144,20 +144,31 @@ const summarizeContentForDefaultView = (content: ContentBlock[]): ContentBlock[]
   });
 };
 
-export const summarizeMessageForHistory = <T extends { content: ContentBlock[]; meta: unknown }>(message: T): T => {
+export const summarizeMessageForHistory = <T extends { content: ContentBlock[]; meta: unknown }>(
+  message: T,
+  options?: { placeholderIntermediate?: boolean },
+): T => {
   const meta = (message.meta && typeof message.meta === "object" && !Array.isArray(message.meta))
     ? (message.meta as Record<string, unknown>)
     : {};
-  const isIntermediate = meta.messageKind === "assistant_intermediate";
+  const isIntermediate = meta.messageKind === "assistant_intermediate" && options?.placeholderIntermediate !== false;
+  const historySummary = getHistorySummary(message.content);
+  const summaryMeta = isIntermediate
+    ? {
+        messageKind: "assistant_intermediate",
+        contentDetail: "summary",
+        contentPlaceholder: "assistant_intermediate",
+        historySummary,
+      }
+    : {
+        ...meta,
+        contentDetail: "summary",
+        historySummary,
+      };
   return {
     ...message,
     content: isIntermediate ? [] : summarizeContentForDefaultView(message.content),
-    meta: {
-      ...meta,
-      contentDetail: "summary",
-      contentPlaceholder: isIntermediate ? "assistant_intermediate" : undefined,
-      historySummary: getHistorySummary(message.content),
-    },
+    meta: summaryMeta,
   };
 };
 

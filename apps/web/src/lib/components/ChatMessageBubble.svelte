@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { Check, ChevronDown, ChevronRight, Copy } from "lucide-svelte";
+import { Check, ChevronDown, ChevronRight, Copy, Loader2 } from "lucide-svelte";
 import { tick } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
@@ -35,15 +35,24 @@ let renderedHtml = $state("");
 let thinkingExpanded = $state(false);
 let thinkingUserToggled = $state(false);
 let detailLoading = $state(false);
+let detailLoadPromise: Promise<void> | null = null;
 
 const isSummaryMessage = $derived(message.meta?.contentDetail === "summary");
 
 async function ensureMessageDetail() {
-	if (!isSummaryMessage || !onLoadMessageDetail || detailLoading) return;
+	if (!isSummaryMessage || !onLoadMessageDetail) return;
+	if (detailLoadPromise) {
+		await detailLoadPromise;
+		return;
+	}
 	detailLoading = true;
-	try {
+	detailLoadPromise = (async () => {
 		await onLoadMessageDetail(message);
+	})();
+	try {
+		await detailLoadPromise;
 	} finally {
+		detailLoadPromise = null;
 		detailLoading = false;
 	}
 }
@@ -385,7 +394,11 @@ function handleCopy() {
     disabled={detailLoading}
     onclick={() => void ensureMessageDetail()}
   >
-    <span class="inline-block h-1.5 w-1.5 rounded-full bg-text-placeholder/60"></span>
+    {#if detailLoading}
+      <Loader2 class="h-3 w-3 shrink-0 animate-spin text-text-placeholder/70" />
+    {:else}
+      <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-text-placeholder/60"></span>
+    {/if}
     <span>{detailLoading ? 'Loading details...' : 'Load process step details'}</span>
   </button>
 {:else if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
@@ -403,10 +416,13 @@ function handleCopy() {
       {#if !isStreaming && thinkingNeedsTruncation}
         <button
           type="button"
-          class="mt-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
+          class="mt-1 inline-flex items-center gap-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
           onclick={() => void toggleThinking()}
         >
-          {detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}
+          {#if detailLoading}
+            <Loader2 class="h-3 w-3 animate-spin" />
+          {/if}
+          <span>{detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}</span>
         </button>
       {/if}
     </div>
@@ -435,10 +451,13 @@ function handleCopy() {
           {#if thinkingNeedsTruncation}
             <button
               type="button"
-              class="mt-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
+              class="mt-1 inline-flex items-center gap-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
               onclick={() => void toggleThinking()}
             >
-              {detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}
+              {#if detailLoading}
+                <Loader2 class="h-3 w-3 animate-spin" />
+              {/if}
+              <span>{detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}</span>
             </button>
           {/if}
         </div>
@@ -501,7 +520,9 @@ function handleCopy() {
                 <span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em]">{block.name}</span>
                 <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
                 <span class="ml-auto text-text-tertiary shrink-0">
-                  {#if expandedToolCalls.has(block.id)}
+                  {#if detailLoading && isSummaryMessage}
+                    <Loader2 class="w-3.5 h-3.5 animate-spin text-text-placeholder" />
+                  {:else if expandedToolCalls.has(block.id)}
                     <ChevronDown class="w-3.5 h-3.5" />
                   {:else}
                     <ChevronRight class="w-3.5 h-3.5" />

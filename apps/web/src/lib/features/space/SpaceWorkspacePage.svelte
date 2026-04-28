@@ -1958,6 +1958,54 @@ async function loadOlderMessages(sessionId: string) {
 		};
 	}
 }
+async function loadMessageSummary(message: ChatMessage) {
+	const sessionId = activeSessionId;
+	const messageId = message.sourceId ?? message.id;
+	if (!sessionId || !messageId || loadingMessageDetailIds[messageId]) return;
+	const state = sessionStateById[sessionId];
+	const existing = state?.messages.find((item) => item.id === messageId);
+	if (
+		existing?.meta?.contentDetail !== "summary" ||
+		existing.meta?.contentPlaceholder !== "assistant_intermediate"
+	) {
+		return;
+	}
+	loadingMessageDetailIds = { ...loadingMessageDetailIds, [messageId]: true };
+	try {
+		const response = await sdk
+			.space(spaceId)
+			.session(sessionId)
+			.messages.get(messageId, { detail: "summary" });
+		const currentState = sessionStateById[sessionId];
+		if (!currentState) return;
+		const merged = mergeMessagesById(
+			currentState.messages,
+			[response.message],
+			{
+				preferIncoming: true,
+			},
+		);
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...currentState,
+				session: response.session ?? currentState.session,
+				messages: merged,
+			},
+		};
+		await messageCache.replaceAuthoritativeSnapshot({
+			sessionId,
+			messages: merged,
+			hasMore: currentState.hasMore,
+		});
+	} catch (error) {
+		console.warn("[loadMessageSummary] Failed to load message summary:", error);
+	} finally {
+		const next = { ...loadingMessageDetailIds };
+		delete next[messageId];
+		loadingMessageDetailIds = next;
+	}
+}
 async function loadMessageDetail(message: ChatMessage) {
 	const sessionId = activeSessionId;
 	const messageId = message.sourceId ?? message.id;
@@ -4725,6 +4773,7 @@ $effect(() => {
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
           onLoadMessageDetail={loadMessageDetail}
+          onLoadMessageSummary={loadMessageSummary}
           onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
           onMarkdownRendered={handleTimelineMarkdownRendered}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
