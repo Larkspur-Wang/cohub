@@ -8,6 +8,7 @@ import {
 	type SessionRecord,
 	type SpaceAccessPolicy,
 	type SpaceChannelBindingRecord,
+	type SpaceEnvInput,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceMember,
@@ -606,6 +607,19 @@ let bindSubmitting = $state(false);
 let bindError = $state("");
 let unbindingChannelId = $state<string | null>(null);
 
+// ─── Space environment variables ───
+let spaceEnv = $state<SpaceEnvInput[]>([]);
+let spaceEnvLoading = $state(false);
+let spaceEnvError = $state("");
+let envNameInput = $state("");
+let envValueInput = $state("");
+let envSubmitting = $state(false);
+let envEditingName = $state<string | null>(null);
+let envEditingValue = $state("");
+let envUpdatingName = $state<string | null>(null);
+let envDeletingName = $state<string | null>(null);
+let envVisibleValues = $state<Record<string, boolean>>({});
+
 const canManageChannels = $derived.by(() => {
 	if (!myUuid) return false;
 	const member = spaceMembers.find((m) => m.userId === myUuid);
@@ -707,6 +721,94 @@ function formatCost(n: number): string {
 	if (n >= 1) return `${n.toFixed(2)}`;
 	if (n >= 0.01) return `${n.toFixed(3)}`;
 	return `${n.toFixed(4)}`;
+}
+function maskEnvValue(value: string): string {
+	if (!value) return "(empty)";
+	return "•".repeat(Math.min(Math.max(value.length, 8), 32));
+}
+function startEnvEdit(item: SpaceEnvInput) {
+	envEditingName = item.name;
+	envEditingValue = item.value;
+	spaceEnvError = "";
+}
+function cancelEnvEdit() {
+	envEditingName = null;
+	envEditingValue = "";
+}
+async function loadSpaceEnv() {
+	spaceEnvLoading = true;
+	spaceEnvError = "";
+	try {
+		const result = await sdk.space(spaceId).env.list();
+		spaceEnv = result.env;
+	} catch (error) {
+		spaceEnvError =
+			error instanceof Error
+				? error.message
+				: "Failed to load environment variables";
+	} finally {
+		spaceEnvLoading = false;
+	}
+}
+async function handleAddEnv() {
+	if (envSubmitting) return;
+	const name = envNameInput.trim();
+	if (!name) return;
+	envSubmitting = true;
+	spaceEnvError = "";
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.env.create({ name, value: envValueInput });
+		spaceEnv = result.env;
+		envNameInput = "";
+		envValueInput = "";
+	} catch (error) {
+		spaceEnvError =
+			error instanceof Error
+				? error.message
+				: "Failed to add environment variable";
+	} finally {
+		envSubmitting = false;
+	}
+}
+async function handleUpdateEnv(name: string) {
+	if (envUpdatingName) return;
+	envUpdatingName = name;
+	spaceEnvError = "";
+	try {
+		const result = await sdk.space(spaceId).env.update(name, envEditingValue);
+		spaceEnv = result.env;
+		cancelEnvEdit();
+	} catch (error) {
+		spaceEnvError =
+			error instanceof Error
+				? error.message
+				: "Failed to update environment variable";
+	} finally {
+		envUpdatingName = null;
+	}
+}
+async function handleDeleteEnv(name: string) {
+	if (envDeletingName) return;
+	if (!confirm(`Delete environment variable ${name}?`)) return;
+	envDeletingName = name;
+	spaceEnvError = "";
+	try {
+		const result = await sdk.space(spaceId).env.remove(name);
+		spaceEnv = result.env;
+		if (envEditingName === name) cancelEnvEdit();
+		const nextVisible = { ...envVisibleValues };
+		delete nextVisible[name];
+		envVisibleValues = nextVisible;
+	} catch (error) {
+		spaceEnvError =
+			error instanceof Error
+				? error.message
+				: "Failed to delete environment variable";
+	} finally {
+		envDeletingName = null;
+	}
 }
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
@@ -1584,6 +1686,15 @@ async function loadSpace(_options?: { force?: boolean }) {
 		(async () => {
 			try {
 				await loadSpaceChannels();
+			} catch {
+				/* Non-blocking */
+			}
+		})(),
+	);
+	tasks.push(
+		(async () => {
+			try {
+				await loadSpaceEnv();
 			} catch {
 				/* Non-blocking */
 			}
@@ -3239,6 +3350,11 @@ $effect(() => {
 	taskRunDetail = null;
 	spaceAccess = null;
 	spaceMembers = [];
+	spaceEnv = [];
+	spaceEnvError = "";
+	envNameInput = "";
+	envValueInput = "";
+	envEditingName = null;
 	tokenUsage = null;
 	creatingSession = false;
 	createSessionError = "";
@@ -4866,6 +4982,119 @@ $effect(() => {
                 </div>
               </div>
             {/if}
+
+            <!-- Environment Variables -->
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <Terminal class="w-4 h-4 text-text-tertiary" />
+                  <div>
+                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Environment</div>
+                    <div class="text-[15px] font-medium text-text-primary">{spaceEnv.length} variable{spaceEnv.length !== 1 ? 's' : ''}</div>
+                    <div class="mt-0.5 text-[12px] text-text-tertiary">Injected into new sandbox sessions for this space.</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="p-1.5 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                  title="Refresh env"
+                  onclick={() => void loadSpaceEnv()}
+                  disabled={spaceEnvLoading}
+                >
+                  <RefreshCw class="w-3.5 h-3.5 {spaceEnvLoading ? 'animate-spin' : ''}" />
+                </button>
+              </div>
+
+              {#if spaceEnvError}
+                <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceEnvError}</div>
+              {/if}
+
+              <div class="grid gap-2 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)_auto]">
+                <input
+                  type="text"
+                  bind:value={envNameInput}
+                  placeholder="ENV_NAME"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  class="min-w-0 px-2.5 py-[7px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddEnv(); } }}
+                />
+                <input
+                  type="password"
+                  bind:value={envValueInput}
+                  placeholder="value"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  class="min-w-0 px-2.5 py-[7px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddEnv(); } }}
+                />
+                <button
+                  type="button"
+                  onclick={() => void handleAddEnv()}
+                  disabled={envSubmitting || !envNameInput.trim()}
+                  class="inline-flex items-center justify-center gap-1.5 px-3 py-[7px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
+                >
+                  {#if envSubmitting}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if}
+                  Add
+                </button>
+              </div>
+
+              {#if spaceEnvLoading && spaceEnv.length === 0}
+                <div class="flex items-center justify-center py-6 text-[12px] text-text-tertiary">
+                  <Loader2 class="w-4 h-4 animate-spin mr-2" />
+                  Loading environment...
+                </div>
+              {:else if spaceEnv.length === 0}
+                <div class="rounded-[6px] border border-dashed border-border-subtle bg-bg-hover/30 px-3 py-4 text-[12px] text-text-tertiary">
+                  No custom environment variables. Add keys like <code class="font-mono text-text-secondary">OPENAI_API_KEY</code> or project-specific flags here.
+                </div>
+              {:else}
+                <div class="space-y-1.5">
+                  {#each spaceEnv as item (item.name)}
+                    <div class="group rounded-[6px] border border-border-subtle bg-bg-hover/40 px-3 py-2">
+                      <div class="flex items-center gap-2">
+                        <code class="min-w-0 flex-[0.8] truncate text-[12px] font-mono text-text-primary select-all">{item.name}</code>
+                        {#if envEditingName === item.name}
+                          <input
+                            type="password"
+                            bind:value={envEditingValue}
+                            class="min-w-0 flex-1 px-2 py-1 rounded-[4px] bg-bg-input border border-border-subtle text-[12px] text-text-primary focus:border-brand/40 focus:outline-none font-mono"
+                            onkeydown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); void handleUpdateEnv(item.name); }
+                              if (e.key === 'Escape') cancelEnvEdit();
+                            }}
+                          />
+                          <button type="button" class="p-1.5 rounded-sm text-success-soft hover:bg-bg-hover" title="Save" disabled={envUpdatingName === item.name} onclick={() => void handleUpdateEnv(item.name)}>
+                            {#if envUpdatingName === item.name}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Check class="w-3.5 h-3.5" />{/if}
+                          </button>
+                          <button type="button" class="p-1.5 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover" title="Cancel" onclick={cancelEnvEdit}>
+                            <X class="w-3.5 h-3.5" />
+                          </button>
+                        {:else}
+                          <code class="min-w-0 flex-1 truncate text-[12px] font-mono text-text-tertiary select-all">
+                            {envVisibleValues[item.name] ? (item.value || '(empty)') : maskEnvValue(item.value)}
+                          </code>
+                          <button
+                            type="button"
+                            class="p-1.5 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                            title={envVisibleValues[item.name] ? 'Hide value' : 'Reveal value'}
+                            onclick={() => { envVisibleValues = { ...envVisibleValues, [item.name]: !envVisibleValues[item.name] }; }}
+                          >
+                            <Eye class="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" class="p-1.5 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Edit value" onclick={() => startEnvEdit(item)}>
+                            <Pencil class="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" class="p-1.5 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Delete" disabled={envDeletingName === item.name} onclick={() => void handleDeleteEnv(item.name)}>
+                            {#if envDeletingName === item.name}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Trash2 class="w-3.5 h-3.5" />{/if}
+                          </button>
+                        {/if}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </section>
 
             <!-- Channels -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">

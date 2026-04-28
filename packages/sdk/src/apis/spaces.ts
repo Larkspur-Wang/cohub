@@ -547,6 +547,48 @@ export class SpaceChannelsApi {
   }
 }
 
+export class SpaceEnvApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  list() {
+    return this.transport.request<{ env: SpaceEnvInput[] }>(
+      `/api/spaces/${this.spaceId}/env`,
+    );
+  }
+
+  create(input: SpaceEnvInput) {
+    return this.transport.request<{ env: SpaceEnvInput[] }>(
+      `/api/spaces/${this.spaceId}/env`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  update(name: string, value: string) {
+    return this.transport.request<{ env: SpaceEnvInput[] }>(
+      `/api/spaces/${this.spaceId}/env/${encodeURIComponent(name)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      },
+    );
+  }
+
+  remove(name: string) {
+    return this.transport.request<{ env: SpaceEnvInput[] }>(
+      `/api/spaces/${this.spaceId}/env/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    );
+  }
+}
+
 export class SpaceCheckpointsApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -586,6 +628,7 @@ export class SpaceClient {
   readonly checkpoints: SpaceCheckpointsApi;
   readonly usage: SpaceUsageApi;
   readonly channels: SpaceChannelsApi;
+  readonly env: SpaceEnvApi;
   readonly invitations: SpaceInvitationsApi;
 
   constructor(
@@ -600,6 +643,7 @@ export class SpaceClient {
     this.checkpoints = new SpaceCheckpointsApi(transport, id);
     this.usage = new SpaceUsageApi(transport, id);
     this.channels = new SpaceChannelsApi(transport, id);
+    this.env = new SpaceEnvApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
   }
 
