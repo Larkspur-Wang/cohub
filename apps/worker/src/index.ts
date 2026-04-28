@@ -1,13 +1,11 @@
 import "dotenv/config";
 import "./tracing.js";
 
-import { context, trace, SpanStatusCode } from "@opentelemetry/api";
-import { getTracer, extractTrace } from "@cohub/tracing/propagator";
-
-const tracer = getTracer("cohub-worker");
 import { Worker, type Processor } from "bullmq";
 import { BullMQOtel } from "bullmq-otel";
 import { Redis } from "ioredis";
+import { context, SpanStatusCode, trace } from "@opentelemetry/api";
+import { getTracer, extractTrace, injectTrace } from "@cohub/tracing/propagator";
 import { config, assertRequiredConfig } from "./config.js";
 import { getTaskHandler, getRegisteredTasks } from "./tasks/registry.js";
 
@@ -22,6 +20,10 @@ const connection = new Redis(config.bullmqRedisUrl, {
   enableReadyCheck: false,
 });
 
+const tracer = getTracer("cohub-worker");
+const SLOW_JOB_THRESHOLD_MS = Number(process.env.SLOW_JOB_THRESHOLD_MS ?? 30_000);
+const formatDuration = (durationMs: number) => Math.round(durationMs * 10) / 10;
+
 const processor: Processor = async (job) => {
   const handler = getTaskHandler(job.name);
   if (!handler) {
@@ -34,16 +36,37 @@ const processor: Processor = async (job) => {
       "job.id": job.id ?? "",
       "job.name": job.name,
       "job.queue": job.queueName,
+      "job.attempt": job.attemptsMade,
     },
   });
   return context.with(trace.setSpan(parentCtx, span), async () => {
+    const startedAt = performance.now();
     try {
-      return await handler(job);
+      if (job.data && typeof job.data === "object") {
+        Object.assign(job.data as Record<string, unknown>, injectTrace());
+      }
+      const result = await handler(job);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
     } catch (err) {
       span.recordException(err instanceof Error ? err : new Error(String(err)));
       span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
       throw err;
     } finally {
+      const durationMs = performance.now() - startedAt;
+      span.setAttribute("job.duration_ms", formatDuration(durationMs));
+      if (durationMs >= SLOW_JOB_THRESHOLD_MS) {
+        const spanContext = span.spanContext();
+        console.warn("[Worker Slow Job]", JSON.stringify({
+          jobId: job.id,
+          jobName: job.name,
+          queue: job.queueName,
+          attempt: job.attemptsMade,
+          durationMs: formatDuration(durationMs),
+          traceId: spanContext.traceId,
+          spanId: spanContext.spanId,
+        }));
+      }
       span.end();
     }
   });

@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
-import { context, trace, SpanStatusCode, type Span } from "@opentelemetry/api";
+import { context, trace, SpanStatusCode, type Span, SpanKind } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
 import { fetchAuthUser, getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
 import { assertRequiredConfig } from "./config.js";
@@ -176,6 +176,7 @@ startSessionUpdatesBridge().catch(console.error);
 const app = new Hono<{
   Variables: {
     requestTimings: string[];
+    routeStartedAt: number;
     token: string | null;
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
@@ -193,6 +194,7 @@ app.use(
 );
 
 const SLOW_REQUEST_THRESHOLD_MS = Number(process.env.SLOW_REQUEST_THRESHOLD_MS ?? 1000);
+const SLOW_HANDLER_GAP_THRESHOLD_MS = Number(process.env.SLOW_HANDLER_GAP_THRESHOLD_MS ?? 100);
 const formatDuration = (durationMs: number) => Math.round(durationMs * 10) / 10;
 
 const recordSpanError = (span: Span, error: unknown) => {
@@ -200,10 +202,18 @@ const recordSpanError = (span: Span, error: unknown) => {
   span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
 };
 
+const addTiming = (c: { get: (key: "requestTimings") => string[] | undefined }, name: string, durationMs: number, desc?: string) => {
+  const duration = formatDuration(durationMs);
+  c.get("requestTimings")?.push(desc ? `${name};dur=${duration};desc="${desc}"` : `${name};dur=${duration}`);
+};
+
+const getActiveSpanContext = () => trace.getActiveSpan()?.spanContext();
+
 app.use("*", async (c, next) => {
   const startedAt = performance.now();
   const requestTimings: string[] = [];
   c.set("requestTimings", requestTimings);
+  c.set("routeStartedAt", startedAt);
 
   try {
     await next();
@@ -213,8 +223,7 @@ app.use("*", async (c, next) => {
     if (serverTiming) c.header("Server-Timing", serverTiming);
 
     if (totalMs >= SLOW_REQUEST_THRESHOLD_MS) {
-      const activeSpan = trace.getActiveSpan();
-      const spanContext = activeSpan?.spanContext();
+      const spanContext = getActiveSpanContext();
       console.warn("[API Slow Request]", JSON.stringify({
         method: c.req.method,
         path: c.req.path,
@@ -253,7 +262,7 @@ app.use(async (c, next) => {
         console.warn("[API] Failed to verify execution token:", error);
         return null;
       });
-      c.get("requestTimings")?.push(`auth.execution;dur=${formatDuration(performance.now() - executionAuthStartedAt)}`);
+      addTiming(c, "auth.execution", performance.now() - executionAuthStartedAt);
       if (executionAuth) {
         authSource = "execution";
         c.set("executionAuth", executionAuth);
@@ -274,16 +283,39 @@ app.use(async (c, next) => {
         authSource = "failed";
         c.set("authUser", null);
       } finally {
-        c.get("requestTimings")?.push(`auth.user;dur=${formatDuration(performance.now() - authUserStartedAt)}`);
+        addTiming(c, "auth.user", performance.now() - authUserStartedAt);
       }
     } finally {
-      c.get("requestTimings")?.push(
-        `auth;dur=${formatDuration(performance.now() - authStartedAt)};desc="${authSource}"`,
-      );
+      addTiming(c, "auth", performance.now() - authStartedAt, authSource);
     }
   }
 
   await next();
+});
+
+app.use(async (c, next) => {
+  const routeStartedAt = performance.now();
+  c.set("routeStartedAt", routeStartedAt);
+
+  await next();
+
+  const routeMs = performance.now() - routeStartedAt;
+  addTiming(c, "route", routeMs);
+
+  const dbMs = c.get("requestTimings")
+    ?.map((timing) => timing.match(/^db(?:\.[^;]+)?;dur=([\d.]+)/)?.[1])
+    .filter((value): value is string => Boolean(value))
+    .reduce((sum, value) => sum + Number(value), 0) ?? 0;
+  const handlerGapMs = Math.max(0, routeMs - dbMs);
+  if (handlerGapMs >= SLOW_HANDLER_GAP_THRESHOLD_MS) {
+    addTiming(c, "handler_gap", handlerGapMs);
+    trace.getActiveSpan()?.addEvent("api.handler_gap", {
+      "http.route": c.req.path,
+      "api.route_ms": formatDuration(routeMs),
+      "api.db_ms": formatDuration(dbMs),
+      "api.handler_gap_ms": formatDuration(handlerGapMs),
+    });
+  }
 });
 
 app.route("/", router);
