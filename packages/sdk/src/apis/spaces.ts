@@ -373,11 +373,20 @@ export class SpaceSessionsApi {
     );
   }
 
-  list(customFetch?: Fetch) {
+  list(
+    optionsOrFetch?: { limit?: number; cursor?: string | null } | Fetch,
+    customFetch?: Fetch,
+  ) {
+    const options = typeof optionsOrFetch === "function" ? undefined : optionsOrFetch;
+    const fetch = typeof optionsOrFetch === "function" ? optionsOrFetch : customFetch;
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.cursor) params.set("cursor", options.cursor);
+    const query = params.toString();
     return this.transport.request<SpaceSessionsResponse>(
-      `/api/spaces/${this.spaceId}/sessions`,
+      `/api/spaces/${this.spaceId}/sessions${query ? `?${query}` : ""}`,
       {
-        fetch: customFetch,
+        fetch,
       },
     );
   }

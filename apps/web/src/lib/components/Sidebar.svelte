@@ -53,11 +53,11 @@ import {
 } from "$lib/stores/session-context-menu.svelte";
 import {
 	clearAllCachedSessionLists,
-	fetchSessionListWithCache,
 	getCachedSessionList,
 	getCachedSessionListMeta,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
+	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { isStreaming, unreadTracker } from "$lib/stores/session-state.svelte";
 import {
@@ -78,6 +78,8 @@ const {
 	mode?: "space" | "settings";
 } = $props();
 
+const SESSION_PAGE_SIZE = 20;
+
 let isLoading = $state(true);
 let loadError = $state("");
 let showUserMenu = $state(false);
@@ -86,6 +88,11 @@ let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
 let checkpoints = $state<CheckpointRecord[]>([]);
 let loadingSessions = $state(false);
+let loadingMoreSessions = $state(false);
+let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
+	hasMore: false,
+	nextCursor: null,
+});
 let loadingCheckpoints = $state(false);
 
 let sessionsCollapsed = $state(false);
@@ -291,18 +298,42 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 	}
 
 	try {
-		sessions = await fetchSessionListWithCache(
-			spaceId,
-			async () => {
-				const result = await sdk.space(spaceId).sessions.list();
-				return result.sessions ?? [];
-			},
-			{ force },
-		);
+		const result = await sdk.space(spaceId).sessions.list({
+			limit: SESSION_PAGE_SIZE,
+		});
+		const nextSessions = result.sessions ?? [];
+		sessions = setCachedSessionList(spaceId, nextSessions);
+		sessionsPageInfo = result.pageInfo ?? { hasMore: false, nextCursor: null };
 	} catch (error) {
 		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
 	} finally {
 		loadingSessions = false;
+	}
+}
+
+async function loadMoreSessionsForSpace(spaceId: string) {
+	if (
+		loadingMoreSessions ||
+		!sessionsPageInfo.hasMore ||
+		!sessionsPageInfo.nextCursor
+	)
+		return;
+	loadingMoreSessions = true;
+	try {
+		const result = await sdk.space(spaceId).sessions.list({
+			limit: SESSION_PAGE_SIZE,
+			cursor: sessionsPageInfo.nextCursor,
+		});
+		const moreSessions = result.sessions ?? [];
+		sessions = patchCachedSessionList(spaceId, (current) => [
+			...current,
+			...moreSessions,
+		]);
+		sessionsPageInfo = result.pageInfo ?? { hasMore: false, nextCursor: null };
+	} catch (error) {
+		console.warn("[sidebar] Failed to load more sessions", { spaceId, error });
+	} finally {
+		loadingMoreSessions = false;
 	}
 }
 
@@ -627,6 +658,8 @@ $effect(() => {
 	if (mode !== "space") return;
 	const id = currentSpaceId;
 	if (id) {
+		sessions = [];
+		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		untrack(() => {
 			void loadSessionsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
@@ -635,6 +668,7 @@ $effect(() => {
 		});
 	} else {
 		sessions = [];
+		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
@@ -839,6 +873,21 @@ $effect(() => {
                     </a>
                   {/if}
                 {/each}
+                {#if sessionsPageInfo.hasMore}
+                  <button
+                    type="button"
+                    class="mt-1 flex items-center justify-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-60"
+                    disabled={loadingMoreSessions}
+                    onclick={() => currentSpaceId && void loadMoreSessionsForSpace(currentSpaceId)}
+                  >
+                    {#if loadingMoreSessions}
+                      <Loader2 class="w-3 h-3 animate-spin" />
+                      Loading...
+                    {:else}
+                      Load more
+                    {/if}
+                  </button>
+                {/if}
               </div>
             {/if}
           {:else if activeSession}

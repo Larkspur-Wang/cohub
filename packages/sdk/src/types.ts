@@ -179,6 +179,10 @@ export type SpaceChannelBindingInput = {
 
 export type SpaceSessionsResponse = {
   sessions: SessionRecord[];
+  pageInfo?: {
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
 };
 
 export type UserSshKey = {

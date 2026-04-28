@@ -353,6 +353,7 @@ export const createInitialSpaceSession = async (input: RegisterSessionInput) => 
     forkedFromMessageId: null,
     lineageRootSessionId: input.sessionId,
     forkDepth: 0,
+    lastMessageAt: new Date(),
     lastMessageId: null,
   }).returning();
   if (!session) throw new Error("Failed to create initial space session");
@@ -376,6 +377,7 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
       forkedFromMessageId: null,
       lineageRootSessionId: input.sessionId,
       forkDepth: 0,
+      lastMessageAt: new Date(),
       lastMessageId: null,
     }).returning();
     if (!session) throw new Error("Failed to register space session");
@@ -390,11 +392,44 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
   }
 };
 
-export const listSpaceSessions = async (spaceId: string) => {
-  return db.select().from(spaceSessions).where(eq(spaceSessions.spaceId, spaceId)).orderBy(
-    desc(sql`coalesce(${spaceSessions.lastMessageAt}, ${spaceSessions.createdAt})`),
-    desc(spaceSessions.createdAt),
-  );
+const DEFAULT_SESSION_LIST_LIMIT = 20;
+const MAX_SESSION_LIST_LIMIT = 100;
+
+const encodeSessionListCursor = (date: Date | string | null | undefined) => {
+  if (!date) return null;
+  return date instanceof Date ? date.toISOString() : new Date(date).toISOString();
+};
+
+export const listSpaceSessions = async (
+  spaceId: string,
+  options?: { limit?: number; cursor?: string | null },
+) => {
+  const rawLimit = Math.trunc(options?.limit ?? DEFAULT_SESSION_LIST_LIMIT);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), MAX_SESSION_LIST_LIMIT)
+    : DEFAULT_SESSION_LIST_LIMIT;
+  const cursorDate = options?.cursor ? new Date(options.cursor) : null;
+  const cursor = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
+
+  const rows = await db.select().from(spaceSessions).where(
+    cursor
+      ? and(eq(spaceSessions.spaceId, spaceId), lt(spaceSessions.lastMessageAt, cursor))
+      : eq(spaceSessions.spaceId, spaceId),
+  ).orderBy(
+    sql`${spaceSessions.lastMessageAt} desc nulls last`,
+  ).limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const sessions = hasMore ? rows.slice(0, limit) : rows;
+  const lastSession = sessions.at(-1);
+
+  return {
+    sessions,
+    pageInfo: {
+      hasMore,
+      nextCursor: hasMore ? encodeSessionListCursor(lastSession?.lastMessageAt) : null,
+    },
+  };
 };
 
 export const getSpaceSessionBootstrap = async (spaceSessionId: string) => {

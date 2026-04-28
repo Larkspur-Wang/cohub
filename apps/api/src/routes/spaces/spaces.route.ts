@@ -702,7 +702,10 @@ router.get("/:id/sessions", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
-  const sessions = await listSpaceSessions(spaceId);
+  const limitParam = Number(c.req.query("limit") ?? 20);
+  const limit = Number.isFinite(limitParam) ? limitParam : 20;
+  const cursor = c.req.query("cursor") ?? null;
+  const { sessions, pageInfo } = await listSpaceSessions(spaceId, { limit, cursor });
 
   // Member users have space-level permission that covers all sessions.
   // Only non-members need per-session accessPolicy checks.
@@ -713,7 +716,7 @@ router.get("/:id/sessions", async (c) => {
     ? sessions
     : await filterSessionsByPermission(user, "session.view", spaceId, sessions);
 
-  return c.json({ sessions: visibleSessions });
+  return c.json({ sessions: visibleSessions, pageInfo });
 });
 
 // ── Channels ─────────────────────────────────────────────────────────────────
