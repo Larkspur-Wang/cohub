@@ -19,6 +19,7 @@ export type ChatMessage = {
 		provider?: string | null;
 		usage?: MessageRecord["usage"];
 		contentDetail?: "summary" | "full";
+		contentPlaceholder?: "assistant_intermediate";
 		historySummary?: {
 			toolCallCount?: number;
 			thinkingCharCount?: number;
@@ -119,6 +120,9 @@ export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
 							contentDetail: msgMeta?.contentDetail as
 								| "summary"
 								| "full"
+								| undefined,
+							contentPlaceholder: msgMeta?.contentPlaceholder as
+								| "assistant_intermediate"
 								| undefined,
 							historySummary: msgMeta?.historySummary as
 								| { toolCallCount?: number; thinkingCharCount?: number }
