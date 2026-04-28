@@ -12,9 +12,10 @@ type ModelCatalogItem = {
 type Props = {
 	messages: ChatMessage[];
 	modelsCatalog?: ModelCatalogItem[];
+	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
 };
 
-const { messages, modelsCatalog }: Props = $props();
+const { messages, modelsCatalog, onLoadMessageDetail }: Props = $props();
 
 let expanded = $state(false);
 
@@ -25,13 +26,27 @@ function toggle() {
 const toolCallCount = $derived(
 	messages.reduce(
 		(sum, msg) =>
-			sum + (msg.content?.filter((b) => b.type === "tool_use").length ?? 0),
+			sum +
+			(typeof msg.meta?.historySummary === "object" &&
+			msg.meta.historySummary !== null &&
+			"toolCallCount" in msg.meta.historySummary &&
+			typeof msg.meta.historySummary.toolCallCount === "number"
+				? msg.meta.historySummary.toolCallCount
+				: (msg.content?.filter((b) => b.type === "tool_use").length ?? 0)),
 		0,
 	),
 );
 
 const thinkingCharCount = $derived(
 	messages.reduce((sum, msg) => {
+		if (
+			typeof msg.meta?.historySummary === "object" &&
+			msg.meta.historySummary !== null &&
+			"thinkingCharCount" in msg.meta.historySummary &&
+			typeof msg.meta.historySummary.thinkingCharCount === "number"
+		) {
+			return sum + msg.meta.historySummary.thinkingCharCount;
+		}
 		const thinking =
 			msg.content
 				?.filter((b) => b.type === "thinking")
@@ -78,7 +93,7 @@ const summaryLabel = $derived(labelParts.join(" · "));
 
 		<div class="flex flex-col gap-2 pl-2 border-l border-border-subtle/40 ml-2">
 			{#each messages as msg (msg.id)}
-				<ChatMessageBubble message={msg} {modelsCatalog} />
+				<ChatMessageBubble message={msg} {modelsCatalog} {onLoadMessageDetail} />
 			{/each}
 		</div>
 

@@ -46,8 +46,27 @@ async function tx<T>(
 	return result;
 }
 
+function getContentDetail(message: MessageRecord): "summary" | "full" {
+	const value = message.meta?.contentDetail;
+	return value === "summary" ? "summary" : "full";
+}
+
+function chooseMessage(current: MessageRecord, incoming: MessageRecord) {
+	if (
+		getContentDetail(current) === "full" &&
+		getContentDetail(incoming) === "summary"
+	) {
+		return current;
+	}
+	return incoming;
+}
+
 function mergeBySequence(messages: MessageRecord[]): MessageRecord[] {
-	const byId = new Map(messages.map((message) => [message.id, message]));
+	const byId = new Map<string, MessageRecord>();
+	for (const message of messages) {
+		const current = byId.get(message.id);
+		byId.set(message.id, current ? chooseMessage(current, message) : message);
+	}
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
 }
 

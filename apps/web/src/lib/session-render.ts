@@ -187,6 +187,7 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 	const msgMeta = message.meta as Record<string, unknown> | null | undefined;
 	return {
 		id: renderKey,
+		sourceId: message.id,
 		role: message.role,
 		content: message.content,
 		text: message.text ?? "",
@@ -203,9 +204,23 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 						model: message.model,
 						provider: message.provider,
 						usage: message.usage,
+						contentDetail: msgMeta?.contentDetail as
+							| "summary"
+							| "full"
+							| undefined,
+						historySummary: msgMeta?.historySummary as
+							| { toolCallCount?: number; thinkingCharCount?: number }
+							| undefined,
 					}
 				: {
 						messageKind: msgMeta?.messageKind as string | null,
+						contentDetail: msgMeta?.contentDetail as
+							| "summary"
+							| "full"
+							| undefined,
+						historySummary: msgMeta?.historySummary as
+							| { toolCallCount?: number; thinkingCharCount?: number }
+							| undefined,
 					},
 	} satisfies ChatMessage;
 }

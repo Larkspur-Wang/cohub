@@ -3,6 +3,7 @@ import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 
 export type ChatMessage = {
 	id: string;
+	sourceId?: string;
 	role: "user" | "assistant" | "system";
 	content: ContentBlock[];
 	text: string;
@@ -17,6 +18,11 @@ export type ChatMessage = {
 		model?: string | null;
 		provider?: string | null;
 		usage?: MessageRecord["usage"];
+		contentDetail?: "summary" | "full";
+		historySummary?: {
+			toolCallCount?: number;
+			thinkingCharCount?: number;
+		};
 	};
 };
 
@@ -93,6 +99,7 @@ export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
 		const msgMeta = message.meta as Record<string, unknown> | null | undefined;
 		return {
 			id: message.id,
+			sourceId: message.id,
 			role: message.role,
 			content: message.content,
 			text: message.text ?? "",
@@ -109,6 +116,13 @@ export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
 							model: message.model,
 							provider: message.provider,
 							usage: message.usage,
+							contentDetail: msgMeta?.contentDetail as
+								| "summary"
+								| "full"
+								| undefined,
+							historySummary: msgMeta?.historySummary as
+								| { toolCallCount?: number; thinkingCharCount?: number }
+								| undefined,
 						}
 					: undefined,
 		} satisfies ChatMessage;
