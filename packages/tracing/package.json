@@ -19,6 +19,10 @@
     "./agent": {
       "types": "./dist/spans/agent.d.ts",
       "default": "./dist/spans/agent.js"
+    },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "default": "./dist/db.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -38,7 +42,8 @@
     "@opentelemetry/resources": "^2.1.0",
     "@opentelemetry/sdk-trace-base": "^2.1.0",
     "@opentelemetry/sdk-trace-node": "^2.1.0",
-    "@opentelemetry/semantic-conventions": "^1.34.0"
+    "@opentelemetry/semantic-conventions": "^1.34.0",
+    "@kubiks/otel-drizzle": "^2.1.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
