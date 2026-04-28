@@ -198,6 +198,18 @@ function resetStreamState(handle: SessionHandle) {
   };
 }
 
+function resolvePersistedAssistantContent(handle: SessionHandle, message: Record<string, unknown>) {
+  const stopReason = typeof message.stopReason === "string" ? message.stopReason : null;
+  const rawContent = Array.isArray(message.content) ? message.content : [];
+  if (stopReason === "error" || stopReason === "aborted") {
+    return rawContent;
+  }
+  if (handle.streamState.content.length > 0) {
+    return handle.streamState.content;
+  }
+  return rawContent;
+}
+
 function getStreamIndex(block: ContentBlock): number | null {
   const value = block._meta?.streamIndex;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -441,13 +453,17 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       });
       const currentUserMessageId = handle.currentUserMessageId;
       const currentModel = handle.session.agent.state.model;
+      const rawMessage = event.message as unknown as Record<string, unknown>;
 
-      // Use streamState.content (built incrementally via upsert during streaming)
-      // instead of the SDK's event.message.content, which may contain duplicated
-      // tool_result text due to the SDK's content accumulation bug.
+      if (handle.session.shouldDeferErrorPersistence(rawMessage)) {
+        resetStreamState(handle);
+        handle.pendingUserMessages = handle.pendingUserMessages.filter((item) => item.userMessageId !== currentUserMessageId);
+        return;
+      }
+
       const enrichedMessage = {
-        ...(event.message as unknown as Record<string, unknown>),
-        content: handle.streamState.content,
+        ...rawMessage,
+        content: resolvePersistedAssistantContent(handle, rawMessage),
         provider: currentModel.provider,
         model: currentModel.id,
       };
@@ -486,6 +502,9 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     if (event.type === "agent_end") {
       console.log(`[Session] agent:end sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.agent_end");
+      if (handle.session.isRetrying) {
+        return;
+      }
       handle.currentLlmRound = null;
       handle.currentTurnId = null;
       handle.currentTurnSeq = null;

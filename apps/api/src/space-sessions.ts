@@ -423,12 +423,15 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const _shouldDispatchToProvider = messageRole === "assistant";
   const normalizedUsage = normalizeUsage(input.message.usage);
 
-  if (messageRole === "assistant" && content.length === 0 && !text?.trim()) throw new Error("Refusing to persist empty assistant message");
+  const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
+  if (messageRole === "assistant" && content.length === 0 && !text?.trim() && !hasError) {
+    throw new Error("Refusing to persist empty assistant message");
+  }
+
 
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   const userId = input.userId ?? null;
   const toolUseCount = countToolCallsInContent(content);
-  const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
   const messageKind = messageRole !== "assistant" ? messageRole : hasError ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
 
   const [messageNode] = await db.insert(sessionMessages).values({

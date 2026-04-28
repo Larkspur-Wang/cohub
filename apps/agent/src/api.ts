@@ -307,6 +307,15 @@ export function normalizeAssistantTurn(
       const execution = executions.get(block.id);
       if (execution) {
         emitToolUseBlock(blocks, execution, emittedToolUses);
+      } else if (typeof block.name === "string") {
+        blocks.push({
+          type: "tool_use",
+          id: block.id,
+          name: block.name,
+          input: (block.type === "toolCall" ? block.arguments : block.input) as Record<string, unknown> ?? {},
+          ...(block._meta && typeof block._meta === "object" ? { _meta: block._meta as Record<string, unknown> } : {}),
+        });
+        emittedToolUses.add(block.id);
       } else {
         console.warn("[Normalize] tool block has no matching execution", {
           blockType: block.type,
@@ -501,12 +510,16 @@ export async function persistAssistantMessage(input: {
   const normalized = normalizeAssistantTurn(assistant, toolResultsRaw);
   const { content, thinking, thinkingSummary, toolCallRenderStates } = normalized;
 
-  if (content.length === 0) {
+  const stopReason = typeof assistant.stopReason === "string" ? assistant.stopReason : null;
+  const errorMessage = typeof assistant.errorMessage === "string" ? assistant.errorMessage : null;
+  const hasAssistantError = stopReason === "error" || stopReason === "aborted" || Boolean(errorMessage);
+
+  if (content.length === 0 && !hasAssistantError) {
     console.warn("[Persist] skipping empty assistant message", {
       spaceId: input.spaceId,
       spaceSessionId: input.spaceSessionId,
       userMessageId: input.userMessageId,
-      stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
+      stopReason,
     });
     return;
   }
@@ -525,12 +538,12 @@ export async function persistAssistantMessage(input: {
       content,
       provider: typeof assistant.provider === "string" ? assistant.provider : null,
       model: typeof assistant.model === "string" ? assistant.model : null,
-      stopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
-      errorMessage: typeof assistant.errorMessage === "string" ? assistant.errorMessage : null,
+      stopReason,
+      errorMessage,
       meta: {
         spaceId: input.spaceId,
         sessionId: input.spaceSessionId,
-        rawStopReason: typeof assistant.stopReason === "string" ? assistant.stopReason : null,
+        rawStopReason: stopReason,
         thinking,
         thinkingSummary,
         toolCallRenderStates,

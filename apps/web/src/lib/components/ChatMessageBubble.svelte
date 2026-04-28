@@ -107,6 +107,18 @@ const textContent = $derived(
 		.trim() || "",
 );
 
+const assistantErrorMessage = $derived(
+	message.role === "assistant" &&
+		(message.meta?.messageKind === "assistant_error" ||
+			message.meta?.stopReason === "error" ||
+			message.meta?.stopReason === "aborted")
+		? (message.meta?.errorMessage ??
+				(message.meta?.stopReason === "aborted"
+					? "Operation aborted"
+					: "Unknown error"))
+		: "",
+);
+
 const isUserMessage = $derived(message.role === "user");
 
 $effect(() => {
@@ -380,7 +392,7 @@ function handleCopy() {
         {/if}
       </div>
     {/if}
-    <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? 'text-text-primary' : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
+    <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary border border-status-error/30 rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
 
       {#if thinkingContent}
         <div class="mb-3">
@@ -430,6 +442,13 @@ function handleCopy() {
           class="prose prose-sm prose-invert max-w-none text-inherit"
         >
           {@html renderedHtml}
+        </div>
+      {/if}
+
+      {#if assistantErrorMessage}
+        <div class="mt-3 rounded-lg border border-status-error/30 bg-status-error/8 px-3 py-2 text-[12px] text-status-error whitespace-pre-wrap break-words">
+          <div class="font-medium">Error</div>
+          <div class="mt-1">{assistantErrorMessage}</div>
         </div>
       {/if}
 

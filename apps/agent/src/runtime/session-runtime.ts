@@ -2,6 +2,7 @@ import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
 import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { context } from "@opentelemetry/api";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
@@ -15,6 +16,8 @@ export type CohubAgentSession = {
   modelRegistry: CohubModelRegistry;
   sessionManager: SessionManager;
   isStreaming: boolean;
+  isRetrying: boolean;
+  shouldDeferErrorPersistence(message: Record<string, unknown>): boolean;
   prompt(text: string, options?: { images?: ImageContent[] }): Promise<void>;
   steer(text: string, images?: ImageContent[]): Promise<void>;
   enqueueSteer(text: string, images?: ImageContent[]): void;
@@ -29,6 +32,18 @@ export type CohubAgentSession = {
 type ToolLike = {
   name: string;
 };
+
+const AGENT_RETRY_ENABLED = true;
+const AGENT_RETRY_MAX_RETRIES = 2;
+const AGENT_RETRY_BASE_DELAY_MS = 1000;
+
+function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
+  if (!message || message.stopReason !== "error" || !message.errorMessage) return false;
+  return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(
+    message.errorMessage,
+  );
+}
+
 
 export type CreateCohubAgentSessionOptions = {
   cwd: string;
@@ -184,12 +199,83 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),
   });
 
+  let lastAssistantMessage: AssistantMessage | undefined;
+  let retryAttempt = 0;
+  let retryPromise: Promise<void> | null = null;
+  let retryResolve: (() => void) | null = null;
+  let retryScheduled = false;
+  let retryCancelled = false;
+  let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const ensureRetryPromise = () => {
+    if (retryPromise) return retryPromise;
+    retryPromise = new Promise<void>((resolve) => {
+      retryResolve = resolve;
+    });
+    return retryPromise;
+  };
+
+  const finishRetry = () => {
+    retryScheduled = false;
+    retryCancelled = false;
+    if (retryTimeout) {
+      clearTimeout(retryTimeout);
+      retryTimeout = null;
+    }
+    if (retryResolve) retryResolve();
+    retryResolve = null;
+    retryPromise = null;
+  };
+
   const unsubscribe = agent.subscribe((event: AgentEvent) => {
     if (event.type === "message_end") {
       const message = event.message as { role?: string };
-      if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
+      if (message.role === "assistant") {
+        const assistantMessage = event.message as AssistantMessage;
+        lastAssistantMessage = assistantMessage;
+        const shouldDeferPersistence = AGENT_RETRY_ENABLED
+          && isRetryableAssistantError(assistantMessage)
+          && retryAttempt < AGENT_RETRY_MAX_RETRIES;
+        if (!shouldDeferPersistence) {
+          options.sessionManager.appendMessage(event.message as never);
+        }
+        if (assistantMessage.stopReason !== "error") {
+          retryAttempt = 0;
+          finishRetry();
+        }
+      } else if (message.role === "user" || message.role === "toolResult") {
         options.sessionManager.appendMessage(event.message as never);
       }
+      return;
+    }
+
+    if (event.type === "agent_end" && lastAssistantMessage) {
+      const assistantMessage = lastAssistantMessage;
+      lastAssistantMessage = undefined;
+      if (AGENT_RETRY_ENABLED && isRetryableAssistantError(assistantMessage) && retryAttempt < AGENT_RETRY_MAX_RETRIES) {
+        retryAttempt += 1;
+        retryScheduled = true;
+        ensureRetryPromise();
+
+        const messages = agent.state.messages;
+        if (messages.length > 0 && messages[messages.length - 1]?.role === "assistant") {
+          agent.state.messages = messages.slice(0, -1);
+        }
+
+        const delayMs = AGENT_RETRY_BASE_DELAY_MS * 2 ** (retryAttempt - 1);
+        retryCancelled = false;
+        retryTimeout = setTimeout(() => {
+          retryTimeout = null;
+          if (retryCancelled) return;
+          void agent.continue().catch(() => {
+            // The subsequent agent_end / message_end cycle will surface the final error.
+          });
+        }, delayMs);
+        return;
+      }
+
+      retryAttempt = 0;
+      finishRetry();
     }
   });
 
@@ -200,9 +286,22 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     get isStreaming() {
       return agent.state.isStreaming;
     },
+    get isRetrying() {
+      return retryScheduled || retryPromise !== null;
+    },
+    shouldDeferErrorPersistence(message) {
+      const assistantMessage = message as unknown as AssistantMessage;
+      return AGENT_RETRY_ENABLED
+        && isRetryableAssistantError(assistantMessage)
+        && retryAttempt < AGENT_RETRY_MAX_RETRIES;
+    },
     async prompt(text, inputOptions) {
       await agent.prompt(text, inputOptions?.images);
       await agent.waitForIdle();
+      if (retryPromise) {
+        await retryPromise;
+        await agent.waitForIdle();
+      }
     },
     async steer(text, images) {
       agent.steer(createUserMessage(text, images));
@@ -213,6 +312,10 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async waitForIdle() {
       await agent.waitForIdle();
+      if (retryPromise) {
+        await retryPromise;
+        await agent.waitForIdle();
+      }
     },
     async setModel(nextModel) {
       agent.state.model = nextModel;
@@ -229,11 +332,25 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       agent.state.tools = options.tools as never;
     },
     async abort() {
+      retryCancelled = true;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+        retryTimeout = null;
+      }
       agent.abort();
       await agent.waitForIdle();
+      retryAttempt = 0;
+      finishRetry();
     },
     dispose() {
       unsubscribe();
+      retryCancelled = true;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+        retryTimeout = null;
+      }
+      retryAttempt = 0;
+      finishRetry();
       agent.abort();
     },
     subscribe(listener) {
