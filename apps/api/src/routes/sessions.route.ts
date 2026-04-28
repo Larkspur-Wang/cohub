@@ -91,7 +91,9 @@ router.get("/:id/messages", async (c) => {
   const pageMessages = hasMore
     ? (direction === "newer" ? rows.slice(0, -1) : rows.slice(1))
     : rows;
-  const messages = detail === "full" ? pageMessages.map(markMessageAsFull) : pageMessages.map(summarizeMessageForHistory);
+  const messages = detail === "full"
+    ? pageMessages.map(markMessageAsFull)
+    : pageMessages.map((message) => summarizeMessageForHistory(message));
 
   return c.json({
     session,
@@ -120,10 +122,13 @@ router.get("/:id/messages/:messageId", async (c) => {
 
   const message = await getSessionMessageById(session.id, messageId);
   if (!message) return c.json({ message: "message not found" }, 404);
+  const detail = c.req.query("detail") === "summary" ? "summary" : "full";
 
   return c.json({
     session,
-    message: markMessageAsFull(message),
+    message: detail === "summary"
+      ? summarizeMessageForHistory(message, { placeholderIntermediate: false })
+      : markMessageAsFull(message),
   });
 });
 

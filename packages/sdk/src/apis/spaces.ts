@@ -205,11 +205,20 @@ class SessionMessagesClient {
     );
   }
 
-  get(messageId: string, customFetch?: Fetch) {
+  get(
+    messageId: string,
+    optionsOrFetch?: { detail?: "summary" | "full" } | Fetch,
+    customFetch?: Fetch,
+  ) {
+    const options = typeof optionsOrFetch === "function" ? undefined : optionsOrFetch;
+    const fetch = typeof optionsOrFetch === "function" ? optionsOrFetch : customFetch;
+    const params = new URLSearchParams();
+    if (options?.detail) params.set("detail", options.detail);
+    const query = params.toString();
     return this.transport.request<SessionMessageResponse>(
-      `/api/sessions/${this.sessionId}/messages/${messageId}`,
+      `/api/sessions/${this.sessionId}/messages/${messageId}${query ? `?${query}` : ""}`,
       {
-        fetch: customFetch,
+        fetch,
       },
     );
   }
