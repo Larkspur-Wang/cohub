@@ -38,7 +38,7 @@ export class CohubClient {
       options.setStoredAuthToken,
       options.clearStoredAuthToken,
     );
-    this.models = new ModelsApi(options.fetch ?? fetch, options.baseUrl ?? "");
+    this.models = new ModelsApi(this.transport);
     this.prompts = new PromptsApi(options.fetch ?? fetch, options.baseUrl ?? "");
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.tasks = new TasksApi(this.transport);

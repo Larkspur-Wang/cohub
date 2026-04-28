@@ -1,18 +1,12 @@
-import type { Fetch } from "../transport.js";
+import type { HttpTransport } from "../transport.js";
 import type { ModelCatalogEntry } from "../types.js";
 
 export class ModelsApi {
-  constructor(private readonly fetcher: Fetch, private readonly baseUrl: string) {}
+  constructor(private readonly transport: HttpTransport) {}
 
-  async list(customFetch?: Fetch) {
-    const fetchImpl = customFetch ?? this.fetcher;
-    const url = this.baseUrl ? `${this.baseUrl}/api/models` : "/api/models";
-    const response = await fetchImpl(url);
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch models: ${response.status} ${response.statusText}`,
-      );
-    }
-    return response.json() as Promise<Record<string, ModelCatalogEntry[]>>;
+  async list() {
+    return this.transport.request<Record<string, ModelCatalogEntry[]>>(
+      "/api/models",
+    );
   }
 }

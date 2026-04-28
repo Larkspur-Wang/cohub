@@ -10,6 +10,7 @@ import { verifyUserAccessToken } from "@cohub/auth";
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
+import { UnauthorizedError } from "./lib/middleware.js";
 import { assertRequiredConfig, config } from "./config.js";
 import {
   createBlockingRedisClient,
@@ -240,6 +241,9 @@ app.use(async (c, next) => {
 app.route("/", router);
 
 app.onError((error, c) => {
+  if (error instanceof UnauthorizedError) {
+    return c.json({ message: error.message }, 401);
+  }
   const path = c.req.path;
   const method = c.req.method;
   console.error(`[API Error] ${method} ${path}:`, {

@@ -6,6 +6,13 @@ import type { ExecutionAuthPrincipal } from "../auth.js";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
 export type AuthUser = AuthUserProfile & { uuid: string };
+
+export class UnauthorizedError extends Error {
+  override name = "UnauthorizedError";
+  constructor(message = "unauthorized") {
+    super(message);
+  }
+}
 export type RequestPrincipal =
   | { type: "user"; user: AuthUser }
   | { type: "execution"; execution: ExecutionAuthPrincipal };
@@ -48,9 +55,7 @@ export const requireAuth = (c: Context): AuthUser | Response => {
       avatar_url: undefined,
     } satisfies AuthUser;
   }
-  const token = c.get("token");
-  if (!token) return c.json({ message: "unauthorized" }, 401);
-  return c.json({ message: "unauthorized" }, 401);
+  throw new UnauthorizedError();
 };
 
 /**
