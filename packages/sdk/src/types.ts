@@ -122,6 +122,11 @@ export type SessionMessagesResponse = {
   messages: MessageRecord[];
 };
 
+export type SessionMessageResponse = {
+  session: SessionRecord;
+  message: MessageRecord;
+};
+
 export type SessionMessagesPaginatedResponse = {
   session: SessionRecord;
   messages: MessageRecord[];

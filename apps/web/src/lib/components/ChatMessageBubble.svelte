@@ -14,20 +14,37 @@ type ModelCatalogItem = {
 type Props = {
 	message: ChatMessage;
 	modelsCatalog?: ModelCatalogItem[];
+	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
 };
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
-const { message, modelsCatalog }: Props = $props();
+const { message, modelsCatalog, onLoadMessageDetail }: Props = $props();
 let renderedHtml = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
 let thinkingExpanded = $state(false);
 let thinkingUserToggled = $state(false);
+let detailLoading = $state(false);
+
+const isSummaryMessage = $derived(message.meta?.contentDetail === "summary");
+
+async function ensureMessageDetail() {
+	if (!isSummaryMessage || !onLoadMessageDetail || detailLoading) return;
+	detailLoading = true;
+	try {
+		await onLoadMessageDetail(message);
+	} finally {
+		detailLoading = false;
+	}
+}
 
 // Auto-expand during streaming, auto-collapse after (unless user toggled)
 const isStreaming = $derived(
-	message.id === "assistant-streaming" || message.id === "assistant-thinking",
+	message.meta?.messageKind === "assistant_streaming_preview" ||
+		message.id.startsWith("assistant-streaming:") ||
+		message.id === "assistant-streaming" ||
+		message.id === "assistant-thinking",
 );
 
 $effect(() => {
@@ -66,7 +83,11 @@ function getImageAlt(block: ImageBlock, index: number): string {
 // Thinking truncation: JS-based since line-clamp conflicts with whitespace-pre-wrap
 const THINKING_COLLAPSE_CHARS = 260;
 const thinkingNeedsTruncation = $derived(
-	thinkingContent.length > THINKING_COLLAPSE_CHARS,
+	thinkingContent.length > THINKING_COLLAPSE_CHARS ||
+		(message.content?.some(
+			(block) => block.type === "thinking" && block._meta?.truncated === true,
+		) ??
+			false),
 );
 function getThinkingDisplay(expanded: boolean): string {
 	if (expanded || !thinkingNeedsTruncation) return thinkingContent;
@@ -134,7 +155,11 @@ function summarizeToolInput(
 // Tool expansion state (per tool call id)
 let expandedToolCalls = $state<Set<string>>(new Set());
 
-function toggleToolCall(id: string) {
+async function toggleToolCall(id: string) {
+	const opening = !expandedToolCalls.has(id);
+	if (opening) {
+		await ensureMessageDetail();
+	}
 	const next = new Set(expandedToolCalls);
 	if (next.has(id)) {
 		next.delete(id);
@@ -142,6 +167,15 @@ function toggleToolCall(id: string) {
 		next.add(id);
 	}
 	expandedToolCalls = next;
+}
+
+async function toggleThinking() {
+	const opening = !thinkingExpanded;
+	if (opening) {
+		await ensureMessageDetail();
+	}
+	thinkingExpanded = !thinkingExpanded;
+	thinkingUserToggled = true;
 }
 
 // Find matching tool_result for a tool_use
@@ -325,9 +359,9 @@ function handleCopy() {
         <button
           type="button"
           class="mt-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
-          onclick={() => thinkingExpanded = !thinkingExpanded}
+          onclick={() => void toggleThinking()}
         >
-          {thinkingExpanded ? 'Show less' : '… more'}
+          {detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}
         </button>
       {/if}
     </div>
@@ -357,9 +391,9 @@ function handleCopy() {
             <button
               type="button"
               class="mt-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
-              onclick={() => { thinkingExpanded = !thinkingExpanded; thinkingUserToggled = true; }}
+              onclick={() => void toggleThinking()}
             >
-              {thinkingExpanded ? 'Show less' : '… more'}
+              {detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}
             </button>
           {/if}
         </div>
@@ -409,7 +443,7 @@ function handleCopy() {
               <button
                 type="button"
                 class="w-full flex items-center gap-2 pl-0 pr-4 py-0.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
-                onclick={() => toggleToolCall(block.id)}
+                onclick={() => void toggleToolCall(block.id)}
               >
                 <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
                 <span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em]">{block.name}</span>

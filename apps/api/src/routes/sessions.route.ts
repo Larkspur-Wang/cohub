@@ -5,10 +5,13 @@ import { useAuth, requireValidId } from "../lib/middleware.js";
 import {
   getSpaceById,
   getSpaceSessionById,
+  getSessionMessageById,
   listSessionMessages,
   enqueueSpacePrompt,
   SandboxNotReadyError,
   updateSpaceSessionInfo,
+  summarizeMessageForHistory,
+  markMessageAsFull,
 } from "../space-sessions.js";
 import { expandPromptTemplate } from "../prompt-templates.js";
 
@@ -71,6 +74,7 @@ router.get("/:id/messages", async (c) => {
   const cursor = cursorParam ? Number(cursorParam) : undefined;
   const pageLimit = Math.min(Number(c.req.query("limit") ?? 30), 100) || 30;
   const direction = (c.req.query("direction") as "older" | "newer" | undefined) ?? "older";
+  const detail = c.req.query("detail") === "full" ? "full" : "summary";
 
   // Always fetch +1 sentinel to correctly detect hasMore.
   // The sentinel position depends on the query direction:
@@ -84,19 +88,42 @@ router.get("/:id/messages", async (c) => {
     direction,
   });
   const hasMore = rows.length > pageLimit;
-  const messages = hasMore
+  const pageMessages = hasMore
     ? (direction === "newer" ? rows.slice(0, -1) : rows.slice(1))
     : rows;
+  const messages = detail === "full" ? pageMessages.map(markMessageAsFull) : pageMessages.map(summarizeMessageForHistory);
 
   return c.json({
     session,
     messages,
     hasMore,
-    nextCursor: messages.length > 0
+    nextCursor: pageMessages.length > 0
       ? direction === "older"
-        ? (messages[0]?.sequence ?? 0) - 1
-        : (messages[messages.length - 1]?.sequence ?? 0)
+        ? (pageMessages[0]?.sequence ?? 0) - 1
+        : (pageMessages[pageMessages.length - 1]?.sequence ?? 0)
       : undefined,
+  });
+});
+
+router.get("/:id/messages/:messageId", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  const messageId = c.req.param("messageId");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  if (!messageId || !requireValidId(messageId)) return c.json({ message: "message not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const message = await getSessionMessageById(session.id, messageId);
+  if (!message) return c.json({ message: "message not found" }, 404);
+
+  return c.json({
+    session,
+    message: markMessageAsFull(message),
   });
 });
 

@@ -4,6 +4,7 @@ import type { HttpTransport, Fetch } from "../transport.js";
 import type {
   CheckpointRecord,
   ContentBlock,
+  SessionMessageResponse,
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
   SessionRecord,
@@ -198,6 +199,15 @@ class SessionMessagesClient {
   list(customFetch?: Fetch) {
     return this.transport.request<SessionMessagesResponse>(
       `/api/sessions/${this.sessionId}/messages`,
+      {
+        fetch: customFetch,
+      },
+    );
+  }
+
+  get(messageId: string, customFetch?: Fetch) {
+    return this.transport.request<SessionMessageResponse>(
+      `/api/sessions/${this.sessionId}/messages/${messageId}`,
       {
         fetch: customFetch,
       },

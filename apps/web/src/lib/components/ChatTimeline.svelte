@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
-import type { TimelineItem } from "$lib/session-tree";
+import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 
 type ModelCatalogItem = {
 	provider: string;
@@ -20,6 +20,7 @@ type Props = {
 	/** Whether older messages are currently being loaded (scroll-up pagination) */
 	loadingOlder?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
+	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
 };
 
 let {
@@ -29,6 +30,7 @@ let {
 	onFirstVisible,
 	loadingOlder = false,
 	modelsCatalog,
+	onLoadMessageDetail,
 }: Props = $props();
 
 // Track all observed elements for re-observation.
@@ -122,9 +124,9 @@ $effect(() => {
 				use:observeItem={originalIdx}
 			>
 				{#if item.kind === 'message'}
-					<ChatMessageBubble message={item.message} {modelsCatalog} />
+					<ChatMessageBubble message={item.message} {modelsCatalog} {onLoadMessageDetail} />
 				{:else if item.kind === 'process'}
-					<ProcessCard messages={item.messages} {modelsCatalog} />
+					<ProcessCard messages={item.messages} {modelsCatalog} {onLoadMessageDetail} />
 				{:else}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}

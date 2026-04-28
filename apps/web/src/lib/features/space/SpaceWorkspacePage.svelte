@@ -207,6 +207,7 @@ let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
+let loadingMessageDetailIds = $state<Record<string, boolean>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
@@ -1234,6 +1235,13 @@ function mergeMessagesById(
 			byId.set(message.id, message);
 			continue;
 		}
+		const currentDetail =
+			current.meta?.contentDetail === "summary" ? "summary" : "full";
+		const incomingDetail =
+			message.meta?.contentDetail === "summary" ? "summary" : "full";
+		if (currentDetail === "full" && incomingDetail === "summary") {
+			continue;
+		}
 		byId.set(
 			message.id,
 			preferIncoming ? { ...current, ...message } : { ...message, ...current },
@@ -1947,6 +1955,49 @@ async function loadOlderMessages(sessionId: string) {
 		};
 	}
 }
+async function loadMessageDetail(message: ChatMessage) {
+	const sessionId = activeSessionId;
+	const messageId = message.sourceId ?? message.id;
+	if (!sessionId || !messageId || loadingMessageDetailIds[messageId]) return;
+	const state = sessionStateById[sessionId];
+	const existing = state?.messages.find((item) => item.id === messageId);
+	if (existing?.meta?.contentDetail !== "summary") return;
+	loadingMessageDetailIds = { ...loadingMessageDetailIds, [messageId]: true };
+	try {
+		const response = await sdk
+			.space(spaceId)
+			.session(sessionId)
+			.messages.get(messageId);
+		const currentState = sessionStateById[sessionId];
+		if (!currentState) return;
+		const merged = mergeMessagesById(
+			currentState.messages,
+			[response.message],
+			{
+				preferIncoming: true,
+			},
+		);
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...currentState,
+				session: response.session ?? currentState.session,
+				messages: merged,
+			},
+		};
+		await messageCache.replaceAuthoritativeSnapshot({
+			sessionId,
+			messages: merged,
+			hasMore: currentState.hasMore,
+		});
+	} catch (error) {
+		console.warn("[loadMessageDetail] Failed to load message detail:", error);
+	} finally {
+		const next = { ...loadingMessageDetailIds };
+		delete next[messageId];
+		loadingMessageDetailIds = next;
+	}
+}
 function handleFirstVisible(index: number) {
 	if (!activeSessionId) return;
 	const state = sessionStateById[activeSessionId];
@@ -2401,7 +2452,7 @@ async function loadFileTree(force = false) {
 		}
 	}
 	if (fileTreeLoading && !force) return;
-	const shouldShowLoading = fileTree.length === 0;
+	const shouldShowLoading = fileTree.length === 0 || force;
 	if (shouldShowLoading) {
 		fileTreeLoading = true;
 	}
@@ -4550,6 +4601,7 @@ $effect(() => {
           timeline={timeline}
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
+          onLoadMessageDetail={loadMessageDetail}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
           modelsCatalog={modelsCatalog ?? undefined}
         />

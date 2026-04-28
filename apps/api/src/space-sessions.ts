@@ -70,6 +70,107 @@ const extractPlainText = (blocks: ContentBlock[]): string => {
 };
 
 const countToolCallsInContent = (blocks: ContentBlock[]) => blocks.filter((b) => b.type === "tool_use").length;
+const HISTORY_THINKING_PREVIEW_CHARS = 260;
+const HISTORY_TOOL_INPUT_PREVIEW_CHARS = 260;
+
+const truncateText = (text: string, limit: number) => {
+  if (text.length <= limit) return { text, truncated: false };
+  return { text: `${text.slice(0, Math.max(0, limit - 1))}…`, truncated: true };
+};
+
+const summarizeToolInput = (name: string, input: Record<string, unknown>) => {
+  if (name === "bash" && typeof input.command === "string") {
+    return { command: truncateText(input.command, HISTORY_TOOL_INPUT_PREVIEW_CHARS).text };
+  }
+  if (["read", "write", "edit"].includes(name) && typeof input.path === "string") {
+    return { path: input.path };
+  }
+  try {
+    return { preview: truncateText(JSON.stringify(input), HISTORY_TOOL_INPUT_PREVIEW_CHARS).text };
+  } catch {
+    return { preview: truncateText(String(input), HISTORY_TOOL_INPUT_PREVIEW_CHARS).text };
+  }
+};
+
+const getHistorySummary = (content: ContentBlock[]) => ({
+  toolCallCount: content.filter((block) => block.type === "tool_use").length,
+  thinkingCharCount: content.reduce(
+    (sum, block) => sum + (block.type === "thinking" ? block.thinking.length : 0),
+    0,
+  ),
+});
+
+const summarizeContentForDefaultView = (content: ContentBlock[]): ContentBlock[] => {
+  return content.map((block) => {
+    if (block.type === "thinking") {
+      const truncated = block.thinking.length > HISTORY_THINKING_PREVIEW_CHARS
+        ? { text: block.thinking.slice(0, HISTORY_THINKING_PREVIEW_CHARS), truncated: true }
+        : { text: block.thinking, truncated: false };
+      return {
+        ...block,
+        thinking: truncated.text,
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+          truncated: truncated.truncated,
+          fullLength: block.thinking.length,
+        },
+      };
+    }
+    if (block.type === "tool_use") {
+      return {
+        ...block,
+        input: summarizeToolInput(block.name, block.input),
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+        },
+      };
+    }
+    if (block.type === "tool_result") {
+      const outputLength =
+        typeof block.content === "string" ? block.content.length : JSON.stringify(block.content).length;
+      return {
+        ...block,
+        content: "",
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+          outputLength,
+        },
+      };
+    }
+    return block;
+  });
+};
+
+export const summarizeMessageForHistory = <T extends { content: ContentBlock[]; meta: unknown }>(message: T): T => {
+  const meta = (message.meta && typeof message.meta === "object" && !Array.isArray(message.meta))
+    ? (message.meta as Record<string, unknown>)
+    : {};
+  return {
+    ...message,
+    content: summarizeContentForDefaultView(message.content),
+    meta: {
+      ...meta,
+      contentDetail: "summary",
+      historySummary: getHistorySummary(message.content),
+    },
+  };
+};
+
+export const markMessageAsFull = <T extends { meta: unknown }>(message: T): T => {
+  const meta = (message.meta && typeof message.meta === "object" && !Array.isArray(message.meta))
+    ? (message.meta as Record<string, unknown>)
+    : {};
+  return {
+    ...message,
+    meta: {
+      ...meta,
+      contentDetail: "full",
+    },
+  };
+};
 
 const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage | null => {
   if (!usage || typeof usage !== "object") return null;
@@ -219,6 +320,11 @@ export const getSpaceById = async (spaceId: string) => {
 export const getSpaceSessionById = async (spaceSessionId: string) => {
   const [session] = await db.select().from(spaceSessions).where(eq(spaceSessions.id, spaceSessionId)).limit(1);
   return session ?? null;
+};
+
+export const getSessionMessageById = async (spaceSessionId: string, messageId: string) => {
+  const [message] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, spaceSessionId), eq(sessionMessages.id, messageId))).limit(1);
+  return message ?? null;
 };
 
 export const createInitialSpaceSession = async (input: RegisterSessionInput) => {
@@ -551,4 +657,3 @@ export const updateSpaceStatus = async (spaceId: string, status: string) => {
     },
   });
 };
-
