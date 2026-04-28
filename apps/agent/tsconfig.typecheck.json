@@ -11,6 +11,7 @@
       "@neta-art/cohub-protocol/fs": ["../../packages/protocol/src/fs/index.ts"],
       "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/src/index.ts"],
       "@cohub/tracing": ["../../packages/tracing/src/index.ts"],
+      "@cohub/config-runtime/models": ["../../packages/config-runtime/src/models.ts"],
       "@cohub/tracing/propagator": ["../../packages/tracing/src/propagator.ts"],
       "@cohub/tracing/agent": ["../../packages/tracing/src/spans/agent.ts"]
     }

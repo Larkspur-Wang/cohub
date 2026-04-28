@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@neta-art/cohub-protocol/task";
@@ -8,6 +9,7 @@ import { decryptSecret } from "../crypto.js";
 import { buildAuthenticatedRemoteUrl, getSpaceWorkspaceDir, runGit, runGitWithOutput } from "../git.js";
 import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../config-publish.js";
 import { config } from "../config.js";
+import { publishModelsCacheFromFile } from "../models-cache.js";
 
 const buildCommitMessage = (description?: string | null) => {
   const trimmed = description?.trim();
@@ -138,6 +140,19 @@ const saveCheckpointHandler = async (job: Job) => {
       checkpointId: checkpoint.id,
       workspaceDir,
     });
+    try {
+      await publishModelsCacheFromFile({
+        modelsPath: join(publishedUserConfig.targetDir, ".cohub", "models.json"),
+        scope: "user",
+        userId: space.userUuid,
+        sourceCheckpointId: checkpoint.id,
+      });
+    } catch (error) {
+      console.warn(
+        `[save_checkpoint] failed to publish user models cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
+        error,
+      );
+    }
   }
 
   let publishedPlatformConfig: {
@@ -154,6 +169,18 @@ const saveCheckpointHandler = async (job: Job) => {
       whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub"],
       sourceLabel: "platform",
     });
+    try {
+      await publishModelsCacheFromFile({
+        modelsPath: join(publishedPlatformConfig.targetDir, ".cohub", "models.json"),
+        scope: "platform",
+        sourceCheckpointId: checkpoint.id,
+      });
+    } catch (error) {
+      console.warn(
+        `[save_checkpoint] failed to publish platform models cache for checkpoint=${checkpoint.id}:`,
+        error,
+      );
+    }
   }
 
   return {

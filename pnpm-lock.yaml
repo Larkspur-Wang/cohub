@@ -33,6 +33,9 @@ importers:
       '@cohub/agent-sandbox-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-sandbox-protocol
+      '@cohub/config-runtime':
+        specifier: workspace:*
+        version: link:../../packages/config-runtime
       '@cohub/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
@@ -106,6 +109,9 @@ importers:
       '@cohub/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@cohub/config-runtime':
+        specifier: workspace:*
+        version: link:../../packages/config-runtime
       '@cohub/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
@@ -409,6 +415,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@cohub/config-runtime':
+        specifier: workspace:*
+        version: link:../../packages/config-runtime
       '@cohub/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
@@ -511,6 +520,15 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/config-runtime:
+    devDependencies:
+      '@typescript/native-preview':
+        specifier: 7.0.0-dev.20260421.1
+        version: 7.0.0-dev.20260421.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

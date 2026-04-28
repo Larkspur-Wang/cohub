@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build config-runtime package
+        run: pnpm --filter @cohub/config-runtime build
+
       - name: Lint
         run: pnpm --filter @cohub/agent lint
 

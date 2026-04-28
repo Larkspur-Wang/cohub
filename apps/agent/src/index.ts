@@ -41,6 +41,7 @@ import {
   type SessionHandle,
 } from "./session.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
+import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 
 import {
   getAgentPlatformConfigPath,
@@ -51,15 +52,8 @@ const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 
 type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
 
-type CachedModelRegistry = {
-  registry: CohubModelRegistry;
-  lastUsedAt: number;
-};
-
-const MAX_CACHED_MODEL_REGISTRIES = 128;
 let isShuttingDown = false;
 const sessionHandles = new Map<string, SessionHandle>();
-const modelRegistries = new Map<string, CachedModelRegistry>();
 let agentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let ownerRenewTimer: ReturnType<typeof setInterval> | null = null;
 const SESSION_IDLE_EVICTION_MS = 5 * 60 * 1000;
@@ -132,7 +126,6 @@ async function disposeSessionHandle(handle: SessionHandle, reason: string) {
   } finally {
     sessionHandles.delete(handle.sessionKey);
     sessionTurnCounters.delete(handle.sessionKey);
-    evictUnusedModelRegistries();
   }
 
   try {
@@ -270,26 +263,6 @@ async function verifyInputOwnership(inputEntry: { spaceId: string; sessionId?: s
   return true;
 }
 
-function evictUnusedModelRegistries() {
-  if (modelRegistries.size <= MAX_CACHED_MODEL_REGISTRIES) return;
-
-  const activeUserIds = new Set(
-    Array.from(sessionHandles.values())
-      .map((handle) => handle.spaceOwnerUserId?.trim() || "__platform__"),
-  );
-
-  const candidates = Array.from(modelRegistries.entries())
-    .filter(([key]) => key !== "__platform__" && !activeUserIds.has(key))
-    .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
-
-  while (modelRegistries.size > MAX_CACHED_MODEL_REGISTRIES && candidates.length > 0) {
-    const entry = candidates.shift();
-    if (!entry) break;
-    const [key] = entry;
-    modelRegistries.delete(key);
-  }
-}
-
 function nextTurnSequence(sessionKey: string) {
   const next = (sessionTurnCounters.get(sessionKey) ?? 0) + 1;
   sessionTurnCounters.set(sessionKey, next);
@@ -388,21 +361,12 @@ async function enqueueStreamingSteerAndWait(input: {
   await waiter;
 }
 
-function getModelRegistryForUser(userId: string | null | undefined) {
-  const key = userId?.trim() || "__platform__";
-  const now = Date.now();
-  const cached = modelRegistries.get(key);
-  if (cached) {
-    cached.lastUsedAt = now;
-    return cached.registry;
-  }
-
-  const registry = new CohubModelRegistry({ userId: userId?.trim() || null });
+async function getModelRegistryForUser(userId: string | null | undefined) {
+  const configs = await loadRuntimeModelsConfigs(userId?.trim() || null);
+  const registry = new CohubModelRegistry({ configs });
   if (registry.getError()) {
-    console.warn(`[Agent] Model registry warning for ${key}:`, registry.getError());
+    console.warn(`[Agent] Model registry warning for ${userId?.trim() || "__platform__"}:`, registry.getError());
   }
-  modelRegistries.set(key, { registry, lastUsedAt: now });
-  evictUnusedModelRegistries();
   return registry;
 }
 
@@ -476,7 +440,7 @@ async function main() {
             });
             spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
           }
-          const modelRegistry = getModelRegistryForUser(spaceOwnerUserId);
+          const modelRegistry = await getModelRegistryForUser(spaceOwnerUserId);
           const requestedProvider = meta?.provider as string | undefined;
           const requestedModel = meta?.model as string | undefined;
           const requestedModelInput = (requestedProvider && requestedModel)

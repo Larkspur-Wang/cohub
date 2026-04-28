@@ -17,6 +17,9 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY packages/tracing/package.json ./packages/tracing/package.json
 COPY packages/tracing/tsconfig.json ./packages/tracing/tsconfig.json
 COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
+COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
+COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
+COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
 COPY packages/agent-sandbox-protocol/package.json ./packages/agent-sandbox-protocol/package.json
 COPY packages/agent-sandbox-protocol/tsconfig.json ./packages/agent-sandbox-protocol/tsconfig.json
 COPY packages/agent-sandbox-protocol/tsconfig.build.json ./packages/agent-sandbox-protocol/tsconfig.build.json
@@ -29,6 +32,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY packages/auth ./packages/auth
 COPY packages/protocol ./packages/protocol
 COPY packages/tracing ./packages/tracing
+COPY packages/config-runtime ./packages/config-runtime
 COPY packages/agent-sandbox-protocol ./packages/agent-sandbox-protocol
 COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
@@ -37,6 +41,7 @@ COPY apps/api/drizzle ./apps/api/drizzle
 RUN pnpm --filter @cohub/auth build
 RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/tracing build
+RUN pnpm --filter @cohub/config-runtime build
 RUN pnpm --filter @cohub/agent-sandbox-protocol build
 RUN pnpm --filter @cohub/api build
 RUN pnpm --filter @cohub/api --prod deploy /prod/api

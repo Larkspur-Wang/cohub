@@ -43,7 +43,8 @@
     "drizzle-orm": "^0.45.2",
     "hono": "4.12.14",
     "ioredis": "^5.10.1",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "@cohub/config-runtime": "workspace:*"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",

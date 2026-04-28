@@ -53,6 +53,9 @@ jobs:
       - name: Build tracing package
         run: pnpm --filter @cohub/tracing build
 
+      - name: Build config-runtime package
+        run: pnpm --filter @cohub/config-runtime build
+
       - name: Lint
         run: pnpm --filter @cohub/worker lint
 

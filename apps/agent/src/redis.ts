@@ -14,6 +14,8 @@ import {
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
 
+export { redis };
+
 const LIST_KEY_IN = getAgentInstanceInputQueueKey(env.AGENT_INSTANCE_ID);
 const PROCESSING_KEY = getAgentInstanceProcessingQueueKey(env.AGENT_INSTANCE_ID);
 const RECOVERING_KEY = `${PROCESSING_KEY}:recovering`;

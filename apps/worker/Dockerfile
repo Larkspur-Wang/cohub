@@ -25,6 +25,9 @@ COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.js
 COPY packages/tracing/package.json ./packages/tracing/package.json
 COPY packages/tracing/tsconfig.json ./packages/tracing/tsconfig.json
 COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
+COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
+COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
+COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
@@ -34,11 +37,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # Copy source and build
 COPY packages/protocol ./packages/protocol
 COPY packages/tracing ./packages/tracing
+COPY packages/config-runtime ./packages/config-runtime
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
 
 RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/tracing build
+RUN pnpm --filter @cohub/config-runtime build
 RUN pnpm --filter @cohub/worker build
 RUN pnpm --filter @cohub/worker --prod deploy /prod/worker
 
