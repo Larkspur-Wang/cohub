@@ -574,7 +574,7 @@ router.post("/:id/env", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
 
   const body = await c.req.json<{ name: string; value: string }>().catch(() => null);
-  if (!body || !body.name || body.value === undefined) return c.json({ message: "name and value are required" }, 400);
+  if (!body?.name || body.value === undefined) return c.json({ message: "name and value are required" }, 400);
 
   const entry = { name: body.name.trim(), value: String(body.value) };
   if (SYSTEM_ENV_KEY_SET.has(entry.name)) {
@@ -597,7 +597,7 @@ router.put("/:id/env/:name", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
 
-  if (!envName || !envName.trim()) return c.json({ message: "env name is required" }, 400);
+  if (!envName?.trim()) return c.json({ message: "env name is required" }, 400);
   if (SYSTEM_ENV_KEY_SET.has(envName)) {
     return c.json({ message: `env name "${envName}" is reserved by the system` }, 400);
   }
