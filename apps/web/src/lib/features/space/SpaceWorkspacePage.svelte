@@ -619,6 +619,9 @@ let envEditingValue = $state("");
 let envUpdatingName = $state<string | null>(null);
 let envDeletingName = $state<string | null>(null);
 let envVisibleValues = $state<Record<string, boolean>>({});
+let envImportInput = $state("");
+let envImportSubmitting = $state(false);
+let showEnvImport = $state(false);
 
 const canManageChannels = $derived.by(() => {
 	if (!myUuid) return false;
@@ -735,6 +738,36 @@ function cancelEnvEdit() {
 	envEditingName = null;
 	envEditingValue = "";
 }
+function parseEnvImport(input: string): SpaceEnvInput[] {
+	const entries: SpaceEnvInput[] = [];
+	for (const rawLine of input.split(/\r?\n/)) {
+		let line = rawLine.trim();
+		if (!line || line.startsWith("#")) continue;
+		if (line.startsWith("export ")) line = line.slice(7).trimStart();
+		const equalsIndex = line.indexOf("=");
+		if (equalsIndex <= 0) continue;
+		const name = line.slice(0, equalsIndex).trim();
+		let value = line.slice(equalsIndex + 1).trim();
+		const quote = value[0];
+		if (
+			(quote === '"' || quote === "'") &&
+			value.length >= 2 &&
+			value[value.length - 1] === quote
+		) {
+			value = value.slice(1, -1);
+			if (quote === '"') {
+				value = value
+					.replace(/\\n/g, "\n")
+					.replace(/\\r/g, "\r")
+					.replace(/\\t/g, "\t")
+					.replace(/\\"/g, '"')
+					.replace(/\\\\/g, "\\");
+			}
+		}
+		entries.push({ name, value });
+	}
+	return entries;
+}
 async function loadSpaceEnv() {
 	spaceEnvLoading = true;
 	spaceEnvError = "";
@@ -770,6 +803,33 @@ async function handleAddEnv() {
 				: "Failed to add environment variable";
 	} finally {
 		envSubmitting = false;
+	}
+}
+async function handleImportEnv() {
+	if (envImportSubmitting) return;
+	const entries = parseEnvImport(envImportInput);
+	if (entries.length === 0) {
+		spaceEnvError = "No valid KEY=value entries found";
+		return;
+	}
+	envImportSubmitting = true;
+	spaceEnvError = "";
+	try {
+		let latest = spaceEnv;
+		for (const entry of entries) {
+			const result = await sdk.space(spaceId).env.create(entry);
+			latest = result.env;
+		}
+		spaceEnv = latest;
+		envImportInput = "";
+		showEnvImport = false;
+	} catch (error) {
+		spaceEnvError =
+			error instanceof Error
+				? error.message
+				: "Failed to import environment variables";
+	} finally {
+		envImportSubmitting = false;
 	}
 }
 async function handleUpdateEnv(name: string) {
@@ -4996,17 +5056,60 @@ $effect(() => {
                 </div>
                 <button
                   type="button"
-                  class="p-1.5 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
-                  title="Refresh env"
-                  onclick={() => void loadSpaceEnv()}
-                  disabled={spaceEnvLoading}
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-text-tertiary hover:text-text-secondary transition-colors"
+                  onclick={() => { showEnvImport = !showEnvImport; spaceEnvError = ""; }}
                 >
-                  <RefreshCw class="w-3.5 h-3.5 {spaceEnvLoading ? 'animate-spin' : ''}" />
+                  <Download class="w-3.5 h-3.5" />
+                  Import
                 </button>
               </div>
 
               {#if spaceEnvError}
                 <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceEnvError}</div>
+              {/if}
+
+              {#if showEnvImport}
+                <div class="rounded-[6px] border border-border-subtle bg-bg-hover/30 p-3 space-y-2">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="text-[12px] text-text-secondary">Paste .env content. Existing keys will be overwritten.</div>
+                    <button
+                      type="button"
+                      class="p-1 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"
+                      title="Close import"
+                      onclick={() => { showEnvImport = false; envImportInput = ""; }}
+                      disabled={envImportSubmitting}
+                    >
+                      <X class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    bind:value={envImportInput}
+                    rows="6"
+                    placeholder={'OPENAI_API_KEY=sk-...\nNODE_ENV=production'}
+                    autocapitalize="off"
+                    spellcheck="false"
+                    class="w-full min-h-[120px] px-2.5 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono resize-y"
+                  ></textarea>
+                  <div class="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      class="px-3 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-50"
+                      onclick={() => { showEnvImport = false; envImportInput = ""; }}
+                      disabled={envImportSubmitting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onclick={() => void handleImportEnv()}
+                      disabled={envImportSubmitting || !envImportInput.trim()}
+                      class="inline-flex items-center justify-center gap-1.5 px-3 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
+                    >
+                      {#if envImportSubmitting}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Download class="w-3.5 h-3.5" />{/if}
+                      Import
+                    </button>
+                  </div>
+                </div>
               {/if}
 
               <div class="grid gap-2 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)_auto]">
