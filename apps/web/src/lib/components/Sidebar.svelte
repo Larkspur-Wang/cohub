@@ -818,6 +818,11 @@ $effect(() => {
                       ontouchstart={() => handleLongPressStart(session)}
                       ontouchend={handleLongPressCancel}
                       ontouchmove={handleLongPressCancel}
+                      draggable="true"
+                      ondragstart={(e) => {
+                        e.dataTransfer?.setData("text/cohub-path", `/sessions/${session.id}`);
+                        if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+                      }}
                       title={sourceTooltip(session.source) || undefined}
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
@@ -887,6 +892,11 @@ $effect(() => {
                 ontouchstart={() => handleLongPressStart(activeSession)}
                 ontouchend={handleLongPressCancel}
                 ontouchmove={handleLongPressCancel}
+                draggable="true"
+                ondragstart={(e) => {
+                  e.dataTransfer?.setData("text/cohub-path", `/sessions/${activeSession.id}`);
+                  if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+                }}
                 title={sourceTooltip(activeSession.source) || undefined}
               >
                 <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
