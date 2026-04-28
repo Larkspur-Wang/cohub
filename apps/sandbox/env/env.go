@@ -98,6 +98,7 @@ func (c Config) FilesystemRoots() []FilesystemRoot {
 		{Path: c.WorkspaceDir, Writable: true, Label: "cwd"},
 		{Path: c.PlatformAgentsDir, Writable: false, Label: "platform-agents"},
 		{Path: c.UserAgentsDir, Writable: false, Label: "user-agents"},
+		{Path: "/sessions", Writable: false, Label: "sessions"},
 		{Path: "/tmp", Writable: true, Label: "tmp"},
 	}
 }

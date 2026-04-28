@@ -79,6 +79,12 @@ export const SANDBOX_POD_TEMPLATE = {
             readOnly: true,
           },
           {
+            name: "space-storage",
+            mountPath: "/sessions",
+            subPath: (config.env === "prod" ? "sessions/prod/spaces/${SPACE_ID}" : "sessions/dev/spaces/${SPACE_ID}"),
+            readOnly: true,
+          },
+          {
             name: "public-storage",
             mountPath: "/public",
             subPath:
