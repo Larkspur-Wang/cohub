@@ -210,7 +210,7 @@ async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   const meta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
   const podIp = typeof meta?.podIp === "string" ? meta.podIp.trim() : "";
   if (!podIp) {
-    throw new Error(`sandbox endpoint unavailable for ${spaceId}`);
+    throw new Error(`sandbox is not ready for requests yet: missing podIp for ${spaceId}`);
   }
   return `ws://${podIp}:8788/sandbox`;
 }
@@ -442,7 +442,7 @@ async function main() {
     // Extract trace context from the message (injected by API)
     const parentCtx = extractTrace(rawParsed);
 
-    void runInActiveSpan(agentTracer, "agent.input.consume", {
+    return runInActiveSpan(agentTracer, "agent.input.consume", {
       attributes: {
         "agent.action": inputEntry.action,
         "cohub.space_id": inputEntry.spaceId,
@@ -662,15 +662,28 @@ async function main() {
           type: "error",
           spaceId: inputEntry.spaceId,
           sessionId,
-          error: String(error),
+          error: error instanceof Error ? error.message : String(error),
         };
-        await sendOutput(errEvent);
+        try {
+          await sendOutput(errEvent);
+        } catch (sendError) {
+          console.error("[Agent] Failed to publish session error event:", sendError);
+        }
         await reject(error instanceof Error ? error.message : String(error));
         throw error;
       }
     });
   });
 }
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[Agent] Unhandled promise rejection:", reason);
+  void shutdown(1);
+});
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  console.error("[Agent] Uncaught exception monitor:", { origin, error });
+});
 
 process.on("SIGTERM", () => {
   console.log("[Agent] SIGTERM received. Shutting down.");

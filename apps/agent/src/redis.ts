@@ -245,7 +245,7 @@ export async function listenForInput(
     ack: () => Promise<void>,
     reject: (reason: string) => Promise<void>,
     rawParsed: Record<string, unknown>,
-  ) => void,
+  ) => void | Promise<void>,
 ) {
   console.log(`[Redis] Listening for input on ${LIST_KEY_IN}...`);
   while (true) {
@@ -280,7 +280,13 @@ export async function listenForInput(
       };
 
       try {
-        handler(parsed, currentRawMessage, ack, reject, rawParsed);
+        const maybePromise = handler(parsed, currentRawMessage, ack, reject, rawParsed);
+        void Promise.resolve(maybePromise).catch((asyncErr) => {
+          console.error("[Redis] Async error in handler:", asyncErr);
+          return reject(asyncErr instanceof Error ? asyncErr.message : String(asyncErr)).catch((rejectErr) => {
+            console.error("[Redis] Failed to reject message after async handler error:", rejectErr);
+          });
+        });
       } catch (syncErr) {
         console.error("[Redis] Sync error in handler:", syncErr);
         await reject(syncErr instanceof Error ? syncErr.message : String(syncErr));

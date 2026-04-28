@@ -179,12 +179,24 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
 
     handle.streamState.flushPromise = null;
     if (handle.streamState.pendingFlush) {
-      void emitProviderRenderUpdate(handle);
+      scheduleProviderRenderUpdate(handle, "flush_pending");
     }
   };
 
   handle.streamState.flushPromise = flush();
   await handle.streamState.flushPromise;
+}
+
+function scheduleProviderRenderUpdate(handle: SessionHandle, reason: string) {
+  void emitProviderRenderUpdate(handle).catch((error) => {
+    console.error(`[Agent] Provider render update failed (${reason}) for session ${handle.sessionId}:`, error);
+  });
+}
+
+function schedulePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
+  void enqueuePersistence(handle, label, task).catch((error) => {
+    console.error(`[Agent] Persistence scheduling failed (${label}) for session ${handle.sessionId}:`, error);
+  });
 }
 
 function resetStreamState(handle: SessionHandle) {
@@ -354,7 +366,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       }
       if (message.role === "assistant") {
         resetStreamState(handle);
-        void emitProviderRenderUpdate(handle);
+        scheduleProviderRenderUpdate(handle, "assistant_message_start");
       }
     }
 
@@ -369,7 +381,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
       );
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
-      void emitProviderRenderUpdate(handle);
+      scheduleProviderRenderUpdate(handle, "message_update");
     }
 
     if (event.type === "message_end") {
@@ -384,7 +396,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         handle.currentUserMessageContent = null;
         handle.currentUserMessageMeta = null;
 
-        void enqueuePersistence(handle, `user:${userMessageId}`, async () => {
+        schedulePersistence(handle, `user:${userMessageId}`, async () => {
           const span = handle.turnTracer.startSpan("agent.persistence.user_message", {
             attributes: {
               "cohub.space_id": handle.spaceId,
@@ -410,7 +422,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           }
         });
       }
-      void emitProviderRenderUpdate(handle);
+      scheduleProviderRenderUpdate(handle, "message_end");
     }
 
     if (event.type === "tool_execution_start") {
@@ -425,7 +437,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         summary: summarizeToolArgs(event.toolName, event.args),
       });
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
-      void emitProviderRenderUpdate(handle);
+      scheduleProviderRenderUpdate(handle, "tool_execution_start");
     }
 
     if (event.type === "tool_execution_end") {
@@ -442,7 +454,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         isError: event.isError,
       });
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
-      void emitProviderRenderUpdate(handle);
+      scheduleProviderRenderUpdate(handle, "tool_execution_end");
     }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
@@ -469,7 +481,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       };
       const enrichedEvent = { ...event, message: enrichedMessage };
 
-      void enqueuePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
+      schedulePersistence(handle, `assistant:${currentUserMessageId}`, async () => {
         const span = handle.turnTracer.startSpan("agent.persistence.assistant_message", {
           attributes: {
             "cohub.space_id": handle.spaceId,

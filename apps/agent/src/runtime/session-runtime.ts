@@ -134,6 +134,9 @@ function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
               toolCtx.llmRound = round - 1;
             }
           }
+        }).catch((error) => {
+          llmRound.fail(error);
+          wrapped.end();
         });
 
         return wrapped;

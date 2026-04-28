@@ -159,6 +159,19 @@ export class SandboxConnection {
 
 const registrations = new Map<string, SandboxClientRegistration>();
 
+function callHookSafely(
+  spaceId: string,
+  hookName: "onHeartbeat" | "onDisconnected" | "onConnectionError",
+  fn: (() => void | Promise<void>) | undefined,
+) {
+  if (!fn) return;
+  void Promise.resolve()
+    .then(fn)
+    .catch((error) => {
+      console.error(`[SandboxWS] Hook ${hookName} failed for ${spaceId}:`, error);
+    });
+}
+
 function getOrCreateRegistration(spaceId: string, wsUrl: string, hooks?: SandboxStatusHooks) {
   const existing = registrations.get(spaceId);
   if (existing) {
@@ -249,7 +262,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
 
   previous?.close(reason);
   console.log(`[SandboxWS] disconnect spaceId=${spaceId} reason=${reason}`);
-  void registration.hooks?.onDisconnected?.({ spaceId, reason });
+  callHookSafely(spaceId, "onDisconnected", () => registration.hooks?.onDisconnected?.({ spaceId, reason }));
 }
 
 export function getSandboxClientConnection(spaceId: string) {
@@ -268,7 +281,10 @@ async function runLoop(registration: SandboxClientRegistration) {
       console.error(`[SandboxWS] Client loop failed for ${registration.spaceId}:`, error);
       attempt += 1;
       if (error instanceof Error) {
-        void registration.hooks?.onConnectionError?.({ spaceId: registration.spaceId, error });
+        callHookSafely(registration.spaceId, "onConnectionError", () => registration.hooks?.onConnectionError?.({
+          spaceId: registration.spaceId,
+          error,
+        }));
       }
     }
 
@@ -330,7 +346,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
               console.log(`[SandboxWS] setup.sh not found, skipped spaceId=${registration.spaceId}`);
             }
           }
-          void registration.hooks?.onHeartbeat?.(message);
+          callHookSafely(registration.spaceId, "onHeartbeat", () => registration.hooks?.onHeartbeat?.(message));
           if (!attachSent) {
             attachSent = true;
             socket.send(JSON.stringify({
@@ -381,10 +397,10 @@ async function connectOnce(registration: SandboxClientRegistration) {
       const isActive = isActiveConnection();
       if (isActive) {
         setActiveConnection(registration.spaceId, null);
-        void registration.hooks?.onDisconnected?.({
+        callHookSafely(registration.spaceId, "onDisconnected", () => registration.hooks?.onDisconnected?.({
           spaceId: registration.spaceId,
           reason: reasonStr,
-        });
+        }));
       }
       if (!attached) {
         console.warn(`[SandboxWS] closed before attach spaceId=${registration.spaceId} reason=${reasonStr}`);
@@ -406,10 +422,10 @@ async function connectOnce(registration: SandboxClientRegistration) {
       const isActive = isActiveConnection();
       if (isActive) {
         setActiveConnection(registration.spaceId, null);
-        void registration.hooks?.onConnectionError?.({
+        callHookSafely(registration.spaceId, "onConnectionError", () => registration.hooks?.onConnectionError?.({
           spaceId: registration.spaceId,
           error: normalizedError,
-        });
+        }));
       } else {
         console.warn(`[SandboxWS] stale connection error ignored spaceId=${registration.spaceId} error=${normalizedError.message}`);
       }
