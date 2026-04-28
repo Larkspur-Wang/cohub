@@ -149,24 +149,45 @@ export const buildDiscordDeliveryPlan = async (
 const extractFeishuText = (content: ContentBlock[]) =>
   content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("\n");
 
-const extractFeishuImageKeys = (content: ContentBlock[]) => {
+const FEISHU_IMG_KEY_RE = /img_v3_[a-zA-Z0-9_-]+/;
+
+type FeishuImageToUpload = { source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string } };
+
+const extractFeishuImages = (content: ContentBlock[]) => {
   const keys: string[] = [];
+  const imagesToUpload: FeishuImageToUpload[] = [];
   for (const block of content) {
-    if (block.type === "image" && block.source.type === "url") {
-      const match = block.source.url.match(/img_v3_([a-zA-Z0-9_-]+)/);
-      if (match) keys.push(match[0]);
-    } else if (block.type === "text") {
-      const imgPattern = /\[image:(img_v3_[a-zA-Z0-9_-]+)\]/g;
-      const matches = block.text.match(imgPattern);
-      if (matches) {
-        for (const matched of matches) {
-          const clean = matched.slice(7, -1);
-          if (clean) keys.push(clean);
+    if (block.type === "image") {
+      // Prefer _meta.imageKey (e.g. from Feishu inbound download)
+      const metaKey = block._meta?.imageKey as string | undefined;
+      if (metaKey) {
+        keys.push(metaKey);
+        continue;
+      }
+      // Extract from URL
+      if (block.source.type === "url") {
+        const match = block.source.url.match(FEISHU_IMG_KEY_RE);
+        if (match) {
+          keys.push(match[0]);
+        } else {
+          // Non-Feishu URL — needs upload
+          imagesToUpload.push({ source: block.source });
         }
+        continue;
+      }
+      // base64 image — needs upload
+      imagesToUpload.push({ source: block.source });
+      continue;
+    }
+    if (block.type === "text") {
+      // Support both "[image:img_v3_xxx]" and "[image: img_v3_xxx]" (with optional space)
+      const imgPattern = /\[image:\s*(img_v3_[a-zA-Z0-9_-]+)\]/g;
+      for (const m of block.text.matchAll(imgPattern)) {
+        if (m[1]) keys.push(m[1]);
       }
     }
   }
-  return Array.from(new Set(keys));
+  return { keys: Array.from(new Set(keys)), imagesToUpload };
 };
 
 export const buildFeishuDeliveryPlan = async (
@@ -200,6 +221,8 @@ export const buildFeishuDeliveryPlan = async (
     if (!isFinal) lines.push("🍳 cooking…");
   }
 
+  const { keys: imageKeys, imagesToUpload } = extractFeishuImages(cmd.content);
+
   if (renderMode === "card") {
     return {
       adapter: "feishu",
@@ -213,7 +236,8 @@ export const buildFeishuDeliveryPlan = async (
           elements: lines.filter(Boolean).map((line) => ({ tag: "markdown", content: line })),
         },
       }),
-      imageKeys: extractFeishuImageKeys(cmd.content),
+      imageKeys,
+      imagesToUpload,
       replyToExternalMessageId: cmd.replyToExternalMessageId,
       turnAnchorMessageId:
         (output?.type === "session.turn.progress" || output?.type === "session.turn.final")
@@ -233,7 +257,8 @@ export const buildFeishuDeliveryPlan = async (
         content: [[{ tag: "md", text: lines.join("\n").trim() }]],
       },
     }),
-    imageKeys: extractFeishuImageKeys(cmd.content),
+    imageKeys,
+    imagesToUpload,
     replyToExternalMessageId: cmd.replyToExternalMessageId,
     turnAnchorMessageId:
       (output?.type === "session.turn.progress" || output?.type === "session.turn.final")

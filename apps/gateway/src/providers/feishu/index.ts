@@ -235,6 +235,56 @@ export class FeishuProvider implements GatewayProvider {
     await publishInboundEvent(inboundEvent);
   }
 
+  // Upload an image to Feishu and return the image_key.
+  // Supports base64 and URL sources.
+  private async uploadImage(
+    imageSource: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string },
+  ): Promise<string | null> {
+    try {
+      let buffer: Buffer;
+      let fileName: string;
+
+      if (imageSource.type === "base64") {
+        buffer = Buffer.from(imageSource.data, "base64");
+        const ext = imageSource.media_type.split("/")[1] ?? "png";
+        fileName = `image.${ext}`;
+      } else {
+        // Fetch from URL
+        const res = await fetch(imageSource.url);
+        if (!res.ok) {
+          console.warn(`[Feishu:${this.channelId}] Failed to fetch image URL: ${imageSource.url} (${res.status})`);
+          return null;
+        }
+        buffer = Buffer.from(await res.arrayBuffer());
+        fileName = "image";
+      }
+
+      // biome-ignore lint/suspicious/noExplicitAny: Lark SDK upload API is not fully typed
+      const uploadResult = await (this.client as any).request({
+        method: "POST",
+        url: "/open-apis/im/v1/images",
+        data: {
+          image_type: "message",
+        },
+        formData: {
+          image: {
+            value: buffer,
+            options: { filename: fileName },
+          },
+        },
+      });
+
+      if (uploadResult.code === 0 && uploadResult.data?.image_key) {
+        return uploadResult.data.image_key as string;
+      }
+      console.warn(`[Feishu:${this.channelId}] Image upload failed:`, JSON.stringify(uploadResult).slice(0, 200));
+      return null;
+    } catch (err) {
+      console.warn(`[Feishu:${this.channelId}] Image upload error:`, err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
   // Download image from Feishu by image_key and return as base64 ContentBlock.
   // Returns null on failure — caller decides whether to use a text fallback.
   private async downloadImageBlock(imageKey: string, _messageId: string): Promise<ContentBlock | null> {
@@ -402,7 +452,20 @@ export class FeishuProvider implements GatewayProvider {
         : await buildFeishuDeliveryPlan(cmd, config);
       const msgType = plan.msgType;
       const content = plan.content;
+      // Resolve image keys: pre-existing Feishu keys + uploaded images
       const imageKeys = plan.imageKeys;
+      let uploadedImageKeys: string[] = [];
+      if (plan.imagesToUpload && plan.imagesToUpload.length > 0) {
+        uploadedImageKeys = (
+          await Promise.all(
+            plan.imagesToUpload.map((img) => this.uploadImage(img.source)),
+          )
+        ).filter((k): k is string => k !== null);
+        if (uploadedImageKeys.length < plan.imagesToUpload.length) {
+          console.warn(`[Feishu:${this.channelId}] Only uploaded ${uploadedImageKeys.length}/${plan.imagesToUpload.length} images`);
+        }
+      }
+      const allImageKeys = [...imageKeys, ...uploadedImageKeys];
 
       const editExternalMessageId = plan.preferredEditExternalMessageId?.trim();
       const turnAnchorMessageId = plan.turnAnchorMessageId?.trim();
@@ -462,8 +525,9 @@ export class FeishuProvider implements GatewayProvider {
       }
 
       // Send images as separate messages after the card/text (Feishu doesn't support inline images)
-      if (imageKeys.length > 0 && messageId) {
-        for (const imgKey of imageKeys) {
+      const imageSendErrors: string[] = [];
+      if (allImageKeys.length > 0 && messageId) {
+        for (const imgKey of allImageKeys) {
           try {
             await this.client.im.message.create({
               params: { receive_id_type: receiveIdType as "chat_id" | "open_id" | "user_id" },
@@ -473,8 +537,10 @@ export class FeishuProvider implements GatewayProvider {
                 content: JSON.stringify({ image_key: imgKey }),
               },
             });
-          } catch {
-            console.log(`[Feishu:${this.channelId}] Failed to send image ${imgKey}`);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[Feishu:${this.channelId}] ✗ Failed to send image ${imgKey}:`, errMsg);
+            imageSendErrors.push(imgKey);
           }
         }
       }
