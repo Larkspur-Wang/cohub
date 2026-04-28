@@ -148,12 +148,14 @@ export const summarizeMessageForHistory = <T extends { content: ContentBlock[]; 
   const meta = (message.meta && typeof message.meta === "object" && !Array.isArray(message.meta))
     ? (message.meta as Record<string, unknown>)
     : {};
+  const isIntermediate = meta.messageKind === "assistant_intermediate";
   return {
     ...message,
-    content: summarizeContentForDefaultView(message.content),
+    content: isIntermediate ? [] : summarizeContentForDefaultView(message.content),
     meta: {
       ...meta,
       contentDetail: "summary",
+      contentPlaceholder: isIntermediate ? "assistant_intermediate" : undefined,
       historySummary: getHistorySummary(message.content),
     },
   };

@@ -415,6 +415,9 @@ let hasUnread = $derived.by(() => {
 });
 let autoScrollGuard = $state(false);
 let restoringBottomSessionId = $state<string | null>(null);
+let programmaticScrollActive = false;
+let programmaticScrollTarget: number | null = null;
+let userScrollActive = false;
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<{
@@ -441,9 +444,12 @@ type SessionScrollAnchor = {
 };
 const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor";
 let scrollAnchorBySession = $state.raw(new Map<string, SessionScrollAnchor>());
-let suppressScrollSaveSessionIds = $state.raw(new Set<string>());
 let pendingRestoreSessionId = $state<string | null>(null);
-let persistScrollAnchorsTimer: ReturnType<typeof setTimeout> | null = null;
+let activeAnchorRestore = $state<
+	(SessionScrollAnchor & { sessionId: string }) | null
+>(null);
+let pendingTimelineMarkdownRenders = 0;
+let anchorRestoreWaitingForMarkdown = false;
 // ─── Share ───
 let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
@@ -1155,23 +1161,20 @@ function persistSessionScrollAnchorsNow() {
 		// ignore
 	}
 }
-function schedulePersistSessionScrollAnchors() {
-	if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
-	persistScrollAnchorsTimer = setTimeout(() => {
-		persistScrollAnchorsTimer = null;
-		persistSessionScrollAnchorsNow();
-	}, 120);
-}
 function setSessionScrollAnchor(
 	sessionId: string,
 	anchor: SessionScrollAnchor,
 ) {
 	scrollAnchorBySession.set(sessionId, anchor);
-	schedulePersistSessionScrollAnchors();
+	persistSessionScrollAnchorsNow();
+}
+function getSessionScrollAnchor(sessionId: string) {
+	const anchor = scrollAnchorBySession.get(sessionId);
+	return anchor;
 }
 function clearSessionScrollAnchor(sessionId: string) {
 	if (!scrollAnchorBySession.delete(sessionId)) return;
-	schedulePersistSessionScrollAnchors();
+	persistSessionScrollAnchorsNow();
 }
 function getMessageElementAbsoluteTop(node: HTMLElement) {
 	if (!listEl) return 0;
@@ -1750,7 +1753,7 @@ async function loadSessionState(sessionId: string, force = false) {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		return;
 	}
-	const anchor = scrollAnchorBySession.get(sessionId);
+	const anchor = getSessionScrollAnchor(sessionId);
 	const canBootstrapFromCache = Boolean(
 		!force &&
 			cached &&
@@ -2268,7 +2271,7 @@ async function handleSend() {
 function scrollToBottomNow() {
 	if (!listEl) return;
 	autoScrollGuard = true;
-	listEl.scrollTop = listEl.scrollHeight - listEl.clientHeight;
+	setProgrammaticScrollTop(listEl.scrollHeight - listEl.clientHeight);
 	if (activeSessionId) {
 		writeBottomScrollAnchor(activeSessionId);
 	}
@@ -2291,6 +2294,84 @@ function updateAutoFollow() {
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
 	shouldAutoFollow = distanceFromBottom <= threshold;
+}
+function setProgrammaticScrollTop(scrollTop: number) {
+	if (!listEl) return;
+	programmaticScrollActive = true;
+	programmaticScrollTarget = scrollTop;
+	userScrollActive = false;
+	listEl.scrollTop = scrollTop;
+	requestAnimationFrame(() => {
+		programmaticScrollActive = false;
+	});
+}
+function beginUserScroll() {
+	if (!activeSessionId) return;
+	userScrollActive = true;
+	programmaticScrollActive = false;
+	programmaticScrollTarget = null;
+	if (activeAnchorRestore?.sessionId === activeSessionId) {
+		activeAnchorRestore = null;
+		anchorRestoreWaitingForMarkdown = false;
+	}
+	if (pendingRestoreSessionId === activeSessionId) {
+		pendingRestoreSessionId = null;
+	}
+	if (restoringBottomSessionId === activeSessionId) {
+		restoringBottomSessionId = null;
+	}
+}
+function handleScrollKeydown(event: KeyboardEvent) {
+	if (
+		event.key === "ArrowDown" ||
+		event.key === "ArrowUp" ||
+		event.key === "PageDown" ||
+		event.key === "PageUp" ||
+		event.key === "Home" ||
+		event.key === "End" ||
+		event.key === " "
+	) {
+		beginUserScroll();
+	}
+}
+function maybeCompleteAnchorRestore() {
+	if (!activeAnchorRestore || !anchorRestoreWaitingForMarkdown) return;
+	if (pendingTimelineMarkdownRenders > 0) return;
+	activeAnchorRestore = null;
+	anchorRestoreWaitingForMarkdown = false;
+	updateAutoFollow();
+}
+function applyActiveAnchorRestore(restore = activeAnchorRestore) {
+	if (!restore || !listEl || activeSessionId !== restore.sessionId)
+		return false;
+	const node = listEl.querySelector<HTMLElement>(
+		`[data-sequence="${restore.sequence}"]`,
+	);
+	if (!node) return false;
+	setProgrammaticScrollTop(getMessageElementAbsoluteTop(node) + restore.offset);
+	shouldAutoFollow = false;
+	return true;
+}
+function handleTimelineMarkdownRenderStart() {
+	pendingTimelineMarkdownRenders += 1;
+}
+function handleTimelineMarkdownRendered() {
+	if (pendingTimelineMarkdownRenders > 0) pendingTimelineMarkdownRenders -= 1;
+	const restore = activeAnchorRestore;
+	if (restore?.sessionId === activeSessionId) {
+		requestAnimationFrame(() => {
+			applyActiveAnchorRestore(restore);
+			maybeCompleteAnchorRestore();
+		});
+		return;
+	}
+	if (
+		activeSessionId &&
+		(restoringBottomSessionId === activeSessionId || shouldAutoFollow)
+	) {
+		requestAnimationFrame(() => scrollToBottomNow());
+	}
+	maybeCompleteAnchorRestore();
 }
 async function fileToDataUrl(file: Blob): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -2984,7 +3065,6 @@ onMount(() => {
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		recoveryCoordinator.dispose();
-		if (persistScrollAnchorsTimer) clearTimeout(persistScrollAnchorsTimer);
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
 		wsConnectionCleanup();
@@ -3032,7 +3112,11 @@ $effect(() => {
 				if (routeView === "session" && routeSessionId) {
 					activeSessionId = routeSessionId;
 					pendingRestoreSessionId = routeSessionId;
-					suppressScrollSaveSessionIds.add(routeSessionId);
+					activeAnchorRestore = null;
+					anchorRestoreWaitingForMarkdown = false;
+					userScrollActive = false;
+					programmaticScrollActive = false;
+					programmaticScrollTarget = null;
 					ensureSessionModelLoaded(routeSessionId);
 					shouldAutoFollow = true;
 					await loadSessionState(routeSessionId).catch(() => undefined);
@@ -3065,7 +3149,11 @@ $effect(() => {
 		resetGeneration(activeSessionId);
 		activeSessionId = routeSessionId;
 		pendingRestoreSessionId = routeSessionId;
-		suppressScrollSaveSessionIds.add(routeSessionId);
+		activeAnchorRestore = null;
+		anchorRestoreWaitingForMarkdown = false;
+		userScrollActive = false;
+		programmaticScrollActive = false;
+		programmaticScrollTarget = null;
 		ensureSessionModelLoaded(routeSessionId);
 		shouldAutoFollow = true;
 		const state = sessionStateById[routeSessionId];
@@ -3076,6 +3164,12 @@ $effect(() => {
 	if (routeView !== "session" && activeSessionId) {
 		resetGeneration(activeSessionId);
 		activeSessionId = null;
+		pendingRestoreSessionId = null;
+		activeAnchorRestore = null;
+		anchorRestoreWaitingForMarkdown = false;
+		userScrollActive = false;
+		programmaticScrollActive = false;
+		programmaticScrollTarget = null;
 	}
 });
 $effect(() => {
@@ -3083,13 +3177,35 @@ $effect(() => {
 	if (!el) return;
 	const container = el as HTMLDivElement;
 	function handleScrollTrack() {
-		if (activeSessionId && !suppressScrollSaveSessionIds.has(activeSessionId)) {
+		const isProgrammatic =
+			programmaticScrollActive ||
+			(programmaticScrollTarget != null &&
+				Math.abs(container.scrollTop - programmaticScrollTarget) <= 1);
+		if (isProgrammatic) {
+			programmaticScrollActive = false;
+			programmaticScrollTarget = null;
+			updateAutoFollow();
+			return;
+		}
+		if (activeSessionId && userScrollActive) {
 			captureCurrentScrollAnchor(activeSessionId);
 		}
 		updateAutoFollow();
 	}
+	container.addEventListener("wheel", beginUserScroll, { passive: true });
+	container.addEventListener("touchstart", beginUserScroll, { passive: true });
+	container.addEventListener("touchmove", beginUserScroll, { passive: true });
+	container.addEventListener("pointerdown", beginUserScroll, { passive: true });
+	container.addEventListener("keydown", handleScrollKeydown);
 	container.addEventListener("scroll", handleScrollTrack, { passive: true });
-	return () => container.removeEventListener("scroll", handleScrollTrack);
+	return () => {
+		container.removeEventListener("wheel", beginUserScroll);
+		container.removeEventListener("touchstart", beginUserScroll);
+		container.removeEventListener("touchmove", beginUserScroll);
+		container.removeEventListener("pointerdown", beginUserScroll);
+		container.removeEventListener("keydown", handleScrollKeydown);
+		container.removeEventListener("scroll", handleScrollTrack);
+	};
 });
 $effect(() => {
 	if (!listEl) return;
@@ -3097,48 +3213,41 @@ $effect(() => {
 	if (!targetId || targetId !== activeSessionId) return;
 	const state = sessionStateById[targetId];
 	if (!state?.loaded) return;
-	const anchor = scrollAnchorBySession.get(targetId);
+	const anchor = getSessionScrollAnchor(targetId);
 	const hasCachedAnchor =
 		anchor &&
 		state.messages.some((message) => message.sequence === anchor.sequence);
 	const finishRestore = () => {
-		suppressScrollSaveSessionIds.delete(targetId);
 		pendingRestoreSessionId = null;
 		if (restoringBottomSessionId === targetId) {
 			restoringBottomSessionId = null;
 		}
 		updateAutoFollow();
 	};
+	const finishAnchorRestore = () => {
+		pendingRestoreSessionId = null;
+		if (restoringBottomSessionId === targetId) {
+			restoringBottomSessionId = null;
+		}
+		updateAutoFollow();
+		anchorRestoreWaitingForMarkdown = true;
+		requestAnimationFrame(() => {
+			maybeCompleteAnchorRestore();
+		});
+	};
 	const restoreToBottom = () => {
+		activeAnchorRestore = null;
+		anchorRestoreWaitingForMarkdown = false;
 		restoringBottomSessionId = targetId;
 		shouldAutoFollow = true;
-		const stabilizeBottom = (
-			remainingFrames = 8,
-			lastHeight = -1,
-			sameHeightFrames = 0,
-		) => {
-			requestAnimationFrame(() => {
-				if (!listEl || activeSessionId !== targetId) {
-					finishRestore();
-					return;
-				}
-				scrollToBottomNow();
-				const currentHeight = listEl.scrollHeight;
-				const nextSameHeightFrames =
-					currentHeight === lastHeight ? sameHeightFrames + 1 : 0;
-				if (remainingFrames > 0 && nextSameHeightFrames < 2) {
-					stabilizeBottom(
-						remainingFrames - 1,
-						currentHeight,
-						nextSameHeightFrames,
-					);
-					return;
-				}
-				writeBottomScrollAnchor(targetId);
+		requestAnimationFrame(() => {
+			if (!listEl || activeSessionId !== targetId) {
 				finishRestore();
-			});
-		};
-		stabilizeBottom();
+				return;
+			}
+			scrollToBottomNow();
+			finishRestore();
+		});
 	};
 	if (!anchor || !hasCachedAnchor) {
 		clearSessionScrollAnchor(targetId);
@@ -3163,10 +3272,24 @@ $effect(() => {
 				restoreToBottom();
 				return;
 			}
-			listEl.scrollTop = getMessageElementAbsoluteTop(node) + anchor.offset;
-			shouldAutoFollow = false;
-			captureCurrentScrollAnchor(targetId);
-			finishRestore();
+			activeAnchorRestore = {
+				sessionId: targetId,
+				sequence: anchor.sequence,
+				offset: anchor.offset,
+				updatedAt: anchor.updatedAt,
+			};
+			requestAnimationFrame(() => {
+				if (!listEl || activeSessionId !== targetId) {
+					finishAnchorRestore();
+					return;
+				}
+				if (!applyActiveAnchorRestore(activeAnchorRestore)) {
+					clearSessionScrollAnchor(targetId);
+					restoreToBottom();
+					return;
+				}
+				finishAnchorRestore();
+			});
 		});
 	};
 	void tick().then(() => restoreByAnchor());
@@ -4597,11 +4720,13 @@ $effect(() => {
       <div class="relative flex-1 min-h-0 flex flex-col">
         <ChatTimeline
           bind:this={chatTimelineRef}
-          bindListEl={listEl}
+          bind:bindListEl={listEl}
           timeline={timeline}
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
           onLoadMessageDetail={loadMessageDetail}
+          onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
+          onMarkdownRendered={handleTimelineMarkdownRendered}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
           modelsCatalog={modelsCatalog ?? undefined}
         />
@@ -4612,7 +4737,7 @@ $effect(() => {
             <button
               type="button"
               aria-label="Scroll to bottom"
-              class="flex h-8 min-w-8 items-center justify-center rounded-full bg-brand px-2.5 text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] transition-transform duration-150 active:scale-95"
+              class="flex h-8 min-w-8 items-center justify-center rounded-full bg-brand text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] transition-transform duration-150 active:scale-95"
               onclick={() => {
                 shouldAutoFollow = true;
                 void forceScrollToBottom();

@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { Check, ChevronDown, ChevronRight, Copy } from "lucide-svelte";
+import { tick } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
@@ -15,11 +16,19 @@ type Props = {
 	message: ChatMessage;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
+	onMarkdownRenderStart?: (message: ChatMessage) => void;
+	onMarkdownRendered?: (message: ChatMessage) => void;
 };
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
-const { message, modelsCatalog, onLoadMessageDetail }: Props = $props();
+const {
+	message,
+	modelsCatalog,
+	onLoadMessageDetail,
+	onMarkdownRenderStart,
+	onMarkdownRendered,
+}: Props = $props();
 let renderedHtml = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
@@ -131,14 +140,28 @@ $effect(() => {
 	const markdownSource =
 		textContent || (message.content?.length ? "" : message.text);
 
-	void renderMarkdown(markdownSource).then((html) => {
-		if (!cancelled) {
+	let settled = false;
+	const settleMarkdownRender = () => {
+		if (settled) return;
+		settled = true;
+		onMarkdownRendered?.(message);
+	};
+	onMarkdownRenderStart?.(message);
+	void renderMarkdown(markdownSource)
+		.then(async (html) => {
+			if (cancelled) {
+				settleMarkdownRender();
+				return;
+			}
 			renderedHtml = html;
-		}
-	});
+			await tick();
+			requestAnimationFrame(settleMarkdownRender);
+		})
+		.catch(settleMarkdownRender);
 
 	return () => {
 		cancelled = true;
+		settleMarkdownRender();
 	};
 });
 
@@ -355,7 +378,17 @@ function handleCopy() {
 }
 </script>
 
-{#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
+{#if message.meta?.contentPlaceholder === 'assistant_intermediate'}
+  <button
+    type="button"
+    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-placeholder transition-colors hover:bg-bg-hover/50 hover:text-text-tertiary disabled:cursor-wait disabled:opacity-70"
+    disabled={detailLoading}
+    onclick={() => void ensureMessageDetail()}
+  >
+    <span class="inline-block h-1.5 w-1.5 rounded-full bg-text-placeholder/60"></span>
+    <span>{detailLoading ? 'Loading details...' : 'Load process step details'}</span>
+  </button>
+{:else if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
   {#if thinkingContent}
     <div>
       <div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">

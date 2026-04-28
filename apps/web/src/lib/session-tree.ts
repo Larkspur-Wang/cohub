@@ -21,6 +21,7 @@ export type ChatMessage = {
 		stopReason?: string | null;
 		errorMessage?: string | null;
 		contentDetail?: "summary" | "full";
+		contentPlaceholder?: "assistant_intermediate";
 		historySummary?: {
 			toolCallCount?: number;
 			thinkingCharCount?: number;
@@ -118,15 +119,18 @@ export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
 							model: message.model,
 							provider: message.provider,
 							usage: message.usage,
-						stopReason: message.stopReason,
-						errorMessage: message.errorMessage,
-						contentDetail: msgMeta?.contentDetail as
-							| "summary"
-							| "full"
-							| undefined,
-						historySummary: msgMeta?.historySummary as
-							| { toolCallCount?: number; thinkingCharCount?: number }
-							| undefined,
+							stopReason: message.stopReason,
+							errorMessage: message.errorMessage,
+							contentDetail: msgMeta?.contentDetail as
+								| "summary"
+								| "full"
+								| undefined,
+							contentPlaceholder: msgMeta?.contentPlaceholder as
+								| "assistant_intermediate"
+								| undefined,
+							historySummary: msgMeta?.historySummary as
+								| { toolCallCount?: number; thinkingCharCount?: number }
+								| undefined,
 						}
 					: undefined,
 		} satisfies ChatMessage;

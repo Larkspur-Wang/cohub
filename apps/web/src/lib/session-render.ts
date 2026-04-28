@@ -210,6 +210,9 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 							| "summary"
 							| "full"
 							| undefined,
+						contentPlaceholder: msgMeta?.contentPlaceholder as
+							| "assistant_intermediate"
+							| undefined,
 						historySummary: msgMeta?.historySummary as
 							| { toolCallCount?: number; thinkingCharCount?: number }
 							| undefined,
@@ -219,6 +222,9 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 						contentDetail: msgMeta?.contentDetail as
 							| "summary"
 							| "full"
+							| undefined,
+						contentPlaceholder: msgMeta?.contentPlaceholder as
+							| "assistant_intermediate"
 							| undefined,
 						historySummary: msgMeta?.historySummary as
 							| { toolCallCount?: number; thinkingCharCount?: number }
