@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
 import { injectTrace } from "@cohub/tracing/propagator";
+import { SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -195,6 +196,18 @@ export const validateSpaceEnv = (envs: Array<{ name: string; value: string }>) =
     if (env.value.length > 4000) throw new Error(`env value too long for: ${env.name}`);
     if (seen.has(env.name)) throw new Error(`duplicate env name: ${env.name}`);
     seen.add(env.name);
+  }
+};
+
+export const setSpaceEnv = async (spaceId: string, envs: Array<{ name: string; value: string }>) => {
+  const key = SPACE_ENV_REDIS_KEY(spaceId);
+  const { redisCommandClient } = await import("./redis.js");
+  try {
+    await redisCommandClient.set(key, JSON.stringify(envs), "EX", 3600);
+  } catch (err) {
+    // DB is already updated; Redis write failure means agent may serve stale env
+    // until next space reconnection or TTL expiry
+    console.warn(`[SpaceEnv] Failed to write env cache for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 };
 

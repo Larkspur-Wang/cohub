@@ -251,7 +251,6 @@ export const reconcileSpaceSandbox = async (input: {
   ownerUserUuid?: string;
   mode: "ensure" | "replace";
   reason: "space_created" | "manual_recreate";
-  extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   const podName = `sandbox-${input.spaceId}`;
   const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
@@ -331,7 +330,6 @@ export const reconcileSpaceSandbox = async (input: {
             : `https://public.cohub.run/dev/s/${input.spaceId}`,
       },
       { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
-      ...(input.extraEnv ?? []),
     ];
   }
 
@@ -355,7 +353,6 @@ export const provisionSpaceSandbox = async (input: {
   spaceId: string;
   userUuid: string;
   ownerUserUuid?: string;
-  extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   return reconcileSpaceSandbox({
     spaceId: input.spaceId,
@@ -363,7 +360,6 @@ export const provisionSpaceSandbox = async (input: {
     ownerUserUuid: input.ownerUserUuid,
     mode: "ensure",
     reason: "space_created",
-    extraEnv: input.extraEnv,
   }).catch(async (error) => {
     const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
     const existingMeta = asMetaObject(existingSandbox?.meta);

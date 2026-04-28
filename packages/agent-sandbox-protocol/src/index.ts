@@ -1,5 +1,7 @@
 export const AGENT_SANDBOX_PROTOCOL_VERSION = "1" as const;
 
+export { SYSTEM_ENV_KEYS, SYSTEM_ENV_KEY_SET, SPACE_ENV_REDIS_KEY } from "./constants.js";
+
 export const SANDBOX_STATUSES = [
   "connecting",
   "preparing",

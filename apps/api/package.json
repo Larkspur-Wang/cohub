@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@neta-art/cohub-protocol": "workspace:*",
+    "@cohub/agent-sandbox-protocol": "workspace:*",
     "@cohub/tracing": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@hono/otel": "^1.1.0",

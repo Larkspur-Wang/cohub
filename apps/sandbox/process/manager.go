@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -16,6 +18,8 @@ import (
 
 	"github.com/google/uuid"
 )
+
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type ManagedProcess struct {
 	ID            string
@@ -73,15 +77,31 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 	cmd := exec.Command("bash", "-c", command)
 	cmd.Dir = cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// User-provided env vars are appended only if the key doesn't already
+	// exist in the pod's environment. This prevents users from accidentally
+	// overriding critical system vars (PATH, HOME, LANG, etc.) and is
+	// consistent with the SYSTEM_ENV_KEYS allowlist at the API layer.
 	if len(extraEnv) > 0 {
-		envValues := os.Environ()
+		existingKeys := make(map[string]bool)
+		for _, e := range os.Environ() {
+			key, _, _ := strings.Cut(e, "=")
+			existingKeys[key] = true
+		}
+		var merged []string
 		for key, value := range extraEnv {
-			if key == "" {
+			if key == "" || existingKeys[key] {
 				continue
 			}
-			envValues = append(envValues, fmt.Sprintf("%s=%s", key, value))
+			if !envKeyPattern.MatchString(key) {
+				m.logger.Warn("process: ignoring env with invalid key",
+					slog.String("key", key),
+					slog.String("ownerIdentity", ownerIdentity),
+				)
+				continue
+			}
+			merged = append(merged, fmt.Sprintf("%s=%s", key, value))
 		}
-		cmd.Env = envValues
+		cmd.Env = append(os.Environ(), merged...)
 	}
 
 	stdout, err := cmd.StdoutPipe()

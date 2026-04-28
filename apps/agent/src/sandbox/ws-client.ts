@@ -10,6 +10,7 @@ import type {
 } from "@cohub/agent-sandbox-protocol";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
+import { refreshUserEnv } from "../runtime/env-cache.js";
 
 type PendingOperation = {
   requestId: string;
@@ -354,6 +355,9 @@ async function connectOnce(registration: SandboxClientRegistration) {
           attached = true;
           connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, socket, registration);
           setActiveConnection(registration.spaceId, connection);
+          void refreshUserEnv(registration.spaceId).catch((err) => {
+            console.warn(`[SandboxWS] Failed to refresh env for ${registration.spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+          });
           const setupSummary = heartbeat.metadata?.setup
             ? heartbeat.metadata.setup.ran
               ? heartbeat.metadata.setup.exitCode === 0 && !heartbeat.metadata.setup.error

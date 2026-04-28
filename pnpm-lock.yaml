@@ -97,6 +97,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@cohub/agent-sandbox-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-sandbox-protocol
       '@cohub/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
