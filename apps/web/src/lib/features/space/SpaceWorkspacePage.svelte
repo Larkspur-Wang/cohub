@@ -2401,7 +2401,7 @@ async function loadFileTree(force = false) {
 		}
 	}
 	if (fileTreeLoading && !force) return;
-	const shouldShowLoading = fileTree.length === 0;
+	const shouldShowLoading = fileTree.length === 0 || force;
 	if (shouldShowLoading) {
 		fileTreeLoading = true;
 	}

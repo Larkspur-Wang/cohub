@@ -4,6 +4,7 @@ node_modules/
 dist/
 .pnpm-store/
 configs/
+.idea/
 
 # Local rendered manifests (do not commit)
 rendered/

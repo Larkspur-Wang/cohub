@@ -63,7 +63,7 @@ function handleUploadClick() {
 </script>
 
 <div class="flex h-full flex-col bg-bg-primary min-w-0 relative">
-  <div class="flex items-center gap-1 border-b border-border-subtle px-3 py-2 shrink-0">
+  <div class="flex items-center gap-1 border-b border-border-subtle px-3 py-2 shrink-0 [&_button]:cursor-pointer">
     <div class="min-w-0 flex-1">
       <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Files</div>
       <div class="text-[12px] text-text-secondary">Space files</div>
