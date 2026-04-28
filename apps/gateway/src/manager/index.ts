@@ -58,6 +58,8 @@ export class GatewayManager {
       console.log("[Manager] Sync loop stopped");
     }
 
+    const channelIds = Array.from(this.providers.keys());
+
     // 清理本地所有的长连接
     for (const [channelId, provider] of this.providers.entries()) {
       try {
@@ -75,7 +77,6 @@ export class GatewayManager {
 
     // 清理本节点的任务列表和 channel 路由
     console.log("[Manager] Cleaning up task assignments...");
-    const channelIds = Array.from(this.providers.keys());
     for (const channelId of channelIds) {
       // 从全局路由表中移除（如果当前节点仍然持有该 channel）
       const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);

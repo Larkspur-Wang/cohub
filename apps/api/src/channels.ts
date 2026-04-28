@@ -66,20 +66,38 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
   if (!userChannel || userChannel.status !== "active") return;
 
   const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", spaceChannel.id);
+  let nodeId = existingNodeId;
+
   if (existingNodeId) {
     const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
     const nodeLastHeartbeat = typeof nodeLastHeartbeatStr === "string" ? Number.parseFloat(nodeLastHeartbeatStr) : null;
-    if (nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < GATEWAY_NODE_TTL_MS) return;
+    const isExistingNodeAlive = Boolean(nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < GATEWAY_NODE_TTL_MS);
+
+    if (!isExistingNodeAlive) {
+      nodeId = await pickGatewayNode();
+    }
+  } else {
+    nodeId = await pickGatewayNode();
   }
 
-  const nodeId = await pickGatewayNode();
-  await syncSpaceChannelConfigCache({ spaceChannelId: spaceChannel.id, config: (spaceChannel.config as ChannelConfig | Record<string, unknown> | null) ?? null });
-  await redisCommandClient.hset(`gateway:node:${nodeId}:channels`, spaceChannel.id, JSON.stringify({
+  if (!nodeId) {
+    throw new Error(`Failed to resolve gateway node for space channel ${spaceChannel.id}`);
+  }
+
+  const serializedTask = JSON.stringify({
     channelId: spaceChannel.id,
     provider: userChannel.provider,
     credentials: userChannel.credentials,
-  }));
-  await redisCommandClient.hset("gateway:channel_routing", spaceChannel.id, nodeId);
+  });
+
+  await redisCommandClient.multi()
+    .set(
+      getSpaceChannelConfigKey(spaceChannel.id),
+      JSON.stringify((spaceChannel.config as ChannelConfig | Record<string, unknown> | null) ?? {}),
+    )
+    .hset(`gateway:node:${nodeId}:channels`, spaceChannel.id, serializedTask)
+    .hset("gateway:channel_routing", spaceChannel.id, nodeId)
+    .exec();
 }
 
 export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {
