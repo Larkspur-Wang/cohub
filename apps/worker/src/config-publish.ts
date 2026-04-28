@@ -102,18 +102,35 @@ export async function publishConfigFromWorkspace(input: {
 
   // Recursively chmod everything under a directory to ensure it can be deleted.
   // This handles cases where files were created with restrictive permissions
-  // (e.g. different UID in init containers, read-only files, etc.).
+  // (e.g. git objects with 0444, different UID in init containers, etc.).
   const forceChmod = async (dir: string): Promise<void> => {
-    await chmod(dir, 0o755).catch(() => undefined);
+    // Directories need write permission to allow unlinking their contents
+    await chmod(dir, 0o777).catch(() => undefined);
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       if (entry.isDirectory()) {
         await forceChmod(fullPath);
       } else {
-        await chmod(fullPath, 0o644).catch(() => undefined);
+        // Make files writable so they can be unlinked
+        await chmod(fullPath, 0o666).catch(() => undefined);
       }
     }
+  };
+
+  // Aggressively remove a directory tree, handling permission issues.
+  // Falls back to iterating and removing individual entries when recursive rm fails.
+  const forceRm = async (dir: string): Promise<void> => {
+    await rm(dir, { recursive: true, force: true }).catch(async () => {
+      // If recursive rm fails, try to remove contents iteratively
+      await forceChmod(dir);
+      const entries = await readdir(dir).catch(() => [] as string[]);
+      for (const entry of entries) {
+        const fullPath = join(dir, entry);
+        await rm(fullPath, { recursive: true, force: true }).catch(() => undefined);
+      }
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    });
   };
 
   const hadExistingTarget = await pathExists(input.targetDir);
@@ -124,7 +141,7 @@ export async function publishConfigFromWorkspace(input: {
     await rename(tmpDir, input.targetDir);
     if (hadExistingTarget) {
       await forceChmod(backupDir);
-      await rm(backupDir, { recursive: true, force: true });
+      await forceRm(backupDir);
     }
   } catch (error) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
