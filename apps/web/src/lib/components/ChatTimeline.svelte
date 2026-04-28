@@ -21,6 +21,8 @@ type Props = {
 	loadingOlder?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
+	onMarkdownRenderStart?: (message: ChatMessage) => void;
+	onMarkdownRendered?: (message: ChatMessage) => void;
 };
 
 let {
@@ -31,6 +33,8 @@ let {
 	loadingOlder = false,
 	modelsCatalog,
 	onLoadMessageDetail,
+	onMarkdownRenderStart,
+	onMarkdownRendered,
 }: Props = $props();
 
 // Track all observed elements for re-observation.
@@ -123,10 +127,10 @@ $effect(() => {
 				data-sequence={item.kind === 'message' ? item.message.sequence : undefined}
 				use:observeItem={originalIdx}
 			>
-				{#if item.kind === 'message'}
-					<ChatMessageBubble message={item.message} {modelsCatalog} {onLoadMessageDetail} />
-				{:else if item.kind === 'process'}
-					<ProcessCard messages={item.messages} {modelsCatalog} {onLoadMessageDetail} />
+					{#if item.kind === 'message'}
+						<ChatMessageBubble message={item.message} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
+					{:else if item.kind === 'process'}
+						<ProcessCard messages={item.messages} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
 				{:else}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}

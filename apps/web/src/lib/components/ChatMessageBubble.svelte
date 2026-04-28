@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { Check, ChevronDown, ChevronRight, Copy } from "lucide-svelte";
+import { tick } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
@@ -15,11 +16,19 @@ type Props = {
 	message: ChatMessage;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
+	onMarkdownRenderStart?: (message: ChatMessage) => void;
+	onMarkdownRendered?: (message: ChatMessage) => void;
 };
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
-const { message, modelsCatalog, onLoadMessageDetail }: Props = $props();
+const {
+	message,
+	modelsCatalog,
+	onLoadMessageDetail,
+	onMarkdownRenderStart,
+	onMarkdownRendered,
+}: Props = $props();
 let renderedHtml = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
@@ -119,14 +128,28 @@ $effect(() => {
 	const markdownSource =
 		textContent || (message.content?.length ? "" : message.text);
 
-	void renderMarkdown(markdownSource).then((html) => {
-		if (!cancelled) {
+	let settled = false;
+	const settleMarkdownRender = () => {
+		if (settled) return;
+		settled = true;
+		onMarkdownRendered?.(message);
+	};
+	onMarkdownRenderStart?.(message);
+	void renderMarkdown(markdownSource)
+		.then(async (html) => {
+			if (cancelled) {
+				settleMarkdownRender();
+				return;
+			}
 			renderedHtml = html;
-		}
-	});
+			await tick();
+			requestAnimationFrame(settleMarkdownRender);
+		})
+		.catch(settleMarkdownRender);
 
 	return () => {
 		cancelled = true;
+		settleMarkdownRender();
 	};
 });
 

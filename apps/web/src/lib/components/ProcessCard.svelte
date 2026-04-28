@@ -13,9 +13,17 @@ type Props = {
 	messages: ChatMessage[];
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
+	onMarkdownRenderStart?: (message: ChatMessage) => void;
+	onMarkdownRendered?: (message: ChatMessage) => void;
 };
 
-const { messages, modelsCatalog, onLoadMessageDetail }: Props = $props();
+const {
+	messages,
+	modelsCatalog,
+	onLoadMessageDetail,
+	onMarkdownRenderStart,
+	onMarkdownRendered,
+}: Props = $props();
 
 let expanded = $state(false);
 
@@ -93,7 +101,7 @@ const summaryLabel = $derived(labelParts.join(" · "));
 
 		<div class="flex flex-col gap-2 pl-2 border-l border-border-subtle/40 ml-2">
 			{#each messages as msg (msg.id)}
-				<ChatMessageBubble message={msg} {modelsCatalog} {onLoadMessageDetail} />
+					<ChatMessageBubble message={msg} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
 			{/each}
 		</div>
 
