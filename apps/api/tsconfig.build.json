@@ -4,7 +4,10 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"]
+      "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"],
+      "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/dist/index.d.ts"],
+      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
+      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]
     }
   },
   "include": ["src"]
