@@ -1,6 +1,51 @@
 import type { IdTokenClaims } from "@logto/browser";
-import { logtoClient } from "$lib/auth";
+import {
+	clearBrokenAuthSession,
+	getAuthToken,
+	getCurrentIdTokenClaims,
+	hasRecoverableAuthSession,
+} from "$lib/auth";
 import { sdk } from "$lib/sdk";
+
+type RestoredAuthSession = {
+	isAuthenticated: boolean;
+	claims: IdTokenClaims | null;
+	userUuid: string | null;
+};
+
+const unauthenticatedSession = (): RestoredAuthSession => ({
+	isAuthenticated: false,
+	claims: null,
+	userUuid: null,
+});
+
+const restoreAuthSession = async (): Promise<RestoredAuthSession> => {
+	if (!(await hasRecoverableAuthSession())) {
+		return unauthenticatedSession();
+	}
+
+	const token = await getAuthToken();
+	if (!token) {
+		await clearBrokenAuthSession();
+		return unauthenticatedSession();
+	}
+
+	const claims = await getCurrentIdTokenClaims();
+	let userUuid: string | null = null;
+
+	try {
+		const me = await sdk.user.getMe();
+		userUuid = (me as { uuid?: string } | null)?.uuid ?? null;
+	} catch (error) {
+		console.warn("[auth] Failed to load current user profile:", error);
+	}
+
+	return {
+		isAuthenticated: true,
+		claims,
+		userUuid,
+	};
+};
 
 class AuthStore {
 	claims = $state<IdTokenClaims | null>(null);
@@ -26,24 +71,10 @@ class AuthStore {
 		this.loading = true;
 		this._loadPromise = (async () => {
 			try {
-				this.isAuthenticated = await logtoClient.isAuthenticated();
-				this.claims = this.isAuthenticated
-					? await logtoClient.getIdTokenClaims().catch(() => null)
-					: null;
-
-				// Fetch user profile from backend to get the correct uuid
-				// that matches space.userUuid stored in DB
-				if (this.isAuthenticated) {
-					try {
-						const me = await sdk.user.getMe();
-						this._userUuid = (me as { uuid?: string } | null)?.uuid ?? null;
-					} catch {
-						this._userUuid = null;
-					}
-				} else {
-					this._userUuid = null;
-				}
-
+				const restored = await restoreAuthSession();
+				this.isAuthenticated = restored.isAuthenticated;
+				this.claims = restored.claims;
+				this._userUuid = restored.userUuid;
 				this.loaded = true;
 			} finally {
 				this.loading = false;
@@ -59,6 +90,7 @@ class AuthStore {
 		this.isAuthenticated = false;
 		this.loaded = false;
 		this.loading = false;
+		this._userUuid = null;
 		this._loadPromise = null;
 	}
 }

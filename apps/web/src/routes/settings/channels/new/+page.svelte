@@ -1,5 +1,4 @@
 <script lang="ts">
-import { HttpError } from "@neta-art/cohub";
 import {
 	ArrowLeft,
 	Check,
@@ -12,7 +11,8 @@ import {
 } from "lucide-svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { ensureAuth, logtoClient } from "$lib/auth";
+import { ensureAuth } from "$lib/auth";
+import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
@@ -109,8 +109,9 @@ async function handleSubmit(e: Event) {
 
 		await goto("/settings/channels");
 	} catch (error) {
-		if (error instanceof HttpError && error.status === 401) {
-			await logtoClient.signIn(`${window.location.origin}/callback`);
+		if (
+			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
+		) {
 			return;
 		}
 		submitError =

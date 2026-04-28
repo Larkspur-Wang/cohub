@@ -46,6 +46,7 @@ const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
 
+let authReady = $state(false);
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);
 let activeTouchId = $state<number | null>(null);
@@ -384,7 +385,9 @@ $effect(() => {
 
 onMount(() => {
 	uiState.loadLayoutPrefs();
-	void authStore.ensureLoaded();
+	void authStore.ensureLoaded().finally(() => {
+		authReady = true;
+	});
 
 	// Register PWA Service Worker (conservative update: closes all tabs to activate)
 	if ("serviceWorker" in navigator) {
@@ -455,6 +458,10 @@ async function submitGlobalRename() {
 {#if isStandalonePage}
   <main class="min-h-screen bg-bg-primary text-text-primary">
     {@render children?.()}
+  </main>
+{:else if !authReady}
+  <main class="min-h-screen bg-bg-primary text-text-primary flex items-center justify-center">
+    <div class="w-8 h-8 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
   </main>
 {:else}
   <div class="h-screen flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">

@@ -1,11 +1,10 @@
 <script lang="ts">
-import {
-	type CheckpointRecord,
-	type CronJobRecord,
-	HttpError,
-	type SessionRecord,
-	type SpaceRecord,
-	type TaskRunRecord,
+import type {
+	CheckpointRecord,
+	CronJobRecord,
+	SessionRecord,
+	SpaceRecord,
+	TaskRunRecord,
 } from "@neta-art/cohub";
 import {
 	Activity,
@@ -33,6 +32,7 @@ import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { logtoClient } from "$lib/auth";
+import { handleUnauthorizedError } from "$lib/auth-redirect";
 import Dialog from "$lib/components/Dialog.svelte";
 import { sdk } from "$lib/sdk";
 import {
@@ -213,7 +213,8 @@ function statusColorClass(status: string): string {
 }
 
 async function loadSpaces(force = false) {
-	if (!(await logtoClient.isAuthenticated())) {
+	await authStore.ensureLoaded();
+	if (!authStore.isAuthenticated) {
 		isLoading = false;
 		// For unauthenticated users, try to fetch the space from the URL directly
 		// so the sidebar can still show the current space and sessions.
@@ -257,8 +258,7 @@ async function loadSpaces(force = false) {
 			{ force },
 		);
 	} catch (error) {
-		if (error instanceof HttpError && error.status === 401) {
-			await logtoClient.signIn(`${window.location.origin}/callback`);
+		if (await handleUnauthorizedError(error)) {
 			return;
 		}
 		loadError =
@@ -607,9 +607,9 @@ $effect(() => {
 	if (id) {
 		untrack(async () => {
 			const requestedSpaceId = id;
-			const authenticated = await logtoClient.isAuthenticated();
+			await authStore.ensureLoaded();
 			if (requestedSpaceId !== currentSpaceId) return;
-			if (!authenticated && !currentSpace) {
+			if (!authStore.isAuthenticated && !currentSpace) {
 				try {
 					const space = await sdk.space(requestedSpaceId).get();
 					if (requestedSpaceId !== currentSpaceId) return;

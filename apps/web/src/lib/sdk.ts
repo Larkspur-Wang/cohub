@@ -2,14 +2,14 @@ import { type CohubClientOptions, createCohubClient } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN, PUBLIC_GATEWAY_ORIGIN } from "$env/static/public";
 import {
 	clearAuthToken,
-	logtoClient,
 	getAuthToken as resolveAccessToken,
 	setAuthToken,
 } from "$lib/auth";
+import { getCurrentRedirectPath, redirectToSignIn } from "$lib/auth-redirect";
 
 const handleUnauthorized = async () => {
 	if (typeof window !== "undefined") {
-		await logtoClient.signIn(`${window.location.origin}/callback`);
+		await redirectToSignIn(getCurrentRedirectPath());
 	}
 };
 

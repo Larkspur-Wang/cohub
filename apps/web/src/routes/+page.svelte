@@ -4,6 +4,7 @@ import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth";
 import { sdk } from "$lib/sdk";
+import { authStore } from "$lib/stores/auth.svelte";
 
 let isLoading = $state(true);
 let isAuthenticated = $state(false);
@@ -20,9 +21,9 @@ async function handleSignIn() {
 }
 
 onMount(async () => {
-	const authenticated = await logtoClient.isAuthenticated();
-	isAuthenticated = authenticated;
-	if (!authenticated) {
+	await authStore.ensureLoaded(true);
+	isAuthenticated = authStore.isAuthenticated;
+	if (!authStore.isAuthenticated) {
 		isLoading = false;
 		return;
 	}

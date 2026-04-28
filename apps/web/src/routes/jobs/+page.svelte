@@ -1,5 +1,9 @@
 <script lang="ts">
-import type { CronJobRecord, SpaceRecord, TaskRunRecord } from "@neta-art/cohub";
+import type {
+	CronJobRecord,
+	SpaceRecord,
+	TaskRunRecord,
+} from "@neta-art/cohub";
 import {
 	Activity,
 	Clipboard,
@@ -18,6 +22,7 @@ import { logtoClient } from "$lib/auth";
 import Dialog from "$lib/components/Dialog.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import { sdk } from "$lib/sdk";
+import { authStore } from "$lib/stores/auth.svelte";
 
 type TabId = "cronjobs" | "history";
 type ModalMode = "create" | "edit";
@@ -88,7 +93,8 @@ function extractPromptText(payload: Record<string, unknown>): string {
 }
 
 async function loadCronJobs() {
-	if (!(await logtoClient.isAuthenticated())) {
+	await authStore.ensureLoaded();
+	if (!authStore.isAuthenticated) {
 		isLoading = false;
 		return;
 	}
@@ -106,7 +112,8 @@ async function loadCronJobs() {
 }
 
 async function loadTaskRuns() {
-	if (!(await logtoClient.isAuthenticated())) {
+	await authStore.ensureLoaded();
+	if (!authStore.isAuthenticated) {
 		return;
 	}
 
