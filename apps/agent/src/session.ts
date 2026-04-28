@@ -66,6 +66,7 @@ export type SessionHandle = {
     lastSent?: ContentBlock[];
     pendingFlush?: boolean;
     flushPromise?: Promise<void> | null;
+    flushTimer?: ReturnType<typeof setTimeout> | null;
   };
 };
 
@@ -130,6 +131,8 @@ function addLifecycleEvent(name: string, attributes?: Record<string, string | nu
   span.addEvent(name, cleanAttributes);
 }
 
+const STREAM_UPDATE_DEBOUNCE_MS = Number(process.env.AGENT_STREAM_UPDATE_DEBOUNCE_MS ?? 100);
+
 async function emitProviderRenderUpdate(handle: SessionHandle) {
   const sourceMessageId = handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
@@ -140,25 +143,29 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   }
 
   const flush = async () => {
-    const span = handle.turnTracer.startSpan("agent.output.publish", {
-      attributes: {
-        "cohub.space_id": handle.spaceId,
-        "cohub.session_id": handle.sessionId,
-        "agent.input_message_id": sourceMessageId,
-        ...(handle.currentUserMessageId ? { "agent.anchor_user_message_id": handle.currentUserMessageId } : {}),
-        ...getSessionTraceAttributes(handle),
-      },
+    const full = handle.streamState.content;
+    const last = handle.streamState.lastSent ?? [];
+    const delta = computeDelta(full, last);
+
+    handle.streamState.lastSent = structuredClone(full);
+    handle.streamState.pendingFlush = false;
+
+    if (delta.length === 0) {
+      handle.streamState.flushPromise = null;
+      return;
+    }
+
+    const span = trace.getActiveSpan();
+    span?.addEvent("agent.output.publish", {
+      "cohub.space_id": handle.spaceId,
+      "cohub.session_id": handle.sessionId,
+      "agent.input_message_id": sourceMessageId,
+      "agent.output.delta_block_count": delta.length,
+      ...(handle.currentUserMessageId ? { "agent.anchor_user_message_id": handle.currentUserMessageId } : {}),
+      ...getSessionTraceAttributes(handle),
     });
 
     try {
-      const full = handle.streamState.content;
-      const last = handle.streamState.lastSent ?? [];
-      const delta = computeDelta(full, last);
-
-      handle.streamState.lastSent = structuredClone(full);
-      handle.streamState.pendingFlush = false;
-
-      span.setAttribute("agent.output.delta_block_count", delta.length);
       await sendOutput({
         type: "stream_update",
         spaceId: handle.spaceId,
@@ -169,17 +176,14 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
         timestamp: Date.now(),
       });
     } catch (error) {
-      if (error instanceof Error) {
-        span.recordException(error);
-      }
+      if (error instanceof Error) span?.recordException(error);
       throw error;
     } finally {
-      span.end();
+      handle.streamState.flushPromise = null;
     }
 
-    handle.streamState.flushPromise = null;
     if (handle.streamState.pendingFlush) {
-      scheduleProviderRenderUpdate(handle, "flush_pending");
+      scheduleProviderRenderUpdate(handle, "flush_pending", { immediate: true });
     }
   };
 
@@ -187,10 +191,30 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   await handle.streamState.flushPromise;
 }
 
-function scheduleProviderRenderUpdate(handle: SessionHandle, reason: string) {
-  void emitProviderRenderUpdate(handle).catch((error) => {
-    console.error(`[Agent] Provider render update failed (${reason}) for session ${handle.sessionId}:`, error);
-  });
+function scheduleProviderRenderUpdate(
+  handle: SessionHandle,
+  reason: string,
+  options?: { immediate?: boolean },
+) {
+  handle.streamState.pendingFlush = true;
+
+  if (handle.streamState.flushTimer || handle.streamState.flushPromise) return;
+
+  const delayMs = options?.immediate ? 0 : STREAM_UPDATE_DEBOUNCE_MS;
+  handle.streamState.flushTimer = setTimeout(() => {
+    handle.streamState.flushTimer = null;
+    void emitProviderRenderUpdate(handle).catch((error) => {
+      console.error(`[Agent] Provider render update failed (${reason}) for session ${handle.sessionId}:`, error);
+    });
+  }, delayMs);
+}
+
+function flushProviderRenderUpdate(handle: SessionHandle, reason: string) {
+  if (handle.streamState.flushTimer) {
+    clearTimeout(handle.streamState.flushTimer);
+    handle.streamState.flushTimer = null;
+  }
+  scheduleProviderRenderUpdate(handle, reason, { immediate: true });
 }
 
 function schedulePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
@@ -207,6 +231,7 @@ function resetStreamState(handle: SessionHandle) {
     lastSent: [],
     pendingFlush: false,
     flushPromise: null,
+    flushTimer: null,
   };
 }
 
@@ -366,7 +391,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       }
       if (message.role === "assistant") {
         resetStreamState(handle);
-        scheduleProviderRenderUpdate(handle, "assistant_message_start");
+        flushProviderRenderUpdate(handle, "assistant_message_start");
       }
     }
 
@@ -422,7 +447,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           }
         });
       }
-      scheduleProviderRenderUpdate(handle, "message_end");
+      flushProviderRenderUpdate(handle, "message_end");
     }
 
     if (event.type === "tool_execution_start") {
@@ -437,7 +462,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         summary: summarizeToolArgs(event.toolName, event.args),
       });
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
-      scheduleProviderRenderUpdate(handle, "tool_execution_start");
+      flushProviderRenderUpdate(handle, "tool_execution_start");
     }
 
     if (event.type === "tool_execution_end") {
@@ -454,7 +479,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         isError: event.isError,
       });
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
-      scheduleProviderRenderUpdate(handle, "tool_execution_end");
+      flushProviderRenderUpdate(handle, "tool_execution_end");
     }
 
     if (event.type === "turn_end" && handle.currentUserMessageId) {
@@ -646,6 +671,7 @@ export async function loadOrCreateSessionHandle(input: {
       lastSent: [],
       pendingFlush: false,
       flushPromise: null,
+      flushTimer: null,
     },
   };
 

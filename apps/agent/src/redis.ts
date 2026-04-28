@@ -1,9 +1,9 @@
+import { trace } from "@opentelemetry/api";
 import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { injectTrace } from "@cohub/tracing/propagator";
-import { getAgentTracer } from "@cohub/tracing/agent";
 import { env } from "./env.js";
 import {
   getAgentInstanceDeadLetterQueueKey,
@@ -23,7 +23,6 @@ const STREAM_MAXLEN = 2000;
 const STREAM_APPROX = "~";
 const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
 const DEAD_LETTER_MAX_ITEMS = 200;
-const redisTracer = getAgentTracer();
 
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
@@ -116,12 +115,12 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
     return;
   }
 
-  const span = redisTracer.startSpan("agent.output.publish", {
-    attributes: {
-      "cohub.space_id": parsed.data.spaceId,
-      "cohub.session_id": parsed.data.sessionId ?? "",
-      "agent.output.type": parsed.data.type,
-    },
+  const activeSpan = trace.getActiveSpan();
+  activeSpan?.addEvent("agent.output.publish", {
+    "cohub.space_id": parsed.data.spaceId,
+    "cohub.session_id": parsed.data.sessionId ?? "",
+    "agent.output.type": parsed.data.type,
+    ...(parsed.data.type === "stream_update" ? { "agent.output.delta_block_count": parsed.data.content.length } : {}),
   });
 
   try {
@@ -129,9 +128,6 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
     // Inject trace context so downstream (API → Gateway) can continue the same trace
     const traceCarrier = injectTrace();
     const payload = JSON.stringify({ ...parsed.data, ...traceCarrier });
-    if (parsed.data.type === "stream_update") {
-      span.setAttribute("agent.output.delta_block_count", parsed.data.content.length);
-    }
     await redis.xadd(
       AGENT_SESSION_UPDATES_STREAM,
       "MAXLEN",
@@ -149,13 +145,8 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
       throw err;
     });
   } catch (error) {
-    if (error instanceof Error) {
-      span.recordException(error);
-      throw error;
-    }
+    if (error instanceof Error) activeSpan?.recordException(error);
     throw error;
-  } finally {
-    span.end();
   }
 }
 
