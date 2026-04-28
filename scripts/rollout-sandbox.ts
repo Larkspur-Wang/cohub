@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +91,32 @@ const runKubectl = (args: string[]) => {
   ).trim();
 };
 
+const runKubectlExec = (args: string[]): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "kubectl",
+      [...(options.kubeconfig ? ["--kubeconfig", options.kubeconfig] : []), ...args],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+      const more = process.stdout.write(chunk);
+      if (!more) {
+        child.stdout.pause();
+        process.stdout.once("drain", () => {
+          child.stdout.resume();
+        });
+      }
+    });
+    child.on("close", (code) => {
+      if (code === 0) resolve(Buffer.concat(chunks).toString().trim());
+      else reject(new Error(`kubectl exec exited with code ${code}`));
+    });
+    child.on("error", reject);
+  });
+};
+
 const apiPod = runKubectl([
   "-n",
   options.apiNamespace,
@@ -138,16 +164,16 @@ if (selectedSpaceIds.size > 0) {
   const matched = new Set(candidates.map((candidate) => candidate.spaceId));
   const missing = [...selectedSpaceIds].filter((spaceId) => !matched.has(spaceId));
   if (missing.length > 0) {
-    console.log(JSON.stringify({ phase: 'missing', missing }));
+    console.error(JSON.stringify({ phase: 'missing', missing }));
   }
 }
 
 if (candidates.length === 0) {
-  console.log(JSON.stringify({ ok: true, targetVersion, total: 0, message: 'No sandbox rollout needed', dryRun }));
+  console.error(JSON.stringify({ ok: true, targetVersion, total: 0, message: 'No sandbox rollout needed', dryRun }));
   process.exit(0);
 }
 
-console.log(JSON.stringify({
+console.error(JSON.stringify({
   phase: 'plan',
   targetVersion,
   total: candidates.length,
@@ -223,7 +249,7 @@ const worker = async (workerId) => {
   while (queue.length > 0) {
     const target = queue.shift();
     if (!target) return;
-    console.log(JSON.stringify({ phase: 'start', workerId, spaceId: target.spaceId, from: target.reportedImageVersion, to: targetVersion }));
+    console.error(JSON.stringify({ phase: 'start', workerId, spaceId: target.spaceId, from: target.reportedImageVersion, to: targetVersion }));
     try {
       await reconcileSpaceSandbox({
         spaceId: target.spaceId,
@@ -233,7 +259,7 @@ const worker = async (workerId) => {
       });
       const ready = await waitForSandboxReady(target.spaceId);
       successes.push({ spaceId: target.spaceId, podName: ready.podName, mode: ready.mode });
-      console.log(JSON.stringify({ phase: 'done', workerId, spaceId: target.spaceId, podName: ready.podName, mode: ready.mode }));
+      console.error(JSON.stringify({ phase: 'done', workerId, spaceId: target.spaceId, podName: ready.podName, mode: ready.mode }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failures.push({ spaceId: target.spaceId, error: message });
@@ -260,38 +286,43 @@ if (failures.length > 0) process.exit(1);
 
 writeFileSync(localScriptPath, innerScript);
 
-try {
-  runKubectl(["-n", options.apiNamespace, "cp", localScriptPath, `${apiPod}:${remoteScriptPath}`]);
-  console.log(`Using API pod: ${apiPod}`);
-  console.log(
-    `Rollout options: namespace=${options.apiNamespace} concurrency=${options.concurrency} limit=${options.limit || "all"} timeoutMs=${options.timeoutMs} settleMs=${options.settleMs} dryRun=${options.dryRun} spaceIds=${options.spaceIds.length > 0 ? options.spaceIds.join(",") : "all"}`,
-  );
-  const output = runKubectl(["-n", options.apiNamespace, "exec", apiPod, "--", "node", remoteScriptPath]);
-  console.log(output);
-
-  const lines = output.split("\n").map((line) => line.trim()).filter(Boolean);
-  const summaryLine = [...lines].reverse().find((line) => line.includes('"phase":"summary"') || line.includes('"ok"'));
-  if (summaryLine) {
-    const parsed = JSON.parse(summaryLine) as {
-      ok: boolean;
-      dryRun?: boolean;
-      targetVersion: string;
-      total: number;
-      successCount: number;
-      failureCount: number;
-      failures?: Array<{ spaceId: string; error: string }>;
-    };
-    console.log("---");
+(async () => {
+  try {
+    runKubectl(["-n", options.apiNamespace, "cp", localScriptPath, `${apiPod}:${remoteScriptPath}`]);
+    console.log(`Using API pod: ${apiPod}`);
     console.log(
-      `Sandbox rollout summary: ok=${parsed.ok} dryRun=${parsed.dryRun ?? false} target=${parsed.targetVersion} total=${parsed.total} success=${parsed.successCount} failure=${parsed.failureCount}`,
+      `Rollout options: namespace=${options.apiNamespace} concurrency=${options.concurrency} limit=${options.limit || "all"} timeoutMs=${options.timeoutMs} settleMs=${options.settleMs} dryRun=${options.dryRun} spaceIds=${options.spaceIds.length > 0 ? options.spaceIds.join(",") : "all"}`,
     );
-    if ((parsed.failures?.length ?? 0) > 0) {
-      console.log("Failures:");
-      for (const failure of parsed.failures ?? []) {
-        console.log(`- ${failure.spaceId}: ${failure.error}`);
+    const output = await runKubectlExec(["-n", options.apiNamespace, "exec", apiPod, "--", "node", remoteScriptPath]);
+
+    const lines = output.split("\n").map((line) => line.trim()).filter(Boolean);
+    const summaryLine = [...lines].reverse().find((line) => line.includes('"phase":"summary"') || line.includes('"ok"'));
+    if (summaryLine) {
+      const parsed = JSON.parse(summaryLine) as {
+        ok: boolean;
+        dryRun?: boolean;
+        targetVersion: string;
+        total: number;
+        successCount: number;
+        failureCount: number;
+        failures?: Array<{ spaceId: string; error: string }>;
+      };
+      console.log("---");
+      console.log(
+        `Sandbox rollout summary: ok=${parsed.ok} dryRun=${parsed.dryRun ?? false} target=${parsed.targetVersion} total=${parsed.total} success=${parsed.successCount} failure=${parsed.failureCount}`,
+      );
+      if ((parsed.failures?.length ?? 0) > 0) {
+        console.log("Failures:");
+        for (const failure of parsed.failures ?? []) {
+          console.log(`- ${failure.spaceId}: ${failure.error}`);
+        }
       }
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Rollout failed: ${message}`);
+    process.exit(1);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
   }
-} finally {
-  rmSync(tempDir, { recursive: true, force: true });
-}
+})();
