@@ -4636,14 +4636,14 @@ $effect(() => {
                 {/each}
               </div>
             </section>
-            <!-- Invite Links -->
+            <!-- Members -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <Link class="w-4 h-4 text-text-tertiary" />
+                  <Users class="w-4 h-4 text-text-tertiary" />
                   <div>
-                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Invite Links</div>
-                    <div class="text-[15px] font-medium text-text-primary">Share to add members</div>
+                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Members</div>
+                    <div class="text-[15px] font-medium text-text-primary">{spaceMembers.length} member{spaceMembers.length !== 1 ? 's' : ''}</div>
                   </div>
                 </div>
                 <button
@@ -4651,167 +4651,9 @@ $effect(() => {
                   class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
                   onclick={() => { showInvitePanel = true; inviteCreateError = ""; }}
                 >
-                  <Plus class="w-3.5 h-3.5" />
-                  Create
+                  <Link class="w-3.5 h-3.5" />
+                  Invite
                 </button>
-              </div>
-
-              {#if loadingInvitations}
-                <div class="flex items-center justify-center py-4 text-[12px] text-text-tertiary">
-                  <Loader2 class="w-4 h-4 animate-spin mr-2" />
-                  Loading...
-                </div>
-              {:else if invitationsError}
-                <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{invitationsError}</div>
-              {:else if spaceInvitations.length === 0}
-                <div class="py-2 text-[13px] text-text-tertiary">No invitation links yet. Create one to share.</div>
-              {:else}
-                <div class="space-y-2">
-                  {#each spaceInvitations as inv (inv.token)}
-                    <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50 px-3 py-2.5">
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="min-w-0 flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider {inv.role === 'host' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : inv.role === 'builder' ? 'bg-brand/10 text-brand' : 'bg-bg-code text-text-tertiary'}">
-                              {inv.role}
-                            </span>
-                            <span class="text-[11px] text-text-tertiary">
-                              {inv.useCount} use{inv.useCount !== 1 ? 's' : ''}{inv.maxUses ? ` / ${inv.maxUses}` : ''}
-                            </span>
-                          </div>
-                          <div class="text-[10px] text-text-placeholder mt-0.5">
-                            {#if inv.status === 'active'}
-                              {#if inv.expiresInSeconds !== null}
-                                Expires in {Math.ceil(inv.expiresInSeconds / 86400)}d
-                              {:else}
-                                No expiry
-                              {/if}
-                            {:else if inv.status === 'revoked'}
-                              Revoked
-                            {:else}
-                              All uses exhausted
-                            {/if}
-                          </div>
-                        </div>
-                        <div class="flex items-center gap-1 shrink-0">
-                          {#if inv.status === 'active'}
-                            <button
-                              type="button"
-                              class="p-1.5 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors"
-                              title="Copy invite link"
-                              onclick={() => void handleCopyInviteLink(inv.token)}
-                            >
-                              {#if copiedInviteToken === inv.token}
-                                <Check class="w-3.5 h-3.5 text-success-soft" />
-                              {:else}
-                                <Copy class="w-3.5 h-3.5" />
-                              {/if}
-                            </button>
-                            <button
-                              type="button"
-                              class="p-1.5 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors"
-                              title="Revoke"
-                              onclick={() => void handleRevokeInvite(inv.token)}
-                            >
-                              <Trash2 class="w-3.5 h-3.5" />
-                            </button>
-                          {/if}
-                        </div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-
-              <!-- Create invite dialog -->
-              {#if showInvitePanel}
-                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => { showInvitePanel = false; }}>
-                  <div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 space-y-4" onclick={(e) => e.stopPropagation()}>
-                    <div class="flex items-center justify-between">
-                      <h3 class="text-[15px] font-medium text-text-primary">Create Invite Link</h3>
-                      <button
-                        type="button"
-                        class="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
-                        onclick={() => { showInvitePanel = false; }}
-                      >
-                        <X class="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {#if inviteCreateError}
-                      <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{inviteCreateError}</div>
-                    {/if}
-
-                    <div>
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Role</label>
-                      <select
-                        bind:value={inviteRole}
-                        class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                      >
-                        <option value="builder">Builder</option>
-                        <option value="guest">Guest</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Valid for</label>
-                      <select
-                        bind:value={inviteTtlDays}
-                        class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                      >
-                        <option value={1}>1 day</option>
-                        <option value={7}>7 days</option>
-                        <option value={14}>14 days</option>
-                        <option value={30}>30 days</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Max uses (0 = unlimited)</label>
-                      <input
-                        type="number"
-                        bind:value={inviteMaxUses}
-                        min="0"
-                        max="10000"
-                        step="1"
-                        class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                      />
-                    </div>
-
-                    <div class="flex items-center justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onclick={() => { showInvitePanel = false; }}
-                        class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        disabled={creatingInvite}
-                        onclick={() => void handleCreateInvite()}
-                        class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        {#if creatingInvite}
-                          <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
-                          Creating...
-                        {:else}
-                          Create Link
-                        {/if}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              {/if}
-            </section>
-            <!-- Members -->
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
-              <div class="flex items-center gap-2">
-                <Users class="w-4 h-4 text-text-tertiary" />
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Members</div>
-                  <div class="text-[15px] font-medium text-text-primary">{spaceMembers.length} member{spaceMembers.length !== 1 ? 's' : ''}</div>
-                </div>
               </div>
               <div class="flex gap-2">
                 <input
@@ -4864,7 +4706,167 @@ $effect(() => {
               {:else}
                 <div class="py-1 text-[12px] text-text-tertiary italic">No members</div>
               {/if}
+
+              <!-- Invite Links Sub-section -->
+              <div class="w-full h-px bg-border-subtle"></div>
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] text-text-placeholder">Invite links</span>
+                  {#if loadingInvitations}
+                    <span class="text-[11px] text-text-tertiary">Loading...</span>
+                  {:else}
+                    <span class="text-[11px] text-text-tertiary">{spaceInvitations.filter(i => i.status === 'active').length} active</span>
+                  {/if}
+                </div>
+
+                {#if invitationsError}
+                  <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{invitationsError}</div>
+                {:else if spaceInvitations.length === 0}
+                  <div class="py-1 text-[12px] text-text-tertiary italic">No invite links yet. Click "Invite" to create one.</div>
+                {:else}
+                  <div class="space-y-1.5">
+                    {#each spaceInvitations as inv (inv.token)}
+                      <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50 px-3 py-2">
+                        <div class="flex items-center justify-between gap-2">
+                          <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider {inv.role === 'host' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : inv.role === 'builder' ? 'bg-brand/10 text-brand' : 'bg-bg-code text-text-tertiary'}">
+                                {inv.role}
+                              </span>
+                              <span class="text-[11px] text-text-tertiary">
+                                {inv.useCount} use{inv.useCount !== 1 ? 's' : ''}{inv.maxUses ? ` / ${inv.maxUses}` : ''}
+                              </span>
+                            </div>
+                            <div class="text-[10px] text-text-placeholder mt-0.5">
+                              {#if inv.status === 'active'}
+                                {#if inv.expiresInSeconds !== null}
+                                  Expires in {Math.ceil(inv.expiresInSeconds / 86400)}d
+                                {:else}
+                                  No expiry
+                                {/if}
+                              {:else if inv.status === 'revoked'}
+                                Revoked
+                              {:else}
+                                Exhausted
+                              {/if}
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            {#if inv.status === 'active'}
+                              <button
+                                type="button"
+                                class="p-1.5 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors"
+                                title="Copy invite link"
+                                onclick={() => void handleCopyInviteLink(inv.token)}
+                              >
+                                {#if copiedInviteToken === inv.token}
+                                  <Check class="w-3.5 h-3.5 text-success-soft" />
+                                {:else}
+                                  <Copy class="w-3.5 h-3.5" />
+                                {/if}
+                              </button>
+                              <button
+                                type="button"
+                                class="p-1.5 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors"
+                                title="Revoke"
+                                onclick={() => void handleRevokeInvite(inv.token)}
+                              >
+                                <Trash2 class="w-3.5 h-3.5" />
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             </section>
+
+            <!-- Create Invite Dialog -->
+            {#if showInvitePanel}
+              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => { showInvitePanel = false; }} role="dialog" aria-modal="true">
+                <div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 space-y-4" onclick={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-[15px] font-medium text-text-primary">Create Invite Link</h3>
+                    <button
+                      type="button"
+                      class="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                      onclick={() => { showInvitePanel = false; }}
+                    >
+                      <X class="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {#if inviteCreateError}
+                    <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{inviteCreateError}</div>
+                  {/if}
+
+                  <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="invite-role">Role</label>
+                    <select
+                      id="invite-role"
+                      bind:value={inviteRole}
+                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                    >
+                      <option value="builder">Builder</option>
+                      <option value="guest">Guest</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="invite-ttl">Valid for</label>
+                    <select
+                      id="invite-ttl"
+                      bind:value={inviteTtlDays}
+                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                    >
+                      <option value={1}>1 day</option>
+                      <option value={7}>7 days</option>
+                      <option value={14}>14 days</option>
+                      <option value={30}>30 days</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="invite-maxuses">Max uses (0 = unlimited)</label>
+                    <input
+                      id="invite-maxuses"
+                      type="number"
+                      bind:value={inviteMaxUses}
+                      min="0"
+                      max="10000"
+                      step="1"
+                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                    />
+                  </div>
+
+                  <div class="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onclick={() => { showInvitePanel = false; }}
+                      class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={creatingInvite}
+                      onclick={() => void handleCreateInvite()}
+                      class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {#if creatingInvite}
+                        <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
+                        Creating...
+                      {:else}
+                        Create Link
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {/if}
+
             <!-- Channels -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
               <div class="flex items-center justify-between">
