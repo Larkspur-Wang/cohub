@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build tracing package
+        run: pnpm --filter @cohub/tracing build
+
       - name: Lint
         run: pnpm --filter @cohub/api lint
 
