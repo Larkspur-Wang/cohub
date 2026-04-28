@@ -18,6 +18,8 @@ export type ChatMessage = {
 		model?: string | null;
 		provider?: string | null;
 		usage?: MessageRecord["usage"];
+		stopReason?: string | null;
+		errorMessage?: string | null;
 		contentDetail?: "summary" | "full";
 		contentPlaceholder?: "assistant_intermediate";
 		historySummary?: {
@@ -117,6 +119,8 @@ export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
 							model: message.model,
 							provider: message.provider,
 							usage: message.usage,
+							stopReason: message.stopReason,
+							errorMessage: message.errorMessage,
 							contentDetail: msgMeta?.contentDetail as
 								| "summary"
 								| "full"

@@ -1,8 +1,8 @@
-import { CoreV1Api, KubeConfig } from "@kubernetes/client-node";
+import { CoreV1Api, CustomObjectsApi, KubeConfig } from "@kubernetes/client-node";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 
-const createKubeClient = () => {
+const createKubeConfig = () => {
   const kubeConfig = new KubeConfig();
 
   let kubeconfigPath = process.env.KUBECONFIG;
@@ -23,7 +23,10 @@ const createKubeClient = () => {
     kubeConfig.loadFromDefault();
   }
 
-  return kubeConfig.makeApiClient(CoreV1Api);
+  return kubeConfig;
 };
 
-export const k8sCoreApi = createKubeClient();
+const kubeConfig = createKubeConfig();
+
+export const k8sCoreApi = kubeConfig.makeApiClient(CoreV1Api);
+export const k8sCustomObjectsApi = kubeConfig.makeApiClient(CustomObjectsApi);

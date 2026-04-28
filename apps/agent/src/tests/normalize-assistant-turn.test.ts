@@ -135,4 +135,27 @@ const tr5b = case5.content.find((b) => (b as { tool_use_id?: string }).tool_use_
 assert.equal(tr5a?.content, "content A", "tool-5a result should be plain text");
 assert.equal(tr5b?.content, "content B", "tool-5b result should be plain text");
 
+// Case 6: partial tool call from an errored assistant should still be preserved
+const case6 = normalizeAssistantTurn(
+  {
+    stopReason: "error",
+    errorMessage: "terminated",
+    content: [
+      { type: "text", text: "Let me fix it:" },
+      { type: "toolCall", id: "tool-6", name: "edit", arguments: { path: "/workspace/a.ts" } },
+    ],
+  },
+  [],
+);
+
+assert.deepEqual(
+  case6.content.map((block) => block.type),
+  ["text", "tool_use"],
+  "partial tool call should be preserved even without a matching tool execution",
+);
+const tu6 = case6.content.find((b) => b.type === "tool_use") as { id: string; name: string; input: Record<string, unknown> } | undefined;
+assert.equal(tu6?.id, "tool-6");
+assert.equal(tu6?.name, "edit");
+assert.deepEqual(tu6?.input, { path: "/workspace/a.ts" });
+
 console.log("normalizeAssistantTurn checks passed");

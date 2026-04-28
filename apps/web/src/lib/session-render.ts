@@ -165,7 +165,7 @@ export function getPersistedRenderKey(message: MessageRecord): string {
 
 	if (
 		message.role === "assistant" &&
-		messageKind === "assistant_final" &&
+		(messageKind === "assistant_final" || messageKind === "assistant_error") &&
 		anchorUserMessageId
 	) {
 		return `assistant-final:${anchorUserMessageId}`;
@@ -204,6 +204,8 @@ function toChatMessage(message: MessageRecord, renderKey: string): ChatMessage {
 						model: message.model,
 						provider: message.provider,
 						usage: message.usage,
+						stopReason: message.stopReason,
+						errorMessage: message.errorMessage,
 						contentDetail: msgMeta?.contentDetail as
 							| "summary"
 							| "full"
@@ -342,6 +344,7 @@ export function buildStreamingPreviewBlocks(
 
 function isIntermediate(message: ChatMessage) {
 	if (message.meta?.messageKind === "assistant_streaming_preview") return false;
+	if (message.meta?.messageKind === "assistant_error") return false;
 	if (message.meta?.messageKind === "assistant_intermediate") return true;
 	return message.content?.some((block) => block.type === "tool_use") ?? false;
 }
@@ -389,9 +392,11 @@ export function buildTimelineItems(input: {
 		status?: "pending" | "streaming";
 	} | null;
 }): TimelineItem[] {
-	const items: TimelineItem[] = input.messages
-		.filter((message) => message.meta?.messageKind !== "assistant_error")
-		.map((message) => ({ id: message.id, kind: "message", message }));
+	const items: TimelineItem[] = input.messages.map((message) => ({
+		id: message.id,
+		kind: "message",
+		message,
+	}));
 
 	const lastUserIndex = (() => {
 		for (let index = items.length - 1; index >= 0; index -= 1) {

@@ -33,6 +33,7 @@ import {
 } from "../runtime/paths.js";
 import { getCurrentSessionExecutionAuth } from "../runtime/session-execution-auth.js";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
+import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
 
 function getCurrentTraceContext() {
@@ -267,6 +268,7 @@ function createRemoteBashOperations(): BashOperations {
               const ctx = getCurrentToolExecutionContext();
               const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
               const injectedEnv: Record<string, string> = {
+                ...getUserEnvForProcess(),
                 ...(env ?? {}),
                 ...(sessionExecutionAuth?.executionToken ? { COHUB_EXECUTION_TOKEN: sessionExecutionAuth.executionToken } : {}),
               };

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
 import { injectTrace } from "@cohub/tracing/propagator";
+import { SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -301,6 +302,18 @@ export const validateSpaceEnv = (envs: Array<{ name: string; value: string }>) =
   }
 };
 
+export const setSpaceEnv = async (spaceId: string, envs: Array<{ name: string; value: string }>) => {
+  const key = SPACE_ENV_REDIS_KEY(spaceId);
+  const { redisCommandClient } = await import("./redis.js");
+  try {
+    await redisCommandClient.set(key, JSON.stringify(envs), "EX", 3600);
+  } catch (err) {
+    // DB is already updated; Redis write failure means agent may serve stale env
+    // until next space reconnection or TTL expiry
+    console.warn(`[SpaceEnv] Failed to write env cache for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+};
+
 export const getSpaceById = async (spaceId: string) => {
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   return space ?? null;
@@ -412,12 +425,15 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const _shouldDispatchToProvider = messageRole === "assistant";
   const normalizedUsage = normalizeUsage(input.message.usage);
 
-  if (messageRole === "assistant" && content.length === 0 && !text?.trim()) throw new Error("Refusing to persist empty assistant message");
+  const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
+  if (messageRole === "assistant" && content.length === 0 && !text?.trim() && !hasError) {
+    throw new Error("Refusing to persist empty assistant message");
+  }
+
 
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   const userId = input.userId ?? null;
   const toolUseCount = countToolCallsInContent(content);
-  const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
   const messageKind = messageRole !== "assistant" ? messageRole : hasError ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
 
   const [messageNode] = await db.insert(sessionMessages).values({

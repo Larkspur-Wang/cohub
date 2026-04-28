@@ -1,9 +1,10 @@
-import { asc, eq, isNull, ne, or } from "drizzle-orm";
+import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { spaceSandboxes, spaces } from "./db/schema-v2.js";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
+import { deleteSandboxPublicNetwork, getSandboxPublicEndpoints, reconcileSandboxPublicNetwork } from "./sandbox-public-network.js";
 import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
 import type { SpaceSandboxStatus } from "./lib/sandbox/types.js";
 import type { V1Pod } from "@kubernetes/client-node";
@@ -15,6 +16,11 @@ export const toSandboxImageVersion = (image: string) => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const asMetaObject = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+};
 
 const getK8sStatusCode = (error: unknown) => {
   return (error as { statusCode?: number; code?: number }).statusCode
@@ -100,6 +106,8 @@ export const ensureSpaceSandbox = async (input: {
 };
 
 export const deleteSpaceSandbox = async (spaceId: string) => {
+  await deleteSandboxPublicNetwork(spaceId);
+
   const [sandbox] = await db
     .delete(spaceSandboxes)
     .where(eq(spaceSandboxes.spaceId, spaceId))
@@ -131,6 +139,24 @@ export const updateSpaceSandbox = async (input: {
       updatedAt: new Date(),
     })
     .where(eq(spaceSandboxes.spaceId, input.spaceId))
+    .returning();
+
+  return sandbox ?? null;
+};
+
+export const mergeSpaceSandboxMeta = async (spaceId: string, metaPatch: Record<string, unknown>) => {
+  const [sandbox] = await db
+    .update(spaceSandboxes)
+    .set({
+      meta: sql`(
+        CASE
+          WHEN jsonb_typeof(${spaceSandboxes.meta}) = 'object' THEN ${spaceSandboxes.meta}
+          ELSE '{}'::jsonb
+        END
+      ) || ${JSON.stringify(metaPatch)}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(spaceSandboxes.spaceId, spaceId))
     .returning();
 
   return sandbox ?? null;
@@ -169,6 +195,26 @@ export const listSandboxRolloutTargets = async (input?: {
   return baseQuery.limit(input?.limit ?? 10_000);
 };
 
+const triggerSandboxPublicNetworkReconcile = (spaceId: string) => {
+  void reconcileSandboxPublicNetwork(spaceId)
+    .then(async () => {
+      await mergeSpaceSandboxMeta(spaceId, {
+        publicNetworkStatus: "ready",
+        publicNetworkLastError: null,
+        publicNetworkReconciledAt: new Date().toISOString(),
+        publicEndpoints: getSandboxPublicEndpoints(spaceId),
+      });
+    })
+    .catch(async (error) => {
+      await mergeSpaceSandboxMeta(spaceId, {
+        publicNetworkStatus: "error",
+        publicNetworkLastError: error instanceof Error ? error.message : String(error),
+        publicEndpoints: getSandboxPublicEndpoints(spaceId),
+      }).catch(() => undefined);
+      console.error(`[SandboxPublicNetwork] reconcile failed spaceId=${spaceId}`, error);
+    });
+};
+
 const tryCreatePod = async (spaceId: string, pod: V1Pod, retry = 0): Promise<{ podName: string; created: boolean }> => {
   try {
     await k8sCoreApi.createNamespacedPod({
@@ -205,11 +251,10 @@ export const reconcileSpaceSandbox = async (input: {
   ownerUserUuid?: string;
   mode: "ensure" | "replace";
   reason: "space_created" | "manual_recreate";
-  extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   const podName = `sandbox-${input.spaceId}`;
   const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
-  const existingMeta = (existingSandbox?.meta as Record<string, unknown> | null) ?? {};
+  const existingMeta = asMetaObject(existingSandbox?.meta);
 
   if (input.mode === "replace") {
     const podToReplace = existingSandbox?.podName ?? podName;
@@ -240,6 +285,9 @@ export const reconcileSpaceSandbox = async (input: {
     provisioningStartedAt: nowIso,
     reportTokenHash,
     reportTokenIssuedAt,
+    publicNetworkStatus: "provisioning",
+    publicNetworkLastError: null,
+    publicEndpoints: getSandboxPublicEndpoints(input.spaceId),
   };
 
   await ensureSpaceSandbox({
@@ -282,7 +330,6 @@ export const reconcileSpaceSandbox = async (input: {
             : `https://public.cohub.run/dev/s/${input.spaceId}`,
       },
       { name: "SANDBOX_REPORT_TOKEN", value: reportToken },
-      ...(input.extraEnv ?? []),
     ];
   }
 
@@ -298,13 +345,14 @@ export const reconcileSpaceSandbox = async (input: {
       lastProvisionedAt: new Date().toISOString(),
     },
   });
+
+  triggerSandboxPublicNetworkReconcile(input.spaceId);
 };
 
 export const provisionSpaceSandbox = async (input: {
   spaceId: string;
   userUuid: string;
   ownerUserUuid?: string;
-  extraEnv?: Array<{ name: string; value: string }>;
 }) => {
   return reconcileSpaceSandbox({
     spaceId: input.spaceId,
@@ -312,10 +360,9 @@ export const provisionSpaceSandbox = async (input: {
     ownerUserUuid: input.ownerUserUuid,
     mode: "ensure",
     reason: "space_created",
-    extraEnv: input.extraEnv,
   }).catch(async (error) => {
     const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
-    const existingMeta = (existingSandbox?.meta as Record<string, unknown> | null) ?? {};
+    const existingMeta = asMetaObject(existingSandbox?.meta);
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "error",

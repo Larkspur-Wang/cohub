@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
@@ -183,7 +184,7 @@ router.get("/:id/sandbox", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
-  return c.json({ sandbox: sandbox ?? null });
+  return c.json({ sandbox: attachSandboxPublicEndpoints(sandbox) });
 });
 
 // POST /internal/spaces/:id/sessions
