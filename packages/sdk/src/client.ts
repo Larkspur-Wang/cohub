@@ -6,6 +6,7 @@ import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi, type WebSocketConnectionState } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
+import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { createWebsocketClient } from "./websocket.js";
 
@@ -18,6 +19,7 @@ export class CohubClient {
   readonly sessionAccess: SessionAccessApi;
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
+  readonly invite: PublicInviteApi;
 
   private readonly transport: HttpTransport;
   private readonly websocketClient: ReturnType<typeof createWebsocketClient>;
@@ -41,6 +43,7 @@ export class CohubClient {
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
+    this.invite = new PublicInviteApi(this.transport);
   }
 
   space(spaceId: string) {

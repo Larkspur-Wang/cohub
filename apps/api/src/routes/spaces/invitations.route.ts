@@ -93,7 +93,6 @@ router.get("/", async (c) => {
   }
 
   // Scan for invite keys belonging to this space
-  // We use a secondary set to track tokens per space for efficient listing
   const spaceInviteKey = `${INVITE_PREFIX}:space:${spaceId}`;
   const tokens = await redisCommandClient.smembers(spaceInviteKey);
 
@@ -114,8 +113,8 @@ router.get("/", async (c) => {
       token,
       role: data.role as SpaceRole,
       status: data.status,
-      useCount: Number.parseInt(data.use_count ?? "0", 10),
-      maxUses: Number.parseInt(data.max_uses ?? "0", 10) || null,
+      useCount: Number.parseInt(data.use_count ?? "0"),
+      maxUses: Number.parseInt(data.max_uses ?? "0") || null,
       createdAt: data.created_at ?? null,
       expiresInSeconds: ttl > 0 ? ttl : null,
     });

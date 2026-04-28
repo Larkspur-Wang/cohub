@@ -305,3 +305,43 @@ export type SpaceUsageResponse = {
   summary: SpaceUsageSummary;
   days: number;
 };
+
+// ─── Invitation types ───
+
+export type SpaceInvitation = {
+  token: string;
+  role: SpaceRole;
+  status: "active" | "revoked" | "exhausted";
+  useCount: number;
+  maxUses: number | null;
+  createdAt: string | null;
+  expiresInSeconds: number | null;
+};
+
+export type CreateInvitationInput = {
+  role?: SpaceRole;
+  ttlSeconds?: number;
+  maxUses?: number;
+};
+
+export type CreateInvitationResponse = {
+  token: string;
+  role: SpaceRole;
+  expiresAt: string;
+  maxUses: number | null;
+};
+
+export type InvitationDetail = {
+  token: string;
+  spaceId: string;
+  spaceName: string;
+  role: SpaceRole;
+  expiresInSeconds: number | null;
+};
+
+export type AcceptInvitationResponse = {
+  ok: true;
+  spaceId: string;
+  spaceName: string;
+  role: SpaceRole;
+};

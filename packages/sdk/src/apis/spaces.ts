@@ -25,6 +25,7 @@ import type {
   SpaceRole,
   SpaceSessionsResponse,
 } from "../types.js";
+import { SpaceInvitationsApi } from "./invitations.js";
 
 const DEFAULT_DEDUP_WINDOW_MS = 2000;
 
@@ -585,6 +586,7 @@ export class SpaceClient {
   readonly checkpoints: SpaceCheckpointsApi;
   readonly usage: SpaceUsageApi;
   readonly channels: SpaceChannelsApi;
+  readonly invitations: SpaceInvitationsApi;
 
   constructor(
     readonly id: string,
@@ -598,6 +600,7 @@ export class SpaceClient {
     this.checkpoints = new SpaceCheckpointsApi(transport, id);
     this.usage = new SpaceUsageApi(transport, id);
     this.channels = new SpaceChannelsApi(transport, id);
+    this.invitations = new SpaceInvitationsApi(transport, id);
   }
 
   get(customFetch?: Fetch) {

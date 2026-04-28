@@ -12,6 +12,7 @@ import cronJobsRouter from "./cron-jobs.route.js";
 import tasksRouter from "./tasks.route.js";
 import trendingRouter from "./trending.route.js";
 import promptsRouter from "./prompts.route.js";
+import inviteRouter from "./invite.route.js";
 
 const router = new Hono();
 
@@ -27,6 +28,7 @@ router.route("/api/sessions", sessionAccessRouter);
 router.route("/api/cron-jobs", cronJobsRouter);
 router.route("/api/tasks", tasksRouter);
 router.route("/api/trending", trendingRouter);
+router.route("/api/invite", inviteRouter);
 router.route("/internal", internalRouter);
 
 export default router;

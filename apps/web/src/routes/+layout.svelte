@@ -40,6 +40,8 @@ const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
 const isHome = $derived(currentPath === "/");
 const isTrending = $derived(currentPath === "/trending");
+const isInvite = $derived(currentPath.startsWith("/invite"));
+const isStandalonePage = $derived(isLogin || isHome || isTrending || isInvite);
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
@@ -450,7 +452,7 @@ async function submitGlobalRename() {
 }
 </script>
 
-{#if isLogin || isHome || isTrending}
+{#if isStandalonePage}
   <main class="min-h-screen bg-bg-primary text-text-primary">
     {@render children?.()}
   </main>

@@ -34,6 +34,7 @@ import {
 	GitCommitHorizontal,
 	Globe,
 	Hash,
+	Link,
 	Loader2,
 	Lock,
 	MessageSquare,
@@ -55,7 +56,7 @@ import {
 	Webhook,
 	X,
 } from "lucide-svelte";
-import { onMount, tick, untrack } from "svelte";
+import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
@@ -495,6 +496,98 @@ let addingMemberUuid = $state("");
 let addingMemberRole = $state<SpaceRole>("guest");
 let savingMember = $state(false);
 let addingMemberError = $state("");
+
+// ─── Invitations ───
+type InvitationItem = {
+	token: string;
+	role: SpaceRole;
+	status: "active" | "revoked" | "exhausted";
+	useCount: number;
+	maxUses: number | null;
+	createdAt: string | null;
+	expiresInSeconds: number | null;
+};
+let spaceInvitations = $state<InvitationItem[]>([]);
+let loadingInvitations = $state(false);
+let showInvitePanel = $state(false);
+let inviteRole = $state<SpaceRole>("builder");
+let inviteTtlDays = $state(7);
+let inviteMaxUses = $state(0);
+let creatingInvite = $state(false);
+let inviteCreateError = $state("");
+let copiedInviteToken = $state<string | null>(null);
+let copiedInviteTimer: ReturnType<typeof setTimeout> | null = null;
+let invitationsError = $state<string | null>(null);
+
+// Cleanup timers on destroy
+onDestroy(() => {
+	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
+});
+
+async function loadInvitations() {
+	loadingInvitations = true;
+	invitationsError = null;
+	try {
+		const result = await sdk.space(spaceId).invitations.list();
+		spaceInvitations = result.items;
+	} catch (error) {
+		invitationsError =
+			error instanceof Error ? error.message : "Failed to load invitations";
+	} finally {
+		loadingInvitations = false;
+	}
+}
+
+async function handleCreateInvite() {
+	if (creatingInvite) return;
+	// Validate maxUses
+	if (inviteMaxUses < 0 || inviteMaxUses > 10000) {
+		inviteCreateError = "Max uses must be between 0 and 10000";
+		return;
+	}
+	inviteCreateError = "";
+	creatingInvite = true;
+	try {
+		await sdk.space(spaceId).invitations.create({
+			role: inviteRole,
+			ttlSeconds: inviteTtlDays * 24 * 60 * 60,
+			maxUses: inviteMaxUses || undefined,
+		});
+		showInvitePanel = false;
+		await loadInvitations();
+	} catch (error) {
+		inviteCreateError =
+			error instanceof Error ? error.message : "Failed to create invitation";
+	} finally {
+		creatingInvite = false;
+	}
+}
+
+async function handleRevokeInvite(token: string) {
+	if (!confirm("Revoke this invitation link? It will no longer work.")) return;
+	try {
+		await sdk.space(spaceId).invitations.revoke(token);
+		await loadInvitations();
+	} catch (error) {
+		invitationsError =
+			error instanceof Error ? error.message : "Failed to revoke invitation";
+	}
+}
+
+async function handleCopyInviteLink(token: string) {
+	try {
+		const url = `${window.location.origin}/invite/${token}`;
+		await navigator.clipboard.writeText(url);
+		copiedInviteToken = token;
+		if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
+		copiedInviteTimer = setTimeout(() => {
+			copiedInviteToken = null;
+		}, 2000);
+	} catch {
+		// Clipboard API may fail in non-HTTPS contexts
+		inviteCreateError = "Failed to copy link. Please copy manually.";
+	}
+}
 
 // ─── Current user ───
 let myUuid = $state<string | null>(null);
@@ -4542,6 +4635,174 @@ $effect(() => {
                   <div class="py-1 text-[12px] text-text-tertiary italic">No shared sessions</div>
                 {/each}
               </div>
+            </section>
+            <!-- Invite Links -->
+            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <Link class="w-4 h-4 text-text-tertiary" />
+                  <div>
+                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Invite Links</div>
+                    <div class="text-[15px] font-medium text-text-primary">Share to add members</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+                  onclick={() => { showInvitePanel = true; inviteCreateError = ""; }}
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  Create
+                </button>
+              </div>
+
+              {#if loadingInvitations}
+                <div class="flex items-center justify-center py-4 text-[12px] text-text-tertiary">
+                  <Loader2 class="w-4 h-4 animate-spin mr-2" />
+                  Loading...
+                </div>
+              {:else if invitationsError}
+                <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{invitationsError}</div>
+              {:else if spaceInvitations.length === 0}
+                <div class="py-2 text-[13px] text-text-tertiary">No invitation links yet. Create one to share.</div>
+              {:else}
+                <div class="space-y-2">
+                  {#each spaceInvitations as inv (inv.token)}
+                    <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50 px-3 py-2.5">
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-2">
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider {inv.role === 'host' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : inv.role === 'builder' ? 'bg-brand/10 text-brand' : 'bg-bg-code text-text-tertiary'}">
+                              {inv.role}
+                            </span>
+                            <span class="text-[11px] text-text-tertiary">
+                              {inv.useCount} use{inv.useCount !== 1 ? 's' : ''}{inv.maxUses ? ` / ${inv.maxUses}` : ''}
+                            </span>
+                          </div>
+                          <div class="text-[10px] text-text-placeholder mt-0.5">
+                            {#if inv.status === 'active'}
+                              {#if inv.expiresInSeconds !== null}
+                                Expires in {Math.ceil(inv.expiresInSeconds / 86400)}d
+                              {:else}
+                                No expiry
+                              {/if}
+                            {:else if inv.status === 'revoked'}
+                              Revoked
+                            {:else}
+                              All uses exhausted
+                            {/if}
+                          </div>
+                        </div>
+                        <div class="flex items-center gap-1 shrink-0">
+                          {#if inv.status === 'active'}
+                            <button
+                              type="button"
+                              class="p-1.5 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors"
+                              title="Copy invite link"
+                              onclick={() => void handleCopyInviteLink(inv.token)}
+                            >
+                              {#if copiedInviteToken === inv.token}
+                                <Check class="w-3.5 h-3.5 text-success-soft" />
+                              {:else}
+                                <Copy class="w-3.5 h-3.5" />
+                              {/if}
+                            </button>
+                            <button
+                              type="button"
+                              class="p-1.5 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors"
+                              title="Revoke"
+                              onclick={() => void handleRevokeInvite(inv.token)}
+                            >
+                              <Trash2 class="w-3.5 h-3.5" />
+                            </button>
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              <!-- Create invite dialog -->
+              {#if showInvitePanel}
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => { showInvitePanel = false; }}>
+                  <div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 space-y-4" onclick={(e) => e.stopPropagation()}>
+                    <div class="flex items-center justify-between">
+                      <h3 class="text-[15px] font-medium text-text-primary">Create Invite Link</h3>
+                      <button
+                        type="button"
+                        class="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                        onclick={() => { showInvitePanel = false; }}
+                      >
+                        <X class="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {#if inviteCreateError}
+                      <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{inviteCreateError}</div>
+                    {/if}
+
+                    <div>
+                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Role</label>
+                      <select
+                        bind:value={inviteRole}
+                        class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                      >
+                        <option value="builder">Builder</option>
+                        <option value="guest">Guest</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Valid for</label>
+                      <select
+                        bind:value={inviteTtlDays}
+                        class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                      >
+                        <option value={1}>1 day</option>
+                        <option value={7}>7 days</option>
+                        <option value={14}>14 days</option>
+                        <option value={30}>30 days</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Max uses (0 = unlimited)</label>
+                      <input
+                        type="number"
+                        bind:value={inviteMaxUses}
+                        min="0"
+                        max="10000"
+                        step="1"
+                        class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
+                      />
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onclick={() => { showInvitePanel = false; }}
+                        class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={creatingInvite}
+                        onclick={() => void handleCreateInvite()}
+                        class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        {#if creatingInvite}
+                          <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
+                          Creating...
+                        {:else}
+                          Create Link
+                        {/if}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              {/if}
             </section>
             <!-- Members -->
             <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
