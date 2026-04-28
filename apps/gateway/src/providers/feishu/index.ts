@@ -13,6 +13,20 @@ import {
   resolveAtMentions,
 } from "./utils.js";
 
+// Detect image MIME type from magic bytes (first 4 bytes)
+function detectMimeType(buffer: Buffer): string | null {
+  if (buffer.length < 4) return null;
+  // PNG: 89 50 4E 47
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return "image/png";
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+  // GIF: 47 49 46 38
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) return "image/gif";
+  // WebP: 52 49 46 46 ... 57 45 42 50
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) return "image/webp";
+  return null;
+}
+
 // Provider-level dedup for WS reconnect duplicate delivery
 const messageDedup = new Map<string, number>();
 const DEDUP_TTL_MS = 5 * 60 * 1000;
@@ -166,8 +180,13 @@ export class FeishuProvider implements GatewayProvider {
       }
     }
 
-    // Parse message content
-    const contentBlocks = this.parseMessageContent(msg);
+    // Parse message content (may contain image key placeholders)
+    const { blocks: rawBlocks, imageKeys } = this.parseMessageContent(msg);
+
+    // Download any images and replace placeholders with proper image ContentBlocks
+    const contentBlocks = imageKeys.length > 0
+      ? await this.resolveImagePlaceholders(rawBlocks, msg.message_id)
+      : rawBlocks;
 
     const threadId = msg.thread_id || msg.root_id || null;
     const parentMessageId = msg.root_id || msg.parent_id || null;
@@ -216,45 +235,114 @@ export class FeishuProvider implements GatewayProvider {
     await publishInboundEvent(inboundEvent);
   }
 
+  // Download image from Feishu by image_key and return as base64 ContentBlock.
+  // Returns null on failure — caller decides whether to use a text fallback.
+  private async downloadImageBlock(imageKey: string, _messageId: string): Promise<ContentBlock | null> {
+    try {
+      const res = await this.client.im.image.get({
+        path: { image_key: imageKey },
+      });
+      // The Lark SDK returns the binary in rawData
+      const buffer = (res as { rawData?: Buffer }).rawData;
+      if (!buffer || buffer.length === 0) {
+        console.warn(`[Feishu:${this.channelId}] Image download returned empty: ${imageKey}`);
+        return null;
+      }
+      const mimeType = detectMimeType(buffer) ?? "image/png";
+      const base64Data = buffer.toString("base64");
+      return {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mimeType,
+          data: base64Data,
+        },
+        _meta: { imageKey, source: "feishu" },
+      };
+    } catch (err) {
+      console.warn(`[Feishu:${this.channelId}] Failed to download image ${imageKey}:`, err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
+  // Parse message content into ContentBlocks.
+  // Returns { blocks, imageKeys } — imageKeys need to be downloaded and interleaved
+  // by the caller. This separation avoids making parsing fully async in one pass.
   private parseMessageContent(msg: {
     message_type: string;
     content: string;
     mentions?: Array<{ id: { open_id?: string }; name: string }>;
-  }): ContentBlock[] {
+  }): { blocks: ContentBlock[]; imageKeys: string[] } {
     const blocks: ContentBlock[] = [];
+    const imageKeys: string[] = [];
 
     if (msg.message_type === "text") {
-      const text = resolveAtMentions(msg.content);
+      // Feishu text messages wrap content in JSON: {"text":"hello"}
+      let text: string;
+      try {
+        const parsed = JSON.parse(msg.content);
+        text = typeof parsed.text === "string" ? parsed.text : msg.content;
+      } catch {
+        text = msg.content;
+      }
+      text = resolveAtMentions(text);
       if (text.trim()) blocks.push({ type: "text", text });
     } else if (msg.message_type === "post") {
+      // Post messages are rich text with mixed elements (text, images, links, etc.)
+      // Parse into multiple ContentBlocks: text accumulates, images become separate blocks
       try {
         const parsed = JSON.parse(msg.content);
         const locale = parsed.zh_cn ?? parsed.en_us ?? Object.values(parsed)[0] as Record<string, unknown>;
-        const parts: string[] = [];
+        const textParts: string[] = [];
+
+        const flushText = () => {
+          const joined = resolveAtMentions(textParts.join("\n"));
+          if (joined.trim()) {
+            blocks.push({ type: "text", text: joined });
+          }
+          textParts.length = 0;
+        };
+
         for (const row of ((locale?.content as unknown[] | undefined) ?? [])) {
           for (const item of (row as Array<Record<string, string>> | undefined) ?? []) {
             if (item.tag === "text" || item.tag === "md") {
-              parts.push(item.text ?? "");
+              textParts.push(item.text ?? "");
+            } else if (item.tag === "at") {
+              // @mention — already handled by resolveAtMentions, but post format
+              // stores mentions as { tag: "at", user_name: "..." } not <at> tags
+              textParts.push(item.user_name ? `@${item.user_name}` : "");
             } else if (item.tag === "a") {
-              parts.push(item.text ?? item.href ?? "[link]");
+              textParts.push(item.text ?? item.href ?? "[link]");
             } else if (item.tag === "img") {
-              parts.push(`[image:${item.image_key ?? "unknown"}]`);
+              // Flush any accumulated text before inserting the image block
+              flushText();
+              // Record the image key for async download after parsing
+              if (item.image_key) {
+                imageKeys.push(item.image_key);
+                // Use a temporary text placeholder (will be replaced by image block)
+                blocks.push({ type: "text", text: `__FEISHU_IMAGE:${item.image_key}__` });
+              }
             } else if (item.tag === "media") {
-              parts.push(`[media:${item.file_key ?? "unknown"}]`);
+              textParts.push(`[media:${item.file_key ?? "unknown"}]`);
             } else if (item.tag === "file") {
-              parts.push(`[file:${item.file_key ?? "unknown"}]`);
+              textParts.push(`[file:${item.file_key ?? "unknown"}]`);
             }
           }
         }
-        const text = resolveAtMentions(parts.join("\n"));
-        if (text.trim()) blocks.push({ type: "text", text });
+        flushText();
       } catch {
         blocks.push({ type: "text", text: msg.content });
       }
     } else if (msg.message_type === "image") {
       try {
         const parsed = JSON.parse(msg.content);
-        blocks.push({ type: "text", text: `[image: ${parsed.image_key ?? "unknown"}]` });
+        const imageKey = parsed.image_key;
+        if (imageKey) {
+          imageKeys.push(imageKey);
+          blocks.push({ type: "text", text: `__FEISHU_IMAGE:${imageKey}__` });
+        } else {
+          blocks.push({ type: "text", text: "[image]" });
+        }
       } catch {
         blocks.push({ type: "text", text: "[image]" });
       }
@@ -269,7 +357,35 @@ export class FeishuProvider implements GatewayProvider {
       blocks.push({ type: "text", text: `[${msg.message_type} message]` });
     }
 
-    return blocks;
+    return { blocks, imageKeys };
+  }
+
+  // Replace __FEISHU_IMAGE:key__ placeholder blocks with downloaded image ContentBlocks.
+  // Preserves ordering: text, image, text, image, ...
+  private async resolveImagePlaceholders(blocks: ContentBlock[], messageId: string): Promise<ContentBlock[]> {
+    const IMAGE_KEY_REGEX = /^__FEISHU_IMAGE:(.+)__$/;
+    const resolved: ContentBlock[] = [];
+
+    for (const block of blocks) {
+      if (block.type !== "text" || typeof block.text !== "string") {
+        resolved.push(block);
+        continue;
+      }
+      const match = block.text.match(IMAGE_KEY_REGEX);
+      if (!match) {
+        resolved.push(block);
+        continue;
+      }
+      const imageKey = match[1] as string;
+      const imageBlock = await this.downloadImageBlock(imageKey, messageId);
+      if (imageBlock) {
+        resolved.push(imageBlock);
+      } else {
+        // Download failed — keep a readable fallback
+        resolved.push({ type: "text", text: `[image: ${imageKey}]` });
+      }
+    }
+    return resolved;
   }
 
   public async handleOutbound(cmd: PlannedGatewayOutboundCommand): Promise<{ success: boolean; error?: string; externalMessageId?: string }> {
