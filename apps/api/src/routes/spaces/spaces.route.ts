@@ -11,6 +11,7 @@ import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
+import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import { getSpaceSandboxBySpaceId, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
@@ -540,7 +541,7 @@ router.get("/:id/sandbox", async (c) => {
   if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return c.json({ message: "not found" }, 404);
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
-  return c.json({ sandbox: sandbox ?? null });
+  return c.json({ sandbox: attachSandboxPublicEndpoints(sandbox) });
 });
 
 router.post("/:id/sandbox/recreate", async (c) => {
