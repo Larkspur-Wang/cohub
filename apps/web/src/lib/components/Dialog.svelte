@@ -8,6 +8,16 @@ import {
 	svelteEaseOut,
 } from "$lib/motion.svelte";
 
+function portal(node: HTMLElement) {
+	if (typeof document === "undefined") return {};
+	document.body.appendChild(node);
+	return {
+		destroy() {
+			node.remove();
+		},
+	};
+}
+
 const {
 	open,
 	onClose,
@@ -34,7 +44,8 @@ const SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
 
 {#if open}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    use:portal
+    class="fixed inset-0 z-[100] flex items-end justify-center p-0 lg:items-center lg:p-4"
     in:fade={TRANSITION_IN}
     out:fade={TRANSITION_OUT}
     role="dialog"
