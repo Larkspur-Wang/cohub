@@ -59,7 +59,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /app
 
-COPY --from=builder /out/cohub-sandbox /usr/local/bin/cohub-sandbox
+COPY --from=builder /out/cohub-sandbox /opt/cohub/internal/cohub-sandbox
 
 RUN mkdir -p "$WORKSPACE_DIR"
 # Ensure workspace is writable by the node user
@@ -68,4 +68,4 @@ RUN chown -R node:node "$WORKSPACE_DIR" 2>/dev/null || true
 USER node
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["cohub-sandbox"]
+CMD ["/opt/cohub/internal/cohub-sandbox"]

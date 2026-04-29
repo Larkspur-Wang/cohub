@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -68,6 +70,17 @@ func toProtocolFSChanges(changes []filewatch.Change) []protocol.FSChange {
 }
 
 func main() {
+	showVersion := flag.Bool("version", false, "print sandbox version and exit")
+	flag.Parse()
+	if *showVersion {
+		version := os.Getenv("IMAGE_VERSION")
+		if version == "" {
+			version = "unknown"
+		}
+		fmt.Println(version)
+		return
+	}
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	cfg, err := env.Load()

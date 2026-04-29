@@ -21,6 +21,24 @@ import (
 
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+var blockedInheritedEnvKeys = map[string]struct{}{
+	"SANDBOX_REPORT_TOKEN":  {},
+	"INTERNAL_API_BASE_URL": {},
+	"POD_IP":                {},
+}
+
+func sanitizeInheritedEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		key, _, _ := strings.Cut(e, "=")
+		if _, blocked := blockedInheritedEnvKeys[key]; blocked {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 type ManagedProcess struct {
 	ID            string
 	OwnerIdentity string
@@ -77,13 +95,14 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 	cmd := exec.Command("bash", "-c", command)
 	cmd.Dir = cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	inheritedEnv := sanitizeInheritedEnv(os.Environ())
 	// User-provided env vars are appended only if the key doesn't already
-	// exist in the pod's environment. This prevents users from accidentally
+	// exist in the sanitized pod environment. This prevents users from accidentally
 	// overriding critical system vars (PATH, HOME, LANG, etc.) and is
 	// consistent with the SYSTEM_ENV_KEYS allowlist at the API layer.
 	if len(extraEnv) > 0 {
 		existingKeys := make(map[string]bool)
-		for _, e := range os.Environ() {
+		for _, e := range inheritedEnv {
 			key, _, _ := strings.Cut(e, "=")
 			existingKeys[key] = true
 		}
@@ -101,7 +120,9 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 			}
 			merged = append(merged, fmt.Sprintf("%s=%s", key, value))
 		}
-		cmd.Env = append(os.Environ(), merged...)
+		cmd.Env = append(inheritedEnv, merged...)
+	} else {
+		cmd.Env = inheritedEnv
 	}
 
 	stdout, err := cmd.StdoutPipe()
