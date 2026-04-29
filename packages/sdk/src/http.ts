@@ -8,6 +8,7 @@ import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
 import { PublicInviteApi, SpaceInvitationsApi } from "./apis/invitations.js";
 import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
+import { resolveApiBaseUrl } from "./environment.js";
 
 export class CohubHttpClient {
   readonly spaces: SpacesApi;
@@ -23,17 +24,18 @@ export class CohubHttpClient {
   private readonly transport: HttpTransport;
 
   constructor(options: CohubClientOptions = {}) {
+    const apiBaseUrl = resolveApiBaseUrl(options);
     this.transport = new HttpTransport(options);
     this.spaces = new SpacesApi(this.transport);
     this.channels = new ChannelsApi(this.transport);
     this.user = new UserApi(
       this.transport,
-      options.baseUrl ?? "",
+      apiBaseUrl,
       options.setStoredAuthToken,
       options.clearStoredAuthToken,
     );
     this.models = new ModelsApi(this.transport);
-    this.prompts = new PromptsApi(options.fetch ?? fetch, options.baseUrl ?? "");
+    this.prompts = new PromptsApi(options.fetch ?? fetch, apiBaseUrl);
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);

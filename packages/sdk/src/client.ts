@@ -9,6 +9,7 @@ import { UserApi } from "./apis/user.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { createWebsocketClient } from "./websocket.js";
+import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 
 export class CohubClient {
   readonly spaces: SpacesApi;
@@ -25,8 +26,13 @@ export class CohubClient {
   private readonly websocketClient: ReturnType<typeof createWebsocketClient>;
 
   constructor(options: CohubClientOptions = {}) {
+    const apiBaseUrl = resolveApiBaseUrl(options);
     this.transport = new HttpTransport(options);
     this.websocketClient = createWebsocketClient({
+      url: resolveWebsocketUrl({
+        env: options.websocket?.env ?? options.env,
+        url: options.websocket?.url,
+      }),
       ...options.websocket,
       getAccessToken: options.getAccessToken,
     });
@@ -34,12 +40,12 @@ export class CohubClient {
     this.channels = new ChannelsApi(this.transport);
     this.user = new UserApi(
       this.transport,
-      options.baseUrl ?? "",
+      apiBaseUrl,
       options.setStoredAuthToken,
       options.clearStoredAuthToken,
     );
     this.models = new ModelsApi(this.transport);
-    this.prompts = new PromptsApi(options.fetch ?? fetch, options.baseUrl ?? "");
+    this.prompts = new PromptsApi(options.fetch ?? fetch, apiBaseUrl);
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);

@@ -1,8 +1,7 @@
 import { CohubHttpClient } from "@neta-art/cohub";
 
-export function createClient(token: string, baseUrl?: string): CohubHttpClient {
+export function createClient(token: string): CohubHttpClient {
   return new CohubHttpClient({
-    baseUrl,
     getAccessToken: () => token,
   });
 }

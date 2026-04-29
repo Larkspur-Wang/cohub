@@ -4,6 +4,8 @@ import {
   type WsClientEvent,
 } from "@neta-art/cohub-protocol/realtime";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { CohubEnvironment } from "./environment.js";
+import { resolveWebsocketUrl } from "./environment.js";
 
 export type WebsocketEventPayload = ChannelEnvelope;
 
@@ -20,6 +22,7 @@ export type WebSocketLike = {
 export type WebSocketConstructor = new (url: string) => WebSocketLike;
 
 export type WebsocketClientOptions = {
+  env?: CohubEnvironment;
   url?: string;
   autoReconnect?: boolean;
   reconnectBaseDelayMs?: number;
@@ -79,22 +82,11 @@ const createEventMap = (): EventMap => ({
   pong: new Set(),
 });
 
-const toWebSocketUrl = (input?: string) => {
-  const base = (input?.trim() || "").replace(/\/$/, "");
-  if (base) {
-    if (base.startsWith("ws://") || base.startsWith("wss://")) return `${base}/ws`;
-    if (base.startsWith("http://")) return `${base.replace(/^http:/, "ws:")}/ws`;
-    if (base.startsWith("https://")) return `${base.replace(/^https:/, "wss:")}/ws`;
-  }
-  if (typeof window !== "undefined") {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/ws`;
-  }
-  return "ws://localhost:8788/ws";
-};
+const toWebSocketUrl = (input?: string, env?: CohubEnvironment) =>
+  resolveWebsocketUrl({ url: input, env });
 
 const normalizeOptions = (options: WebsocketClientOptions = {}) => ({
-  url: toWebSocketUrl(options.url),
+  url: toWebSocketUrl(options.url, options.env),
   autoReconnect: options.autoReconnect !== false,
   reconnectBaseDelayMs: options.reconnectBaseDelayMs ?? 1000,
   reconnectMaxDelayMs: options.reconnectMaxDelayMs ?? 15000,

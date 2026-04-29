@@ -1,8 +1,11 @@
+import type { CohubEnvironment } from "./environment.js";
+import { resolveApiBaseUrl } from "./environment.js";
 import type { WebsocketClientOptions } from "./websocket.js";
 
 export type Fetch = typeof globalThis.fetch;
 
 export type CohubClientOptions = {
+  env?: CohubEnvironment;
   baseUrl?: string;
   getAccessToken?: () => Promise<string | null> | string | null;
   onUnauthorized?: () => Promise<void> | void;
@@ -31,7 +34,7 @@ export class HttpTransport {
   private readonly onUnauthorized?: () => Promise<void> | void;
 
   constructor(options: CohubClientOptions = {}) {
-    this.baseUrl = options.baseUrl ?? "";
+    this.baseUrl = resolveApiBaseUrl(options);
     this.fetcher = options.fetch ?? fetch;
     this.getAccessToken = options.getAccessToken;
     this.onUnauthorized = options.onUnauthorized;

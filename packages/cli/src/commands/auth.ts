@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { resolveToken, saveToken, clearToken, tokenSource } from "../auth.js";
+import { resolveToken, saveToken, clearToken, tokenSource, getTokenPath } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, spinner, handleHttp } from "../output.js";
 
@@ -8,10 +8,14 @@ export function registerAuth(program: Command): void {
 
   auth
     .command("login <token>")
-    .description("Set auth token")
+    .description("Set auth token for the current environment")
     .action((token: string) => {
-      saveToken(token);
-      ok("Token saved to ~/.config/cohub/token");
+      try {
+        saveToken(token);
+        ok(`Token saved to ${getTokenPath()}`);
+      } catch (e: unknown) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
     });
 
   auth

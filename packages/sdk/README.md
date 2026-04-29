@@ -14,6 +14,39 @@ npm install @neta-art/cohub @neta-art/cohub-protocol
 import { createCohubClient } from "@neta-art/cohub";
 
 const client = createCohubClient({
+  getAccessToken: async () => localStorage.getItem("token"),
+});
+```
+
+The SDK connects to production by default:
+
+- API: `https://api.cohub.run`
+- WebSocket: `wss://gateway.cohub.run/ws`
+
+Use development with `ENV=dev` in Node.js:
+
+```bash
+ENV=dev node app.js
+```
+
+Or select it explicitly in code:
+
+```ts
+const client = createCohubClient({
+  env: "dev",
+  getAccessToken: async () => localStorage.getItem("token"),
+});
+```
+
+Development uses:
+
+- API: `https://api-dev.cohub.run`
+- WebSocket: `wss://gateway-dev.cohub.run/ws`
+
+Custom endpoints are still supported when needed:
+
+```ts
+const client = createCohubClient({
   baseUrl: "https://api.example.com",
   getAccessToken: async () => localStorage.getItem("token"),
   websocket: {
@@ -87,7 +120,6 @@ If you only want HTTP transport, use the dedicated entry:
 import { createHttpClient } from "@neta-art/cohub/http";
 
 const http = createHttpClient({
-  baseUrl: "https://api.example.com",
   getAccessToken: async () => localStorage.getItem("token"),
 });
 
@@ -104,7 +136,6 @@ If you need direct realtime transport access, use the websocket entry:
 import { createWebsocketClient } from "@neta-art/cohub/websocket";
 
 const ws = createWebsocketClient({
-  url: "https://gateway.example.com",
   getAccessToken: async () => localStorage.getItem("token"),
 });
 
@@ -118,15 +149,4 @@ This SDK is intentionally built around Cohub's co-creation model:
 - work with `space(...)` and `session(...)` as the primary creative surface
 - send messages through `session.messages.send(...)`
 - subscribe through `space.subscribe(...)` and `session.subscribe(...)`
-- keep protocol details behind the SDK surface
-
-## Publish checklist
-
-Before publishing:
-
-1. build the protocol package: `pnpm --filter @neta-art/cohub-protocol build`
-2. build this package: `pnpm --filter @neta-art/cohub build`
-3. typecheck the protocol package: `pnpm --filter @neta-art/cohub-protocol typecheck`
-4. typecheck this package: `pnpm --filter @neta-art/cohub typecheck`
-5. verify consuming apps still typecheck
-6. verify `dist/` contains `index`, `http`, and `websocket` outputs
+- keep HTTP and realtime transports separate but coordinated

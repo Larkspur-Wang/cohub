@@ -26,7 +26,6 @@ program
   .description("CLI for Cohub — spaces, sessions, and agent collaboration.")
   .option("-s, --space <id>", "Target space ID")
   .option("--json", "Output as JSON")
-  .option("--env <name>", "Cohub environment (default: production)", "production")
   .helpOption("-h, --help", "Show help");
 
 registerAuth(program);

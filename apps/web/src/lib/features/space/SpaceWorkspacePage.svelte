@@ -292,6 +292,30 @@ let gitRepoCopied = $state(false);
 let gitRepoCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let inlineFilePanelWidth = $state(480);
 let inlineFilePanelResizeCleanup: (() => void) | null = null;
+const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
+let pendingFileSavePaths = $state<Set<string>>(new Set());
+function markFileSavePending(path: string) {
+	pendingFileSavePaths = new Set(pendingFileSavePaths).add(path);
+}
+function clearFileSavePendingSoon(path: string) {
+	setTimeout(() => {
+		const next = new Set(pendingFileSavePaths);
+		next.delete(path);
+		pendingFileSavePaths = next;
+	}, PENDING_FILE_SAVE_ECHO_TTL_MS);
+}
+function isOwnPendingFileSave(
+	path: string | undefined,
+	source?: string,
+	kind?: string,
+) {
+	return Boolean(
+		path &&
+			source === "api-fs" &&
+			kind === "modify" &&
+			pendingFileSavePaths.has(path),
+	);
+}
 // ─── File upload ───
 let uploadPaneVisible = $state(false);
 let uploadPaneTargetDir = $state("");
@@ -2466,6 +2490,7 @@ async function reconnectSync() {
 }
 async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const eventPayload = payload.payload as {
+		source?: string;
 		resync?: boolean;
 		changes?: Array<{
 			path?: string;
@@ -2493,11 +2518,20 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			clearCachedSpaceFsSubtree(spaceId, change.path);
 		if (change.oldPath && change.nodeType === "dir")
 			clearCachedSpaceFsSubtree(spaceId, change.oldPath);
+		const isOwnPendingChange = isOwnPendingFileSave(
+			change.path,
+			eventPayload.source,
+			change.kind,
+		);
 		if (
 			openFile?.path &&
 			(change.path === openFile.path || change.oldPath === openFile.path)
 		) {
-			if (change.kind === "delete") closeFile();
+			if (isOwnPendingChange) {
+				// The API save we just initiated broadcasts a file-change event before
+				// the save response updates local content. Do not treat it as an
+				// external edit conflict.
+			} else if (change.kind === "delete") closeFile();
 			else if (!fileDirty && change.path)
 				await openFileFromUrl(change.path).catch(() => undefined);
 			else if (fileDirty)
@@ -2508,7 +2542,10 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			inlineFile?.path &&
 			(change.path === inlineFile.path || change.oldPath === inlineFile.path)
 		) {
-			if (change.kind === "delete") closeInlineFile();
+			if (isOwnPendingChange) {
+				// See open-file branch above: this is our own save echo, not an
+				// external modification.
+			} else if (change.kind === "delete") closeInlineFile();
 			else if (!inlineFileDirty && change.path)
 				await openInlineFile(change.path).catch(() => undefined);
 			else if (inlineFileDirty)
@@ -3109,11 +3146,13 @@ async function openFileFromUrl(path: string) {
 }
 async function saveOpenFile() {
 	if (!openFile || openFile.kind !== "text") return;
+	const savingPath = openFile.path;
+	markFileSavePending(savingPath);
 	openFileSaving = true;
 	openFileError = null;
 	try {
 		await sdk.space(spaceId).files.write({
-			path: openFile.path,
+			path: savingPath,
 			content: openFileDraft,
 			encoding: "utf-8",
 		});
@@ -3122,6 +3161,7 @@ async function saveOpenFile() {
 			content: openFileDraft,
 			size: new Blob([openFileDraft]).size,
 		};
+		openFileError = null;
 		const updatedPath = openFile.path;
 		patchFsDirectory(getParentDirPath(updatedPath), (entries) =>
 			entries.map((entry) =>
@@ -3139,6 +3179,7 @@ async function saveOpenFile() {
 			error instanceof Error ? error.message : "Failed to save file";
 	} finally {
 		openFileSaving = false;
+		clearFileSavePendingSoon(savingPath);
 	}
 }
 async function handleCreateFile(parentPath: string) {
@@ -3298,11 +3339,13 @@ function closeInlineFile() {
 }
 async function saveInlineFile() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
+	const savingPath = inlineFile.path;
+	markFileSavePending(savingPath);
 	inlineFile.saving = true;
 	inlineFile.error = null;
 	try {
 		await sdk.space(spaceId).files.write({
-			path: inlineFile.path,
+			path: savingPath,
 			content: inlineFile.draft,
 			encoding: "utf-8",
 		});
@@ -3313,13 +3356,15 @@ async function saveInlineFile() {
 				content: inlineFile.draft,
 				size: new Blob([inlineFile.draft]).size,
 			} as SpaceFsFileResponse,
+			error: null,
 		};
 		await loadFileTree(true);
 	} catch (error) {
 		inlineFile.error =
 			error instanceof Error ? error.message : "Failed to save file";
 	} finally {
-		inlineFile.saving = false;
+		if (inlineFile) inlineFile.saving = false;
+		clearFileSavePendingSoon(savingPath);
 	}
 }
 async function handleFileKeyboardSave(event: KeyboardEvent) {
