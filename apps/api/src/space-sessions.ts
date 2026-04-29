@@ -317,10 +317,10 @@ export const setSpaceEnv = async (spaceId: string, envs: Array<{ name: string; v
   const key = SPACE_ENV_REDIS_KEY(spaceId);
   const { redisCommandClient } = await import("./redis.js");
   try {
-    await redisCommandClient.set(key, JSON.stringify(envs), "EX", 3600);
+    await redisCommandClient.set(key, JSON.stringify(envs));
   } catch (err) {
     // DB is already updated; Redis write failure means agent may serve stale env
-    // until next space reconnection or TTL expiry
+    // until the next successful env update or refresh after Redis recovers
     console.warn(`[SpaceEnv] Failed to write env cache for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 };

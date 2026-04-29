@@ -14,6 +14,7 @@ import {
 } from "./runtime/paths.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
+import { refreshUserEnv } from "./runtime/env-cache.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
   applyAssistantMessageEvent,
@@ -560,6 +561,10 @@ export async function loadOrCreateSessionHandle(input: {
   model?: { provider: string; id: string };
   sessionHandles: Map<string, SessionHandle>;
 }) {
+  await refreshUserEnv(input.spaceId).catch((error: unknown) => {
+    console.warn(`[Session] Failed to refresh env for ${input.spaceId}: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
   const existing = input.sessionHandles.get(sessionKey);
   if (existing) {

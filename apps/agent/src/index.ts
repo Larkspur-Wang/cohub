@@ -42,6 +42,7 @@ import {
 } from "./session.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
+import { refreshUserEnv } from "./runtime/env-cache.js";
 
 import {
   getAgentPlatformConfigPath,
@@ -479,6 +480,10 @@ async function main() {
                 scheduleSessionIdleEviction(idleHandle);
               };
             }
+
+            await refreshUserEnv(inputEntry.spaceId).catch((error: unknown) => {
+              console.warn(`[Agent] Failed to refresh env before turn for ${inputEntry.spaceId}: ${error instanceof Error ? error.message : String(error)}`);
+            });
 
             const currentModel = handle.session.agent.state.model;
             if (requestedProvider && requestedModel && currentModel) {
