@@ -29,6 +29,13 @@
       "when": 1776922947423,
       "tag": "0003_token_usage_stats_hourly",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777484275540,
+      "tag": "0004_skinny_screwball",
+      "breakpoints": true
     }
   ]
 }

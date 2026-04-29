@@ -53,13 +53,11 @@ async function runMigrate() {
       console.log("[Migration] v2 schema exists but has no tables (stale), cleaning up...");
       await client`DROP SCHEMA v2 CASCADE`;
     } else if (schemaExists && hasTables) {
-      console.log("[Migration] v2 schema exists with tables, skipping drizzle migrate.");
-      return;
+      console.log("[Migration] v2 schema exists with tables, running pending drizzle migrations.");
     }
 
     // 执行 migration
     // drizzle 会自动比对 __drizzle_migrations 中的 hash，只执行未跑过的 SQL
-    // SQL 文件中的 CREATE SCHEMA "v2" 在 schema 不存在时会成功
     await migrate(db, { migrationsFolder: "./drizzle/v2" });
     console.log("[Migration] V2 migrations completed successfully.");
   } catch (error) {
