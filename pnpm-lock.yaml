@@ -344,7 +344,7 @@ importers:
         version: 3.0.13
       '@neta-art/cohub':
         specifier: workspace:*
-        version: file:packages/sdk
+        version: link:../../packages/sdk
       '@neta-art/cohub-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -512,7 +512,7 @@ importers:
     dependencies:
       '@neta-art/cohub':
         specifier: workspace:*
-        version: file:packages/sdk
+        version: link:../sdk
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -562,8 +562,8 @@ importers:
   packages/sdk:
     dependencies:
       '@neta-art/cohub-protocol':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       typescript:
         specifier: ^6.0.3
@@ -2534,15 +2534,6 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
-
-  '@neta-art/cohub-protocol@1.0.0':
-    resolution: {integrity: sha512-CcwpBneEHRYnzHMID51yQh023efQAQ7j5y9eqhq4+POwjYCcyNvDhC0QyFUQEz4tJIl+HUPhcANALtSYFFTzBw==}
-
-  '@neta-art/cohub-protocol@1.1.0':
-    resolution: {integrity: sha512-4dXsEco8pXchbx8Se4Xro6Fzl3wR+iFHXKLx6EGnfmgZtYBVqvAAuL/O0J+//c8kHVGbtASSsnEQzcIfXC1+4g==}
-
-  '@neta-art/cohub@file:packages/sdk':
-    resolution: {directory: packages/sdk, type: directory}
 
   '@nodable/entities@2.1.0':
     resolution: {integrity: sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA==}
@@ -8080,18 +8071,6 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.1
     optional: true
-
-  '@neta-art/cohub-protocol@1.0.0':
-    dependencies:
-      zod: 4.3.6
-
-  '@neta-art/cohub-protocol@1.1.0':
-    dependencies:
-      zod: 4.3.6
-
-  '@neta-art/cohub@file:packages/sdk':
-    dependencies:
-      '@neta-art/cohub-protocol': 1.1.0
 
   '@nodable/entities@2.1.0': {}
 

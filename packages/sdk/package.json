@@ -48,7 +48,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@neta-art/cohub-protocol": "^1.2.0"
+    "@neta-art/cohub-protocol": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
