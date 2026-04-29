@@ -755,7 +755,7 @@ function formatTokenCount(n: number): string {
 function formatCost(n: number): string {
 	const formatted =
 		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
-	return `${formatted}`;
+	return `$${formatted}`;
 }
 function maskEnvValue(value: string): string {
 	if (!value) return "(empty)";
@@ -4972,7 +4972,7 @@ $effect(() => {
               {#if tokenUsage}
                 <div class="text-right">
                   <div class="text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.totalTokens)}</div>
-                  <div class="text-[11px] text-text-tertiary">tokens · {formatCost(tokenUsage.summary.costTotal)}</div>
+                  <div class="text-[11px] text-text-tertiary">tokens</div>
                 </div>
               {/if}
             </div>

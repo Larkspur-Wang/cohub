@@ -27,7 +27,7 @@ function formatNumber(n: number): string {
 function formatCost(n: number): string {
 	const formatted =
 		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
-	return `${formatted}`;
+	return `$${formatted}`;
 }
 
 function getDisplayName(tab: Tab, row: SpaceRow | UserRow | ModelRow): string {
