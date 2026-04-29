@@ -58,7 +58,7 @@ const sendMessageHandler = async (job: Job) => {
         content,
         meta: {
           source: "cronjob",
-          authorUuid: payload.userId ?? null,
+          actorUserId: payload.userId ?? null,
           ...(model && { model }),
           ...(provider && { provider }),
         },
@@ -95,7 +95,7 @@ const sendMessageHandler = async (job: Job) => {
     content,
     meta: {
       source: "cronjob",
-      authorUuid: payload.userId ?? null,
+      actorUserId: payload.userId ?? null,
       ...(model && { model }),
       ...(provider && { provider }),
     },
