@@ -47,6 +47,12 @@ class SessionGenerationStore {
 		return state?.status === "streaming";
 	}
 
+	isGenerating(sessionId: string | null | undefined): boolean {
+		if (!sessionId) return false;
+		const state = this.bySessionId[sessionId];
+		return state?.status === "pending" || state?.status === "streaming";
+	}
+
 	startPending(
 		sessionId: string,
 		input?: { clientMessageId?: string | null; requestId?: string | null },

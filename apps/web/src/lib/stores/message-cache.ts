@@ -51,12 +51,20 @@ function getContentDetail(message: MessageRecord): "summary" | "full" {
 	return value === "summary" ? "summary" : "full";
 }
 
+function getMessageDetailRank(message: MessageRecord) {
+	if (getContentDetail(message) === "full") return 3;
+	if (message.meta?.contentPlaceholder === "assistant_intermediate") return 1;
+	return 2;
+}
+
 function chooseMessage(current: MessageRecord, incoming: MessageRecord) {
-	if (
-		getContentDetail(current) === "full" &&
-		getContentDetail(incoming) === "summary"
-	) {
+	const currentRank = getMessageDetailRank(current);
+	const incomingRank = getMessageDetailRank(incoming);
+	if (currentRank > incomingRank) {
 		return current;
+	}
+	if (incomingRank > currentRank) {
+		return incoming;
 	}
 	return incoming;
 }

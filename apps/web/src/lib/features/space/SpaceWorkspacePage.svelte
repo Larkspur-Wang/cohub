@@ -438,7 +438,14 @@ let hasUnread = $derived.by(() => {
 		!activeSessionState.messages.length
 	)
 		return false;
-	return unreadTracker.isUnread(activeSessionState.session);
+	const latestMessage = getLatestUnreadEligibleMessage({
+		session: activeSessionState.session,
+		messages: activeSessionState.messages,
+	});
+	return unreadTracker.isUnread(
+		activeSessionState.session,
+		latestMessage?.id ?? null,
+	);
 });
 let autoScrollGuard = $state(false);
 let restoringBottomSessionId = $state<string | null>(null);
@@ -1511,6 +1518,93 @@ function getMessageElementAbsoluteTop(node: HTMLElement) {
 	const nodeRect = node.getBoundingClientRect();
 	return listEl.scrollTop + (nodeRect.top - containerRect.top);
 }
+function isGenerationInProgress(sessionId: string) {
+	const status = sessionGenerationStore.get(sessionId)?.status;
+	return status === "pending" || status === "streaming";
+}
+function isIncompleteMessage(message: MessageRecord) {
+	const meta = message.meta as Record<string, unknown> | null | undefined;
+	return (
+		meta?.messageKind === "assistant_intermediate" ||
+		meta?.messageKind === "assistant_streaming_preview" ||
+		meta?.messageKind === "user_pending" ||
+		meta?.contentPlaceholder === "assistant_intermediate"
+	);
+}
+function getActiveTurnAnchorSequence(
+	sessionId: string,
+	messages: MessageRecord[],
+) {
+	if (!isGenerationInProgress(sessionId)) return null;
+	const generation = sessionGenerationStore.get(sessionId);
+	const clientMessageId = generation?.clientMessageId;
+	const anchorUserMessageId = generation?.anchorUserMessageId;
+	const anchorMessage =
+		messages.find((message) => {
+			if (message.role !== "user") return false;
+			const meta = message.meta as Record<string, unknown> | null | undefined;
+			return Boolean(
+				(clientMessageId && meta?.clientMessageId === clientMessageId) ||
+					(anchorUserMessageId && message.id === anchorUserMessageId),
+			);
+		}) ??
+		messages.findLast((message) => message.role === "user") ??
+		null;
+	return anchorMessage?.sequence ?? null;
+}
+function getLatestUnreadEligibleMessage(state: {
+	session: SessionRecord;
+	messages: MessageRecord[];
+}) {
+	const activeTurnAnchorSequence = getActiveTurnAnchorSequence(
+		state.session.id,
+		state.messages,
+	);
+	const activeTurnHasCompletedAssistant =
+		activeTurnAnchorSequence != null &&
+		state.messages.some(
+			(message) =>
+				message.sequence >= activeTurnAnchorSequence &&
+				message.role === "assistant" &&
+				!isIncompleteMessage(message),
+		);
+	return (
+		state.messages.findLast((message) => {
+			if (isIncompleteMessage(message)) return false;
+			if (
+				activeTurnAnchorSequence != null &&
+				!activeTurnHasCompletedAssistant &&
+				message.sequence >= activeTurnAnchorSequence
+			) {
+				return false;
+			}
+			return true;
+		}) ?? null
+	);
+}
+function markVisibleLatestMessageViewed(
+	sessionId: string,
+	nodes: HTMLElement[],
+	containerRect: DOMRect,
+) {
+	const state = sessionStateById[sessionId];
+	if (!state?.session) return;
+	const lastMessage = getLatestUnreadEligibleMessage({
+		session: state.session,
+		messages: state.messages,
+	});
+	if (!lastMessage) return;
+	const latestVisibleSequence = nodes.reduce((latest, node) => {
+		const rect = node.getBoundingClientRect();
+		if (rect.bottom <= containerRect.top + 8) return latest;
+		if (rect.top >= containerRect.bottom - 8) return latest;
+		const sequence = Number(node.dataset.sequence);
+		return Number.isFinite(sequence) ? Math.max(latest, sequence) : latest;
+	}, -Infinity);
+	if (latestVisibleSequence >= lastMessage.sequence) {
+		unreadTracker.markViewed(sessionId, lastMessage.id);
+	}
+}
 function captureCurrentScrollAnchor(sessionId: string) {
 	if (!listEl) return;
 	const nodes = Array.from(
@@ -1531,6 +1625,7 @@ function captureCurrentScrollAnchor(sessionId: string) {
 		offset: listEl.scrollTop - absoluteTop,
 		updatedAt: Date.now(),
 	});
+	markVisibleLatestMessageViewed(sessionId, nodes, containerRect);
 }
 function writeBottomScrollAnchor(sessionId: string) {
 	if (!listEl) return;
@@ -1553,6 +1648,14 @@ function writeBottomScrollAnchor(sessionId: string) {
 		offset: listEl.scrollTop - absoluteTop,
 		updatedAt: Date.now(),
 	});
+	const state = sessionStateById[sessionId];
+	const latestMessage = state?.session
+		? getLatestUnreadEligibleMessage({
+				session: state.session,
+				messages: state.messages,
+			})
+		: null;
+	unreadTracker.markViewed(sessionId, latestMessage?.id ?? null);
 }
 function mergeMessagesById(
 	existing: MessageRecord[],
@@ -1567,19 +1670,35 @@ function mergeMessagesById(
 			byId.set(message.id, message);
 			continue;
 		}
-		const currentDetail =
-			current.meta?.contentDetail === "summary" ? "summary" : "full";
-		const incomingDetail =
-			message.meta?.contentDetail === "summary" ? "summary" : "full";
-		if (currentDetail === "full" && incomingDetail === "summary") {
-			continue;
-		}
-		byId.set(
-			message.id,
-			preferIncoming ? { ...current, ...message } : { ...message, ...current },
-		);
+		byId.set(message.id, mergeMessageRecord(current, message, preferIncoming));
 	}
 	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
+}
+function getMessageDetailRank(message: MessageRecord) {
+	if (message.meta?.contentDetail !== "summary") return 3;
+	if (message.meta?.contentPlaceholder === "assistant_intermediate") return 1;
+	return 2;
+}
+function mergeMessageRecord(
+	current: MessageRecord,
+	incoming: MessageRecord,
+	preferIncoming: boolean,
+) {
+	const currentRank = getMessageDetailRank(current);
+	const incomingRank = getMessageDetailRank(incoming);
+	if (currentRank > incomingRank) return current;
+	if (incomingRank > currentRank) return incoming;
+
+	const merged = preferIncoming
+		? { ...current, ...incoming }
+		: { ...incoming, ...current };
+	const meta = preferIncoming
+		? { ...(current.meta ?? {}), ...(incoming.meta ?? {}) }
+		: { ...(incoming.meta ?? {}), ...(current.meta ?? {}) };
+	return {
+		...merged,
+		meta,
+	};
 }
 function _getPendingMessages(sessionId: string | null) {
 	if (!sessionId) return [];
@@ -2413,18 +2532,13 @@ async function reconcileSessionTail(sessionId: string) {
 				limit: 30,
 			});
 		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
+		const merged = mergeMessagesById(state.messages, response.messages, {
+			preferIncoming: true,
+		});
 		await messageCache.replaceAuthoritativeSnapshot({
 			sessionId,
-			messages: response.messages,
+			messages: merged,
 			hasMore: response.hasMore,
-		});
-		const existingOlder = state.messages.filter((message) =>
-			response.messages.every(
-				(incoming: MessageRecord) => incoming.id !== message.id,
-			),
-		);
-		const merged = mergeMessagesById(existingOlder, response.messages, {
-			preferIncoming: true,
 		});
 		sessionStateById = {
 			...sessionStateById,

@@ -38,15 +38,18 @@ class UnreadTracker {
 		}
 	}
 
-	isUnread(session: SessionRecord): boolean {
-		if (!session.lastMessageId) return false;
+	isUnread(
+		session: SessionRecord,
+		lastMessageId: string | null | undefined = session.lastMessageId,
+	): boolean {
+		if (!lastMessageId) return false;
 		const seen = this.viewed.get(session.id);
-		return seen !== session.lastMessageId;
+		return seen !== lastMessageId;
 	}
 
 	markViewed(sessionId: string, lastMessageId: string | null) {
 		if (!lastMessageId) return;
-		this.viewed.set(sessionId, lastMessageId);
+		this.viewed = new Map(this.viewed).set(sessionId, lastMessageId);
 		this.persist();
 	}
 
@@ -54,7 +57,9 @@ class UnreadTracker {
 	 * Clear tracked state for a session (e.g. session deleted).
 	 */
 	clear(sessionId: string) {
-		this.viewed.delete(sessionId);
+		const viewed = new Map(this.viewed);
+		viewed.delete(sessionId);
+		this.viewed = viewed;
 		this.persist();
 	}
 }
@@ -62,8 +67,8 @@ class UnreadTracker {
 export const unreadTracker = new UnreadTracker();
 
 /**
- * Whether the session is actively streaming right now.
+ * Whether the session has an active pending or streaming turn.
  */
 export function isStreaming(session: SessionRecord): boolean {
-	return sessionGenerationStore.isStreaming(session.id);
+	return sessionGenerationStore.isGenerating(session.id);
 }
