@@ -1,4 +1,5 @@
 export interface WorkerConfig {
+  redisUrl: string;
   bullmqRedisUrl: string;
   databaseUrl: string;
   internalApiBaseUrl: string;
@@ -13,7 +14,20 @@ export interface WorkerConfig {
 
 const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
 
+const assertRedisUrl = (value: string, envName: string) => {
+  if (!value) throw new Error(`Missing required env: ${envName}`);
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "redis:" && parsed.protocol !== "rediss:") {
+      throw new Error("invalid protocol");
+    }
+  } catch {
+    throw new Error(`Invalid ${envName}: must be a redis:// or rediss:// URL`);
+  }
+};
+
 export const config: WorkerConfig = {
+  redisUrl: process.env.REDIS_URL ?? "",
   bullmqRedisUrl: process.env.BULLMQ_REDIS_URL ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
   internalApiBaseUrl: process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8787",
@@ -27,7 +41,8 @@ export const config: WorkerConfig = {
 };
 
 export const assertRequiredConfig = () => {
-  if (!config.bullmqRedisUrl) throw new Error("Missing required env: BULLMQ_REDIS_URL");
+  assertRedisUrl(config.redisUrl, "REDIS_URL");
+  assertRedisUrl(config.bullmqRedisUrl, "BULLMQ_REDIS_URL");
   if (!config.databaseUrl) throw new Error("Missing required env: DATABASE_URL");
   if (!config.internalApiBaseUrl) throw new Error("Missing required env: INTERNAL_API_BASE_URL");
   if (!config.giteaBaseUrl) throw new Error("Missing required env: GITEA_BASE_URL");

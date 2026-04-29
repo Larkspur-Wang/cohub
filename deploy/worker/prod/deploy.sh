@@ -39,7 +39,7 @@ ENV=$(get_value "ENV")
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Cohub Worker Prod 部署           ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
-echo -e "${BLUE}ℹ 复用 API 的 secret: cohub-api-prod-secrets${NC}"
+echo -e "${BLUE}ℹ 复用 API 的 secret: cohub-api-secrets${NC}"
 
 mkdir -p rendered
 

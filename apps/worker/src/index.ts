@@ -71,15 +71,16 @@ taskWorker.on("error", (err) => {
 console.log("[Worker] Starting task worker...");
 
 // 仅打印 host，不泄露任何凭证信息
-const logHost = (() => {
+const getRedisHost = (value: string) => {
   try {
-    const url = new URL(config.bullmqRedisUrl);
+    const url = new URL(value);
     return url.host;
   } catch {
     return "(invalid URL)";
   }
-})();
-console.log("[Worker] BullMQ Redis:", logHost);
+};
+console.log("[Worker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
+console.log("[Worker] App Redis:", getRedisHost(config.redisUrl));
 console.log("[Worker] API:", config.internalApiBaseUrl);
 console.log("[Worker] Registered tasks:", getRegisteredTasks());
 

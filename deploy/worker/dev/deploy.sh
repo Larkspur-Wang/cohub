@@ -1,6 +1,6 @@
 #!/bin/bash
 # Dev 环境 Worker 部署脚本
-# Worker 复用 API 的 secret（cohub-api-dev-secrets），不需要单独管理
+# Worker 复用 API 的 secret（cohub-api-dev-secrets），但要求其中同时包含 REDIS_URL 和 BULLMQ_REDIS_URL
 
 set -e
 
