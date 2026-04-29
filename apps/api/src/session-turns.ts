@@ -43,15 +43,39 @@ const addUsage = (a: Usage | null | undefined, b: Usage | null | undefined): Usa
   };
 };
 
-const summarizeToolInput = (input: Record<string, unknown>) => {
+const truncateText = (text: string, limit: number) => {
+  if (text.length <= limit) return { value: text, truncated: false, originalLength: text.length };
+  return { value: `${text.slice(0, Math.max(0, limit - 1))}…`, truncated: true, originalLength: text.length };
+};
+
+const summarizeValue = (value: unknown, limit = 240): unknown => {
+  if (typeof value === "string") {
+    const truncated = truncateText(value, limit);
+    return truncated.truncated
+      ? { preview: truncated.value, _truncated: true, originalLength: truncated.originalLength }
+      : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
   try {
-    const text = JSON.stringify(input);
-    if (text.length <= 1200) return input;
-    return { preview: `${text.slice(0, 1199)}…` };
+    const text = JSON.stringify(value);
+    const truncated = truncateText(text, limit);
+    return {
+      preview: truncated.value,
+      ...(truncated.truncated ? { _truncated: true, originalLength: truncated.originalLength } : {}),
+    };
   } catch {
-    return { preview: String(input).slice(0, 1200) };
+    const text = String(value);
+    const truncated = truncateText(text, limit);
+    return {
+      preview: truncated.value,
+      ...(truncated.truncated ? { _truncated: true, originalLength: truncated.originalLength } : {}),
+    };
   }
 };
+
+const summarizeToolInput = (input: Record<string, unknown>) => Object.fromEntries(
+  Object.entries(input).map(([key, value]) => [key, summarizeValue(value)]),
+) as Record<string, unknown>;
 
 const extractToolCalls = (content: ContentBlock[]): { summaries: StoredIntermediateMessageToolCallSummary[]; details: StoredToolCall[] } => {
   const byId = new Map<string, StoredToolCall>();
@@ -229,6 +253,12 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
     lastMessageText: messages.at(-1)?.text ?? null,
     hasError,
   };
+  if (messages.length === 0) {
+    return {
+      index: null,
+      summary,
+    };
+  }
   const messagesObjectKey = `${prefix}intermediate/messages.json`;
   const file: TurnIntermediateMessagesFile = {
     version: 1,
