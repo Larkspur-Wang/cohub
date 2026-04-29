@@ -35,9 +35,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	spaceID := strings.TrimSpace(os.Getenv("SPACE_ID"))
+	spaceID := strings.TrimSpace(os.Getenv("COHUB_SPACE_ID"))
 	if spaceID == "" {
-		return Config{}, fmt.Errorf("SPACE_ID is required")
+		return Config{}, fmt.Errorf("COHUB_SPACE_ID is required")
 	}
 
 	workspaceDir := strings.TrimSpace(os.Getenv("WORKSPACE_DIR"))

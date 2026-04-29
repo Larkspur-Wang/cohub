@@ -270,6 +270,9 @@ function createRemoteBashOperations(): BashOperations {
               const injectedEnv: Record<string, string> = {
                 ...getUserEnvForProcess(),
                 ...(env ?? {}),
+                ...(ctx?.spaceId ? { COHUB_SPACE_ID: ctx.spaceId } : {}),
+                ...(ctx?.sessionId ? { COHUB_SESSION_ID: ctx.sessionId } : {}),
+                ...(sessionExecutionAuth?.actorUserId ? { COHUB_USER_UUID: sessionExecutionAuth.actorUserId } : {}),
                 ...(sessionExecutionAuth?.executionToken ? { COHUB_EXECUTION_TOKEN: sessionExecutionAuth.executionToken } : {}),
               };
               console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);

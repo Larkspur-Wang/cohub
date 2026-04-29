@@ -71,7 +71,7 @@ func runSetupScript(cfg env.Config, logger *slog.Logger) *SetupResult {
 		"WORKSPACE_DIR="+cfg.WorkspaceDir,
 		"PLATFORM_AGENTS_DIR="+cfg.PlatformAgentsDir,
 		"USER_AGENTS_DIR="+cfg.UserAgentsDir,
-		"SPACE_ID="+cfg.SpaceID,
+		"COHUB_SPACE_ID="+cfg.SpaceID,
 	)
 
 	var stdout, stderr strings.Builder
