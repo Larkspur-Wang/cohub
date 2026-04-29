@@ -55,6 +55,7 @@ import {
 	clearAllCachedSessionLists,
 	getCachedSessionList,
 	getCachedSessionListMeta,
+	getCachedSessionListPageInfo,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
 	setCachedSessionList,
@@ -282,6 +283,8 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 		const cached = getCachedSessionList(spaceId);
 		if (cached && cached.length > 0) {
 			sessions = cached;
+			const cachedPageInfo = getCachedSessionListPageInfo(spaceId);
+			if (cachedPageInfo) sessionsPageInfo = cachedPageInfo;
 		}
 	}
 
@@ -302,8 +305,12 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			limit: SESSION_PAGE_SIZE,
 		});
 		const nextSessions = result.sessions ?? [];
-		sessions = setCachedSessionList(spaceId, nextSessions);
-		sessionsPageInfo = result.pageInfo ?? { hasMore: false, nextCursor: null };
+		const nextPageInfo = result.pageInfo ?? {
+			hasMore: false,
+			nextCursor: null,
+		};
+		sessions = setCachedSessionList(spaceId, nextSessions, nextPageInfo);
+		sessionsPageInfo = nextPageInfo;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
 	} finally {
@@ -325,11 +332,16 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 			cursor: sessionsPageInfo.nextCursor,
 		});
 		const moreSessions = result.sessions ?? [];
-		sessions = patchCachedSessionList(spaceId, (current) => [
-			...current,
-			...moreSessions,
-		]);
-		sessionsPageInfo = result.pageInfo ?? { hasMore: false, nextCursor: null };
+		const nextPageInfo = result.pageInfo ?? {
+			hasMore: false,
+			nextCursor: null,
+		};
+		sessions = patchCachedSessionList(
+			spaceId,
+			(current) => [...current, ...moreSessions],
+			nextPageInfo,
+		);
+		sessionsPageInfo = nextPageInfo;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load more sessions", { spaceId, error });
 	} finally {
@@ -572,9 +584,10 @@ onMount(() => {
 			},
 		);
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
-			({ spaceId, sessions: nextSessions }) => {
+			({ spaceId, sessions: nextSessions, pageInfo }) => {
 				if (spaceId !== currentSpaceId) return;
 				sessions = nextSessions;
+				if (pageInfo) sessionsPageInfo = pageInfo;
 			},
 		);
 		void (async () => {
