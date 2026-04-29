@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "CLI for Cohub — spaces, sessions, and agent collaboration.",
   "type": "module",
+  "license": "UNLICENSED",
   "bin": {
     "cohub": "./bin/cohub.js"
   },
