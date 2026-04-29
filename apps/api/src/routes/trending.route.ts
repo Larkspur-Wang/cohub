@@ -24,6 +24,7 @@ router.get("/spaces", async (c) => {
     .select({
       spaceId: schema.tokenUsageStatsHourly.spaceId,
       totalTokens: sql<number>`SUM(${schema.tokenUsageStatsHourly.totalTokens})`.as("total_tokens"),
+      costTotal: sql<string>`SUM(${schema.tokenUsageStatsHourly.costTotal})`.as("cost_total"),
       sessionCount: sql<number>`COUNT(DISTINCT ${schema.tokenUsageStatsHourly.sessionId})`.as("session_count"),
       requestCount: sql<number>`SUM(${schema.tokenUsageStatsHourly.requestCount})`.as("request_count"),
     })
@@ -65,6 +66,7 @@ router.get("/spaces", async (c) => {
       userId: uid,
       userDisplay: maskUserId(uid),
       totalTokens: r.totalTokens ?? 0,
+      costTotal: Number(r.costTotal ?? 0),
       sessionCount: Number(r.sessionCount),
       requestCount: r.requestCount ?? 0,
     };
@@ -82,6 +84,7 @@ router.get("/users", async (c) => {
     .select({
       userId: schema.tokenUsageStatsHourly.userId,
       totalTokens: sql<number>`SUM(${schema.tokenUsageStatsHourly.totalTokens})`.as("total_tokens"),
+      costTotal: sql<string>`SUM(${schema.tokenUsageStatsHourly.costTotal})`.as("cost_total"),
       sessionCount: sql<number>`COUNT(DISTINCT ${schema.tokenUsageStatsHourly.sessionId})`.as("session_count"),
       requestCount: sql<number>`SUM(${schema.tokenUsageStatsHourly.requestCount})`.as("request_count"),
     })
@@ -101,6 +104,7 @@ router.get("/users", async (c) => {
     userId: r.userId ?? "",
     userDisplay: maskUserId(r.userId),
     totalTokens: r.totalTokens ?? 0,
+    costTotal: Number(r.costTotal ?? 0),
     sessionCount: Number(r.sessionCount),
     requestCount: r.requestCount ?? 0,
   }));
@@ -118,6 +122,7 @@ router.get("/models", async (c) => {
       provider: schema.tokenUsageStatsHourly.provider,
       model: schema.tokenUsageStatsHourly.model,
       totalTokens: sql<number>`SUM(${schema.tokenUsageStatsHourly.totalTokens})`.as("total_tokens"),
+      costTotal: sql<string>`SUM(${schema.tokenUsageStatsHourly.costTotal})`.as("cost_total"),
       sessionCount: sql<number>`COUNT(DISTINCT ${schema.tokenUsageStatsHourly.sessionId})`.as("session_count"),
       requestCount: sql<number>`SUM(${schema.tokenUsageStatsHourly.requestCount})`.as("request_count"),
     })
@@ -138,6 +143,7 @@ router.get("/models", async (c) => {
     model: r.model ?? "unknown",
     modelDisplay: `${r.provider ?? "unknown"}/${r.model ?? "unknown"}`,
     totalTokens: r.totalTokens ?? 0,
+    costTotal: Number(r.costTotal ?? 0),
     sessionCount: Number(r.sessionCount),
     requestCount: r.requestCount ?? 0,
   }));

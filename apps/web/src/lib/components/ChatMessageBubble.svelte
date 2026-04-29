@@ -336,20 +336,41 @@ function formatTokenCount(n: number): string {
 	return `${n}`;
 }
 
-const hasUsage = $derived(
-	!!(
-		message.meta?.usage &&
-		(message.meta.usage.input || message.meta.usage.output)
-	),
-);
+function formatCost(n: number): string {
+	const formatted =
+		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
+	return `${formatted}`;
+}
+
+const hasUsage = $derived.by(() => {
+	const u = message.meta?.usage;
+	if (!u) return false;
+	return Boolean(
+		u.input ||
+			u.output ||
+			u.cacheRead ||
+			u.cacheWrite ||
+			u.totalTokens ||
+			u.cost?.input ||
+			u.cost?.output ||
+			u.cost?.cacheRead ||
+			u.cost?.cacheWrite ||
+			u.cost?.total,
+	);
+});
 
 const tokenDisplay = $derived.by(() => {
 	const u = message.meta?.usage;
-	if (!u || (!u.input && !u.output)) return "";
+	if (!u) return "";
 	const parts = [];
 	if (u.input) parts.push(`↑${formatTokenCount(u.input)}`);
 	if (u.output) parts.push(`↓${formatTokenCount(u.output)}`);
-	return parts.join(" ");
+	if (parts.length > 0) return parts.join(" ");
+	if (u.totalTokens) return `${formatTokenCount(u.totalTokens)} tokens`;
+	if (u.cacheRead) return `cache ${formatTokenCount(u.cacheRead)}`;
+	if (u.cacheWrite) return `cache write ${formatTokenCount(u.cacheWrite)}`;
+	if (u.cost?.total) return formatCost(u.cost.total);
+	return "";
 });
 
 const tokenDetailText = $derived.by(() => {
@@ -362,6 +383,7 @@ const tokenDetailText = $derived.by(() => {
 	if (u.cacheWrite)
 		parts.push(`Cache write: ${formatTokenCount(u.cacheWrite)}`);
 	if (u.totalTokens) parts.push(`Total: ${formatTokenCount(u.totalTokens)}`);
+	if (u.cost?.total) parts.push(`Cost: ${formatCost(u.cost.total)}`);
 	return parts.join("  ·  ");
 });
 

@@ -285,6 +285,10 @@ export type SpaceUsageHourlyStat = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  costInput: number;
+  costOutput: number;
+  costCacheRead: number;
+  costCacheWrite: number;
   costTotal: number;
   requestCount: number;
   successCount: number;
@@ -298,6 +302,10 @@ export type SpaceUsageSummary = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  costInput: number;
+  costOutput: number;
+  costCacheRead: number;
+  costCacheWrite: number;
   costTotal: number;
   requestCount: number;
   successCount: number;

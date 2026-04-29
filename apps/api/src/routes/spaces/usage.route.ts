@@ -33,6 +33,10 @@ router.get("/", async (c) => {
     outputTokens: number;
     cacheReadTokens: number;
     cacheWriteTokens: number;
+    costInput: string;
+    costOutput: string;
+    costCacheRead: string;
+    costCacheWrite: string;
     costTotal: string;
     requestCount: number;
     successCount: number;
@@ -50,6 +54,10 @@ router.get("/", async (c) => {
         outputTokens: schema.tokenUsageStatsHourly.outputTokens,
         cacheReadTokens: schema.tokenUsageStatsHourly.cacheReadTokens,
         cacheWriteTokens: schema.tokenUsageStatsHourly.cacheWriteTokens,
+        costInput: schema.tokenUsageStatsHourly.costInput,
+        costOutput: schema.tokenUsageStatsHourly.costOutput,
+        costCacheRead: schema.tokenUsageStatsHourly.costCacheRead,
+        costCacheWrite: schema.tokenUsageStatsHourly.costCacheWrite,
         costTotal: schema.tokenUsageStatsHourly.costTotal,
         requestCount: schema.tokenUsageStatsHourly.requestCount,
         successCount: schema.tokenUsageStatsHourly.successCount,
@@ -78,6 +86,10 @@ router.get("/", async (c) => {
     outputTokens: number;
     cacheReadTokens: number;
     cacheWriteTokens: number;
+    costInput: number;
+    costOutput: number;
+    costCacheRead: number;
+    costCacheWrite: number;
     costTotal: number;
     requestCount: number;
     successCount: number;
@@ -94,6 +106,10 @@ router.get("/", async (c) => {
       existing.outputTokens += row.outputTokens ?? 0;
       existing.cacheReadTokens += row.cacheReadTokens ?? 0;
       existing.cacheWriteTokens += row.cacheWriteTokens ?? 0;
+      existing.costInput = Number(existing.costInput) + Number(row.costInput ?? 0);
+      existing.costOutput = Number(existing.costOutput) + Number(row.costOutput ?? 0);
+      existing.costCacheRead = Number(existing.costCacheRead) + Number(row.costCacheRead ?? 0);
+      existing.costCacheWrite = Number(existing.costCacheWrite) + Number(row.costCacheWrite ?? 0);
       existing.costTotal = Number(existing.costTotal) + Number(row.costTotal ?? 0);
       existing.requestCount += row.requestCount ?? 0;
       existing.successCount += row.successCount ?? 0;
@@ -107,6 +123,10 @@ router.get("/", async (c) => {
         outputTokens: row.outputTokens ?? 0,
         cacheReadTokens: row.cacheReadTokens ?? 0,
         cacheWriteTokens: row.cacheWriteTokens ?? 0,
+        costInput: Number(row.costInput ?? 0),
+        costOutput: Number(row.costOutput ?? 0),
+        costCacheRead: Number(row.costCacheRead ?? 0),
+        costCacheWrite: Number(row.costCacheWrite ?? 0),
         costTotal: Number(row.costTotal ?? 0),
         requestCount: row.requestCount ?? 0,
         successCount: row.successCount ?? 0,
@@ -122,6 +142,10 @@ router.get("/", async (c) => {
     .map(({ models, ...rest }) => ({
       ...rest,
       models: Array.from(models),
+      costInput: Number(rest.costInput.toFixed(4)),
+      costOutput: Number(rest.costOutput.toFixed(4)),
+      costCacheRead: Number(rest.costCacheRead.toFixed(4)),
+      costCacheWrite: Number(rest.costCacheWrite.toFixed(4)),
       costTotal: Number(rest.costTotal.toFixed(4)),
     }));
 
@@ -133,6 +157,10 @@ router.get("/", async (c) => {
       outputTokens: acc.outputTokens + stat.outputTokens,
       cacheReadTokens: acc.cacheReadTokens + stat.cacheReadTokens,
       cacheWriteTokens: acc.cacheWriteTokens + stat.cacheWriteTokens,
+      costInput: Number((acc.costInput + stat.costInput).toFixed(4)),
+      costOutput: Number((acc.costOutput + stat.costOutput).toFixed(4)),
+      costCacheRead: Number((acc.costCacheRead + stat.costCacheRead).toFixed(4)),
+      costCacheWrite: Number((acc.costCacheWrite + stat.costCacheWrite).toFixed(4)),
       costTotal: Number((acc.costTotal + stat.costTotal).toFixed(4)),
       requestCount: acc.requestCount + stat.requestCount,
       successCount: acc.successCount + stat.successCount,
@@ -144,6 +172,10 @@ router.get("/", async (c) => {
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      costInput: 0,
+      costOutput: 0,
+      costCacheRead: 0,
+      costCacheWrite: 0,
       costTotal: 0,
       requestCount: 0,
       successCount: 0,

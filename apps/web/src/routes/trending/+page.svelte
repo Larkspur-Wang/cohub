@@ -24,6 +24,12 @@ function formatNumber(n: number): string {
 	return String(n);
 }
 
+function formatCost(n: number): string {
+	const formatted =
+		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
+	return `${formatted}`;
+}
+
 function getDisplayName(tab: Tab, row: SpaceRow | UserRow | ModelRow): string {
 	switch (tab) {
 		case "spaces":
@@ -131,10 +137,11 @@ const hasData = $derived(
 			</div>
 		{:else}
 			<!-- Table header — subdued, uppercase, tracking -->
-			<div class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 pb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle">
+			<div class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 pb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle">
 				<span></span>
 				<span></span>
 				<span class="text-right">Tokens</span>
+				<span class="text-right">Cost</span>
 				<span class="text-right">Sessions</span>
 				<span class="text-right">Reqs</span>
 			</div>
@@ -143,7 +150,7 @@ const hasData = $derived(
 			<div class="mt-0">
 				{#each currentRows as row, i (row.rank)}
 					<div
-						class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 transition-all duration-300 ease-out"
+						class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 transition-all duration-300 ease-out"
 						class:row-top={row.rank <= 3}
 						class:row-data={row.rank > 3}
 						style="--row-index: {i}; animation: rowFadeIn 0.35s ease-out both; animation-delay: {i * 35}ms;"
@@ -177,6 +184,13 @@ const hasData = $derived(
 						<div class="flex items-center justify-end py-2 sm:py-3">
 							<span class="text-[13px] text-text-primary font-mono tabular-nums">
 								{formatNumber(row.totalTokens)}
+							</span>
+						</div>
+
+						<!-- Cost -->
+						<div class="flex items-center justify-end py-2 sm:py-3">
+							<span class="text-[13px] text-text-secondary font-mono tabular-nums">
+								{formatCost(row.costTotal)}
 							</span>
 						</div>
 

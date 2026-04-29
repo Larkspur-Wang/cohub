@@ -753,9 +753,9 @@ function formatTokenCount(n: number): string {
 	return String(n);
 }
 function formatCost(n: number): string {
-	if (n >= 1) return `${n.toFixed(2)}`;
-	if (n >= 0.01) return `${n.toFixed(3)}`;
-	return `${n.toFixed(4)}`;
+	const formatted =
+		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
+	return `${formatted}`;
 }
 function maskEnvValue(value: string): string {
 	if (!value) return "(empty)";
@@ -5010,18 +5010,22 @@ $effect(() => {
                 <span>More</span>
               </div>
               <!-- Summary stats -->
-              <div class="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-border-subtle">
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-border-subtle">
                 <div class="text-center">
                   <div class="text-[16px] font-semibold text-text-primary tabular-nums">{tokenUsage.summary.requestCount}</div>
                   <div class="text-[11px] text-text-tertiary mt-0.5">Requests</div>
                 </div>
                 <div class="text-center">
                   <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.inputTokens)}</div>
-                  <div class="text-[11px] text-text-tertiary mt-0.5">Input tokens</div>
+                  <div class="text-[11px] text-text-tertiary mt-0.5">Input</div>
                 </div>
                 <div class="text-center">
                   <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.outputTokens)}</div>
-                  <div class="text-[11px] text-text-tertiary mt-0.5">Output tokens</div>
+                  <div class="text-[11px] text-text-tertiary mt-0.5">Output</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatCost(tokenUsage.summary.costTotal)}</div>
+                  <div class="text-[11px] text-text-tertiary mt-0.5">Cost</div>
                 </div>
               </div>
             {:else}

@@ -3,6 +3,7 @@ import { PUBLIC_API_ORIGIN } from "$env/static/public";
 export type TrendingRow = {
 	rank: number;
 	totalTokens: number;
+	costTotal: number;
 	sessionCount: number;
 	requestCount: number;
 };
