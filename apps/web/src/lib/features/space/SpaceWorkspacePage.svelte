@@ -741,33 +741,82 @@ function cancelEnvEdit() {
 }
 function parseEnvImport(input: string): SpaceEnvInput[] {
 	const entries: SpaceEnvInput[] = [];
-	for (const rawLine of input.split(/\r?\n/)) {
-		let line = rawLine.trim();
+	const lines = input.split(/\r?\n/);
+
+	for (let index = 0; index < lines.length; index += 1) {
+		let line = lines[index].trim();
 		if (!line || line.startsWith("#")) continue;
 		if (line.startsWith("export ")) line = line.slice(7).trimStart();
-		const equalsIndex = line.indexOf("=");
-		if (equalsIndex <= 0) continue;
-		const name = line.slice(0, equalsIndex).trim();
-		let value = line.slice(equalsIndex + 1).trim();
+
+		const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/s);
+		if (!match) continue;
+
+		const name = match[1];
+		let value = match[2] ?? "";
 		const quote = value[0];
-		if (
-			(quote === '"' || quote === "'") &&
-			value.length >= 2 &&
-			value[value.length - 1] === quote
-		) {
-			value = value.slice(1, -1);
-			if (quote === '"') {
-				value = value
-					.replace(/\\n/g, "\n")
-					.replace(/\\r/g, "\r")
-					.replace(/\\t/g, "\t")
-					.replace(/\\"/g, '"')
-					.replace(/\\\\/g, "\\");
+
+		if (quote === '"' || quote === "'") {
+			let quoted = value;
+			while (!hasClosingEnvQuote(quoted, quote) && index < lines.length - 1) {
+				index += 1;
+				quoted += `\n${lines[index]}`;
 			}
+			value = unquoteEnvValue(quoted, quote);
+		} else {
+			value = stripEnvInlineComment(value).trimEnd();
 		}
+
 		entries.push({ name, value });
 	}
 	return entries;
+}
+
+function hasClosingEnvQuote(value: string, quote: string): boolean {
+	for (let index = value.length - 1; index > 0; index -= 1) {
+		const char = value[index];
+		if (char === " " || char === "\t") continue;
+		if (char === quote && (quote === "'" || !isEscaped(value, index)))
+			return true;
+		return false;
+	}
+	return false;
+}
+
+function unquoteEnvValue(value: string, quote: string): string {
+	let endIndex = value.length - 1;
+	while (endIndex > 0 && /\s/.test(value[endIndex])) endIndex -= 1;
+	if (
+		value[endIndex] === quote &&
+		(quote === "'" || !isEscaped(value, endIndex))
+	) {
+		value = value.slice(1, endIndex);
+	} else {
+		value = value.slice(1);
+	}
+	if (quote !== '"') return value;
+	return value
+		.replace(/\\n/g, "\n")
+		.replace(/\\r/g, "\r")
+		.replace(/\\t/g, "\t")
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, "\\");
+}
+
+function stripEnvInlineComment(value: string): string {
+	const commentIndex = value.search(/\s#/);
+	return commentIndex >= 0 ? value.slice(0, commentIndex) : value;
+}
+
+function isEscaped(value: string, index: number): boolean {
+	let slashCount = 0;
+	for (
+		let cursor = index - 1;
+		cursor >= 0 && value[cursor] === "\\";
+		cursor -= 1
+	) {
+		slashCount += 1;
+	}
+	return slashCount % 2 === 1;
 }
 async function loadSpaceEnv() {
 	spaceEnvLoading = true;
@@ -5168,7 +5217,7 @@ $effect(() => {
                   <textarea
                     bind:value={envImportInput}
                     rows="6"
-                    placeholder={'OPENAI_API_KEY=sk-...\nNODE_ENV=production'}
+                    placeholder={'OPENAI_API_KEY=sk-...\nDATABASE_URL="postgres://user:p=a=s=s@host/db"\nNODE_ENV=production'}
                     autocapitalize="off"
                     spellcheck="false"
                     class="w-full min-h-[120px] px-2.5 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono resize-y"
