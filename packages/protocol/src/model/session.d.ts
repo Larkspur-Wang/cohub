@@ -1,5 +1,19 @@
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
+export type {
+  MessageToolCallsFile,
+  SessionTurnIntent,
+  SessionTurnIntermediateIndex,
+  SessionTurnIntermediateSummary,
+  SessionTurnRecord,
+  SessionTurnStatus,
+  SessionTurnSummary,
+  StoredIntermediateMessage,
+  StoredIntermediateMessageToolCallSummary,
+  StoredToolCall,
+  TurnIntermediateMessagesFile,
+} from "./turn.js";
+
 export type SessionPromptInput = {
     spaceId: string;
     sessionId: string;

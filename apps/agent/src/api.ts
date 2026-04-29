@@ -440,10 +440,25 @@ export async function getSpace(input: { spaceId: string }) {
   } | null>;
 }
 
+export async function interruptSessionTurn(input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  interruptedByTurnId: string;
+}) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/turns/${input.turnId}/interrupt`;
+  return postJsonWithRetry({
+    url,
+    body: { interruptedByTurnId: input.interruptedByTurnId },
+    errorPrefix: "Interrupt session turn failed",
+  });
+}
+
 export async function persistUserMessage(input: {
   spaceId: string;
   sessionId: string;
   userMessageId: string;
+  turnId?: string | null;
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 }) {
@@ -462,6 +477,7 @@ export async function persistUserMessage(input: {
       content: input.content,
       meta: {
         ...(input.meta ?? {}),
+        turnId: input.turnId ?? (typeof input.meta?.turnId === "string" ? input.meta.turnId : null),
         messageId: input.userMessageId,
         clientMessageId: typeof input.meta?.clientMessageId === "string" ? input.meta.clientMessageId : null,
       },
@@ -495,6 +511,7 @@ export async function persistAssistantMessage(input: {
   userMessageId: string;
   event: Record<string, unknown>;
   userId?: string | null;
+  turnId?: string | null;
 }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults)
@@ -541,6 +558,7 @@ export async function persistAssistantMessage(input: {
       stopReason,
       errorMessage,
       meta: {
+        turnId: input.turnId ?? null,
         spaceId: input.spaceId,
         sessionId: input.spaceSessionId,
         rawStopReason: stopReason,

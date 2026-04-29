@@ -17,6 +17,7 @@ import {
   updateSpaceStatus,
   SandboxNotReadyError,
 } from "../../space-sessions.js";
+import { interruptSessionTurn } from "../../session-turns.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import {
@@ -282,6 +283,27 @@ router.post("/:spaceId/sessions/:sessionId/messages", async (c) => {
   });
 
   return c.json({ ok: true, message: messageNode });
+});
+
+// POST /internal/spaces/:spaceId/sessions/:sessionId/turns/:turnId/interrupt
+router.post("/:spaceId/sessions/:sessionId/turns/:turnId/interrupt", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("spaceId");
+  const sessionId = c.req.param("sessionId");
+  const turnId = c.req.param("turnId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId) || !requireValidId(turnId)) return c.json({ message: "turn not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
+
+  const body = await c.req.json<{ interruptedByTurnId?: string | null }>().catch(() => null);
+  const interruptedByTurnId = body?.interruptedByTurnId?.trim();
+  if (!interruptedByTurnId || !requireValidId(interruptedByTurnId)) return c.json({ message: "interruptedByTurnId is required" }, 400);
+
+  const turn = await interruptSessionTurn({ spaceId, sessionId, turnId, interruptedByTurnId });
+  return c.json({ ok: true, turn });
 });
 
 // POST /internal/spaces/:spaceId/sessions/:sessionId/prompt

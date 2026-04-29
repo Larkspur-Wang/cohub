@@ -13,6 +13,7 @@ import {
   summarizeMessageForHistory,
   markMessageAsFull,
 } from "../space-sessions.js";
+import { createSignedTurnUrls, createSessionTurn, failSessionTurn, getSessionTurnById, listSessionTurns } from "../session-turns.js";
 import { expandPromptTemplate } from "../prompt-templates.js";
 
 const router = new Hono();
@@ -57,6 +58,88 @@ router.patch("/:id", async (c) => {
 
   const refreshed = await getSpaceSessionById(sessionId);
   return c.json({ session: refreshed ?? session });
+});
+
+router.get("/:id/turns", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const cursorParam = c.req.query("cursor");
+  let cursor = cursorParam ? Number(cursorParam) : undefined;
+  if (cursor !== undefined && (!Number.isFinite(cursor) || cursor < 1)) return c.json({ message: "invalid cursor" }, 400);
+  cursor = cursor === undefined ? undefined : Math.floor(cursor);
+  const rawLimit = Number(c.req.query("limit") ?? 30);
+  if (!Number.isFinite(rawLimit)) return c.json({ message: "invalid limit" }, 400);
+  const pageLimit = Math.min(Math.max(Math.floor(rawLimit), 1), 100);
+  const directionParam = c.req.query("direction") ?? "older";
+  if (directionParam !== "older" && directionParam !== "newer") return c.json({ message: "invalid direction" }, 400);
+  const direction = directionParam;
+  const fetchLimit = Math.min(pageLimit + 1, 101);
+  const rows = await listSessionTurns(session.id, { cursor, limit: fetchLimit, direction });
+  const hasMore = rows.length > pageLimit;
+  const turns = hasMore ? (direction === "newer" ? rows.slice(0, -1) : rows.slice(1)) : rows;
+  return c.json({
+    session,
+    turns,
+    hasMore,
+    nextCursor: turns.length > 0
+      ? direction === "older"
+        ? (turns[0]?.sequence ?? 0) - 1
+        : (turns[turns.length - 1]?.sequence ?? 0)
+      : undefined,
+  });
+});
+
+router.get("/:id/turns/:turnId", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  const turnId = c.req.param("turnId");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  if (!turnId || !requireValidId(turnId)) return c.json({ message: "turn not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const turn = await getSessionTurnById(session.id, turnId);
+  if (!turn) return c.json({ message: "turn not found" }, 404);
+  return c.json({ session, turn });
+});
+
+router.post("/:id/turns/:turnId/signed-urls", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  const turnId = c.req.param("turnId");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  if (!turnId || !requireValidId(turnId)) return c.json({ message: "turn not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+  const turn = await getSessionTurnById(session.id, turnId);
+  if (!turn) return c.json({ message: "turn not found" }, 404);
+
+  const body = await c.req.json<{ objectKeys?: string[] }>().catch(() => null);
+  const objectKeys = Array.isArray(body?.objectKeys) ? body.objectKeys.filter((key): key is string => typeof key === "string") : [];
+  if (objectKeys.length === 0 || objectKeys.length > 50) return c.json({ message: "objectKeys is required" }, 400);
+  let urls: Awaited<ReturnType<typeof createSignedTurnUrls>>;
+  try {
+    urls = await createSignedTurnUrls({ spaceId: session.spaceId, sessionId: session.id, turnId, objectKeys });
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "invalid object key" }, 400);
+  }
+  return c.json({ urls });
 });
 
 router.get("/:id/messages", async (c) => {
@@ -158,6 +241,7 @@ router.post("/:id/messages", async (c) => {
   }
 
   const userMessageId = crypto.randomUUID();
+  const turnId = crypto.randomUUID();
 
   let content = body.content;
   let promptTemplateMeta: Record<string, unknown> | null = null;
@@ -184,14 +268,31 @@ router.post("/:id/messages", async (c) => {
   }
 
   try {
+    await createSessionTurn({
+      id: turnId,
+      sessionId: session.id,
+      userUuid: user?.uuid ?? null,
+      userContent: content,
+      intent: "steer",
+      meta: {
+        source: "web",
+        model: body.model ?? null,
+        provider: body.provider ?? null,
+        promptTemplate: promptTemplateMeta,
+        authorUuid: user?.uuid ?? null,
+        authorName: (user?.nick_name as string | undefined) ?? null,
+        authorAvatar: (user?.avatar_url as string | undefined) ?? null,
+      },
+    });
     await enqueueSpacePrompt({
       spaceId: space.id,
       sessionId: session.id,
       userMessageId,
       content,
       meta: {
-        intent: "continue",
+        intent: "steer",
         source: "web",
+        turnId,
         model: body.model ?? null,
         provider: body.provider ?? null,
         promptTemplate: promptTemplateMeta,
@@ -203,13 +304,18 @@ router.post("/:id/messages", async (c) => {
       },
     });
   } catch (error) {
+    await failSessionTurn({
+      sessionId: session.id,
+      turnId,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }).catch(() => undefined);
     if (error instanceof SandboxNotReadyError) {
       return c.json({ message: "sandbox is not ready" }, 503);
     }
     throw error;
   }
 
-  return c.json({ ok: true, userMessageId });
+  return c.json({ ok: true, userMessageId, turnId });
 });
 
 export default router;

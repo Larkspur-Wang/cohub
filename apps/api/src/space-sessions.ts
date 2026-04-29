@@ -18,6 +18,7 @@ import {
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs } from "./session-output.js";
+import { finalizeSessionTurnFromMessage } from "./session-turns.js";
 import { createExecutionGrant } from "./execution-grants.js";
 
 export class SandboxNotReadyError extends Error {
@@ -27,7 +28,7 @@ export class SandboxNotReadyError extends Error {
   }
 }
 
-const deriveMessagePreviewText = (input: { role?: string | null; content: ContentBlock[] }): string => {
+export const deriveMessagePreviewText = (input: { role?: string | null; content: ContentBlock[] }): string => {
   return input.content
     .flatMap((block) => {
       switch (block.type) {
@@ -45,7 +46,7 @@ const deriveMessagePreviewText = (input: { role?: string | null; content: Conten
     .trim();
 };
 
-const extractPlainText = (blocks: ContentBlock[]): string => {
+export const extractPlainText = (blocks: ContentBlock[]): string => {
   return blocks
     .flatMap((block) => {
       switch (block.type) {
@@ -530,6 +531,27 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   }
 
   await updateSessionAfterAppend(input.sessionId, messageNode);
+
+  if (messageRole === "assistant") {
+    const turnId = typeof (input.message.meta as Record<string, unknown> | null | undefined)?.turnId === "string"
+      ? ((input.message.meta as Record<string, unknown>).turnId as string)
+      : null;
+    if (turnId && (messageKind === "assistant_final" || messageKind === "assistant_error")) {
+      await finalizeSessionTurnFromMessage({
+        spaceId: session.spaceId,
+        sessionId: input.sessionId,
+        turnId,
+        status: messageKind === "assistant_error" ? "failed" : "completed",
+        assistantContent: content,
+        assistantText: text,
+        provider: input.message.provider ?? null,
+        model: input.message.model ?? null,
+        stopReason: input.message.stopReason ?? null,
+        errorMessage: input.message.errorMessage ?? null,
+        usage: normalizedUsage,
+      }).catch((error) => console.warn("[SessionTurn] failed to finalize turn", error));
+    }
+  }
 
   const realtimeMessage = {
     ...messageNode,

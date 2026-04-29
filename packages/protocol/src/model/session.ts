@@ -1,6 +1,20 @@
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
 
+export type {
+  MessageToolCallsFile,
+  SessionTurnIntent,
+  SessionTurnIntermediateIndex,
+  SessionTurnIntermediateSummary,
+  SessionTurnRecord,
+  SessionTurnStatus,
+  SessionTurnSummary,
+  StoredIntermediateMessage,
+  StoredIntermediateMessageToolCallSummary,
+  StoredToolCall,
+  TurnIntermediateMessagesFile,
+} from "./turn.js";
+
 export type SessionPromptInput = {
   spaceId: string;
   sessionId: string;
@@ -10,9 +24,10 @@ export type SessionPromptInput = {
   };
   meta?: {
     source?: string;
-    intent?: "auto" | "continue" | "new_session" | "fork";
+    intent?: "auto" | "continue" | "new_session" | "fork" | "steer" | "followup";
     model?: string;
     provider?: string;
+    turnId?: string;
   } | null;
 };
 

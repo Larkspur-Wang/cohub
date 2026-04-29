@@ -20,13 +20,15 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@cohub/auth": "workspace:*",
-    "@neta-art/cohub-protocol": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1038.0",
     "@cohub/agent-sandbox-protocol": "workspace:*",
+    "@cohub/auth": "workspace:*",
+    "@cohub/config-runtime": "workspace:*",
     "@cohub/tracing": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@hono/otel": "^1.1.0",
     "@kubernetes/client-node": "^1.4.0",
+    "@neta-art/cohub-protocol": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.203.0",
     "@opentelemetry/instrumentation": "^0.215.0",
@@ -43,8 +45,7 @@
     "drizzle-orm": "^0.45.2",
     "hono": "4.12.14",
     "ioredis": "^5.10.1",
-    "postgres": "^3.4.9",
-    "@cohub/config-runtime": "workspace:*"
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",

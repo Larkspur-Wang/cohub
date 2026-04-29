@@ -18,6 +18,12 @@ export type AppConfig = {
   spaceStoragePvc: string;
   spaceStorageSubpath: string;
   platformConfigRoot: string;
+  turnObjectS3Endpoint?: string;
+  turnObjectS3Region: string;
+  turnObjectS3Bucket?: string;
+  turnObjectS3AccessKeyId?: string;
+  turnObjectS3SecretAccessKey?: string;
+  turnObjectCdnBaseUrl: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
@@ -54,6 +60,12 @@ export const config: AppConfig = {
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
+  turnObjectS3Endpoint: process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
+  turnObjectS3Region: process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
+  turnObjectS3Bucket: process.env.TURN_OBJECT_S3_BUCKET ?? "cohub-sessions",
+  turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
+  turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
+  turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);

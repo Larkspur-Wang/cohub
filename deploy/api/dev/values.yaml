@@ -43,6 +43,10 @@ SPACE_STORAGE_ROOT: "/space-storage"
 SPACE_STORAGE_PVC: "cohub-spaces-pvc"
 SPACE_STORAGE_SUBPATH: "workspaces/dev"
 PLATFORM_CONFIG_ROOT: "/configs"
+TURN_OBJECT_S3_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"
+TURN_OBJECT_S3_REGION: "us-west-1"
+TURN_OBJECT_S3_BUCKET: "cohub-sessions"
+TURN_OBJECT_CDN_BASE_URL: "https://sessions.cohub.run"
 CONFIGS_SUBPATH: "configs/dev"
 
 # ========== 路由配置 ==========

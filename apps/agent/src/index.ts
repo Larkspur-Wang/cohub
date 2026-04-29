@@ -505,6 +505,7 @@ async function main() {
             if (userMessageId) {
               handle.pendingUserMessages.push({
                 userMessageId,
+                turnId: typeof meta?.turnId === "string" ? meta.turnId : null,
                 content,
                 meta: meta ?? null,
               });
@@ -516,7 +517,7 @@ async function main() {
 
             const sessionKey = getSessionKey(inputEntry.spaceId, sessionId);
             const turnSeq = nextTurnSequence(sessionKey);
-            const turnId = randomUUID();
+            const turnId = typeof meta?.turnId === "string" ? meta.turnId : randomUUID();
             const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
             const mode = handle.session.isStreaming ? "steer" : "prompt";
             const text = extractContentText(content);

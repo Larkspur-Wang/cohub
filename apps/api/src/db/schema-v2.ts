@@ -13,6 +13,13 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { TaskPayload } from "@neta-art/cohub-protocol/task";
+import type {
+  SessionTurnIntent,
+  SessionTurnIntermediateIndex,
+  SessionTurnIntermediateSummary,
+  SessionTurnStatus,
+  SessionTurnSummary,
+} from "@neta-art/cohub-protocol/model";
 
 export type SpaceRole = "host" | "builder" | "guest";
 export type AccessPolicyRole = "builder" | "guest" | null;
@@ -285,6 +292,45 @@ export const providerMessageRefs = v2.table(
       table.parentExternalMessageId,
     ),
     spaceChannelIdx: index("v2_idx_provider_message_refs_space_channel").on(table.spaceChannelId),
+  }),
+);
+
+export const sessionTurns = v2.table(
+  "session_turns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").notNull(),
+    userUuid: varchar("user_uuid", { length: 255 }),
+    sequence: integer("sequence").notNull(),
+    status: varchar("status", { length: 20 }).$type<SessionTurnStatus>().notNull().default("running"),
+    intent: varchar("intent", { length: 20 }).$type<SessionTurnIntent>().notNull().default("steer"),
+    userContent: jsonb("user_content").notNull().$type<ContentBlock[]>(),
+    userText: text("user_text"),
+    assistantContent: jsonb("assistant_content").$type<ContentBlock[] | null>(),
+    assistantText: text("assistant_text"),
+    provider: varchar("provider", { length: 100 }),
+    model: varchar("model", { length: 255 }),
+    stopReason: varchar("stop_reason", { length: 50 }),
+    errorMessage: text("error_message"),
+    usage: jsonb("usage").$type<import("@neta-art/cohub-protocol").Usage | null>(),
+    summary: jsonb("summary").$type<SessionTurnSummary | null>(),
+    intermediateIndex: jsonb("intermediate_index").$type<SessionTurnIntermediateIndex | null>(),
+    intermediateSummary: jsonb("intermediate_summary").$type<SessionTurnIntermediateSummary | null>(),
+    meta: jsonb("meta"),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    sessionIdx: index("v2_idx_session_turns_session_id").on(table.sessionId),
+    sessionSequenceUniqueIdx: uniqueIndex("v2_uq_session_turns_session_sequence").on(
+      table.sessionId,
+      table.sequence,
+    ),
+    userUuidIdx: index("v2_idx_session_turns_user_uuid").on(table.userUuid),
+    statusIdx: index("v2_idx_session_turns_status").on(table.status),
+    createdAtIdx: index("v2_idx_session_turns_created_at").on(table.createdAt),
   }),
 );
 

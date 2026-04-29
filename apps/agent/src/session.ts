@@ -2,7 +2,7 @@ import { existsSync, renameSync } from "node:fs";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession } from "./api.js";
+import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession, interruptSessionTurn } from "./api.js";
 import { sendOutput } from "./redis.js";
 import { getAgentTracer } from "@cohub/tracing/agent";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
@@ -27,6 +27,7 @@ import {
 
 export type PendingUserMessage = {
   userMessageId: string;
+  turnId?: string | null;
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 };
@@ -375,8 +376,19 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         "message.role": typeof message.role === "string" ? message.role : undefined,
       });
       if (message.role === "user") {
+        const previousTurnId = handle.currentTurnId;
         const pending = handle.pendingUserMessages.shift();
         if (pending) {
+          const nextTurnId = pending.turnId ?? (typeof pending.meta?.turnId === "string" ? pending.meta.turnId : null);
+          if (previousTurnId && nextTurnId && previousTurnId !== nextTurnId) {
+            void interruptSessionTurn({
+              spaceId: handle.spaceId,
+              sessionId: handle.sessionId,
+              turnId: previousTurnId,
+              interruptedByTurnId: nextTurnId,
+            }).catch((error) => console.warn("[SessionTurn] failed to interrupt previous turn", error));
+          }
+          handle.currentTurnId = nextTurnId;
           handle.currentUserMessageId = pending.userMessageId;
           handle.currentUserMessageContent = pending.content;
           handle.currentUserMessageMeta = pending.meta ?? null;
@@ -437,6 +449,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
               spaceId: handle.spaceId,
               sessionId: handle.sessionId,
               userMessageId,
+              turnId: typeof meta?.turnId === "string" ? meta.turnId : handle.currentTurnId ?? null,
               content,
               meta,
             });
@@ -524,6 +537,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             userMessageId: currentUserMessageId,
             event: enrichedEvent as Record<string, unknown>,
             userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.actorUserId as string | null | undefined) ?? null,
+            turnId: typeof handle.currentUserMessageMeta?.turnId === "string" ? handle.currentUserMessageMeta.turnId : handle.currentTurnId ?? null,
           });
         } catch (error) {
           if (error instanceof Error) span.recordException(error);
