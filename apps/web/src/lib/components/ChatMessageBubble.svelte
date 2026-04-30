@@ -1,10 +1,7 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { Check, Copy } from "lucide-svelte";
-import { tick } from "svelte";
-import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
-import ToolCallList from "$lib/components/ToolCallList.svelte";
-import { renderMarkdown } from "$lib/markdown";
+import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
 type ModelCatalogItem = {
@@ -21,8 +18,6 @@ type Props = {
 	showToolCalls?: boolean;
 };
 
-type ImageBlock = Extract<ContentBlock, { type: "image" }>;
-
 const {
 	message,
 	modelsCatalog,
@@ -30,7 +25,8 @@ const {
 	onMarkdownRendered,
 	showToolCalls = true,
 }: Props = $props();
-let renderedHtml = $state("");
+let pendingMarkdownSegments = $state(0);
+let markdownStartedForSignature = $state("");
 
 // Thinking state: track user manual toggle to avoid overriding
 let thinkingExpanded = $state(false);
@@ -51,57 +47,26 @@ $effect(() => {
 	}
 });
 
-// Extract thinking blocks and text blocks separately
-const thinkingContent = $derived(
-	message.content
-		?.filter((block) => block.type === "thinking")
-		.map((block) => (block.type === "thinking" ? block.thinking : ""))
-		.join("\n\n")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim() || "",
-);
-
-const imageBlocks = $derived(
-	(message.content?.filter(
-		(block) => block.type === "image",
-	) as ImageBlock[]) ?? [],
-);
-
-function getImagePreviewSrc(block: ImageBlock): string {
-	if (block.source.type === "url") return block.source.url;
-	return `data:${block.source.media_type};base64,${block.source.data}`;
-}
-
-function getImageAlt(block: ImageBlock, index: number): string {
-	return String(block._meta?.filename ?? `attachment-${index + 1}`);
-}
-
-// Thinking truncation: JS-based since line-clamp conflicts with whitespace-pre-wrap
-const THINKING_COLLAPSE_CHARS = 260;
-const thinkingNeedsTruncation = $derived(
-	thinkingContent.length > THINKING_COLLAPSE_CHARS ||
-		(message.content?.some(
-			(block) => block.type === "thinking" && block._meta?.truncated === true,
-		) ??
-			false),
-);
-function getThinkingDisplay(expanded: boolean): string {
-	if (expanded || !thinkingNeedsTruncation) return thinkingContent;
-	const truncated = thinkingContent.slice(0, THINKING_COLLAPSE_CHARS);
-	// Prefer cutting at last newline for cleaner truncation
-	const lastNewline = truncated.lastIndexOf("\n");
-	return lastNewline > THINKING_COLLAPSE_CHARS * 0.5
-		? truncated.slice(0, lastNewline)
-		: `${truncated}…`;
-}
-
-const textContent = $derived(
-	message.content
-		?.filter((block) => block.type === "text")
+const textSignature = $derived(
+	(message.content ?? [])
+		.filter((block) => block.type === "text")
 		.map((block) => (block.type === "text" ? block.text : ""))
-		.join("\n\n")
-		.trim() || "",
+		.join("\n\n"),
 );
+
+function handleMarkdownSegmentRendered() {
+	pendingMarkdownSegments = Math.max(0, pendingMarkdownSegments - 1);
+	if (pendingMarkdownSegments === 0) onMarkdownRendered?.(message);
+}
+
+function handleMarkdownSegmentStart() {
+	if (markdownStartedForSignature !== textSignature) {
+		markdownStartedForSignature = textSignature;
+		pendingMarkdownSegments = 0;
+		onMarkdownRenderStart?.(message);
+	}
+	pendingMarkdownSegments += 1;
+}
 
 const assistantErrorMessage = $derived(
 	message.role === "assistant" &&
@@ -117,84 +82,10 @@ const assistantErrorMessage = $derived(
 
 const isUserMessage = $derived(message.role === "user");
 
-$effect(() => {
-	if (isUserMessage) {
-		renderedHtml = "";
-		return;
-	}
-	let cancelled = false;
-
-	const markdownSource =
-		textContent || (message.content?.length ? "" : message.text);
-
-	let settled = false;
-	const settleMarkdownRender = () => {
-		if (settled) return;
-		settled = true;
-		onMarkdownRendered?.(message);
-	};
-	onMarkdownRenderStart?.(message);
-	void renderMarkdown(markdownSource)
-		.then(async (html) => {
-			if (cancelled) {
-				settleMarkdownRender();
-				return;
-			}
-			renderedHtml = html;
-			await tick();
-			requestAnimationFrame(settleMarkdownRender);
-		})
-		.catch(settleMarkdownRender);
-
-	return () => {
-		cancelled = true;
-		settleMarkdownRender();
-	};
-});
-
 function toggleThinking() {
 	thinkingExpanded = !thinkingExpanded;
 	thinkingUserToggled = true;
 }
-
-// ─── Markdown container ref for media event delegation ───
-let markdownEl = $state<HTMLElement | null>(null);
-
-$effect(() => {
-	const el = markdownEl;
-	if (!el) return;
-
-	function onClick(e: Event) {
-		const target = e.target as HTMLElement;
-		if (target.tagName === "IMG") {
-			e.preventDefault();
-			e.stopPropagation();
-			const img = target as HTMLImageElement;
-			mediaLightbox.show({
-				src: img.src,
-				type: "image" as const,
-				alt: img.alt,
-			});
-		} else if (
-			target.tagName === "VIDEO" ||
-			(target.tagName === "SOURCE" && target.parentElement?.tagName === "VIDEO")
-		) {
-			e.preventDefault();
-			e.stopPropagation();
-			const video =
-				target.tagName === "VIDEO"
-					? (target as HTMLVideoElement)
-					: (target.parentElement as HTMLVideoElement);
-			mediaLightbox.show({
-				src: video.src || (video.querySelector("source")?.src ?? ""),
-				type: "video" as const,
-			});
-		}
-	}
-
-	el.addEventListener("click", onClick);
-	return () => el.removeEventListener("click", onClick);
-});
 
 // ─── Meta bar: time, model, tokens, copy ───
 
@@ -324,28 +215,13 @@ function handleCopy() {
 </script>
 
 {#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
-  {#if thinkingContent}
-    <div>
-      <div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
-        {getThinkingDisplay(thinkingExpanded)}
-        {#if isStreaming}
-          <div class="mt-1 inline-flex items-center gap-1.5 text-[11px] text-text-placeholder">
-            <span class="w-1.5 h-1.5 rounded-full bg-status-starting animate-pulse"></span>
-            thinking
-          </div>
-        {/if}
-      </div>
-      {#if !isStreaming && thinkingNeedsTruncation}
-        <button
-          type="button"
-          class="mt-1 inline-flex items-center gap-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
-          onclick={toggleThinking}
-        >
-          <span>{thinkingExpanded ? 'Show less' : '… more'}</span>
-        </button>
-      {/if}
-    </div>
-  {/if}
+  <MessageContentFlow
+    content={message.content ?? []}
+    {thinkingExpanded}
+    {isStreaming}
+    showToolCalls={false}
+    onToggleThinking={toggleThinking}
+  />
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
     {#if message.role === 'user' && message.authorName}
@@ -362,56 +238,17 @@ function handleCopy() {
     {/if}
     <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary border border-status-error/30 rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
 
-      {#if thinkingContent}
-        <div class="mb-3">
-          <div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
-            {getThinkingDisplay(thinkingExpanded)}
-          </div>
-          {#if thinkingNeedsTruncation}
-            <button
-              type="button"
-              class="mt-1 inline-flex items-center gap-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
-              onclick={toggleThinking}
-            >
-              <span>{thinkingExpanded ? 'Show less' : '… more'}</span>
-            </button>
-          {/if}
-        </div>
-      {/if}
-
-      {#if imageBlocks.length > 0}
-        <div class="mb-3 grid grid-cols-2 gap-2 max-w-md">
-          {#each imageBlocks as block, index}
-            <button
-              type="button"
-              class="group overflow-hidden rounded-2xl border border-border-subtle bg-bg-content p-0 cursor-zoom-in"
-              onclick={() => {
-                const gallery = imageBlocks.map((b, i) => ({
-                  src: getImagePreviewSrc(b),
-                  type: "image" as const,
-                  alt: getImageAlt(b, i),
-                }));
-                mediaLightbox.show(gallery, index);
-              }}
-            >
-              <img src={getImagePreviewSrc(block)} alt={getImageAlt(block, index)} class="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      {#if isUserMessage}
-        <div class="whitespace-pre-wrap break-words text-inherit">
-          {textContent || (message.content?.length ? "" : message.text)}
-        </div>
-      {:else}
-        <div
-          bind:this={markdownEl}
-          class="prose prose-sm prose-invert max-w-none text-inherit"
-        >
-          {@html renderedHtml}
-        </div>
-      {/if}
+      <MessageContentFlow
+        content={message.content?.length ? message.content : [{ type: 'text', text: message.text }]}
+        {isUserMessage}
+        {thinkingExpanded}
+        {isStreaming}
+        {showToolCalls}
+        onToggleThinking={toggleThinking}
+        onMarkdownSegmentRendered={handleMarkdownSegmentRendered}
+        onMarkdownSegmentStart={handleMarkdownSegmentStart}
+        onLoadToolCalls={message.toolCallsLoader ?? undefined}
+      />
 
       {#if assistantErrorMessage}
         <div class="mt-3 rounded-lg border border-status-error/30 bg-status-error/8 px-3 py-2 text-[12px] text-status-error whitespace-pre-wrap break-words">
@@ -420,9 +257,6 @@ function handleCopy() {
         </div>
       {/if}
 
-      {#if showToolCalls}
-        <ToolCallList content={message.content ?? []} onLoadToolCalls={message.toolCallsLoader ?? undefined} />
-      {/if}
 
       {#if message.role === 'assistant' && (message.meta?.model || shortTime)}
         <!-- Meta bar: copy | model | tokens | time -->
