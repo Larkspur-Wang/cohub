@@ -4,8 +4,7 @@
  *
  * 验证目标:
  *  1. WS 流式事件: session.turn.progress 中 tool_use/tool_result delta
- *  2. WS 完成事件: session.turn.final 包含完整 content
- *  3. WS 持久化事件: session.message.persisted 消息验证
+ *  2. WS 持久化事件: session.message.persisted 消息验证
  *  4. DB 持久化: session_messages.content 中 tool_use/tool_result 块完整性
  *  5. DB 持久化: meta.toolCallRenderStates / meta.messageKind 正确性
  *  6. 消息序列: user → assistant 的 sequence 连续性
@@ -202,15 +201,14 @@ interface WsSessionEvent {
 // ── WebSocket 采集器 ──────────────────────────────────────────────────────────
 
 /**
- * 连接 Gateway WS, 发送消息, 采集所有 session 事件直到 turnFinal
+ * 连接 Gateway WS, 发送消息, 采集所有 session 事件直到 assistant final persisted
  *
  * WS 协议完整事件流:
  *  1. system.ready           → 连接建立
  *  2. system.auth.ok         → 鉴权成功
  *  3. session.request.accepted → 消息已接受
  *  4. session.turn.progress  → 流式推送 (agent 的 stream_update 经 API 转换)
- *  5. session.message.persisted → 消息已持久化
- *  6. session.turn.final     → 本轮完成
+ *  5. session.message.persisted → 消息已持久化 / assistant_final 表示本轮完成
  */
 async function collectWsToolCallEvents(params: {
   spaceId: string;
@@ -223,7 +221,7 @@ async function collectWsToolCallEvents(params: {
   connectionId: string;
   receivedTypes: string[];
   errorMessage?: string;
-  hasTurnFinal: boolean;
+  hasAssistantFinal: boolean;
 }> {
   const { spaceId, sessionId, text, timeoutMs = 180_000 } = params;
   const ws = new WebSocket(config.gatewayWs);
@@ -232,12 +230,12 @@ async function collectWsToolCallEvents(params: {
   let connectionId = "";
   let accepted = false;
   let errorMessage: string | undefined;
-  let hasTurnFinal = false;
+  let hasAssistantFinal = false;
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.close(1000, "timeout");
-      resolve({ accepted, sessionEvents, connectionId, receivedTypes, errorMessage, hasTurnFinal });
+      resolve({ accepted, sessionEvents, connectionId, receivedTypes, errorMessage, hasAssistantFinal });
     }, timeoutMs);
 
     ws.onopen = () => {
@@ -279,11 +277,10 @@ async function collectWsToolCallEvents(params: {
         errorMessage = JSON.stringify(msg.payload);
       }
 
-      // 采集 session 域事件: session.turn.progress / session.message.persisted / session.turn.final
+      // 采集 session 域事件: session.turn.progress / session.message.persisted / session.turn.error
       if (
         msg.type === "session.turn.progress"
         || msg.type === "session.message.persisted"
-        || msg.type === "session.turn.final"
         || msg.type === "session.turn.error"
       ) {
         sessionEvents.push({
@@ -291,8 +288,11 @@ async function collectWsToolCallEvents(params: {
           payload: msg.payload as Record<string, unknown>,
         });
 
-        if (msg.type === "session.turn.final") {
-          hasTurnFinal = true;
+        if (msg.type === "session.message.persisted") {
+          const message = (msg.payload as { message?: MessageRecord } | undefined)?.message;
+          if (message?.role === "assistant" && message.meta?.messageKind === "assistant_final") {
+            hasAssistantFinal = true;
+          }
         }
       }
     };
@@ -385,12 +385,11 @@ async function main() {
 
       wsSessionEvents = result.sessionEvents;
       const progressEvents = wsSessionEvents.filter((e) => e.type === "session.turn.progress");
-      const finalEvents = wsSessionEvents.filter((e) => e.type === "session.turn.final");
       const persistedEvents = wsSessionEvents.filter((e) => e.type === "session.message.persisted");
-      ok("WS 事件统计", `progress=${progressEvents.length}, persisted=${persistedEvents.length}, final=${finalEvents.length}`);
+      ok("WS 事件统计", `progress=${progressEvents.length}, persisted=${persistedEvents.length}`);
 
-      if (result.hasTurnFinal) {
-        ok("turn.final", "收到，本轮对话已完成");
+      if (result.hasAssistantFinal) {
+        ok("assistant_final persisted", "收到，本轮对话已完成");
       }
     } else {
       // WS 未被 accepted，回退到 HTTP 发送
@@ -458,42 +457,21 @@ async function main() {
         }
       });
 
-      await sub("3.2 session.turn.final 包含完整 content", async () => {
-        const finalEvents = wsSessionEvents.filter((e) => e.type === "session.turn.final");
-        if (finalEvents.length === 0) {
-          ok("turn.final", "未收到（可能 agent 尚未完成）");
-          return;
-        }
-        for (const fe of finalEvents.slice(0, 1)) {
-          const content = fe.payload.content as ContentBlock[] | undefined;
-          if (content && content.length > 0) {
-            const types = [...new Set(content.map((b) => b.type))];
-            ok("turn.final content", `块类型: ${types.join(", ")}, 共 ${content.length} 块`);
-            const toolUseCount = content.filter((b) => b.type === "tool_use").length;
-            const toolResultCount = content.filter((b) => b.type === "tool_result").length;
-            const indexedCount = content.filter((b) => typeof (b as { _meta?: Record<string, unknown> })._meta?.streamIndex === "number").length;
-            assert.equal(indexedCount, content.length, "turn.final content block 都应带 _meta.streamIndex");
-            ok("turn.final streamIndex", `全部 ${indexedCount} 个块都带 streamIndex`);
-            if (toolUseCount > 0) {
-              ok("turn.final 中 tool_use", `${toolUseCount} 个`);
-            }
-            if (toolResultCount > 0) {
-              ok("turn.final 中 tool_result", `${toolResultCount} 个`);
-            }
-          }
-        }
-      });
-
-      await sub("3.3 session.message.persisted 消息验证", async () => {
+      await sub("3.2 session.message.persisted 消息验证", async () => {
         const persistedEvents = wsSessionEvents.filter((e) => e.type === "session.message.persisted");
         if (persistedEvents.length === 0) {
           ok("message.persisted", "未收到");
           return;
         }
-        for (const pe of persistedEvents.slice(0, 1)) {
+        for (const pe of persistedEvents.slice(-1)) {
           const msg = pe.payload.message as MessageRecord | undefined;
           if (msg) {
             ok("message.persisted", `role=${msg.role}, sequence=${msg.sequence}`);
+            if (msg.role === "assistant") {
+              assert.equal(msg.meta?.messageKind, "assistant_final", "assistant persisted 应标记 assistant_final");
+              assert.equal(msg.text, null, "WS persisted message 不应重复携带可从 content 推导的 text");
+              assert(!("idempotencyKey" in msg), "WS persisted message 不应暴露 idempotencyKey");
+            }
             const toolUseCount = msg.content?.filter((b) => (b as Record<string, unknown>).type === "tool_use").length ?? 0;
             const toolResultCount = msg.content?.filter((b) => (b as Record<string, unknown>).type === "tool_result").length ?? 0;
             const indexedCount = msg.content?.filter((b) => typeof (b as { _meta?: Record<string, unknown> })._meta?.streamIndex === "number").length ?? 0;

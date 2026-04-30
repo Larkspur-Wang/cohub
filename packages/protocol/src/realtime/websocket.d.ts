@@ -271,20 +271,6 @@ export type SessionTurnProgressEvent = {
         content: ContentBlock[];
     };
 };
-export type SessionTurnFinalEvent = {
-    id: string;
-    timestamp: number;
-    domain: "session";
-    type: "session.turn.final";
-    requestId?: string | null;
-    spaceId: string;
-    sessionId: string;
-    payload: {
-        sessionMessageId: string | null;
-        anchorUserMessageId: string | null;
-        content: ContentBlock[];
-    };
-};
 export type SessionTurnErrorEvent = {
     id: string;
     timestamp: number;
@@ -298,6 +284,7 @@ export type SessionTurnErrorEvent = {
         error: string;
     };
 };
+export type RealtimeMessageRecord = Pick<MessageRecord, "id" | "sessionId" | "role" | "content" | "text" | "sequence" | "provider" | "model" | "stopReason" | "errorMessage" | "usage" | "meta" | "createdAt">;
 export type SessionMessagePersistedEvent = {
     id: string;
     timestamp: number;
@@ -307,9 +294,9 @@ export type SessionMessagePersistedEvent = {
     spaceId: string;
     sessionId: string;
     payload: {
-        message: MessageRecord;
+        message: RealtimeMessageRecord;
     };
 };
-export type RealtimeServerEvent = SystemReadyEvent | SystemAuthOkEvent | SystemRequestErrorEvent | SystemPongEvent | SystemAckOkEvent | SessionRequestAcceptedEvent | SessionRequestErrorEvent | SessionTurnProgressEvent | SessionTurnFinalEvent | SessionTurnErrorEvent | SessionMessagePersistedEvent;
+export type RealtimeServerEvent = SystemReadyEvent | SystemAuthOkEvent | SystemRequestErrorEvent | SystemPongEvent | SystemAckOkEvent | SessionRequestAcceptedEvent | SessionRequestErrorEvent | SessionTurnProgressEvent | SessionTurnErrorEvent | SessionMessagePersistedEvent;
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

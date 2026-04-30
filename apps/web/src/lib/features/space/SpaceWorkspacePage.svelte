@@ -2733,7 +2733,14 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
 			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
 		}
-		if (message.role === "assistant") {
+		const messageKind =
+			typeof message.meta?.messageKind === "string"
+				? message.meta.messageKind
+				: null;
+		const isAssistantTurnTerminal =
+			message.role === "assistant" &&
+			(messageKind === "assistant_final" || messageKind === "assistant_error");
+		if (isAssistantTurnTerminal) {
 			completeGeneration(currentActiveSessionId);
 		}
 		const merged = mergeMessagesById(state.messages, [message], {
@@ -2767,6 +2774,10 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					session: refreshedSession,
 				},
 			};
+		}
+		if (isAssistantTurnTerminal && shouldAutoFollow) {
+			await tick();
+			scrollToBottomNow();
 		}
 	} catch (error) {
 		console.error("[WS] handleWsEvent error:", error);

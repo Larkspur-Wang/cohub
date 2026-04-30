@@ -54,15 +54,6 @@ export function applyGenerationRealtimeEnvelope(
 		};
 	}
 
-	if (payload.type === "session.turn.final") {
-		return {
-			handled: true,
-			shouldScroll: true,
-			shouldReconcile: true,
-			shouldRefreshSessions: true,
-		};
-	}
-
 	return {
 		handled: false,
 		shouldScroll: false,

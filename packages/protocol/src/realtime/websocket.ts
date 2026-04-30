@@ -208,21 +208,6 @@ export type SessionTurnProgressEvent = {
   };
 };
 
-export type SessionTurnFinalEvent = {
-  id: string;
-  timestamp: number;
-  domain: "session";
-  type: "session.turn.final";
-  requestId?: string | null;
-  spaceId: string;
-  sessionId: string;
-  payload: {
-    sessionMessageId: string | null;
-    anchorUserMessageId: string | null;
-    content: ContentBlock[];
-  };
-};
-
 export type SessionTurnErrorEvent = {
   id: string;
   timestamp: number;
@@ -237,6 +222,23 @@ export type SessionTurnErrorEvent = {
   };
 };
 
+export type RealtimeMessageRecord = Pick<
+  MessageRecord,
+  | "id"
+  | "sessionId"
+  | "role"
+  | "content"
+  | "text"
+  | "sequence"
+  | "provider"
+  | "model"
+  | "stopReason"
+  | "errorMessage"
+  | "usage"
+  | "meta"
+  | "createdAt"
+>;
+
 export type SessionMessagePersistedEvent = {
   id: string;
   timestamp: number;
@@ -246,7 +248,7 @@ export type SessionMessagePersistedEvent = {
   spaceId: string;
   sessionId: string;
   payload: {
-    message: MessageRecord;
+    message: RealtimeMessageRecord;
   };
 };
 
@@ -270,7 +272,6 @@ export type RealtimeServerEvent =
   | SessionRequestAcceptedEvent
   | SessionRequestErrorEvent
   | SessionTurnProgressEvent
-  | SessionTurnFinalEvent
   | SessionTurnErrorEvent
   | SessionMessagePersistedEvent
   | SpaceFsChangedEvent;

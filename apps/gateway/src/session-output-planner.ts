@@ -94,7 +94,7 @@ export const buildDiscordDeliveryPlan = async (
   const outbound = config?.outbound ?? {};
   const showThinking = outbound.showThinking === true;
   const showToolCalls = outbound.showToolCalls === true;
-  const isFinalMessage = output?.type === "session.turn.final" || output?.type === "session.message.persisted";
+  const isFinalMessage = output?.type === "session.message.persisted";
   const renderMode = String(cmd.meta?.renderMode ?? (output?.type === "session.turn.progress" ? "rich_status" : "message"));
 
   if (output?.type === "session.turn.error") {
@@ -139,7 +139,7 @@ export const buildDiscordDeliveryPlan = async (
     files: rendered.imageUris,
     replyToExternalMessageId: cmd.replyToExternalMessageId,
     turnAnchorMessageId:
-      (output?.type === "session.turn.progress" || output?.type === "session.turn.final")
+      output?.type === "session.turn.progress"
         ? output.anchorUserMessageId
         : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
     preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,
@@ -195,7 +195,7 @@ export const buildFeishuDeliveryPlan = async (
   config: FeishuChannelConfig | null | undefined,
 ): Promise<Extract<GatewayDeliveryPlan, { adapter: "feishu" }>> => {
   const output = getSessionOutput(cmd);
-  const isFinal = output?.type === "session.turn.final" || output?.type === "session.message.persisted";
+  const isFinal = output?.type === "session.message.persisted";
   const renderMode = (cmd.meta?.renderMode ?? config?.outbound?.renderMode ?? "post") as "card" | "post";
   const showThinking = config?.outbound?.showThinking ?? false;
   const showToolCalls = config?.outbound?.showToolCalls ?? false;
@@ -240,7 +240,7 @@ export const buildFeishuDeliveryPlan = async (
       imagesToUpload,
       replyToExternalMessageId: cmd.replyToExternalMessageId,
       turnAnchorMessageId:
-        (output?.type === "session.turn.progress" || output?.type === "session.turn.final")
+        output?.type === "session.turn.progress"
           ? output.anchorUserMessageId
           : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
       preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,
@@ -261,7 +261,7 @@ export const buildFeishuDeliveryPlan = async (
     imagesToUpload,
     replyToExternalMessageId: cmd.replyToExternalMessageId,
     turnAnchorMessageId:
-      (output?.type === "session.turn.progress" || output?.type === "session.turn.final")
+      output?.type === "session.turn.progress"
         ? output.anchorUserMessageId
         : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
     preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,

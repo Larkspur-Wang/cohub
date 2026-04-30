@@ -48,18 +48,12 @@ export interface GatewayInboundEvent {
     meta?: Record<string, unknown> | null;
 }
 export interface GatewaySessionOutputBase {
-    type: "session.turn.progress" | "session.turn.final" | "session.turn.error" | "session.message.persisted";
+    type: "session.turn.progress" | "session.turn.error" | "session.message.persisted";
     spaceId: string;
     sessionId: string;
 }
 export interface GatewaySessionTurnProgressOutput extends GatewaySessionOutputBase {
     type: "session.turn.progress";
-    anchorUserMessageId: string | null;
-    content: ContentBlock[];
-}
-export interface GatewaySessionTurnFinalOutput extends GatewaySessionOutputBase {
-    type: "session.turn.final";
-    sessionMessageId: string | null;
     anchorUserMessageId: string | null;
     content: ContentBlock[];
 }
@@ -72,7 +66,7 @@ export interface GatewaySessionMessagePersistedOutput extends GatewaySessionOutp
     type: "session.message.persisted";
     message: MessageRecord;
 }
-export type GatewaySessionOutput = GatewaySessionTurnProgressOutput | GatewaySessionTurnFinalOutput | GatewaySessionTurnErrorOutput | GatewaySessionMessagePersistedOutput;
+export type GatewaySessionOutput = GatewaySessionTurnProgressOutput | GatewaySessionTurnErrorOutput | GatewaySessionMessagePersistedOutput;
 export interface GatewayOutboundCommand {
     commandId: string;
     timestamp: number;

@@ -51,8 +51,6 @@ const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventNa
   switch (type) {
     case "session.turn.progress":
       return "turn.progress";
-    case "session.turn.final":
-      return "turn.final";
     case "session.turn.error":
       return "turn.error";
     case "session.message.persisted":
@@ -60,6 +58,17 @@ const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventNa
     default:
       return null;
   }
+};
+
+const isAssistantFinalPersistedEvent = (event: WebsocketEventPayload) => {
+  if (event.type !== "session.message.persisted") return false;
+  const message = event.payload.message;
+  if (!message || typeof message !== "object") return false;
+  const record = message as {
+    role?: unknown;
+    meta?: Record<string, unknown> | null;
+  };
+  return record.role === "assistant" && record.meta?.messageKind === "assistant_final";
 };
 
 export class SpacesApi {
@@ -294,9 +303,9 @@ class SessionRealtimeClient {
       handlers.event?.(event);
       const eventName = toSessionEventName(event.type);
       if (eventName === "turn.progress") handlers.progress?.(event);
-      if (eventName === "turn.final") handlers.final?.(event);
       if (eventName === "turn.error") handlers.error?.(event);
       if (eventName === "message.persisted") handlers.persisted?.(event);
+      if (isAssistantFinalPersistedEvent(event)) handlers.final?.(event);
     });
     return () => unsubscribe();
   }
@@ -304,6 +313,10 @@ class SessionRealtimeClient {
   on(type: SessionEventName, handler: (event: WebsocketEventPayload) => void) {
     return this.subscribe({
       event: (event) => {
+        if (type === "turn.final" && isAssistantFinalPersistedEvent(event)) {
+          handler(event);
+          return;
+        }
         if (toSessionEventName(event.type) === type) handler(event);
       },
     });
@@ -425,6 +438,10 @@ export class SpaceEventsApi {
   on(type: SpaceEventName, handler: (event: WebsocketEventPayload) => void) {
     return this.subscribe((event) => {
       if (type === "event") {
+        handler(event);
+        return;
+      }
+      if (type === "turn.final" && isAssistantFinalPersistedEvent(event)) {
         handler(event);
         return;
       }

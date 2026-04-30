@@ -2,10 +2,46 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 import type { GatewaySessionOutput } from "@neta-art/cohub-protocol/gateway";
-import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import type { RealtimeMessageRecord, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getReadableUserIdsForSpace, getBindingsBySessionId } from "./channels.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
+
+const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
+  if (!meta) return null;
+  const keys = [
+    "messageKind",
+    "clientMessageId",
+    "anchorUserMessageId",
+    "authorUuid",
+    "authorName",
+    "authorAvatar",
+    "contentDetail",
+    "contentPlaceholder",
+    "historySummary",
+  ];
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (meta[key] !== undefined) picked[key] = meta[key];
+  }
+  return Object.keys(picked).length > 0 ? picked : null;
+};
+
+const toRealtimeMessageRecord = (message: MessageRecord): RealtimeMessageRecord => ({
+  id: message.id,
+  sessionId: message.sessionId,
+  role: message.role,
+  content: message.content,
+  text: message.content.length > 0 ? null : message.text,
+  sequence: message.sequence,
+  provider: message.provider,
+  model: message.model,
+  stopReason: message.stopReason,
+  errorMessage: message.errorMessage,
+  usage: message.usage,
+  meta: pickRealtimeMessageMeta(message.meta),
+  createdAt: message.createdAt,
+});
 
 export const buildSessionOutputsForStreamEvent = async (
   event: SessionStreamEvent | SessionStreamError,
@@ -41,21 +77,7 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
     message: input.message,
   }];
 
-  const messageKind = input.message.meta?.messageKind;
-  if (messageKind === "assistant_final") {
-    outputs.push({
-      type: "session.turn.final",
-      spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      sessionMessageId: input.message.id,
-      anchorUserMessageId: typeof input.message.meta?.anchorUserMessageId === "string"
-        ? (input.message.meta.anchorUserMessageId as string)
-        : null,
-      content: input.message.content,
-    });
-  }
-
-  if (messageKind === "assistant_error") {
+  if (input.message.meta?.messageKind === "assistant_error") {
     outputs.push({
       type: "session.turn.error",
       spaceId: input.spaceId,
@@ -89,24 +111,6 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
     return;
   }
 
-  if (output.type === "session.turn.final") {
-    await dispatchRealtimeEventToUsers({
-      id: randomUUID(),
-      timestamp: Date.now(),
-      domain: "session",
-      type: output.type,
-      spaceId: output.spaceId,
-      sessionId: output.sessionId,
-      payload: {
-        sessionMessageId: output.sessionMessageId,
-        anchorUserMessageId: output.anchorUserMessageId,
-        content: output.content,
-        targetUserIds: readableUserIds,
-      },
-    });
-    return;
-  }
-
   if (output.type === "session.turn.error") {
     await dispatchRealtimeEventToUsers({
       id: randomUUID(),
@@ -132,7 +136,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
     spaceId: output.spaceId,
     sessionId: output.sessionId,
     payload: {
-      message: output.message,
+      message: toRealtimeMessageRecord(output.message),
       targetUserIds: readableUserIds,
     },
   });

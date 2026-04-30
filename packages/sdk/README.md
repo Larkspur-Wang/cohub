@@ -97,7 +97,8 @@ You can also listen with business-oriented event names:
 
 ```ts
 session.on("turn.final", (event) => {
-  console.log(event.payload);
+  // Fired when an assistant_final message.persisted event arrives.
+  console.log(event.payload.message);
 });
 
 space.on("message.persisted", (event) => {
