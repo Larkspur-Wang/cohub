@@ -1,8 +1,9 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { Check, ChevronDown, ChevronRight, Copy } from "lucide-svelte";
+import { Check, Copy } from "lucide-svelte";
 import { tick } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
+import ToolCallList from "$lib/components/ToolCallList.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import type { ChatMessage } from "$lib/session-tree";
 
@@ -149,66 +150,10 @@ $effect(() => {
 	};
 });
 
-// Tool call inline helpers
-function summarizeToolInput(
-	name: string,
-	input?: Record<string, unknown>,
-): string {
-	if (!input) return "";
-	if (name === "bash" && typeof input.command === "string") {
-		return `$ ${input.command}`;
-	}
-	if (
-		["read", "write", "edit"].includes(name) &&
-		typeof input.path === "string"
-	) {
-		return input.path;
-	}
-	try {
-		return JSON.stringify(input);
-	} catch {
-		return String(input);
-	}
-}
-
-// Tool expansion state (per tool call id)
-let expandedToolCalls = $state<Set<string>>(new Set());
-
-function toggleToolCall(id: string) {
-	const next = new Set(expandedToolCalls);
-	if (next.has(id)) {
-		next.delete(id);
-	} else {
-		next.add(id);
-	}
-	expandedToolCalls = next;
-}
-
 function toggleThinking() {
 	thinkingExpanded = !thinkingExpanded;
 	thinkingUserToggled = true;
 }
-
-// Find matching tool_result for a tool_use
-function findToolResult(toolUseId: string): ContentBlock | undefined {
-	return message.content?.find(
-		(block) => block.type === "tool_result" && block.tool_use_id === toolUseId,
-	);
-}
-
-// Infer tool status from tool_result presence
-function getToolStatus(toolUseId: string): "done" | "failed" | "running" {
-	const result = findToolResult(toolUseId);
-	if (!result) return "running";
-	if (result.type === "tool_result" && result.is_error) return "failed";
-	return "done";
-}
-
-const statusDotMap = {
-	done: "bg-status-running",
-	running: "bg-status-starting",
-	failed: "bg-status-error",
-} as const;
 
 // ─── Markdown container ref for media event delegation ───
 let markdownEl = $state<HTMLElement | null>(null);
@@ -473,61 +418,7 @@ function handleCopy() {
         </div>
       {/if}
 
-      {#if message.content?.some((block) => block.type === 'tool_use')}
-        <div class="mt-4">
-          {#each message.content.filter((block) => block.type === 'tool_use') as block (block.id)}
-            {@const status = getToolStatus(block.id)}
-            {@const result = findToolResult(block.id)}
-            <div class="group rounded-md overflow-hidden">
-              <!-- Collapsed row -->
-              <button
-                type="button"
-                class="w-full flex items-center gap-2 pl-0 pr-4 py-0.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer"
-                onclick={() => void toggleToolCall(block.id)}
-              >
-                <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[status]} {status === 'running' ? 'animate-pulse' : ''}"></span>
-                <span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em]">{block.name}</span>
-                <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
-                <span class="ml-auto text-text-tertiary shrink-0">
-                  {#if expandedToolCalls.has(block.id)}
-                    <ChevronDown class="w-3.5 h-3.5" />
-                  {:else}
-                    <ChevronRight class="w-3.5 h-3.5" />
-                  {/if}
-                </span>
-              </button>
-
-              <!-- Expanded content -->
-              {#if expandedToolCalls.has(block.id)}
-                <div class="pl-[26px] pr-4">
-                  {#if block.input && Object.keys(block.input).length > 0}
-                    <div class="py-1.5">
-                      {#if block.name === 'bash' && typeof block.input.command === 'string'}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">$ {block.input.command}</pre>
-                      {:else if ['read', 'write', 'edit'].includes(block.name) && typeof block.input.path === 'string'}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">{block.input.path}</pre>
-                      {:else}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-secondary">{JSON.stringify(block.input, null, 2)}</pre>
-                      {/if}
-                    </div>
-                  {/if}
-                  {#if result && result.type === 'tool_result'}
-                    {#if typeof result.content === 'string'}
-                      <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-bg-code rounded-md">{result.content}</pre>
-                    {:else if Array.isArray(result.content)}
-                      {#each result.content as contentBlock}
-                        {#if contentBlock.type === 'text'}
-                          <pre class="p-2 font-mono text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-bg-code rounded-md">{contentBlock.text}</pre>
-                        {/if}
-                      {/each}
-                    {/if}
-                  {/if}
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
+      <ToolCallList content={message.content ?? []} />
 
       {#if message.role === 'assistant' && (message.meta?.model || shortTime)}
         <!-- Meta bar: copy | model | tokens | time -->
