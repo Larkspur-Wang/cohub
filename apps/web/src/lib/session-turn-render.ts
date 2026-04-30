@@ -2,7 +2,6 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import { getStreamingRenderKey } from "$lib/session-streaming";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
-import type { PendingSessionMessage } from "$lib/stores/session-pending.svelte";
 
 function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	const meta = turn.meta ?? {};
@@ -59,30 +58,6 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 	};
 }
 
-function pendingToUserMessage(
-	sessionId: string,
-	pending: PendingSessionMessage,
-	fallbackSequence: number,
-): ChatMessage {
-	return {
-		id: `pending-${pending.clientMessageId}`,
-		role: "user",
-		content: pending.content,
-		text:
-			pending.status === "failed"
-				? `${pending.text}\n\n（发送失败）`
-				: pending.text,
-		sequence: pending.sequenceHint ?? fallbackSequence,
-		blocks: [...pending.content],
-		createdAt: new Date(pending.createdAt).toISOString(),
-		meta: {
-			messageKind: "user_pending",
-			clientMessageId: pending.clientMessageId,
-			sessionId,
-		},
-	};
-}
-
 function buildStreamingPreviewBlocks(
 	content: ContentBlock[],
 	options?: { truncatedStart?: boolean },
@@ -115,7 +90,6 @@ function buildStreamingPreviewBlocks(
 export function buildTurnTimelineItems(input: {
 	sessionId: string | null;
 	turns: SessionTurnRecord[];
-	pending: PendingSessionMessage[];
 	streaming?: {
 		sessionId: string;
 		turnId?: string | null;
@@ -149,17 +123,6 @@ export function buildTurnTimelineItems(input: {
 			});
 	}
 	const fallbackSequence = (input.turns.at(-1)?.sequence ?? 0) * 10 + 10;
-	for (const pending of input.pending) {
-		items.push({
-			id: `pending-${pending.clientMessageId}`,
-			kind: "message",
-			message: pendingToUserMessage(
-				input.sessionId ?? "active",
-				pending,
-				fallbackSequence,
-			),
-		});
-	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
 	const showPendingPlaceholder =
 		input.streaming?.status === "pending" && streamingBlocks.length === 0;

@@ -104,7 +104,6 @@ import {
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
-import { sessionPendingStore } from "$lib/stores/session-pending.svelte";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
@@ -1352,18 +1351,12 @@ const activeGenerationState = $derived.by(() =>
 );
 const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");
 const composerNotice = $derived.by(() => activeStreamError || composerError);
-const activePendingMessages = $derived.by(() =>
-	activeSessionId
-		? (sessionPendingStore.pendingBySessionId[activeSessionId] ?? [])
-		: [],
-);
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
 	return buildTurnTimelineItems({
 		sessionId: activeSessionId,
 		turns: state.turns,
-		pending: activePendingMessages,
 		streaming:
 			activeGenerationState?.status === "streaming" ||
 			activeGenerationState?.status === "pending"
@@ -2105,7 +2098,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			.turns.listPaginated({
 				limit: 30,
 			});
-		sessionPendingStore.reconcilePersisted(sessionId, []);
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
@@ -2535,10 +2527,9 @@ async function handleSend() {
 		...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
 	];
 	const sessionId = activeSessionState.session.id;
-	const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const optimisticTurnId = crypto.randomUUID();
 	// Clear input immediately so it disappears from the composer at the same
-	// time the pending message appears in the list — avoids the awkward "stuck"
+	// time the optimistic turn appears in the list — avoids the awkward "stuck"
 	// feeling where the message shows in the list but lingers in the input.
 	const pendingInput = input;
 	const pendingAttachments = imageAttachments;
@@ -2574,7 +2565,7 @@ async function handleSend() {
 							summary: null,
 							intermediateIndex: null,
 							intermediateSummary: null,
-							meta: { clientMessageId, optimistic: true },
+							meta: { optimistic: true },
 							startedAt: now,
 							completedAt: null,
 							createdAt: now,
@@ -2585,18 +2576,7 @@ async function handleSend() {
 				),
 			},
 		};
-		sessionPendingStore.upsert({
-			clientMessageId,
-			sessionId,
-			role: "user",
-			content,
-			text,
-			createdAt: new Date().toISOString(),
-			status: "sending",
-			error: null,
-			sequenceHint: sequenceHint * 10,
-		});
-		startGenerationRequest(sessionId, { clientMessageId });
+		startGenerationRequest(sessionId);
 		const sendResult = await sdk
 			.space(spaceId)
 			.session(sessionId)
@@ -2604,7 +2584,6 @@ async function handleSend() {
 				content,
 				model: model?.id,
 				provider: model?.provider,
-				clientMessageId,
 			});
 		if (sendResult.turnId) {
 			const current = sessionStateById[sessionId];
@@ -2622,11 +2601,6 @@ async function handleSend() {
 				};
 			}
 		}
-		sessionPendingStore.markStatus(
-			sessionId,
-			clientMessageId,
-			"sent_unconfirmed",
-		);
 		if (wsConnectionState !== "open") {
 			void recoveryCoordinator
 				.reconcileAfterSendWhileOffline(sessionId)
@@ -2653,12 +2627,6 @@ async function handleSend() {
 				},
 			};
 		}
-		sessionPendingStore.markStatus(
-			sessionId,
-			clientMessageId,
-			"failed",
-			sendError,
-		);
 		await loadSessionState(sessionId, true).catch(() => undefined);
 	} finally {
 		sending = false;

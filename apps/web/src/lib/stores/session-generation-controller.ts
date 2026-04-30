@@ -27,7 +27,7 @@ export function clearGenerationError(sessionId: string | null | undefined) {
 
 export function startGenerationRequest(
 	sessionId: string,
-	input?: { clientMessageId?: string | null; requestId?: string | null },
+	input?: { requestId?: string | null },
 ) {
 	clearGenerationError(sessionId);
 	realtimePatchReducer.start({ sessionId });

@@ -19,7 +19,6 @@ export type ChatMessage = {
 	meta?: {
 		messageKind?: string | null;
 		turnId?: string | null;
-		clientMessageId?: string | null;
 		sessionId?: string | null;
 		model?: string | null;
 		provider?: string | null;

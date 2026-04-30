@@ -233,7 +233,6 @@ router.post("/:id/messages", async (c) => {
     content: ContentBlock[];
     model?: string;
     provider?: string;
-    clientMessageId?: string;
   }>();
 
   if (!body.content || body.content.length === 0) {
@@ -300,7 +299,6 @@ router.post("/:id/messages", async (c) => {
         authorUuid: user?.uuid ?? null,
         authorName: (user?.nick_name as string | undefined) ?? null,
         authorAvatar: (user?.avatar_url as string | undefined) ?? null,
-        clientMessageId: body.clientMessageId?.trim() || null,
       },
     });
   } catch (error) {

@@ -11,7 +11,6 @@ export type SessionGenerationState = {
 	sessionId: string;
 	status: SessionGenerationStatus;
 	requestId?: string | null;
-	clientMessageId?: string | null;
 	error?: string | null;
 	startedAt?: number;
 	lastEventAt?: number;
@@ -26,7 +25,6 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	sessionId,
 	status: "idle",
 	requestId: null,
-	clientMessageId: null,
 	error: null,
 	startedAt: undefined,
 	lastEventAt: undefined,
@@ -57,10 +55,7 @@ class SessionGenerationStore {
 		return state?.status === "pending" || state?.status === "streaming";
 	}
 
-	startPending(
-		sessionId: string,
-		input?: { clientMessageId?: string | null; requestId?: string | null },
-	) {
+	startPending(sessionId: string, input?: { requestId?: string | null }) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
 		this.bySessionId = {
 			...this.bySessionId,
@@ -68,8 +63,6 @@ class SessionGenerationStore {
 				...current,
 				sessionId,
 				status: "pending",
-				clientMessageId:
-					input?.clientMessageId ?? current.clientMessageId ?? null,
 				requestId: input?.requestId ?? current.requestId ?? null,
 				error: null,
 				startedAt: current.startedAt ?? Date.now(),
