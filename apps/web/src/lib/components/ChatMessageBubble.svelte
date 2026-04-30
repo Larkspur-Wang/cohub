@@ -18,6 +18,7 @@ type Props = {
 	modelsCatalog?: ModelCatalogItem[];
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
+	showToolCalls?: boolean;
 };
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
@@ -27,6 +28,7 @@ const {
 	modelsCatalog,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
+	showToolCalls = true,
 }: Props = $props();
 let renderedHtml = $state("");
 
@@ -418,7 +420,9 @@ function handleCopy() {
         </div>
       {/if}
 
-      <ToolCallList content={message.content ?? []} />
+      {#if showToolCalls}
+        <ToolCallList content={message.content ?? []} />
+      {/if}
 
       {#if message.role === 'assistant' && (message.meta?.model || shortTime)}
         <!-- Meta bar: copy | model | tokens | time -->

@@ -41,6 +41,6 @@ const chatMessage = $derived({
 </script>
 
 <div>
-	<ChatMessageBubble message={chatMessage} {modelsCatalog} />
+	<ChatMessageBubble message={chatMessage} {modelsCatalog} showToolCalls={false} />
 	<ToolCallList content={message.content} {onLoadToolCalls} />
 </div>
