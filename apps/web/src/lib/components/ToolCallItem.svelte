@@ -27,9 +27,13 @@ const showInputDetail = $derived(
 	Boolean(inputDetail) && !isSimpleInput(tool.name, tool.input),
 );
 const hasResult = $derived(Boolean(tool.result));
-const isWaitingForDetails = $derived(
-	expanded && loading && !hasResult && !tool.resultOmitted,
+const shouldWaitForDetails = $derived(
+	expanded && loading && !tool.resultOmitted,
 );
+const isPlaceholderResult = $derived(
+	shouldWaitForDetails && (tool.result === "[]" || tool.result === ""),
+);
+const showResult = $derived(hasResult && !isPlaceholderResult);
 const resultLabel = $derived(tool.status === "failed" ? "err" : "out");
 function toggle() {
 	const opening = !expanded;
@@ -59,36 +63,35 @@ function toggle() {
 	</button>
 
 	{#if expanded}
-		<div class="pl-[26px] pr-2 py-1 space-y-1">
-			{#if isWaitingForDetails}
-				<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
-					<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">out</div>
-					<div class="inline-flex items-center gap-1.5 text-[12px] leading-snug text-text-placeholder">
-						<Loader2 class="h-3 w-3 animate-spin" />
-						Loading details…
+		<div class="pl-[26px] pr-2 py-0.5 space-y-0.5">
+			{#if shouldWaitForDetails}
+				<div class="inline-flex items-center gap-1.5 py-0.5 text-[12px] leading-snug text-text-placeholder">
+					<Loader2 class="h-3 w-3 animate-spin" />
+					Loading details…
+				</div>
+			{:else}
+				{#if showInputDetail}
+					<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
+						<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">in</div>
+						<pre class="font-mono text-[13px] leading-snug text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{inputDetail}</pre>
 					</div>
-				</div>
-			{:else if showInputDetail}
-				<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
-					<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">in</div>
-					<pre class="font-mono text-[13px] leading-snug text-text-secondary whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{inputDetail}</pre>
-				</div>
-			{/if}
-			{#if !isWaitingForDetails && hasResult}
-				<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
-					<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide select-none {tool.status === 'failed' ? 'text-status-error' : 'text-text-placeholder'}">{resultLabel}</div>
-					<pre class="font-mono text-[13px] leading-snug whitespace-pre-wrap break-words [overflow-wrap:anywhere] {tool.status === 'failed' ? 'text-status-error' : 'text-text-secondary'}">{tool.result}</pre>
-				</div>
-			{:else if tool.resultOmitted}
-				<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
-					<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">out</div>
-					<div class="text-[12px] leading-snug text-text-placeholder">Result omitted. Open again after details load.</div>
-				</div>
-			{:else if tool.status === 'running'}
-				<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
-					<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">out</div>
-					<div class="text-[12px] leading-snug text-text-placeholder">Running…</div>
-				</div>
+				{/if}
+				{#if showResult}
+					<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
+						<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide select-none {tool.status === 'failed' ? 'text-status-error' : 'text-text-placeholder'}">{resultLabel}</div>
+						<pre class="font-mono text-[13px] leading-snug whitespace-pre-wrap break-words [overflow-wrap:anywhere] {tool.status === 'failed' ? 'text-status-error' : 'text-text-secondary'}">{tool.result}</pre>
+					</div>
+				{:else if tool.resultOmitted}
+					<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
+						<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">out</div>
+						<div class="text-[12px] leading-snug text-text-placeholder">Result omitted. Open again after details load.</div>
+					</div>
+				{:else if tool.status === 'running'}
+					<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 items-start">
+						<div class="pt-[3px] font-mono text-[10px] leading-none uppercase tracking-wide text-text-placeholder select-none">out</div>
+						<div class="text-[12px] leading-snug text-text-placeholder">Running…</div>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	{/if}

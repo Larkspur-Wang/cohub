@@ -89,19 +89,21 @@ const segments = $derived.by(() => {
 </script>
 
 {#each segments as segment, index (`${segment.type}:${index}`)}
-	{#if segment.type === 'text'}
-		{#if isUserMessage}
-			<div class="whitespace-pre-wrap break-words text-inherit">
-				{segment.blocks.map((block) => block.text).join('\n\n')}
-			</div>
-		{:else}
-			<MarkdownBlocks blocks={segment.blocks} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
+	<div class={index === 0 ? "" : "mt-2"}>
+		{#if segment.type === 'text'}
+			{#if isUserMessage}
+				<div class="whitespace-pre-wrap break-words text-inherit">
+					{segment.blocks.map((block) => block.text).join('\n\n')}
+				</div>
+			{:else}
+				<MarkdownBlocks blocks={segment.blocks} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
+			{/if}
+		{:else if segment.type === 'thinking'}
+			<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
+		{:else if segment.type === 'image'}
+			<ImageBlocks blocks={segment.blocks} />
+		{:else if segment.type === 'tool' && showToolCalls}
+			<ToolCallList content={segment.blocks} {onLoadToolCalls} flush />
 		{/if}
-	{:else if segment.type === 'thinking'}
-		<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
-	{:else if segment.type === 'image'}
-		<ImageBlocks blocks={segment.blocks} />
-	{:else if segment.type === 'tool' && showToolCalls}
-		<ToolCallList content={segment.blocks} {onLoadToolCalls} />
-	{/if}
+	</div>
 {/each}

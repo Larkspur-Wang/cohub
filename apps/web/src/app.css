@@ -398,6 +398,40 @@ body.drawer-open {
 .prose p + p {
 	margin-top: 0.5em;
 }
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+	margin-top: 1em;
+	margin-bottom: 0.45em;
+}
+.prose h1 + *,
+.prose h2 + *,
+.prose h3 + *,
+.prose h4 + * {
+	margin-top: 0;
+}
+.prose ul,
+.prose ol {
+	margin-top: 0.5em;
+	margin-bottom: 0.75em;
+}
+.prose li {
+	margin-top: 0.15em;
+	margin-bottom: 0.15em;
+}
+.prose pre {
+	margin-top: 0.75em;
+	margin-bottom: 0.75em;
+}
+.prose table {
+	margin-top: 0.75em;
+	margin-bottom: 0.75em;
+}
+.prose blockquote {
+	margin-top: 0.75em;
+	margin-bottom: 0.75em;
+}
 .prose hr {
 	margin-top: 1.5em;
 	margin-bottom: 1.5em;
