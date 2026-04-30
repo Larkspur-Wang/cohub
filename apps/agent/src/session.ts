@@ -180,6 +180,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
         seq,
         baseSeq,
         content: delta,
+        snapshotContent: full,
         sourceMessageId,
         anchorUserMessageId: handle.currentUserMessageId,
         timestamp: Date.now(),

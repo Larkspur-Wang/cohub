@@ -97,6 +97,7 @@ const sendOutputSchema = z.union([
     seq: z.number().int().positive(),
     baseSeq: z.number().int().min(0),
     content: z.array(z.unknown()),
+    snapshotContent: z.array(z.unknown()).optional(),
     sourceMessageId: z.string().uuid().nullable(),
     timestamp: z.number(),
     turnEnd: z.boolean().optional(),

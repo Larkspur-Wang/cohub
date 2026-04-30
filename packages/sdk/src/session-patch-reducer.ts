@@ -312,6 +312,13 @@ export class SessionPatchReducer {
     );
     const isFreshKnownTurn = isDifferentKnownTurn && input.baseSeq === 0;
     const currentSeq = isFreshKnownTurn ? 0 : current.patchSeq;
+    const isSameTurnKeyframe = Boolean(
+      currentTurnId &&
+      inputTurnId &&
+      currentTurnId === inputTurnId &&
+      input.baseSeq === 0 &&
+      input.seq > currentSeq,
+    );
     const isTerminalSameTurn =
       (current.status === "completed" || current.status === "failed") &&
       Boolean(currentTurnId) &&
@@ -326,11 +333,11 @@ export class SessionPatchReducer {
     if (input.seq <= currentSeq) {
       return { applied: false, reason: "duplicate", state: current };
     }
-    if (input.baseSeq !== currentSeq) {
+    if (!isSameTurnKeyframe && input.baseSeq !== currentSeq) {
       return { applied: false, reason: "version_mismatch", state: current };
     }
 
-    const startingFresh = input.baseSeq === 0 || isFreshKnownTurn;
+    const startingFresh = input.baseSeq === 0 || isFreshKnownTurn || isSameTurnKeyframe;
     const baseBlocks = startingFresh ? [] : current.contentBlocks;
     const patched = applyPatchOpsToBlocks(
       baseBlocks,

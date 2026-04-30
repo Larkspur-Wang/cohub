@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type {
   RealtimeCompactFrame,
   RealtimeEnvelope,
@@ -52,6 +53,7 @@ type GatewayWsBroadcastPayload = RealtimeServerEvent & {
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
+const STREAM_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
 
 const wsConnections = new Map<string, WsConnectionContext>();
 const wsConnectionsByUserId = new Map<string, Set<string>>();
@@ -59,6 +61,8 @@ const wsSockets = new Map<string, WebSocket>();
 
 const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
 const getWsUserConnectionsKey = (userId: string) => `gateway:ws:user:${userId}:connections`;
+const streamSnapshotUserIndexKey = (userId: string) =>
+  `session:stream:snapshots:user:${userId}`;
 
 function logStartupInfo() {
   console.log("=".repeat(60));
@@ -234,6 +238,120 @@ const buildRealtimeEnvelope = (input: Omit<RealtimeEnvelope, "id" | "timestamp">
   timestamp: Date.now(),
   ...input,
 });
+
+type SessionStreamSnapshot = {
+  spaceId: string;
+  sessionId: string;
+  turnId: string | null;
+  messageId: string | null;
+  anchorUserMessageId: string | null;
+  seq: number;
+  content: ContentBlock[];
+  appendPath: string | null;
+  targetUserIds: string[];
+  updatedAt: number;
+};
+
+const getStreamIndex = (block: ContentBlock, fallback: number) => {
+  const value = block._meta?.streamIndex;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+};
+
+const blockPatchPath = (block: ContentBlock, fallback: number) =>
+  `/message/content/blocks/${getStreamIndex(block, fallback)}`;
+
+const isContentBlock = (value: unknown): value is ContentBlock =>
+  Boolean(value && typeof value === "object" && "type" in value);
+
+const parseSessionStreamSnapshot = (raw: string, userId: string): SessionStreamSnapshot | null => {
+  const value = JSON.parse(raw) as Partial<SessionStreamSnapshot>;
+  if (typeof value.spaceId !== "string" || typeof value.sessionId !== "string") return null;
+  if (!isNonNegativeInteger(value.seq) || value.seq <= 0) return null;
+  if (!Array.isArray(value.content) || !value.content.every(isContentBlock)) return null;
+  if (!Array.isArray(value.targetUserIds) || !value.targetUserIds.includes(userId)) return null;
+  if (typeof value.updatedAt !== "number" || Date.now() - value.updatedAt > STREAM_SNAPSHOT_TTL_MS) return null;
+  return {
+    spaceId: value.spaceId,
+    sessionId: value.sessionId,
+    turnId: typeof value.turnId === "string" ? value.turnId : null,
+    messageId: typeof value.messageId === "string" ? value.messageId : null,
+    anchorUserMessageId: typeof value.anchorUserMessageId === "string" ? value.anchorUserMessageId : null,
+    seq: value.seq,
+    content: value.content,
+    appendPath: typeof value.appendPath === "string" && value.appendPath ? value.appendPath : null,
+    targetUserIds: value.targetUserIds,
+    updatedAt: value.updatedAt,
+  };
+};
+
+const buildSnapshotPatchEnvelope = (snapshot: SessionStreamSnapshot): RealtimeEnvelope => {
+  const ops: RealtimePatchOperation[] = [
+    { o: "replace", p: "/message/status", v: "streaming" },
+    { o: "replace", p: "/message/end_turn", v: false },
+    {
+      o: "merge",
+      p: "/message/metadata",
+      v: {
+        is_complete: false,
+        ...(snapshot.turnId ? { turnId: snapshot.turnId } : {}),
+        ...(snapshot.anchorUserMessageId ? { anchorUserMessageId: snapshot.anchorUserMessageId } : {}),
+      },
+    },
+  ];
+
+  snapshot.content.forEach((block, index) => {
+    ops.push({ o: "replace", p: blockPatchPath(block, index), v: block });
+  });
+  if (snapshot.appendPath) {
+    ops.push({ o: "append", p: snapshot.appendPath, v: "" });
+  }
+
+  return buildRealtimeEnvelope({
+    domain: "session",
+    type: "session.turn.patch",
+    spaceId: snapshot.spaceId,
+    sessionId: snapshot.sessionId,
+    payload: {
+      turnId: snapshot.turnId,
+      messageId: snapshot.messageId,
+      anchorUserMessageId: snapshot.anchorUserMessageId,
+      seq: snapshot.seq,
+      baseSeq: 0,
+      ops,
+    },
+  });
+};
+
+const sendActiveStreamSnapshots = async (ctx: WsConnectionContext, socket: WebSocket) => {
+  if (!ctx.userId) return;
+  const indexKey = streamSnapshotUserIndexKey(ctx.userId);
+  const keys = await redisCommandClient.smembers(indexKey).catch(() => [] as string[]);
+  if (keys.length === 0) return;
+  const values = await redisCommandClient.mget(...keys).catch(() => [] as Array<string | null>);
+  const staleKeys: string[] = [];
+
+  values.forEach((raw, index) => {
+    const key = keys[index];
+    if (!raw) {
+      if (key) staleKeys.push(key);
+      return;
+    }
+    try {
+      const snapshot = parseSessionStreamSnapshot(raw, ctx.userId ?? "");
+      if (!snapshot) {
+        if (key) staleKeys.push(key);
+        return;
+      }
+      sendWsRealtime(socket, ctx, buildSnapshotPatchEnvelope(snapshot));
+    } catch {
+      if (key) staleKeys.push(key);
+    }
+  });
+
+  if (staleKeys.length > 0) {
+    await redisCommandClient.srem(indexKey, ...staleKeys).catch(() => undefined);
+  }
+};
 
 const sendWsError = (
   socket: WebSocket,
@@ -579,6 +697,9 @@ async function main() {
             requestId: requestId ?? null,
             payload: { connectionId, user: result.user },
           }));
+          await sendActiveStreamSnapshots(ctx, socket).catch((error) => {
+            console.warn(`[Gateway] Failed to send active stream snapshots for user ${ctx.userId}:`, error);
+          });
           return;
         }
 

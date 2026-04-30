@@ -7,6 +7,7 @@ export type SessionStreamEvent = {
     seq: number;
     baseSeq: number;
     content: ContentBlock[];
+    snapshotContent?: ContentBlock[];
     sourceMessageId: string | null;
     timestamp: number;
     turnEnd?: boolean;

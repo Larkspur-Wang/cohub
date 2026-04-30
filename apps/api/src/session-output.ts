@@ -7,6 +7,26 @@ import type { RealtimeMessageRecord, SessionStreamError, SessionStreamEvent } fr
 import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getReadableUserIdsForSpace, getBindingsBySessionId } from "./channels.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
+import { redisCommandClient } from "./redis.js";
+
+const STREAM_SNAPSHOT_TTL_SECONDS = 10 * 60;
+const streamSnapshotKey = (spaceId: string, sessionId: string) =>
+  `session:stream:snapshot:${spaceId}:${sessionId}`;
+const streamSnapshotUserIndexKey = (userId: string) =>
+  `session:stream:snapshots:user:${userId}`;
+
+export type SessionStreamSnapshot = {
+  spaceId: string;
+  sessionId: string;
+  turnId: string | null;
+  messageId: string | null;
+  anchorUserMessageId: string | null;
+  seq: number;
+  content: ContentBlock[];
+  appendPath: string | null;
+  targetUserIds: string[];
+  updatedAt: number;
+};
 
 const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
   if (!meta) return null;
@@ -100,6 +120,9 @@ const compactAppendPatchOps = (
   return compacted;
 };
 
+const getAppendPathForEvent = (event: SessionStreamEvent) =>
+  appendPatchCursors.get(patchCursorKey(event))?.p ?? null;
+
 const buildPatchOpsForContentDelta = (input: {
   event: SessionStreamEvent;
 }): GatewaySessionPatchOperation[] => {
@@ -140,6 +163,7 @@ export const buildSessionOutputsForStreamEvent = async (
   event: SessionStreamEvent | SessionStreamError,
 ): Promise<GatewaySessionOutput[]> => {
   if (event.type === "stream_update") {
+    const ops = buildPatchOpsForContentDelta({ event });
     return [{
       type: "session.turn.patch",
       spaceId: event.spaceId,
@@ -149,7 +173,12 @@ export const buildSessionOutputsForStreamEvent = async (
       anchorUserMessageId: event.anchorUserMessageId ?? null,
       seq: event.seq,
       baseSeq: event.baseSeq,
-      ops: buildPatchOpsForContentDelta({ event }),
+      ops,
+      snapshotContent: event.snapshotContent,
+      appendPath: getAppendPathForEvent(event),
+    } as Extract<GatewaySessionOutput, { type: "session.turn.patch" }> & {
+      snapshotContent?: ContentBlock[];
+      appendPath?: string | null;
     }];
   }
 
@@ -189,9 +218,46 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
   return outputs;
 };
 
+const cacheSessionStreamSnapshot = async (
+  output: Extract<GatewaySessionOutput, { type: "session.turn.patch" }>,
+  targetUserIds: string[],
+) => {
+  const snapshotContent = (output as { snapshotContent?: unknown }).snapshotContent;
+  if (!Array.isArray(snapshotContent) || output.seq <= 0) return;
+
+  const snapshot: SessionStreamSnapshot = {
+    spaceId: output.spaceId,
+    sessionId: output.sessionId,
+    turnId: output.turnId,
+    messageId: output.messageId,
+    anchorUserMessageId: output.anchorUserMessageId,
+    seq: output.seq,
+    content: snapshotContent as ContentBlock[],
+    appendPath: (output as { appendPath?: unknown }).appendPath as string | null ?? null,
+    targetUserIds,
+    updatedAt: Date.now(),
+  };
+  const key = streamSnapshotKey(output.spaceId, output.sessionId);
+  const pipeline = redisCommandClient.pipeline();
+  pipeline.set(key, JSON.stringify(snapshot), "EX", STREAM_SNAPSHOT_TTL_SECONDS);
+  for (const userId of targetUserIds) {
+    const indexKey = streamSnapshotUserIndexKey(userId);
+    pipeline.sadd(indexKey, key);
+    pipeline.expire(indexKey, STREAM_SNAPSHOT_TTL_SECONDS);
+  }
+  await pipeline.exec();
+};
+
+const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) => {
+  await redisCommandClient.del(streamSnapshotKey(spaceId, sessionId)).catch(() => undefined);
+};
+
 const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => {
   const readableUserIds = await getReadableUserIdsForSpace(output.spaceId).catch(() => [] as string[]);
   if (output.type === "session.turn.patch") {
+    await cacheSessionStreamSnapshot(output, readableUserIds).catch((error) => {
+      console.warn("[SessionStreamSnapshot] failed to cache snapshot:", error);
+    });
     await dispatchRealtimeEventToUsers({
       id: randomUUID(),
       timestamp: Date.now(),
@@ -213,6 +279,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
   }
 
   if (output.type === "session.turn.error") {
+    await clearSessionStreamSnapshot(output.spaceId, output.sessionId);
     await dispatchRealtimeEventToUsers({
       id: randomUUID(),
       timestamp: Date.now(),
@@ -229,6 +296,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
     return;
   }
 
+  await clearSessionStreamSnapshot(output.spaceId, output.sessionId);
   await dispatchRealtimeEventToUsers({
     id: randomUUID(),
     timestamp: Date.now(),
