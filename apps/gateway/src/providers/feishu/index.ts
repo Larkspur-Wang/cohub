@@ -36,7 +36,7 @@ function detectMimeType(buffer: Buffer): string | null {
 const messageDedup = new Map<string, number>();
 const DEDUP_TTL_MS = 5 * 60 * 1000;
 const DEDUP_MAX_ENTRIES = 10000;
-const FEISHU_DOC_URL_RE = /https?:\/\/[^\s<>'"]+/g;
+const FEISHU_DOC_URL_RE = /https?:\/\/[^\s<>'"]+\/(?:docx|wiki|docs)\/[A-Za-z0-9]+/g;
 const FEISHU_DOC_MAX_PER_MESSAGE = 3;
 const FEISHU_DOC_MAX_CHARS = 12_000;
 const FEISHU_DOC_FETCH_TIMEOUT_MS = 10_000;
@@ -96,7 +96,9 @@ function parseFeishuDocumentUrl(value: string): FeishuDocumentRef | null {
   if (!/(^|\.)(feishu\.cn|larksuite\.com|larkoffice\.com)$/.test(url.hostname)) return null;
   const match = url.pathname.match(/\/(docx|wiki|docs)\/([A-Za-z0-9]+)/);
   if (!match?.[1] || !match[2]) return null;
-  return { url: url.toString(), type: match[1] as "docx" | "wiki" | "docs", token: match[2] };
+  const type = match[1] as "docx" | "wiki" | "docs";
+  const token = match[2];
+  return { url: `${url.origin}/${type}/${token}`, type, token };
 }
 
 export class FeishuProvider implements GatewayProvider {
