@@ -317,7 +317,7 @@ export class SessionPatchReducer {
       inputTurnId &&
       currentTurnId === inputTurnId &&
       input.baseSeq === 0 &&
-      input.seq > currentSeq,
+      input.seq >= currentSeq,
     );
     const isTerminalSameTurn =
       (current.status === "completed" || current.status === "failed") &&
@@ -330,7 +330,7 @@ export class SessionPatchReducer {
     if (isDifferentKnownTurn && !isFreshKnownTurn) {
       return { applied: false, reason: "version_mismatch", state: current };
     }
-    if (input.seq <= currentSeq) {
+    if (!isSameTurnKeyframe && input.seq <= currentSeq) {
       return { applied: false, reason: "duplicate", state: current };
     }
     if (!isSameTurnKeyframe && input.baseSeq !== currentSeq) {

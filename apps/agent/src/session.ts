@@ -42,6 +42,7 @@ export type SessionHandle = {
   turnTracer: ReturnType<typeof getAgentTracer>;
   currentTurnId?: string | null;
   currentTurnSeq?: number | null;
+  currentTurnPatchSeq?: number | null;
   currentLlmRound?: number | null;
   ownerEpoch: number;
   lastActiveAt: number;
@@ -157,8 +158,10 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
       handle.streamState.flushPromise = null;
       return;
     }
-    const baseSeq = handle.streamState.patchSeq ?? 0;
-    const seq = baseSeq + 1;
+    const startsFreshStream = (handle.streamState.patchSeq ?? 0) === 0;
+    const baseSeq = startsFreshStream ? 0 : (handle.currentTurnPatchSeq ?? handle.streamState.patchSeq ?? 0);
+    const seq = (handle.currentTurnPatchSeq ?? 0) + 1;
+    handle.currentTurnPatchSeq = seq;
     handle.streamState.patchSeq = seq;
 
     const span = trace.getActiveSpan();
@@ -398,6 +401,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             }).catch((error) => console.warn("[SessionTurn] failed to interrupt previous turn", error));
           }
           handle.currentTurnId = nextTurnId;
+          handle.currentTurnPatchSeq = 0;
           handle.currentUserMessageId = pending.userMessageId;
           handle.currentUserMessageContent = pending.content;
           handle.currentUserMessageMeta = pending.meta ?? null;
@@ -569,6 +573,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       handle.currentLlmRound = null;
       handle.currentTurnId = null;
       handle.currentTurnSeq = null;
+      handle.currentTurnPatchSeq = null;
       handle.currentUserMessageId = null;
       clearCurrentSessionExecutionAuth(handle.sessionId);
       handle.onIdle?.(handle);
@@ -678,6 +683,7 @@ export async function loadOrCreateSessionHandle(input: {
     turnTracer: getAgentTracer(),
     currentTurnId: null,
     currentTurnSeq: null,
+    currentTurnPatchSeq: null,
     currentLlmRound: null,
     ownerEpoch: 0,
     lastActiveAt: Date.now(),

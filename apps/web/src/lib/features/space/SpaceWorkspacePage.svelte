@@ -2742,6 +2742,8 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			(messageKind === "assistant_final" || messageKind === "assistant_error");
 		if (isAssistantTurnTerminal) {
 			completeGeneration(currentActiveSessionId);
+		} else if (message.role === "assistant") {
+			resetGeneration(currentActiveSessionId);
 		}
 		const merged = mergeMessagesById(state.messages, [message], {
 			preferIncoming: true,

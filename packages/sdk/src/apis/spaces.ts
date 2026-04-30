@@ -80,6 +80,17 @@ const isAssistantFinalPersistedEvent = (event: WebsocketEventPayload) => {
   return record.role === "assistant" && record.meta?.messageKind === "assistant_final";
 };
 
+const isAssistantIntermediatePersistedEvent = (event: WebsocketEventPayload) => {
+  if (event.type !== "session.message.persisted") return false;
+  const message = event.payload.message;
+  if (!message || typeof message !== "object") return false;
+  const record = message as {
+    role?: unknown;
+    meta?: Record<string, unknown> | null;
+  };
+  return record.role === "assistant" && record.meta?.messageKind === "assistant_intermediate";
+};
+
 const getPersistedMessageTurnId = (event: WebsocketEventPayload) => {
   if (event.type !== "session.message.persisted") return null;
   const message = event.payload.message;
@@ -355,7 +366,15 @@ class SessionRealtimeClient {
         });
         handlers.error?.(event);
       }
-      if (eventName === "message.persisted") handlers.persisted?.(event);
+      if (eventName === "message.persisted") {
+        handlers.persisted?.(event);
+        if (isAssistantIntermediatePersistedEvent(event)) {
+          this.patchReducer.reset({
+            spaceId: this.spaceId,
+            sessionId: this.sessionId,
+          });
+        }
+      }
       if (isAssistantFinalPersistedEvent(event)) {
         this.patchReducer.complete({
           spaceId: this.spaceId,

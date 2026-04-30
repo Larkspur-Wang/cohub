@@ -537,6 +537,7 @@ async function main() {
             }, async (turnSpan) => {
               handle.currentTurnId = turnId;
               handle.currentTurnSeq = turnSeq;
+              handle.currentTurnPatchSeq = 0;
               handle.currentLlmRound = 0;
               if (handle.session.isStreaming) {
                 console.log(
