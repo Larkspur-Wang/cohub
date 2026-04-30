@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.8.0 (2026-04-30)
+
+### Bug Fixes
+
+- **api**: correct session turns pagination logic and add backfill script
+- fix user config publish path
+- remove `session.turn.final` event and consolidate final message handling into `session.message.persisted`
+
+### Performance
+
+- **api**: cache readable user ids
+
+### Refactoring
+
+- **api**: introduce getOptionalAuth for RBAC-driven routes
+
 ## v1.1.2 (2026-04-27)
 
 ### Features
