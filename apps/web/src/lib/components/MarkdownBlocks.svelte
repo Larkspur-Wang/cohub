@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { onMount, tick } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
 
@@ -21,21 +21,22 @@ const source = $derived(
 );
 
 $effect(() => {
-	onStart?.();
+	const markdownSource = source;
+	untrack(() => onStart?.());
 	let cancelled = false;
-	void renderMarkdown(source)
+	void renderMarkdown(markdownSource)
 		.then(async (html) => {
 			if (cancelled) return;
 			renderedHtml = html;
 			await tick();
 			requestAnimationFrame(() => {
-				if (!cancelled) onRendered?.();
+				if (!cancelled) untrack(() => onRendered?.());
 			});
 		})
-		.catch(() => onRendered?.());
+		.catch(() => untrack(() => onRendered?.()));
 	return () => {
 		cancelled = true;
-		onRendered?.();
+		untrack(() => onRendered?.());
 	};
 });
 
