@@ -84,15 +84,15 @@ router.get("/:id/turns", async (c) => {
   const fetchLimit = Math.min(pageLimit + 1, 101);
   const rows = await listSessionTurns(session.id, { cursor, limit: fetchLimit, direction });
   const hasMore = rows.length > pageLimit;
-  const turns = hasMore ? (direction === "newer" ? rows.slice(0, -1) : rows.slice(1)) : rows;
+  const turns = hasMore ? (direction === "newer" ? rows.slice(0, pageLimit) : rows.slice(1)) : rows;
   return c.json({
     session,
     turns,
     hasMore,
     nextCursor: turns.length > 0
       ? direction === "older"
-        ? (turns[0]?.sequence ?? 0) - 1
-        : (turns[turns.length - 1]?.sequence ?? 0)
+        ? turns[0]?.sequence
+        : turns[turns.length - 1]?.sequence
       : undefined,
   });
 });

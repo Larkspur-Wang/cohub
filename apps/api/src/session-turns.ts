@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type {
   MessageToolCallsFile,
@@ -179,7 +179,7 @@ export const listSessionTurns = async (sessionId: string, options?: { cursor?: n
     return rows.reverse().map(toTurnRecord);
   }
   if (direction === "older") {
-    rows = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), sql`${sessionTurns.sequence} <= ${options.cursor}`)).orderBy(desc(sessionTurns.sequence)).limit(limit);
+    rows = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), lt(sessionTurns.sequence, options.cursor))).orderBy(desc(sessionTurns.sequence)).limit(limit);
     return rows.reverse().map(toTurnRecord);
   }
   rows = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, options.cursor))).orderBy(asc(sessionTurns.sequence)).limit(limit);
@@ -191,7 +191,7 @@ export const getSessionTurnById = async (sessionId: string, turnId: string) => {
   return row ? toTurnRecord(row) : null;
 };
 
-const buildIntermediateObjectsForTurn = async (input: { spaceId: string; sessionId: string; turnId: string }) => {
+export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; sessionId: string; turnId: string }) => {
   const rows = await db.select().from(sessionMessages).where(and(
     eq(sessionMessages.sessionId, input.sessionId),
     sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`,
