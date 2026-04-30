@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord } from "../model/session.js";
+import type { SpaceFsChangedPayload } from "../fs/index.js";
+export declare const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
 export declare const contentBlockSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     type: z.ZodLiteral<"text">;
     text: z.ZodString;
@@ -49,6 +51,7 @@ export declare const wsClientEventSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     requestId: z.ZodOptional<z.ZodString>;
     payload: z.ZodObject<{
         token: z.ZodString;
+        capabilities: z.ZodOptional<z.ZodArray<z.ZodString>>;
     }, z.core.$strip>;
 }, z.core.$strip>, z.ZodObject<{
     type: z.ZodLiteral<"session.message.create">;
@@ -142,11 +145,33 @@ export declare const channelEnvelopeSchema: z.ZodObject<{
     sessionId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     payload: z.ZodRecord<z.ZodString, z.ZodUnknown>;
 }, z.core.$strip>;
+export declare const realtimeCompactFrameSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+    t: z.ZodLiteral<"d">;
+    sid: z.ZodString;
+    s: z.ZodNumber;
+    b: z.ZodNumber;
+    v: z.ZodUnknown;
+}, z.core.$strip>, z.ZodObject<{
+    t: z.ZodLiteral<"p">;
+    sid: z.ZodString;
+    s: z.ZodNumber;
+    b: z.ZodNumber;
+    o: z.ZodEnum<{
+        append: "append";
+        replace: "replace";
+        add: "add";
+        merge: "merge";
+        remove: "remove";
+    }>;
+    p: z.ZodString;
+    v: z.ZodOptional<z.ZodUnknown>;
+}, z.core.$strip>], "t">;
 export type WsClientEvent = {
     type: "auth";
     requestId?: string;
     payload: {
         token: string;
+        capabilities?: string[];
     };
 } | {
     type: "session.message.create";
@@ -172,6 +197,7 @@ export type WsClientEvent = {
 };
 export type RealtimeEnvelope = z.output<typeof realtimeEnvelopeSchema>;
 export type ChannelEnvelope = RealtimeEnvelope;
+export type RealtimeCompactFrame = z.output<typeof realtimeCompactFrameSchema>;
 export type RealtimeEnvelopeBase = RealtimeEnvelope;
 export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
 export type SystemReadyEvent = {
@@ -338,6 +364,16 @@ export type SessionMessagePersistedEvent = {
         message: RealtimeMessageRecord;
     };
 };
-export type RealtimeServerEvent = SystemReadyEvent | SystemAuthOkEvent | SystemRequestErrorEvent | SystemPongEvent | SystemAckOkEvent | SessionRequestAcceptedEvent | SessionRequestErrorEvent | SessionTurnProgressEvent | SessionTurnPatchEvent | SessionTurnErrorEvent | SessionMessagePersistedEvent;
+export type SpaceFsChangedEvent = {
+    id: string;
+    timestamp: number;
+    domain: "space";
+    type: "space.fs.changed";
+    requestId?: string | null;
+    spaceId: string;
+    sessionId?: string | null;
+    payload: SpaceFsChangedPayload;
+};
+export type RealtimeServerEvent = SystemReadyEvent | SystemAuthOkEvent | SystemRequestErrorEvent | SystemPongEvent | SystemAckOkEvent | SessionRequestAcceptedEvent | SessionRequestErrorEvent | SessionTurnProgressEvent | SessionTurnPatchEvent | SessionTurnErrorEvent | SessionMessagePersistedEvent | SpaceFsChangedEvent;
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

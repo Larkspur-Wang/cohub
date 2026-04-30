@@ -8,13 +8,19 @@ import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type {
+  RealtimeCompactFrame,
   RealtimeEnvelope,
+  RealtimePatchOperation,
   RealtimeServerEvent,
   WsClientEvent,
 } from "@neta-art/cohub-protocol/realtime";
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
-import { realtimeEnvelopeSchema, wsClientEventSchema } from "@neta-art/cohub-protocol/realtime";
+import {
+  realtimeEnvelopeSchema,
+  WS_COMPACT_STREAM_CAPABILITY,
+  wsClientEventSchema,
+} from "@neta-art/cohub-protocol/realtime";
 import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
 import { gatewayConfig } from "./config.js";
@@ -32,6 +38,9 @@ type WsConnectionContext = {
   userId?: string;
   userName?: string;
   token?: string;
+  capabilities: Set<string>;
+  compactStreamAliases: Map<string, string>;
+  nextCompactStreamAlias: number;
 };
 
 type GatewayWsBroadcastPayload = RealtimeServerEvent & {
@@ -84,6 +93,7 @@ const persistWsConnection = async (ctx: WsConnectionContext) => {
     connectionId: ctx.connectionId,
     userId: ctx.userId ?? null,
     userName: ctx.userName ?? null,
+    capabilities: [...ctx.capabilities],
     connectedAt: Date.now(),
     nodeId: process.env.POD_NAME || process.env.HOSTNAME || "unknown",
   }), "EX", WS_CONNECTION_TTL_SECONDS);
@@ -106,6 +116,117 @@ const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
 
 const sendWsEnvelope = (socket: WebSocket, envelope: RealtimeEnvelope) => {
   socket.send(JSON.stringify(envelope));
+};
+
+const isNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0;
+
+const getPatchStreamId = (envelope: RealtimeEnvelope) => {
+  if (envelope.type !== "session.turn.patch") return null;
+  const payload = envelope.payload as Record<string, unknown>;
+  if (typeof payload.turnId === "string" && payload.turnId.trim()) {
+    return payload.turnId;
+  }
+  if (typeof payload.messageId === "string" && payload.messageId.trim()) {
+    return payload.messageId;
+  }
+  return null;
+};
+
+const getPersistedTurnId = (envelope: RealtimeEnvelope) => {
+  if (envelope.type !== "session.message.persisted") return null;
+  const message = envelope.payload.message;
+  if (!message || typeof message !== "object") return null;
+  const meta = (message as { meta?: Record<string, unknown> | null }).meta;
+  return typeof meta?.turnId === "string" && meta.turnId.trim()
+    ? meta.turnId
+    : null;
+};
+
+const buildCompactFrame = (envelope: RealtimeEnvelope, sid: string): RealtimeCompactFrame | null => {
+  if (envelope.type !== "session.turn.patch") return null;
+  const payload = envelope.payload as Record<string, unknown>;
+  if (!isNonNegativeInteger(payload.seq) || !isNonNegativeInteger(payload.baseSeq)) return null;
+  if (payload.baseSeq === 0) return null;
+  if (!Array.isArray(payload.ops) || payload.ops.length !== 1) return null;
+
+  const op = payload.ops[0] as Partial<RealtimePatchOperation> | undefined;
+  if (!op || typeof op !== "object") return null;
+  if (!("o" in op) && !("p" in op) && "v" in op) {
+    return { t: "d", sid, s: payload.seq, b: payload.baseSeq, v: op.v };
+  }
+  if (op.o === "append" && typeof op.p === "string" && "v" in op) {
+    return {
+      t: "p",
+      sid,
+      s: payload.seq,
+      b: payload.baseSeq,
+      o: "append",
+      p: op.p,
+      v: op.v,
+    };
+  }
+  return null;
+};
+
+const getOrCreateCompactStreamAlias = (ctx: WsConnectionContext, streamId: string) => {
+  const existing = ctx.compactStreamAliases.get(streamId);
+  if (existing) return existing;
+  ctx.nextCompactStreamAlias += 1;
+  const alias = ctx.nextCompactStreamAlias.toString(36);
+  ctx.compactStreamAliases.set(streamId, alias);
+  return alias;
+};
+
+const withCompactStreamMetadata = (
+  envelope: RealtimeEnvelope,
+  sid: string,
+): RealtimeEnvelope => ({
+  ...envelope,
+  payload: {
+    ...envelope.payload,
+    _rt: { sid },
+  },
+});
+
+const rememberRealtimeEnvelopeForConnection = (
+  ctx: WsConnectionContext | undefined,
+  envelope: RealtimeEnvelope,
+) => {
+  if (!ctx) return;
+  const patchStreamId = getPatchStreamId(envelope);
+  if (patchStreamId) {
+    getOrCreateCompactStreamAlias(ctx, patchStreamId);
+    return;
+  }
+  const persistedTurnId = getPersistedTurnId(envelope);
+  if (persistedTurnId) ctx.compactStreamAliases.delete(persistedTurnId);
+};
+
+const sendWsRealtime = (
+  socket: WebSocket,
+  ctx: WsConnectionContext | undefined,
+  envelope: RealtimeEnvelope,
+) => {
+  const streamId = ctx ? getPatchStreamId(envelope) : null;
+  const canUseCompact = Boolean(
+    ctx?.capabilities.has(WS_COMPACT_STREAM_CAPABILITY) && streamId,
+  );
+  const existingSid = canUseCompact && ctx && streamId
+    ? ctx.compactStreamAliases.get(streamId)
+    : null;
+  if (ctx && streamId && existingSid) {
+    const compactFrame = buildCompactFrame(envelope, existingSid);
+    if (compactFrame) {
+      socket.send(JSON.stringify(compactFrame));
+      return;
+    }
+  }
+  const envelopeToSend = ctx && streamId && canUseCompact
+    ? withCompactStreamMetadata(envelope, getOrCreateCompactStreamAlias(ctx, streamId))
+    : envelope;
+  sendWsEnvelope(socket, envelopeToSend);
+  rememberRealtimeEnvelopeForConnection(ctx, envelope);
 };
 
 const buildRealtimeEnvelope = (input: Omit<RealtimeEnvelope, "id" | "timestamp">): RealtimeEnvelope => ({
@@ -182,8 +303,9 @@ function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
     for (const connectionId of connectionIds) {
       const socket = wsSockets.get(connectionId);
       if (!socket) continue;
+      const ctx = wsConnections.get(connectionId);
       const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = payload.payload ?? {};
-      sendWsEnvelope(socket, {
+      sendWsRealtime(socket, ctx, {
         ...payload,
         payload: cleanPayload,
       } as RealtimeEnvelope);
@@ -322,8 +444,9 @@ async function main() {
         if (!socket) {
           return { success: true, externalMessageId: targetConnectionId, error: "offline" };
         }
+        const ctx = wsConnections.get(targetConnectionId);
         const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = envelope.payload as Record<string, unknown>;
-        sendWsEnvelope(socket, { ...envelope, payload: cleanPayload });
+        sendWsRealtime(socket, ctx, { ...envelope, payload: cleanPayload });
         return { success: true, externalMessageId: targetConnectionId };
       }
 
@@ -334,8 +457,9 @@ async function main() {
         for (const connectionId of connectionIds) {
           const socket = wsSockets.get(connectionId);
           if (!socket) continue;
+          const ctx = wsConnections.get(connectionId);
           const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = envelope.payload as Record<string, unknown>;
-          sendWsEnvelope(socket, { ...envelope, payload: cleanPayload });
+          sendWsRealtime(socket, ctx, { ...envelope, payload: cleanPayload });
           delivered += 1;
         }
       }
@@ -386,7 +510,12 @@ async function main() {
 
   wss.on("connection", (socket: WebSocket) => {
     const connectionId = randomUUID();
-    const ctx: WsConnectionContext = { connectionId };
+    const ctx: WsConnectionContext = {
+      connectionId,
+      capabilities: new Set(),
+      compactStreamAliases: new Map(),
+      nextCompactStreamAlias: 0,
+    };
     wsConnections.set(connectionId, ctx);
     wsSockets.set(connectionId, socket);
     sendWsEnvelope(socket, buildRealtimeEnvelope({
@@ -437,6 +566,11 @@ async function main() {
           ctx.userId = result.user.uuid;
           ctx.userName = typeof result.user.nick_name === "string" ? result.user.nick_name : undefined;
           ctx.token = token;
+          ctx.capabilities = new Set(
+            Array.isArray(message.payload.capabilities)
+              ? message.payload.capabilities.filter((value) => typeof value === "string" && value.trim())
+              : [],
+          );
           addUserConnection(result.user.uuid, connectionId);
           await persistWsConnection(ctx);
           sendWsEnvelope(socket, buildRealtimeEnvelope({

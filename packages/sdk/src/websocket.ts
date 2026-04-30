@@ -1,6 +1,10 @@
 import {
+  realtimeCompactFrameSchema,
   realtimeEnvelopeSchema,
+  WS_COMPACT_STREAM_CAPABILITY,
   type ChannelEnvelope,
+  type RealtimeCompactFrame,
+  type RealtimePatchOperation,
   type WsClientEvent,
 } from "@neta-art/cohub-protocol/realtime";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
@@ -106,12 +110,44 @@ const isRetryableCloseCode = (code: number) => {
 
 const AUTH_CLOSE_REASON = "authentication failed";
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const compactFrameToPatchOperation = (
+  frame: RealtimeCompactFrame,
+): RealtimePatchOperation | null => {
+  if (frame.t === "d") return { v: frame.v };
+  if (frame.o === "remove") return { o: "remove", p: frame.p };
+  if (frame.o === "merge") {
+    return isRecord(frame.v) ? { o: "merge", p: frame.p, v: frame.v } : null;
+  }
+  if (!("v" in frame)) return null;
+  switch (frame.o) {
+    case "append":
+      return { o: "append", p: frame.p, v: frame.v };
+    case "replace":
+      return { o: "replace", p: frame.p, v: frame.v };
+    case "add":
+      return { o: "add", p: frame.p, v: frame.v };
+    default:
+      return null;
+  }
+};
+
 class WebsocketAuthError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "WebsocketAuthError";
   }
 }
+
+type CompactStreamContext = {
+  spaceId: string | null;
+  sessionId: string | null;
+  turnId: string | null;
+  messageId: string | null;
+  anchorUserMessageId: string | null;
+};
 
 export class WebsocketClient {
   private readonly url: string;
@@ -139,6 +175,7 @@ export class WebsocketClient {
   private awaitingPong = false;
   private lastPingRequestId: string | null = null;
   private pongDeadlineAt = 0;
+  private readonly compactStreamContexts = new Map<string, CompactStreamContext>();
 
   public state: WebsocketClientState = "idle";
   public connectionId: string | null = null;
@@ -335,7 +372,10 @@ export class WebsocketClient {
     if (!token) throw new WebsocketAuthError("missing access token");
 
     const waiter = this.createAuthWaiter();
-    this.send({ type: "auth", payload: { token } });
+    this.send({
+      type: "auth",
+      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY] },
+    });
     await waiter.promise;
   }
 
@@ -372,6 +412,12 @@ export class WebsocketClient {
       return;
     }
 
+    const compactResult = realtimeCompactFrameSchema.safeParse(parsed);
+    if (compactResult.success) {
+      this.handleCompactFrame(compactResult.data);
+      return;
+    }
+
     const result = realtimeEnvelopeSchema.safeParse(parsed);
     if (!result.success) {
       this.emit("error", { error: new Error("invalid realtime envelope"), recoverable: true });
@@ -379,6 +425,7 @@ export class WebsocketClient {
     }
 
     const envelope = result.data as ChannelEnvelope;
+    this.rememberCompactStreamContext(envelope);
     switch (envelope.type) {
       case "system.ready": {
         const connectionId = typeof envelope.payload.connectionId === "string"
@@ -469,6 +516,81 @@ export class WebsocketClient {
         return;
       }
     }
+  }
+
+  private rememberCompactStreamContext(envelope: ChannelEnvelope) {
+    if (envelope.type === "session.turn.patch") {
+      const payload = envelope.payload;
+      const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
+      const messageId = typeof payload.messageId === "string" ? payload.messageId : null;
+      const realtimeMeta = payload._rt && typeof payload._rt === "object"
+        ? payload._rt as Record<string, unknown>
+        : null;
+      const sid = typeof realtimeMeta?.sid === "string" && realtimeMeta.sid.trim()
+        ? realtimeMeta.sid
+        : turnId ?? messageId;
+      if (!sid) return;
+      this.compactStreamContexts.set(sid, {
+        spaceId: envelope.spaceId ?? null,
+        sessionId: envelope.sessionId ?? null,
+        turnId,
+        messageId,
+        anchorUserMessageId:
+          typeof payload.anchorUserMessageId === "string"
+            ? payload.anchorUserMessageId
+            : null,
+      });
+      return;
+    }
+
+    if (envelope.type !== "session.message.persisted") return;
+    const message = envelope.payload.message;
+    if (!message || typeof message !== "object") return;
+    const meta = (message as { meta?: Record<string, unknown> | null }).meta;
+    const turnId = typeof meta?.turnId === "string" ? meta.turnId : null;
+    if (!turnId) return;
+    for (const [sid, context] of this.compactStreamContexts.entries()) {
+      if (context.turnId === turnId) this.compactStreamContexts.delete(sid);
+    }
+  }
+
+  private handleCompactFrame(frame: RealtimeCompactFrame) {
+    const context = this.compactStreamContexts.get(frame.sid);
+    if (!context?.sessionId) {
+      this.emit("error", {
+        error: new Error(`unknown compact stream: ${frame.sid}`),
+        recoverable: true,
+      });
+      return;
+    }
+
+    const op = compactFrameToPatchOperation(frame);
+    if (!op) {
+      this.emit("error", {
+        error: new Error(`invalid compact stream frame: ${frame.sid}`),
+        recoverable: true,
+      });
+      return;
+    }
+
+    const envelope: ChannelEnvelope = {
+      id: `compact:${frame.sid}:${frame.s}`,
+      timestamp: Date.now(),
+      domain: "session",
+      type: "session.turn.patch",
+      spaceId: context.spaceId,
+      sessionId: context.sessionId,
+      payload: {
+        turnId: context.turnId,
+        messageId: context.messageId,
+        anchorUserMessageId: context.anchorUserMessageId,
+        seq: frame.s,
+        baseSeq: frame.b,
+        ops: [op],
+      },
+    };
+
+    this.emit("event", envelope);
   }
 
   private startPingLoop() {

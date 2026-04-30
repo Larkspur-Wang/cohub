@@ -5,6 +5,8 @@ import type { SpaceFsChangedPayload } from "../fs/index.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
 
+export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
+
 export const contentBlockSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("text"),
@@ -51,7 +53,10 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("auth"),
     requestId: z.string().optional(),
-    payload: z.object({ token: z.string().min(1) }),
+    payload: z.object({
+      token: z.string().min(1),
+      capabilities: z.array(z.string().min(1)).optional(),
+    }),
   }),
   z.object({
     type: z.literal("session.message.create"),
@@ -92,14 +97,34 @@ export const realtimeEnvelopeSchema = z.object({
 
 export const channelEnvelopeSchema = realtimeEnvelopeSchema;
 
+export const realtimeCompactFrameSchema = z.discriminatedUnion("t", [
+  z.object({
+    t: z.literal("d"),
+    sid: z.string().min(1),
+    s: z.number().int().nonnegative(),
+    b: z.number().int().nonnegative(),
+    v: z.unknown(),
+  }),
+  z.object({
+    t: z.literal("p"),
+    sid: z.string().min(1),
+    s: z.number().int().nonnegative(),
+    b: z.number().int().nonnegative(),
+    o: z.enum(["append", "replace", "add", "merge", "remove"]),
+    p: z.string().min(1),
+    v: z.unknown().optional(),
+  }),
+]);
+
 export type WsClientEvent =
-  | { type: "auth"; requestId?: string; payload: { token: string } }
+  | { type: "auth"; requestId?: string; payload: { token: string; capabilities?: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
 
 export type RealtimeEnvelope = z.output<typeof realtimeEnvelopeSchema>;
 export type ChannelEnvelope = RealtimeEnvelope;
+export type RealtimeCompactFrame = z.output<typeof realtimeCompactFrameSchema>;
 export type RealtimeEnvelopeBase = RealtimeEnvelope;
 export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
 
