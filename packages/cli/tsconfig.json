@@ -1,15 +1,21 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
     "types": ["node"],
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@neta-art/cohub": ["../sdk/dist/index.d.ts"],
-      "@neta-art/cohub/http": ["../sdk/dist/http.d.ts"],
-      "@neta-art/cohub/websocket": ["../sdk/dist/websocket.d.ts"]
+      "@neta-art/cohub-protocol": ["../protocol/src/index.ts"],
+      "@neta-art/cohub-protocol/core": ["../protocol/src/core/index.ts"],
+      "@neta-art/cohub-protocol/model": ["../protocol/src/model/session.ts"],
+      "@neta-art/cohub-protocol/realtime": ["../protocol/src/realtime/index.ts"],
+      "@neta-art/cohub-protocol/gateway": ["../protocol/src/gateway/index.ts"],
+      "@neta-art/cohub-protocol/task": ["../protocol/src/task/index.ts"],
+      "@neta-art/cohub-protocol/fs": ["../protocol/src/fs/index.ts"],
+      "@neta-art/cohub": ["../sdk/src/index.ts"],
+      "@neta-art/cohub/http": ["../sdk/src/http.ts"],
+      "@neta-art/cohub/websocket": ["../sdk/src/websocket.ts"]
     }
   },
   "include": ["src"]

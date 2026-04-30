@@ -389,13 +389,26 @@ function registerSessions(spacesCmd: Command): void {
 
       process.stdout.write("  Listening for events...\n\n");
 
-      session.on("turn.progress", (e: { payload?: Record<string, unknown> }) => {
+      let lastAppendPath: string | null = null;
+      session.on("turn.patch", (e: { payload?: Record<string, unknown> }) => {
         if (opts.json) {
           console.log(JSON.stringify(e));
         } else {
-          const blocks = e.payload?.content as Array<{ type: string; text?: string }> | undefined;
-          const text = blocks?.find((b) => b.type === "text")?.text;
-          if (text) process.stdout.write(text);
+          const ops = e.payload?.ops as Array<{ o?: string; p?: string; v?: unknown }> | undefined;
+          for (const op of ops ?? []) {
+            if (op.o === "append" && typeof op.v === "string" && op.p?.endsWith("/text")) {
+              lastAppendPath = op.p;
+              process.stdout.write(op.v);
+              continue;
+            }
+            if (op.o === "append" && typeof op.p === "string") {
+              lastAppendPath = op.p;
+              continue;
+            }
+            if (!op.o && !op.p && typeof op.v === "string" && lastAppendPath?.endsWith("/text")) {
+              process.stdout.write(op.v);
+            }
+          }
         }
       });
 
@@ -406,7 +419,7 @@ function registerSessions(spacesCmd: Command): void {
 
       session.on("turn.error", (e: unknown) => {
         process.stderr.write(`\n  ✗ Error\n`);
-        if (opts.json) process.stderr.write(JSON.stringify(e) + "\n");
+        if (opts.json) process.stderr.write(`${JSON.stringify(e)}\n`);
         process.exit(1);
       });
     });

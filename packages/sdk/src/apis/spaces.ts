@@ -1,6 +1,11 @@
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import type { HttpTransport, Fetch } from "../transport.js";
+import {
+  SessionPatchReducer,
+  type SessionPatchApplyInput,
+  type SessionPatchApplyResult,
+} from "../session-patch-reducer.js";
 import type {
   CheckpointRecord,
   ContentBlock,
@@ -30,6 +35,8 @@ import { SpaceInvitationsApi } from "./invitations.js";
 const DEFAULT_DEDUP_WINDOW_MS = 2000;
 
 export type SessionSubscriptionHandlers = {
+  patch?: (event: WebsocketEventPayload) => void;
+  patchState?: (result: SessionPatchApplyResult) => void;
   progress?: (event: WebsocketEventPayload) => void;
   final?: (event: WebsocketEventPayload) => void;
   error?: (event: WebsocketEventPayload) => void;
@@ -37,7 +44,7 @@ export type SessionSubscriptionHandlers = {
   event?: (event: WebsocketEventPayload) => void;
 };
 
-export type SessionEventName = "turn.progress" | "turn.final" | "turn.error" | "message.persisted";
+export type SessionEventName = "turn.patch" | "turn.progress" | "turn.final" | "turn.error" | "message.persisted";
 export type SpaceEventName = SessionEventName | "event";
 
 type SessionSendMessageInput = {
@@ -49,6 +56,8 @@ type SessionSendMessageInput = {
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
+    case "session.turn.patch":
+      return "turn.patch";
     case "session.turn.progress":
       return "turn.progress";
     case "session.turn.error":
@@ -69,6 +78,14 @@ const isAssistantFinalPersistedEvent = (event: WebsocketEventPayload) => {
     meta?: Record<string, unknown> | null;
   };
   return record.role === "assistant" && record.meta?.messageKind === "assistant_final";
+};
+
+const getPersistedMessageTurnId = (event: WebsocketEventPayload) => {
+  if (event.type !== "session.message.persisted") return null;
+  const message = event.payload.message;
+  if (!message || typeof message !== "object") return null;
+  const meta = (message as { meta?: Record<string, unknown> | null }).meta;
+  return typeof meta?.turnId === "string" ? meta.turnId : null;
 };
 
 export class SpacesApi {
@@ -287,6 +304,8 @@ class SessionMessagesClient {
 }
 
 class SessionRealtimeClient {
+  private readonly patchReducer = new SessionPatchReducer();
+
   constructor(
     private readonly websocketClient: WebsocketClient | null,
     private readonly spaceId: string,
@@ -302,10 +321,49 @@ class SessionRealtimeClient {
       if (event.spaceId !== this.spaceId || event.sessionId !== this.sessionId) return;
       handlers.event?.(event);
       const eventName = toSessionEventName(event.type);
+      if (eventName === "turn.patch") {
+        handlers.patch?.(event);
+        if (event.type === "session.turn.patch") {
+          const payload = event.payload;
+          if (
+            typeof payload.seq === "number" &&
+            typeof payload.baseSeq === "number" &&
+            Array.isArray(payload.ops)
+          ) {
+            handlers.patchState?.(
+              this.patchReducer.applyPatch({
+                spaceId: this.spaceId,
+                sessionId: this.sessionId,
+                turnId: typeof payload.turnId === "string" ? payload.turnId : null,
+                seq: payload.seq,
+                baseSeq: payload.baseSeq,
+                ops: payload.ops as SessionPatchApplyInput["ops"],
+                anchorUserMessageId:
+                  typeof payload.anchorUserMessageId === "string"
+                    ? payload.anchorUserMessageId
+                    : null,
+              }),
+            );
+          }
+        }
+      }
       if (eventName === "turn.progress") handlers.progress?.(event);
-      if (eventName === "turn.error") handlers.error?.(event);
+      if (eventName === "turn.error") {
+        this.patchReducer.fail({
+          spaceId: this.spaceId,
+          sessionId: this.sessionId,
+        });
+        handlers.error?.(event);
+      }
       if (eventName === "message.persisted") handlers.persisted?.(event);
-      if (isAssistantFinalPersistedEvent(event)) handlers.final?.(event);
+      if (isAssistantFinalPersistedEvent(event)) {
+        this.patchReducer.complete({
+          spaceId: this.spaceId,
+          sessionId: this.sessionId,
+          turnId: getPersistedMessageTurnId(event),
+        });
+        handlers.final?.(event);
+      }
     });
     return () => unsubscribe();
   }

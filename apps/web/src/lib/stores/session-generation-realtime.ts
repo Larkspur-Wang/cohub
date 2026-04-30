@@ -1,6 +1,7 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
+	applyRealtimeGenerationPatch,
 	applyRealtimeGenerationProgress,
 	failGeneration,
 } from "./session-generation-controller";
@@ -16,6 +17,43 @@ export function applyGenerationRealtimeEnvelope(
 	sessionId: string,
 	payload: ChannelEnvelope,
 ): GenerationRealtimeEffect {
+	if (payload.type === "session.turn.patch") {
+		const seq = payload.payload.seq;
+		const baseSeq = payload.payload.baseSeq;
+		const ops = payload.payload.ops;
+		if (
+			typeof seq !== "number" ||
+			typeof baseSeq !== "number" ||
+			!Array.isArray(ops)
+		) {
+			return {
+				handled: true,
+				shouldScroll: false,
+				shouldReconcile: true,
+				shouldRefreshSessions: false,
+			};
+		}
+		const result = applyRealtimeGenerationPatch(sessionId, {
+			turnId:
+				typeof payload.payload.turnId === "string"
+					? payload.payload.turnId
+					: null,
+			seq,
+			baseSeq,
+			ops: ops as Parameters<typeof applyRealtimeGenerationPatch>[1]["ops"],
+			anchorUserMessageId:
+				typeof payload.payload.anchorUserMessageId === "string"
+					? payload.payload.anchorUserMessageId
+					: null,
+		});
+		return {
+			handled: true,
+			shouldScroll: result.applied,
+			shouldReconcile: !result.applied && result.reason === "version_mismatch",
+			shouldRefreshSessions: false,
+		};
+	}
+
 	if (payload.type === "session.turn.progress") {
 		const content = Array.isArray(payload.payload.content)
 			? (payload.payload.content as ContentBlock[])

@@ -271,6 +271,47 @@ export type SessionTurnProgressEvent = {
         content: ContentBlock[];
     };
 };
+export type RealtimePatchOperation = {
+    o: "append";
+    p: string;
+    v: unknown;
+} | {
+    o: "replace";
+    p: string;
+    v: unknown;
+} | {
+    o: "add";
+    p: string;
+    v: unknown;
+} | {
+    o: "merge";
+    p: string;
+    v: Record<string, unknown>;
+} | {
+    o: "remove";
+    p: string;
+} | {
+    v: unknown;
+    o?: undefined;
+    p?: undefined;
+};
+export type SessionTurnPatchEvent = {
+    id: string;
+    timestamp: number;
+    domain: "session";
+    type: "session.turn.patch";
+    requestId?: string | null;
+    spaceId: string;
+    sessionId: string;
+    payload: {
+        turnId: string | null;
+        messageId: string | null;
+        anchorUserMessageId: string | null;
+        seq: number;
+        baseSeq: number;
+        ops: RealtimePatchOperation[];
+    };
+};
 export type SessionTurnErrorEvent = {
     id: string;
     timestamp: number;
@@ -297,6 +338,6 @@ export type SessionMessagePersistedEvent = {
         message: RealtimeMessageRecord;
     };
 };
-export type RealtimeServerEvent = SystemReadyEvent | SystemAuthOkEvent | SystemRequestErrorEvent | SystemPongEvent | SystemAckOkEvent | SessionRequestAcceptedEvent | SessionRequestErrorEvent | SessionTurnProgressEvent | SessionTurnErrorEvent | SessionMessagePersistedEvent;
+export type RealtimeServerEvent = SystemReadyEvent | SystemAuthOkEvent | SystemRequestErrorEvent | SystemPongEvent | SystemAckOkEvent | SessionRequestAcceptedEvent | SessionRequestErrorEvent | SessionTurnProgressEvent | SessionTurnPatchEvent | SessionTurnErrorEvent | SessionMessagePersistedEvent;
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

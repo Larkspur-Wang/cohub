@@ -66,6 +66,7 @@ export type SessionHandle = {
     preferredDisplayMode: "full" | "compact" | "minimal";
     /** Snapshot of the content sent in the last stream_update, used for delta computation. */
     lastSent?: ContentBlock[];
+    patchSeq?: number;
     pendingFlush?: boolean;
     flushPromise?: Promise<void> | null;
     flushTimer?: ReturnType<typeof setTimeout> | null;
@@ -156,6 +157,9 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
       handle.streamState.flushPromise = null;
       return;
     }
+    const baseSeq = handle.streamState.patchSeq ?? 0;
+    const seq = baseSeq + 1;
+    handle.streamState.patchSeq = seq;
 
     const span = trace.getActiveSpan();
     span?.addEvent("agent.output.publish", {
@@ -172,6 +176,9 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
         type: "stream_update",
         spaceId: handle.spaceId,
         sessionId: handle.sessionId,
+        turnId: handle.currentTurnId ?? null,
+        seq,
+        baseSeq,
         content: delta,
         sourceMessageId,
         anchorUserMessageId: handle.currentUserMessageId,
@@ -231,6 +238,7 @@ function resetStreamState(handle: SessionHandle) {
     content: [],
     preferredDisplayMode: handle.streamState.preferredDisplayMode,
     lastSent: [],
+    patchSeq: 0,
     pendingFlush: false,
     flushPromise: null,
     flushTimer: null,
@@ -688,6 +696,7 @@ export async function loadOrCreateSessionHandle(input: {
       content: [],
       preferredDisplayMode: "compact",
       lastSent: [],
+      patchSeq: 0,
       pendingFlush: false,
       flushPromise: null,
       flushTimer: null,

@@ -3,7 +3,7 @@
  * Cohub Dev 环境 — Tool Call 全链路端到端验证
  *
  * 验证目标:
- *  1. WS 流式事件: session.turn.progress 中 tool_use/tool_result delta
+ *  1. WS 流式事件: session.turn.patch 中深度 delta 和 seq/baseSeq
  *  2. WS 持久化事件: session.message.persisted 消息验证
  *  4. DB 持久化: session_messages.content 中 tool_use/tool_result 块完整性
  *  5. DB 持久化: meta.toolCallRenderStates / meta.messageKind 正确性
@@ -191,6 +191,9 @@ interface WsSessionEvent {
   type: string;
   payload: {
     content?: ContentBlock[];
+    ops?: Array<{ o?: string; p?: string; v: unknown }>;
+    seq?: number;
+    baseSeq?: number;
     anchorUserMessageId?: string | null;
     message?: MessageRecord;
     sessionMessageId?: string;
@@ -207,7 +210,7 @@ interface WsSessionEvent {
  *  1. system.ready           → 连接建立
  *  2. system.auth.ok         → 鉴权成功
  *  3. session.request.accepted → 消息已接受
- *  4. session.turn.progress  → 流式推送 (agent 的 stream_update 经 API 转换)
+ *  4. session.turn.patch     → 流式推送 (agent 的 stream_update 经 API 转换)
  *  5. session.message.persisted → 消息已持久化 / assistant_final 表示本轮完成
  */
 async function collectWsToolCallEvents(params: {
@@ -277,9 +280,9 @@ async function collectWsToolCallEvents(params: {
         errorMessage = JSON.stringify(msg.payload);
       }
 
-      // 采集 session 域事件: session.turn.progress / session.message.persisted / session.turn.error
+      // 采集 session 域事件: session.turn.patch / session.message.persisted / session.turn.error
       if (
-        msg.type === "session.turn.progress"
+        msg.type === "session.turn.patch"
         || msg.type === "session.message.persisted"
         || msg.type === "session.turn.error"
       ) {
@@ -384,9 +387,9 @@ async function main() {
       ok("消息 accepted", `connectionId=${result.connectionId}`);
 
       wsSessionEvents = result.sessionEvents;
-      const progressEvents = wsSessionEvents.filter((e) => e.type === "session.turn.progress");
+      const patchEvents = wsSessionEvents.filter((e) => e.type === "session.turn.patch");
       const persistedEvents = wsSessionEvents.filter((e) => e.type === "session.message.persisted");
-      ok("WS 事件统计", `progress=${progressEvents.length}, persisted=${persistedEvents.length}`);
+      ok("WS 事件统计", `patch=${patchEvents.length}, persisted=${persistedEvents.length}`);
 
       if (result.hasAssistantFinal) {
         ok("assistant_final persisted", "收到，本轮对话已完成");
@@ -399,32 +402,51 @@ async function main() {
       ok("HTTP 发送消息", `userMessageId=${sendResult.userMessageId}`);
     }
 
-    // 3.1-3.4: 如果有 session.turn.progress 事件，验证其内容
+    // 3.1-3.4: 如果有 session.turn.patch 事件，验证其内容
     if (wsSessionEvents.length > 0) {
-      await sub("3.1 WS session.turn.progress 包含 content 块", async () => {
-        const progressEvents = wsSessionEvents.filter((e) => e.type === "session.turn.progress");
-        if (progressEvents.length === 0) {
-          ok("progress 事件", "无（agent 可能直接完成了对话）");
+      await sub("3.1 WS session.turn.patch 包含深度 delta 和版本", async () => {
+        const patchEvents = wsSessionEvents.filter((e) => e.type === "session.turn.patch");
+        if (patchEvents.length === 0) {
+          ok("patch 事件", "无（agent 可能直接完成了对话）");
           return;
         }
-        const allBlocks = progressEvents.flatMap((e) => e.payload.content ?? []) as ContentBlock[];
-        const toolUseBlocks = allBlocks.filter((b) => b.type === "tool_use");
-        const toolResultBlocks = allBlocks.filter((b) => b.type === "tool_result");
-
-        ok("progress 事件 content 块", `tool_use=${toolUseBlocks.length}, tool_result=${toolResultBlocks.length}, 总事件=${progressEvents.length}`);
-
-        const streamIndexedBlocks = allBlocks.filter((b) => {
-          const meta = (b as { _meta?: Record<string, unknown> })._meta;
-          return typeof meta?.streamIndex === "number";
-        });
-        if (allBlocks.length > 0) {
-          assert.equal(
-            streamIndexedBlocks.length,
-            allBlocks.length,
-            "所有 progress content block 都应带 _meta.streamIndex",
-          );
-          ok("progress streamIndex", `全部 ${streamIndexedBlocks.length} 个块都带 streamIndex`);
+        let expectedBaseSeq = 0;
+        for (const event of patchEvents) {
+          assert.equal(event.payload.baseSeq, expectedBaseSeq, "patch baseSeq 应连续");
+          assert.equal(event.payload.seq, expectedBaseSeq + 1, "patch seq 应为 baseSeq + 1");
+          expectedBaseSeq += 1;
+          assert(Array.isArray(event.payload.ops), "patch 应包含 ops 数组");
         }
+        const allOps = patchEvents.flatMap((e) => e.payload.ops ?? []) as Array<{ o?: string; p?: string; v: unknown }>;
+        const appendTextOps = allOps.filter((op) => op.o === "append" && op.p?.endsWith("/text"));
+        const compactAppendOps = allOps.filter((op) => !op.o && !op.p);
+        const blockReplaceOps = allOps.filter((op) => op.o === "replace" && typeof op.p === "string" && /^\/message\/content\/blocks\/\d+$/.test(op.p));
+        ok("patch ops", `append=${appendTextOps.length}, compact=${compactAppendOps.length}, block_replace=${blockReplaceOps.length}, 总事件=${patchEvents.length}`);
+
+        for (const op of appendTextOps.slice(0, 10)) {
+          assert.equal(typeof op.v, "string", "append op 的 v 应为字符串");
+          assert(typeof op.p === "string" && /^\/message\/content\/blocks\/\d+\/text$/.test(op.p), "append path 应指向 text 字段");
+        }
+
+        for (const op of compactAppendOps.slice(0, 10)) {
+          assert.equal(typeof op.v, "string", "compact append op 的 v 应为字符串");
+        }
+
+        const replacedBlocks = blockReplaceOps.map((op) => op.v).filter((value): value is ContentBlock => {
+          return Boolean(value && typeof value === "object" && "type" in value);
+        });
+        if (replacedBlocks.length > 0) {
+          const indexedCount = replacedBlocks.filter((b) => typeof (b as { _meta?: Record<string, unknown> })._meta?.streamIndex === "number").length;
+          assert.equal(
+            indexedCount,
+            replacedBlocks.length,
+            "所有 replace block 都应带 _meta.streamIndex",
+          );
+          ok("patch replace block streamIndex", `全部 ${indexedCount} 个块都带 streamIndex`);
+        }
+
+        const toolUseBlocks = replacedBlocks.filter((b) => b.type === "tool_use");
+        const toolResultBlocks = replacedBlocks.filter((b) => b.type === "tool_result");
 
         if (toolUseBlocks.length > 0 && toolResultBlocks.length > 0) {
           const toolUseById = new Map(toolUseBlocks.map((b) => [b.id, b]));
@@ -437,7 +459,7 @@ async function main() {
               `tool_result(${tr.tool_use_id}) 应与对应 tool_use 共享 streamIndex`,
             );
           }
-          ok("progress tool streamIndex 对齐", `已验证 ${Math.min(toolResultBlocks.length, 10)} 个 tool_result`);
+          ok("patch tool streamIndex 对齐", `已验证 ${Math.min(toolResultBlocks.length, 10)} 个 tool_result`);
         }
 
         if (toolUseBlocks.length > 0) {

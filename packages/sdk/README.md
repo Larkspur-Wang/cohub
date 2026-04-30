@@ -96,6 +96,20 @@ stop();
 You can also listen with business-oriented event names:
 
 ```ts
+session.on("turn.patch", (event) => {
+  // Streaming state-machine patch: { turnId, seq, baseSeq, ops }.
+  // Consecutive append ops may be compacted to { v }.
+  console.log(event.payload.ops);
+});
+
+session.subscribe({
+  patchState: (result) => {
+    if (result.applied) {
+      console.log(result.state.contentBlocks);
+    }
+  },
+});
+
 session.on("turn.final", (event) => {
   // Fired when an assistant_final message.persisted event arrives.
   console.log(event.payload.message);
@@ -108,7 +122,8 @@ space.on("message.persisted", (event) => {
 
 Supported business event names:
 
-- `turn.progress`
+- `turn.patch`
+- `turn.progress` (legacy compatibility)
 - `turn.final`
 - `turn.error`
 - `message.persisted`

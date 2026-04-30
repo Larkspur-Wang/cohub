@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
-import type { GatewaySessionOutput } from "@neta-art/cohub-protocol/gateway";
+import type { GatewaySessionOutput, GatewaySessionPatchOperation } from "@neta-art/cohub-protocol/gateway";
 import type { RealtimeMessageRecord, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getReadableUserIdsForSpace, getBindingsBySessionId } from "./channels.js";
 import { db } from "./db/index.js";
@@ -43,16 +44,112 @@ const toRealtimeMessageRecord = (message: MessageRecord): RealtimeMessageRecord 
   createdAt: message.createdAt,
 });
 
+const getStreamIndex = (block: ContentBlock, fallback: number) => {
+  const value = block._meta?.streamIndex;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+};
+
+const blockPatchPath = (block: ContentBlock, fallback: number) =>
+  `/message/content/blocks/${getStreamIndex(block, fallback)}`;
+
+type AppendPatchCursor = { p: string; lastSeenAt: number };
+
+const PATCH_CURSOR_MAX_AGE_MS = 10 * 60 * 1000;
+const appendPatchCursors = new Map<string, AppendPatchCursor>();
+
+const patchCursorKey = (event: SessionStreamEvent) =>
+  `${event.sessionId}:${event.turnId ?? event.sourceMessageId ?? event.anchorUserMessageId ?? "unknown"}`;
+
+const pruneExpiredPatchCursors = (now: number) => {
+  for (const [key, cursor] of appendPatchCursors) {
+    if (now - cursor.lastSeenAt > PATCH_CURSOR_MAX_AGE_MS) {
+      appendPatchCursors.delete(key);
+    }
+  }
+};
+
+const compactAppendPatchOps = (
+  event: SessionStreamEvent,
+  ops: GatewaySessionPatchOperation[],
+): GatewaySessionPatchOperation[] => {
+  const now = Date.now();
+  pruneExpiredPatchCursors(now);
+  const key = patchCursorKey(event);
+  let cursor = event.baseSeq === 0 ? null : appendPatchCursors.get(key) ?? null;
+  const compacted: GatewaySessionPatchOperation[] = [];
+
+  for (const op of ops) {
+    if (op.o === "append" && typeof op.p === "string") {
+      if (cursor?.p === op.p) {
+        compacted.push({ v: op.v });
+      } else {
+        compacted.push(op);
+      }
+      cursor = { p: op.p, lastSeenAt: now };
+      continue;
+    }
+    compacted.push(op);
+  }
+
+  if (cursor) {
+    appendPatchCursors.set(key, cursor);
+  } else {
+    appendPatchCursors.delete(key);
+  }
+
+  return compacted;
+};
+
+const buildPatchOpsForContentDelta = (input: {
+  event: SessionStreamEvent;
+}): GatewaySessionPatchOperation[] => {
+  const ops: GatewaySessionPatchOperation[] = [];
+  if (input.event.baseSeq === 0) {
+    ops.push(
+      { o: "replace", p: "/message/status", v: "streaming" },
+      { o: "replace", p: "/message/end_turn", v: false },
+    );
+    const metadata: Record<string, unknown> = {
+      is_complete: false,
+    };
+    if (input.event.turnId) metadata.turnId = input.event.turnId;
+    if (input.event.anchorUserMessageId) metadata.anchorUserMessageId = input.event.anchorUserMessageId;
+    ops.push({ o: "merge", p: "/message/metadata", v: metadata });
+  }
+
+  input.event.content.forEach((block, index) => {
+    const path = blockPatchPath(block, index);
+    if (block.type === "text") {
+      ops.push({ o: "append", p: `${path}/text`, v: block.text });
+      return;
+    }
+    if (block.type === "thinking") {
+      ops.push({ o: "append", p: `${path}/thinking`, v: block.thinking });
+      if (block.signature) {
+        ops.push({ o: "replace", p: `${path}/signature`, v: block.signature });
+      }
+      return;
+    }
+    ops.push({ o: "replace", p: path, v: block });
+  });
+
+  return compactAppendPatchOps(input.event, ops);
+};
+
 export const buildSessionOutputsForStreamEvent = async (
   event: SessionStreamEvent | SessionStreamError,
 ): Promise<GatewaySessionOutput[]> => {
   if (event.type === "stream_update") {
     return [{
-      type: "session.turn.progress",
+      type: "session.turn.patch",
       spaceId: event.spaceId,
       sessionId: event.sessionId,
+      turnId: event.turnId ?? null,
+      messageId: event.sourceMessageId ? `assistant:${event.sourceMessageId}` : null,
       anchorUserMessageId: event.anchorUserMessageId ?? null,
-      content: event.content,
+      seq: event.seq,
+      baseSeq: event.baseSeq,
+      ops: buildPatchOpsForContentDelta({ event }),
     }];
   }
 
@@ -94,7 +191,7 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
 
 const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => {
   const readableUserIds = await getReadableUserIdsForSpace(output.spaceId).catch(() => [] as string[]);
-  if (output.type === "session.turn.progress") {
+  if (output.type === "session.turn.patch") {
     await dispatchRealtimeEventToUsers({
       id: randomUUID(),
       timestamp: Date.now(),
@@ -103,8 +200,12 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
       spaceId: output.spaceId,
       sessionId: output.sessionId,
       payload: {
+        turnId: output.turnId,
+        messageId: output.messageId,
         anchorUserMessageId: output.anchorUserMessageId,
-        content: output.content,
+        seq: output.seq,
+        baseSeq: output.baseSeq,
+        ops: output.ops,
         targetUserIds: readableUserIds,
       },
     });

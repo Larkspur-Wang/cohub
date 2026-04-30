@@ -18,6 +18,8 @@ export type SessionGenerationState = {
 	contentBlocks: ContentBlock[];
 	anchorUserMessageId: string | null;
 	truncatedStart: boolean;
+	patchSeq: number;
+	turnId: string | null;
 };
 
 const createIdleState = (sessionId: string): SessionGenerationState => ({
@@ -31,6 +33,8 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	contentBlocks: [],
 	anchorUserMessageId: null,
 	truncatedStart: false,
+	patchSeq: 0,
+	turnId: null,
 });
 
 class SessionGenerationStore {
@@ -73,6 +77,8 @@ class SessionGenerationStore {
 				contentBlocks: [],
 				anchorUserMessageId: null,
 				truncatedStart: false,
+				patchSeq: 0,
+				turnId: null,
 			},
 		};
 	}
@@ -83,6 +89,8 @@ class SessionGenerationStore {
 			contentBlocks: ContentBlock[];
 			anchorUserMessageId?: string | null;
 			truncatedStart?: boolean;
+			patchSeq?: number;
+			turnId?: string | null;
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
@@ -98,6 +106,8 @@ class SessionGenerationStore {
 				anchorUserMessageId:
 					input.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
 				truncatedStart: input.truncatedStart ?? current.truncatedStart,
+				patchSeq: input.patchSeq ?? current.patchSeq,
+				turnId: input.turnId ?? current.turnId ?? null,
 			},
 		};
 	}
@@ -114,6 +124,8 @@ class SessionGenerationStore {
 				contentBlocks: [],
 				anchorUserMessageId: null,
 				truncatedStart: false,
+				patchSeq: current.patchSeq,
+				turnId: current.turnId,
 			},
 		};
 	}
@@ -130,6 +142,8 @@ class SessionGenerationStore {
 				contentBlocks: [],
 				anchorUserMessageId: null,
 				truncatedStart: false,
+				patchSeq: current.patchSeq,
+				turnId: current.turnId,
 			},
 		};
 	}

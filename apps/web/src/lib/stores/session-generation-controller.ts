@@ -1,6 +1,16 @@
+import {
+	createSessionPatchReducer,
+	type SessionPatchApplyInput,
+} from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { mergeStreamingDeltaBlocks } from "$lib/session-render";
 import { sessionGenerationStore } from "./session-generation.svelte";
+
+type PatchApplyResult =
+	| { applied: true }
+	| { applied: false; reason: "duplicate" | "version_mismatch" };
+
+const realtimePatchReducer = createSessionPatchReducer();
 
 export function clearGenerationError(sessionId: string | null | undefined) {
 	if (!sessionId) return;
@@ -20,6 +30,7 @@ export function startGenerationRequest(
 	input?: { clientMessageId?: string | null; requestId?: string | null },
 ) {
 	clearGenerationError(sessionId);
+	realtimePatchReducer.start({ sessionId });
 	sessionGenerationStore.startPending(sessionId, input);
 }
 
@@ -62,14 +73,48 @@ export function applyRealtimeGenerationProgress(
 	});
 }
 
+export function applyRealtimeGenerationPatch(
+	sessionId: string,
+	input: {
+		turnId?: string | null;
+		seq: number;
+		baseSeq: number;
+		ops: SessionPatchApplyInput["ops"];
+		anchorUserMessageId?: string | null;
+	},
+): PatchApplyResult {
+	const current = sessionGenerationStore.get(sessionId);
+	const result = realtimePatchReducer.applyPatch({ sessionId, ...input });
+	if (!result.applied) {
+		return {
+			applied: false,
+			reason: result.reason === "duplicate" ? "duplicate" : "version_mismatch",
+		};
+	}
+	sessionGenerationStore.applyProgress(sessionId, {
+		contentBlocks: result.state.contentBlocks,
+		anchorUserMessageId: result.state.anchorUserMessageId,
+		truncatedStart:
+			input.baseSeq !== 0 && current?.status === "pending"
+				? true
+				: (current?.truncatedStart ?? false),
+		patchSeq: result.state.patchSeq,
+		turnId: result.state.turnId,
+	});
+	return { applied: true };
+}
+
 export function failGeneration(sessionId: string, error?: string | null) {
+	realtimePatchReducer.fail({ sessionId });
 	sessionGenerationStore.fail(sessionId, error ?? "Generation failed");
 }
 
 export function completeGeneration(sessionId: string) {
+	realtimePatchReducer.complete({ sessionId });
 	sessionGenerationStore.complete(sessionId);
 }
 
 export function resetGeneration(sessionId: string | null | undefined) {
+	if (sessionId) realtimePatchReducer.reset({ sessionId });
 	sessionGenerationStore.reset(sessionId);
 }

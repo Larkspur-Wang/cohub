@@ -4,6 +4,9 @@ export type SessionStreamEvent = {
   type: "stream_update";
   spaceId: string;
   sessionId: string;
+  turnId?: string | null;
+  seq: number;
+  baseSeq: number;
   content: ContentBlock[];
   sourceMessageId: string | null;
   timestamp: number;

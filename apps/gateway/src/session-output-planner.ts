@@ -95,7 +95,7 @@ export const buildDiscordDeliveryPlan = async (
   const showThinking = outbound.showThinking === true;
   const showToolCalls = outbound.showToolCalls === true;
   const isFinalMessage = output?.type === "session.message.persisted";
-  const renderMode = String(cmd.meta?.renderMode ?? (output?.type === "session.turn.progress" ? "rich_status" : "message"));
+  const renderMode = String(cmd.meta?.renderMode ?? (output?.type === "session.turn.patch" ? "rich_status" : "message"));
 
   if (output?.type === "session.turn.error") {
     return {
@@ -139,7 +139,7 @@ export const buildDiscordDeliveryPlan = async (
     files: rendered.imageUris,
     replyToExternalMessageId: cmd.replyToExternalMessageId,
     turnAnchorMessageId:
-      output?.type === "session.turn.progress"
+      output?.type === "session.turn.patch"
         ? output.anchorUserMessageId
         : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
     preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,
@@ -240,7 +240,7 @@ export const buildFeishuDeliveryPlan = async (
       imagesToUpload,
       replyToExternalMessageId: cmd.replyToExternalMessageId,
       turnAnchorMessageId:
-        output?.type === "session.turn.progress"
+        output?.type === "session.turn.patch"
           ? output.anchorUserMessageId
           : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
       preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,
@@ -261,7 +261,7 @@ export const buildFeishuDeliveryPlan = async (
     imagesToUpload,
     replyToExternalMessageId: cmd.replyToExternalMessageId,
     turnAnchorMessageId:
-      output?.type === "session.turn.progress"
+      output?.type === "session.turn.patch"
         ? output.anchorUserMessageId
         : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
     preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,
