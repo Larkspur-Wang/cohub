@@ -11,7 +11,7 @@ import type {
 } from "@neta-art/cohub-protocol/model";
 import { db } from "./db/index.js";
 import { sessionMessages, sessionTurns } from "./db/schema-v2.js";
-import { buildTurnObjectPrefix, assertTurnObjectKeyInScope, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
+import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
 import { deriveMessagePreviewText } from "./space-sessions.js";
 
 const toIso = (value: Date | string | null | undefined) => {
@@ -392,9 +392,13 @@ export const interruptSessionTurn = async (input: { spaceId: string; sessionId: 
 };
 
 export const createSignedTurnUrls = async (input: { spaceId: string; sessionId: string; turnId: string; objectKeys: string[] }) => {
-  const prefix = buildTurnObjectPrefix(input);
   return Object.fromEntries(input.objectKeys.map((objectKey) => [
     objectKey,
-    createTurnObjectCdnUrl(assertTurnObjectKeyInScope({ objectKey, prefix })).url,
+    createTurnObjectCdnUrl(assertTurnObjectKeyForTurn({
+      objectKey,
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+    })).url,
   ]));
 };

@@ -77,7 +77,7 @@ async function toggleToolCall(id: string) {
 			loadedFile = await onLoadToolCalls();
 		} catch (error) {
 			loadError =
-				error instanceof Error ? error.message : "加载工具调用详情失败";
+				error instanceof Error ? error.message : "Failed to load tool details";
 		} finally {
 			loading = false;
 		}
@@ -103,7 +103,7 @@ const statusDotMap = {
 			{@const result = findToolResult(block.id)}
 			{#if loadError}
 				<button type="button" class="ml-[26px] rounded-md border border-status-error/30 bg-status-error/5 px-2 py-1 text-left text-[12px] text-status-error hover:bg-status-error/10" onclick={() => void toggleToolCall(block.id)}>
-					{loadError} · 点击重试
+					{loadError} · Click to retry
 				</button>
 			{/if}
 			<div class="group rounded-md overflow-hidden">

@@ -2833,6 +2833,7 @@ async function handleSend() {
 	];
 	const sessionId = activeSessionState.session.id;
 	const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	const optimisticTurnId = crypto.randomUUID();
 	// Clear input immediately so it disappears from the composer at the same
 	// time the pending message appears in the list — avoids the awkward "stuck"
 	// feeling where the message shows in the list but lingers in the input.
@@ -2842,6 +2843,45 @@ async function handleSend() {
 	imageAttachments = [];
 	try {
 		const model = activeSessionModel;
+		const now = new Date().toISOString();
+		const sequenceHint = (activeSessionState?.turns.at(-1)?.sequence ?? 0) + 1;
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...activeSessionState,
+				turns: mergeTurnsById(
+					activeSessionState.turns,
+					[
+						{
+							id: optimisticTurnId,
+							sessionId,
+							userUuid: null,
+							sequence: sequenceHint,
+							status: "running",
+							intent: "steer",
+							userContent: content,
+							userText: text,
+							assistantContent: null,
+							assistantText: null,
+							provider: model?.provider ?? null,
+							model: model?.id ?? null,
+							stopReason: null,
+							errorMessage: null,
+							usage: null,
+							summary: null,
+							intermediateIndex: null,
+							intermediateSummary: null,
+							meta: { clientMessageId, optimistic: true },
+							startedAt: now,
+							completedAt: null,
+							createdAt: now,
+							updatedAt: now,
+						},
+					],
+					{ preferIncoming: true },
+				),
+			},
+		};
 		sessionPendingStore.upsert({
 			clientMessageId,
 			sessionId,
@@ -2851,15 +2891,34 @@ async function handleSend() {
 			createdAt: new Date().toISOString(),
 			status: "sending",
 			error: null,
-			sequenceHint: (activeSessionState?.messages.at(-1)?.sequence ?? 0) + 1,
+			sequenceHint: sequenceHint * 10,
 		});
 		startGenerationRequest(sessionId, { clientMessageId });
-		await sdk.space(spaceId).session(sessionId).messages.send({
-			content,
-			model: model?.id,
-			provider: model?.provider,
-			clientMessageId,
-		});
+		const sendResult = await sdk
+			.space(spaceId)
+			.session(sessionId)
+			.messages.send({
+				content,
+				model: model?.id,
+				provider: model?.provider,
+				clientMessageId,
+			});
+		if (sendResult.turnId) {
+			const current = sessionStateById[sessionId];
+			if (current) {
+				sessionStateById = {
+					...sessionStateById,
+					[sessionId]: {
+						...current,
+						turns: current.turns.map((turn) =>
+							turn.id === optimisticTurnId
+								? { ...turn, id: sendResult.turnId }
+								: turn,
+						),
+					},
+				};
+			}
+		}
 		sessionPendingStore.markStatus(
 			sessionId,
 			clientMessageId,
@@ -2881,6 +2940,16 @@ async function handleSend() {
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
 		failGeneration(sessionId, sendError);
+		const current = sessionStateById[sessionId];
+		if (current) {
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...current,
+					turns: current.turns.filter((turn) => turn.id !== optimisticTurnId),
+				},
+			};
+		}
 		sessionPendingStore.markStatus(
 			sessionId,
 			clientMessageId,

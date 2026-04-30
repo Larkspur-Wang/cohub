@@ -67,7 +67,9 @@ async function ensureLoaded() {
 			intermediateMessages = await onLoadIntermediate(turn);
 		} catch (error) {
 			loadError =
-				error instanceof Error ? error.message : "加载中间过程失败，请重试";
+				error instanceof Error
+					? error.message
+					: "Failed to load process details. Please retry";
 			throw error;
 		} finally {
 			loading = false;
@@ -83,7 +85,9 @@ async function ensureLoaded() {
 		);
 	} catch (error) {
 		loadError =
-			error instanceof Error ? error.message : "加载中间过程失败，请重试";
+			error instanceof Error
+				? error.message
+				: "Failed to load process details. Please retry";
 		throw error;
 	} finally {
 		loading = false;
@@ -142,7 +146,7 @@ const summaryLabel = $derived(labelParts.join(" · "));
 		<div class="flex flex-col gap-2 pl-2 border-l border-border-subtle/40 ml-2">
 			{#if loadError}
 				<button type="button" class="mx-2 rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-left text-[12px] text-status-error hover:bg-status-error/10" onclick={() => void ensureLoaded()}>
-					{loadError} · 点击重试
+					{loadError} · Click to retry
 				</button>
 			{/if}
 			{#if turn}

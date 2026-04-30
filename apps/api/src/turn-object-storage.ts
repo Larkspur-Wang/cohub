@@ -50,6 +50,29 @@ export const assertTurnObjectKeyInScope = (input: { objectKey: string; prefix: s
   return safeKey;
 };
 
+export const assertTurnObjectKeyForTurn = (input: {
+  objectKey: string;
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+}) => {
+  const safeKey = sanitizeTurnObjectKey(input.objectKey);
+  const parts = safeKey.split("/");
+  const spacesIndex = parts.indexOf("spaces");
+  if (
+    spacesIndex < 0 ||
+    parts[spacesIndex + 1] !== input.spaceId ||
+    parts[spacesIndex + 2] !== "sessions" ||
+    parts[spacesIndex + 3] !== input.sessionId ||
+    parts[spacesIndex + 4] !== "turns" ||
+    parts[spacesIndex + 5] !== input.turnId ||
+    parts.length <= spacesIndex + 6
+  ) {
+    throw new Error("object key is outside of turn scope");
+  }
+  return safeKey;
+};
+
 export const writeTurnObjectJson = async (objectKey: string, value: unknown) => {
   const content = `${JSON.stringify(value)}\n`;
   const safeKey = sanitizeTurnObjectKey(objectKey);
