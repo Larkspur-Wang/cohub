@@ -17,6 +17,7 @@ export type AppConfig = {
   spaceStorageRoot: string;
   spaceStoragePvc: string;
   spaceStorageSubpath: string;
+  configsSubpath: string;
   platformConfigRoot: string;
   turnObjectS3Endpoint?: string;
   turnObjectS3Region: string;
@@ -59,6 +60,7 @@ export const config: AppConfig = {
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
+  configsSubpath: process.env.CONFIGS_SUBPATH ?? (env === "prod" ? "configs/prod" : "configs/dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
   turnObjectS3Endpoint: process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
   turnObjectS3Region: process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",

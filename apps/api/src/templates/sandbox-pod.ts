@@ -7,6 +7,7 @@ type SandboxPodTemplateVariables = {
   ENV?: string;
   SPACE_STORAGE_PVC?: string;
   SPACE_STORAGE_SUBPATH?: string;
+  CONFIGS_SUBPATH?: string;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -69,13 +70,13 @@ export const SANDBOX_POD_TEMPLATE = {
           {
             name: "space-storage",
             mountPath: "/configs/platform/.agents",
-            subPath: `${config.env === "prod" ? "configs/prod" : "configs/dev"}/platform/.agents`,
+            subPath: "${CONFIGS_SUBPATH}/platform/.agents",
             readOnly: true,
           },
           {
             name: "space-storage",
             mountPath: "/configs/user/.agents",
-            subPath: "${SPACE_STORAGE_SUBPATH}/configs/users/${OWNER_USER_ID}/.agents",
+            subPath: "${CONFIGS_SUBPATH}/users/${OWNER_USER_ID}/.agents",
             readOnly: true,
           },
           {

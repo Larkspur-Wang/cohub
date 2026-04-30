@@ -305,6 +305,7 @@ export const reconcileSpaceSandbox = async (input: {
     ENV: config.env,
     SPACE_STORAGE_PVC: config.spaceStoragePvc,
     SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
+    CONFIGS_SUBPATH: config.configsSubpath,
   }) as V1Pod;
 
   if (pod.spec?.containers?.[0]) {

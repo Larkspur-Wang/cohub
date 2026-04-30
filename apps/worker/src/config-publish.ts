@@ -22,7 +22,7 @@ function assertValidUserId(userId: string) {
 }
 
 export const getPublishedUserConfigDir = (userId: string) => {
-  return join(config.spaceStorageRoot, "configs", "users", assertValidUserId(userId));
+  return join(config.platformConfigRoot, "users", assertValidUserId(userId));
 };
 
 async function pathExists(path: string) {
