@@ -46,6 +46,7 @@ type Server struct {
 	cachedZombieObservedAt   time.Time
 	lastSelfHealObservedAt   time.Time
 	zombieSelfHealTicks      int
+	mountSelfHealTriggered   bool
 }
 
 type connectionSession struct {
@@ -338,6 +339,9 @@ func (s *Server) handleRPCRequest(session *connectionSession, request protocol.R
 	if response == nil {
 		return
 	}
+	if failed, ok := response.(protocol.RPCFailed); ok {
+		s.maybeSelfHealOnStaleMount(request, failed)
+	}
 	if err := s.SendToIdentity(session.identity, response); err != nil {
 		s.logger.Warn("failed to send rpc result to identity", slog.String("identity", session.identity), slog.String("requestId", request.RequestID), slog.String("method", request.Method), slog.String("error", err.Error()))
 	}
@@ -519,8 +523,67 @@ func (s *Server) maybeSelfHealOnZombies(zombieCount int, observedAt time.Time, a
 		slog.Int("activeProcesses", activeProcesses),
 		slog.Int("consecutiveTicks", s.zombieSelfHealTicks),
 	)
+	s.selfTerminate("zombie accumulation")
+}
+
+func (s *Server) maybeSelfHealOnStaleMount(request protocol.RPCRequest, failed protocol.RPCFailed) {
+	message := strings.ToLower(failed.Error.Message)
+	if !strings.Contains(message, "stale file handle") && !strings.Contains(message, "stale nfs file handle") {
+		return
+	}
+
+	criticalRoots := []string{
+		s.cfg.WorkspaceDir,
+		s.cfg.PlatformAgentsDir,
+		s.cfg.UserAgentsDir,
+		"/sessions",
+		"/public",
+	}
+	matchedRoot := ""
+	for _, root := range criticalRoots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if strings.Contains(message, strings.ToLower(root)) {
+			matchedRoot = root
+			break
+		}
+	}
+	if matchedRoot == "" {
+		return
+	}
+
+	s.healthMu.Lock()
+	if s.mountSelfHealTriggered {
+		s.healthMu.Unlock()
+		return
+	}
+	s.mountSelfHealTriggered = true
+	s.healthMu.Unlock()
+
+	s.logger.Warn("sandbox self-heal triggered due to stale mount",
+		slog.String("method", request.Method),
+		slog.String("requestId", request.RequestID),
+		slog.String("path", matchedRoot),
+		slog.String("error", failed.Error.Message),
+	)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				s.logger.Error("self-heal goroutine panicked", slog.Any("recover", recovered))
+				os.Exit(1)
+			}
+		}()
+		// Stale mount self-heal is asynchronous so the current rpc.failed payload can reach the agent first.
+		time.Sleep(500 * time.Millisecond)
+		s.selfTerminate("stale mount")
+	}()
+}
+
+func (s *Server) selfTerminate(reason string) {
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
-		s.logger.Error("failed to signal sandbox for self-heal shutdown", slog.String("error", err.Error()))
+		s.logger.Error("failed to signal sandbox for self-heal shutdown", slog.String("reason", reason), slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }
