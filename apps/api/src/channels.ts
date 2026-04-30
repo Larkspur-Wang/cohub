@@ -18,6 +18,18 @@ import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 
 const bindingLocks = new Map<string, Promise<unknown>>();
 const GATEWAY_NODE_TTL_MS = 15_000;
+const READABLE_USER_IDS_CACHE_TTL_MS = 4_000;
+const READABLE_USER_IDS_CACHE_MAX_SIZE = 10_000;
+const readableUserIdsCache = new Map<string, { expiresAt: number; value: string[] }>();
+
+function setReadableUserIdsCache(spaceId: string, value: string[]) {
+  if (READABLE_USER_IDS_CACHE_TTL_MS <= 0) return;
+  if (readableUserIdsCache.size >= READABLE_USER_IDS_CACHE_MAX_SIZE && !readableUserIdsCache.has(spaceId)) {
+    const firstKey = readableUserIdsCache.keys().next().value;
+    if (firstKey) readableUserIdsCache.delete(firstKey);
+  }
+  readableUserIdsCache.set(spaceId, { expiresAt: Date.now() + READABLE_USER_IDS_CACHE_TTL_MS, value });
+}
 
 async function pruneStaleGatewayNodes() {
   const staleBefore = Date.now() - GATEWAY_NODE_TTL_MS;
@@ -169,6 +181,11 @@ export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & 
 }
 
 export async function getReadableUserIdsForSpace(spaceId: string) {
+  const now = Date.now();
+  const cached = readableUserIdsCache.get(spaceId);
+  if (cached && cached.expiresAt > now) return cached.value;
+  if (cached) readableUserIdsCache.delete(spaceId);
+
   const [space] = await db.select({ ownerId: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   const members = await db
     .select({ userId: spaceMembers.userId })
@@ -179,7 +196,9 @@ export async function getReadableUserIdsForSpace(spaceId: string) {
   for (const member of members) {
     if (member.userId) userIds.add(member.userId);
   }
-  return Array.from(userIds);
+  const result = Array.from(userIds);
+  setReadableUserIdsCache(spaceId, result);
+  return result;
 }
 
 type DirectWebsocketInboundContext = {
