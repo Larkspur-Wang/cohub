@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type {
+	MessageToolCallsFile,
 	SessionTurnIntermediateSummary,
 	SessionTurnRecord,
 } from "@neta-art/cohub-protocol/model";
@@ -26,6 +27,7 @@ export type ChatMessage = {
 		stopReason?: string | null;
 		errorMessage?: string | null;
 	};
+	toolCallsLoader?: (() => Promise<MessageToolCallsFile | null>) | null;
 };
 
 export type ToolState = {

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ChevronDown, ChevronRight } from "lucide-svelte";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
 import {
 	formatToolInput,
 	isSimpleInput,
@@ -9,9 +9,11 @@ import {
 
 type Props = {
 	tool: ToolCallViewModel;
+	loading?: boolean;
+	onExpand?: () => void | Promise<void>;
 };
 
-const { tool }: Props = $props();
+const { tool, loading = false, onExpand }: Props = $props();
 let expanded = $state(false);
 
 const statusDotMap = {
@@ -26,19 +28,26 @@ const showInputDetail = $derived(
 );
 const hasResult = $derived(Boolean(tool.result));
 const resultLabel = $derived(tool.status === "failed" ? "err" : "out");
+function toggle() {
+	const opening = !expanded;
+	expanded = opening;
+	if (opening) void onExpand?.();
+}
 </script>
 
 <div class="group rounded-md overflow-hidden">
 	<button
 		type="button"
-		class="w-full flex items-center gap-2 pl-0 pr-2 py-0.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md"
-		onclick={() => (expanded = !expanded)}
+		class="w-full flex items-center gap-2 pl-0 pr-1 py-0.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md"
+		onclick={toggle}
 	>
 		<span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[tool.status]} {tool.status === 'running' ? 'animate-pulse' : ''}"></span>
 		<span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em] truncate">{tool.name}</span>
 		<span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
 		<span class="ml-auto text-text-tertiary shrink-0">
-			{#if expanded}
+			{#if loading && expanded}
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-placeholder" />
+			{:else if expanded}
 				<ChevronDown class="w-3.5 h-3.5" />
 			{:else}
 				<ChevronRight class="w-3.5 h-3.5" />

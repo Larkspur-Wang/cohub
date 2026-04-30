@@ -22,27 +22,24 @@ const tools = $derived(
 	buildToolCallViewModels({ content, toolCallsFile: effectiveFile }),
 );
 
-$effect(() => {
-	if (!onLoadToolCalls || effectiveFile || requestedLoad) return;
-	if (!content.some((block) => block.type === "tool_use")) return;
+async function ensureLoaded() {
+	if (!onLoadToolCalls || effectiveFile || loading) return;
 	requestedLoad = true;
 	loading = true;
 	loadError = null;
-	void onLoadToolCalls()
-		.then((file) => {
-			loadedFile = file;
-		})
-		.catch((error) => {
-			loadError =
-				error instanceof Error ? error.message : "Failed to load tool details";
-		})
-		.finally(() => {
-			loading = false;
-		});
-});
+	try {
+		loadedFile = await onLoadToolCalls();
+	} catch (error) {
+		loadError =
+			error instanceof Error ? error.message : "Failed to load tool details";
+	} finally {
+		loading = false;
+	}
+}
 
 function retryLoad() {
 	requestedLoad = false;
+	void ensureLoaded();
 }
 </script>
 
@@ -54,7 +51,7 @@ function retryLoad() {
 			</button>
 		{/if}
 		{#each tools as tool (tool.id)}
-			<ToolCallItem {tool} />
+			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} onExpand={ensureLoaded} />
 		{/each}
 		{#if loading}
 			<div class="ml-[26px] inline-flex items-center gap-1.5 py-0.5 text-[11px] text-text-placeholder">

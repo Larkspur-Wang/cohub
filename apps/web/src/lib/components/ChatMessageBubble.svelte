@@ -421,7 +421,7 @@ function handleCopy() {
       {/if}
 
       {#if showToolCalls}
-        <ToolCallList content={message.content ?? []} />
+        <ToolCallList content={message.content ?? []} onLoadToolCalls={message.toolCallsLoader ?? undefined} />
       {/if}
 
       {#if message.role === 'assistant' && (message.meta?.model || shortTime)}

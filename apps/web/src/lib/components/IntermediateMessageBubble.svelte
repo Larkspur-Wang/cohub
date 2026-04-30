@@ -4,7 +4,6 @@ import type {
 	StoredIntermediateMessage,
 } from "@neta-art/cohub-protocol/model";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
-import ToolCallList from "$lib/components/ToolCallList.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
 type ModelCatalogItem = {
@@ -37,10 +36,10 @@ const chatMessage = $derived({
 		stopReason: message.stopReason,
 		errorMessage: message.errorMessage,
 	},
+	toolCallsLoader: onLoadToolCalls,
 } satisfies ChatMessage);
 </script>
 
 <div>
-	<ChatMessageBubble message={chatMessage} {modelsCatalog} showToolCalls={false} />
-	<ToolCallList content={message.content} {onLoadToolCalls} />
+	<ChatMessageBubble message={chatMessage} {modelsCatalog} />
 </div>
