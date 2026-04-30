@@ -513,6 +513,15 @@ export async function getProviderMessageRef(input: { provider: string; externalC
   return ref ?? null;
 }
 
+export async function getProviderMessageRefBySessionMessage(input: { spaceChannelId: string; sessionMessageId: string; direction?: "inbound" | "outbound" }) {
+  const [ref] = await db.select().from(providerMessageRefs).where(
+    input.direction
+      ? and(eq(providerMessageRefs.spaceChannelId, input.spaceChannelId), eq(providerMessageRefs.sessionMessageId, input.sessionMessageId), eq(providerMessageRefs.direction, input.direction))
+      : and(eq(providerMessageRefs.spaceChannelId, input.spaceChannelId), eq(providerMessageRefs.sessionMessageId, input.sessionMessageId)),
+  ).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
+  return ref ?? null;
+}
+
 export async function resolveForkSourceForInboundEvent(input: { spaceChannelId: string; provider: string; conversationId: string; parentConversationId?: string | null; parentMessageId?: string | null }) {
   const parentConversationId = input.parentConversationId?.trim();
   const parentMessageId = input.parentMessageId?.trim();

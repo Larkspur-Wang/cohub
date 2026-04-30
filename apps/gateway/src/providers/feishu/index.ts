@@ -42,6 +42,7 @@ const FEISHU_DOC_MAX_CHARS = 12_000;
 const FEISHU_DOC_FETCH_TIMEOUT_MS = 10_000;
 const FEISHU_WIKI_CHILD_MAX_COUNT = 5;
 const FEISHU_WIKI_CHILD_MAX_CHARS = 4_000;
+const FEISHU_TYPING_REACTION_EMOJI_TYPE = "Typing";
 
 type FeishuDocumentRef = {
   url: string;
@@ -108,6 +109,7 @@ export class FeishuProvider implements GatewayProvider {
   private channelId: string;
   private appId: string;
   private botOpenId?: string;
+  private typingReactions = new Map<string, string>();
 
   constructor(
     channelId: string,
@@ -237,6 +239,8 @@ export class FeishuProvider implements GatewayProvider {
       }
     }
 
+    await this.addTypingReaction(msg.message_id);
+
     const parsedContent = parseFeishuMessageContent(msg);
     const contentBlocks = parsedContent.resources.length > 0
       ? await this.resolveParsedBlocks(parsedContent.blocks, msg.message_id, FEISHU_INBOUND_IMAGE_MAX_COUNT)
@@ -288,6 +292,45 @@ export class FeishuProvider implements GatewayProvider {
       `[Feishu:${this.channelId}] → Inbound: ${inboundEvent.externalMessageId.slice(0, 8)} chat=${msg.chat_id} type=${msg.chat_type}${threadId ? ` thread=${threadId}` : ""}`,
     );
     await publishInboundEvent(inboundEvent);
+  }
+
+  private async addTypingReaction(messageId: string) {
+    try {
+      const res = await this.client.im.messageReaction.create({
+        path: { message_id: messageId },
+        data: {
+          reaction_type: {
+            emoji_type: FEISHU_TYPING_REACTION_EMOJI_TYPE,
+          },
+        },
+      });
+      const reactionId = res.data?.reaction_id;
+      if (reactionId) {
+        this.typingReactions.set(messageId, reactionId);
+        console.log(`[Feishu:${this.channelId}] ✓ Typing reaction added: ${messageId}`);
+      }
+    } catch (err) {
+      console.debug(`[Feishu:${this.channelId}] Failed to add typing reaction:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async removeTypingReaction(messageId: string | null | undefined) {
+    if (!messageId) return;
+    const reactionId = this.typingReactions.get(messageId);
+    if (!reactionId) return;
+    this.typingReactions.delete(messageId);
+
+    try {
+      await this.client.im.messageReaction.delete({
+        path: {
+          message_id: messageId,
+          reaction_id: reactionId,
+        },
+      });
+      console.log(`[Feishu:${this.channelId}] ✓ Typing reaction removed: ${messageId}`);
+    } catch (err) {
+      console.debug(`[Feishu:${this.channelId}] Failed to remove typing reaction:`, err instanceof Error ? err.message : String(err));
+    }
   }
 
   // Upload an image to Feishu and return the image_key.
@@ -572,11 +615,13 @@ export class FeishuProvider implements GatewayProvider {
       source: typeof cmd.meta?.source === "string" ? cmd.meta.source : "unknown",
     });
 
+    let replyToForTypingCleanup: string | null | undefined = cmd.replyToExternalMessageId;
     try {
       const config = await getSpaceChannelConfig<FeishuChannelConfig>(this.channelId);
       const plan = cmd.deliveryPlan?.adapter === "feishu"
         ? cmd.deliveryPlan
         : await buildFeishuDeliveryPlan(cmd, config);
+      replyToForTypingCleanup = plan.replyToExternalMessageId;
       const msgType = plan.msgType;
       const content = plan.content;
       // Resolve image keys: pre-existing Feishu keys + uploaded images
@@ -608,6 +653,7 @@ export class FeishuProvider implements GatewayProvider {
             data: { content },
           });
           console.log(`[Feishu:${this.channelId}] ✓ Card patched: ${targetMessageId}`);
+          await this.removeTypingReaction(replyToForTypingCleanup);
           return { success: true, externalMessageId: targetMessageId };
         }
         await this.client.im.message.update({
@@ -615,6 +661,7 @@ export class FeishuProvider implements GatewayProvider {
           data: { content, msg_type: "post" },
         });
         console.log(`[Feishu:${this.channelId}] ✓ Post updated: ${targetMessageId}`);
+        await this.removeTypingReaction(replyToForTypingCleanup);
         return { success: true, externalMessageId: targetMessageId };
       }
 
@@ -635,6 +682,7 @@ export class FeishuProvider implements GatewayProvider {
           await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, messageId).catch(() => {});
         }
         console.log(`[Feishu:${this.channelId}] ✓ Reply sent: ${messageId}`);
+        await this.removeTypingReaction(replyToForTypingCleanup);
         return { success: true, externalMessageId: messageId };
       }
 
@@ -673,6 +721,7 @@ export class FeishuProvider implements GatewayProvider {
       }
 
       console.log(`[Feishu:${this.channelId}] ✓ Message created: ${messageId}`);
+      await this.removeTypingReaction(replyToForTypingCleanup);
       return { success: true, externalMessageId: messageId };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -680,6 +729,7 @@ export class FeishuProvider implements GatewayProvider {
       if (err instanceof Error && err.stack) {
         console.error(`[Feishu:${this.channelId}] Stack:`, err.stack.split("\n").slice(0, 3).join("\n"));
       }
+      await this.removeTypingReaction(replyToForTypingCleanup);
       return { success: false, error: msg };
     }
   }

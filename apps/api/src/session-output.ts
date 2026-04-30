@@ -4,7 +4,13 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 import type { GatewaySessionOutput, GatewaySessionPatchOperation } from "@neta-art/cohub-protocol/gateway";
 import type { RealtimeMessageRecord, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
-import { dispatchOutboundMessage, dispatchRealtimeEventToUsers, getReadableUserIdsForSpace, getBindingsBySessionId } from "./channels.js";
+import {
+  dispatchOutboundMessage,
+  dispatchRealtimeEventToUsers,
+  getProviderMessageRefBySessionMessage,
+  getReadableUserIdsForSpace,
+  getBindingsBySessionId,
+} from "./channels.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
 import { redisCommandClient } from "./redis.js";
@@ -319,6 +325,15 @@ const dispatchSessionOutputToChannels = async (output: GatewaySessionOutput) => 
   const bindings = await getBindingsBySessionId(output.sessionId);
   if (bindings.length > 0) {
     for (const binding of bindings) {
+      const turnAnchorMessageId = typeof message.meta?.anchorUserMessageId === "string"
+        ? (message.meta.anchorUserMessageId as string)
+        : message.id;
+      const anchorRef = await getProviderMessageRefBySessionMessage({
+        spaceChannelId: binding.spaceChannelId,
+        sessionMessageId: turnAnchorMessageId,
+        direction: "inbound",
+      }).catch(() => null);
+
       await dispatchOutboundMessage({
         spaceChannelId: binding.spaceChannelId,
         spaceId: output.spaceId,
@@ -326,14 +341,13 @@ const dispatchSessionOutputToChannels = async (output: GatewaySessionOutput) => 
         sessionMessageId: message.id,
         provider: binding.provider,
         externalChatId: binding.externalChatId,
+        replyToExternalMessageId: anchorRef?.externalMessageId ?? undefined,
         content: message.content,
         meta: {
           sessionOutput: output,
           bindingKey: binding.bindingKey,
           sessionMessageRole: message.role,
-          turnAnchorMessageId: typeof message.meta?.anchorUserMessageId === "string"
-            ? (message.meta.anchorUserMessageId as string)
-            : message.id,
+          turnAnchorMessageId,
         },
       }).catch(console.error);
     }
