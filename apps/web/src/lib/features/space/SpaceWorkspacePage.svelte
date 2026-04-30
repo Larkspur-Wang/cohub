@@ -19,7 +19,6 @@ import {
 } from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type {
-	MessageRecord,
 	MessageToolCallsFile,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
@@ -77,7 +76,7 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
-import type { ChatMessage, TimelineItem } from "$lib/session-tree";
+import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
@@ -89,7 +88,7 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
-import { messageCache } from "$lib/stores/message-cache";
+
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	clearGenerationError,
@@ -162,7 +161,6 @@ type SelectedModel = {
 type SessionViewState = {
 	session: SessionRecord | undefined;
 	turns: SessionTurnRecord[];
-	messages: MessageRecord[];
 	loading: boolean;
 	loaded: boolean;
 	error: string;
@@ -218,7 +216,6 @@ let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
-let loadingMessageDetailIds = $state<Record<string, boolean>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
@@ -440,20 +437,18 @@ let shouldAutoFollow = $state(true);
 let composerHostEl = $state<HTMLDivElement | null>(null);
 let composerHeight = $state(0);
 let hasUnread = $derived.by(() => {
+	const session = activeSessionState?.session;
 	if (
-		!activeSessionState?.session ||
-		!activeSessionState?.loaded ||
-		!activeSessionState.messages.length
+		!session ||
+		!activeSessionState.loaded ||
+		activeSessionState.turns.length === 0
 	)
 		return false;
-	const latestMessage = getLatestUnreadEligibleMessage({
-		session: activeSessionState.session,
-		messages: activeSessionState.messages,
-	});
-	return unreadTracker.isUnread(
-		activeSessionState.session,
-		latestMessage?.id ?? null,
-	);
+	const latestTurn =
+		activeSessionState.turns.findLast((turn) => turn.status !== "running") ??
+		activeSessionState.turns.at(-1) ??
+		null;
+	return unreadTracker.isUnread(session, latestTurn?.id ?? null);
 });
 let autoScrollGuard = $state(false);
 let restoringBottomSessionId = $state<string | null>(null);
@@ -1362,9 +1357,6 @@ const activePendingMessages = $derived.by(() =>
 		? (sessionPendingStore.pendingBySessionId[activeSessionId] ?? [])
 		: [],
 );
-const activeRenderableMessages = $derived.by(() => {
-	return [] as ChatMessage[];
-});
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
@@ -1531,87 +1523,25 @@ function isGenerationInProgress(sessionId: string) {
 	const status = sessionGenerationStore.get(sessionId)?.status;
 	return status === "pending" || status === "streaming";
 }
-function isIncompleteMessage(message: MessageRecord) {
-	const meta = message.meta as Record<string, unknown> | null | undefined;
-	return (
-		meta?.messageKind === "assistant_intermediate" ||
-		meta?.messageKind === "assistant_streaming_preview" ||
-		meta?.messageKind === "user_pending" ||
-		meta?.contentPlaceholder === "assistant_intermediate"
-	);
-}
-function getActiveTurnAnchorSequence(
-	sessionId: string,
-	messages: MessageRecord[],
-) {
-	if (!isGenerationInProgress(sessionId)) return null;
-	const generation = sessionGenerationStore.get(sessionId);
-	const clientMessageId = generation?.clientMessageId;
-	const anchorUserMessageId = generation?.anchorUserMessageId;
-	const anchorMessage =
-		messages.find((message) => {
-			if (message.role !== "user") return false;
-			const meta = message.meta as Record<string, unknown> | null | undefined;
-			return Boolean(
-				(clientMessageId && meta?.clientMessageId === clientMessageId) ||
-					(anchorUserMessageId && message.id === anchorUserMessageId),
-			);
-		}) ??
-		messages.findLast((message) => message.role === "user") ??
-		null;
-	return anchorMessage?.sequence ?? null;
-}
-function getLatestUnreadEligibleMessage(state: {
-	session: SessionRecord;
-	messages: MessageRecord[];
-}) {
-	const activeTurnAnchorSequence = getActiveTurnAnchorSequence(
-		state.session.id,
-		state.messages,
-	);
-	const activeTurnHasCompletedAssistant =
-		activeTurnAnchorSequence != null &&
-		state.messages.some(
-			(message) =>
-				message.sequence >= activeTurnAnchorSequence &&
-				message.role === "assistant" &&
-				!isIncompleteMessage(message),
-		);
-	return (
-		state.messages.findLast((message) => {
-			if (isIncompleteMessage(message)) return false;
-			if (
-				activeTurnAnchorSequence != null &&
-				!activeTurnHasCompletedAssistant &&
-				message.sequence >= activeTurnAnchorSequence
-			) {
-				return false;
-			}
-			return true;
-		}) ?? null
-	);
-}
-function markVisibleLatestMessageViewed(
+function markVisibleLatestTurnViewed(
 	sessionId: string,
 	nodes: HTMLElement[],
 	containerRect: DOMRect,
 ) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
-	const lastMessage = getLatestUnreadEligibleMessage({
-		session: state.session,
-		messages: state.messages,
-	});
-	if (!lastMessage) return;
-	const latestVisibleSequence = nodes.reduce((latest, node) => {
+	const latestTurn =
+		state.turns.findLast((turn) => turn.status !== "running") ?? null;
+	if (!latestTurn) return;
+	const latestVisibleTurnSequence = nodes.reduce((latest, node) => {
 		const rect = node.getBoundingClientRect();
 		if (rect.bottom <= containerRect.top + 8) return latest;
 		if (rect.top >= containerRect.bottom - 8) return latest;
-		const sequence = Number(node.dataset.sequence);
+		const sequence = Number(node.dataset.turnSequence);
 		return Number.isFinite(sequence) ? Math.max(latest, sequence) : latest;
 	}, -Infinity);
-	if (latestVisibleSequence >= lastMessage.sequence) {
-		unreadTracker.markViewed(sessionId, lastMessage.id);
+	if (latestVisibleTurnSequence >= latestTurn.sequence) {
+		unreadTracker.markViewed(sessionId, latestTurn.id);
 	}
 }
 function captureCurrentScrollAnchor(sessionId: string) {
@@ -1634,7 +1564,7 @@ function captureCurrentScrollAnchor(sessionId: string) {
 		offset: listEl.scrollTop - absoluteTop,
 		updatedAt: Date.now(),
 	});
-	markVisibleLatestMessageViewed(sessionId, nodes, containerRect);
+	markVisibleLatestTurnViewed(sessionId, nodes, containerRect);
 }
 function writeBottomScrollAnchor(sessionId: string) {
 	if (!listEl) return;
@@ -1658,60 +1588,9 @@ function writeBottomScrollAnchor(sessionId: string) {
 		updatedAt: Date.now(),
 	});
 	const state = sessionStateById[sessionId];
-	const latestMessage = state?.session
-		? getLatestUnreadEligibleMessage({
-				session: state.session,
-				messages: state.messages,
-			})
-		: null;
-	unreadTracker.markViewed(sessionId, latestMessage?.id ?? null);
-}
-function mergeMessagesById(
-	existing: MessageRecord[],
-	incoming: MessageRecord[],
-	options?: { preferIncoming?: boolean },
-) {
-	const preferIncoming = options?.preferIncoming ?? true;
-	const byId = new Map(existing.map((message) => [message.id, message]));
-	for (const message of incoming) {
-		const current = byId.get(message.id);
-		if (!current) {
-			byId.set(message.id, message);
-			continue;
-		}
-		byId.set(message.id, mergeMessageRecord(current, message, preferIncoming));
-	}
-	return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
-}
-function getMessageDetailRank(message: MessageRecord) {
-	if (message.meta?.contentDetail !== "summary") return 3;
-	if (message.meta?.contentPlaceholder === "assistant_intermediate") return 1;
-	return 2;
-}
-function mergeMessageRecord(
-	current: MessageRecord,
-	incoming: MessageRecord,
-	preferIncoming: boolean,
-) {
-	const currentRank = getMessageDetailRank(current);
-	const incomingRank = getMessageDetailRank(incoming);
-	if (currentRank > incomingRank) return current;
-	if (incomingRank > currentRank) return incoming;
-
-	const merged = preferIncoming
-		? { ...current, ...incoming }
-		: { ...incoming, ...current };
-	const meta = preferIncoming
-		? { ...(current.meta ?? {}), ...(incoming.meta ?? {}) }
-		: { ...(incoming.meta ?? {}), ...(current.meta ?? {}) };
-	return {
-		...merged,
-		meta,
-	};
-}
-function _getPendingMessages(sessionId: string | null) {
-	if (!sessionId) return [];
-	return sessionPendingStore.list(sessionId);
+	const latestCompletedTurn =
+		state?.turns.findLast((turn) => turn.status !== "running") ?? null;
+	unreadTracker.markViewed(sessionId, latestCompletedTurn?.id ?? null);
 }
 function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
 	return {
@@ -1802,7 +1681,6 @@ function applySessionsSnapshot(sessions: SessionRecord[]) {
 		nextState[session.id] = {
 			session,
 			turns: existing?.turns ?? [],
-			messages: existing?.messages ?? [],
 			loading: existing?.loading ?? false,
 			loaded: existing?.loaded ?? false,
 			error: existing?.error ?? "",
@@ -2205,7 +2083,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			session:
 				existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
 			turns: existing?.turns ?? [],
-			messages: existing?.messages ?? [],
 			loading: true,
 			loaded: existing?.loaded ?? false,
 			error: existing?.error ?? "",
@@ -2221,27 +2098,6 @@ async function loadSessionState(sessionId: string, force = false) {
 	}
 	const anchor = getSessionScrollAnchor(sessionId);
 	void anchor;
-	const sessionObj =
-		refreshed?.session ?? spaceSessions.find((s) => s.id === sessionId);
-	// New session with no messages — skip the unnecessary listPaginated call
-	if (sessionObj && !sessionObj.lastMessageId) {
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				session: sessionObj,
-				turns: [],
-				messages: [],
-				loading: false,
-				loaded: true,
-				error: "",
-				hasMore: false,
-				loadingOlder: false,
-				oldestCursor: undefined,
-			},
-		};
-		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
-		return;
-	}
 	try {
 		const response = await sdk
 			.space(spaceId)
@@ -2255,7 +2111,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			[sessionId]: {
 				session: response.session,
 				turns: response.turns,
-				messages: [],
 				loading: false,
 				loaded: true,
 				error: "",
@@ -2273,7 +2128,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			[sessionId]: {
 				session:
 					existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
-				messages: existing?.messages ?? [],
 				turns: existing?.turns ?? [],
 				loading: false,
 				loaded: true,
@@ -2321,7 +2175,7 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 		console.warn("[syncSessionNewer] Failed to sync newer turns:", error);
 	}
 }
-async function loadOlderMessages(sessionId: string) {
+async function loadOlderTurns(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.hasMore || state.loadingOlder) return;
 	chatTimelineRef?.preparePrepend();
@@ -2378,102 +2232,9 @@ async function loadOlderMessages(sessionId: string) {
 				...state,
 				loadingOlder: false,
 				error:
-					error instanceof Error
-						? error.message
-						: "Failed to load older messages",
+					error instanceof Error ? error.message : "Failed to load older turns",
 			},
 		};
-	}
-}
-async function loadMessageSummary(message: ChatMessage) {
-	const sessionId = activeSessionId;
-	const messageId = message.sourceId ?? message.id;
-	if (!sessionId || !messageId || loadingMessageDetailIds[messageId]) return;
-	const state = sessionStateById[sessionId];
-	const existing = state?.messages.find((item) => item.id === messageId);
-	if (
-		existing?.meta?.contentDetail !== "summary" ||
-		existing.meta?.contentPlaceholder !== "assistant_intermediate"
-	) {
-		return;
-	}
-	loadingMessageDetailIds = { ...loadingMessageDetailIds, [messageId]: true };
-	try {
-		const response = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.messages.get(messageId, { detail: "summary" });
-		const currentState = sessionStateById[sessionId];
-		if (!currentState) return;
-		const merged = mergeMessagesById(
-			currentState.messages,
-			[response.message],
-			{
-				preferIncoming: true,
-			},
-		);
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				...currentState,
-				session: response.session ?? currentState.session,
-				messages: merged,
-			},
-		};
-		await messageCache.replaceAuthoritativeSnapshot({
-			sessionId,
-			messages: merged,
-			hasMore: currentState.hasMore,
-		});
-	} catch (error) {
-		console.warn("[loadMessageSummary] Failed to load message summary:", error);
-	} finally {
-		const next = { ...loadingMessageDetailIds };
-		delete next[messageId];
-		loadingMessageDetailIds = next;
-	}
-}
-async function loadMessageDetail(message: ChatMessage) {
-	const sessionId = activeSessionId;
-	const messageId = message.sourceId ?? message.id;
-	if (!sessionId || !messageId || loadingMessageDetailIds[messageId]) return;
-	const state = sessionStateById[sessionId];
-	const existing = state?.messages.find((item) => item.id === messageId);
-	if (existing?.meta?.contentDetail !== "summary") return;
-	loadingMessageDetailIds = { ...loadingMessageDetailIds, [messageId]: true };
-	try {
-		const response = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.messages.get(messageId);
-		const currentState = sessionStateById[sessionId];
-		if (!currentState) return;
-		const merged = mergeMessagesById(
-			currentState.messages,
-			[response.message],
-			{
-				preferIncoming: true,
-			},
-		);
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				...currentState,
-				session: response.session ?? currentState.session,
-				messages: merged,
-			},
-		};
-		await messageCache.replaceAuthoritativeSnapshot({
-			sessionId,
-			messages: merged,
-			hasMore: currentState.hasMore,
-		});
-	} catch (error) {
-		console.warn("[loadMessageDetail] Failed to load message detail:", error);
-	} finally {
-		const next = { ...loadingMessageDetailIds };
-		delete next[messageId];
-		loadingMessageDetailIds = next;
 	}
 }
 function handleFirstVisible(index: number) {
@@ -2486,7 +2247,7 @@ function handleFirstVisible(index: number) {
 	) {
 		const sessionId = activeSessionId;
 		preloadingSessionIds.add(sessionId);
-		void loadOlderMessages(sessionId).finally(() =>
+		void loadOlderTurns(sessionId).finally(() =>
 			preloadingSessionIds.delete(sessionId),
 		);
 	}
@@ -2507,7 +2268,6 @@ async function reconcileSessionTail(sessionId: string) {
 				...state,
 				session: response.session ?? state.session,
 				turns: response.turns,
-				messages: [],
 				hasMore: response.hasMore,
 				loading: false,
 				loaded: true,
@@ -2549,10 +2309,12 @@ async function reconnectSync() {
 				: null,
 		);
 		if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
-			const latestMessageId =
-				sessionStateById[activeSessionId]?.session?.lastMessageId;
-			if (latestMessageId && shouldAutoFollow) {
-				unreadTracker.markViewed(activeSessionId, latestMessageId);
+			const latestTurn =
+				sessionStateById[activeSessionId]?.turns.findLast(
+					(turn) => turn.status !== "running",
+				) ?? sessionStateById[activeSessionId]?.turns.at(-1);
+			if (latestTurn && shouldAutoFollow) {
+				unreadTracker.markViewed(activeSessionId, latestTurn.id);
 			}
 		}
 		wsConnectionState = "open";
@@ -2737,66 +2499,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			}
 			return;
 		}
-		if (payload.type !== "session.message.persisted") return;
-		const message = payload.payload.message as MessageRecord | undefined;
-		if (!message) return;
-		if (state.messages.some((m) => m.id === message.id)) return;
-		const clientMessageId =
-			typeof message.meta?.clientMessageId === "string"
-				? (message.meta.clientMessageId as string)
-				: null;
-		if (message.role === "user" && clientMessageId) {
-			sessionPendingStore.remove(currentActiveSessionId, clientMessageId);
-			sessionPendingStore.reconcilePersisted(currentActiveSessionId, [message]);
-		}
-		const messageKind =
-			typeof message.meta?.messageKind === "string"
-				? message.meta.messageKind
-				: null;
-		const isAssistantTurnTerminal =
-			message.role === "assistant" &&
-			(messageKind === "assistant_final" || messageKind === "assistant_error");
-		if (isAssistantTurnTerminal) {
-			completeGeneration(currentActiveSessionId);
-		} else if (message.role === "assistant") {
-			resetGeneration(currentActiveSessionId);
-		}
-		const merged = mergeMessagesById(state.messages, [message], {
-			preferIncoming: true,
-		});
-		sessionStateById = {
-			...sessionStateById,
-			[currentActiveSessionId]: {
-				...state,
-				messages: merged,
-			},
-		};
-		if (shouldAutoFollow) {
-			unreadTracker.markViewed(currentActiveSessionId, message.id ?? null);
-		}
-		const updatedSession = state.session;
-		if (updatedSession) {
-			const refreshedSession: SessionRecord = {
-				...updatedSession,
-				lastMessageId: message.id ?? null,
-				updatedAt: new Date().toISOString(),
-			};
-			spaceSessions = patchCachedSessionList(spaceId, (sessions) => [
-				refreshedSession,
-				...sessions.filter((s) => s.id !== updatedSession.id),
-			]);
-			sessionStateById = {
-				...sessionStateById,
-				[currentActiveSessionId]: {
-					...sessionStateById[currentActiveSessionId],
-					session: refreshedSession,
-				},
-			};
-		}
-		if (isAssistantTurnTerminal && shouldAutoFollow) {
-			await tick();
-			scrollToBottomNow();
-		}
+		return;
 	} catch (error) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
@@ -3643,13 +3346,12 @@ function handleCreateNewSession() {
 			activeSessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			updateUrlSession(newSession.id);
-			// New session has no messages — skip the unnecessary listPaginated call
+			// New session has no turns yet — skip the unnecessary listPaginated call
 			sessionStateById = {
 				...sessionStateById,
 				[newSession.id]: {
 					session: newSession,
 					turns: [],
-					messages: [],
 					loading: false,
 					loaded: true,
 					error: "",
@@ -3864,8 +3566,11 @@ $effect(() => {
 		ensureSessionModelLoaded(routeSessionId);
 		shouldAutoFollow = true;
 		const state = sessionStateById[routeSessionId];
-		if (state?.session?.lastMessageId)
-			unreadTracker.markViewed(routeSessionId, state.session.lastMessageId);
+		const latestTurn =
+			state?.turns.findLast((turn) => turn.status !== "running") ??
+			state?.turns.at(-1) ??
+			null;
+		unreadTracker.markViewed(routeSessionId, latestTurn?.id ?? null);
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {
@@ -3923,7 +3628,7 @@ $effect(() => {
 	const anchor = getSessionScrollAnchor(targetId);
 	const hasCachedAnchor =
 		anchor &&
-		state.messages.some((message) => message.sequence === anchor.sequence);
+		state.turns.some((turn) => turn.sequence * 10 === anchor.sequence);
 	const finishRestore = () => {
 		pendingRestoreSessionId = null;
 		if (restoringBottomSessionId === targetId) {
@@ -5745,7 +5450,7 @@ $effect(() => {
       <div class="flex-1 flex items-center justify-center">
         <div class="flex flex-col items-center gap-3 text-text-tertiary">
           <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
-          <div class="text-[12px]">Loading messages…</div>
+          <div class="text-[12px]">Loading turns…</div>
         </div>
       </div>
     {:else}
@@ -5761,7 +5466,6 @@ $effect(() => {
           timeline={timeline}
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
-          onLoadMessageDetail={loadMessageDetail}
           onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.id, message: input.message })}
           onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
           onMarkdownRenderStart={handleTimelineMarkdownRenderStart}

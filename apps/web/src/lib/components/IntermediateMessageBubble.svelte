@@ -36,7 +36,6 @@ const chatMessage = $derived({
 		usage: message.usage,
 		stopReason: message.stopReason,
 		errorMessage: message.errorMessage,
-		contentDetail: "summary",
 	},
 } satisfies ChatMessage);
 </script>

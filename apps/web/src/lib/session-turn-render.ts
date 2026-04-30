@@ -1,6 +1,6 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
-import { getStreamingRenderKey } from "$lib/session-render";
+import { getStreamingRenderKey } from "$lib/session-streaming";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { PendingSessionMessage } from "$lib/stores/session-pending.svelte";
 
@@ -136,7 +136,6 @@ export function buildTurnTimelineItems(input: {
 			items.push({
 				id: `turn:${turn.id}:process`,
 				kind: "process",
-				messages: [],
 				turn,
 				summary: turn.intermediateSummary,
 			});

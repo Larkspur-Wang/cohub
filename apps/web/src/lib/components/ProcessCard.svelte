@@ -6,9 +6,7 @@ import type {
 	StoredIntermediateMessage,
 } from "@neta-art/cohub-protocol/model";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
-import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import IntermediateMessageBubble from "$lib/components/IntermediateMessageBubble.svelte";
-import type { ChatMessage } from "$lib/session-tree";
 
 type ModelCatalogItem = {
 	provider: string;
@@ -17,8 +15,7 @@ type ModelCatalogItem = {
 };
 
 type Props = {
-	messages?: ChatMessage[];
-	turn?: SessionTurnRecord;
+	turn: SessionTurnRecord;
 	summary?: SessionTurnIntermediateSummary;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadIntermediate?: (
@@ -28,23 +25,14 @@ type Props = {
 		turn: SessionTurnRecord;
 		message: StoredIntermediateMessage;
 	}) => Promise<MessageToolCallsFile | null>;
-	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
-	onLoadMessageSummary?: (message: ChatMessage) => Promise<void>;
-	onMarkdownRenderStart?: (message: ChatMessage) => void;
-	onMarkdownRendered?: (message: ChatMessage) => void;
 };
 
 const {
-	messages = [],
 	turn,
 	summary,
 	modelsCatalog,
 	onLoadIntermediate,
 	onLoadToolCalls,
-	onLoadMessageDetail,
-	onLoadMessageSummary,
-	onMarkdownRenderStart,
-	onMarkdownRendered,
 }: Props = $props();
 
 let expanded = $state(false);
@@ -52,68 +40,30 @@ let loading = $state(false);
 let loadError = $state<string | null>(null);
 let intermediateMessages = $state<StoredIntermediateMessage[] | null>(null);
 
-const placeholderMessages = $derived(
-	messages.filter(
-		(message) => message.meta?.contentPlaceholder === "assistant_intermediate",
-	),
-);
-
 async function ensureLoaded() {
-	if (turn && onLoadIntermediate) {
-		if (intermediateMessages) return;
-		loading = true;
-		loadError = null;
-		try {
-			intermediateMessages = await onLoadIntermediate(turn);
-		} catch (error) {
-			loadError =
-				error instanceof Error
-					? error.message
-					: "Failed to load process details. Please retry";
-			throw error;
-		} finally {
-			loading = false;
-		}
-		return;
-	}
-	if (placeholderMessages.length === 0 || !onLoadMessageSummary) return;
+	if (!onLoadIntermediate) return;
+	if (intermediateMessages) return;
 	loading = true;
 	loadError = null;
 	try {
-		await Promise.all(
-			placeholderMessages.map((message) => onLoadMessageSummary(message)),
-		);
+		intermediateMessages = await onLoadIntermediate(turn);
 	} catch (error) {
 		loadError =
 			error instanceof Error
 				? error.message
 				: "Failed to load process details. Please retry";
-		throw error;
 	} finally {
 		loading = false;
 	}
 }
 
 async function toggle() {
-	if (!expanded) {
-		try {
-			await ensureLoaded();
-		} catch {
-			// Keep card expandable so the inline error and retry remain visible.
-		}
-	}
+	if (!expanded) await ensureLoaded();
 	expanded = !expanded;
 }
 
-const toolCallCount = $derived(
-	summary?.toolCallCount ??
-		messages.reduce(
-			(sum, msg) =>
-				sum + (msg.content?.filter((b) => b.type === "tool_use").length ?? 0),
-			0,
-		),
-);
-const messageCount = $derived(summary?.messageCount ?? messages.length);
+const toolCallCount = $derived(summary?.toolCallCount ?? 0);
+const messageCount = $derived(summary?.messageCount ?? 0);
 const usageTokens = $derived(
 	summary?.usage?.totalTokens ??
 		((summary?.usage?.input ?? 0) + (summary?.usage?.output ?? 0) || 0),
@@ -149,15 +99,9 @@ const summaryLabel = $derived(labelParts.join(" · "));
 					{loadError} · Click to retry
 				</button>
 			{/if}
-			{#if turn}
-				{#each intermediateMessages ?? [] as msg (msg.id)}
-					<IntermediateMessageBubble message={msg} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} />
-				{/each}
-			{:else}
-				{#each messages as msg (msg.id)}
-					<ChatMessageBubble message={msg} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
-				{/each}
-			{/if}
+			{#each intermediateMessages ?? [] as msg (msg.id)}
+				<IntermediateMessageBubble message={msg} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} />
+			{/each}
 		</div>
 		<button type="button" class="flex items-center gap-1.5 px-4 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer text-text-placeholder hover:text-text-tertiary rounded-md self-start" onclick={() => void toggle()}>
 			<ChevronRight class="w-3 h-3" />

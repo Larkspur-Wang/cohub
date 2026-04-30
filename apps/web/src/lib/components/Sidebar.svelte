@@ -411,9 +411,7 @@ async function handleNavigateToSpace(spaceId: string) {
 async function handleNavigateToSession(sessionId: string) {
 	onClose?.();
 	const session = sessions.find((s) => s.id === sessionId);
-	if (session?.lastMessageId) {
-		unreadTracker.markViewed(sessionId, session.lastMessageId);
-	}
+	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
 	if (!currentSpaceId) return;
 	await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
@@ -880,7 +878,7 @@ $effect(() => {
                       {/if}
                       {#if sessionIsStreaming(session)}
                         <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
-                      {:else if unreadTracker.isUnread(session)}
+                      {:else if unreadTracker.isUnread(session, session.lastMessageId)}
                         <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
                       {/if}
                     </a>

@@ -1,6 +1,5 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type {
-	MessageRecord,
 	SessionTurnIntermediateSummary,
 	SessionTurnRecord,
 } from "@neta-art/cohub-protocol/model";
@@ -24,15 +23,9 @@ export type ChatMessage = {
 		sessionId?: string | null;
 		model?: string | null;
 		provider?: string | null;
-		usage?: MessageRecord["usage"];
+		usage?: SessionTurnRecord["usage"];
 		stopReason?: string | null;
 		errorMessage?: string | null;
-		contentDetail?: "summary" | "full";
-		contentPlaceholder?: "assistant_intermediate";
-		historySummary?: {
-			toolCallCount?: number;
-			thinkingCharCount?: number;
-		};
 	};
 };
 
@@ -58,8 +51,7 @@ export type TimelineItem =
 	| {
 			id: string;
 			kind: "process";
-			messages?: ChatMessage[];
-			turn?: SessionTurnRecord;
+			turn: SessionTurnRecord;
 			summary?: SessionTurnIntermediateSummary;
 	  };
 
@@ -104,44 +96,4 @@ export const renderToolPreview = (
 	}
 
 	return stringifyUnknown(input ?? {});
-};
-
-export const toChatMessages = (messages: MessageRecord[]): ChatMessage[] => {
-	return messages.map((message) => {
-		const msgMeta = message.meta as Record<string, unknown> | null | undefined;
-		return {
-			id: message.id,
-			sourceId: message.id,
-			role: message.role,
-			content: message.content,
-			text: message.text ?? "",
-			sequence: message.sequence,
-			blocks: [...(message.content ?? [])],
-			authorUuid: (msgMeta?.authorUuid as string | undefined) ?? null,
-			authorName: (msgMeta?.authorName as string | undefined) ?? null,
-			authorAvatar: (msgMeta?.authorAvatar as string | undefined) ?? null,
-			createdAt: message.createdAt,
-			meta:
-				message.role === "assistant"
-					? {
-							messageKind: msgMeta?.messageKind as string | null,
-							model: message.model,
-							provider: message.provider,
-							usage: message.usage,
-							stopReason: message.stopReason,
-							errorMessage: message.errorMessage,
-							contentDetail: msgMeta?.contentDetail as
-								| "summary"
-								| "full"
-								| undefined,
-							contentPlaceholder: msgMeta?.contentPlaceholder as
-								| "assistant_intermediate"
-								| undefined,
-							historySummary: msgMeta?.historySummary as
-								| { toolCallCount?: number; thinkingCharCount?: number }
-								| undefined,
-						}
-					: undefined,
-		} satisfies ChatMessage;
-	});
 };

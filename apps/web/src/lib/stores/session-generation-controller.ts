@@ -3,7 +3,7 @@ import {
 	type SessionPatchApplyInput,
 } from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { mergeStreamingDeltaBlocks } from "$lib/session-render";
+import { mergeStreamingDeltaBlocks } from "$lib/session-streaming";
 import { sessionGenerationStore } from "./session-generation.svelte";
 
 type PatchApplyResult =

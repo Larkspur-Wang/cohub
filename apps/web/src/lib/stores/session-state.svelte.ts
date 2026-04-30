@@ -4,7 +4,7 @@ import { sessionGenerationStore } from "./session-generation.svelte";
 const STORAGE_KEY = "cohub:session_viewed";
 
 /**
- * Track which messages the user has seen per session.
+ * Track which turn the user has seen per session.
  * Persisted in localStorage so unread state survives page reloads.
  */
 class UnreadTracker {
@@ -29,8 +29,8 @@ class UnreadTracker {
 	private persist() {
 		try {
 			const data: Record<string, string> = {};
-			for (const [sessionId, messageId] of this.viewed) {
-				data[sessionId] = messageId;
+			for (const [sessionId, itemId] of this.viewed) {
+				data[sessionId] = itemId;
 			}
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 		} catch {
@@ -40,16 +40,16 @@ class UnreadTracker {
 
 	isUnread(
 		session: SessionRecord,
-		lastMessageId: string | null | undefined = session.lastMessageId,
+		latestItemId: string | null | undefined,
 	): boolean {
-		if (!lastMessageId) return false;
+		if (!latestItemId) return false;
 		const seen = this.viewed.get(session.id);
-		return seen !== lastMessageId;
+		return seen !== latestItemId;
 	}
 
-	markViewed(sessionId: string, lastMessageId: string | null) {
-		if (!lastMessageId) return;
-		this.viewed = new Map(this.viewed).set(sessionId, lastMessageId);
+	markViewed(sessionId: string, latestItemId: string | null | undefined) {
+		if (!latestItemId) return;
+		this.viewed = new Map(this.viewed).set(sessionId, latestItemId);
 		this.persist();
 	}
 

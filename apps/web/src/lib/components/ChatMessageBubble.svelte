@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { Check, ChevronDown, ChevronRight, Copy, Loader2 } from "lucide-svelte";
+import { Check, ChevronDown, ChevronRight, Copy } from "lucide-svelte";
 import { tick } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { renderMarkdown } from "$lib/markdown";
@@ -15,7 +15,6 @@ type ModelCatalogItem = {
 type Props = {
 	message: ChatMessage;
 	modelsCatalog?: ModelCatalogItem[];
-	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
 };
@@ -25,7 +24,6 @@ type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 const {
 	message,
 	modelsCatalog,
-	onLoadMessageDetail,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
 }: Props = $props();
@@ -34,29 +32,6 @@ let renderedHtml = $state("");
 // Thinking state: track user manual toggle to avoid overriding
 let thinkingExpanded = $state(false);
 let thinkingUserToggled = $state(false);
-let detailLoading = $state(false);
-let detailLoadPromise: Promise<void> | null = null;
-
-const isSummaryMessage = $derived(message.meta?.contentDetail === "summary");
-
-async function ensureMessageDetail() {
-	if (!isSummaryMessage || !onLoadMessageDetail) return;
-	if (detailLoadPromise) {
-		await detailLoadPromise;
-		return;
-	}
-	detailLoading = true;
-	detailLoadPromise = (async () => {
-		await onLoadMessageDetail(message);
-	})();
-	try {
-		await detailLoadPromise;
-	} finally {
-		detailLoadPromise = null;
-		detailLoading = false;
-	}
-}
-
 // Auto-expand during streaming, auto-collapse after (unless user toggled)
 const isStreaming = $derived(
 	message.meta?.messageKind === "assistant_streaming_preview" ||
@@ -199,11 +174,7 @@ function summarizeToolInput(
 // Tool expansion state (per tool call id)
 let expandedToolCalls = $state<Set<string>>(new Set());
 
-async function toggleToolCall(id: string) {
-	const opening = !expandedToolCalls.has(id);
-	if (opening) {
-		await ensureMessageDetail();
-	}
+function toggleToolCall(id: string) {
 	const next = new Set(expandedToolCalls);
 	if (next.has(id)) {
 		next.delete(id);
@@ -213,11 +184,7 @@ async function toggleToolCall(id: string) {
 	expandedToolCalls = next;
 }
 
-async function toggleThinking() {
-	const opening = !thinkingExpanded;
-	if (opening) {
-		await ensureMessageDetail();
-	}
+function toggleThinking() {
 	thinkingExpanded = !thinkingExpanded;
 	thinkingUserToggled = true;
 }
@@ -409,21 +376,7 @@ function handleCopy() {
 }
 </script>
 
-{#if message.meta?.contentPlaceholder === 'assistant_intermediate'}
-  <button
-    type="button"
-    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-placeholder transition-colors hover:bg-bg-hover/50 hover:text-text-tertiary disabled:cursor-wait disabled:opacity-70"
-    disabled={detailLoading}
-    onclick={() => void ensureMessageDetail()}
-  >
-    {#if detailLoading}
-      <Loader2 class="h-3 w-3 shrink-0 animate-spin text-text-placeholder/70" />
-    {:else}
-      <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-text-placeholder/60"></span>
-    {/if}
-    <span>{detailLoading ? 'Loading details...' : 'Load process step details'}</span>
-  </button>
-{:else if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
+{#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
   {#if thinkingContent}
     <div>
       <div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
@@ -439,12 +392,9 @@ function handleCopy() {
         <button
           type="button"
           class="mt-1 inline-flex items-center gap-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
-          onclick={() => void toggleThinking()}
+          onclick={toggleThinking}
         >
-          {#if detailLoading}
-            <Loader2 class="h-3 w-3 animate-spin" />
-          {/if}
-          <span>{detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}</span>
+          <span>{thinkingExpanded ? 'Show less' : '… more'}</span>
         </button>
       {/if}
     </div>
@@ -474,12 +424,9 @@ function handleCopy() {
             <button
               type="button"
               class="mt-1 inline-flex items-center gap-1 text-[11px] text-text-placeholder hover:text-text-tertiary cursor-pointer"
-              onclick={() => void toggleThinking()}
+              onclick={toggleThinking}
             >
-              {#if detailLoading}
-                <Loader2 class="h-3 w-3 animate-spin" />
-              {/if}
-              <span>{detailLoading ? 'Loading…' : thinkingExpanded ? 'Show less' : '… more'}</span>
+              <span>{thinkingExpanded ? 'Show less' : '… more'}</span>
             </button>
           {/if}
         </div>
@@ -542,9 +489,7 @@ function handleCopy() {
                 <span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em]">{block.name}</span>
                 <span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(block.name, block.input)}</span>
                 <span class="ml-auto text-text-tertiary shrink-0">
-                  {#if detailLoading && isSummaryMessage}
-                    <Loader2 class="w-3.5 h-3.5 animate-spin text-text-placeholder" />
-                  {:else if expandedToolCalls.has(block.id)}
+                  {#if expandedToolCalls.has(block.id)}
                     <ChevronDown class="w-3.5 h-3.5" />
                   {:else}
                     <ChevronRight class="w-3.5 h-3.5" />

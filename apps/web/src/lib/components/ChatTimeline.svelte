@@ -22,11 +22,9 @@ type Props = {
 	/** Number of unseen items at the visual top before triggering preload */
 	preloadThreshold?: number;
 	onFirstVisible?: (index: number) => void;
-	/** Whether older messages are currently being loaded (scroll-up pagination) */
+	/** Whether older turns are currently being loaded (scroll-up pagination) */
 	loadingOlder?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
-	onLoadMessageDetail?: (message: ChatMessage) => Promise<void>;
-	onLoadMessageSummary?: (message: ChatMessage) => Promise<void>;
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
 	onLoadIntermediate?: (
@@ -45,8 +43,6 @@ let {
 	onFirstVisible,
 	loadingOlder = false,
 	modelsCatalog,
-	onLoadMessageDetail,
-	onLoadMessageSummary,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
 	onLoadIntermediate,
@@ -57,7 +53,7 @@ let {
 let observedNodes = new Map<HTMLElement, number>();
 let observer: IntersectionObserver | null = null;
 
-// Scroll-up pagination: old messages are prepended to DOM top.
+// Scroll-up pagination: old turns are prepended to DOM top.
 // We save/restore scrollTop to prevent the view from jumping.
 let prevScrollHeight = $state(0);
 
@@ -143,15 +139,20 @@ $effect(() => {
 				data-sequence={item.kind === 'message'
 					? item.message.sequence
 					: item.kind === 'process'
-						? (item.turn?.sequence ?? item.messages?.[item.messages.length - 1]?.sequence)
+						? item.turn.sequence
+						: undefined}
+				data-turn-sequence={item.kind === 'message'
+					? Math.floor(item.message.sequence / 10)
+					: item.kind === 'process'
+						? item.turn.sequence
 						: undefined}
 				use:observeItem={originalIdx}
 			>
 					{#if item.kind === 'message'}
-						<ChatMessageBubble message={item.message} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
-					{:else if item.kind === 'process'}
-						<ProcessCard messages={item.messages} turn={item.turn} summary={item.summary} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onLoadMessageDetail} {onLoadMessageSummary} {onMarkdownRenderStart} {onMarkdownRendered} />
-				{:else}
+						<ChatMessageBubble message={item.message} {modelsCatalog} {onMarkdownRenderStart} {onMarkdownRendered} />
+					{:else if item.kind === 'process' && item.turn}
+						<ProcessCard turn={item.turn} summary={item.summary} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} />
+				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}
 			</div>
@@ -159,7 +160,7 @@ $effect(() => {
 		{#if loadingOlder}
 			<div class="flex items-center justify-center gap-1.5 py-3">
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" />
-				<span class="text-[12px] text-text-tertiary">Loading messages…</span>
+				<span class="text-[12px] text-text-tertiary">Loading turns…</span>
 			</div>
 		{/if}
 	</div>
