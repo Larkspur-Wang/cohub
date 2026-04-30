@@ -1,11 +1,11 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 import type { RealtimeServerEvent } from "@neta-art/cohub-protocol/realtime";
-import { config } from "./config.js";
+import { handleFeishuCommand } from "./channel-commands/feishu.js";
 import { db } from "./db/index.js";
-import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers, sessionMessages } from "./db/schema-v2.js";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import {
@@ -523,159 +523,6 @@ export async function getProviderMessageRefBySessionMessage(input: { spaceChanne
   return ref ?? null;
 }
 
-type ResolvedGatewayCommand = "new" | "status";
-
-const resolveGatewayCommand = (text: string): ResolvedGatewayCommand | null => {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("/")) return null;
-  const command = trimmed.split(/\s+/, 1)[0]?.toLowerCase();
-  if (command === "/new") return "new";
-  if (command === "/status") return "status";
-  return null;
-};
-
-const getSessionUrl = (spaceId: string, sessionId: string) => {
-  const origin = (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
-  return `${origin}/spaces/${spaceId}/sessions/${sessionId}`;
-};
-
-const createInboundCommandRef = async (input: {
-  event: GatewayInboundEvent;
-  resolved: NonNullable<Awaited<ReturnType<typeof resolveSessionInteractionForInboundEvent>>>;
-  command: ResolvedGatewayCommand;
-  sessionId?: string;
-}) => createProviderMessageRef({
-  provider: input.event.provider,
-  spaceId: input.resolved.spaceId,
-  spaceSessionId: input.sessionId ?? input.resolved.sessionId,
-  spaceChannelId: input.resolved.spaceChannelId,
-  sessionMessageId: null,
-  direction: "inbound",
-  externalConversationId: input.resolved.conversationId,
-  externalMessageId: input.event.externalMessageId,
-  externalAuthorId: input.event.sender.id,
-  externalAuthorName: input.event.sender.name ?? null,
-  meta: {
-    bindingKey: input.resolved.bindingKey,
-    command: input.command,
-    contextIncluded: false,
-  },
-});
-
-const dispatchCommandReply = async (input: {
-  event: GatewayInboundEvent;
-  resolved: NonNullable<Awaited<ReturnType<typeof resolveSessionInteractionForInboundEvent>>>;
-  sessionId: string;
-  text: string;
-}) => dispatchOutboundMessage({
-  spaceChannelId: input.resolved.spaceChannelId,
-  spaceId: input.resolved.spaceId,
-  spaceSessionId: input.sessionId,
-  provider: input.event.provider as ChannelProvider,
-  externalChatId: input.event.externalChatId,
-  replyToExternalMessageId: input.event.externalMessageId,
-  content: [{ type: "text", text: input.text }],
-  meta: {
-    bindingKey: input.resolved.bindingKey,
-    source: "channel_command",
-    commandReply: true,
-  },
-});
-
-const getSessionStatusText = async (spaceId: string, sessionId: string) => {
-  const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, sessionId));
-  const latestMessages = await db
-    .select({ provider: sessionMessages.provider, model: sessionMessages.model })
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, sessionId))
-    .orderBy(desc(sessionMessages.sequence))
-    .limit(20);
-  const latestModelMessage = latestMessages.find((message) => message.model?.trim());
-
-  const modelText = latestModelMessage?.model
-    ? `${latestModelMessage.provider ?? "unknown"}/${latestModelMessage.model}`
-    : "unknown";
-  const messageCount = countRow?.count ?? 0;
-
-  return [
-    `模型: ${modelText}`,
-    `上下文: ${messageCount} messages`,
-    `Session: ${sessionId}`,
-    `Cohub: ${getSessionUrl(spaceId, sessionId)}`,
-  ].join("\n");
-};
-
-const createFreshSessionForBinding = async (
-  event: GatewayInboundEvent,
-  resolved: NonNullable<Awaited<ReturnType<typeof resolveSessionInteractionForInboundEvent>>>,
-) => {
-  const sessionId = randomUUID();
-  const session = await registerSpaceSession({
-    spaceId: resolved.spaceId,
-    sessionId,
-    source: buildSessionSourceChannel(event),
-    externalSessionId: null,
-    meta: {
-      source: `channel:${event.provider}`,
-      createdFrom: "gateway_command_new",
-      conversation: event.conversation ?? null,
-      providerMeta: event.meta ?? null,
-      previousSessionId: resolved.sessionId,
-    },
-  });
-
-  await createSpaceSessionBinding({
-    spaceId: resolved.spaceId,
-    spaceSessionId: session.id,
-    spaceChannelId: resolved.spaceChannelId,
-    provider: event.provider,
-    bindingKey: resolved.bindingKey,
-    externalChatId: event.externalChatId,
-    meta: {
-      ...buildDefaultBindingMeta(event),
-      lifecycle: {
-        ...(buildDefaultBindingMeta(event).lifecycle as Record<string, unknown>),
-        initializedAt: new Date(event.timestamp).toISOString(),
-        initializedFromEventId: event.eventId,
-        lastMaterializedBy: "command_new",
-        previousSessionId: resolved.sessionId,
-      },
-    },
-  });
-
-  return session.id;
-};
-
-const handleGatewayCommand = async (
-  event: GatewayInboundEvent,
-  resolved: NonNullable<Awaited<ReturnType<typeof resolveSessionInteractionForInboundEvent>>>,
-  command: ResolvedGatewayCommand,
-) => {
-  if (command === "status") {
-    await createInboundCommandRef({ event, resolved, command });
-    await dispatchCommandReply({
-      event,
-      resolved,
-      sessionId: resolved.sessionId,
-      text: await getSessionStatusText(resolved.spaceId, resolved.sessionId),
-    });
-    return true;
-  }
-
-  const sessionId = await createFreshSessionForBinding(event, resolved);
-  await createInboundCommandRef({ event, resolved, command, sessionId });
-  await dispatchCommandReply({
-    event,
-    resolved,
-    sessionId,
-    text: `已创建新的会话。\nCohub: ${getSessionUrl(resolved.spaceId, sessionId)}`,
-  });
-  return true;
-};
-
 export async function resolveForkSourceForInboundEvent(input: { spaceChannelId: string; provider: string; conversationId: string; parentConversationId?: string | null; parentMessageId?: string | null }) {
   const parentConversationId = input.parentConversationId?.trim();
   const parentMessageId = input.parentMessageId?.trim();
@@ -795,8 +642,12 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
 export async function handleInboundEvent(event: GatewayInboundEvent) {
   const resolved = await resolveSessionInteractionForInboundEvent(event);
   if (!resolved || event.eventType === "conversation_create") return;
-  const command = event.provider === "feishu" ? resolveGatewayCommand(extractInboundText(event)) : null;
-  if (command && await handleGatewayCommand(event, resolved, command)) return;
+  if (event.provider === "feishu" && await handleFeishuCommand(event, resolved, {
+    buildDefaultBindingMeta,
+    createProviderMessageRef,
+    createSpaceSessionBinding,
+    dispatchOutboundMessage,
+  })) return;
 
   await executeSessionInteraction({
     spaceId: resolved.spaceId,
