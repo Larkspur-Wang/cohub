@@ -419,25 +419,6 @@ export async function getSpaceSandbox(input: { spaceId: string }) {
   } | null>;
 }
 
-export async function getSpaceCapabilities(input: { spaceId: string }) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/capabilities`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: internalHeaders(),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Get space capabilities failed ${response.status}: ${text}`);
-  }
-
-  return response.json().catch(() => null) as Promise<{
-    capabilities: {
-      feishu?: boolean;
-    };
-  } | null>;
-}
-
 export async function getSpace(input: { spaceId: string }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}`;
   const response = await fetch(url, {
@@ -456,44 +437,6 @@ export async function getSpace(input: { spaceId: string }) {
       userUuid: string;
       name: string;
     } | null;
-  } | null>;
-}
-
-export async function fetchFeishuDoc(input: {
-  spaceId: string;
-  sessionId: string;
-  docId: string;
-  offset?: number;
-  limit?: number;
-}) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/tools/feishu-fetch-doc`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify({
-      doc_id: input.docId,
-      offset: input.offset,
-      limit: input.limit,
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Fetch Feishu doc failed ${response.status}: ${text}`);
-  }
-
-  return response.json().catch(() => null) as Promise<{
-    ok: true;
-    document: {
-      type: string;
-      token: string;
-      url: string | null;
-      content: string;
-      offset: number;
-      limit: number;
-      totalLength: number;
-      hasMore: boolean;
-    };
   } | null>;
 }
 

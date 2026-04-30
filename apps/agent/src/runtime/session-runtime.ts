@@ -23,7 +23,7 @@ export type CohubAgentSession = {
   enqueueSteer(text: string, images?: ImageContent[]): void;
   waitForIdle(): Promise<void>;
   setModel(model: Model<Api>): Promise<void>;
-  reload(tools?: ToolLike[]): Promise<void>;
+  reload(): Promise<void>;
   abort(): Promise<void>;
   dispose(): void;
   subscribe(listener: (event: CohubAgentSessionEvent) => void): () => void;
@@ -165,7 +165,6 @@ function toolSnippets(toolName: string): string | undefined {
     case "grep": return "Search file contents";
     case "find": return "Search files by glob pattern";
     case "ls": return "List directory contents";
-    case "feishu_fetch_doc": return "Fetch text from Feishu/Lark document URLs or tokens when the session comes from a Feishu channel";
     default: return undefined;
   }
 }
@@ -325,8 +324,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       agent.state.model = nextModel;
       options.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
     },
-    async reload(nextTools) {
-      if (nextTools) options.tools = nextTools;
+    async reload() {
       const nextPrompt = buildCohubSystemPrompt({
         cwd: options.cwd,
         userId: options.userId,

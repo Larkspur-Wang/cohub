@@ -38,7 +38,6 @@ export type SessionHandle = {
   sessionKey: string;
   sessionId: string;
   session: CohubAgentSession;
-  toolNames: string[];
   sessionManager: SessionManager;
   turnTracer: ReturnType<typeof getAgentTracer>;
   currentTurnId?: string | null;
@@ -595,14 +594,9 @@ export async function loadOrCreateSessionHandle(input: {
   });
 
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
-  const toolNames = input.tools.map((tool) => tool.name);
   const existing = input.sessionHandles.get(sessionKey);
   if (existing) {
     console.log(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
-    if (existing.toolNames.join("\0") !== toolNames.join("\0")) {
-      existing.toolNames = toolNames;
-      await existing.session.reload(input.tools);
-    }
     return existing;
   }
 
@@ -685,7 +679,6 @@ export async function loadOrCreateSessionHandle(input: {
     sessionKey,
     sessionId: input.sessionId,
     session,
-    toolNames,
     sessionManager,
     turnTracer: getAgentTracer(),
     currentTurnId: null,

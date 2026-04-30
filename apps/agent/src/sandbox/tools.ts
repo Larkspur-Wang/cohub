@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { Type, type Static } from "@mariozechner/pi-ai";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import {
   createBashTool,
   createEditTool,
@@ -22,7 +20,6 @@ import {
   truncateHead,
   truncateLine,
 } from "../runtime/tools/index.js";
-import { fetchFeishuDoc } from "../api.js";
 
 const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
@@ -660,54 +657,6 @@ function createRemoteGrepTool() {
   };
 }
 
-function createFeishuFetchDocTool(): AgentTool {
-  const parameters = Type.Object({
-    doc_id: Type.String({ description: "Feishu/Lark docx or wiki URL, or a docx/wiki token" }),
-    offset: Type.Optional(Type.Number({ description: "Character offset for pagination. Defaults to 0." })),
-    limit: Type.Optional(Type.Number({ description: "Maximum characters to return. Defaults to 24000." })),
-  });
-
-  return {
-    name: "feishu_fetch_doc",
-    label: "feishu_fetch_doc",
-    description: "Fetch readable text from a Feishu/Lark document URL or token. Only works in sessions that are bound to a Feishu channel.",
-    parameters,
-    async execute(_toolCallId, rawParams) {
-      const params = rawParams as Static<typeof parameters>;
-      const ctx = getCurrentToolExecutionContext();
-      if (!ctx?.spaceId || !ctx.sessionId) {
-        throw new Error("feishu_fetch_doc requires a space/session execution context");
-      }
-      incrementToolCallCount(ctx.metrics);
-      const result = await fetchFeishuDoc({
-        spaceId: ctx.spaceId,
-        sessionId: ctx.sessionId,
-        docId: params.doc_id,
-        offset: params.offset,
-        limit: params.limit,
-      });
-      if (!result?.document) throw new Error("Feishu document response was empty");
-
-      const doc = result.document;
-      const more = doc.hasMore
-        ? `\n\n[Showing characters ${doc.offset}-${doc.offset + doc.content.length} of ${doc.totalLength}. Call feishu_fetch_doc with offset=${doc.offset + doc.content.length} to continue.]`
-        : "";
-      const title = `Feishu document ${doc.url ?? doc.token}`;
-      return {
-        content: [{ type: "text", text: `${title}\n\n${doc.content}${more}` }],
-        details: {
-          token: doc.token,
-          type: doc.type,
-          url: doc.url,
-          offset: doc.offset,
-          totalLength: doc.totalLength,
-          hasMore: doc.hasMore,
-        },
-      };
-    },
-  };
-}
-
 /** Format a file path as relative, matching native grep behavior. */
 function formatRelativePath(absolutePath: string, searchPath: string | undefined): string {
   // Reconstruct the sandbox-internal search path to compute relative output.
@@ -763,14 +712,10 @@ async function tracedRpcAbortProcess(processId: string) {
   }
 }
 
-export type SandboxToolCapabilities = {
-  feishu?: boolean;
-};
-
-export function createSandboxCodingTools(capabilities: SandboxToolCapabilities = {}) {
+export function createSandboxCodingTools() {
   const toolCwd = SANDBOX_WORKSPACE_PATH;
 
-  const tools = [
+  return [
     createReadTool(toolCwd, { operations: createRemoteReadOperations() }),
     createBashTool(toolCwd, { operations: createRemoteBashOperations() }),
     createEditTool(toolCwd, { operations: createRemoteEditOperations() }),
@@ -779,7 +724,4 @@ export function createSandboxCodingTools(capabilities: SandboxToolCapabilities =
     createFindTool(toolCwd, { operations: createRemoteFindOperations() }),
     createRemoteGrepTool(),
   ];
-
-  if (capabilities.feishu) tools.push(createFeishuFetchDocTool());
-  return tools;
 }

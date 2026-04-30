@@ -27,7 +27,7 @@ import {
   recoverProcessingQueueOnStartup,
   sendOutput,
 } from "./redis.js";
-import { getSpace, getSpaceCapabilities, getSpaceSandbox } from "./api.js";
+import { getSpace, getSpaceSandbox } from "./api.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
   disconnectSandboxWsClient,
@@ -395,6 +395,8 @@ async function main() {
   startOwnerRenewLoop();
   await recoverProcessingQueueOnStartup();
 
+  const tools = createSandboxCodingTools();
+
   console.log("[Agent] Listening for owner-routed input.");
 
   const agentTracer = getAgentTracer();
@@ -445,13 +447,6 @@ async function main() {
           const requestedModelInput = (requestedProvider && requestedModel)
             ? { provider: requestedProvider, id: requestedModel }
             : undefined;
-          const capabilities = await getSpaceCapabilities({ spaceId: inputEntry.spaceId }).catch((error) => {
-            console.warn(`[Agent] Failed to resolve capabilities for ${inputEntry.spaceId}; using base tools`, error);
-            return null;
-          });
-          const tools = createSandboxCodingTools({
-            feishu: capabilities?.capabilities?.feishu === true,
-          });
 
           const handle = await loadOrCreateSessionHandle({
             spaceId: inputEntry.spaceId,
