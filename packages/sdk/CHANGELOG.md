@@ -1,5 +1,13 @@
 # @neta-art/cohub
 
+## 1.2.2
+
+### Patch Changes
+
+- a2cb8ff: 现在在刷新会话页面时会自动接续未完成的 stream
+- Updated dependencies [a2cb8ff]
+  - @neta-art/cohub-protocol@1.2.2
+
 ## 1.2.1
 
 ### Patch Changes
