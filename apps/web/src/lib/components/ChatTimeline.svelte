@@ -1,4 +1,9 @@
 <script lang="ts">
+import type {
+	MessageToolCallsFile,
+	SessionTurnRecord,
+	StoredIntermediateMessage,
+} from "@neta-art/cohub-protocol/model";
 import { Loader2 } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
@@ -24,6 +29,13 @@ type Props = {
 	onLoadMessageSummary?: (message: ChatMessage) => Promise<void>;
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
+	onLoadIntermediate?: (
+		turn: SessionTurnRecord,
+	) => Promise<StoredIntermediateMessage[]>;
+	onLoadToolCalls?: (input: {
+		turn: SessionTurnRecord;
+		message: StoredIntermediateMessage;
+	}) => Promise<MessageToolCallsFile | null>;
 };
 
 let {
@@ -37,6 +49,8 @@ let {
 	onLoadMessageSummary,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
+	onLoadIntermediate,
+	onLoadToolCalls,
 }: Props = $props();
 
 // Track all observed elements for re-observation.
@@ -129,14 +143,14 @@ $effect(() => {
 				data-sequence={item.kind === 'message'
 					? item.message.sequence
 					: item.kind === 'process'
-						? item.messages[item.messages.length - 1]?.sequence
+						? (item.turn?.sequence ?? item.messages?.[item.messages.length - 1]?.sequence)
 						: undefined}
 				use:observeItem={originalIdx}
 			>
 					{#if item.kind === 'message'}
 						<ChatMessageBubble message={item.message} {modelsCatalog} {onLoadMessageDetail} {onMarkdownRenderStart} {onMarkdownRendered} />
 					{:else if item.kind === 'process'}
-						<ProcessCard messages={item.messages} {modelsCatalog} {onLoadMessageDetail} {onLoadMessageSummary} {onMarkdownRenderStart} {onMarkdownRendered} />
+						<ProcessCard messages={item.messages} turn={item.turn} summary={item.summary} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onLoadMessageDetail} {onLoadMessageSummary} {onMarkdownRenderStart} {onMarkdownRendered} />
 				{:else}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}

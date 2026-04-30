@@ -10,7 +10,6 @@ export type {
   SessionTurnStatus,
   SessionTurnSummary,
   StoredIntermediateMessage,
-  StoredIntermediateMessageToolCallSummary,
   StoredToolCall,
   TurnIntermediateMessagesFile,
 } from "./turn.js";

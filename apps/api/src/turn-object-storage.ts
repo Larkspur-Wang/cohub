@@ -61,7 +61,6 @@ export const writeTurnObjectJson = async (objectKey: string, value: unknown) => 
     Key: safeKey,
     Body: content,
     ContentType: "application/json; charset=utf-8",
-    CacheControl: "private, max-age=300",
     Metadata: { sha256 },
   }));
   return { sizeBytes, sha256 };

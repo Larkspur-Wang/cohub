@@ -6,7 +6,6 @@ import type {
   SessionTurnRecord,
   SessionTurnStatus,
   StoredIntermediateMessage,
-  StoredIntermediateMessageToolCallSummary,
   StoredToolCall,
   TurnIntermediateMessagesFile,
 } from "@neta-art/cohub-protocol/model";
@@ -77,7 +76,11 @@ const summarizeToolInput = (input: Record<string, unknown>) => Object.fromEntrie
   Object.entries(input).map(([key, value]) => [key, summarizeValue(value)]),
 ) as Record<string, unknown>;
 
-const extractToolCalls = (content: ContentBlock[]): { summaries: StoredIntermediateMessageToolCallSummary[]; details: StoredToolCall[] } => {
+const getContentLengthMeta = (content: string | ContentBlock[]) => typeof content === "string"
+  ? { originalContentKind: "string", originalLength: content.length }
+  : { originalContentKind: "content_blocks", originalBlockCount: content.length };
+
+const extractToolCalls = (content: ContentBlock[]): StoredToolCall[] => {
   const byId = new Map<string, StoredToolCall>();
   for (const block of content) {
     if (block.type === "tool_use") {
@@ -85,8 +88,8 @@ const extractToolCalls = (content: ContentBlock[]): { summaries: StoredIntermedi
         id: block.id,
         name: block.name,
         input: block.input,
-        result: null,
         meta: normalizeRecord(block._meta),
+        result: null,
       });
     }
   }
@@ -99,19 +102,45 @@ const extractToolCalls = (content: ContentBlock[]): { summaries: StoredIntermedi
           result: {
             content: block.content,
             isError: Boolean(block.is_error),
+            meta: normalizeRecord(block._meta),
           },
         });
       }
     }
   }
-  const details = [...byId.values()];
-  const summaries = details.map((tool): StoredIntermediateMessageToolCallSummary => ({
-    id: tool.id,
-    name: tool.name,
-    status: tool.result ? (tool.result.isError ? "failed" : "done") : "running",
-    input: summarizeToolInput(tool.input),
-  }));
-  return { summaries, details };
+  return [...byId.values()];
+};
+
+const summarizeIntermediateContent = (content: ContentBlock[], tools: StoredToolCall[]): ContentBlock[] => {
+  const byId = new Map(tools.map((tool) => [tool.id, tool]));
+  return content.map((block) => {
+    if (block.type === "tool_use") {
+      const tool = byId.get(block.id);
+      return {
+        ...block,
+        input: summarizeToolInput(tool?.input ?? block.input),
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+          inputDetail: "summary",
+          toolStatus: tool?.result ? (tool.result.isError ? "failed" : "done") : "running",
+        },
+      };
+    }
+    if (block.type === "tool_result") {
+      return {
+        ...block,
+        content: [],
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+          resultDetail: "omitted",
+          ...getContentLengthMeta(block.content),
+        },
+      };
+    }
+    return block;
+  });
 };
 
 const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord => ({
@@ -212,7 +241,7 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
   const messages: StoredIntermediateMessage[] = [];
   for (const row of intermediateRows) {
     const content = row.content as ContentBlock[];
-    const { summaries, details } = extractToolCalls(content);
+    const details = extractToolCalls(content);
     toolCallCount += details.length;
     totalUsage = addUsage(totalUsage, row.usage as Usage | null | undefined);
     hasError = hasError || Boolean(row.errorMessage) || details.some((tool) => tool.result?.isError);
@@ -232,14 +261,13 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
       id: row.id,
       sessionId: row.sessionId,
       role: row.role as "user" | "assistant" | "system",
-      content,
+      content: summarizeIntermediateContent(content, details),
       text: row.text ?? null,
       provider: row.provider ?? null,
       model: row.model ?? null,
       stopReason: row.stopReason ?? null,
       errorMessage: row.errorMessage ?? null,
       usage: row.usage as Usage | null,
-      toolCalls: summaries,
       toolCallsObjectKey,
       meta: normalizeRecord(row.meta),
       createdAt: toIso(row.createdAt),
@@ -365,7 +393,8 @@ export const interruptSessionTurn = async (input: { spaceId: string; sessionId: 
 
 export const createSignedTurnUrls = async (input: { spaceId: string; sessionId: string; turnId: string; objectKeys: string[] }) => {
   const prefix = buildTurnObjectPrefix(input);
-  return input.objectKeys.map((objectKey) => createTurnObjectCdnUrl(
-    assertTurnObjectKeyInScope({ objectKey, prefix }),
-  ));
+  return Object.fromEntries(input.objectKeys.map((objectKey) => [
+    objectKey,
+    createTurnObjectCdnUrl(assertTurnObjectKeyInScope({ objectKey, prefix })).url,
+  ]));
 };

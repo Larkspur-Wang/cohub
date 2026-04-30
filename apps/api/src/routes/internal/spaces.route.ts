@@ -18,6 +18,7 @@ import {
   SandboxNotReadyError,
 } from "../../space-sessions.js";
 import { interruptSessionTurn } from "../../session-turns.js";
+import { dispatchTurnUpdated } from "../../session-output.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import {
@@ -303,6 +304,7 @@ router.post("/:spaceId/sessions/:sessionId/turns/:turnId/interrupt", async (c) =
   if (!interruptedByTurnId || !requireValidId(interruptedByTurnId)) return c.json({ message: "interruptedByTurnId is required" }, 400);
 
   const turn = await interruptSessionTurn({ spaceId, sessionId, turnId, interruptedByTurnId });
+  if (turn) await dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => console.warn("[SessionTurn] failed to dispatch interrupted turn", error));
   return c.json({ ok: true, turn });
 });
 

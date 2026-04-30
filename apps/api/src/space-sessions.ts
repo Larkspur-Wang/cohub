@@ -17,7 +17,7 @@ import {
 } from "./redis.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
-import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs } from "./session-output.js";
+import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
 import { finalizeSessionTurnFromMessage } from "./session-turns.js";
 import { createExecutionGrant } from "./execution-grants.js";
 
@@ -537,7 +537,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       ? ((input.message.meta as Record<string, unknown>).turnId as string)
       : null;
     if (turnId && (messageKind === "assistant_final" || messageKind === "assistant_error")) {
-      await finalizeSessionTurnFromMessage({
+      const finalizedTurn = await finalizeSessionTurnFromMessage({
         spaceId: session.spaceId,
         sessionId: input.sessionId,
         turnId,
@@ -549,7 +549,15 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         stopReason: input.message.stopReason ?? null,
         errorMessage: input.message.errorMessage ?? null,
         usage: normalizedUsage,
-      }).catch((error) => console.warn("[SessionTurn] failed to finalize turn", error));
+      }).catch((error) => {
+        console.warn("[SessionTurn] failed to finalize turn", error);
+        return null;
+      });
+      if (finalizedTurn) {
+        await dispatchTurnFinalized({ spaceId: session.spaceId, sessionId: input.sessionId, turn: finalizedTurn }).catch((error) => {
+          console.warn("[SessionTurn] failed to dispatch finalized turn", error);
+        });
+      }
     }
   }
 

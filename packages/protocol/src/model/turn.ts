@@ -25,13 +25,6 @@ export type SessionTurnIntermediateSummary = {
   hasError?: boolean;
 };
 
-export type StoredIntermediateMessageToolCallSummary = {
-  id: string;
-  name: string;
-  status: "running" | "done" | "failed";
-  input: Record<string, unknown>;
-};
-
 export type StoredIntermediateMessage = {
   id: string;
   sessionId: string;
@@ -43,7 +36,6 @@ export type StoredIntermediateMessage = {
   stopReason: string | null;
   errorMessage: string | null;
   usage: Usage | null;
-  toolCalls: StoredIntermediateMessageToolCallSummary[];
   toolCallsObjectKey: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
@@ -53,11 +45,12 @@ export type StoredToolCall = {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  meta: Record<string, unknown> | null;
   result: {
     content: string | ContentBlock[] | null;
     isError: boolean;
+    meta: Record<string, unknown> | null;
   } | null;
-  meta: Record<string, unknown> | null;
 };
 
 export type MessageToolCallsFile = {

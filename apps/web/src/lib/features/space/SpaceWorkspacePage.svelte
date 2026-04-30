@@ -18,7 +18,12 @@ import {
 	type TaskRunRecord,
 } from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { MessageRecord } from "@neta-art/cohub-protocol/model";
+import type {
+	MessageRecord,
+	MessageToolCallsFile,
+	SessionTurnRecord,
+	StoredIntermediateMessage,
+} from "@neta-art/cohub-protocol/model";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
 	Activity,
@@ -72,11 +77,8 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
-import {
-	buildRenderableChatMessages,
-	buildTimelineItems,
-} from "$lib/session-render";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
+import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	buildSpaceCheckpointRoute,
@@ -114,6 +116,11 @@ import {
 	getCachedSpaceFsDirMeta,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import { mergeTurnsById } from "$lib/stores/turn-cache";
+import {
+	loadMessageToolCalls,
+	loadTurnIntermediate,
+} from "$lib/stores/turn-intermediate-cache";
 import {
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
@@ -154,6 +161,7 @@ type SelectedModel = {
 };
 type SessionViewState = {
 	session: SessionRecord | undefined;
+	turns: SessionTurnRecord[];
 	messages: MessageRecord[];
 	loading: boolean;
 	loaded: boolean;
@@ -1355,20 +1363,21 @@ const activePendingMessages = $derived.by(() =>
 		: [],
 );
 const activeRenderableMessages = $derived.by(() => {
-	const state = activeSessionState;
-	if (!state) return [] as ChatMessage[];
-	return buildRenderableChatMessages(state.messages, activePendingMessages);
+	return [] as ChatMessage[];
 });
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
-	return buildTimelineItems({
-		messages: activeRenderableMessages,
+	return buildTurnTimelineItems({
+		sessionId: activeSessionId,
+		turns: state.turns,
+		pending: activePendingMessages,
 		streaming:
 			activeGenerationState?.status === "streaming" ||
 			activeGenerationState?.status === "pending"
 				? {
 						sessionId: activeSessionId ?? "active",
+						turnId: activeGenerationState.turnId ?? null,
 						anchorUserMessageId:
 							activeGenerationState.anchorUserMessageId ?? null,
 						contentBlocks: activeGenerationState.contentBlocks,
@@ -1792,6 +1801,7 @@ function applySessionsSnapshot(sessions: SessionRecord[]) {
 		const existing = sessionStateById[session.id];
 		nextState[session.id] = {
 			session,
+			turns: existing?.turns ?? [],
 			messages: existing?.messages ?? [],
 			loading: existing?.loading ?? false,
 			loaded: existing?.loaded ?? false,
@@ -2194,6 +2204,7 @@ async function loadSessionState(sessionId: string, force = false) {
 		[sessionId]: {
 			session:
 				existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
+			turns: existing?.turns ?? [],
 			messages: existing?.messages ?? [],
 			loading: true,
 			loaded: existing?.loaded ?? false,
@@ -2203,41 +2214,13 @@ async function loadSessionState(sessionId: string, force = false) {
 			oldestCursor: existing?.oldestCursor,
 		},
 	};
-	const cached = await messageCache.get(sessionId);
-	// Check again after await — another call may have completed while we waited
 	const refreshed = sessionStateById[sessionId];
 	if (refreshed?.loaded && !force) {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		return;
 	}
 	const anchor = getSessionScrollAnchor(sessionId);
-	const canBootstrapFromCache = Boolean(
-		!force &&
-			cached &&
-			cached.messages.length > 0 &&
-			anchor &&
-			cached.messages.some((message) => message.sequence === anchor.sequence),
-	);
-	if (cached && canBootstrapFromCache) {
-		sessionPendingStore.reconcilePersisted(sessionId, cached.messages);
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				session:
-					refreshed?.session ?? spaceSessions.find((s) => s.id === sessionId),
-				messages: cached.messages,
-				loading: false,
-				loaded: true,
-				error: "",
-				hasMore: cached.hasMore,
-				loadingOlder: false,
-				oldestCursor: cached.oldestSeq != null ? cached.oldestSeq : undefined,
-			},
-		};
-		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
-		void syncSessionNewer(sessionId, cached);
-		return;
-	}
+	void anchor;
 	const sessionObj =
 		refreshed?.session ?? spaceSessions.find((s) => s.id === sessionId);
 	// New session with no messages — skip the unnecessary listPaginated call
@@ -2246,6 +2229,7 @@ async function loadSessionState(sessionId: string, force = false) {
 			...sessionStateById,
 			[sessionId]: {
 				session: sessionObj,
+				turns: [],
 				messages: [],
 				loading: false,
 				loaded: true,
@@ -2262,29 +2246,24 @@ async function loadSessionState(sessionId: string, force = false) {
 		const response = await sdk
 			.space(spaceId)
 			.session(sessionId)
-			.messages.listPaginated({
+			.turns.listPaginated({
 				limit: 30,
 			});
-		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
-		await messageCache.replaceAuthoritativeSnapshot({
-			sessionId,
-			messages: response.messages,
-			hasMore: response.hasMore,
-		});
-		void messageCache.evict();
+		sessionPendingStore.reconcilePersisted(sessionId, []);
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				session: response.session,
-				messages: response.messages,
+				turns: response.turns,
+				messages: [],
 				loading: false,
 				loaded: true,
 				error: "",
 				hasMore: response.hasMore,
 				loadingOlder: false,
 				oldestCursor:
-					response.hasMore && response.messages.length > 0
-						? response.messages[0].sequence
+					response.hasMore && response.turns.length > 0
+						? response.turns[0].sequence
 						: undefined,
 			},
 		};
@@ -2295,6 +2274,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				session:
 					existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
 				messages: existing?.messages ?? [],
+				turns: existing?.turns ?? [],
 				loading: false,
 				loaded: true,
 				error:
@@ -2308,35 +2288,29 @@ async function loadSessionState(sessionId: string, force = false) {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 	}
 }
-async function syncSessionNewer(
-	sessionId: string,
-	cached: Awaited<ReturnType<typeof messageCache.get>>,
-) {
-	if (!cached || cached.messages.length === 0 || cached.newestSeq == null)
-		return;
+async function syncSessionNewer(sessionId: string, _cached: unknown) {
+	const state = sessionStateById[sessionId];
+	if (!state || state.turns.length === 0) return;
+	const newestSeq = state.turns.at(-1)?.sequence;
+	if (newestSeq == null) return;
 	try {
 		const response = await sdk
 			.space(spaceId)
 			.session(sessionId)
-			.messages.listPaginated({
-				cursor: cached.newestSeq,
+			.turns.listPaginated({
+				cursor: newestSeq,
 				direction: "newer",
 				limit: 100,
 			});
-		if (response.messages.length > 0) {
-			await messageCache.mergeAuthoritativeNewerPage(
-				sessionId,
-				response.messages,
-			);
-			sessionPendingStore.reconcilePersisted(sessionId, response.messages);
-			const state = sessionStateById[sessionId];
-			if (state) {
+		if (response.turns.length > 0) {
+			const current = sessionStateById[sessionId];
+			if (current) {
 				sessionStateById = {
 					...sessionStateById,
 					[sessionId]: {
-						...state,
-						session: response.session ?? state.session,
-						messages: mergeMessagesById(state.messages, response.messages, {
+						...current,
+						session: response.session ?? current.session,
+						turns: mergeTurnsById(current.turns, response.turns, {
 							preferIncoming: true,
 						}),
 					},
@@ -2344,7 +2318,7 @@ async function syncSessionNewer(
 			}
 		}
 	} catch (error) {
-		console.warn("[syncSessionNewer] Failed to sync newer messages:", error);
+		console.warn("[syncSessionNewer] Failed to sync newer turns:", error);
 	}
 }
 async function loadOlderMessages(sessionId: string) {
@@ -2362,25 +2336,21 @@ async function loadOlderMessages(sessionId: string) {
 		const response = await sdk
 			.space(spaceId)
 			.session(sessionId)
-			.messages.listPaginated({
+			.turns.listPaginated({
 				cursor: state.oldestCursor,
 				direction: "older",
 				limit: 30,
 			});
-		if (response.messages.length > 0) {
-			await messageCache.mergeAuthoritativeOlderPage(
-				sessionId,
-				response.messages,
-				response.hasMore,
-			);
-			const merged = mergeMessagesById(state.messages, response.messages, {
+		if (response.turns.length > 0) {
+			const merged = mergeTurnsById(state.turns, response.turns, {
 				preferIncoming: false,
 			});
 			sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...state,
-					messages: merged,
+					session: response.session ?? state.session,
+					turns: merged,
 					hasMore: response.hasMore,
 					loadingOlder: false,
 					oldestCursor:
@@ -2528,36 +2498,27 @@ async function reconcileSessionTail(sessionId: string) {
 		const response = await sdk
 			.space(spaceId)
 			.session(sessionId)
-			.messages.listPaginated({
+			.turns.listPaginated({
 				limit: 30,
 			});
-		sessionPendingStore.reconcilePersisted(sessionId, response.messages);
-		const merged = mergeMessagesById(state.messages, response.messages, {
-			preferIncoming: true,
-		});
-		await messageCache.replaceAuthoritativeSnapshot({
-			sessionId,
-			messages: merged,
-			hasMore: response.hasMore,
-		});
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...state,
 				session: response.session ?? state.session,
-				messages: merged,
+				turns: response.turns,
+				messages: [],
 				hasMore: response.hasMore,
 				loading: false,
 				loaded: true,
 				error: "",
 				loadingOlder: false,
 				oldestCursor:
-					response.hasMore && merged.length > 0
-						? merged[0].sequence
+					response.hasMore && response.turns.length > 0
+						? response.turns[0].sequence
 						: undefined,
 			},
 		};
-		void messageCache.evict();
 	} catch (error) {
 		console.warn(
 			"[reconcileSessionTail] Failed to reconcile session tail:",
@@ -2716,6 +2677,61 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				void refreshSessionsList(true);
 			}
 			if (generationEffect.shouldScroll && shouldAutoFollow) {
+				await tick();
+				scrollToBottomNow();
+			}
+			return;
+		}
+		if (
+			payload.type === "session.turn.finalized" ||
+			payload.type === "session.turn.updated"
+		) {
+			const turnPatch = payload.payload.turn as
+				| Partial<SessionTurnRecord>
+				| undefined;
+			const turnId = typeof turnPatch?.id === "string" ? turnPatch.id : null;
+			if (!turnId) return;
+			const existingTurn =
+				state.turns.find((turn) => turn.id === turnId) ?? null;
+			if (existingTurn) {
+				sessionStateById = {
+					...sessionStateById,
+					[currentActiveSessionId]: {
+						...state,
+						turns: mergeTurnsById(
+							state.turns,
+							[{ ...existingTurn, ...turnPatch } as SessionTurnRecord],
+							{ preferIncoming: true },
+						),
+					},
+				};
+			}
+			if (!existingTurn || payload.type === "session.turn.finalized") {
+				if (payload.type === "session.turn.finalized")
+					completeGeneration(currentActiveSessionId);
+				void sdk
+					.space(spaceId)
+					.session(currentActiveSessionId)
+					.turns.get(turnId)
+					.then((response) => {
+						const current = sessionStateById[currentActiveSessionId];
+						if (!current) return;
+						sessionStateById = {
+							...sessionStateById,
+							[currentActiveSessionId]: {
+								...current,
+								session: response.session ?? current.session,
+								turns: mergeTurnsById(current.turns, [response.turn], {
+									preferIncoming: true,
+								}),
+							},
+						};
+					})
+					.catch((error) =>
+						console.warn("[turn.event] Failed to load full turn:", error),
+					);
+			}
+			if (shouldAutoFollow) {
 				await tick();
 				scrollToBottomNow();
 			}
@@ -3563,6 +3579,7 @@ function handleCreateNewSession() {
 				...sessionStateById,
 				[newSession.id]: {
 					session: newSession,
+					turns: [],
 					messages: [],
 					loading: false,
 					loaded: true,
@@ -5676,7 +5693,8 @@ $effect(() => {
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
           onLoadMessageDetail={loadMessageDetail}
-          onLoadMessageSummary={loadMessageSummary}
+          onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.id, message: input.message })}
+          onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
           onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
           onMarkdownRendered={handleTimelineMarkdownRendered}
           loadingOlder={activeSessionState?.loadingOlder ?? false}

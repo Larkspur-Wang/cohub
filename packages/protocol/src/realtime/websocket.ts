@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
-import type { MessageRecord } from "../model/session.js";
+import type { MessageRecord, SessionTurnRecord } from "../model/session.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
@@ -273,6 +273,56 @@ export type SessionTurnErrorEvent = {
   };
 };
 
+export type RealtimeTurnRecord = Partial<Pick<
+  SessionTurnRecord,
+  | "id"
+  | "sessionId"
+  | "sequence"
+  | "status"
+  | "intent"
+  | "userUuid"
+  | "userText"
+  | "assistantText"
+  | "provider"
+  | "model"
+  | "stopReason"
+  | "errorMessage"
+  | "usage"
+  | "summary"
+  | "intermediateIndex"
+  | "intermediateSummary"
+  | "startedAt"
+  | "completedAt"
+  | "createdAt"
+  | "updatedAt"
+>>;
+
+export type SessionTurnUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.updated";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    turn: RealtimeTurnRecord;
+  };
+};
+
+export type SessionTurnFinalizedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.finalized";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    turn: RealtimeTurnRecord;
+  };
+};
+
 export type RealtimeMessageRecord = Pick<
   MessageRecord,
   | "id"
@@ -325,6 +375,8 @@ export type RealtimeServerEvent =
   | SessionTurnProgressEvent
   | SessionTurnPatchEvent
   | SessionTurnErrorEvent
+  | SessionTurnUpdatedEvent
+  | SessionTurnFinalizedEvent
   | SessionMessagePersistedEvent
   | SpaceFsChangedEvent;
 

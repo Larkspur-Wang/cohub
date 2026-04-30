@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { MessageRecord } from "@neta-art/cohub-protocol/model";
+import type { MessageRecord, SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import type { GatewaySessionOutput, GatewaySessionPatchOperation } from "@neta-art/cohub-protocol/gateway";
-import type { RealtimeMessageRecord, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import type { RealtimeMessageRecord, RealtimeTurnRecord, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import {
   dispatchOutboundMessage,
   dispatchRealtimeEventToUsers,
@@ -68,6 +68,29 @@ const toRealtimeMessageRecord = (message: MessageRecord): RealtimeMessageRecord 
   usage: message.usage,
   meta: pickRealtimeMessageMeta(message.meta),
   createdAt: message.createdAt,
+});
+
+export const toRealtimeTurnRecord = (turn: SessionTurnRecord): RealtimeTurnRecord => ({
+  id: turn.id,
+  sessionId: turn.sessionId,
+  sequence: turn.sequence,
+  status: turn.status,
+  intent: turn.intent,
+  userUuid: turn.userUuid,
+  userText: turn.userText,
+  assistantText: turn.assistantText,
+  provider: turn.provider,
+  model: turn.model,
+  stopReason: turn.stopReason,
+  errorMessage: turn.errorMessage,
+  usage: turn.usage,
+  summary: turn.summary,
+  intermediateIndex: turn.intermediateIndex,
+  intermediateSummary: turn.intermediateSummary,
+  startedAt: turn.startedAt,
+  completedAt: turn.completedAt,
+  createdAt: turn.createdAt,
+  updatedAt: turn.updatedAt,
 });
 
 const getStreamIndex = (block: ContentBlock, fallback: number) => {
@@ -373,6 +396,39 @@ const dispatchSessionOutputToChannels = async (output: GatewaySessionOutput) => 
 export const dispatchSessionOutput = async (output: GatewaySessionOutput) => {
   await dispatchSessionOutputToRealtime(output);
   await dispatchSessionOutputToChannels(output);
+};
+
+export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
+  const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
+  await dispatchRealtimeEventToUsers({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "session",
+    type: "session.turn.updated",
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    payload: {
+      turn: toRealtimeTurnRecord(input.turn),
+      targetUserIds: readableUserIds,
+    },
+  } as never);
+};
+
+export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
+  await clearSessionStreamSnapshot(input.spaceId, input.sessionId);
+  const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
+  await dispatchRealtimeEventToUsers({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "session",
+    type: "session.turn.finalized",
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    payload: {
+      turn: toRealtimeTurnRecord(input.turn),
+      targetUserIds: readableUserIds,
+    },
+  } as never);
 };
 
 export const dispatchSessionOutputs = async (outputs: GatewaySessionOutput[]) => {

@@ -1,5 +1,9 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { MessageRecord } from "@neta-art/cohub-protocol/model";
+import type {
+	MessageRecord,
+	SessionTurnIntermediateSummary,
+	SessionTurnRecord,
+} from "@neta-art/cohub-protocol/model";
 
 export type ChatMessage = {
 	id: string;
@@ -15,6 +19,9 @@ export type ChatMessage = {
 	createdAt: string;
 	meta?: {
 		messageKind?: string | null;
+		turnId?: string | null;
+		clientMessageId?: string | null;
+		sessionId?: string | null;
 		model?: string | null;
 		provider?: string | null;
 		usage?: MessageRecord["usage"];
@@ -51,7 +58,9 @@ export type TimelineItem =
 	| {
 			id: string;
 			kind: "process";
-			messages: ChatMessage[];
+			messages?: ChatMessage[];
+			turn?: SessionTurnRecord;
+			summary?: SessionTurnIntermediateSummary;
 	  };
 
 export const stringifyUnknown = (value: unknown) => {

@@ -12,6 +12,9 @@ import type {
   SessionMessageResponse,
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
+  SessionTurnResponse,
+  SessionTurnsPaginatedResponse,
+  SessionTurnSignedUrlsResponse,
   SessionRecord,
   SpaceAccessPolicy,
   SpaceBootstrapSource,
@@ -39,12 +42,14 @@ export type SessionSubscriptionHandlers = {
   patchState?: (result: SessionPatchApplyResult) => void;
   progress?: (event: WebsocketEventPayload) => void;
   final?: (event: WebsocketEventPayload) => void;
+  turnUpdated?: (event: WebsocketEventPayload) => void;
+  turnFinalized?: (event: WebsocketEventPayload) => void;
   error?: (event: WebsocketEventPayload) => void;
   persisted?: (event: WebsocketEventPayload) => void;
   event?: (event: WebsocketEventPayload) => void;
 };
 
-export type SessionEventName = "turn.patch" | "turn.progress" | "turn.final" | "turn.error" | "message.persisted";
+export type SessionEventName = "turn.patch" | "turn.progress" | "turn.final" | "turn.updated" | "turn.error" | "message.persisted";
 export type SpaceEventName = SessionEventName | "event";
 
 type SessionSendMessageInput = {
@@ -62,6 +67,10 @@ const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventNa
       return "turn.progress";
     case "session.turn.error":
       return "turn.error";
+    case "session.turn.updated":
+      return "turn.updated";
+    case "session.turn.finalized":
+      return "turn.final";
     case "session.message.persisted":
       return "message.persisted";
     default:
@@ -77,7 +86,7 @@ const isAssistantFinalPersistedEvent = (event: WebsocketEventPayload) => {
     role?: unknown;
     meta?: Record<string, unknown> | null;
   };
-  return record.role === "assistant" && record.meta?.messageKind === "assistant_final";
+  return record.role === "assistant" && (record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error");
 };
 
 const isAssistantIntermediatePersistedEvent = (event: WebsocketEventPayload) => {
@@ -314,6 +323,50 @@ class SessionMessagesClient {
   }
 }
 
+class SessionTurnsClient {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly sessionId: string,
+  ) {}
+
+  listPaginated(
+    options?: {
+      cursor?: number;
+      limit?: number;
+      direction?: "older" | "newer";
+    },
+    customFetch?: Fetch,
+  ) {
+    const params = new URLSearchParams();
+    if (options?.cursor !== undefined) params.set("cursor", String(options.cursor));
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.direction) params.set("direction", options.direction);
+    const query = params.toString();
+    return this.transport.request<SessionTurnsPaginatedResponse>(
+      `/api/sessions/${this.sessionId}/turns${query ? `?${query}` : ""}`,
+      { fetch: customFetch },
+    );
+  }
+
+  get(turnId: string, customFetch?: Fetch) {
+    return this.transport.request<SessionTurnResponse>(
+      `/api/sessions/${this.sessionId}/turns/${turnId}`,
+      { fetch: customFetch },
+    );
+  }
+
+  signedUrls(turnId: string, objectKeys: string[]) {
+    return this.transport.request<SessionTurnSignedUrlsResponse>(
+      `/api/sessions/${this.sessionId}/turns/${turnId}/signed-urls`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objectKeys }),
+      },
+    );
+  }
+}
+
 class SessionRealtimeClient {
   private readonly patchReducer = new SessionPatchReducer();
 
@@ -375,6 +428,16 @@ class SessionRealtimeClient {
           });
         }
       }
+      if (eventName === "turn.updated") handlers.turnUpdated?.(event);
+      if (eventName === "turn.final") {
+        this.patchReducer.complete({
+          spaceId: this.spaceId,
+          sessionId: this.sessionId,
+          turnId: typeof event.payload.turn === "object" && event.payload.turn && "id" in event.payload.turn ? String(event.payload.turn.id) : null,
+        });
+        handlers.turnFinalized?.(event);
+        handlers.final?.(event);
+      }
       if (isAssistantFinalPersistedEvent(event)) {
         this.patchReducer.complete({
           spaceId: this.spaceId,
@@ -402,6 +465,7 @@ class SessionRealtimeClient {
 
 export class SessionClient {
   readonly messages: SessionMessagesClient;
+  readonly turns: SessionTurnsClient;
   readonly realtime: SessionRealtimeClient;
 
   constructor(
@@ -411,6 +475,7 @@ export class SessionClient {
     websocketClient: WebsocketClient | null,
   ) {
     this.messages = new SessionMessagesClient(transport, id);
+    this.turns = new SessionTurnsClient(transport, id);
     this.realtime = new SessionRealtimeClient(websocketClient, spaceId, id);
   }
 

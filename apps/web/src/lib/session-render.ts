@@ -453,12 +453,12 @@ export function buildTimelineItems(input: {
 				continue;
 			}
 			if (item.kind === "process") {
-				const filteredMessages = item.messages.filter(
+				const filteredMessages = (item.messages ?? []).filter(
 					(message) => message.id !== renderKey,
 				);
 				if (filteredMessages.length === 0) {
 					groupedHistory.splice(index, 1);
-				} else if (filteredMessages.length !== item.messages.length) {
+				} else if (filteredMessages.length !== (item.messages ?? []).length) {
 					groupedHistory[index] = {
 						...item,
 						messages: filteredMessages,
