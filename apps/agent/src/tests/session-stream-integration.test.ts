@@ -78,7 +78,6 @@ function createHandle(session: FakeSession): SessionHandle {
     sessionKey: "space-1:session-1",
     sessionId: "session-1",
     session: session as unknown as SessionHandle["session"],
-    toolNames: [],
     sessionManager: {} as SessionHandle["sessionManager"],
     turnTracer: getAgentTracer(),
     currentTurnId: null,
