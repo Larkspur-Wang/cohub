@@ -10,8 +10,13 @@ import { buildFeishuDeliveryPlan } from "../../session-output-planner.js";
 import {
   resolveReceiveIdType,
   buildFeishuBindingKey,
-  resolveAtMentions,
 } from "./utils.js";
+import { parseFeishuMessageContent, type FeishuInboundResource, type FeishuParsedMessageBlock } from "./parse.js";
+import {
+  FEISHU_INBOUND_IMAGE_MAX_BYTES,
+  FEISHU_INBOUND_IMAGE_MAX_COUNT,
+  readFeishuResourceBuffer,
+} from "./media.js";
 
 // Detect image MIME type from magic bytes (first 4 bytes)
 function detectMimeType(buffer: Buffer): string | null {
@@ -31,6 +36,28 @@ function detectMimeType(buffer: Buffer): string | null {
 const messageDedup = new Map<string, number>();
 const DEDUP_TTL_MS = 5 * 60 * 1000;
 const DEDUP_MAX_ENTRIES = 10000;
+const FEISHU_DOC_URL_RE = /https?:\/\/[^\s<>'"]+/g;
+const FEISHU_DOC_MAX_PER_MESSAGE = 3;
+const FEISHU_DOC_MAX_CHARS = 12_000;
+const FEISHU_DOC_FETCH_TIMEOUT_MS = 10_000;
+const FEISHU_WIKI_CHILD_MAX_COUNT = 5;
+const FEISHU_WIKI_CHILD_MAX_CHARS = 4_000;
+
+type FeishuDocumentRef = {
+  url: string;
+  type: "docx" | "wiki" | "docs";
+  token: string;
+};
+
+type ResolvedFeishuDocumentRef = FeishuDocumentRef & {
+  type: "docx";
+  wiki?: {
+    spaceId?: string;
+    nodeToken?: string;
+    title?: string;
+    hasChild?: boolean;
+  };
+};
 
 function dedupAndPurge(eventId: string): boolean {
   if (messageDedup.has(eventId)) return false;
@@ -42,6 +69,34 @@ function dedupAndPurge(eventId: string): boolean {
     }
   }
   return true;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
+
+function cleanUrlCandidate(value: string) {
+  return value.replace(/[),.。;；:：!！?？\]}]+$/g, "");
+}
+
+function parseFeishuDocumentUrl(value: string): FeishuDocumentRef | null {
+  let url: URL;
+  try {
+    url = new URL(cleanUrlCandidate(value));
+  } catch {
+    return null;
+  }
+
+  if (!/(^|\.)(feishu\.cn|larksuite\.com|larkoffice\.com)$/.test(url.hostname)) return null;
+  const match = url.pathname.match(/\/(docx|wiki|docs)\/([A-Za-z0-9]+)/);
+  if (!match?.[1] || !match[2]) return null;
+  return { url: url.toString(), type: match[1] as "docx" | "wiki" | "docs", token: match[2] };
 }
 
 export class FeishuProvider implements GatewayProvider {
@@ -180,13 +235,11 @@ export class FeishuProvider implements GatewayProvider {
       }
     }
 
-    // Parse message content (may contain image key placeholders)
-    const { blocks: rawBlocks, imageKeys } = this.parseMessageContent(msg);
-
-    // Download any images and replace placeholders with proper image ContentBlocks
-    const contentBlocks = imageKeys.length > 0
-      ? await this.resolveImagePlaceholders(rawBlocks, msg.message_id)
-      : rawBlocks;
+    const parsedContent = parseFeishuMessageContent(msg);
+    const contentBlocks = parsedContent.resources.length > 0
+      ? await this.resolveParsedBlocks(parsedContent.blocks, msg.message_id, FEISHU_INBOUND_IMAGE_MAX_COUNT)
+      : parsedContent.blocks.map((block) => ({ type: "text", text: block.type === "text" ? block.text : block.fallbackText }) satisfies ContentBlock);
+    const enrichedContentBlocks = await this.expandFeishuDocumentLinks(contentBlocks);
 
     const threadId = msg.thread_id || msg.root_id || null;
     const parentMessageId = msg.root_id || msg.parent_id || null;
@@ -220,7 +273,7 @@ export class FeishuProvider implements GatewayProvider {
         id: event.sender?.sender_id?.open_id ?? "",
         name: "", // Enriched later if needed
       },
-      content: contentBlocks,
+      content: enrichedContentBlocks,
       meta: {
         chatType: msg.chat_type,
         isDm,
@@ -287,13 +340,13 @@ export class FeishuProvider implements GatewayProvider {
 
   // Download image from Feishu by image_key and return as base64 ContentBlock.
   // Returns null on failure — caller decides whether to use a text fallback.
-  private async downloadImageBlock(imageKey: string, _messageId: string): Promise<ContentBlock | null> {
+  private async downloadImageBlock(imageKey: string, messageId: string): Promise<ContentBlock | null> {
     try {
-      const res = await this.client.im.image.get({
-        path: { image_key: imageKey },
+      const res = await this.client.im.messageResource.get({
+        path: { message_id: messageId, file_key: imageKey },
+        params: { type: "image" },
       });
-      // The Lark SDK returns the binary in rawData
-      const buffer = (res as { rawData?: Buffer }).rawData;
+      const buffer = await readFeishuResourceBuffer(res, { maxBytes: FEISHU_INBOUND_IMAGE_MAX_BYTES });
       if (!buffer || buffer.length === 0) {
         console.warn(`[Feishu:${this.channelId}] Image download returned empty: ${imageKey}`);
         return null;
@@ -315,127 +368,199 @@ export class FeishuProvider implements GatewayProvider {
     }
   }
 
-  // Parse message content into ContentBlocks.
-  // Returns { blocks, imageKeys } — imageKeys need to be downloaded and interleaved
-  // by the caller. This separation avoids making parsing fully async in one pass.
-  private parseMessageContent(msg: {
-    message_type: string;
-    content: string;
-    mentions?: Array<{ id: { open_id?: string }; name: string }>;
-  }): { blocks: ContentBlock[]; imageKeys: string[] } {
-    const blocks: ContentBlock[] = [];
-    const imageKeys: string[] = [];
-
-    if (msg.message_type === "text") {
-      // Feishu text messages wrap content in JSON: {"text":"hello"}
-      let text: string;
-      try {
-        const parsed = JSON.parse(msg.content);
-        text = typeof parsed.text === "string" ? parsed.text : msg.content;
-      } catch {
-        text = msg.content;
-      }
-      text = resolveAtMentions(text);
-      if (text.trim()) blocks.push({ type: "text", text });
-    } else if (msg.message_type === "post") {
-      // Post messages are rich text with mixed elements (text, images, links, etc.)
-      // Parse into multiple ContentBlocks: text accumulates, images become separate blocks
-      try {
-        const parsed = JSON.parse(msg.content);
-        const locale = parsed.zh_cn ?? parsed.en_us ?? Object.values(parsed)[0] as Record<string, unknown>;
-        const textParts: string[] = [];
-
-        const flushText = () => {
-          const joined = resolveAtMentions(textParts.join("\n"));
-          if (joined.trim()) {
-            blocks.push({ type: "text", text: joined });
-          }
-          textParts.length = 0;
-        };
-
-        for (const row of ((locale?.content as unknown[] | undefined) ?? [])) {
-          for (const item of (row as Array<Record<string, string>> | undefined) ?? []) {
-            if (item.tag === "text" || item.tag === "md") {
-              textParts.push(item.text ?? "");
-            } else if (item.tag === "at") {
-              // @mention — already handled by resolveAtMentions, but post format
-              // stores mentions as { tag: "at", user_name: "..." } not <at> tags
-              textParts.push(item.user_name ? `@${item.user_name}` : "");
-            } else if (item.tag === "a") {
-              textParts.push(item.text ?? item.href ?? "[link]");
-            } else if (item.tag === "img") {
-              // Flush any accumulated text before inserting the image block
-              flushText();
-              // Record the image key for async download after parsing
-              if (item.image_key) {
-                imageKeys.push(item.image_key);
-                // Use a temporary text placeholder (will be replaced by image block)
-                blocks.push({ type: "text", text: `__FEISHU_IMAGE:${item.image_key}__` });
-              }
-            } else if (item.tag === "media") {
-              textParts.push(`[media:${item.file_key ?? "unknown"}]`);
-            } else if (item.tag === "file") {
-              textParts.push(`[file:${item.file_key ?? "unknown"}]`);
-            }
-          }
-        }
-        flushText();
-      } catch {
-        blocks.push({ type: "text", text: msg.content });
-      }
-    } else if (msg.message_type === "image") {
-      try {
-        const parsed = JSON.parse(msg.content);
-        const imageKey = parsed.image_key;
-        if (imageKey) {
-          imageKeys.push(imageKey);
-          blocks.push({ type: "text", text: `__FEISHU_IMAGE:${imageKey}__` });
-        } else {
-          blocks.push({ type: "text", text: "[image]" });
-        }
-      } catch {
-        blocks.push({ type: "text", text: "[image]" });
-      }
-    } else if (msg.message_type === "file") {
-      try {
-        const parsed = JSON.parse(msg.content);
-        blocks.push({ type: "text", text: `[file: ${parsed.file_name ?? parsed.file_key ?? "unknown"}]` });
-      } catch {
-        blocks.push({ type: "text", text: "[file]" });
-      }
-    } else {
-      blocks.push({ type: "text", text: `[${msg.message_type} message]` });
-    }
-
-    return { blocks, imageKeys };
+  private async resolveInboundResource(resource: FeishuInboundResource, messageId: string): Promise<ContentBlock | null> {
+    if (resource.type === "image") return this.downloadImageBlock(resource.fileKey, messageId);
+    return null;
   }
 
-  // Replace __FEISHU_IMAGE:key__ placeholder blocks with downloaded image ContentBlocks.
-  // Preserves ordering: text, image, text, image, ...
-  private async resolveImagePlaceholders(blocks: ContentBlock[], messageId: string): Promise<ContentBlock[]> {
-    const IMAGE_KEY_REGEX = /^__FEISHU_IMAGE:(.+)__$/;
+  private async resolveParsedBlocks(blocks: FeishuParsedMessageBlock[], messageId: string, maxResources: number): Promise<ContentBlock[]> {
     const resolved: ContentBlock[] = [];
+    let resourceCount = 0;
 
     for (const block of blocks) {
-      if (block.type !== "text" || typeof block.text !== "string") {
-        resolved.push(block);
+      if (block.type === "text") {
+        resolved.push({ type: "text", text: block.text });
         continue;
       }
-      const match = block.text.match(IMAGE_KEY_REGEX);
-      if (!match) {
-        resolved.push(block);
+
+      resourceCount += 1;
+      if (resourceCount > maxResources) {
+        resolved.push({ type: "text", text: `[image: ${block.resource.fileKey} skipped: too many images]` });
         continue;
       }
-      const imageKey = match[1] as string;
-      const imageBlock = await this.downloadImageBlock(imageKey, messageId);
-      if (imageBlock) {
-        resolved.push(imageBlock);
-      } else {
-        // Download failed — keep a readable fallback
-        resolved.push({ type: "text", text: `[image: ${imageKey}]` });
-      }
+
+      const resourceBlock = await this.resolveInboundResource(block.resource, messageId);
+      resolved.push(resourceBlock ?? { type: "text", text: block.fallbackText });
     }
     return resolved;
+  }
+
+  private findDocumentRefs(blocks: ContentBlock[]): FeishuDocumentRef[] {
+    const refs: FeishuDocumentRef[] = [];
+    const seen = new Set<string>();
+
+    for (const block of blocks) {
+      if (block.type !== "text") continue;
+      for (const match of block.text.matchAll(FEISHU_DOC_URL_RE)) {
+        const ref = parseFeishuDocumentUrl(match[0]);
+        if (!ref || seen.has(ref.url)) continue;
+        seen.add(ref.url);
+        refs.push(ref);
+        if (refs.length >= FEISHU_DOC_MAX_PER_MESSAGE) return refs;
+      }
+    }
+
+    return refs;
+  }
+
+  private async resolveDocumentRef(ref: FeishuDocumentRef): Promise<ResolvedFeishuDocumentRef> {
+    if (ref.type === "docx") return { ...ref, type: "docx" };
+    if (ref.type === "docs") throw new Error("legacy /docs/ URLs are not supported");
+
+    const res = await this.client.wiki.space.getNode({
+      params: { token: ref.token },
+    });
+    if (res.code && res.code !== 0) throw new Error(res.msg ?? `Feishu wiki get_node failed with code ${res.code}`);
+    const node = res.data?.node;
+    const objToken = node?.obj_token;
+    const objType = node?.obj_type;
+    if (!objToken) throw new Error("failed to resolve wiki token");
+    if (objType !== "docx") throw new Error(`wiki object type ${objType || "unknown"} is not supported`);
+    return {
+      ...ref,
+      type: "docx",
+      token: objToken,
+      wiki: {
+        spaceId: node?.space_id,
+        nodeToken: node?.node_token,
+        title: node?.title,
+        hasChild: node?.has_child,
+      },
+    };
+  }
+
+  private async fetchDocxRawContent(documentId: string): Promise<string> {
+    const res = await this.client.docx.document.rawContent({
+      path: { document_id: documentId },
+    });
+    if (res.code && res.code !== 0) throw new Error(res.msg ?? `Feishu docx raw_content failed with code ${res.code}`);
+    return res.data?.content ?? "";
+  }
+
+  private appendBoundedSection(sections: string[], heading: string, content: string, remainingChars: number): number {
+    if (remainingChars <= 0) return 0;
+
+    const normalized = content || "[empty document]";
+    const sectionPrefix = `${heading}\n`;
+    const available = Math.max(0, remainingChars - sectionPrefix.length);
+    if (available <= 0) return 0;
+
+    const page = normalized.slice(0, available);
+    const more = normalized.length > page.length
+      ? `\n\n[Truncated: showing ${page.length} of ${normalized.length} characters.]`
+      : "";
+    const section = `${sectionPrefix}${page}${more}`;
+    sections.push(section);
+    return section.length;
+  }
+
+  private async fetchWikiChildSections(ref: ResolvedFeishuDocumentRef, remainingChars: number): Promise<string[]> {
+    const spaceId = ref.wiki?.spaceId;
+    const parentNodeToken = ref.wiki?.nodeToken;
+    if (!spaceId || !parentNodeToken || !ref.wiki?.hasChild || remainingChars <= 0) return [];
+
+    const res = await this.client.wiki.spaceNode.list({
+      path: { space_id: spaceId },
+      params: {
+        parent_node_token: parentNodeToken,
+        page_size: FEISHU_WIKI_CHILD_MAX_COUNT,
+      },
+    });
+    if (res.code && res.code !== 0) throw new Error(res.msg ?? `Feishu wiki spaceNode list failed with code ${res.code}`);
+
+    const sections: string[] = [];
+    let remaining = remainingChars;
+    const children = res.data?.items ?? [];
+    for (const child of children.slice(0, FEISHU_WIKI_CHILD_MAX_COUNT)) {
+      const title = child.title || child.obj_token || "Untitled";
+      if (child.obj_type !== "docx" || !child.obj_token) {
+        const used = this.appendBoundedSection(
+          sections,
+          `Child document: ${title}`,
+          `[Skipped unsupported wiki child type: ${child.obj_type || "unknown"}]`,
+          remaining,
+        );
+        remaining -= used;
+        continue;
+      }
+
+      const content = await this.fetchDocxRawContent(child.obj_token);
+      const childContent = content.slice(0, FEISHU_WIKI_CHILD_MAX_CHARS);
+      const used = this.appendBoundedSection(
+        sections,
+        `Child document: ${title}`,
+        childContent || "[empty document]",
+        remaining,
+      );
+      remaining -= used;
+      if (remaining <= 0) break;
+    }
+
+    if (res.data?.has_more && remaining > 0) {
+      this.appendBoundedSection(
+        sections,
+        "Additional wiki children",
+        `[Not expanded: showing first ${FEISHU_WIKI_CHILD_MAX_COUNT} child documents.]`,
+        remaining,
+      );
+    }
+
+    return sections;
+  }
+
+  private async fetchDocumentContent(ref: FeishuDocumentRef): Promise<string> {
+    if (ref.type === "docs") {
+      return `Feishu document link: ${ref.url}\nLegacy /docs/ URLs are not supported. Please use a /docx/ or /wiki/ link.`;
+    }
+
+    const resolved = await this.resolveDocumentRef(ref);
+    const sections: string[] = [`Feishu document link: ${ref.url}`];
+    let used = sections[0]?.length ?? 0;
+    const rootContent = await this.fetchDocxRawContent(resolved.token);
+
+    used += this.appendBoundedSection(
+      sections,
+      resolved.wiki?.title ? `Document: ${resolved.wiki.title}` : "Document content",
+      rootContent,
+      FEISHU_DOC_MAX_CHARS - used,
+    );
+
+    const childSections = await this.fetchWikiChildSections(resolved, FEISHU_DOC_MAX_CHARS - used);
+    sections.push(...childSections);
+    return sections.join("\n\n");
+  }
+
+  private async expandFeishuDocumentLinks(blocks: ContentBlock[]): Promise<ContentBlock[]> {
+    const refs = this.findDocumentRefs(blocks);
+    if (refs.length === 0) return blocks;
+
+    const docBlocks: ContentBlock[] = [];
+    for (const ref of refs) {
+      try {
+        const text = await withTimeout(
+          this.fetchDocumentContent(ref),
+          FEISHU_DOC_FETCH_TIMEOUT_MS,
+          `Feishu document fetch timed out after ${FEISHU_DOC_FETCH_TIMEOUT_MS}ms`,
+        );
+        docBlocks.push({ type: "text", text });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[Feishu:${this.channelId}] Failed to expand document ${ref.url}:`, message);
+        docBlocks.push({ type: "text", text: `Feishu document link: ${ref.url}\n[Unable to fetch document content: ${message}]` });
+      }
+    }
+
+    return [...blocks, ...docBlocks];
   }
 
   public async handleOutbound(cmd: PlannedGatewayOutboundCommand): Promise<{ success: boolean; error?: string; externalMessageId?: string }> {
