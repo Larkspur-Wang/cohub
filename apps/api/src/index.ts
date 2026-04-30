@@ -22,7 +22,7 @@ import {
   SESSION_UPDATES_CONSUMER_GROUP,
   SPACE_EVENTS_CONSUMER_GROUP,
 } from "./redis.js";
-import { handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
+import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
 import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
@@ -40,6 +40,7 @@ const SESSION_UPDATES_BATCH_SIZE = 50;
 const SESSION_UPDATES_BLOCK_MS = 5000;
 const SPACE_EVENTS_BATCH_SIZE = 50;
 const SPACE_EVENTS_BLOCK_MS = 5000;
+const GATEWAY_BINDING_RECONCILE_INTERVAL_MS = Number(process.env.GATEWAY_BINDING_RECONCILE_INTERVAL_MS ?? 60_000);
 
 const initInboundConsumerGroup = async () => {
   await ensureConsumerGroup(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, "0");
@@ -226,6 +227,29 @@ const startSpaceEventsBridge = async () => {
 startGatewayInboundListener().catch(console.error);
 startSessionUpdatesBridge().catch(console.error);
 startSpaceEventsBridge().catch(console.error);
+
+const reconcileGatewayBindings = async (reason: string) => {
+  try {
+    const stats = await bindAllActiveSpaceChannelsToGateway();
+    if (reason === "startup" || stats.failed > 0) {
+      console.log(
+        `[API] Gateway channel binding reconcile (${reason}): total=${stats.total} bound=${stats.bound} skipped=${stats.skipped} failed=${stats.failed}`,
+      );
+    }
+  } catch (error) {
+    console.warn(`[API] Gateway channel binding reconcile failed (${reason}):`, error);
+  }
+};
+
+setTimeout(() => {
+  void reconcileGatewayBindings("startup");
+}, 2_000);
+
+if (GATEWAY_BINDING_RECONCILE_INTERVAL_MS > 0) {
+  setInterval(() => {
+    void reconcileGatewayBindings("interval");
+  }, GATEWAY_BINDING_RECONCILE_INTERVAL_MS);
+}
 
 // ── Hono app ─────────────────────────────────────────────────────────────────
 

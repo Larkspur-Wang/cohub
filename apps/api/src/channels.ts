@@ -74,6 +74,37 @@ export async function bindSpaceChannelsToGateway(spaceId: string) {
   }
 }
 
+export async function bindAllActiveSpaceChannelsToGateway() {
+  const channels = await db.select().from(spaceChannels);
+  if (channels.length === 0) return { total: 0, bound: 0, skipped: 0, failed: 0 };
+
+  const channelIds = Array.from(new Set(channels.map((ch) => ch.channelId)));
+  const userChannelRows = await db
+    .select()
+    .from(userChannels)
+    .where(inArray(userChannels.id, channelIds));
+  const userChannelMap = new Map(userChannelRows.map((uc) => [uc.id, uc]));
+
+  const stats = { total: channels.length, bound: 0, skipped: 0, failed: 0 };
+  for (const channel of channels) {
+    const userChannel = userChannelMap.get(channel.channelId);
+    if (!userChannel || userChannel.status !== "active") {
+      stats.skipped += 1;
+      continue;
+    }
+
+    try {
+      await bindSingleChannelToGateway(channel, userChannel);
+      stats.bound += 1;
+    } catch (error) {
+      stats.failed += 1;
+      console.warn(`[GatewayBinding] failed to bind space channel ${channel.id}:`, error);
+    }
+  }
+
+  return stats;
+}
+
 async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$inferSelect, userChannel: typeof userChannels.$inferSelect | undefined) {
   if (!userChannel || userChannel.status !== "active") return;
 
