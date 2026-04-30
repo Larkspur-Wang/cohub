@@ -1,7 +1,7 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
-import { getStreamingRenderKey } from "$lib/session-streaming";
-import type { ChatMessage, TimelineItem } from "$lib/session-tree";
+import { getStreamingRenderKey } from "./session-streaming";
+import type { ChatMessage, TimelineItem } from "./session-tree";
 
 function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	const meta = turn.meta ?? {};
@@ -58,33 +58,28 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 	};
 }
 
-function buildStreamingPreviewBlocks(
+export function buildStreamingPreviewBlocks(
 	content: ContentBlock[],
 	options?: { truncatedStart?: boolean },
 ) {
 	if (content.length === 0) return [];
-	const text = content
-		.filter((block) => block.type === "text")
-		.map((block) => (block.type === "text" ? block.text : ""))
-		.join("\n\n")
-		.trim();
-	const thinking = content
-		.filter((block) => block.type === "thinking")
-		.map((block) => (block.type === "thinking" ? block.thinking : ""))
-		.join("\n\n")
-		.trim();
-	const passthrough = content.filter(
-		(block) => block.type !== "text" && block.type !== "thinking",
-	);
-	const blocks: ContentBlock[] = [];
-	if (thinking) blocks.push({ type: "thinking", thinking });
-	if (text)
-		blocks.push({
-			type: "text",
-			text: options?.truncatedStart ? `…${text}` : text,
-		});
-	blocks.push(...passthrough);
-	return blocks;
+
+	let appliedTruncatedPrefix = false;
+	return content.flatMap((block): ContentBlock[] => {
+		if (block.type === "text") {
+			const text = block.text.trim();
+			if (!text) return [];
+			const nextText =
+				options?.truncatedStart && !appliedTruncatedPrefix ? `…${text}` : text;
+			appliedTruncatedPrefix = true;
+			return [{ ...block, text: nextText }];
+		}
+		if (block.type === "thinking") {
+			const thinking = block.thinking.trim();
+			return thinking ? [{ ...block, thinking }] : [];
+		}
+		return [block];
+	});
 }
 
 export function buildTurnTimelineItems(input: {

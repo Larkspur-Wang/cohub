@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { mergeStreamingDeltaBlocks } from "../lib/session-streaming";
+import { buildStreamingPreviewBlocks } from "../lib/session-turn-render";
 
 test("mergeStreamingDeltaBlocks appends text deltas by stream index", () => {
 	const existing: ContentBlock[] = [
@@ -45,4 +46,25 @@ test("mergeStreamingDeltaBlocks appends text deltas by stream index", () => {
 	);
 	assert.equal(textBlocks2[0]?.text, "before!");
 	assert.equal(textBlocks2[1]?.text, "after");
+});
+
+test("buildStreamingPreviewBlocks preserves stream block order", () => {
+	const blocks = buildStreamingPreviewBlocks([
+		{ type: "text", text: "answer", _meta: { streamIndex: 2 } },
+		{ type: "thinking", thinking: "reasoning", _meta: { streamIndex: 3 } },
+	]);
+
+	assert.deepEqual(
+		blocks.map((block) => block.type),
+		["text", "thinking"],
+	);
+	assert.equal(
+		(blocks[0] as Extract<ContentBlock, { type: "text" }>)._meta?.streamIndex,
+		2,
+	);
+	assert.equal(
+		(blocks[1] as Extract<ContentBlock, { type: "thinking" }>)._meta
+			?.streamIndex,
+		3,
+	);
 });

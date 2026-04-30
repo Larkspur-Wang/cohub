@@ -40,6 +40,6 @@ const chatMessage = $derived({
 } satisfies ChatMessage);
 </script>
 
-<div>
+<div class="pl-5">
 	<ChatMessageBubble message={chatMessage} {modelsCatalog} />
 </div>

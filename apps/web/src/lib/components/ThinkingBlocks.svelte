@@ -35,12 +35,6 @@ const display = $derived.by(() => {
 	<div>
 		<div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
 			{display}
-			{#if isStreaming}
-				<div class="mt-1 inline-flex items-center gap-1.5 text-[11px] text-text-placeholder">
-					<span class="w-1.5 h-1.5 rounded-full bg-status-starting animate-pulse"></span>
-					thinking
-				</div>
-			{/if}
 		</div>
 		{#if !isStreaming && needsTruncation}
 			<button
