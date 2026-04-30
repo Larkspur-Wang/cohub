@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
-import { useAuth, requireValidId } from "../../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 import {
   createSpaceDirectory,
@@ -18,7 +18,7 @@ import { dispatchSpaceFsChanged } from "../../space-events.js";
 const router = new Hono();
 
 router.get("/tree", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
@@ -33,7 +33,7 @@ router.get("/tree", async (c) => {
 });
 
 router.get("/file", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
@@ -136,7 +136,7 @@ router.post("/move", async (c) => {
 });
 
 router.get("/download", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);

@@ -1,7 +1,7 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
-import { useAuth, requireValidId } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
 import {
   getSpaceById,
   getSpaceSessionById,
@@ -19,7 +19,7 @@ import { expandPromptTemplate } from "../prompt-templates.js";
 const router = new Hono();
 
 router.get("/:id", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 
@@ -61,7 +61,7 @@ router.patch("/:id", async (c) => {
 });
 
 router.get("/:id/turns", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 
@@ -98,7 +98,7 @@ router.get("/:id/turns", async (c) => {
 });
 
 router.get("/:id/turns/:turnId", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const sessionId = c.req.param("id");
   const turnId = c.req.param("turnId");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
@@ -116,7 +116,7 @@ router.get("/:id/turns/:turnId", async (c) => {
 });
 
 router.post("/:id/turns/:turnId/signed-urls", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const sessionId = c.req.param("id");
   const turnId = c.req.param("turnId");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
@@ -143,7 +143,7 @@ router.post("/:id/turns/:turnId/signed-urls", async (c) => {
 });
 
 router.get("/:id/messages", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 
@@ -191,7 +191,7 @@ router.get("/:id/messages", async (c) => {
 });
 
 router.get("/:id/messages/:messageId", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const sessionId = c.req.param("id");
   const messageId = c.req.param("messageId");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);

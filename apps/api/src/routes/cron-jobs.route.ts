@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { cronJobs, taskRuns } from "../db/schema-v2.js";
 import { eq, and, isNull, desc } from "drizzle-orm";
-import { useAuth, requireValidId } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { hasPermission } from "../permissions.js";
 import { createCronJob, disableCronJob, enableCronJob, removeCronJob, SUPPORTED_TASK_TYPES } from "../tasks.js";
@@ -91,9 +91,10 @@ router.post("/", async (c) => {
 });
 
 router.get("/", async (c) => {
-  const user = useAuth(c);
-
   const spaceId = c.req.query("spaceId") ?? null;
+  const user = spaceId ? getOptionalAuth(c) : useAuth(c);
+  const userId = user?.uuid;
+
   if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
 
   if (spaceId) {
@@ -106,17 +107,19 @@ router.get("/", async (c) => {
     return c.json({ jobs });
   }
 
+  if (!userId) return c.json({ message: "unauthorized" }, 401);
+
   const jobs = await db
     .select()
     .from(cronJobs)
-    .where(and(eq(cronJobs.userUuid, user.uuid), isNull(cronJobs.deletedAt)))
+    .where(and(eq(cronJobs.userUuid, userId), isNull(cronJobs.deletedAt)))
     .orderBy(desc(cronJobs.createdAt));
 
   return c.json({ jobs });
 });
 
 router.get("/:id/runs", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
 
   const cronJobId = c.req.param("id");
   if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
@@ -137,7 +140,7 @@ router.get("/:id/runs", async (c) => {
     if (!(await hasPermission(user, "taskrun.view", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
       return c.json({ message: "not found" }, 404);
     }
-  } else if (job.userUuid !== user.uuid) {
+  } else if (!user || job.userUuid !== user.uuid) {
     return c.json({ message: "not found" }, 404);
   }
 

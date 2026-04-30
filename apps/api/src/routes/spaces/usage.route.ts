@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import * as schema from "../../db/schema-v2.js";
-import { useAuth, requireValidId } from "../../lib/middleware.js";
+import { getOptionalAuth, requireValidId } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 
 const router = new Hono();
@@ -12,7 +12,7 @@ const router = new Hono();
  * Returns hourly token usage stats for a space over the last N days (default 30).
  */
 router.get("/", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "not found" }, 404);

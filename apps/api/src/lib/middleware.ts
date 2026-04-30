@@ -24,6 +24,20 @@ import { db } from "../db/index.js";
 import { inArray } from "drizzle-orm";
 import type { spaces } from "../db/schema-v2.js";
 
+const principalToAuthUser = (principal: RequestPrincipal | null | undefined): AuthUser | null => {
+  if (principal?.type === "user") return principal.user;
+  if (principal?.type === "execution" && principal.execution.actorUserId) {
+    return {
+      uuid: principal.execution.actorUserId,
+      id: undefined,
+      nick_name: undefined,
+      phone_num: undefined,
+      avatar_url: undefined,
+    } satisfies AuthUser;
+  }
+  return null;
+};
+
 // ── ID validation ────────────────────────────────────────────────────────────
 
 /** Standard UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx */
@@ -42,19 +56,8 @@ export const requireValidId = (value: string | null | undefined) =>
  * Callers should use `useAuth(c)` for a type-safe return.
  */
 export const requireAuth = (c: Context): AuthUser | Response => {
-  const principal = c.get("principal") as RequestPrincipal | null | undefined;
-  if (principal?.type === "user") {
-    return principal.user;
-  }
-  if (principal?.type === "execution" && principal.execution.actorUserId) {
-    return {
-      uuid: principal.execution.actorUserId,
-      id: undefined,
-      nick_name: undefined,
-      phone_num: undefined,
-      avatar_url: undefined,
-    } satisfies AuthUser;
-  }
+  const user = getOptionalAuth(c);
+  if (user) return user;
   throw new UnauthorizedError();
 };
 
@@ -66,6 +69,15 @@ export const requireAuth = (c: Context): AuthUser | Response => {
 export const useAuth = (c: Context): AuthUser => {
   const result = requireAuth(c);
   return result as AuthUser;
+};
+
+/**
+ * Returns the authenticated user when present, otherwise null.
+ * Use this for routes whose authorization is fully determined by RBAC
+ * policies, including signed-in and anonymous access policies.
+ */
+export const getOptionalAuth = (c: Context): AuthUser | null => {
+  return principalToAuthUser(c.get("principal") as RequestPrincipal | null | undefined);
 };
 
 export const getExecutionPrincipal = (c: Context): ExecutionAuthPrincipal | null => {

@@ -8,7 +8,7 @@ import {
   userGitAccounts,
 } from "../../db/schema-v2.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { useAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
@@ -392,7 +392,7 @@ async function getGiteaUsernameForUser(userUuid: string): Promise<string | null>
 }
 
 router.get("/:id", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -405,7 +405,7 @@ router.get("/:id", async (c) => {
 
     // Only include git info when the requester is the space creator
     let gitInfo: { giteaHost: string; giteaUsername: string } | undefined;
-    if (user.uuid === space.userUuid) {
+    if (user?.uuid === space.userUuid) {
       const giteaUsername = await getGiteaUsernameForUser(space.userUuid);
       if (giteaUsername) {
         gitInfo = {
@@ -497,7 +497,7 @@ router.post("/:id/checkpoints", async (c) => {
 });
 
 router.get("/:id/checkpoints", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return c.json({ message: "not found" }, 404);
@@ -513,7 +513,7 @@ router.get("/:id/checkpoints", async (c) => {
 });
 
 router.get("/:id/checkpoints/:checkpointId", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   const checkpointId = c.req.param("checkpointId");
   if (!requireValidId(spaceId) || !requireValidId(checkpointId)) {
@@ -640,7 +640,7 @@ router.delete("/:id/env/:name", async (c) => {
 // ── Sandbox ──────────────────────────────────────────────────────────────────
 
 router.get("/:id/sandbox", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return c.json({ message: "not found" }, 404);
@@ -697,7 +697,7 @@ router.post("/:id/sessions", async (c) => {
 });
 
 router.get("/:id/sessions", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId }))) return c.json({ message: "not found" }, 404);
@@ -722,7 +722,7 @@ router.get("/:id/sessions", async (c) => {
 // ── Channels ─────────────────────────────────────────────────────────────────
 
 router.get("/:id/channels", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "channel.view", { spaceId }))) return c.json({ message: "space not found" }, 404);
