@@ -1,5 +1,13 @@
 # @neta-art/cohub
 
+## 1.2.1
+
+### Patch Changes
+
+- 66b4ef8: Add lightweight WebSocket compact frames for session patch streaming, with SDK negotiation and decoding support.
+- Updated dependencies [66b4ef8]
+  - @neta-art/cohub-protocol@1.2.1
+
 ## 1.2.0
 
 ### Minor Changes
