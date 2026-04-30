@@ -415,11 +415,11 @@ const applySessionPlan = async (session: SessionRow, cutoff: Date | null) => {
       if (messageIds.length === 0) continue;
       await tx.update(sessionMessages).set({
         meta: sql`coalesce(${sessionMessages.meta}, '{}'::jsonb) || jsonb_build_object(
-          'turnId', ${turnId},
+          'turnId', ${sql`${turnId}::text`},
           'sessionTurnsBackfill', jsonb_build_object(
-            'name', ${MIGRATION_NAME},
-            'version', ${MIGRATION_VERSION},
-            'turnId', ${turnId},
+            'name', ${sql`${MIGRATION_NAME}::text`},
+            'version', ${sql`${MIGRATION_VERSION}::int`},
+            'turnId', ${sql`${turnId}::text`},
             'backfilledAt', now()
           )
         )`,
