@@ -27,7 +27,7 @@ const {
   </div>
 
   {#if right}
-    <div class="flex items-center gap-1 shrink-0 max-w-[45%] sm:max-w-none overflow-hidden">
+    <div class="flex items-center gap-1 shrink-0 overflow-visible">
       {@render right()}
     </div>
   {/if}
