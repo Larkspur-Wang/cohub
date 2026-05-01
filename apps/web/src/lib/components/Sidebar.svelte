@@ -49,6 +49,7 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
+import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
 	closeSessionActions,
@@ -504,6 +505,11 @@ function isPinned(
 	resourceRef: string,
 ) {
 	return isSpacePin(pinnedMarks, resourceType, resourceRef);
+}
+
+function insertPathReference(path: string) {
+	insertComposerSnippet(` \`${path}\` `);
+	onClose?.();
 }
 
 function togglePinResource(
@@ -988,6 +994,19 @@ $effect(() => {
                           type="button"
                           class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
                           draggable="false"
+                          title="Insert"
+                          onclick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            insertPathReference(`/sessions/${session.id}`);
+                          }}
+                        >
+                          <FileText class="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                          draggable="false"
                           title={isPinned("session", session.id) ? "Unpin chat" : "Pin chat"}
                           onclick={(e) => {
                             e.preventDefault();
@@ -1096,6 +1115,19 @@ $effect(() => {
               >
                 <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
                 <span class={isMobile ? "hidden" : "hidden shrink-0 items-center gap-0.5 group-hover/session:inline-flex group-focus-within/session:inline-flex"}>
+                  <button
+                    type="button"
+                    class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                    draggable="false"
+                    title="Insert"
+                    onclick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      insertPathReference(`/sessions/${activeSession.id}`);
+                    }}
+                  >
+                    <FileText class="w-3.5 h-3.5" />
+                  </button>
                   <button
                     type="button"
                     class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"

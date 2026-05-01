@@ -90,6 +90,7 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 
+import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	clearGenerationError,
@@ -3337,6 +3338,11 @@ async function loadSpacePins(force = false) {
 	}
 }
 
+function insertPathReference(path: string) {
+	insertComposerSnippet(` \`${path}\` `);
+	uiState.mobileRightDrawerOpen = false;
+}
+
 async function togglePinFilePath(path: string) {
 	try {
 		const marks = await toggleSpacePin({
@@ -5940,6 +5946,8 @@ $effect(() => {
           onUpload={handleUploadFiles}
           isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
           onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
+          onInsertReference={insertPathReference}
+          draggable={true}
           canWrite={true}
         />
         <FileUploadPane
@@ -5981,6 +5989,8 @@ $effect(() => {
         onUpload={handleUploadFiles}
         isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
         onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
+        onInsertReference={insertPathReference}
+        draggable={false}
         canWrite={true}
       />
       <FileUploadPane

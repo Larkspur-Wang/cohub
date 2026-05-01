@@ -27,6 +27,8 @@ const {
 	onUpload,
 	isPinned,
 	onTogglePin,
+	onInsertReference,
+	draggable = true,
 	canWrite = true,
 }: {
 	node: SpaceFsNode;
@@ -41,6 +43,8 @@ const {
 	onUpload?: (files: File[], targetDir: string) => void;
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
+	onInsertReference?: (path: string) => void;
+	draggable?: boolean;
 	canWrite?: boolean;
 } = $props();
 
@@ -124,11 +128,15 @@ function handleDirUploadClick() {
   class:drop-target={isDragOver}
   role="button"
   tabindex="0"
-  draggable="true"
+  draggable={draggable}
   style={`padding-left: ${indent}px`}
   onclick={handleClick}
   onkeydown={handleKeydown}
   ondragstart={(e) => {
+    if (!draggable) {
+      e.preventDefault();
+      return;
+    }
     const path = node.type === "dir" ? `${node.path}/` : node.path;
     e.dataTransfer?.setData("text/cohub-path", path);
     e.dataTransfer?.setData("text/plain", path);
@@ -155,6 +163,9 @@ function handleDirUploadClick() {
   {/if}
   {#if node.type === "file" && onTogglePin}
     <span class="pin-action">
+      {#if onInsertReference}
+        <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><FileIcon class="w-3 h-3" /></button>
+      {/if}
       <button type="button" class="action" title={isPinned?.(node) ? "Unpin file" : "Pin file"} onclick={stop(() => onTogglePin(node))}>
         {#if isPinned?.(node)}
           <PinOff class="w-3 h-3" />
@@ -194,6 +205,8 @@ function handleDirUploadClick() {
       {onUpload}
       {isPinned}
       {onTogglePin}
+      {onInsertReference}
+      {draggable}
       {canWrite}
     />
   {/each}

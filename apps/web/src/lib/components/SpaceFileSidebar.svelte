@@ -26,6 +26,8 @@ const {
 	onUpload,
 	isPinned,
 	onTogglePin,
+	onInsertReference,
+	draggable = true,
 	canWrite = true,
 }: {
 	nodes: SpaceFsNode[];
@@ -42,6 +44,8 @@ const {
 	onUpload?: (files: File[], targetDir: string) => void;
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
+	onInsertReference?: (path: string) => void;
+	draggable?: boolean;
 	canWrite?: boolean;
 } = $props();
 
@@ -119,6 +123,8 @@ function handleUploadClick() {
           {onUpload}
           {isPinned}
           {onTogglePin}
+          {onInsertReference}
+          {draggable}
           {canWrite}
         />
       {/each}

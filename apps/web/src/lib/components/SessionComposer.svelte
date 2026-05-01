@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import { ArrowUp, ChevronDown, Plus, Upload, X } from "lucide-svelte";
+import { onMount } from "svelte";
 
 type ComposerImageAttachment = {
 	id: string;
@@ -148,12 +149,11 @@ function handlePathDragLeave() {
 	isPathDragOver = false;
 }
 
-function handlePathDrop(event: DragEvent) {
-	isPathDragOver = false;
-	const path = event.dataTransfer?.getData("text/cohub-path");
-	if (!path || !textareaEl) return;
-	event.preventDefault();
-	const snippet = ` \`${path}\` `;
+function insertSnippet(snippet: string) {
+	if (!textareaEl) {
+		value = `${value}${snippet}`;
+		return;
+	}
 	const start = textareaEl.selectionStart;
 	const end = textareaEl.selectionEnd;
 	value = value.slice(0, start) + snippet + value.slice(end);
@@ -163,6 +163,14 @@ function handlePathDrop(event: DragEvent) {
 		textareaEl?.focus();
 		resizeTextarea();
 	});
+}
+
+function handlePathDrop(event: DragEvent) {
+	isPathDragOver = false;
+	const path = event.dataTransfer?.getData("text/cohub-path");
+	if (!path || !textareaEl) return;
+	event.preventDefault();
+	insertSnippet(` \`${path}\` `);
 }
 
 function handlePaste(event: ClipboardEvent) {
@@ -175,6 +183,19 @@ function handlePaste(event: ClipboardEvent) {
 	event.preventDefault();
 	onpickimage?.(files);
 }
+
+onMount(() => {
+	const handleComposerInsert = (event: Event) => {
+		const custom = event as CustomEvent<{ snippet?: string }>;
+		const snippet = custom.detail?.snippet;
+		if (!snippet) return;
+		insertSnippet(snippet);
+	};
+	window.addEventListener("cohub:composer-insert", handleComposerInsert);
+	return () => {
+		window.removeEventListener("cohub:composer-insert", handleComposerInsert);
+	};
+});
 
 $effect(() => {
 	value;

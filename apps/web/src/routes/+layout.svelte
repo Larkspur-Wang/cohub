@@ -1,6 +1,6 @@
 <script lang="ts">
 import "../app.css";
-import { Pencil, Pin, PinOff } from "lucide-svelte";
+import { FileText, Pencil, Pin, PinOff } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 import { page } from "$app/state";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
@@ -23,6 +23,7 @@ import {
 import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
+import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {
 	closeSessionActions,
 	sessionActions,
@@ -431,11 +432,18 @@ async function toggleGlobalSessionPin() {
 			resourceRef: session.id,
 			label: session.title ?? "New chat",
 		});
+		closeSessionActions();
 	} catch {
 		// Silently fail; API enforces permission and limits.
 	} finally {
-		closeSessionActions();
 	}
+}
+
+function insertGlobalSessionReference() {
+	const session = sessionActions.session;
+	if (!session) return;
+	insertComposerSnippet(` \`/sessions/${session.id}\` `);
+	closeSessionActions();
 }
 
 function startGlobalRename() {
@@ -591,6 +599,14 @@ async function submitGlobalRename() {
           <div class="px-4 py-3 border-b border-border-subtle">
             <p class="text-[13px] text-text-secondary truncate">{sessionActions.session.title || "New chat"}</p>
           </div>
+          <button
+            type="button"
+            class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
+            onclick={insertGlobalSessionReference}
+          >
+            <FileText class="w-5 h-5" />
+            <span>Insert</span>
+          </button>
           <button
             type="button"
             class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
