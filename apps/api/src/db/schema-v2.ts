@@ -473,6 +473,40 @@ export const accessPolicies = v2.table(
   }),
 );
 
+export const spaceMarks = v2.table(
+  "space_marks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    kind: varchar("kind", { length: 30 }).notNull(),
+    resourceType: varchar("resource_type", { length: 30 }).notNull(),
+    resourceRef: text("resource_ref").notNull(),
+    label: text("label"),
+    rank: integer("rank").notNull().default(0),
+    createdBy: varchar("created_by", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    uniqueResourceMarkIdx: uniqueIndex("v2_uq_space_marks_resource").on(
+      table.spaceId,
+      table.kind,
+      table.resourceType,
+      table.resourceRef,
+    ),
+    spaceKindRankIdx: index("v2_idx_space_marks_space_kind_rank").on(
+      table.spaceId,
+      table.kind,
+      table.rank,
+    ),
+    spaceResourceIdx: index("v2_idx_space_marks_space_resource").on(
+      table.spaceId,
+      table.resourceType,
+      table.resourceRef,
+    ),
+  }),
+);
+
 export const cronJobs = v2.table(
   "cron_jobs",
   {

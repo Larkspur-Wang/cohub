@@ -28,6 +28,9 @@ import type {
   SpaceFsUploadResponse,
   SpaceUsageResponse,
   SpaceFsWriteFileInput,
+  SpaceMarkKind,
+  SpaceMarkListItem,
+  SpaceMarkResourceType,
   SpaceMember,
   SpaceRecord,
   SpaceRole,
@@ -755,6 +758,43 @@ export class SpaceEnvApi {
   }
 }
 
+export class SpaceMarksApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  list(kind: SpaceMarkKind = "pin") {
+    const params = new URLSearchParams({ kind });
+    return this.transport.request<{ marks: SpaceMarkListItem[] }>(
+      `/api/spaces/${this.spaceId}/marks?${params.toString()}`,
+    );
+  }
+
+  create(input: {
+    kind?: SpaceMarkKind;
+    resourceType: SpaceMarkResourceType;
+    resourceRef: string;
+    label?: string | null;
+  }) {
+    return this.transport.request<{ mark: SpaceMarkListItem }>(
+      `/api/spaces/${this.spaceId}/marks`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "pin", ...input }),
+      },
+    );
+  }
+
+  delete(markId: string) {
+    return this.transport.request<{ ok: true }>(
+      `/api/spaces/${this.spaceId}/marks/${markId}`,
+      { method: "DELETE" },
+    );
+  }
+}
+
 export class SpaceCheckpointsApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -796,6 +836,7 @@ export class SpaceClient {
   readonly channels: SpaceChannelsApi;
   readonly env: SpaceEnvApi;
   readonly invitations: SpaceInvitationsApi;
+  readonly marks: SpaceMarksApi;
 
   constructor(
     readonly id: string,
@@ -811,6 +852,7 @@ export class SpaceClient {
     this.channels = new SpaceChannelsApi(transport, id);
     this.env = new SpaceEnvApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
+    this.marks = new SpaceMarksApi(transport, id);
   }
 
   get(customFetch?: Fetch) {
@@ -827,6 +869,17 @@ export class SpaceClient {
       },
       body: JSON.stringify({ name }),
     });
+  }
+
+  profile(body: { description?: string | null; pictureUrl?: string | null }) {
+    return this.transport.request<{ space: SpaceRecord }>(
+      `/api/spaces/${this.id}/profile`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
   }
 
   session(sessionId: string) {

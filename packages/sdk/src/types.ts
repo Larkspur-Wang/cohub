@@ -290,6 +290,49 @@ export type SpaceMember = {
   updatedAt: string;
 };
 
+export type SpaceMarkKind = "pin";
+
+export type SpaceMarkResourceType = "session" | "checkpoint" | "file";
+
+export type SpaceMarkRecord = {
+  id: string;
+  spaceId: string;
+  kind: SpaceMarkKind;
+  resourceType: SpaceMarkResourceType;
+  resourceRef: string;
+  label: string | null;
+  rank: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SpaceMarkListItem = SpaceMarkRecord & {
+  href: string;
+  resource: {
+    title: string;
+    subtitle: string | null;
+    status: string | null;
+  } | null;
+};
+
+export type ExploreSpaceItem = {
+  space: SpaceRecord;
+  accessAudience: "anonymous" | "signed_in";
+  explore: {
+    rank: number;
+    category: string | null;
+    label: string | null;
+  };
+  latestCheckpoints: CheckpointRecord[];
+  stats: {
+    pinnedCount: number;
+    checkpointCount: number;
+    forkCount: number;
+  };
+  sandboxStatus: string | null;
+};
+
 export type SpaceAccessPolicy = {
   signed_in_user: SpaceRole | null;
   anonymous_user: SpaceRole | null;

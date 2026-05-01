@@ -463,6 +463,41 @@ router.patch("/:id", async (c) => {
   return c.json({ space: updated ?? space });
 });
 
+// ── PATCH /api/spaces/:id/profile ───────────────────────────────────────────
+
+router.patch("/:id/profile", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<{ description?: string | null; pictureUrl?: string | null }>().catch(() => null);
+  if (!body) return c.json({ message: "invalid body" }, 400);
+
+  const existingMeta = (space.meta as Record<string, unknown> | null) ?? {};
+  const existingProfile = typeof existingMeta.publicProfile === "object" && existingMeta.publicProfile !== null && !Array.isArray(existingMeta.publicProfile)
+    ? existingMeta.publicProfile as Record<string, unknown>
+    : {};
+  const nextProfile = body.pictureUrl !== undefined
+    ? { ...existingProfile, pictureUrl: body.pictureUrl?.trim() || null }
+    : existingProfile;
+
+  const [updated] = await db
+    .update(spaces)
+    .set({
+      description: body.description !== undefined ? body.description : space.description,
+      meta: { ...existingMeta, publicProfile: nextProfile },
+      updatedAt: new Date(),
+    })
+    .where(eq(spaces.id, spaceId))
+    .returning();
+
+  return c.json({ space: updated ?? space });
+});
+
 // ── Checkpoints ──────────────────────────────────────────────────────────────
 
 router.post("/:id/checkpoints", async (c) => {

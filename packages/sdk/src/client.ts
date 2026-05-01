@@ -1,5 +1,6 @@
 import { ChannelsApi } from "./apis/channels.js";
 import { CronJobsApi } from "./apis/cron-jobs.js";
+import { ExploreApi } from "./apis/explore.js";
 import { ModelsApi } from "./apis/models.js";
 import { PromptsApi } from "./apis/prompts.js";
 import { SessionAccessApi } from "./apis/session-access.js";
@@ -20,6 +21,7 @@ export class CohubClient {
   readonly sessionAccess: SessionAccessApi;
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
+  readonly explore: ExploreApi;
   readonly invite: PublicInviteApi;
 
   private readonly transport: HttpTransport;
@@ -49,6 +51,7 @@ export class CohubClient {
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
+    this.explore = new ExploreApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
   }
 

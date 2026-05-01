@@ -3,6 +3,7 @@ import type {
 	CheckpointRecord,
 	CronJobRecord,
 	SessionRecord,
+	SpaceMarkListItem,
 	SpaceRecord,
 	TaskRunRecord,
 } from "@neta-art/cohub";
@@ -12,6 +13,7 @@ import {
 	Check,
 	ChevronDown,
 	Clock,
+	FileText,
 	FolderKanban,
 	History,
 	KeyRound,
@@ -21,6 +23,7 @@ import {
 	Network,
 	Palette,
 	Pencil,
+	Pin,
 	Plus,
 	Settings,
 	Trash2,
@@ -88,6 +91,7 @@ let showSpaceModal = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
 let checkpoints = $state<CheckpointRecord[]>([]);
+let pinnedMarks = $state<SpaceMarkListItem[]>([]);
 let loadingSessions = $state(false);
 let loadingMoreSessions = $state(false);
 let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
@@ -349,6 +353,15 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 	}
 }
 
+async function loadPinsForSpace(spaceId: string) {
+	try {
+		const result = await sdk.space(spaceId).marks.list("pin");
+		pinnedMarks = result.marks ?? [];
+	} catch {
+		pinnedMarks = [];
+	}
+}
+
 async function loadCheckpointsForSpace(spaceId: string, force = false) {
 	if (!force && loadingCheckpoints) return;
 	const shouldShowLoading = checkpoints.length === 0;
@@ -416,6 +429,11 @@ async function handleNavigateToSession(sessionId: string) {
 	await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
 
+async function handleNavigateToPinned(mark: SpaceMarkListItem) {
+	onClose?.();
+	await goto(mark.href);
+}
+
 async function handleNavigateToCheckpoint(checkpointId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
@@ -465,6 +483,69 @@ async function handleCreateNewSession() {
 	} finally {
 		creatingSession = false;
 	}
+}
+
+async function pinResource(
+	resourceType: "session" | "checkpoint" | "file",
+	resourceRef: string,
+	label?: string | null,
+) {
+	if (!currentSpaceId) return;
+	try {
+		await sdk
+			.space(currentSpaceId)
+			.marks.create({ resourceType, resourceRef, label });
+		await loadPinsForSpace(currentSpaceId);
+		window.dispatchEvent(
+			new CustomEvent("cohub:marks-updated", {
+				detail: { spaceId: currentSpaceId },
+			}),
+		);
+	} catch {
+		// Silently fail; API enforces permission and limit.
+	}
+}
+
+async function unpinResource(
+	resourceType: "session" | "checkpoint" | "file",
+	resourceRef: string,
+) {
+	if (!currentSpaceId) return;
+	const mark = pinnedMarks.find(
+		(m) => m.resourceType === resourceType && m.resourceRef === resourceRef,
+	);
+	if (!mark) return;
+	try {
+		await sdk.space(currentSpaceId).marks.delete(mark.id);
+		pinnedMarks = pinnedMarks.filter((item) => item.id !== mark.id);
+		window.dispatchEvent(
+			new CustomEvent("cohub:marks-updated", {
+				detail: { spaceId: currentSpaceId },
+			}),
+		);
+	} catch {
+		// Silently fail
+	}
+}
+
+function isPinned(
+	resourceType: "session" | "checkpoint" | "file",
+	resourceRef: string,
+) {
+	return pinnedMarks.some(
+		(mark) =>
+			mark.resourceType === resourceType && mark.resourceRef === resourceRef,
+	);
+}
+
+function getPinnedIcon(resourceType: string) {
+	if (resourceType === "session") return Activity;
+	if (resourceType === "checkpoint") return History;
+	return FileText;
+}
+
+function getPinnedFallbackTitle(mark: SpaceMarkListItem) {
+	return mark.resource?.title ?? mark.label ?? mark.resourceRef;
 }
 
 // ── Session rename ──────────────────────────────────────────────────────
@@ -599,6 +680,10 @@ onMount(() => {
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
 			);
+			window.addEventListener(
+				"cohub:marks-updated",
+				handleMarksUpdated as EventListener,
+			);
 		})();
 	}
 
@@ -610,6 +695,13 @@ onMount(() => {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
 			void loadCheckpointsForSpace(currentSpaceId, true);
+		}
+	}
+
+	function handleMarksUpdated(e: Event) {
+		const custom = e as CustomEvent;
+		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
+			void loadPinsForSpace(currentSpaceId);
 		}
 	}
 
@@ -636,6 +728,10 @@ onMount(() => {
 			window.removeEventListener(
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
+			);
+			window.removeEventListener(
+				"cohub:marks-updated",
+				handleMarksUpdated as EventListener,
 			);
 		}
 	};
@@ -673,6 +769,7 @@ $effect(() => {
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		untrack(() => {
 			void loadSessionsForSpace(id);
+			void loadPinsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
 			void loadTasksForSpace(id, true);
@@ -794,6 +891,28 @@ $effect(() => {
             Loading...
           </div>
         {:else}
+          {#if pinnedMarks.length > 0}
+            <div class="mb-3">
+              <div class="flex items-center gap-2 px-2 py-1.5 w-full text-left rounded-[6px]">
+                <Pin class="w-3 h-3 text-text-tertiary shrink-0" />
+                <span class="text-[11px] text-text-placeholder select-none">Pinned</span>
+              </div>
+              <div class="space-y-[2px] mt-1">
+                {#each pinnedMarks as mark (mark.id)}
+                  {@const Icon = getPinnedIcon(mark.resourceType)}
+                  <button
+                    type="button"
+                    class="flex items-center gap-2 w-full px-2 py-1.5 mx-[-2px] rounded-[6px] text-left text-[13px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+                    onclick={() => void handleNavigateToPinned(mark)}
+                    title={mark.resource?.subtitle ?? mark.resourceRef}
+                  >
+                    <Icon class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                    <span class="truncate leading-tight flex-1">{getPinnedFallbackTitle(mark)}</span>
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
           <button
             type="button"
             class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
@@ -991,6 +1110,14 @@ $effect(() => {
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
                       class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
+                      oncontextmenu={(e) => {
+                        e.preventDefault();
+                        if (isPinned("checkpoint", checkpoint.id)) {
+                          void unpinResource("checkpoint", checkpoint.id);
+                        } else {
+                          void pinResource("checkpoint", checkpoint.id, getCheckpointTitle(checkpoint));
+                        }
+                      }}
                     >
                       <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
@@ -1249,6 +1376,23 @@ $effect(() => {
       onclick={(e) => e.stopPropagation()}
       role="presentation"
     >
+      <button
+        type="button"
+        class="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+        onclick={() => {
+          const session = sessionContextMenu.session;
+          if (!session) return;
+          if (isPinned("session", session.id)) {
+            void unpinResource("session", session.id);
+          } else {
+            void pinResource("session", session.id, getSessionTitle(session, 0));
+          }
+          closeDesktopMenu();
+        }}
+      >
+        <Pin class="w-3.5 h-3.5" />
+        <span>{isPinned("session", sessionContextMenu.session.id) ? "Unpin chat" : "Pin chat"}</span>
+      </button>
       <button
         type="button"
         class="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"

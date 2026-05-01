@@ -23,6 +23,7 @@ const {
 	onRename,
 	onDelete,
 	onUpload,
+	onContextMenu,
 	canWrite = true,
 }: {
 	node: SpaceFsNode;
@@ -35,6 +36,7 @@ const {
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[], targetDir: string) => void;
+	onContextMenu?: (node: SpaceFsNode, event: MouseEvent) => void;
 	canWrite?: boolean;
 } = $props();
 
@@ -131,6 +133,7 @@ function handleDirUploadClick() {
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
+  oncontextmenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(node, e); } }}
 >
   <span class="icon shrink-0">
     {#if isDir}
@@ -175,6 +178,7 @@ function handleDirUploadClick() {
       {onRename}
       {onDelete}
       {onUpload}
+      {onContextMenu}
       {canWrite}
     />
   {/each}

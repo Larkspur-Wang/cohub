@@ -11,6 +11,10 @@
     "./models": {
       "types": "./dist/models.d.ts",
       "default": "./dist/models.js"
+    },
+    "./explore": {
+      "types": "./dist/explore.d.ts",
+      "default": "./dist/explore.js"
     }
   },
   "types": "./dist/index.d.ts",

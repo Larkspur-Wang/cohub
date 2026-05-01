@@ -8,6 +8,7 @@ export type Audience = "member_user" | "signed_in_user" | "anonymous_user";
 export type Permission =
   | "space.view"
   | "space.edit"
+  | "space.pin"
   | "session.view"
   | "session.edit"
   | "session.prompt.readonly"
@@ -30,6 +31,7 @@ const ROLE_PERMISSIONS: Record<SpaceRole, Set<Permission>> = {
   host: new Set([
     "space.view",
     "space.edit",
+    "space.pin",
     "session.view",
     "session.edit",
     "session.prompt.readonly",

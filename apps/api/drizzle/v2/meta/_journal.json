@@ -36,6 +36,13 @@
       "when": 1777484275540,
       "tag": "0004_skinny_screwball",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777601891701,
+      "tag": "0005_sudden_luminals",
+      "breakpoints": true
     }
   ]
 }

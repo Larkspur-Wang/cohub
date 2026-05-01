@@ -80,6 +80,7 @@ import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
+	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
@@ -494,6 +495,7 @@ let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let shareModalError = $state("");
 let shareModalSaving = $state(false);
 let checkpointDetail = $state<CheckpointRecord | null>(null);
+let spaceCheckpoints = $state<CheckpointRecord[]>([]);
 let checkpointDetailLoading = $state(false);
 let checkpointDetailError = $state("");
 let checkpointCopied = $state(false);
@@ -1048,6 +1050,15 @@ async function handleRemoveMember(userId: string) {
 		// Silently fail
 	}
 }
+async function loadSpaceCheckpoints() {
+	try {
+		const result = await sdk.space(spaceId).checkpoints.list();
+		spaceCheckpoints = result.checkpoints ?? [];
+	} catch {
+		spaceCheckpoints = [];
+	}
+}
+
 async function loadCheckpointDetail(checkpointId: string) {
 	checkpointDetailLoading = true;
 	checkpointDetailError = "";
@@ -1832,6 +1843,11 @@ async function loadSpace(_options?: { force?: boolean }) {
 			} catch {
 				/* Non-blocking */
 			}
+		})(),
+	);
+	tasks.push(
+		(async () => {
+			await loadSpaceCheckpoints();
 		})(),
 	);
 	await Promise.all(tasks);
@@ -3296,6 +3312,39 @@ function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 		minute: "2-digit",
 	});
 }
+async function pinFilePath(path: string) {
+	try {
+		await sdk.space(spaceId).marks.create({
+			resourceType: "file",
+			resourceRef: path,
+			label: path.split("/").pop() ?? path,
+		});
+		window.dispatchEvent(
+			new CustomEvent("cohub:marks-updated", { detail: { spaceId } }),
+		);
+	} catch {
+		// Pin is host-only; silently ignore for users without permission.
+	}
+}
+
+async function handleForkLatestCheckpoint() {
+	const latest = spaceCheckpoints[0];
+	if (!latest || !space) return;
+	try {
+		const result = await sdk.spaces.create({
+			name: `${space.name ?? "space"}-fork-${Date.now().toString(36).slice(-4)}`,
+			description: space.description ?? undefined,
+			source: "web",
+			bootstrapSource: { type: "checkpoint", checkpointId: latest.id },
+		});
+		window.dispatchEvent(new CustomEvent("cohub:space-created"));
+		await goto(`/spaces/${result.space.id}`);
+	} catch (error) {
+		createSessionError =
+			error instanceof Error ? error.message : "Failed to fork";
+	}
+}
+
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	creatingSession = true;
@@ -3468,6 +3517,7 @@ $effect(() => {
 	checkpointDetail = null;
 	cronjobDetail = null;
 	taskRunDetail = null;
+	spaceCheckpoints = [];
 	spaceAccess = null;
 	spaceMembers = [];
 	spaceEnv = [];
@@ -4667,12 +4717,31 @@ $effect(() => {
               {/if}
             </div>
             {#if !spaceHasMinimalAccess}
-              <button
-                type="button"
-                class="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
-                onclick={() => handleCreateNewSession()}
-                disabled={!canCreateSession}
-              >
+              <div class="flex shrink-0 items-center gap-2">
+                <a
+                  href={`/spaces/${spaceId}/settings`}
+                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:text-text-primary hover:bg-bg-hover"
+                  title="Space settings"
+                >
+                  <Settings class="w-3.5 h-3.5" />
+                  Settings
+                </a>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {spaceCheckpoints.length > 0 ? 'border-border-subtle bg-bg-input text-text-secondary hover:text-text-primary hover:bg-bg-hover' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                  onclick={() => void handleForkLatestCheckpoint()}
+                  disabled={spaceCheckpoints.length === 0}
+                  title={spaceCheckpoints.length === 0 ? 'No saves yet' : 'Fork latest save'}
+                >
+                  <GitCommitHorizontal class="w-3.5 h-3.5" />
+                  Fork
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                  onclick={() => handleCreateNewSession()}
+                  disabled={!canCreateSession}
+                >
                 {#if creatingSession}
                   <Loader2 class="w-3.5 h-3.5 animate-spin" />
                   Creating…
@@ -4680,7 +4749,8 @@ $effect(() => {
                   <Plus class="w-3.5 h-3.5" />
                   New chat
                 {/if}
-              </button>
+                </button>
+              </div>
             {/if}
           </div>
           <!-- Repository -->
@@ -4803,6 +4873,35 @@ $effect(() => {
             {:else}
               <div class="flex items-center justify-center py-8 text-[13px] text-text-tertiary">
                 {#if tokenUsage}No usage data for the last {tokenUsage.days} days.{:else}Loading usage data…{/if}
+              </div>
+            {/if}
+          </section>
+          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <Save class="w-4 h-4 text-text-tertiary" />
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Saves</div>
+                  <div class="text-[15px] font-medium text-text-primary">Checkpoint history</div>
+                </div>
+              </div>
+              <a href={buildSpaceCheckpointNewRoute(spaceId)} class="text-[12px] text-brand hover:underline">New save</a>
+            </div>
+            {#if spaceCheckpoints.length === 0}
+              <div class="rounded-[6px] border border-border-subtle bg-bg-primary p-3 text-[13px] text-text-tertiary">No saves yet.</div>
+            {:else}
+              <div class="divide-y divide-border-subtle overflow-hidden rounded-[7px] border border-border-subtle">
+                {#each spaceCheckpoints.slice(0, 8) as checkpoint (checkpoint.id)}
+                  <a href={buildSpaceCheckpointRoute(spaceId, checkpoint.id)} class="block bg-bg-primary px-3 py-2.5 hover:bg-bg-hover transition-colors">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="truncate text-[13px] font-medium text-text-primary">{checkpoint.description || checkpoint.commitHash.slice(0, 12)}</div>
+                        <div class="mt-0.5 text-[11px] text-text-tertiary">{formatCheckpointTimestamp(checkpoint.createdAt)} · {checkpoint.forkCount} forks</div>
+                      </div>
+                      <span class="shrink-0 font-mono text-[11px] text-text-placeholder">{checkpoint.commitHash.slice(0, 8)}</span>
+                    </div>
+                  </a>
+                {/each}
               </div>
             {/if}
           </section>
@@ -5800,6 +5899,7 @@ $effect(() => {
           onRename={handleRenameNode}
           onDelete={handleDeleteNode}
           onUpload={handleUploadFiles}
+          onContextMenu={(node) => { if (node.type === "file") void pinFilePath(node.path); }}
           canWrite={true}
         />
         <FileUploadPane
@@ -5839,6 +5939,7 @@ $effect(() => {
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
         onUpload={handleUploadFiles}
+        onContextMenu={(node) => { if (node.type === "file") void pinFilePath(node.path); }}
         canWrite={true}
       />
       <FileUploadPane

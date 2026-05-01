@@ -24,6 +24,7 @@ const {
 	onRename,
 	onDelete,
 	onUpload,
+	onContextMenu,
 	canWrite = true,
 }: {
 	nodes: SpaceFsNode[];
@@ -38,6 +39,7 @@ const {
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[], targetDir: string) => void;
+	onContextMenu?: (node: SpaceFsNode, event: MouseEvent) => void;
 	canWrite?: boolean;
 } = $props();
 
@@ -113,6 +115,7 @@ function handleUploadClick() {
           {onRename}
           {onDelete}
           {onUpload}
+          {onContextMenu}
           {canWrite}
         />
       {/each}
