@@ -44,14 +44,14 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 ENV BUN_INSTALL=/home/node/.bun
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PIP_USER=true
-ENV PATH="/home/node/.bun/bin:${NPM_CONFIG_PREFIX}/bin:${PATH}"
+ENV PATH="/home/node/.bun/bin:${NPM_CONFIG_PREFIX}/bin:/home/node/.local/bin:/home/node/go/bin:/home/node/.pnpm-global/bin:${PATH}"
 
 RUN curl -fsSL https://bun.sh/install | bash
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 RUN npm install -g typescript tsx @typescript/native-preview
 # Create directories and ensure node user owns them for runtime access
-RUN mkdir -p /home/node/.npm-global /home/node/.bun /home/node/.local \
-    && chown -R node:node /home/node/.npm-global /home/node/.bun /home/node/.local
+RUN mkdir -p /home/node/.npm-global /home/node/.bun /home/node/.local /home/node/go/bin /home/node/.pnpm-global/bin \
+    && chown -R node:node /home/node/.npm-global /home/node/.bun /home/node/.local /home/node/go /home/node/.pnpm-global
 
 # Install Go toolchain
 RUN curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar xz -C /usr/local
