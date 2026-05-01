@@ -1,6 +1,6 @@
 <script lang="ts">
 import "../app.css";
-import { Pencil } from "lucide-svelte";
+import { Pencil, Pin, PinOff } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 import { page } from "$app/state";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
@@ -24,10 +24,12 @@ import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
-	closeSessionContextMenu,
-	sessionContextMenu,
-} from "$lib/stores/session-context-menu.svelte";
+	closeSessionActions,
+	sessionActions,
+} from "$lib/stores/session-actions.svelte";
 import { patchCachedSessionList } from "$lib/stores/session-list-cache";
+import { getCachedSpacePins } from "$lib/stores/space-marks-cache";
+import { isSpacePin, toggleSpacePin } from "$lib/stores/space-pins";
 import {
 	LEFT_SIDEBAR_MAX,
 	LEFT_SIDEBAR_MIN,
@@ -402,19 +404,45 @@ onMount(() => {
 	};
 });
 
-// ── Global session rename (triggered from sidebar context menu) ─────────
+// ── Global session actions (triggered from mobile sidebar long-press) ───
 
 let globalRenamingSessionId = $state<string | null>(null);
 let globalRenameValue = $state("");
 let globalRenameSaving = $state(false);
 let globalRenameInputEl: HTMLInputElement | null = $state(null);
 
+function isGlobalSessionPinned() {
+	const session = sessionActions.session;
+	if (!session) return false;
+	return isSpacePin(
+		getCachedSpacePins(session.spaceId) ?? [],
+		"session",
+		session.id,
+	);
+}
+
+async function toggleGlobalSessionPin() {
+	const session = sessionActions.session;
+	if (!session) return;
+	try {
+		await toggleSpacePin({
+			spaceId: session.spaceId,
+			resourceType: "session",
+			resourceRef: session.id,
+			label: session.title ?? "New chat",
+		});
+	} catch {
+		// Silently fail; API enforces permission and limits.
+	} finally {
+		closeSessionActions();
+	}
+}
+
 function startGlobalRename() {
-	const session = sessionContextMenu.session;
+	const session = sessionActions.session;
 	if (!session) return;
 	globalRenamingSessionId = session.id;
 	globalRenameValue = session.title ?? "";
-	closeSessionContextMenu();
 	void tick().then(() => {
 		globalRenameInputEl?.focus();
 		globalRenameInputEl?.select();
@@ -428,12 +456,12 @@ function cancelGlobalRename() {
 
 async function submitGlobalRename() {
 	if (globalRenameSaving) return;
-	const session = sessionContextMenu.session;
+	const session = sessionActions.session;
 	if (!session) return;
 	const trimmed = globalRenameValue.trim();
 	if (!trimmed) {
 		cancelGlobalRename();
-		closeSessionContextMenu();
+		closeSessionActions();
 		return;
 	}
 	globalRenameSaving = true;
@@ -450,7 +478,7 @@ async function submitGlobalRename() {
 	} finally {
 		globalRenameSaving = false;
 		cancelGlobalRename();
-		closeSessionContextMenu();
+		closeSessionActions();
 	}
 }
 </script>
@@ -500,12 +528,12 @@ async function submitGlobalRename() {
   <!-- Global media lightbox -->
   <MediaLightbox />
 
-  <!-- Global mobile action sheet for session context menu -->
-  {#if sessionContextMenu.session}
+  <!-- Global mobile action sheet for session actions -->
+  {#if sessionActions.session}
     <div
       class="fixed inset-0 z-[200] lg:hidden"
-      onclick={closeSessionContextMenu}
-      onkeydown={(e) => { if (e.key === "Escape") closeSessionContextMenu(); }}
+      onclick={closeSessionActions}
+      onkeydown={(e) => { if (e.key === "Escape") closeSessionActions(); }}
       role="presentation"
       tabindex="-1"
     >
@@ -518,7 +546,7 @@ async function submitGlobalRename() {
         onclick={(e) => e.stopPropagation()}
         role="presentation"
       >
-        {#if globalRenamingSessionId === sessionContextMenu.session.id}
+        {#if globalRenamingSessionId === sessionActions.session.id}
           <!-- Inline rename input -->
           <div class="p-4">
             <input
@@ -561,8 +589,21 @@ async function submitGlobalRename() {
           </div>
         {:else}
           <div class="px-4 py-3 border-b border-border-subtle">
-            <p class="text-[13px] text-text-secondary truncate">{sessionContextMenu.session.title || "New chat"}</p>
+            <p class="text-[13px] text-text-secondary truncate">{sessionActions.session.title || "New chat"}</p>
           </div>
+          <button
+            type="button"
+            class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
+            onclick={() => void toggleGlobalSessionPin()}
+          >
+            {#if isGlobalSessionPinned()}
+              <PinOff class="w-5 h-5" />
+              <span>Unpin chat</span>
+            {:else}
+              <Pin class="w-5 h-5" />
+              <span>Pin chat</span>
+            {/if}
+          </button>
           <button
             type="button"
             class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"

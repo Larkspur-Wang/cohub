@@ -5,6 +5,8 @@ import {
 	FolderOpen,
 	FolderPlus,
 	Pencil,
+	Pin,
+	PinOff,
 	Plus,
 	Trash2,
 	Upload,
@@ -23,7 +25,8 @@ const {
 	onRename,
 	onDelete,
 	onUpload,
-	onContextMenu,
+	isPinned,
+	onTogglePin,
 	canWrite = true,
 }: {
 	node: SpaceFsNode;
@@ -36,7 +39,8 @@ const {
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[], targetDir: string) => void;
-	onContextMenu?: (node: SpaceFsNode, event: MouseEvent) => void;
+	isPinned?: (node: SpaceFsNode) => boolean;
+	onTogglePin?: (node: SpaceFsNode) => void;
 	canWrite?: boolean;
 } = $props();
 
@@ -133,7 +137,6 @@ function handleDirUploadClick() {
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
-  oncontextmenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(node, e); } }}
 >
   <span class="icon shrink-0">
     {#if isDir}
@@ -149,6 +152,17 @@ function handleDirUploadClick() {
   <span class="name">{node.name}</span>
   {#if node.isLoading}
     <span class="loading">...</span>
+  {/if}
+  {#if node.type === "file" && onTogglePin}
+    <span class="pin-action">
+      <button type="button" class="action" title={isPinned?.(node) ? "Unpin file" : "Pin file"} onclick={stop(() => onTogglePin(node))}>
+        {#if isPinned?.(node)}
+          <PinOff class="w-3 h-3" />
+        {:else}
+          <Pin class="w-3 h-3" />
+        {/if}
+      </button>
+    </span>
   {/if}
   {#if canWrite}
     <span class="actions">
@@ -178,7 +192,8 @@ function handleDirUploadClick() {
       {onRename}
       {onDelete}
       {onUpload}
-      {onContextMenu}
+      {isPinned}
+      {onTogglePin}
       {canWrite}
     />
   {/each}
@@ -236,7 +251,8 @@ function handleDirUploadClick() {
     color: var(--text-tertiary);
   }
 
-  .actions {
+  .actions,
+  .pin-action {
     display: inline-flex;
     align-items: center;
     gap: 2px;
@@ -245,7 +261,9 @@ function handleDirUploadClick() {
   }
 
   .tree-item:hover .actions,
-  .tree-item.selected .actions {
+  .tree-item.selected .actions,
+  .tree-item:hover .pin-action,
+  .tree-item.selected .pin-action {
     opacity: 1;
   }
 

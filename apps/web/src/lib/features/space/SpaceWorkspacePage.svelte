@@ -115,6 +115,15 @@ import {
 	getCachedSpaceFsDirMeta,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import {
+	getCachedSpacePins,
+	onSpacePinsCacheUpdated,
+} from "$lib/stores/space-marks-cache";
+import {
+	fetchSpacePins,
+	getPinnedFilePaths,
+	toggleSpacePin,
+} from "$lib/stores/space-pins";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
 	loadMessageToolCalls,
@@ -217,6 +226,7 @@ let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
+let pinnedFilePaths = $state<Set<string>>(new Set());
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
@@ -3312,16 +3322,30 @@ function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 		minute: "2-digit",
 	});
 }
-async function pinFilePath(path: string) {
+async function loadSpacePins(force = false) {
+	const currentSpaceId = spaceId;
+	if (!currentSpaceId) return;
+	if (!force) {
+		const cached = getCachedSpacePins(currentSpaceId);
+		if (cached) pinnedFilePaths = getPinnedFilePaths(cached);
+	}
 	try {
-		await sdk.space(spaceId).marks.create({
+		const marks = await fetchSpacePins(currentSpaceId, force);
+		pinnedFilePaths = getPinnedFilePaths(marks);
+	} catch {
+		if (!getCachedSpacePins(currentSpaceId)) pinnedFilePaths = new Set();
+	}
+}
+
+async function togglePinFilePath(path: string) {
+	try {
+		const marks = await toggleSpacePin({
+			spaceId,
 			resourceType: "file",
 			resourceRef: path,
 			label: path.split("/").pop() ?? path,
 		});
-		window.dispatchEvent(
-			new CustomEvent("cohub:marks-updated", { detail: { spaceId } }),
-		);
+		pinnedFilePaths = getPinnedFilePaths(marks);
 	} catch {
 		// Pin is host-only; silently ignore for users without permission.
 	}
@@ -3411,6 +3435,12 @@ onMount(() => {
 			applySessionsSnapshot(sessions);
 		},
 	);
+	const offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(
+		({ spaceId: updatedSpaceId, marks }) => {
+			if (updatedSpaceId !== spaceId) return;
+			pinnedFilePaths = getPinnedFilePaths(marks);
+		},
+	);
 	// Preload models catalog so model selector is ready immediately
 	void loadModelsCatalog();
 	void loadPromptTemplates();
@@ -3475,13 +3505,19 @@ onMount(() => {
 		pageOnline = false;
 		scheduleStatusRefresh();
 	};
+	const handleMarksUpdated = (e: Event) => {
+		const custom = e as CustomEvent;
+		if (custom.detail?.spaceId === spaceId) void loadSpacePins(true);
+	};
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
+	window.addEventListener("cohub:marks-updated", handleMarksUpdated);
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	scheduleStatusRefresh();
 	return () => {
 		offSessionListCacheUpdated();
+		offSpacePinsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
@@ -3492,6 +3528,7 @@ onMount(() => {
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
+		window.removeEventListener("cohub:marks-updated", handleMarksUpdated);
 		window.removeEventListener("keydown", handleFileKeyboardSave);
 		rightSidebarResizeCleanup?.();
 		inlineFilePanelResizeCleanup?.();
@@ -3509,6 +3546,7 @@ $effect(() => {
 	loadingSessionIds = {};
 	activeSessionId = null;
 	fileTree = [];
+	pinnedFilePaths = new Set();
 	fileTreeLoading = false;
 	fileTreeError = null;
 	openFile = null;
@@ -3535,6 +3573,7 @@ $effect(() => {
 			try {
 				await loadSpace();
 				if (spaceId !== currentSpaceId) return;
+				void loadSpacePins();
 				void loadFileTree(true);
 				if (routeView === "session" && routeSessionId) {
 					activeSessionId = routeSessionId;
@@ -5899,7 +5938,8 @@ $effect(() => {
           onRename={handleRenameNode}
           onDelete={handleDeleteNode}
           onUpload={handleUploadFiles}
-          onContextMenu={(node) => { if (node.type === "file") void pinFilePath(node.path); }}
+          isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
+          onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
           canWrite={true}
         />
         <FileUploadPane
@@ -5939,7 +5979,8 @@ $effect(() => {
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
         onUpload={handleUploadFiles}
-        onContextMenu={(node) => { if (node.type === "file") void pinFilePath(node.path); }}
+        isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
+        onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
         canWrite={true}
       />
       <FileUploadPane

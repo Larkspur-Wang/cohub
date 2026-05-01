@@ -24,6 +24,7 @@ import {
 	Palette,
 	Pencil,
 	Pin,
+	PinOff,
 	Plus,
 	Settings,
 	Trash2,
@@ -50,10 +51,9 @@ import {
 import { authStore } from "$lib/stores/auth.svelte";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
-	closeSessionContextMenu,
-	openSessionContextMenu,
-	sessionContextMenu,
-} from "$lib/stores/session-context-menu.svelte";
+	closeSessionActions,
+	openSessionActions,
+} from "$lib/stores/session-actions.svelte";
 import {
 	clearAllCachedSessionLists,
 	getCachedSessionList,
@@ -71,6 +71,13 @@ import {
 	getCachedSpaceListMeta,
 	onSpaceListCacheUpdated,
 } from "$lib/stores/space-list-cache";
+import {
+	clearAllCachedSpacePins,
+	fetchSpacePinsWithCache,
+	getCachedSpacePins,
+	onSpacePinsCacheUpdated,
+} from "$lib/stores/space-marks-cache";
+import { isSpacePin, toggleSpacePin } from "$lib/stores/space-pins";
 
 const {
 	isMobile = false,
@@ -112,10 +119,6 @@ let renamingSessionId = $state<string | null>(null);
 let renameTitleValue = $state("");
 let renameSaving = $state(false);
 let renameInputElement: HTMLInputElement | null = $state(null);
-
-// Desktop context menu state (position only, session comes from store)
-let desktopMenuX = $state(0);
-let desktopMenuY = $state(0);
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
@@ -353,12 +356,23 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 	}
 }
 
-async function loadPinsForSpace(spaceId: string) {
+async function loadPinsForSpace(spaceId: string, force = false) {
+	if (!force) {
+		const cached = getCachedSpacePins(spaceId);
+		if (cached) pinnedMarks = cached;
+	}
 	try {
-		const result = await sdk.space(spaceId).marks.list("pin");
-		pinnedMarks = result.marks ?? [];
+		const marks = await fetchSpacePinsWithCache(
+			spaceId,
+			async () => {
+				const result = await sdk.space(spaceId).marks.list("pin");
+				return result.marks ?? [];
+			},
+			{ force },
+		);
+		pinnedMarks = marks;
 	} catch {
-		pinnedMarks = [];
+		if (!getCachedSpacePins(spaceId)) pinnedMarks = [];
 	}
 }
 
@@ -485,57 +499,27 @@ async function handleCreateNewSession() {
 	}
 }
 
-async function pinResource(
+function isPinned(
+	resourceType: "session" | "checkpoint" | "file",
+	resourceRef: string,
+) {
+	return isSpacePin(pinnedMarks, resourceType, resourceRef);
+}
+
+function togglePinResource(
 	resourceType: "session" | "checkpoint" | "file",
 	resourceRef: string,
 	label?: string | null,
 ) {
 	if (!currentSpaceId) return;
-	try {
-		await sdk
-			.space(currentSpaceId)
-			.marks.create({ resourceType, resourceRef, label });
-		await loadPinsForSpace(currentSpaceId);
-		window.dispatchEvent(
-			new CustomEvent("cohub:marks-updated", {
-				detail: { spaceId: currentSpaceId },
-			}),
-		);
-	} catch {
-		// Silently fail; API enforces permission and limit.
-	}
-}
-
-async function unpinResource(
-	resourceType: "session" | "checkpoint" | "file",
-	resourceRef: string,
-) {
-	if (!currentSpaceId) return;
-	const mark = pinnedMarks.find(
-		(m) => m.resourceType === resourceType && m.resourceRef === resourceRef,
-	);
-	if (!mark) return;
-	try {
-		await sdk.space(currentSpaceId).marks.delete(mark.id);
-		pinnedMarks = pinnedMarks.filter((item) => item.id !== mark.id);
-		window.dispatchEvent(
-			new CustomEvent("cohub:marks-updated", {
-				detail: { spaceId: currentSpaceId },
-			}),
-		);
-	} catch {
-		// Silently fail
-	}
-}
-
-function isPinned(
-	resourceType: "session" | "checkpoint" | "file",
-	resourceRef: string,
-) {
-	return pinnedMarks.some(
-		(mark) =>
-			mark.resourceType === resourceType && mark.resourceRef === resourceRef,
-	);
+	void toggleSpacePin({
+		spaceId: currentSpaceId,
+		resourceType,
+		resourceRef,
+		label,
+	}).then((marks) => {
+		pinnedMarks = marks;
+	});
 }
 
 function getPinnedIcon(resourceType: string) {
@@ -551,7 +535,7 @@ function getPinnedFallbackTitle(mark: SpaceMarkListItem) {
 // ── Session rename ──────────────────────────────────────────────────────
 
 function startRenameSession(session: SessionRecord) {
-	closeDesktopMenu();
+	closeSessionActions();
 	renamingSessionId = session.id;
 	renameTitleValue = session.title ?? getSessionTitle(session, 0);
 	void tick().then(() => {
@@ -590,24 +574,13 @@ async function submitRenameSession(session: SessionRecord) {
 	}
 }
 
-// ── Context menu (desktop right-click / mobile long-press) ──────────────
+// ── Mobile long-press actions ───────────────────────────────────────────
 
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
-function handleContextMenu(e: MouseEvent, session: SessionRecord) {
-	e.preventDefault();
-	desktopMenuX = e.clientX;
-	desktopMenuY = e.clientY;
-	sessionContextMenu.session = session;
-}
-
-function closeDesktopMenu() {
-	sessionContextMenu.session = null;
-}
-
 function handleLongPressStart(session: SessionRecord) {
 	longPressTimer = setTimeout(() => {
-		openSessionContextMenu(session);
+		openSessionActions(session);
 		longPressTimer = null;
 	}, 500);
 }
@@ -642,6 +615,7 @@ function getCheckpointTitle(checkpoint: CheckpointRecord): string {
 async function handleLogout() {
 	onClose?.();
 	clearAllCachedSpaceLists();
+	clearAllCachedSpacePins();
 	clearAllCachedSessionLists();
 	const userUuid = authStore.userUuid;
 	if (userUuid) clearRecentSpace(userUuid);
@@ -655,6 +629,7 @@ async function handleLogout() {
 onMount(() => {
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
+	let offSpacePinsCacheUpdated = () => {};
 	if (mode === "space") {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
 			({ spaces: nextSpaces }) => {
@@ -669,6 +644,10 @@ onMount(() => {
 				if (pageInfo) sessionsPageInfo = pageInfo;
 			},
 		);
+		offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(({ spaceId, marks }) => {
+			if (spaceId !== currentSpaceId) return;
+			pinnedMarks = marks;
+		});
 		void (async () => {
 			await loadSpaces();
 
@@ -701,7 +680,7 @@ onMount(() => {
 	function handleMarksUpdated(e: Event) {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
-			void loadPinsForSpace(currentSpaceId);
+			void loadPinsForSpace(currentSpaceId, true);
 		}
 	}
 
@@ -719,6 +698,7 @@ onMount(() => {
 	return () => {
 		offSpaceListCacheUpdated();
 		offSessionListCacheUpdated();
+		offSpacePinsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
 			window.removeEventListener(
@@ -766,6 +746,7 @@ $effect(() => {
 	const id = currentSpaceId;
 	if (id) {
 		sessions = [];
+		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		untrack(() => {
 			void loadSessionsForSpace(id);
@@ -776,6 +757,7 @@ $effect(() => {
 		});
 	} else {
 		sessions = [];
+		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		checkpoints = [];
 		cronjobs = [];
@@ -976,9 +958,8 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/session flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
-                      oncontextmenu={(e) => { e.preventDefault(); handleContextMenu(e, session); }}
                       ontouchstart={() => handleLongPressStart(session)}
                       ontouchend={handleLongPressCancel}
                       ontouchmove={handleLongPressCancel}
@@ -991,15 +972,47 @@ $effect(() => {
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
                       {#if sourceBadge(session.source)}
-                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary">
+                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary group-hover/session:hidden group-focus-within/session:hidden">
                           {sourceBadge(session.source)}
                         </span>
                       {/if}
                       {#if sessionIsStreaming(session)}
-                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse" title="Streaming..."></div>
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse group-hover/session:hidden group-focus-within/session:hidden" title="Streaming..."></div>
                       {:else if unreadTracker.isUnread(session, session.lastMessageId)}
-                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand" title="Unread"></div>
+                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand group-hover/session:hidden group-focus-within/session:hidden" title="Unread"></div>
                       {/if}
+                      <span class="hidden shrink-0 items-center gap-0.5 group-hover/session:inline-flex group-focus-within/session:inline-flex">
+                        <button
+                          type="button"
+                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                          draggable="false"
+                          title={isPinned("session", session.id) ? "Unpin chat" : "Pin chat"}
+                          onclick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            togglePinResource("session", session.id, getSessionTitle(session, index));
+                          }}
+                        >
+                          {#if isPinned("session", session.id)}
+                            <PinOff class="w-3.5 h-3.5" />
+                          {:else}
+                            <Pin class="w-3.5 h-3.5" />
+                          {/if}
+                        </button>
+                        <button
+                          type="button"
+                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                          draggable="false"
+                          title="Rename"
+                          onclick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            startRenameSession(session);
+                          }}
+                        >
+                          <Pencil class="w-3.5 h-3.5" />
+                        </button>
+                      </span>
                     </a>
                   {/if}
                 {/each}
@@ -1065,9 +1078,8 @@ $effect(() => {
             {:else}
               <a
                 href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
-                class="flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="group/session flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
-                oncontextmenu={(e) => { e.preventDefault(); handleContextMenu(e, activeSession); }}
                 ontouchstart={() => handleLongPressStart(activeSession)}
                 ontouchend={handleLongPressCancel}
                 ontouchmove={handleLongPressCancel}
@@ -1079,6 +1091,38 @@ $effect(() => {
                 title={sourceTooltip(activeSession.source) || undefined}
               >
                 <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
+                <span class="hidden shrink-0 items-center gap-0.5 group-hover/session:inline-flex group-focus-within/session:inline-flex">
+                  <button
+                    type="button"
+                    class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                    draggable="false"
+                    title={isPinned("session", activeSession.id) ? "Unpin chat" : "Pin chat"}
+                    onclick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      togglePinResource("session", activeSession.id, getSessionTitle(activeSession, 0));
+                    }}
+                  >
+                    {#if isPinned("session", activeSession.id)}
+                      <PinOff class="w-3.5 h-3.5" />
+                    {:else}
+                      <Pin class="w-3.5 h-3.5" />
+                    {/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                    draggable="false"
+                    title="Rename"
+                    onclick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      startRenameSession(activeSession);
+                    }}
+                  >
+                    <Pencil class="w-3.5 h-3.5" />
+                  </button>
+                </span>
               </a>
             {/if}
           {/if}
@@ -1108,22 +1152,31 @@ $effect(() => {
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
-                      class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/checkpoint flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
-                      oncontextmenu={(e) => {
-                        e.preventDefault();
-                        if (isPinned("checkpoint", checkpoint.id)) {
-                          void unpinResource("checkpoint", checkpoint.id);
-                        } else {
-                          void pinResource("checkpoint", checkpoint.id, getCheckpointTitle(checkpoint));
-                        }
-                      }}
                     >
                       <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
                         <div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div>
                         <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{checkpoint.commitHash.slice(0, 12)}</div>
                       </div>
+                      <button
+                        type="button"
+                        class="hidden shrink-0 p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors group-hover/checkpoint:inline-flex group-focus-within/checkpoint:inline-flex"
+                        draggable="false"
+                        title={isPinned("checkpoint", checkpoint.id) ? "Unpin save" : "Pin save"}
+                        onclick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePinResource("checkpoint", checkpoint.id, getCheckpointTitle(checkpoint));
+                        }}
+                      >
+                        {#if isPinned("checkpoint", checkpoint.id)}
+                          <PinOff class="w-3.5 h-3.5" />
+                        {:else}
+                          <Pin class="w-3.5 h-3.5" />
+                        {/if}
+                      </button>
                     </a>
                   {/each}
                 </div>
@@ -1361,52 +1414,6 @@ $effect(() => {
     </button>
   </div>
 </aside>
-
-<!-- Desktop context menu (right-click on session) -->
-{#if sessionContextMenu.session && desktopMenuX}
-  <div
-    class="fixed inset-0 z-[100]"
-    onclick={closeDesktopMenu}
-    onkeydown={(e) => { if (e.key === "Escape") closeDesktopMenu(); }}
-    role="presentation"
-  >
-    <div
-      class="absolute bg-bg-primary border border-border-subtle rounded-md shadow-lg py-1 min-w-[160px] z-50"
-      style="left: {desktopMenuX}px; top: {desktopMenuY}px;"
-      onclick={(e) => e.stopPropagation()}
-      role="presentation"
-    >
-      <button
-        type="button"
-        class="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-        onclick={() => {
-          const session = sessionContextMenu.session;
-          if (!session) return;
-          if (isPinned("session", session.id)) {
-            void unpinResource("session", session.id);
-          } else {
-            void pinResource("session", session.id, getSessionTitle(session, 0));
-          }
-          closeDesktopMenu();
-        }}
-      >
-        <Pin class="w-3.5 h-3.5" />
-        <span>{isPinned("session", sessionContextMenu.session.id) ? "Unpin chat" : "Pin chat"}</span>
-      </button>
-      <button
-        type="button"
-        class="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-        onclick={() => {
-          const session = sessionContextMenu.session;
-          if (session) startRenameSession(session);
-        }}
-      >
-        <Pencil class="w-3.5 h-3.5" />
-        <span>Rename</span>
-      </button>
-    </div>
-  </div>
-{/if}
 
 <!-- Space Switcher Modal -->
 <Dialog open={showSpaceModal} onClose={() => { showSpaceModal = false; }} title="Switch Space" maxWidth="340px">
