@@ -441,6 +441,14 @@ async function handleNavigateToSession(sessionId: string) {
 
 async function handleNavigateToPinned(mark: SpaceMarkListItem) {
 	onClose?.();
+	if (mark.resourceType === "file" && currentSpaceId) {
+		window.dispatchEvent(
+			new CustomEvent("cohub:open-inline-file", {
+				detail: { spaceId: currentSpaceId, path: mark.resourceRef },
+			}),
+		);
+		return;
+	}
 	await goto(mark.href);
 }
 
@@ -868,12 +876,33 @@ $effect(() => {
                   {@const Icon = getPinnedIcon(mark.resourceType)}
                   <button
                     type="button"
-                    class="flex items-center gap-2 w-full px-2 py-1.5 mx-[-2px] rounded-[6px] text-left text-[13px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-8 mx-[-2px] rounded-[6px] text-left text-[13px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
                     onclick={() => void handleNavigateToPinned(mark)}
                     title={mark.resource?.subtitle ?? mark.resourceRef}
                   >
                     <Icon class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                     <span class="truncate leading-tight flex-1">{getPinnedFallbackTitle(mark)}</span>
+                    <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto"}>
+                      <span
+                        role="button"
+                        tabindex="0"
+                        class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                        title="Unpin"
+                        onclick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
+                        }}
+                        onkeydown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
+                        }}
+                      >
+                        <PinOff class="w-3.5 h-3.5" />
+                      </span>
+                    </span>
                   </button>
                 {/each}
               </div>
@@ -942,7 +971,7 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-20 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 							onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
@@ -957,16 +986,16 @@ $effect(() => {
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
                       {#if sourceBadge(session.source)}
-                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}">
+                        <span class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}">
                           {sourceBadge(session.source)}
                         </span>
                       {/if}
                       {#if sessionIsStreaming(session)}
-                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Streaming..."></div>
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2 w-[6px] h-[6px] rounded-full bg-status-running animate-pulse {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Streaming..."></div>
                       {:else if unreadTracker.isUnread(session, session.lastMessageId)}
-                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Unread"></div>
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2 w-[7px] h-[7px] rounded-full bg-brand {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Unread"></div>
                       {/if}
-                      <span class={isMobile ? "hidden" : "inline-flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
+                      <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                         <button
                           type="button"
                           class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
@@ -1076,7 +1105,7 @@ $effect(() => {
             {:else}
               <a
                 href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
-                class="group/session flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-20 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
 				draggable={!isMobile}
@@ -1090,7 +1119,7 @@ $effect(() => {
                 title={sourceTooltip(activeSession.source) || undefined}
               >
                 <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
-                <span class={isMobile ? "hidden" : "inline-flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
+                <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                   <button
                     type="button"
                     class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
@@ -1164,7 +1193,7 @@ $effect(() => {
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
-                      class="group/checkpoint flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-2 py-1.5 pr-8 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
                     >
                       <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -1174,7 +1203,7 @@ $effect(() => {
                       </div>
                       <button
                         type="button"
-                        class={isMobile ? "hidden" : "inline-flex shrink-0 p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-opacity opacity-0 pointer-events-none group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto"}
+                        class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-opacity opacity-0 pointer-events-none group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto"}
                         draggable="false"
                         title={isPinned("checkpoint", checkpoint.id) ? "Unpin save" : "Pin save"}
                         onclick={(e) => {

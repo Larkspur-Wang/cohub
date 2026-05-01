@@ -45,6 +45,7 @@ import {
 	Loader2,
 	Lock,
 	MessageSquare,
+	MoreHorizontal,
 	Network,
 	PanelLeftClose,
 	PanelRightClose,
@@ -230,6 +231,7 @@ let modelsCatalog = $state<Array<{
 let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
+let resourceActionMenuOpen = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let pinnedMarks = $state<SpaceMarkListItem[]>([]);
@@ -3429,6 +3431,51 @@ function insertFilePathReference(path: string) {
 	insertPathReference(path);
 }
 
+function getHeaderFileActionPath() {
+	if (routeView === "file" && openFile?.path) return openFile.path;
+	return inlineFile?.path ?? null;
+}
+
+function hasResourceActions() {
+	return Boolean(activeSessionState?.session || getHeaderFileActionPath());
+}
+
+function closeResourceActionMenu() {
+	resourceActionMenuOpen = false;
+}
+
+function toggleHeaderPin() {
+	const filePath = getHeaderFileActionPath();
+	if (filePath) {
+		void togglePinFilePath(filePath);
+		closeResourceActionMenu();
+		return;
+	}
+	void togglePinActiveSession();
+	closeResourceActionMenu();
+}
+
+function insertHeaderReference() {
+	const filePath = getHeaderFileActionPath();
+	if (filePath) {
+		insertFilePathReference(filePath);
+		closeResourceActionMenu();
+		return;
+	}
+	insertActiveSessionReference();
+	closeResourceActionMenu();
+}
+
+function isHeaderResourcePinned() {
+	const filePath = getHeaderFileActionPath();
+	if (filePath) return isFilePathPinned(filePath);
+	return isActiveSessionPinned();
+}
+
+function getHeaderResourceLabel() {
+	return getHeaderFileActionPath() ? "file" : "chat";
+}
+
 async function togglePinFilePath(path: string) {
 	try {
 		const marks = await toggleSpacePin({
@@ -3606,11 +3653,26 @@ onMount(() => {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === spaceId) void loadSpacePins(true);
 	};
+	const handleOpenInlineFileEvent = (e: Event) => {
+		const custom = e as CustomEvent<{ spaceId?: string; path?: string }>;
+		if (custom.detail?.spaceId !== spaceId || !custom.detail?.path) return;
+		void openInlineFile(custom.detail.path);
+	};
+	const handleResourceActionMenuKeydown = (e: KeyboardEvent) => {
+		if (e.key === "Escape") closeResourceActionMenu();
+	};
+	const handleResourceActionMenuClickOutside = (e: MouseEvent) => {
+		const target = e.target as HTMLElement;
+		if (!target.closest("[data-resource-actions]")) closeResourceActionMenu();
+	};
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
 	window.addEventListener("cohub:marks-updated", handleMarksUpdated);
+	window.addEventListener("cohub:open-inline-file", handleOpenInlineFileEvent);
 	window.addEventListener("keydown", handleFileKeyboardSave);
+	window.addEventListener("keydown", handleResourceActionMenuKeydown);
+	document.addEventListener("click", handleResourceActionMenuClickOutside);
 	scheduleStatusRefresh();
 	return () => {
 		offSessionListCacheUpdated();
@@ -3626,7 +3688,13 @@ onMount(() => {
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
 		window.removeEventListener("cohub:marks-updated", handleMarksUpdated);
+		window.removeEventListener(
+			"cohub:open-inline-file",
+			handleOpenInlineFileEvent,
+		);
 		window.removeEventListener("keydown", handleFileKeyboardSave);
+		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
+		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
 		inlineFilePanelResizeCleanup?.();
 	};
@@ -3650,6 +3718,7 @@ $effect(() => {
 	openFile = null;
 	openFileDraft = "";
 	inlineFile = null;
+	resourceActionMenuOpen = false;
 	checkpointDetail = null;
 	cronjobDetail = null;
 	taskRunDetail = null;
@@ -3992,26 +4061,57 @@ $effect(() => {
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
-	<button
-		type="button"
-		class="icon-btn"
-		onclick={() => void togglePinFilePath(path)}
-		title={isFilePathPinned(path) ? "Unpin file" : "Pin file"}
-	>
-		{#if isFilePathPinned(path)}
-			<PinOff class="w-4 h-4" />
-		{:else}
-			<Pin class="w-4 h-4" />
+	<div class="relative shrink-0" data-resource-actions>
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={(event) => {
+				event.stopPropagation();
+				resourceActionMenuOpen = !resourceActionMenuOpen;
+			}}
+			title="More actions"
+			aria-haspopup="menu"
+			aria-expanded={resourceActionMenuOpen}
+		>
+			<MoreHorizontal class="w-4 h-4" />
+		</button>
+		{#if resourceActionMenuOpen}
+			<div
+				class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
+				role="menu"
+			>
+				<button
+					type="button"
+					class="menu-item"
+					onclick={() => {
+						void togglePinFilePath(path);
+						closeResourceActionMenu();
+					}}
+					role="menuitem"
+				>
+					{#if isFilePathPinned(path)}
+						<PinOff class="w-3.5 h-3.5" />
+						<span>Unpin file</span>
+					{:else}
+						<Pin class="w-3.5 h-3.5" />
+						<span>Pin file</span>
+					{/if}
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					onclick={() => {
+						insertFilePathReference(path);
+						closeResourceActionMenu();
+					}}
+					role="menuitem"
+				>
+					<FileText class="w-3.5 h-3.5" />
+					<span>Insert reference</span>
+				</button>
+			</div>
 		{/if}
-	</button>
-	<button
-		type="button"
-		class="icon-btn"
-		onclick={() => insertFilePathReference(path)}
-		title="Insert reference"
-	>
-		<FileText class="w-4 h-4" />
-	</button>
+	</div>
 {/snippet}
 
 <PageHeader>
@@ -4071,26 +4171,6 @@ $effect(() => {
               title="Click to rename"
             >
               {getSessionTitle(activeSessionState.session)}
-            </button>
-            <button
-              type="button"
-              class="icon-btn shrink-0"
-              onclick={() => void togglePinActiveSession()}
-              title={isActiveSessionPinned() ? "Unpin chat" : "Pin chat"}
-            >
-              {#if isActiveSessionPinned()}
-                <PinOff class="w-4 h-4" />
-              {:else}
-                <Pin class="w-4 h-4" />
-              {/if}
-            </button>
-            <button
-              type="button"
-              class="icon-btn shrink-0"
-              onclick={insertActiveSessionReference}
-              title="Insert reference"
-            >
-              <FileText class="w-4 h-4" />
             </button>
             {#if wsConnectionState === 'reconnecting'}
               <span class="inline-flex shrink-0 items-center text-[12px] text-warning">
@@ -4165,6 +4245,40 @@ $effect(() => {
           <span class="hidden lg:inline text-[13px] font-medium">Share</span>
         {/if}
       </button>
+    {/if}
+    {#if hasResourceActions()}
+      <div class="relative" data-resource-actions>
+        <button
+          type="button"
+          class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={(event) => {
+            event.stopPropagation();
+            resourceActionMenuOpen = !resourceActionMenuOpen;
+          }}
+          title="More actions"
+          aria-haspopup="menu"
+          aria-expanded={resourceActionMenuOpen}
+        >
+          <MoreHorizontal class="w-4 h-4 shrink-0" />
+        </button>
+        {#if resourceActionMenuOpen}
+          <div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
+            <button type="button" class="menu-item" onclick={toggleHeaderPin} role="menuitem">
+              {#if isHeaderResourcePinned()}
+                <PinOff class="w-3.5 h-3.5" />
+                <span>Unpin {getHeaderResourceLabel()}</span>
+              {:else}
+                <Pin class="w-3.5 h-3.5" />
+                <span>Pin {getHeaderResourceLabel()}</span>
+              {/if}
+            </button>
+            <button type="button" class="menu-item" onclick={insertHeaderReference} role="menuitem">
+              <FileText class="w-3.5 h-3.5" />
+              <span>Insert reference</span>
+            </button>
+          </div>
+        {/if}
+      </div>
     {/if}
     <!-- Toggle right sidebar -->
     {#if !spaceHasMinimalAccess}
@@ -6378,6 +6492,23 @@ $effect(() => {
     color: #fff;
   }
   .action-btn.primary:hover { opacity: 0.9; }
+  .menu-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .menu-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
   .toggle-btn {
     display: inline-flex;
     align-items: center;
