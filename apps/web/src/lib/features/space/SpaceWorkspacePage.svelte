@@ -67,6 +67,8 @@ import {
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
+import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
+import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
@@ -93,7 +95,6 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
-
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
@@ -106,14 +107,13 @@ import {
 import { applyGenerationRealtimeEnvelope } from "$lib/stores/session-generation-realtime";
 import {
 	fetchSessionListWithCache,
-	getCachedSessionList,
+	getCachedSessionListSnapshot,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
-	clearCachedSpaceFsDir,
 	clearCachedSpaceFsSubtree,
 	fetchSpaceFsDirWithCache,
 	getCachedSpaceFsDir,
@@ -1646,11 +1646,11 @@ function getParentDirPath(path: string): string {
 function updateRootFsEntries(entries: SpaceFsEntry[]) {
 	fileTree = makeFsNodes(entries);
 }
-function patchFsDirectory(
+async function patchFsDirectory(
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
 ) {
-	const nextEntries = patchCachedSpaceFsDir(spaceId, dirPath, updater);
+	const nextEntries = await patchCachedSpaceFsDir(spaceId, dirPath, updater);
 	if (dirPath === "") {
 		updateRootFsEntries(nextEntries);
 		return nextEntries;
@@ -1762,7 +1762,8 @@ async function loadSpace(_options?: { force?: boolean }) {
 	spaceLoadError = "";
 	const force = _options?.force ?? false;
 	if (!force) {
-		const cachedSessions = getCachedSessionList(spaceId);
+		const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
+		const cachedSessions = cachedSnapshot?.sessions;
 		if (cachedSessions && cachedSessions.length > 0) {
 			seedSessions(cachedSessions);
 		}
@@ -2082,7 +2083,7 @@ async function submitSessionRename() {
 			.space(spaceId)
 			.session(activeSessionId)
 			.rename(trimmed);
-		spaceSessions = patchCachedSessionList(spaceId, (current) =>
+		spaceSessions = await patchCachedSessionList(spaceId, (current) =>
 			current.map((s) => (s.id === activeSessionId ? result.session : s)),
 		);
 		if (sessionStateById[activeSessionId]) {
@@ -2105,29 +2106,45 @@ async function loadSessionState(sessionId: string, force = false) {
 	const existing = sessionStateById[sessionId];
 	if (loadingSessionIds[sessionId] && !force) return;
 	if (existing?.loaded && !force) return;
-	// Mark loading immediately to prevent concurrent calls during async ops
+	const cached = !force
+		? await sessionTurnsRepo.getCached(spaceId, sessionId)
+		: null;
+	if (cached && cached.turns.length > 0) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session:
+					cached.session ??
+					existing?.session ??
+					spaceSessions.find((s) => s.id === sessionId),
+				turns: cached.turns,
+				loading: true,
+				loaded: true,
+				error: "",
+				hasMore: cached.hasMoreOlder,
+				loadingOlder: false,
+				oldestCursor: cached.oldestSequence ?? undefined,
+			},
+		};
+	}
 	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
+	const currentSeed = sessionStateById[sessionId];
 	sessionStateById = {
 		...sessionStateById,
 		[sessionId]: {
 			session:
-				existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
-			turns: existing?.turns ?? [],
+				currentSeed?.session ??
+				existing?.session ??
+				spaceSessions.find((s) => s.id === sessionId),
+			turns: currentSeed?.turns ?? existing?.turns ?? [],
 			loading: true,
-			loaded: existing?.loaded ?? false,
-			error: existing?.error ?? "",
-			hasMore: existing?.hasMore ?? true,
+			loaded: currentSeed?.loaded ?? existing?.loaded ?? false,
+			error: currentSeed?.error ?? existing?.error ?? "",
+			hasMore: currentSeed?.hasMore ?? existing?.hasMore ?? true,
 			loadingOlder: false,
-			oldestCursor: existing?.oldestCursor,
+			oldestCursor: currentSeed?.oldestCursor ?? existing?.oldestCursor,
 		},
 	};
-	const refreshed = sessionStateById[sessionId];
-	if (refreshed?.loaded && !force) {
-		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
-		return;
-	}
-	const anchor = getSessionScrollAnchor(sessionId);
-	void anchor;
 	try {
 		const response = await sdk
 			.space(spaceId)
@@ -2135,36 +2152,41 @@ async function loadSessionState(sessionId: string, force = false) {
 			.turns.listPaginated({
 				limit: 30,
 			});
+		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
+			session: response.session,
+			turns: response.turns,
+			hasMore: response.hasMore,
+		});
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
-				session: response.session,
-				turns: response.turns,
+				session: snapshot.session ?? response.session,
+				turns: snapshot.turns,
 				loading: false,
 				loaded: true,
 				error: "",
-				hasMore: response.hasMore,
+				hasMore: snapshot.hasMoreOlder,
 				loadingOlder: false,
-				oldestCursor:
-					response.hasMore && response.turns.length > 0
-						? response.turns[0].sequence
-						: undefined,
+				oldestCursor: snapshot.oldestSequence ?? undefined,
 			},
 		};
 	} catch (error) {
+		const fallback = sessionStateById[sessionId];
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				session:
-					existing?.session ?? spaceSessions.find((s) => s.id === sessionId),
-				turns: existing?.turns ?? [],
+					fallback?.session ??
+					existing?.session ??
+					spaceSessions.find((s) => s.id === sessionId),
+				turns: fallback?.turns ?? existing?.turns ?? [],
 				loading: false,
-				loaded: true,
+				loaded: Boolean(fallback?.loaded ?? existing?.loaded),
 				error:
 					error instanceof Error ? error.message : "Failed to load session",
-				hasMore: existing?.hasMore ?? true,
+				hasMore: fallback?.hasMore ?? existing?.hasMore ?? true,
 				loadingOlder: false,
-				oldestCursor: existing?.oldestCursor,
+				oldestCursor: fallback?.oldestCursor ?? existing?.oldestCursor,
 			},
 		};
 	} finally {
@@ -2186,16 +2208,20 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 				limit: 100,
 			});
 		if (response.turns.length > 0) {
+			const snapshot = await sessionTurnsRepo.mergeTurns(
+				spaceId,
+				sessionId,
+				response.turns,
+				{ session: response.session, source: "network" },
+			);
 			const current = sessionStateById[sessionId];
 			if (current) {
 				sessionStateById = {
 					...sessionStateById,
 					[sessionId]: {
 						...current,
-						session: response.session ?? current.session,
-						turns: mergeTurnsById(current.turns, response.turns, {
-							preferIncoming: true,
-						}),
+						session: snapshot.session ?? current.session,
+						turns: snapshot.turns,
 					},
 				};
 			}
@@ -2224,35 +2250,25 @@ async function loadOlderTurns(sessionId: string) {
 				direction: "older",
 				limit: 30,
 			});
+		const snapshot = await sessionTurnsRepo.loadOlder(spaceId, sessionId, {
+			session: response.session,
+			turns: response.turns,
+			hasMore: response.hasMore,
+		});
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...state,
+				session: snapshot.session ?? state.session,
+				turns: snapshot.turns,
+				hasMore: snapshot.hasMoreOlder,
+				loadingOlder: false,
+				oldestCursor: snapshot.oldestSequence ?? undefined,
+			},
+		};
 		if (response.turns.length > 0) {
-			const merged = mergeTurnsById(state.turns, response.turns, {
-				preferIncoming: false,
-			});
-			sessionStateById = {
-				...sessionStateById,
-				[sessionId]: {
-					...state,
-					session: response.session ?? state.session,
-					turns: merged,
-					hasMore: response.hasMore,
-					loadingOlder: false,
-					oldestCursor:
-						response.hasMore && merged.length > 0
-							? merged[0].sequence
-							: undefined,
-				},
-			};
 			await tick();
 			chatTimelineRef?.finalizePrepend();
-		} else {
-			sessionStateById = {
-				...sessionStateById,
-				[sessionId]: {
-					...state,
-					hasMore: false,
-					loadingOlder: false,
-				},
-			};
 		}
 	} catch (error) {
 		sessionStateById = {
@@ -2291,21 +2307,23 @@ async function reconcileSessionTail(sessionId: string) {
 			.turns.listPaginated({
 				limit: 30,
 			});
+		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
+			session: response.session,
+			turns: response.turns,
+			hasMore: response.hasMore,
+		});
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...state,
-				session: response.session ?? state.session,
-				turns: response.turns,
-				hasMore: response.hasMore,
+				session: snapshot.session ?? state.session,
+				turns: snapshot.turns,
+				hasMore: snapshot.hasMoreOlder,
 				loading: false,
 				loaded: true,
 				error: "",
 				loadingOlder: false,
-				oldestCursor:
-					response.hasMore && response.turns.length > 0
-						? response.turns[0].sequence
-						: undefined,
+				oldestCursor: snapshot.oldestSequence ?? undefined,
 			},
 		};
 	} catch (error) {
@@ -2363,11 +2381,26 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			oldPath?: string;
 			kind?: string;
 			nodeType?: string;
+			mtimeMs?: number;
+			size?: number;
 		}>;
 	};
-	const dirsToRefresh = new Set<string>();
+	const { refreshDirs: dirsToRefresh } = await spaceFsRepo.applyFsChanged(
+		spaceId,
+		eventPayload as Parameters<typeof spaceFsRepo.applyFsChanged>[1],
+	);
+	for (const dir of dirsToRefresh) {
+		const snapshot = await spaceFsRepo.getDir(spaceId, dir);
+		if (!snapshot) continue;
+		if (dir === "") updateRootFsEntries(snapshot.entries);
+		else
+			fileTree = replaceNodeChildren(
+				fileTree,
+				dir,
+				makeFsNodes(snapshot.entries),
+			);
+	}
 	if (eventPayload.resync) {
-		clearCachedSpaceFsSubtree(spaceId, "");
 		await loadFileTree(true);
 		if (routeView === "file" && routeFilePath && !fileDirty) {
 			await openFileFromUrl(routeFilePath).catch(() => undefined);
@@ -2378,12 +2411,6 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 		return;
 	}
 	for (const change of eventPayload.changes ?? []) {
-		if (change.path) dirsToRefresh.add(getParentDirPath(change.path));
-		if (change.oldPath) dirsToRefresh.add(getParentDirPath(change.oldPath));
-		if (change.nodeType === "dir" && change.path)
-			clearCachedSpaceFsSubtree(spaceId, change.path);
-		if (change.oldPath && change.nodeType === "dir")
-			clearCachedSpaceFsSubtree(spaceId, change.oldPath);
 		const isOwnPendingChange = isOwnPendingFileSave(
 			change.path,
 			eventPayload.source,
@@ -2418,9 +2445,6 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 				inlineFile.error =
 					"File changed externally. Save carefully or reload before editing further.";
 		}
-	}
-	for (const dir of dirsToRefresh) {
-		clearCachedSpaceFsDir(spaceId, dir);
 	}
 	if (dirsToRefresh.has("")) await loadFileTree(true);
 	for (const dir of dirsToRefresh) {
@@ -2485,15 +2509,17 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			const existingTurn =
 				state.turns.find((turn) => turn.id === turnId) ?? null;
 			if (existingTurn) {
+				const snapshot = await sessionTurnsRepo.mergeTurns(
+					spaceId,
+					currentActiveSessionId,
+					[{ ...existingTurn, ...turnPatch } as SessionTurnRecord],
+					{ session: state.session ?? null },
+				);
 				sessionStateById = {
 					...sessionStateById,
 					[currentActiveSessionId]: {
 						...state,
-						turns: mergeTurnsById(
-							state.turns,
-							[{ ...existingTurn, ...turnPatch } as SessionTurnRecord],
-							{ preferIncoming: true },
-						),
+						turns: snapshot.turns,
 					},
 				};
 			}
@@ -2504,17 +2530,24 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					.space(spaceId)
 					.session(currentActiveSessionId)
 					.turns.get(turnId)
-					.then((response) => {
+					.then(async (response) => {
 						const current = sessionStateById[currentActiveSessionId];
 						if (!current) return;
+						const snapshot = await sessionTurnsRepo.mergeTurns(
+							spaceId,
+							currentActiveSessionId,
+							[response.turn],
+							{
+								session: response.session ?? current.session ?? null,
+								source: "network",
+							},
+						);
 						sessionStateById = {
 							...sessionStateById,
 							[currentActiveSessionId]: {
 								...current,
-								session: response.session ?? current.session,
-								turns: mergeTurnsById(current.turns, [response.turn], {
-									preferIncoming: true,
-								}),
+								session: snapshot.session ?? current.session,
+								turns: snapshot.turns,
 							},
 						};
 					})
@@ -2576,43 +2609,43 @@ async function handleSend() {
 		const model = activeSessionModel;
 		const now = new Date().toISOString();
 		const sequenceHint = (activeSessionState?.turns.at(-1)?.sequence ?? 0) + 1;
+		const optimisticTurn = {
+			id: optimisticTurnId,
+			sessionId,
+			userUuid: null,
+			sequence: sequenceHint,
+			status: "running",
+			intent: "steer",
+			userContent: content,
+			userText: text,
+			assistantContent: null,
+			assistantText: null,
+			provider: model?.provider ?? null,
+			model: model?.id ?? null,
+			stopReason: null,
+			errorMessage: null,
+			usage: null,
+			summary: null,
+			intermediateIndex: null,
+			intermediateSummary: null,
+			meta: { optimistic: true },
+			startedAt: now,
+			completedAt: null,
+			createdAt: now,
+			updatedAt: now,
+		} as SessionTurnRecord;
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...activeSessionState,
-				turns: mergeTurnsById(
-					activeSessionState.turns,
-					[
-						{
-							id: optimisticTurnId,
-							sessionId,
-							userUuid: null,
-							sequence: sequenceHint,
-							status: "running",
-							intent: "steer",
-							userContent: content,
-							userText: text,
-							assistantContent: null,
-							assistantText: null,
-							provider: model?.provider ?? null,
-							model: model?.id ?? null,
-							stopReason: null,
-							errorMessage: null,
-							usage: null,
-							summary: null,
-							intermediateIndex: null,
-							intermediateSummary: null,
-							meta: { optimistic: true },
-							startedAt: now,
-							completedAt: null,
-							createdAt: now,
-							updatedAt: now,
-						},
-					],
-					{ preferIncoming: true },
-				),
+				turns: mergeTurnsById(activeSessionState.turns, [optimisticTurn], {
+					preferIncoming: true,
+				}),
 			},
 		};
+		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
+			session: activeSessionState.session,
+		});
 		startGenerationRequest(sessionId);
 		const sendResult = await sdk
 			.space(spaceId)
@@ -2928,7 +2961,7 @@ async function loadFileTree(force = false) {
 	const requestToken = fileTreeRequestToken + 1;
 	fileTreeRequestToken = requestToken;
 	if (!force) {
-		const cached = getCachedSpaceFsDir(spaceId, "");
+		const cached = await getCachedSpaceFsDir(spaceId, "");
 		if (cached && cached.length > 0) {
 			fileTree = makeFsNodes(cached);
 		}
@@ -2939,7 +2972,7 @@ async function loadFileTree(force = false) {
 		fileTreeLoading = true;
 	}
 	fileTreeError = null;
-	const cacheMeta = getCachedSpaceFsDirMeta(spaceId, "");
+	const cacheMeta = await getCachedSpaceFsDirMeta(spaceId, "");
 	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
 	if (!shouldFetch) {
 		fileTreeLoading = false;
@@ -2988,7 +3021,7 @@ async function expandDirectory(node: SpaceFsNode) {
 		...directoryLoadTokenByPath,
 		[node.path]: requestToken,
 	};
-	const cached = getCachedSpaceFsDir(spaceId, node.path);
+	const cached = await getCachedSpaceFsDir(spaceId, node.path);
 	if (cached) {
 		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(cached));
 	}
@@ -2999,7 +3032,7 @@ async function expandDirectory(node: SpaceFsNode) {
 			isOpen: true,
 		}));
 	}
-	const cacheMeta = getCachedSpaceFsDirMeta(spaceId, node.path);
+	const cacheMeta = await getCachedSpaceFsDirMeta(spaceId, node.path);
 	const shouldFetch = !cacheMeta || cacheMeta.isStale;
 	if (!shouldFetch) {
 		fileTree = updateNodeState(fileTree, node.path, (item) => ({
@@ -3083,7 +3116,7 @@ async function saveOpenFile() {
 		};
 		openFileError = null;
 		const updatedPath = openFile.path;
-		patchFsDirectory(getParentDirPath(updatedPath), (entries) =>
+		await patchFsDirectory(getParentDirPath(updatedPath), (entries) =>
 			entries.map((entry) =>
 				entry.path === updatedPath
 					? {
@@ -3110,7 +3143,7 @@ async function handleCreateFile(parentPath: string) {
 		await sdk
 			.space(spaceId)
 			.files.write({ path, content: "", encoding: "utf-8" });
-		patchFsDirectory(parentPath, (entries) => [
+		await patchFsDirectory(parentPath, (entries) => [
 			...entries,
 			buildFsEntry(path, "file"),
 		]);
@@ -3126,7 +3159,7 @@ async function handleCreateDir(parentPath: string) {
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
 	try {
 		await sdk.space(spaceId).files.createDir(path);
-		patchFsDirectory(parentPath, (entries) => [
+		await patchFsDirectory(parentPath, (entries) => [
 			...entries,
 			buildFsEntry(path, "dir"),
 		]);
@@ -3146,7 +3179,7 @@ async function handleRenameNode(node: SpaceFsNode) {
 	try {
 		await sdk.space(spaceId).files.move({ fromPath: node.path, toPath });
 		if (parent === getParentDirPath(toPath)) {
-			patchFsDirectory(parent, (entries) =>
+			await patchFsDirectory(parent, (entries) =>
 				entries.map((entry) =>
 					entry.path === node.path
 						? {
@@ -3159,10 +3192,10 @@ async function handleRenameNode(node: SpaceFsNode) {
 				),
 			);
 		} else {
-			patchFsDirectory(parent, (entries) =>
+			await patchFsDirectory(parent, (entries) =>
 				entries.filter((entry) => entry.path !== node.path),
 			);
-			patchFsDirectory(getParentDirPath(toPath), (entries) => [
+			await patchFsDirectory(getParentDirPath(toPath), (entries) => [
 				...entries,
 				{
 					...buildFsEntry(toPath, node.type),
@@ -3173,7 +3206,7 @@ async function handleRenameNode(node: SpaceFsNode) {
 			]);
 		}
 		if (isDirectoryRename) {
-			clearCachedSpaceFsSubtree(spaceId, node.path);
+			await clearCachedSpaceFsSubtree(spaceId, node.path);
 		}
 		if (openFile?.path === node.path) {
 			closeFile();
@@ -3189,11 +3222,11 @@ async function handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
-		patchFsDirectory(getParentDirPath(node.path), (entries) =>
+		await patchFsDirectory(getParentDirPath(node.path), (entries) =>
 			entries.filter((entry) => entry.path !== node.path),
 		);
 		if (node.type === "dir") {
-			clearCachedSpaceFsSubtree(spaceId, node.path);
+			await clearCachedSpaceFsSubtree(spaceId, node.path);
 		}
 		if (openFile?.path === node.path) closeFile();
 		if (inlineFile?.path === node.path) closeInlineFile();
@@ -3439,10 +3472,13 @@ function handleCreateNewSession() {
 		.sessions.create({ source: "web" })
 		.then(async (result) => {
 			const newSession = result.session;
-			const nextSessions = patchCachedSessionList(createSpaceId, (current) => [
-				newSession,
-				...current.filter((session) => session.id !== newSession.id),
-			]);
+			const nextSessions = await patchCachedSessionList(
+				createSpaceId,
+				(current) => [
+					newSession,
+					...current.filter((session) => session.id !== newSession.id),
+				],
+			);
 			seedSessions(nextSessions);
 			activeSessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
@@ -3667,6 +3703,25 @@ $effect(() => {
 		void handleWsEvent(event as ChannelEnvelope);
 	});
 	return wsEventCleanup;
+});
+$effect(() => {
+	const currentSpaceId = spaceId;
+	const sessionId = activeSessionId;
+	if (!pageMounted || !currentSpaceId || !sessionId) return;
+	return sessionTurnsRepo.subscribe(currentSpaceId, sessionId, (snapshot) => {
+		const current = sessionStateById[sessionId];
+		if (!current) return;
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...current,
+				session: snapshot.session ?? current.session,
+				turns: snapshot.turns,
+				hasMore: snapshot.hasMoreOlder,
+				oldestCursor: snapshot.oldestSequence ?? undefined,
+			},
+		};
+	});
 });
 $effect(() => {
 	if (

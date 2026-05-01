@@ -1,95 +1,55 @@
 import type { SpaceFsEntry } from "@neta-art/cohub";
-import { createLocalListCache } from "$lib/stores/create-local-list-cache";
+import { deleteCacheDatabase } from "$lib/cache/db";
+import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 
-const SPACE_FS_SCOPE_SEPARATOR = "::";
-const SPACE_FS_ROOT = "__root__";
-
-function sortEntries(entries: SpaceFsEntry[]) {
-	return [...entries].sort((a, b) => {
-		if (a.type === "dir" && b.type !== "dir") return -1;
-		if (a.type !== "dir" && b.type === "dir") return 1;
-		return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-	});
-}
-
-function dedupeEntries(entries: SpaceFsEntry[]) {
-	const byPath = new Map<string, SpaceFsEntry>();
-	for (const entry of entries) {
-		byPath.set(entry.path, entry);
-	}
-	return sortEntries(Array.from(byPath.values()));
-}
-
-const cache = createLocalListCache<SpaceFsEntry>({
-	storagePrefix: "cohub:space-fs-dir",
-	cacheVersion: 1,
-	updatedEventName: "cohub:space-fs-dir-updated",
-	ttlMs: 60_000,
-	normalize: dedupeEntries,
-});
-
-function normalizeDirPath(dirPath: string) {
-	return dirPath.trim() === "" ? SPACE_FS_ROOT : dirPath;
-}
-
-function getScope(spaceId: string, dirPath: string) {
-	return `${spaceId}${SPACE_FS_SCOPE_SEPARATOR}${normalizeDirPath(dirPath)}`;
-}
-
-function parseScope(scope: string) {
-	const separatorIndex = scope.indexOf(SPACE_FS_SCOPE_SEPARATOR);
-	if (separatorIndex <= 0) return null;
-	const spaceId = scope.slice(0, separatorIndex);
-	const rawDirPath = scope.slice(
-		separatorIndex + SPACE_FS_SCOPE_SEPARATOR.length,
-	);
-	return {
-		spaceId,
-		dirPath: rawDirPath === SPACE_FS_ROOT ? "" : rawDirPath,
-	};
-}
-
-export function getCachedSpaceFsDir(
+export async function getCachedSpaceFsDir(
 	spaceId: string,
 	dirPath: string,
-): SpaceFsEntry[] | null {
-	return cache.getCached(getScope(spaceId, dirPath));
+): Promise<SpaceFsEntry[] | null> {
+	const snapshot = await spaceFsRepo.getDir(spaceId, dirPath);
+	return snapshot?.entries ?? null;
 }
 
-export function getCachedSpaceFsDirMeta(spaceId: string, dirPath: string) {
-	return cache.getCachedMeta(getScope(spaceId, dirPath));
+export async function getCachedSpaceFsDirMeta(
+	spaceId: string,
+	dirPath: string,
+) {
+	const snapshot = await spaceFsRepo.getDir(spaceId, dirPath);
+	if (!snapshot) return null;
+	return { updatedAt: snapshot.updatedAt, isStale: snapshot.stale };
 }
 
-export function setCachedSpaceFsDir(
+export async function setCachedSpaceFsDir(
 	spaceId: string,
 	dirPath: string,
 	entries: SpaceFsEntry[],
-): SpaceFsEntry[] {
-	return cache.setCached(getScope(spaceId, dirPath), entries);
+): Promise<SpaceFsEntry[]> {
+	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, entries);
+	return snapshot.entries;
 }
 
-export function patchCachedSpaceFsDir(
+export async function patchCachedSpaceFsDir(
 	spaceId: string,
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
-): SpaceFsEntry[] {
-	return cache.patchCached(getScope(spaceId, dirPath), updater);
+): Promise<SpaceFsEntry[]> {
+	const snapshot = await spaceFsRepo.patchDir(spaceId, dirPath, updater);
+	return snapshot.entries;
 }
 
-export function clearCachedSpaceFsDir(spaceId: string, dirPath: string) {
-	cache.clearCached(getScope(spaceId, dirPath));
+export async function clearCachedSpaceFsDir(spaceId: string, dirPath: string) {
+	await spaceFsRepo.clearDir(spaceId, dirPath);
 }
 
-export function clearCachedSpaceFsSubtree(spaceId: string, dirPath: string) {
-	const normalizedDirPath = normalizeDirPath(dirPath);
-	const scopePrefix = `${spaceId}${SPACE_FS_SCOPE_SEPARATOR}${normalizedDirPath}`;
-	cache.clearMatchingScopes(
-		(scope) => scope === scopePrefix || scope.startsWith(`${scopePrefix}/`),
-	);
+export async function clearCachedSpaceFsSubtree(
+	spaceId: string,
+	dirPath: string,
+) {
+	await spaceFsRepo.clearSubtree(spaceId, dirPath);
 }
 
-export function clearAllCachedSpaceFsDirs() {
-	cache.clearAllForCurrentUser();
+export async function clearAllCachedSpaceFsDirs() {
+	await deleteCacheDatabase();
 }
 
 export function onSpaceFsDirCacheUpdated(
@@ -99,15 +59,21 @@ export function onSpaceFsDirCacheUpdated(
 		entries: SpaceFsEntry[];
 	}) => void,
 ) {
-	return cache.onUpdated(({ scope, data }) => {
-		const parsed = parseScope(scope);
-		if (!parsed) return;
-		handler({
-			spaceId: parsed.spaceId,
-			dirPath: parsed.dirPath,
-			entries: data,
-		});
-	});
+	const listener = (event: Event) => {
+		const custom = event as CustomEvent<{
+			spaceId: string;
+			dirPath: string;
+			entries: SpaceFsEntry[];
+		}>;
+		if (!custom.detail?.spaceId) return;
+		handler(custom.detail);
+	};
+	if (typeof window !== "undefined")
+		window.addEventListener("cohub:space-fs-dir-cache-updated", listener);
+	return () => {
+		if (typeof window !== "undefined")
+			window.removeEventListener("cohub:space-fs-dir-cache-updated", listener);
+	};
 }
 
 export async function fetchSpaceFsDirWithCache(
@@ -116,5 +82,10 @@ export async function fetchSpaceFsDirWithCache(
 	fetcher: () => Promise<SpaceFsEntry[]>,
 	options?: { force?: boolean },
 ): Promise<SpaceFsEntry[]> {
-	return cache.fetchWithCache(getScope(spaceId, dirPath), fetcher, options);
+	if (!options?.force) {
+		const cached = await spaceFsRepo.getDir(spaceId, dirPath);
+		if (cached && !cached.stale) return cached.entries;
+	}
+	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, await fetcher());
+	return snapshot.entries;
 }

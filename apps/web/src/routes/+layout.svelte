@@ -2,6 +2,7 @@
 import "../app.css";
 import { onMount } from "svelte";
 import { page } from "$app/state";
+import { scheduleCacheCleanup } from "$lib/cache/cleanup";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
@@ -380,6 +381,7 @@ onMount(() => {
 	uiState.loadLayoutPrefs();
 	void authStore.ensureLoaded().finally(() => {
 		authReady = true;
+		scheduleCacheCleanup();
 	});
 
 	// Register PWA Service Worker (conservative update: closes all tabs to activate)

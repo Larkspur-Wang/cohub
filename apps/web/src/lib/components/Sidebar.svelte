@@ -38,6 +38,7 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import Dialog from "$lib/components/Dialog.svelte";
 import { sdk } from "$lib/sdk";
 import {
@@ -54,9 +55,7 @@ import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
 	clearAllCachedSessionLists,
-	getCachedSessionList,
-	getCachedSessionListMeta,
-	getCachedSessionListPageInfo,
+	getCachedSessionListSnapshot,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
 	setCachedSessionList,
@@ -285,11 +284,10 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 	if (!force && loadingSessions) return;
 
 	if (!force) {
-		const cached = getCachedSessionList(spaceId);
-		if (cached && cached.length > 0) {
-			sessions = cached;
-			const cachedPageInfo = getCachedSessionListPageInfo(spaceId);
-			if (cachedPageInfo) sessionsPageInfo = cachedPageInfo;
+		const cached = await getCachedSessionListSnapshot(spaceId);
+		if (cached && cached.sessions.length > 0) {
+			sessions = cached.sessions;
+			sessionsPageInfo = cached.pageInfo;
 		}
 	}
 
@@ -298,8 +296,8 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 		loadingSessions = true;
 	}
 
-	const cacheMeta = getCachedSessionListMeta(spaceId);
-	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
+	const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
+	const shouldFetch = force || !cachedSnapshot || cachedSnapshot.stale;
 	if (!shouldFetch) {
 		loadingSessions = false;
 		return;
@@ -314,7 +312,7 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			hasMore: false,
 			nextCursor: null,
 		};
-		sessions = setCachedSessionList(spaceId, nextSessions, nextPageInfo);
+		sessions = await setCachedSessionList(spaceId, nextSessions, nextPageInfo);
 		sessionsPageInfo = nextPageInfo;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
@@ -341,7 +339,7 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 			hasMore: false,
 			nextCursor: null,
 		};
-		sessions = patchCachedSessionList(
+		sessions = await patchCachedSessionList(
 			spaceId,
 			(current) => [...current, ...moreSessions],
 			nextPageInfo,
@@ -484,7 +482,7 @@ async function handleCreateNewSession() {
 		const result = await sdk
 			.space(currentSpaceId)
 			.sessions.create({ source: "web" });
-		sessions = patchCachedSessionList(currentSpaceId, (current) => [
+		sessions = await patchCachedSessionList(currentSpaceId, (current) => [
 			result.session,
 			...current.filter((session) => session.id !== result.session.id),
 		]);
@@ -565,7 +563,7 @@ async function submitRenameSession(session: SessionRecord) {
 	renameSaving = true;
 	try {
 		await sdk.space(currentSpaceId).session(session.id).rename(trimmed);
-		sessions = patchCachedSessionList(currentSpaceId, (current) =>
+		sessions = await patchCachedSessionList(currentSpaceId, (current) =>
 			current.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s)),
 		);
 	} catch {
@@ -600,7 +598,9 @@ async function handleLogout() {
 	onClose?.();
 	clearAllCachedSpaceLists();
 	clearAllCachedSpacePins();
-	clearAllCachedSessionLists();
+	await clearAllIndexedDbCache().catch((error) => {
+		console.warn("[sidebar] Failed to clear IndexedDB cache", error);
+	});
 	const userUuid = authStore.userUuid;
 	if (userUuid) clearRecentSpace(userUuid);
 	try {
