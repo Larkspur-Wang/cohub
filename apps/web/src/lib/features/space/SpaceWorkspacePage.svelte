@@ -291,6 +291,9 @@ const inlineFileDownloadName = $derived.by(() => {
 });
 let inlineFileMarkdownHtml = $state("");
 let inlineFileEdit = $state(true);
+function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
+	return !(file.kind === "text" && /\.md$/i.test(file.path));
+}
 // Image zoom state (for both route-based and inline file viewers)
 let openFileZoom = $state(1);
 let openFilePanX = $state(0);
@@ -409,7 +412,7 @@ $effect(() => {
 		});
 });
 $effect(() => {
-	if (openFile) fileEdit = true;
+	if (openFile) fileEdit = shouldOpenFileInEditMode(openFile);
 });
 $effect(() => {
 	const current = inlineFile?.response;
@@ -427,7 +430,8 @@ $effect(() => {
 		});
 });
 $effect(() => {
-	if (inlineFile) inlineFileEdit = true;
+	if (inlineFile?.response)
+		inlineFileEdit = shouldOpenFileInEditMode(inlineFile.response);
 });
 let pageMounted = false;
 let pageVisible = true;
@@ -3035,9 +3039,9 @@ async function openFileFromUrl(path: string) {
 	openFileLoading = true;
 	openFileError = null;
 	openFileTooLarge = false;
-	fileEdit = true;
 	try {
 		const file = await sdk.space(spaceId).files.read(path);
+		fileEdit = shouldOpenFileInEditMode(file);
 		openFile = file;
 		openFileDraft = file.kind === "text" ? file.content : "";
 	} catch (error) {
@@ -3208,9 +3212,9 @@ async function openInlineFile(path: string) {
 		error: null,
 		tooLarge: false,
 	};
-	inlineFileEdit = true;
 	try {
 		const file = await sdk.space(spaceId).files.read(path);
+		inlineFileEdit = shouldOpenFileInEditMode(file);
 		inlineFile = {
 			response: file,
 			draft: file.kind === "text" ? file.content : "",
