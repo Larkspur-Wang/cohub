@@ -1,7 +1,6 @@
 <script lang="ts">
 import "../app.css";
-import { FileText, Pencil, Pin, PinOff } from "lucide-svelte";
-import { onMount, tick } from "svelte";
+import { onMount } from "svelte";
 import { page } from "$app/state";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
@@ -21,16 +20,7 @@ import {
 	shouldStartRightDrawerGesture,
 } from "$lib/gestures/drawer-swipe";
 import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
-import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
-import { insertComposerSnippet } from "$lib/stores/composer-insert";
-import {
-	closeSessionActions,
-	sessionActions,
-} from "$lib/stores/session-actions.svelte";
-import { patchCachedSessionList } from "$lib/stores/session-list-cache";
-import { getCachedSpacePins } from "$lib/stores/space-marks-cache";
-import { isSpacePin, toggleSpacePin } from "$lib/stores/space-pins";
 import {
 	LEFT_SIDEBAR_MAX,
 	LEFT_SIDEBAR_MIN,
@@ -405,90 +395,8 @@ onMount(() => {
 	};
 });
 
-// ── Global session actions (triggered from mobile sidebar long-press) ───
-
-let globalRenamingSessionId = $state<string | null>(null);
-let globalRenameValue = $state("");
-let globalRenameSaving = $state(false);
-let globalRenameInputEl: HTMLInputElement | null = $state(null);
-
-function isGlobalSessionPinned() {
-	const session = sessionActions.session;
-	if (!session) return false;
-	return isSpacePin(
-		getCachedSpacePins(session.spaceId) ?? [],
-		"session",
-		session.id,
-	);
-}
-
-async function toggleGlobalSessionPin() {
-	const session = sessionActions.session;
-	if (!session) return;
-	try {
-		await toggleSpacePin({
-			spaceId: session.spaceId,
-			resourceType: "session",
-			resourceRef: session.id,
-			label: session.title ?? "New chat",
-		});
-		closeSessionActions();
-	} catch {
-		// Silently fail; API enforces permission and limits.
-	} finally {
-	}
-}
-
-function insertGlobalSessionReference() {
-	const session = sessionActions.session;
-	if (!session) return;
-	insertComposerSnippet(` \`/sessions/${session.id}\` `);
-	closeSessionActions();
-}
-
-function startGlobalRename() {
-	const session = sessionActions.session;
-	if (!session) return;
-	globalRenamingSessionId = session.id;
-	globalRenameValue = session.title ?? "";
-	void tick().then(() => {
-		globalRenameInputEl?.focus();
-		globalRenameInputEl?.select();
-	});
-}
-
-function cancelGlobalRename() {
-	globalRenamingSessionId = null;
-	globalRenameValue = "";
-}
-
-async function submitGlobalRename() {
-	if (globalRenameSaving) return;
-	const session = sessionActions.session;
-	if (!session) return;
-	const trimmed = globalRenameValue.trim();
-	if (!trimmed) {
-		cancelGlobalRename();
-		closeSessionActions();
-		return;
-	}
-	globalRenameSaving = true;
-	try {
-		const result = await sdk
-			.space(session.spaceId)
-			.session(session.id)
-			.rename(trimmed);
-		patchCachedSessionList(session.spaceId, (current) =>
-			current.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s)),
-		);
-	} catch {
-		// Silently fail
-	} finally {
-		globalRenameSaving = false;
-		cancelGlobalRename();
-		closeSessionActions();
-	}
-}
+// Mobile session action sheet was intentionally removed; current item actions live
+// on hover for desktop sidebars and in the session/file headers for mobile.
 </script>
 
 {#if isStandalonePage}
@@ -536,103 +444,6 @@ async function submitGlobalRename() {
   <!-- Global media lightbox -->
   <MediaLightbox />
 
-  <!-- Global mobile action sheet for session actions -->
-  {#if sessionActions.session}
-    <div
-      class="fixed inset-0 z-[200] lg:hidden"
-      onclick={closeSessionActions}
-      onkeydown={(e) => { if (e.key === "Escape") closeSessionActions(); }}
-      role="presentation"
-      tabindex="-1"
-    >
-      <!-- Backdrop -->
-      <div class="absolute inset-0 bg-black/40"></div>
-
-      <!-- Action sheet -->
-      <div
-        class="absolute bottom-0 left-0 right-0 bg-bg-primary border-t border-border-subtle rounded-t-xl overflow-hidden z-50"
-        onclick={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        {#if globalRenamingSessionId === sessionActions.session.id}
-          <!-- Inline rename input -->
-          <div class="p-4">
-            <input
-              bind:this={globalRenameInputEl}
-              bind:value={globalRenameValue}
-              type="text"
-              class="w-full bg-bg-hover-strong text-[15px] text-text-primary outline-none rounded-lg px-3 py-2.5 leading-tight"
-              placeholder="Session name"
-              maxlength={80}
-              disabled={globalRenameSaving}
-              onkeydown={(e) => {
-                if (e.key === "Enter" && !globalRenameSaving) {
-                  e.preventDefault();
-                  void submitGlobalRename();
-                }
-                if (e.key === "Escape" && !globalRenameSaving) {
-                  e.preventDefault();
-                  cancelGlobalRename();
-                }
-              }}
-            />
-            <div class="flex items-center gap-3 mt-3">
-              <button
-                type="button"
-                class="flex-1 py-2.5 rounded-lg text-[15px] font-medium text-text-primary bg-bg-hover-strong active:bg-bg-hover-stronger transition-colors"
-                disabled={globalRenameSaving}
-                onclick={() => void submitGlobalRename()}
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                class="flex-1 py-2.5 rounded-lg text-[15px] font-medium text-text-tertiary bg-bg-hover-strong active:bg-bg-hover-stronger transition-colors"
-                disabled={globalRenameSaving}
-                onclick={cancelGlobalRename}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        {:else}
-          <div class="px-4 py-3 border-b border-border-subtle">
-            <p class="text-[13px] text-text-secondary truncate">{sessionActions.session.title || "New chat"}</p>
-          </div>
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
-            onclick={insertGlobalSessionReference}
-          >
-            <FileText class="w-5 h-5" />
-            <span>Insert</span>
-          </button>
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
-            onclick={() => void toggleGlobalSessionPin()}
-          >
-            {#if isGlobalSessionPinned()}
-              <PinOff class="w-5 h-5" />
-              <span>Unpin chat</span>
-            {:else}
-              <Pin class="w-5 h-5" />
-              <span>Pin chat</span>
-            {/if}
-          </button>
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full px-4 py-4 text-[15px] text-text-primary active:bg-bg-hover transition-colors"
-            onclick={startGlobalRename}
-          >
-            <Pencil class="w-5 h-5" />
-            <span>Rename</span>
-          </button>
-          <div class="h-2"></div>
-        {/if}
-      </div>
-    </div>
-  {/if}
 {/if}
 
 <style>

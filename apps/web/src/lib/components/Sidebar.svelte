@@ -53,10 +53,6 @@ import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
-	closeSessionActions,
-	openSessionActions,
-} from "$lib/stores/session-actions.svelte";
-import {
 	clearAllCachedSessionLists,
 	getCachedSessionList,
 	getCachedSessionListMeta,
@@ -542,7 +538,6 @@ function getPinnedFallbackTitle(mark: SpaceMarkListItem) {
 // ── Session rename ──────────────────────────────────────────────────────
 
 function startRenameSession(session: SessionRecord) {
-	closeSessionActions();
 	renamingSessionId = session.id;
 	renameTitleValue = session.title ?? getSessionTitle(session, 0);
 	void tick().then(() => {
@@ -578,24 +573,6 @@ async function submitRenameSession(session: SessionRecord) {
 	} finally {
 		renameSaving = false;
 		cancelRenameSession();
-	}
-}
-
-// ── Mobile long-press actions ───────────────────────────────────────────
-
-let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-
-function handleLongPressStart(session: SessionRecord) {
-	longPressTimer = setTimeout(() => {
-		openSessionActions(session);
-		longPressTimer = null;
-	}, 500);
-}
-
-function handleLongPressCancel() {
-	if (longPressTimer) {
-		clearTimeout(longPressTimer);
-		longPressTimer = null;
 	}
 }
 
@@ -967,30 +944,29 @@ $effect(() => {
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
                       class="group/session flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
-                      onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
-                      oncontextmenu={(e) => { if (isMobile) e.preventDefault(); }}
-                      ontouchstart={() => handleLongPressStart(session)}
-                      ontouchend={handleLongPressCancel}
-                      ontouchmove={handleLongPressCancel}
-                      draggable={!isMobile}
-                      ondragstart={(e) => {
-                        e.dataTransfer?.setData("text/cohub-path", `/sessions/${session.id}`);
-                        if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
-                      }}
+							onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+							draggable={!isMobile}
+								ondragstart={(e) => {
+									e.dataTransfer?.setData(
+										"text/cohub-path",
+										`/sessions/${session.id}.jsonl`,
+									);
+									if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+								}}
                       title={sourceTooltip(session.source) || undefined}
                     >
                       <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
                       {#if sourceBadge(session.source)}
-                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:hidden group-focus-within/session:hidden'}">
+                        <span class="shrink-0 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}">
                           {sourceBadge(session.source)}
                         </span>
                       {/if}
                       {#if sessionIsStreaming(session)}
-                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse {isMobile ? '' : 'group-hover/session:hidden group-focus-within/session:hidden'}" title="Streaming..."></div>
+                        <div class="w-[6px] h-[6px] rounded-full shrink-0 bg-status-running animate-pulse {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Streaming..."></div>
                       {:else if unreadTracker.isUnread(session, session.lastMessageId)}
-                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand {isMobile ? '' : 'group-hover/session:hidden group-focus-within/session:hidden'}" title="Unread"></div>
+                        <div class="w-[7px] h-[7px] rounded-full shrink-0 bg-brand {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Unread"></div>
                       {/if}
-                      <span class={isMobile ? "hidden" : "hidden shrink-0 items-center gap-0.5 group-hover/session:inline-flex group-focus-within/session:inline-flex"}>
+                      <span class={isMobile ? "hidden" : "inline-flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                         <button
                           type="button"
                           class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
@@ -999,7 +975,7 @@ $effect(() => {
                           onclick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            insertPathReference(`/sessions/${session.id}`);
+								insertPathReference(`/sessions/${session.id}.jsonl`);
                           }}
                         >
                           <FileText class="w-3.5 h-3.5" />
@@ -1102,20 +1078,19 @@ $effect(() => {
                 href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
                 class="group/session flex items-center gap-1.5 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
-                onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
-                oncontextmenu={(e) => { if (isMobile) e.preventDefault(); }}
-                ontouchstart={() => handleLongPressStart(activeSession)}
-                ontouchend={handleLongPressCancel}
-                ontouchmove={handleLongPressCancel}
-                draggable={!isMobile}
-                ondragstart={(e) => {
-                  e.dataTransfer?.setData("text/cohub-path", `/sessions/${activeSession.id}`);
-                  if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
-                }}
+				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
+				draggable={!isMobile}
+				ondragstart={(e) => {
+					e.dataTransfer?.setData(
+						"text/cohub-path",
+						`/sessions/${activeSession.id}.jsonl`,
+					);
+					if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+				}}
                 title={sourceTooltip(activeSession.source) || undefined}
               >
                 <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
-                <span class={isMobile ? "hidden" : "hidden shrink-0 items-center gap-0.5 group-hover/session:inline-flex group-focus-within/session:inline-flex"}>
+                <span class={isMobile ? "hidden" : "inline-flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                   <button
                     type="button"
                     class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
@@ -1124,7 +1099,7 @@ $effect(() => {
                     onclick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      insertPathReference(`/sessions/${activeSession.id}`);
+						insertPathReference(`/sessions/${activeSession.id}.jsonl`);
                     }}
                   >
                     <FileText class="w-3.5 h-3.5" />
@@ -1199,7 +1174,7 @@ $effect(() => {
                       </div>
                       <button
                         type="button"
-                        class={isMobile ? "hidden" : "hidden shrink-0 p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors group-hover/checkpoint:inline-flex group-focus-within/checkpoint:inline-flex"}
+                        class={isMobile ? "hidden" : "inline-flex shrink-0 p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-opacity opacity-0 pointer-events-none group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto"}
                         draggable="false"
                         title={isPinned("checkpoint", checkpoint.id) ? "Unpin save" : "Pin save"}
                         onclick={(e) => {

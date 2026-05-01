@@ -29,6 +29,7 @@ const {
 	onTogglePin,
 	onInsertReference,
 	draggable = true,
+	showItemActions = true,
 	canWrite = true,
 }: {
 	node: SpaceFsNode;
@@ -45,6 +46,7 @@ const {
 	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
 	draggable?: boolean;
+	showItemActions?: boolean;
 	canWrite?: boolean;
 } = $props();
 
@@ -161,7 +163,7 @@ function handleDirUploadClick() {
   {#if node.isLoading}
     <span class="loading">...</span>
   {/if}
-  {#if node.type === "file" && onTogglePin}
+  {#if showItemActions && node.type === "file" && onTogglePin}
     <span class="pin-action">
       {#if onInsertReference}
         <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><FileIcon class="w-3 h-3" /></button>
@@ -175,7 +177,7 @@ function handleDirUploadClick() {
       </button>
     </span>
   {/if}
-  {#if canWrite}
+  {#if showItemActions && canWrite}
     <span class="actions">
       {#if isDir}
         <button type="button" class="action" title="New file" onclick={stop(() => onCreateFile(node.path))}><Plus class="w-3 h-3" /></button>
@@ -207,6 +209,7 @@ function handleDirUploadClick() {
       {onTogglePin}
       {onInsertReference}
       {draggable}
+      {showItemActions}
       {canWrite}
     />
   {/each}

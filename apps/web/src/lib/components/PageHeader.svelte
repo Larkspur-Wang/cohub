@@ -13,7 +13,7 @@ const {
 </script>
 
 <header class="lg:h-10 h-11 flex items-center justify-between lg:px-4 px-3 border-b border-border-subtle shrink-0 bg-bg-primary">
-  <div class="flex items-center lg:gap-2 gap-1.5 min-w-0">
+  <div class="flex items-center lg:gap-2 gap-1.5 min-w-0 flex-1 overflow-hidden">
     <!-- Mobile menu button — hidden on desktop -->
     <button
       type="button"
@@ -27,7 +27,7 @@ const {
   </div>
 
   {#if right}
-    <div class="flex items-center gap-1 shrink-0">
+    <div class="flex items-center gap-1 shrink-0 max-w-[45%] sm:max-w-none overflow-hidden">
       {@render right()}
     </div>
   {/if}

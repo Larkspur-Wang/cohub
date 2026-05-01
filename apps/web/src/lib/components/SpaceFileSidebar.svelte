@@ -28,6 +28,7 @@ const {
 	onTogglePin,
 	onInsertReference,
 	draggable = true,
+	showItemActions = true,
 	canWrite = true,
 }: {
 	nodes: SpaceFsNode[];
@@ -46,6 +47,7 @@ const {
 	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
 	draggable?: boolean;
+	showItemActions?: boolean;
 	canWrite?: boolean;
 } = $props();
 
@@ -125,6 +127,7 @@ function handleUploadClick() {
           {onTogglePin}
           {onInsertReference}
           {draggable}
+          {showItemActions}
           {canWrite}
         />
       {/each}

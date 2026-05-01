@@ -11,6 +11,7 @@ import {
 	type SpaceEnvInput,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
+	type SpaceMarkListItem,
 	type SpaceMember,
 	type SpaceRecord,
 	type SpaceRole,
@@ -35,6 +36,7 @@ import {
 	Copy,
 	Download,
 	Eye,
+	FileText,
 	FolderKanban,
 	GitCommitHorizontal,
 	Globe,
@@ -48,6 +50,8 @@ import {
 	PanelRightClose,
 	PanelRightOpen,
 	Pencil,
+	Pin,
+	PinOff,
 	Plus,
 	Power,
 	PowerOff,
@@ -123,6 +127,7 @@ import {
 import {
 	fetchSpacePins,
 	getPinnedFilePaths,
+	isSpacePin,
 	toggleSpacePin,
 } from "$lib/stores/space-pins";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
@@ -227,6 +232,7 @@ let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
+let pinnedMarks = $state<SpaceMarkListItem[]>([]);
 let pinnedFilePaths = $state<Set<string>>(new Set());
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
@@ -3332,19 +3338,62 @@ async function loadSpacePins(force = false) {
 	if (!currentSpaceId) return;
 	if (!force) {
 		const cached = getCachedSpacePins(currentSpaceId);
-		if (cached) pinnedFilePaths = getPinnedFilePaths(cached);
+		if (cached) {
+			pinnedMarks = cached;
+			pinnedFilePaths = getPinnedFilePaths(cached);
+		}
 	}
 	try {
 		const marks = await fetchSpacePins(currentSpaceId, force);
+		pinnedMarks = marks;
 		pinnedFilePaths = getPinnedFilePaths(marks);
 	} catch {
-		if (!getCachedSpacePins(currentSpaceId)) pinnedFilePaths = new Set();
+		if (!getCachedSpacePins(currentSpaceId)) {
+			pinnedMarks = [];
+			pinnedFilePaths = new Set();
+		}
 	}
 }
 
 function insertPathReference(path: string) {
 	insertComposerSnippet(` \`${path}\` `);
 	uiState.mobileRightDrawerOpen = false;
+}
+
+function isActiveSessionPinned() {
+	const session = activeSessionState?.session;
+	if (!session) return false;
+	return isSpacePin(pinnedMarks, "session", session.id);
+}
+
+function insertActiveSessionReference() {
+	if (!activeSessionId) return;
+	insertPathReference(`/sessions/${activeSessionId}.jsonl`);
+}
+
+async function togglePinActiveSession() {
+	const session = activeSessionState?.session;
+	if (!session) return;
+	try {
+		const marks = await toggleSpacePin({
+			spaceId,
+			resourceType: "session",
+			resourceRef: session.id,
+			label: session.title ?? getSessionTitle(session),
+		});
+		pinnedMarks = marks;
+		pinnedFilePaths = getPinnedFilePaths(marks);
+	} catch {
+		// Pin is host-only; silently ignore for users without permission.
+	}
+}
+
+function isFilePathPinned(path: string) {
+	return pinnedFilePaths.has(path);
+}
+
+function insertFilePathReference(path: string) {
+	insertPathReference(path);
 }
 
 async function togglePinFilePath(path: string) {
@@ -3355,6 +3404,7 @@ async function togglePinFilePath(path: string) {
 			resourceRef: path,
 			label: path.split("/").pop() ?? path,
 		});
+		pinnedMarks = marks;
 		pinnedFilePaths = getPinnedFilePaths(marks);
 	} catch {
 		// Pin is host-only; silently ignore for users without permission.
@@ -3448,6 +3498,7 @@ onMount(() => {
 	const offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(
 		({ spaceId: updatedSpaceId, marks }) => {
 			if (updatedSpaceId !== spaceId) return;
+			pinnedMarks = marks;
 			pinnedFilePaths = getPinnedFilePaths(marks);
 		},
 	);
@@ -3556,6 +3607,7 @@ $effect(() => {
 	loadingSessionIds = {};
 	activeSessionId = null;
 	fileTree = [];
+	pinnedMarks = [];
 	pinnedFilePaths = new Set();
 	fileTreeLoading = false;
 	fileTreeError = null;
@@ -3883,17 +3935,41 @@ $effect(() => {
 	return () => ro.disconnect();
 });
 </script>
+
+{#snippet FileHeaderCoreActions(path: string)}
+	<button
+		type="button"
+		class="icon-btn"
+		onclick={() => void togglePinFilePath(path)}
+		title={isFilePathPinned(path) ? "Unpin file" : "Pin file"}
+	>
+		{#if isFilePathPinned(path)}
+			<PinOff class="w-4 h-4" />
+		{:else}
+			<Pin class="w-4 h-4" />
+		{/if}
+	</button>
+	<button
+		type="button"
+		class="icon-btn"
+		onclick={() => insertFilePathReference(path)}
+		title="Insert reference"
+	>
+		<FileText class="w-4 h-4" />
+	</button>
+{/snippet}
+
 <PageHeader>
   {#snippet left()}
-    <div class="flex items-center gap-1.5 min-w-0">
+    <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
       {#if routeView === "session" && activeSessionState?.session}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          class="text-[13px] text-text-primary truncate max-w-[35%] min-w-0 select-none text-left hover:text-text-secondary transition-colors"
           title="Space details"
         >{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <div class="min-w-0 flex items-center gap-2">
+        <div class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
           {#if sessionRenaming}
             <input
               bind:this={sessionRenameInputEl}
@@ -3935,11 +4011,31 @@ $effect(() => {
           {:else}
             <button
               type="button"
-              class="min-w-0 truncate text-[13px] text-text-secondary hover:text-text-primary transition-colors"
+              class="min-w-0 flex-1 truncate text-[13px] text-text-secondary hover:text-text-primary transition-colors"
               onclick={startSessionRename}
               title="Click to rename"
             >
               {getSessionTitle(activeSessionState.session)}
+            </button>
+            <button
+              type="button"
+              class="icon-btn shrink-0"
+              onclick={() => void togglePinActiveSession()}
+              title={isActiveSessionPinned() ? "Unpin chat" : "Pin chat"}
+            >
+              {#if isActiveSessionPinned()}
+                <PinOff class="w-4 h-4" />
+              {:else}
+                <Pin class="w-4 h-4" />
+              {/if}
+            </button>
+            <button
+              type="button"
+              class="icon-btn shrink-0"
+              onclick={insertActiveSessionReference}
+              title="Insert reference"
+            >
+              <FileText class="w-4 h-4" />
             </button>
             {#if wsConnectionState === 'reconnecting'}
               <span class="inline-flex shrink-0 items-center text-[12px] text-warning">
@@ -4472,6 +4568,9 @@ $effect(() => {
             <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
               {routeFilePath}
             </div>
+            {#if routeFilePath}
+              {@render FileHeaderCoreActions(routeFilePath)}
+            {/if}
             <a
               href={openFileDownloadUrl}
               download={openFileDownloadName}
@@ -4530,6 +4629,7 @@ $effect(() => {
                   </button>
                 </div>
               {/if}
+              {@render FileHeaderCoreActions(openFile.path)}
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -4582,6 +4682,7 @@ $effect(() => {
                 {openFile.path}
               </div>
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
+              {@render FileHeaderCoreActions(openFile.path)}
               <button type="button" class="zoom-btn" onclick={() => { openFileZoom = Math.max(0.25, openFileZoom - 0.25); openFilePanX = 0; openFilePanY = 0; }} title="Zoom out">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
@@ -4618,6 +4719,7 @@ $effect(() => {
                 {openFile.path}
               </div>
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
+              {@render FileHeaderCoreActions(openFile.path)}
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -4641,6 +4743,7 @@ $effect(() => {
                 {openFile.path}
               </div>
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
+              {@render FileHeaderCoreActions(openFile.path)}
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -5642,6 +5745,7 @@ $effect(() => {
         <div class="min-w-0 flex-1 truncate text-sm text-text-secondary">
           {#if inlineFile.response}{inlineFile.response.path}{:else}{inlineFile.path}{/if}
         </div>
+        {@render FileHeaderCoreActions(inlineFile.path)}
         {#if inlineFile.response && inlineFile.response.kind === "text"}
           <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="icon-btn" title="Download file">
             <Download class="w-4 h-4" />
@@ -5731,6 +5835,7 @@ $effect(() => {
         {:else if inlineFile.error}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+            {@render FileHeaderCoreActions(inlineFile.path)}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -5741,6 +5846,7 @@ $effect(() => {
         {:else if inlineFile.tooLarge}
           <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+            {@render FileHeaderCoreActions(inlineFile.path)}
             <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn" title="Download file">
               <Download class="w-3.5 h-3.5 shrink-0" />
               <span class="hidden sm:inline">Download</span>
@@ -5766,6 +5872,7 @@ $effect(() => {
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
+              {@render FileHeaderCoreActions(inlineFile.response.path)}
               {#if inlineFileIsMarkdown}
                 <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
                   <button
@@ -5840,6 +5947,7 @@ $effect(() => {
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+              {@render FileHeaderCoreActions(inlineFile.response.path)}
               <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
@@ -5876,6 +5984,7 @@ $effect(() => {
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+              {@render FileHeaderCoreActions(inlineFile.response.path)}
               <a
                 href={inlineFileDownloadUrl}
                 download={inlineFileDownloadName}
@@ -5899,6 +6008,7 @@ $effect(() => {
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+              {@render FileHeaderCoreActions(inlineFile.response.path)}
               <a
                 href={inlineFileDownloadUrl}
                 download={inlineFileDownloadName}
@@ -5952,6 +6062,7 @@ $effect(() => {
           onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
           onInsertReference={insertPathReference}
           draggable={true}
+          showItemActions={true}
           canWrite={true}
         />
         <FileUploadPane
@@ -5995,6 +6106,7 @@ $effect(() => {
         onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
         onInsertReference={insertPathReference}
         draggable={false}
+        showItemActions={false}
         canWrite={true}
       />
       <FileUploadPane
