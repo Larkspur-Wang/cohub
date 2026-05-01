@@ -13,6 +13,7 @@ import {
 	Check,
 	ChevronDown,
 	Clock,
+	Compass,
 	FileText,
 	FolderKanban,
 	History,
@@ -1408,6 +1409,14 @@ $effect(() => {
             <span>Spaces</span>
           </a>
         {/if}
+        <a
+          href="/explore"
+          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore'); }}
+        >
+          <Compass class="w-3.5 h-3.5" />
+          <span>Explore</span>
+        </a>
         <a
           href="/trending"
           class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
