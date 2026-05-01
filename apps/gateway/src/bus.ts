@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayInboundEvent, GatewayLogEvent } from "@neta-art/cohub-protocol/gateway";
+import type { GatewayConversationCreateEvent, GatewayInboundEvent, GatewayLogEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import { injectTrace } from "@cohub/tracing/propagator";
 import {
@@ -78,7 +78,7 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
 };
 
 export const publishConversationCreateEvent = async (
-  input: Omit<GatewayInboundEvent, "eventId" | "timestamp" | "content" | "sender"> & { sender?: GatewayInboundEvent["sender"] }
+  input: Omit<GatewayConversationCreateEvent, "eventId" | "timestamp" | "eventType" | "content" | "sender" | "command"> & { sender?: GatewayConversationCreateEvent["sender"] }
 ) => {
   await publishInboundEvent({
     eventId: randomUUID(),

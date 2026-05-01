@@ -1,15 +1,46 @@
-import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
+import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type CommandInteraction, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { DiscordChannelConfig, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import type { GatewayProvider } from "../base.js";
+import { GATEWAY_CHANNEL_COMMAND_SPECS } from "@neta-art/cohub-protocol/gateway";
+import { resolveChannelCommand } from "../../channel-commands.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 import { buildDiscordDeliveryPlan } from "../../session-output-planner.js";
 
 const buildDiscordBindingKey = (message: Message) => {
   return `discord:conversation:${message.channelId}`;
+};
+
+const buildDiscordBindingKeyForChannel = (channelId: string) => `discord:conversation:${channelId}`;
+
+const DISCORD_NATIVE_COMMAND_MESSAGE_PREFIX = "interaction:";
+
+const buildDiscordSourceChannel = (input: {
+  isDM: boolean;
+  senderName: string;
+  senderId: string;
+  guildName?: string | null;
+  channelName?: string | null;
+  parentChannelName?: string | null;
+  threadName?: string | null;
+  fallbackId: string;
+}) => {
+  if (input.isDM) {
+    return `discord:dm:${input.senderName || input.senderId}`;
+  }
+  if (input.threadName && input.parentChannelName && input.guildName) {
+    return `discord:${input.guildName}:#${input.parentChannelName}>${input.threadName}`;
+  }
+  if (input.channelName && input.guildName) {
+    return `discord:${input.guildName}:#${input.channelName}`;
+  }
+  if (input.guildName) {
+    return `discord:${input.guildName}`;
+  }
+  return `discord:${input.fallbackId}`;
 };
 
 const truncate = (value: string, limit = 120) =>
@@ -291,6 +322,9 @@ export class DiscordProvider implements GatewayProvider {
       const partials = (this.client.options.partials ?? []).join(",") || "none";
       console.log(`[Discord:${this.channelId}] Client options: intents=${intents}, partials=${partials}`);
       console.log(`[Discord:${this.channelId}] DM debugging enabled. Waiting for MessageCreate events...`);
+      this.registerNativeCommands().catch((error) => {
+        console.warn(`[Discord:${this.channelId}] Failed to register native commands:`, error);
+      });
     });
 
     this.client.on(Events.Debug, (message) => {
@@ -344,7 +378,11 @@ export class DiscordProvider implements GatewayProvider {
           provider: "discord",
           externalChatId: thread.id,
           externalMessageId: meta.starterMessageId ?? `thread:${thread.id}`,
-          bindingKey: `discord:conversation:${thread.id}`,
+          bindingKey: buildDiscordBindingKeyForChannel(thread.id),
+          binding: {
+            key: buildDiscordBindingKeyForChannel(thread.id),
+            parentKey: meta.parentId ? buildDiscordBindingKeyForChannel(meta.parentId) : null,
+          },
           conversation: {
             id: thread.id,
             parentId: meta.parentId,
@@ -379,6 +417,11 @@ export class DiscordProvider implements GatewayProvider {
       } catch (error) {
         console.error(`[Discord:${this.channelId}] Failed to inspect thread create:`, error);
       }
+    });
+
+    this.client.on(Events.InteractionCreate, async (interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+      await this.handleCommandInteraction(interaction);
     });
 
     this.client.on(Events.MessageCreate, async (message: Message) => {
@@ -433,6 +476,22 @@ export class DiscordProvider implements GatewayProvider {
 
       const cleanedContent = resolveMentions(message);
       const content: ContentBlock[] = [{ type: "text", text: cleanedContent }];
+      const channelCommand = resolveChannelCommand(cleanedContent);
+      const channelName = "name" in message.channel ? message.channel.name ?? null : null;
+      const parentChannelName =
+        isThread && "parent" in message.channel && message.channel.parent && "name" in message.channel.parent
+          ? message.channel.parent.name ?? null
+          : null;
+      const sourceChannel = buildDiscordSourceChannel({
+        isDM,
+        senderName: message.author.username,
+        senderId: message.author.id,
+        guildName: message.guild?.name ?? null,
+        channelName,
+        parentChannelName,
+        threadName: channelName,
+        fallbackId: message.channelId,
+      });
 
       for (const attachment of message.attachments.values()) {
         if (attachment.contentType?.startsWith("image/")) {
@@ -445,14 +504,19 @@ export class DiscordProvider implements GatewayProvider {
         }
       }
 
-      const inboundEvent: GatewayInboundEvent = {
+      const bindingKey = buildDiscordBindingKey(message);
+      const inboundEventBase = {
         eventId: randomUUID(),
         timestamp: Date.now(),
         channelId: this.channelId,
-        provider: "discord",
+        provider: "discord" as const,
         externalChatId: message.channelId,
         externalMessageId: message.id,
-        bindingKey: buildDiscordBindingKey(message),
+        bindingKey,
+        binding: {
+          key: bindingKey,
+          parentKey: parentConversationId ? buildDiscordBindingKeyForChannel(parentConversationId) : null,
+        },
         conversation: {
           id: message.channelId,
           parentId: parentConversationId,
@@ -461,13 +525,11 @@ export class DiscordProvider implements GatewayProvider {
             channelType,
             isDm: isDM,
             isThread,
-            threadName: "name" in message.channel ? message.channel.name ?? null : null,
-            channelName: "name" in message.channel ? message.channel.name ?? null : null,
-            parentChannelName:
-              isThread && "parent" in message.channel && message.channel.parent && "name" in message.channel.parent
-                ? message.channel.parent.name ?? null
-                : null,
+            threadName: channelName,
+            channelName,
+            parentChannelName,
             guildName: message.guild?.name ?? null,
+            sourceChannel,
           },
         },
         message: {
@@ -502,14 +564,25 @@ export class DiscordProvider implements GatewayProvider {
           isDm: isDM,
           isThread,
           threadParentId: parentConversationId,
-          channelName: "name" in message.channel ? message.channel.name ?? null : null,
-          parentChannelName:
-            isThread && "parent" in message.channel && message.channel.parent && "name" in message.channel.parent
-              ? message.channel.parent.name ?? null
-              : null,
+          channelName,
+          parentChannelName,
           guildName: message.guild?.name ?? null,
+          sourceChannel,
         },
       };
+      const inboundEvent: GatewayInboundEvent = channelCommand
+        ? { ...inboundEventBase, eventType: "channel_command", command: channelCommand }
+        : { ...inboundEventBase, eventType: "message_create" };
+
+      if (channelCommand) {
+        console.log(`[Discord:${this.channelId}] → Publishing command event ${inboundEvent.eventId.slice(0, 8)}`, {
+          externalChatId: inboundEvent.externalChatId,
+          externalMessageId: inboundEvent.externalMessageId,
+          command: channelCommand.name,
+        });
+        await publishInboundEvent(inboundEvent);
+        return;
+      }
 
       console.log(`[Discord:${this.channelId}] → Publishing inbound event ${inboundEvent.eventId.slice(0, 8)}`, {
         externalChatId: inboundEvent.externalChatId,
@@ -520,6 +593,115 @@ export class DiscordProvider implements GatewayProvider {
       await publishInboundEvent(inboundEvent);
       console.log(`[Discord:${this.channelId}] ✓ Inbound event published ${inboundEvent.eventId.slice(0, 8)}`);
     });
+  }
+
+  private async registerNativeCommands() {
+    if (!this.client.application) {
+      console.warn(`[Discord:${this.channelId}] Application unavailable; native command registration skipped`);
+      return;
+    }
+
+    await this.client.application.commands.set(GATEWAY_CHANNEL_COMMAND_SPECS.map((command) => ({
+      name: command.name,
+      description: command.description,
+    })));
+    console.log(`[Discord:${this.channelId}] Native commands registered: ${GATEWAY_CHANNEL_COMMAND_SPECS.map((command) => command.slash).join(", ")}`);
+  }
+
+  private async handleCommandInteraction(interaction: CommandInteraction) {
+    const command = resolveChannelCommand(`/${interaction.commandName}`);
+    if (!command) return;
+
+    const channelId = interaction.channelId;
+    const channel = interaction.channel;
+    const isDM = channel?.isDMBased?.() ?? !interaction.guildId;
+    const isThread = channel?.isThread?.() ?? false;
+    const parentConversationId = isThread && channel && "parentId" in channel ? (channel.parentId ?? null) : null;
+    const channelName = channel && "name" in channel ? channel.name ?? null : null;
+    const parentChannelName =
+      isThread && channel && "parent" in channel && channel.parent && "name" in channel.parent
+        ? channel.parent.name ?? null
+        : null;
+    const sourceChannel = buildDiscordSourceChannel({
+      isDM,
+      senderName: interaction.user.username,
+      senderId: interaction.user.id,
+      guildName: interaction.guild?.name ?? null,
+      channelName,
+      parentChannelName,
+      threadName: channelName,
+      fallbackId: channelId,
+    });
+
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.reply({ content: "Command received.", ephemeral: true }).catch((error) => {
+        console.warn(`[Discord:${this.channelId}] Failed to acknowledge command interaction:`, error);
+      });
+    }
+
+    const inboundEvent: GatewayInboundEvent = {
+      eventId: randomUUID(),
+      timestamp: Date.now(),
+      eventType: "channel_command",
+      channelId: this.channelId,
+      provider: "discord",
+      externalChatId: channelId,
+      externalMessageId: `${DISCORD_NATIVE_COMMAND_MESSAGE_PREFIX}${interaction.id}`,
+      bindingKey: buildDiscordBindingKeyForChannel(channelId),
+      binding: {
+        key: buildDiscordBindingKeyForChannel(channelId),
+        parentKey: parentConversationId ? buildDiscordBindingKeyForChannel(parentConversationId) : null,
+      },
+      command,
+      conversation: {
+        id: channelId,
+        parentId: parentConversationId,
+        meta: {
+          guildId: interaction.guildId ?? null,
+          channelType: channel ? `${channel.type}` : "unknown",
+          isDm: isDM,
+          isThread,
+          threadName: channelName,
+          channelName,
+          parentChannelName,
+          guildName: interaction.guild?.name ?? null,
+          sourceChannel,
+        },
+      },
+      message: {
+        parentMessageId: null,
+        meta: {
+          interactionId: interaction.id,
+          commandName: interaction.commandName,
+          source: "discord_native_command",
+        },
+      },
+      sender: {
+        id: interaction.user.id,
+        name: interaction.user.username,
+      },
+      content: [{ type: "text", text: `/${interaction.commandName}` }],
+      meta: {
+        guildId: interaction.guildId ?? null,
+        channelId,
+        channelType: channel ? `${channel.type}` : "unknown",
+        isDm: isDM,
+        isThread,
+        threadParentId: parentConversationId,
+        channelName,
+        parentChannelName,
+        guildName: interaction.guild?.name ?? null,
+        sourceChannel,
+        commandSource: "native",
+      },
+    };
+
+    console.log(`[Discord:${this.channelId}] → Publishing native command event ${inboundEvent.eventId.slice(0, 8)}`, {
+      externalChatId: inboundEvent.externalChatId,
+      externalMessageId: inboundEvent.externalMessageId,
+      command: command.name,
+    });
+    await publishInboundEvent(inboundEvent);
   }
 
   public async handleOutbound(cmd: PlannedGatewayOutboundCommand) {
@@ -606,7 +788,7 @@ export class DiscordProvider implements GatewayProvider {
       }
 
       const messageOptions: MessageCreateOptions = { content: plan.primaryText, files };
-      if (plan.replyToExternalMessageId) {
+      if (plan.replyToExternalMessageId && !plan.replyToExternalMessageId.startsWith(DISCORD_NATIVE_COMMAND_MESSAGE_PREFIX)) {
         messageOptions.reply = { messageReference: plan.replyToExternalMessageId };
       }
 

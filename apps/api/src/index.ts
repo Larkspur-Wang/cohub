@@ -23,7 +23,7 @@ import {
   SPACE_EVENTS_CONSUMER_GROUP,
 } from "./redis.js";
 import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, handleWebsocketInboundEvent } from "./channels.js";
-import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
+import { gatewayInboundEventSchema } from "@neta-art/cohub-protocol/gateway";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
 import { dispatchSpaceFsChanged, type SpaceFsChangedStreamEvent } from "./space-events.js";
@@ -71,7 +71,13 @@ const startGatewayInboundListener = async () => {
           const payload = payloadIndex >= 0 ? fields[payloadIndex + 1] : null;
           if (!payload) continue;
           try {
-            const event = JSON.parse(payload) as GatewayInboundEvent;
+            const parsed = gatewayInboundEventSchema.safeParse(JSON.parse(payload));
+            if (!parsed.success) {
+              console.error("[API] Invalid gateway inbound event:", parsed.error.issues);
+              await client.xack(GATEWAY_INBOUND_STREAM, INBOUND_CONSUMER_GROUP, id);
+              continue;
+            }
+            const event = parsed.data;
             // Extract trace context from the message (injected by Gateway)
             const parentCtx = extractTrace(event as unknown as Record<string, unknown>);
             const span = tracer.startSpan("api.inbound.consume", {

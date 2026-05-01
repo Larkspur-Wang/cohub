@@ -1,9 +1,9 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { ChannelConfig, ChannelProvider, GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
+import type { ChannelConfig, ChannelProvider, GatewayChannelCommandEvent, GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 import type { RealtimeServerEvent } from "@neta-art/cohub-protocol/realtime";
-import { handleFeishuCommand } from "./channel-commands/feishu.js";
+import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
@@ -11,7 +11,6 @@ import { forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import {
   executeSessionInteraction,
   extractInboundText,
-  resolveSessionInteractionForInboundEvent,
   type ResolvedInboundInteraction,
 } from "./session-interactions.js";
 import { hasPermission } from "./permissions.js";
@@ -22,6 +21,23 @@ const GATEWAY_NODE_TTL_MS = 15_000;
 const READABLE_USER_IDS_CACHE_TTL_MS = 4_000;
 const READABLE_USER_IDS_CACHE_MAX_SIZE = 10_000;
 const readableUserIdsCache = new Map<string, { expiresAt: number; value: string[] }>();
+
+type ResolvedChannelInbound = {
+  spaceId: string;
+  spaceChannelId: string;
+  sessionId: string;
+  binding: typeof spaceSessionBindings.$inferSelect;
+  conversationId: string;
+  bindingKey: string;
+};
+
+export function resolveInboundBindingKey(event: GatewayInboundEvent, conversationId = event.conversation?.id?.trim() || event.externalChatId) {
+  return event.binding?.key?.trim() || event.bindingKey?.trim() || `${event.provider}:conversation:${conversationId}`;
+}
+
+export function resolveInboundParentBindingKey(event: GatewayInboundEvent) {
+  return event.binding?.parentKey?.trim() || null;
+}
 
 function setReadableUserIdsCache(spaceId: string, value: string[]) {
   if (READABLE_USER_IDS_CACHE_TTL_MS <= 0) return;
@@ -523,11 +539,11 @@ export async function getProviderMessageRefBySessionMessage(input: { spaceChanne
   return ref ?? null;
 }
 
-export async function resolveForkSourceForInboundEvent(input: { spaceChannelId: string; provider: string; conversationId: string; parentConversationId?: string | null; parentMessageId?: string | null }) {
+export async function resolveForkSourceForInboundEvent(input: { spaceChannelId: string; provider: string; conversationId: string; parentConversationId?: string | null; parentBindingKey?: string | null; parentMessageId?: string | null }) {
   const parentConversationId = input.parentConversationId?.trim();
   const parentMessageId = input.parentMessageId?.trim();
   if (!parentConversationId || !parentMessageId) return null;
-  const parentBindingKey = `${input.provider}:conversation:${parentConversationId}`;
+  const parentBindingKey = input.parentBindingKey?.trim() || `${input.provider}:conversation:${parentConversationId}`;
   const parentBinding = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: parentBindingKey });
   if (!parentBinding) return null;
   const anchorRef = await getProviderMessageRef({ provider: input.provider, externalConversationId: parentConversationId, externalMessageId: parentMessageId, direction: "inbound" });
@@ -600,6 +616,7 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
     provider: input.provider,
     conversationId: input.event.conversation?.id?.trim() || input.externalChatId,
     parentConversationId: input.event.conversation?.parentId ?? null,
+    parentBindingKey: resolveInboundParentBindingKey(input.event),
     parentMessageId: input.event.message?.parentMessageId ?? null,
   });
 
@@ -639,15 +656,62 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
   return binding;
 }
 
-export async function handleInboundEvent(event: GatewayInboundEvent) {
-  const resolved = await resolveSessionInteractionForInboundEvent(event);
-  if (!resolved || event.eventType === "conversation_create") return;
-  if (event.provider === "feishu" && await handleFeishuCommand(event, resolved, {
-    buildDefaultBindingMeta,
-    createProviderMessageRef,
-    createSpaceSessionBinding,
-    dispatchOutboundMessage,
-  })) return;
+export async function resolveChannelInboundForEvent(event: GatewayInboundEvent): Promise<ResolvedChannelInbound | null> {
+  const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, event.channelId)).limit(1);
+  if (!spaceChannel) return null;
+
+  const conversationId = event.conversation?.id?.trim() || event.externalChatId;
+  const existingInboundRef = await getProviderMessageRef({
+    provider: event.provider,
+    externalConversationId: conversationId,
+    externalMessageId: event.externalMessageId,
+    direction: "inbound",
+  });
+  if (existingInboundRef) return null;
+
+  const bindingKey = resolveInboundBindingKey(event, conversationId);
+  const binding = await _resolveOrCreateSessionBindingForEvent({
+    spaceId: spaceChannel.spaceId,
+    spaceChannelId: spaceChannel.id,
+    provider: event.provider,
+    externalChatId: event.externalChatId,
+    bindingKey,
+    event,
+  });
+
+  return {
+    spaceId: spaceChannel.spaceId,
+    spaceChannelId: spaceChannel.id,
+    sessionId: binding.spaceSessionId,
+    binding,
+    conversationId,
+    bindingKey,
+  };
+}
+
+async function handleChannelCommandInboundEvent(event: GatewayChannelCommandEvent) {
+  const resolved = await resolveChannelInboundForEvent(event);
+  if (!resolved) return;
+  await executeChannelCommand({
+    event,
+    resolved,
+    command: event.command,
+    deps: {
+      buildDefaultBindingMeta,
+      createProviderMessageRef,
+      createSpaceSessionBinding,
+      dispatchOutboundMessage,
+    },
+  });
+}
+
+async function handleConversationCreateInboundEvent(event: GatewayInboundEvent) {
+  await resolveChannelInboundForEvent(event);
+}
+
+async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
+  const resolved = await resolveChannelInboundForEvent(event);
+  if (!resolved) return;
 
   await executeSessionInteraction({
     spaceId: resolved.spaceId,
@@ -667,4 +731,18 @@ export async function handleInboundEvent(event: GatewayInboundEvent) {
       meta: { bindingKey: resolved.bindingKey },
     },
   });
+}
+
+export async function handleInboundEvent(event: GatewayInboundEvent) {
+  switch (event.eventType) {
+    case "channel_command":
+      await handleChannelCommandInboundEvent(event);
+      return;
+    case "conversation_create":
+      await handleConversationCreateInboundEvent(event);
+      return;
+    case "message_create":
+      await handleMessageCreateInboundEvent(event);
+      return;
+  }
 }

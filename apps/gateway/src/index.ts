@@ -483,6 +483,9 @@ const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestI
     externalChatId: sessionId,
     externalMessageId: clientMessageId,
     bindingKey: buildWebsocketBindingKey(spaceId, sessionId),
+    binding: {
+      key: buildWebsocketBindingKey(spaceId, sessionId),
+    },
     conversation: {
       id: sessionId,
       parentId: null,

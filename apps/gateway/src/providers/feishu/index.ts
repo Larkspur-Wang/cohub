@@ -4,6 +4,7 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { FeishuChannelConfig, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import type { GatewayProvider } from "../base.js";
+import { resolveChannelCommand } from "../../channel-commands.js";
 import { publishInboundEvent, } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 import { buildFeishuDeliveryPlan } from "../../session-output-planner.js";
@@ -84,6 +85,29 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 function cleanUrlCandidate(value: string) {
   return value.replace(/[),.。;；:：!！?？\]}]+$/g, "");
+}
+
+function getTextFromContentBlocks(blocks: ContentBlock[]) {
+  return blocks
+    .map((block) => block.type === "text" ? block.text : "")
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildFeishuSourceChannel(input: {
+  isDm: boolean;
+  senderName?: string | null;
+  senderId: string;
+  chatName?: string | null;
+  fallbackId: string;
+}) {
+  if (input.isDm) {
+    return `feishu:dm:${input.senderName ?? input.senderId}`;
+  }
+  if (input.chatName) {
+    return `feishu:group:${input.chatName}`;
+  }
+  return `feishu:${input.fallbackId}`;
 }
 
 function parseFeishuDocumentUrl(value: string): FeishuDocumentRef | null {
@@ -246,19 +270,37 @@ export class FeishuProvider implements GatewayProvider {
       ? await this.resolveParsedBlocks(parsedContent.blocks, msg.message_id, FEISHU_INBOUND_IMAGE_MAX_COUNT)
       : parsedContent.blocks.map((block) => ({ type: "text", text: block.type === "text" ? block.text : block.fallbackText }) satisfies ContentBlock);
     const enrichedContentBlocks = await this.expandFeishuDocumentLinks(contentBlocks);
+    const channelCommand = resolveChannelCommand(getTextFromContentBlocks(contentBlocks), {
+      leadingPrefixes: msg.mentions?.flatMap((mention) => [
+        mention.key,
+        mention.name ? `@${mention.name}` : "",
+      ]) ?? [],
+    });
 
     const threadId = msg.thread_id || msg.root_id || null;
     const parentMessageId = msg.root_id || msg.parent_id || null;
     const bindingKey = buildFeishuBindingKey(msg.chat_id, threadId);
+    const senderId = event.sender?.sender_id?.open_id ?? "";
+    const sourceChannel = buildFeishuSourceChannel({
+      isDm,
+      senderId,
+      senderName: null,
+      chatName: null,
+      fallbackId: msg.chat_id,
+    });
 
-    const inboundEvent: GatewayInboundEvent = {
+    const inboundEventBase = {
       eventId: randomUUID(),
       timestamp: Date.now(),
       channelId: this.channelId,
-      provider: "feishu",
+      provider: "feishu" as const,
       externalChatId: msg.chat_id,
       externalMessageId: msg.message_id,
       bindingKey,
+      binding: {
+        key: bindingKey,
+        parentKey: threadId ? buildFeishuBindingKey(msg.chat_id, null) : null,
+      },
       conversation: {
         id: msg.chat_id,
         parentId: threadId ?? undefined,
@@ -266,6 +308,7 @@ export class FeishuProvider implements GatewayProvider {
           chatType: msg.chat_type,
           isDm,
           threadId,
+          sourceChannel,
         },
       },
       message: {
@@ -276,7 +319,7 @@ export class FeishuProvider implements GatewayProvider {
         },
       },
       sender: {
-        id: event.sender?.sender_id?.open_id ?? "",
+        id: senderId,
         name: "", // Enriched later if needed
       },
       content: enrichedContentBlocks,
@@ -285,8 +328,18 @@ export class FeishuProvider implements GatewayProvider {
         isDm,
         threadId,
         mentions: msg.mentions?.map((m) => ({ key: m.key, openId: m.id.open_id, name: m.name })) ?? null,
+        sourceChannel,
       },
     };
+    const inboundEvent: GatewayInboundEvent = channelCommand
+      ? { ...inboundEventBase, eventType: "channel_command", command: channelCommand }
+      : { ...inboundEventBase, eventType: "message_create" };
+
+    if (channelCommand) {
+      console.log(`[Feishu:${this.channelId}] → Inbound command: ${channelCommand.name} message=${msg.message_id}`);
+      await publishInboundEvent(inboundEvent);
+      return;
+    }
 
     console.log(
       `[Feishu:${this.channelId}] → Inbound: ${inboundEvent.externalMessageId.slice(0, 8)} chat=${msg.chat_id} type=${msg.chat_type}${threadId ? ` thread=${threadId}` : ""}`,

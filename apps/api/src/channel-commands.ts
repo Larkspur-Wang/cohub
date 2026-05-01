@@ -13,17 +13,14 @@ import {
   type ModelsConfig,
 } from "@cohub/config-runtime/models";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
-import { config } from "../config.js";
-import { db } from "../db/index.js";
-import { sessionMessages, spaces } from "../db/schema-v2.js";
-import { redisCommandClient } from "../redis.js";
-import { buildSessionSourceChannel } from "../lib/session-source-channel.js";
-import { extractInboundText } from "../session-interactions.js";
-import { registerSpaceSession } from "../space-sessions.js";
+import type { GatewayChannelCommand, GatewayChannelCommandName, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
+import { config } from "./config.js";
+import { db } from "./db/index.js";
+import { sessionMessages, spaces } from "./db/schema-v2.js";
+import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
+import { redisCommandClient } from "./redis.js";
+import { registerSpaceSession } from "./space-sessions.js";
 
-type ResolvedFeishuCommand = "new" | "status";
-type FeishuMentionMeta = { key?: string | null; name?: string | null };
 type ResolvedGatewayInbound = {
   spaceId: string;
   sessionId: string;
@@ -32,7 +29,7 @@ type ResolvedGatewayInbound = {
   bindingKey: string;
 };
 
-export type FeishuCommandDeps = {
+export type ChannelCommandDeps = {
   buildDefaultBindingMeta: (event: GatewayInboundEvent) => Record<string, unknown>;
   createProviderMessageRef: (input: {
     provider: string;
@@ -71,63 +68,18 @@ export type FeishuCommandDeps = {
   }) => Promise<void>;
 };
 
+type ChannelCommandExecutionInput = {
+  event: GatewayInboundEvent;
+  resolved: ResolvedGatewayInbound;
+  command: GatewayChannelCommand;
+  deps: ChannelCommandDeps;
+};
+
+type ChannelCommandHandler = (input: ChannelCommandExecutionInput) => Promise<boolean>;
+
 const DEFAULT_MODEL_CONTEXT_WINDOW = 128_000;
 const PLATFORM_MODELS_PATH = join(config.platformConfigRoot, "platform", ".cohub", "models.json");
 const getUserModelsPath = (userId: string) => join(config.platformConfigRoot, "users", userId, ".cohub", "models.json");
-
-const parseSlashCommand = (text: string): ResolvedFeishuCommand | null => {
-  const command = text.trim().split(/\s+/, 1)[0]?.toLowerCase();
-  if (command === "/new") return "new";
-  if (command === "/status") return "status";
-  return null;
-};
-
-const stripLeadingFeishuMentions = (text: string, mentions: FeishuMentionMeta[]) => {
-  let remaining = text.trim();
-  let changed = true;
-
-  while (changed) {
-    changed = false;
-    for (const mention of mentions) {
-      const candidates = [
-        mention.key?.trim(),
-        mention.name?.trim() ? `@${mention.name.trim()}` : null,
-      ].filter((value): value is string => Boolean(value));
-
-      for (const candidate of candidates) {
-        if (remaining === candidate) return "";
-        if (remaining.startsWith(`${candidate} `)) {
-          remaining = remaining.slice(candidate.length).trim();
-          changed = true;
-          break;
-        }
-      }
-
-      if (changed) break;
-    }
-  }
-
-  return remaining;
-};
-
-const resolveDirectCommand = (text: string): ResolvedFeishuCommand | null => {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("/")) return null;
-  return parseSlashCommand(trimmed);
-};
-
-const resolveFeishuCommand = (event: GatewayInboundEvent): ResolvedFeishuCommand | null => {
-  const text = extractInboundText(event);
-  const directCommand = resolveDirectCommand(text);
-  if (directCommand) return directCommand;
-
-  const mentions = Array.isArray(event.meta?.mentions)
-    ? (event.meta.mentions as FeishuMentionMeta[])
-    : [];
-  if (mentions.length === 0) return null;
-
-  return parseSlashCommand(stripLeadingFeishuMentions(text, mentions));
-};
 
 const getSessionUrl = (spaceId: string, sessionId: string) => {
   const origin = (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
@@ -227,10 +179,10 @@ const getContextUsageText = async (spaceId: string, provider?: string | null, mo
 };
 
 const createInboundCommandRef = async (input: {
-  deps: FeishuCommandDeps;
+  deps: ChannelCommandDeps;
   event: GatewayInboundEvent;
   resolved: ResolvedGatewayInbound;
-  command: ResolvedFeishuCommand;
+  command: GatewayChannelCommand;
   sessionId?: string;
 }) => input.deps.createProviderMessageRef({
   provider: input.event.provider,
@@ -245,13 +197,13 @@ const createInboundCommandRef = async (input: {
   externalAuthorName: input.event.sender.name ?? null,
   meta: {
     bindingKey: input.resolved.bindingKey,
-    command: input.command,
+    command: input.command.name,
     contextIncluded: false,
   },
 });
 
 const dispatchCommandReply = async (input: {
-  deps: FeishuCommandDeps;
+  deps: ChannelCommandDeps;
   event: GatewayInboundEvent;
   resolved: ResolvedGatewayInbound;
   sessionId: string;
@@ -286,15 +238,15 @@ const getSessionStatusText = async (spaceId: string, sessionId: string) => {
   const latestUsageMessage = latestMessages.find((message) => getUsageTotalTokens(message.usage) !== null);
 
   return [
-    `模型: ${modelText}`,
-    `上下文: ${await getContextUsageText(spaceId, latestModelMessage?.provider, latestModelMessage?.model, latestUsageMessage?.usage)}`,
+    `Model: ${modelText}`,
+    `Context: ${await getContextUsageText(spaceId, latestModelMessage?.provider, latestModelMessage?.model, latestUsageMessage?.usage)}`,
     `Session: ${sessionId}`,
     `Cohub: ${getSessionUrl(spaceId, sessionId)}`,
   ].join("\n");
 };
 
 const createFreshSessionForBinding = async (
-  deps: FeishuCommandDeps,
+  deps: ChannelCommandDeps,
   event: GatewayInboundEvent,
   resolved: ResolvedGatewayInbound,
 ) => {
@@ -336,22 +288,21 @@ const createFreshSessionForBinding = async (
   return session.id;
 };
 
-export const handleFeishuCommand = async (event: GatewayInboundEvent, resolved: ResolvedGatewayInbound, deps: FeishuCommandDeps) => {
-  const command = resolveFeishuCommand(event);
-  if (!command) return false;
+const handleStatusCommand: ChannelCommandHandler = async (input) => {
+  const { event, resolved, command, deps } = input;
+  await createInboundCommandRef({ deps, event, resolved, command });
+  await dispatchCommandReply({
+    deps,
+    event,
+    resolved,
+    sessionId: resolved.sessionId,
+    text: await getSessionStatusText(resolved.spaceId, resolved.sessionId),
+  });
+  return true;
+};
 
-  if (command === "status") {
-    await createInboundCommandRef({ deps, event, resolved, command });
-    await dispatchCommandReply({
-      deps,
-      event,
-      resolved,
-      sessionId: resolved.sessionId,
-      text: await getSessionStatusText(resolved.spaceId, resolved.sessionId),
-    });
-    return true;
-  }
-
+const handleNewCommand: ChannelCommandHandler = async (input) => {
+  const { event, resolved, command, deps } = input;
   const sessionId = await createFreshSessionForBinding(deps, event, resolved);
   await createInboundCommandRef({ deps, event, resolved, command, sessionId });
   await dispatchCommandReply({
@@ -359,7 +310,17 @@ export const handleFeishuCommand = async (event: GatewayInboundEvent, resolved: 
     event,
     resolved,
     sessionId,
-    text: `已创建新的会话。\nCohub: ${getSessionUrl(resolved.spaceId, sessionId)}`,
+    text: `Created a new session.\nCohub: ${getSessionUrl(resolved.spaceId, sessionId)}`,
   });
   return true;
+};
+
+const channelCommandHandlers: Record<GatewayChannelCommandName, ChannelCommandHandler> = {
+  new: handleNewCommand,
+  status: handleStatusCommand,
+};
+
+export const executeChannelCommand = async (input: ChannelCommandExecutionInput) => {
+  const handler = channelCommandHandlers[input.command.name];
+  return handler(input);
 };
