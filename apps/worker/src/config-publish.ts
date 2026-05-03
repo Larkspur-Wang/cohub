@@ -64,6 +64,96 @@ async function copyIfExists(srcRoot: string, destRoot: string, relativePath: str
   return true;
 }
 
+async function forceChmod(path: string): Promise<void> {
+  const info = await lstat(path).catch(() => null);
+  if (!info) return;
+
+  if (info.isDirectory() && !info.isSymbolicLink()) {
+    await chmod(path, 0o777).catch(() => undefined);
+    const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      await forceChmod(join(path, entry.name));
+    }
+    return;
+  }
+
+  await chmod(path, 0o666).catch(() => undefined);
+}
+
+async function forceRm(path: string): Promise<void> {
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!info) return;
+
+  if (info.isSymbolicLink()) {
+    await rm(path, { force: true });
+    return;
+  }
+
+  try {
+    await rm(path, { recursive: true, force: true });
+  } catch {
+    await forceChmod(path);
+    await rm(path, { recursive: true, force: true });
+  }
+}
+
+async function replaceFile(src: string, dest: string) {
+  const srcInfo = await lstat(src);
+  await mkdir(dirname(dest), { recursive: true, mode: 0o775 });
+  const tmpFile = `${dest}.__tmp__.${randomUUID()}`;
+  await copyFile(src, tmpFile);
+  await chmod(tmpFile, srcInfo.mode).catch(() => undefined);
+  await rename(tmpFile, dest).catch(async (error) => {
+    await rm(tmpFile, { force: true }).catch(() => undefined);
+    throw error;
+  });
+}
+
+async function syncDirectoryContents(srcDir: string, destDir: string, depth = 0): Promise<void> {
+  if (depth > MAX_COPY_DEPTH) {
+    throw new Error(`config publish exceeded max depth while syncing ${srcDir}`);
+  }
+
+  await mkdir(destDir, { recursive: true, mode: 0o775 });
+
+  const srcEntries = await readdir(srcDir, { withFileTypes: true });
+  const srcByName = new Map(srcEntries.map((entry) => [entry.name, entry]));
+  const destEntries = await readdir(destDir, { withFileTypes: true }).catch(() => []);
+
+  for (const srcEntry of srcEntries) {
+    if (srcEntry.isSymbolicLink()) {
+      throw new Error(`symbolic links are not allowed in published config: ${join(srcDir, srcEntry.name)}`);
+    }
+
+    const srcPath = join(srcDir, srcEntry.name);
+    const destPath = join(destDir, srcEntry.name);
+    const destInfo = await lstat(destPath).catch(() => null);
+
+    if (srcEntry.isDirectory()) {
+      if (destInfo && (!destInfo.isDirectory() || destInfo.isSymbolicLink())) {
+        await forceRm(destPath);
+      }
+      await mkdir(destPath, { recursive: true, mode: 0o775 });
+      await syncDirectoryContents(srcPath, destPath, depth + 1);
+      continue;
+    }
+
+    if (destInfo?.isDirectory()) {
+      await forceRm(destPath);
+    }
+    await replaceFile(srcPath, destPath);
+  }
+
+  for (const destEntry of destEntries) {
+    if (!srcByName.has(destEntry.name)) {
+      await forceRm(join(destDir, destEntry.name));
+    }
+  }
+}
+
 export interface PublishConfigResult {
   targetDir: string;
   copiedPaths: string[];
@@ -79,85 +169,37 @@ export async function publishConfigFromWorkspace(input: {
 }): Promise<PublishConfigResult> {
   const opId = `${input.checkpointId}-${randomUUID()}`;
   const tmpDir = `${input.targetDir}.__tmp__.${opId}`;
-  const backupDir = `${input.targetDir}.__bak__.${opId}`;
 
   await rm(tmpDir, { recursive: true, force: true });
-  await rm(backupDir, { recursive: true, force: true });
   await mkdir(tmpDir, { recursive: true, mode: 0o775 });
 
   const copiedPaths: string[] = [];
-  for (const relativePath of input.whitelist) {
-    if (await copyIfExists(input.workspaceDir, tmpDir, relativePath)) {
-      copiedPaths.push(relativePath);
-    }
-  }
-
-  const meta = {
-    sourceSpaceId: input.sourceLabel,
-    sourceCheckpointId: input.checkpointId,
-    publishedAt: new Date().toISOString(),
-    copiedPaths,
-  };
-  await mkdir(join(tmpDir, ".cohub"), { recursive: true, mode: 0o775 });
-  await writeFile(join(tmpDir, ".cohub", "config-meta.json"), JSON.stringify(meta, null, 2));
-
-  // Recursively chmod everything under a directory to ensure it can be deleted.
-  // This handles cases where files were created with restrictive permissions
-  // (e.g. git objects with 0444, different UID in init containers, etc.).
-  const forceChmod = async (dir: string): Promise<void> => {
-    // Directories need write permission to allow unlinking their contents
-    await chmod(dir, 0o777).catch(() => undefined);
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await forceChmod(fullPath);
-      } else {
-        // Make files writable so they can be unlinked
-        await chmod(fullPath, 0o666).catch(() => undefined);
-      }
-    }
-  };
-
-  // Aggressively remove a directory tree, handling permission issues.
-  // Falls back to iterating and removing individual entries when recursive rm fails.
-  const forceRm = async (dir: string): Promise<void> => {
-    await rm(dir, { recursive: true, force: true }).catch(async () => {
-      // If recursive rm fails, try to remove contents iteratively
-      await forceChmod(dir);
-      const entries = await readdir(dir).catch(() => [] as string[]);
-      for (const entry of entries) {
-        const fullPath = join(dir, entry);
-        await rm(fullPath, { recursive: true, force: true }).catch(() => undefined);
-      }
-      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    });
-  };
-
-  const hadExistingTarget = await pathExists(input.targetDir);
   try {
-    if (hadExistingTarget) {
-      await rename(input.targetDir, backupDir);
+    for (const relativePath of input.whitelist) {
+      if (await copyIfExists(input.workspaceDir, tmpDir, relativePath)) {
+        copiedPaths.push(relativePath);
+      }
     }
-    await rename(tmpDir, input.targetDir);
-    if (hadExistingTarget) {
-      await forceChmod(backupDir);
-      await forceRm(backupDir);
-    }
-  } catch (error) {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
-    if (hadExistingTarget && (await pathExists(backupDir)) && !(await pathExists(input.targetDir))) {
-      await forceChmod(backupDir).catch(() => undefined);
-      await rename(backupDir, input.targetDir).catch(() => undefined);
-    }
-    throw error;
-  }
 
-  return {
-    targetDir: input.targetDir,
-    copiedPaths,
-    meta,
-  };
+    const meta = {
+      sourceSpaceId: input.sourceLabel,
+      sourceCheckpointId: input.checkpointId,
+      publishedAt: new Date().toISOString(),
+      copiedPaths,
+    };
+    await mkdir(join(tmpDir, ".cohub"), { recursive: true, mode: 0o775 });
+    await writeFile(join(tmpDir, ".cohub", "config-meta.json"), JSON.stringify(meta, null, 2));
+
+    await syncDirectoryContents(tmpDir, input.targetDir);
+
+    return {
+      targetDir: input.targetDir,
+      copiedPaths,
+      meta,
+    };
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function publishUserConfigFromWorkspace(input: {
