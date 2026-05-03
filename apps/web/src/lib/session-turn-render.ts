@@ -137,12 +137,10 @@ export function buildTurnTimelineItems(input: {
 					contentBlocks: input.streaming?.contentBlocks ?? [],
 					createdAt: renderCreatedAt,
 				});
+			const processIntermediateMessages = intermediateMessages.slice(0, -1);
 			const summary = {
-				messageCount: Math.max(
-					intermediateMessages.length,
-					input.streaming?.status === "pending" ? 1 : 0,
-				),
-				toolCallCount: intermediateMessages.reduce(
+				messageCount: processIntermediateMessages.length,
+				toolCallCount: processIntermediateMessages.reduce(
 					(count, message) =>
 						count +
 						message.content.filter((block) => block.type === "tool_use").length,
@@ -154,7 +152,7 @@ export function buildTurnTimelineItems(input: {
 				kind: "process",
 				turn,
 				summary,
-				intermediateMessages,
+				intermediateMessages: processIntermediateMessages,
 				streaming: true,
 			});
 			streamingProcessInserted = true;
@@ -208,20 +206,21 @@ export function buildTurnTimelineItems(input: {
 				contentBlocks: input.streaming?.contentBlocks ?? [],
 				createdAt: renderCreatedAt,
 			});
+		const processIntermediateMessages = intermediateMessages.slice(0, -1);
 		items.push({
 			id: `turn:${turn.id}:process:streaming`,
 			kind: "process",
 			turn,
 			summary: {
-				messageCount: Math.max(intermediateMessages.length, 1),
-				toolCallCount: intermediateMessages.reduce(
+				messageCount: processIntermediateMessages.length,
+				toolCallCount: processIntermediateMessages.reduce(
 					(count, message) =>
 						count +
 						message.content.filter((block) => block.type === "tool_use").length,
 					0,
 				),
 			},
-			intermediateMessages,
+			intermediateMessages: processIntermediateMessages,
 			streaming: true,
 		});
 	}

@@ -10,10 +10,16 @@ import {
 type Props = {
 	tool: ToolCallViewModel;
 	loading?: boolean;
+	needsDetails?: boolean;
 	onExpand?: () => void | Promise<void>;
 };
 
-const { tool, loading = false, onExpand }: Props = $props();
+const {
+	tool,
+	loading = false,
+	needsDetails = false,
+	onExpand,
+}: Props = $props();
 let expanded = $state(false);
 
 const statusDotMap = {
@@ -27,13 +33,11 @@ const showInputDetail = $derived(
 	Boolean(inputDetail) && !isSimpleInput(tool.name, tool.input),
 );
 const hasResult = $derived(Boolean(tool.result));
-const shouldWaitForDetails = $derived(
-	expanded && loading && !tool.resultOmitted,
-);
+const shouldWaitForDetails = $derived(expanded && loading && needsDetails);
 const isPlaceholderResult = $derived(
 	shouldWaitForDetails && (tool.result === "[]" || tool.result === ""),
 );
-const showResult = $derived(hasResult && !isPlaceholderResult);
+const showResult = $derived(!needsDetails && hasResult && !isPlaceholderResult);
 const resultLabel = $derived(tool.status === "failed" ? "err" : "out");
 function toggle() {
 	const opening = !expanded;

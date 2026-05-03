@@ -47,12 +47,14 @@ let loadedIntermediateMessages = $state<StoredIntermediateMessage[] | null>(
 );
 
 const effectiveMessages = $derived(
-	liveIntermediateMessages ?? loadedIntermediateMessages ?? [],
+	streaming
+		? (liveIntermediateMessages ?? loadedIntermediateMessages ?? [])
+		: (loadedIntermediateMessages ?? []),
 );
 const expandedMessages = $derived(effectiveMessages);
 
 async function ensureLoaded() {
-	if (liveIntermediateMessages) return;
+	if (streaming && liveIntermediateMessages) return;
 	if (!onLoadIntermediate) return;
 	if (loadedIntermediateMessages) return;
 	loading = true;
