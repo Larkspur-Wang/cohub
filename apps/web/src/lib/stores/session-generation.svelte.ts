@@ -204,7 +204,7 @@ class SessionGenerationStore {
 
 	get(sessionId: string | null | undefined): SessionGenerationState | null {
 		if (!sessionId) return null;
-		return this.bySessionId[sessionId] ?? createIdleState(sessionId);
+		return this.bySessionId[sessionId] ?? null;
 	}
 
 	isStreaming(sessionId: string | null | undefined): boolean {
@@ -324,6 +324,16 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+		});
+	}
+
+	clearError(sessionId: string | null | undefined) {
+		if (!sessionId) return;
+		const current = this.get(sessionId);
+		if (!current?.error) return;
+		this.setState(sessionId, {
+			...current,
+			error: null,
 		});
 	}
 

@@ -1566,7 +1566,7 @@ function getMessageElementAbsoluteTop(node: HTMLElement) {
 }
 function isGenerationInProgress(sessionId: string) {
 	const status = sessionGenerationStore.get(sessionId)?.status;
-	return status === "pending" || status === "streaming";
+	return Boolean(status && !TERMINAL_GENERATION_STATUSES.has(status));
 }
 function markVisibleLatestTurnViewed(
 	sessionId: string,

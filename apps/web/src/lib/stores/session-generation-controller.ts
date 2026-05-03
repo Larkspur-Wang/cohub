@@ -13,16 +13,7 @@ type PatchApplyResult =
 const realtimePatchReducer = createSessionPatchReducer();
 
 export function clearGenerationError(sessionId: string | null | undefined) {
-	if (!sessionId) return;
-	const current = sessionGenerationStore.get(sessionId);
-	if (!current) return;
-	sessionGenerationStore.bySessionId = {
-		...sessionGenerationStore.bySessionId,
-		[sessionId]: {
-			...current,
-			error: null,
-		},
-	};
+	sessionGenerationStore.clearError(sessionId);
 }
 
 export function startGenerationRequest(
