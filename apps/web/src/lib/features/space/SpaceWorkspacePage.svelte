@@ -2539,10 +2539,11 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			}
 			return;
 		}
-		if (payload.type === "session.turn.finalized") {
-			completeGeneration(targetSessionId);
+		if (!state) {
+			if (payload.type === "session.turn.finalized")
+				completeGeneration(targetSessionId);
+			return;
 		}
-		if (!state) return;
 		if (
 			payload.type === "session.turn.finalized" ||
 			payload.type === "session.turn.updated"
@@ -2575,6 +2576,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					.session(targetSessionId)
 					.turns.get(turnId)
 					.then(async (response) => {
+						completeGeneration(targetSessionId);
 						const current = sessionStateById[targetSessionId];
 						if (!current) return;
 						const snapshot = await sessionTurnsRepo.mergeTurns(

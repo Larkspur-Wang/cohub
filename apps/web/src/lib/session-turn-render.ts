@@ -122,6 +122,7 @@ export function buildTurnTimelineItems(input: {
 				turn,
 				summary: turn.intermediateSummary,
 			});
+			if (streamingTurnId === turn.id) streamingProcessInserted = true;
 		} else if (
 			hasStreamingState &&
 			turn.status === "running" &&
@@ -159,12 +160,14 @@ export function buildTurnTimelineItems(input: {
 			streamingProcessInserted = true;
 		}
 		const assistant = turnToAssistantMessage(turn);
-		if (assistant)
+		if (assistant) {
+			if (streamingTurnId === turn.id) streamingProcessInserted = true;
 			items.push({
 				id: `turn:${turn.id}:assistant`,
 				kind: "message",
 				message: assistant,
 			});
+		}
 	}
 	const fallbackSequence = (input.turns.at(-1)?.sequence ?? 0) * 10 + 10;
 	if (hasStreamingState && !streamingProcessInserted) {

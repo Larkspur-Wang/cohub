@@ -13,6 +13,7 @@ type Props = {
 const { blocks, onStart, onRendered }: Props = $props();
 let renderedHtml = $state("");
 let markdownEl = $state<HTMLElement | null>(null);
+let renderSeq = 0;
 const source = $derived(
 	blocks
 		.map((block) => block.text)
@@ -22,22 +23,20 @@ const source = $derived(
 
 $effect(() => {
 	const markdownSource = source;
+	const seq = ++renderSeq;
 	untrack(() => onStart?.());
-	let cancelled = false;
 	void renderMarkdown(markdownSource)
 		.then(async (html) => {
-			if (cancelled) return;
+			if (seq !== renderSeq) return;
 			renderedHtml = html;
 			await tick();
 			requestAnimationFrame(() => {
-				if (!cancelled) untrack(() => onRendered?.());
+				if (seq === renderSeq) untrack(() => onRendered?.());
 			});
 		})
-		.catch(() => untrack(() => onRendered?.()));
-	return () => {
-		cancelled = true;
-		untrack(() => onRendered?.());
-	};
+		.catch(() => {
+			if (seq === renderSeq) untrack(() => onRendered?.());
+		});
 });
 
 onMount(() => {
