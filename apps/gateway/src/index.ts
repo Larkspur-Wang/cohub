@@ -244,6 +244,7 @@ type SessionStreamSnapshot = {
   sessionId: string;
   turnId: string | null;
   messageId: string | null;
+  messageOrdinal: number | null;
   anchorUserMessageId: string | null;
   seq: number;
   content: ContentBlock[];
@@ -275,6 +276,7 @@ const parseSessionStreamSnapshot = (raw: string, userId: string): SessionStreamS
     sessionId: value.sessionId,
     turnId: typeof value.turnId === "string" ? value.turnId : null,
     messageId: typeof value.messageId === "string" ? value.messageId : null,
+    messageOrdinal: typeof value.messageOrdinal === "number" ? value.messageOrdinal : null,
     anchorUserMessageId: typeof value.anchorUserMessageId === "string" ? value.anchorUserMessageId : null,
     seq: value.seq,
     content: value.content,
@@ -314,6 +316,7 @@ const buildSnapshotPatchEnvelope = (snapshot: SessionStreamSnapshot): RealtimeEn
     payload: {
       turnId: snapshot.turnId,
       messageId: snapshot.messageId,
+      messageOrdinal: snapshot.messageOrdinal,
       anchorUserMessageId: snapshot.anchorUserMessageId,
       seq: snapshot.seq,
       baseSeq: 0,

@@ -43,6 +43,8 @@ export type SessionHandle = {
   currentTurnId?: string | null;
   currentTurnSeq?: number | null;
   currentTurnPatchSeq?: number | null;
+  currentAssistantMessageOrdinal?: number | null;
+  currentStreamMessageId?: string | null;
   currentLlmRound?: number | null;
   ownerEpoch: number;
   lastActiveAt: number;
@@ -184,6 +186,8 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
         baseSeq,
         content: delta,
         snapshotContent: full,
+        messageId: handle.currentStreamMessageId ?? null,
+        messageOrdinal: handle.currentAssistantMessageOrdinal ?? null,
         sourceMessageId,
         anchorUserMessageId: handle.currentUserMessageId,
         timestamp: Date.now(),
@@ -234,6 +238,12 @@ function schedulePersistence(handle: SessionHandle, label: string, task: () => P
   void enqueuePersistence(handle, label, task).catch((error) => {
     console.error(`[Agent] Persistence scheduling failed (${label}) for session ${handle.sessionId}:`, error);
   });
+}
+
+function buildStreamMessageId(handle: SessionHandle, ordinal: number) {
+  const turnId = handle.currentTurnId?.trim();
+  if (turnId) return `turn:${turnId}:assistant:${ordinal}`;
+  return `session:${handle.sessionId}:assistant:${ordinal}:${handle.currentUserMessageId ?? "unknown"}`;
 }
 
 function resetStreamState(handle: SessionHandle) {
@@ -383,6 +393,11 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         handle.currentLlmRound = traceCtx.llmRound ?? handle.currentLlmRound ?? 1;
       }
       const message = event.message as unknown as Record<string, unknown>;
+      if (message.role === "assistant") {
+        const ordinal = (handle.currentAssistantMessageOrdinal ?? -1) + 1;
+        handle.currentAssistantMessageOrdinal = ordinal;
+        handle.currentStreamMessageId = buildStreamMessageId(handle, ordinal);
+      }
       console.log(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.message_start", {
         "message.role": typeof message.role === "string" ? message.role : undefined,
@@ -402,6 +417,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           }
           handle.currentTurnId = nextTurnId;
           handle.currentTurnPatchSeq = 0;
+          handle.currentAssistantMessageOrdinal = null;
+          handle.currentStreamMessageId = null;
           handle.currentUserMessageId = pending.userMessageId;
           handle.currentUserMessageContent = pending.content;
           handle.currentUserMessageMeta = pending.meta ?? null;
@@ -574,6 +591,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       handle.currentTurnId = null;
       handle.currentTurnSeq = null;
       handle.currentTurnPatchSeq = null;
+      handle.currentAssistantMessageOrdinal = null;
+      handle.currentStreamMessageId = null;
       handle.currentUserMessageId = null;
       clearCurrentSessionExecutionAuth(handle.sessionId);
       handle.onIdle?.(handle);
@@ -684,6 +703,8 @@ export async function loadOrCreateSessionHandle(input: {
     currentTurnId: null,
     currentTurnSeq: null,
     currentTurnPatchSeq: null,
+    currentAssistantMessageOrdinal: null,
+    currentStreamMessageId: null,
     currentLlmRound: null,
     ownerEpoch: 0,
     lastActiveAt: Date.now(),

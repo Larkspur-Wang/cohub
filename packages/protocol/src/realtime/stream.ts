@@ -9,6 +9,8 @@ export type SessionStreamEvent = {
   baseSeq: number;
   content: ContentBlock[];
   snapshotContent?: ContentBlock[];
+  messageId?: string | null;
+  messageOrdinal?: number | null;
   sourceMessageId: string | null;
   timestamp: number;
   turnEnd?: boolean;

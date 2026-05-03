@@ -146,6 +146,7 @@ type CompactStreamContext = {
   sessionId: string | null;
   turnId: string | null;
   messageId: string | null;
+  messageOrdinal: number | null;
   anchorUserMessageId: string | null;
 };
 
@@ -535,6 +536,10 @@ export class WebsocketClient {
         sessionId: envelope.sessionId ?? null,
         turnId,
         messageId,
+        messageOrdinal:
+          typeof payload.messageOrdinal === "number"
+            ? payload.messageOrdinal
+            : null,
         anchorUserMessageId:
           typeof payload.anchorUserMessageId === "string"
             ? payload.anchorUserMessageId
@@ -583,6 +588,7 @@ export class WebsocketClient {
       payload: {
         turnId: context.turnId,
         messageId: context.messageId,
+        messageOrdinal: context.messageOrdinal,
         anchorUserMessageId: context.anchorUserMessageId,
         seq: frame.s,
         baseSeq: frame.b,

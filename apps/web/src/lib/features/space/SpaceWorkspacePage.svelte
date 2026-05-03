@@ -76,7 +76,6 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
-import { buildStreamingIntermediateMessages } from "$lib/session-streaming-intermediate";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -93,6 +92,7 @@ import {
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
+	buildStreamingStoredIntermediateMessages,
 	clearGenerationError,
 	completeGeneration,
 	failGeneration,
@@ -947,11 +947,11 @@ const activeGenerationState = $derived.by(() =>
 );
 const activeStreamingIntermediateMessages = $derived.by(() => {
 	if (!activeGenerationState || !activeSessionId) return [];
-	return buildStreamingIntermediateMessages({
+	return buildStreamingStoredIntermediateMessages({
 		spaceId,
 		sessionId: activeSessionId,
 		turnId: activeGenerationState.turnId,
-		contentBlocks: activeGenerationState.contentBlocks,
+		intermediateMessages: activeGenerationState.intermediateMessages,
 	});
 });
 const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");

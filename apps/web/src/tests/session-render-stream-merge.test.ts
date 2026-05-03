@@ -72,7 +72,7 @@ test("buildStreamingPreviewBlocks preserves stream block order", () => {
 	);
 });
 
-test("buildTurnTimelineItems previews the active stream instead of the last intermediate message", () => {
+test("buildTurnTimelineItems renders streaming intermediate messages separately from active preview", () => {
 	const items = buildTurnTimelineItems({
 		sessionId: "s1",
 		turns: [

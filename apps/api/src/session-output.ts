@@ -26,6 +26,7 @@ export type SessionStreamSnapshot = {
   sessionId: string;
   turnId: string | null;
   messageId: string | null;
+  messageOrdinal: number | null;
   anchorUserMessageId: string | null;
   seq: number;
   content: ContentBlock[];
@@ -198,7 +199,8 @@ export const buildSessionOutputsForStreamEvent = async (
       spaceId: event.spaceId,
       sessionId: event.sessionId,
       turnId: event.turnId ?? null,
-      messageId: event.sourceMessageId ? `assistant:${event.sourceMessageId}` : null,
+      messageId: event.messageId ?? (event.sourceMessageId ? `assistant:${event.sourceMessageId}` : null),
+      messageOrdinal: event.messageOrdinal ?? null,
       anchorUserMessageId: event.anchorUserMessageId ?? null,
       seq: event.seq,
       baseSeq: event.baseSeq,
@@ -259,6 +261,7 @@ const cacheSessionStreamSnapshot = async (
     sessionId: output.sessionId,
     turnId: output.turnId,
     messageId: output.messageId,
+    messageOrdinal: output.messageOrdinal ?? null,
     anchorUserMessageId: output.anchorUserMessageId,
     seq: output.seq,
     content: snapshotContent as ContentBlock[],
@@ -297,6 +300,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
       payload: {
         turnId: output.turnId,
         messageId: output.messageId,
+        messageOrdinal: output.messageOrdinal ?? null,
         anchorUserMessageId: output.anchorUserMessageId,
         seq: output.seq,
         baseSeq: output.baseSeq,

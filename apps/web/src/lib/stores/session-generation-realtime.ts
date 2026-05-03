@@ -42,6 +42,14 @@ export function applyGenerationRealtimeEnvelope(
 			seq,
 			baseSeq,
 			ops: ops as Parameters<typeof applyRealtimeGenerationPatch>[1]["ops"],
+			messageId:
+				typeof payload.payload.messageId === "string"
+					? payload.payload.messageId
+					: null,
+			messageOrdinal:
+				typeof payload.payload.messageOrdinal === "number"
+					? payload.payload.messageOrdinal
+					: null,
 			anchorUserMessageId:
 				typeof payload.payload.anchorUserMessageId === "string"
 					? payload.payload.anchorUserMessageId
@@ -75,6 +83,14 @@ export function applyGenerationRealtimeEnvelope(
 			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
 			content,
 			anchorUserMessageId,
+			messageId:
+				typeof payload.payload.messageId === "string"
+					? payload.payload.messageId
+					: null,
+			messageOrdinal:
+				typeof payload.payload.messageOrdinal === "number"
+					? payload.payload.messageOrdinal
+					: null,
 		});
 		return {
 			handled: true,

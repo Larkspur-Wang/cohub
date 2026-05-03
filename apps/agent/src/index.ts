@@ -538,6 +538,8 @@ async function main() {
               handle.currentTurnId = turnId;
               handle.currentTurnSeq = turnSeq;
               handle.currentTurnPatchSeq = 0;
+              handle.currentAssistantMessageOrdinal = null;
+              handle.currentStreamMessageId = null;
               handle.currentLlmRound = 0;
               if (handle.session.isStreaming) {
                 console.log(

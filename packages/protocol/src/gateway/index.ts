@@ -231,6 +231,7 @@ export interface GatewaySessionTurnPatchOutput extends GatewaySessionOutputBase 
   type: "session.turn.patch";
   turnId: string | null;
   messageId: string | null;
+  messageOrdinal?: number | null;
   anchorUserMessageId: string | null;
   seq: number;
   baseSeq: number;

@@ -228,6 +228,8 @@ export type SessionTurnProgressEvent = {
   spaceId: string;
   sessionId: string;
   payload: {
+    messageId: string | null;
+    messageOrdinal?: number | null;
     anchorUserMessageId: string | null;
     content: ContentBlock[];
   };
@@ -252,6 +254,7 @@ export type SessionTurnPatchEvent = {
   payload: {
     turnId: string | null;
     messageId: string | null;
+    messageOrdinal?: number | null;
     anchorUserMessageId: string | null;
     seq: number;
     baseSeq: number;

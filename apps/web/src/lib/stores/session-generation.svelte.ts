@@ -17,6 +17,9 @@ export type SessionGenerationState = {
 	startedAt?: number;
 	lastEventAt?: number;
 	contentBlocks: ContentBlock[];
+	intermediateMessages: ContentBlock[][];
+	streamMessageId: string | null;
+	messageOrdinal: number | null;
 	anchorUserMessageId: string | null;
 	truncatedStart: boolean;
 	patchSeq: number;
@@ -49,6 +52,9 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	startedAt: undefined,
 	lastEventAt: undefined,
 	contentBlocks: [],
+	intermediateMessages: [],
+	streamMessageId: null,
+	messageOrdinal: null,
 	anchorUserMessageId: null,
 	truncatedStart: false,
 	patchSeq: 0,
@@ -104,6 +110,19 @@ function parsePersistedState(raw: string): SessionGenerationState | null {
 			contentBlocks: Array.isArray(parsed.contentBlocks)
 				? (parsed.contentBlocks as ContentBlock[])
 				: [],
+			intermediateMessages: Array.isArray(parsed.intermediateMessages)
+				? (parsed.intermediateMessages.filter(
+						Array.isArray,
+					) as ContentBlock[][])
+				: [],
+			streamMessageId:
+				typeof parsed.streamMessageId === "string"
+					? parsed.streamMessageId
+					: null,
+			messageOrdinal:
+				typeof parsed.messageOrdinal === "number"
+					? parsed.messageOrdinal
+					: null,
 			anchorUserMessageId:
 				typeof parsed.anchorUserMessageId === "string"
 					? parsed.anchorUserMessageId
@@ -228,6 +247,7 @@ class SessionGenerationStore {
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		if (current.status === "streaming") return;
 		this.setState(sessionId, {
 			...current,
 			sessionId,
@@ -238,6 +258,9 @@ class SessionGenerationStore {
 			startedAt: current.startedAt ?? Date.now(),
 			lastEventAt: Date.now(),
 			contentBlocks: [],
+			intermediateMessages: [],
+			streamMessageId: null,
+			messageOrdinal: null,
 			anchorUserMessageId: null,
 			truncatedStart: false,
 			patchSeq: 0,
@@ -254,6 +277,7 @@ class SessionGenerationStore {
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		if (current.status === "streaming") return;
 		if (isPersistable(current)) return;
 		this.setState(sessionId, {
 			...current,
@@ -274,6 +298,9 @@ class SessionGenerationStore {
 		input: {
 			spaceId?: string | null;
 			contentBlocks: ContentBlock[];
+			intermediateMessages?: ContentBlock[][];
+			streamMessageId?: string | null;
+			messageOrdinal?: number | null;
 			anchorUserMessageId?: string | null;
 			truncatedStart?: boolean;
 			patchSeq?: number;
@@ -289,6 +316,16 @@ class SessionGenerationStore {
 			startedAt: current.startedAt ?? Date.now(),
 			lastEventAt: Date.now(),
 			contentBlocks: input.contentBlocks,
+			intermediateMessages:
+				input.intermediateMessages ?? current.intermediateMessages ?? [],
+			streamMessageId:
+				input.streamMessageId !== undefined
+					? input.streamMessageId
+					: current.streamMessageId,
+			messageOrdinal:
+				input.messageOrdinal !== undefined
+					? input.messageOrdinal
+					: current.messageOrdinal,
 			anchorUserMessageId:
 				input.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
 			truncatedStart: input.truncatedStart ?? current.truncatedStart,
@@ -305,6 +342,9 @@ class SessionGenerationStore {
 			error: null,
 			lastEventAt: Date.now(),
 			contentBlocks: [],
+			intermediateMessages: [],
+			streamMessageId: null,
+			messageOrdinal: null,
 			anchorUserMessageId: null,
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
@@ -320,6 +360,9 @@ class SessionGenerationStore {
 			error: sanitizeError(error ?? current.error),
 			lastEventAt: Date.now(),
 			contentBlocks: [],
+			intermediateMessages: [],
+			streamMessageId: null,
+			messageOrdinal: null,
 			anchorUserMessageId: null,
 			truncatedStart: false,
 			patchSeq: current.patchSeq,

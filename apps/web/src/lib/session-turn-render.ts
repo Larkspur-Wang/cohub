@@ -5,7 +5,6 @@ import type {
 	StoredIntermediateMessage,
 } from "@neta-art/cohub-protocol/model";
 import { getStreamingRenderKey } from "./session-streaming";
-import { buildStreamingIntermediateMessages } from "./session-streaming-intermediate";
 import type { ChatMessage, TimelineItem } from "./session-tree";
 
 function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
@@ -129,16 +128,8 @@ export function buildTurnTimelineItems(input: {
 			turn.status === "running" &&
 			(!streamingTurnId || streamingTurnId === turn.id)
 		) {
-			const intermediateMessages =
-				input.streaming?.intermediateMessages ??
-				buildStreamingIntermediateMessages({
-					sessionId:
-						input.streaming?.sessionId ?? input.sessionId ?? turn.sessionId,
-					turnId: input.streaming?.turnId ?? turn.id,
-					contentBlocks: input.streaming?.contentBlocks ?? [],
-					createdAt: renderCreatedAt,
-				});
-			const processIntermediateMessages = intermediateMessages.slice(0, -1);
+			const processIntermediateMessages =
+				input.streaming?.intermediateMessages ?? [];
 			const summary = {
 				messageCount: processIntermediateMessages.length,
 				toolCallCount: processIntermediateMessages.reduce(
@@ -202,15 +193,8 @@ export function buildTurnTimelineItems(input: {
 					createdAt: renderCreatedAt,
 					updatedAt: renderCreatedAt,
 				} satisfies SessionTurnRecord);
-		const intermediateMessages =
-			input.streaming?.intermediateMessages ??
-			buildStreamingIntermediateMessages({
-				sessionId,
-				turnId: input.streaming?.turnId ?? turn.id,
-				contentBlocks: input.streaming?.contentBlocks ?? [],
-				createdAt: renderCreatedAt,
-			});
-		const processIntermediateMessages = intermediateMessages.slice(0, -1);
+		const processIntermediateMessages =
+			input.streaming?.intermediateMessages ?? [];
 		items.push({
 			id: `turn:${turn.id}:process:streaming`,
 			kind: "process",
