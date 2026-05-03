@@ -758,6 +758,41 @@ export class SpaceEnvApi {
   }
 }
 
+export type SpaceSandboxRecord = {
+  status: string | null;
+  podName?: string | null;
+  desiredImage?: string | null;
+  reportedImageVersion?: string | null;
+  lastHeartbeatAt?: string | null;
+  reportedAt?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
+export class SpaceSandboxApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  get() {
+    return this.transport.request<{ sandbox: SpaceSandboxRecord | null }>(
+      `/api/spaces/${this.spaceId}/sandbox`,
+    );
+  }
+
+  recreate() {
+    return this.transport.request<{
+      ok: boolean;
+      status?: string;
+      verified?: boolean;
+      checks?: Record<string, boolean> | null;
+      message?: string;
+    }>(`/api/spaces/${this.spaceId}/sandbox/recreate`, {
+      method: "POST",
+    });
+  }
+}
+
 export class SpaceMarksApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -835,6 +870,7 @@ export class SpaceClient {
   readonly usage: SpaceUsageApi;
   readonly channels: SpaceChannelsApi;
   readonly env: SpaceEnvApi;
+  readonly sandbox: SpaceSandboxApi;
   readonly invitations: SpaceInvitationsApi;
   readonly marks: SpaceMarksApi;
 
@@ -851,6 +887,7 @@ export class SpaceClient {
     this.usage = new SpaceUsageApi(transport, id);
     this.channels = new SpaceChannelsApi(transport, id);
     this.env = new SpaceEnvApi(transport, id);
+    this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
     this.marks = new SpaceMarksApi(transport, id);
   }

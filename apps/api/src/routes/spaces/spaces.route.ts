@@ -419,6 +419,7 @@ router.get("/:id", async (c) => {
       ...space,
       meta: sanitizedMeta,
       sandboxStatus: sandbox?.status ?? null,
+      sandbox: attachSandboxPublicEndpoints(sandbox),
       gitInfo: gitInfo ?? null,
     });
   }
