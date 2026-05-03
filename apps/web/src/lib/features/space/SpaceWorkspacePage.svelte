@@ -1359,56 +1359,14 @@ function prepareRouteSession(sessionId: string) {
 		};
 	}
 }
-async function loadSpace(_options?: { force?: boolean }) {
+async function loadSpace() {
 	spaceLoadError = "";
-	const force = _options?.force ?? false;
-	if (!force) {
-		const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
-		const cachedSessions = cachedSnapshot?.sessions;
-		if (cachedSessions && cachedSessions.length > 0) {
-			seedSessions(cachedSessions);
-		}
+	try {
+		space = await sdk.space(spaceId).get();
+	} catch (error) {
+		spaceLoadError =
+			error instanceof Error ? error.message : "Failed to load space";
 	}
-	const criticalTasks: Array<Promise<void>> = [];
-	criticalTasks.push(
-		(async () => {
-			try {
-				space = await sdk.space(spaceId).get();
-			} catch (error) {
-				spaceLoadError =
-					error instanceof Error ? error.message : "Failed to load space";
-			}
-		})(),
-	);
-	criticalTasks.push(
-		(async () => {
-			try {
-				const sessions = await fetchSessionListWithCache(
-					spaceId,
-					async () => {
-						const result = await sdk.space(spaceId).sessions.list();
-						return result.sessions ?? [];
-					},
-					{ force },
-				);
-				seedSessions(sessions);
-			} catch {
-				// Sessions list not available — if viewing a session, fetch it directly
-				if (routeView === "session" && routeSessionId) {
-					try {
-						const { session } = await sdk
-							.space(spaceId)
-							.session(routeSessionId)
-							.get();
-						seedSessions([session]);
-					} catch {
-						// Silently fail
-					}
-				}
-			}
-		})(),
-	);
-	await Promise.all(criticalTasks);
 }
 
 function showSpaceStatusNotice(message: string) {
@@ -3298,8 +3256,14 @@ $effect(() => {
 					prepareRouteSession(routeSessionId);
 					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
 				}
+				const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
+				const cachedSessions = cachedSnapshot?.sessions;
+				if (cachedSessions && cachedSessions.length > 0) {
+					seedSessions(cachedSessions);
+				}
 				await loadSpace();
 				if (spaceId !== currentSpaceId) return;
+				void refreshSessionsList(false);
 				void loadSpacePins();
 				void loadFileTree(true);
 				void loadSpaceCheckpoints();
