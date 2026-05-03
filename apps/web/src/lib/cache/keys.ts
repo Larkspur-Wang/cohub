@@ -8,6 +8,10 @@ export function encodeKeyPart(value: string) {
 	return encodeURIComponent(value);
 }
 
+export function spaceRecordKey(userKey: string, spaceId: string) {
+	return [userKey, spaceId].map(encodeKeyPart).join(":");
+}
+
 export function sessionListKey(userKey: string, spaceId: string) {
 	return [userKey, spaceId, "recent"].map(encodeKeyPart).join(":");
 }

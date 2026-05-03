@@ -1,9 +1,9 @@
-import type { SessionRecord, SpaceFsEntry } from "@neta-art/cohub";
+import type { SessionRecord, SpaceFsEntry, SpaceRecord } from "@neta-art/cohub";
 import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export type SessionListCacheRecord = {
 	key: string;
@@ -45,7 +45,21 @@ export type SpaceFsDirCacheRecord = {
 	watermark: string | null;
 };
 
-type StoreName = "session_lists" | "session_turns" | "space_fs_dirs";
+export type SpaceRecordCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	space: SpaceRecord;
+	updatedAt: number;
+	lastAccessedAt: number;
+	watermark: string | null;
+};
+
+type StoreName =
+	| "session_lists"
+	| "session_turns"
+	| "space_fs_dirs"
+	| "space_records";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -74,6 +88,11 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 		};
 		request.onupgradeneeded = () => {
 			const db = request.result;
+			createStore(db, "space_records", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
+			]);
 			createStore(db, "session_lists", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },

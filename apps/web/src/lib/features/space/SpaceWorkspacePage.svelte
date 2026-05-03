@@ -62,6 +62,7 @@ import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
+import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
@@ -1362,7 +1363,9 @@ function prepareRouteSession(sessionId: string) {
 async function loadSpace() {
 	spaceLoadError = "";
 	try {
-		space = await sdk.space(spaceId).get();
+		const nextSpace = await sdk.space(spaceId).get();
+		space = nextSpace;
+		void spaceRecordRepo.set(spaceId, nextSpace).catch(() => undefined);
 	} catch (error) {
 		spaceLoadError =
 			error instanceof Error ? error.message : "Failed to load space";
@@ -1394,6 +1397,7 @@ async function refreshSpaceStatus() {
 		const nextSpace = await sdk.space(spaceId).get();
 		const previousBootstrapStatus = bootstrapStatus;
 		space = nextSpace;
+		void spaceRecordRepo.set(spaceId, nextSpace).catch(() => undefined);
 		const nextBootstrap = (() => {
 			const raw = nextSpace.meta;
 			if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -1536,6 +1540,7 @@ async function handleRenameSpace(newName: string) {
 	try {
 		const result = await sdk.space(spaceId).rename(newName);
 		space = result.space;
+		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
 		renamingSpace = false;
 	} catch (error) {
 		renameError =
@@ -1604,7 +1609,7 @@ async function loadSessionState(sessionId: string, force = false) {
 	const cached = !force
 		? await sessionTurnsRepo.getCached(spaceId, sessionId)
 		: null;
-	if (cached && cached.turns.length > 0) {
+	if (cached && (cached.turns.length > 0 || cached.session)) {
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
@@ -3251,17 +3256,27 @@ $effect(() => {
 	untrack(() => {
 		void (async () => {
 			let sessionLoad: Promise<void> | null = null;
+			let hasCachedSpace = false;
 			try {
 				if (routeView === "session" && routeSessionId) {
 					prepareRouteSession(routeSessionId);
 					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
+				}
+				const cachedSpace = await spaceRecordRepo.getCached(spaceId);
+				if (cachedSpace?.space) {
+					space = cachedSpace.space;
+					hasCachedSpace = true;
 				}
 				const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
 				const cachedSessions = cachedSnapshot?.sessions;
 				if (cachedSessions && cachedSessions.length > 0) {
 					seedSessions(cachedSessions);
 				}
-				await loadSpace();
+				if (hasCachedSpace) {
+					void loadSpace();
+				} else {
+					await loadSpace();
+				}
 				if (spaceId !== currentSpaceId) return;
 				void refreshSessionsList(false);
 				void loadSpacePins();

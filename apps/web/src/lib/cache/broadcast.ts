@@ -1,4 +1,5 @@
 export type CacheBroadcastStore =
+	| "space_records"
 	| "session_lists"
 	| "session_turns"
 	| "space_fs_dirs";
