@@ -19,7 +19,7 @@ import {
 } from "../../space-sessions.js";
 import { interruptSessionTurn } from "../../session-turns.js";
 import { dispatchTurnUpdated } from "../../session-output.js";
-import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
+import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import {
   ensureInternalRequest,
@@ -39,6 +39,10 @@ const ALLOWED_SANDBOX_META_KEYS = new Set([
   "hostname",
   "imageVersion",
   "startedAt",
+  "errorClass",
+  "requiresPodRecreate",
+  "mountPath",
+  "recoverySource",
 ]);
 
 function sanitizeSandboxMeta(input: Record<string, unknown> | null | undefined) {
@@ -171,7 +175,43 @@ router.post("/:id/sandbox-report", async (c) => {
     },
   });
 
+  if (safeMeta?.requiresPodRecreate === true && safeMeta.errorClass === "stale_mount") {
+    void recoverSpaceSandbox({
+      spaceId,
+      userUuid: space.userUuid,
+      ownerUserUuid: space.userUuid,
+      reason: typeof safeMeta.errorClass === "string" ? safeMeta.errorClass : body.status,
+      source: "sandbox",
+    }).catch((error) => console.error(`[SandboxRecovery] auto recovery failed spaceId=${spaceId}`, error));
+  }
+
   return c.json({ ok: true });
+});
+
+// POST /internal/spaces/:id/sandbox/recover
+router.post("/:id/sandbox/recover", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const space = await getSpaceById(spaceId);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  const body = (await c.req.json<{ reason?: string; source?: string }>().catch(() => ({}))) as { reason?: string; source?: string };
+  try {
+    const result = await recoverSpaceSandbox({
+      spaceId,
+      userUuid: space.userUuid,
+      ownerUserUuid: space.userUuid,
+      reason: body.reason ?? "recover",
+      source: body.source ?? "internal",
+      verify: true,
+    });
+    return c.json(result);
+  } catch (error) {
+    return c.json({ ok: false, status: "error", message: error instanceof Error ? error.message : String(error) }, 500);
+  }
 });
 
 

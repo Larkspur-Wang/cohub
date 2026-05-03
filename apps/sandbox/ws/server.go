@@ -19,6 +19,7 @@ import (
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
+	"github.com/cohub/apps/sandbox/report"
 	"github.com/cohub/apps/sandbox/rpc"
 )
 
@@ -31,6 +32,7 @@ type Server struct {
 	cfg            env.Config
 	dispatcher     *rpc.Dispatcher
 	processManager *process.Manager
+	reporter       *report.Client
 	prepareState   prepareState
 	hostname       string
 	logger         *slog.Logger
@@ -47,6 +49,7 @@ type Server struct {
 	lastSelfHealObservedAt   time.Time
 	zombieSelfHealTicks      int
 	mountSelfHealTriggered   bool
+	recovering               bool
 }
 
 type connectionSession struct {
@@ -67,6 +70,7 @@ func NewServer(
 	cfg env.Config,
 	dispatcher *rpc.Dispatcher,
 	processManager *process.Manager,
+	reporter *report.Client,
 	prepareState prepareState,
 	hostname string,
 	logger *slog.Logger,
@@ -75,6 +79,7 @@ func NewServer(
 		cfg:                     cfg,
 		dispatcher:              dispatcher,
 		processManager:          processManager,
+		reporter:                reporter,
 		prepareState:            prepareState,
 		hostname:                hostname,
 		logger:                  logger,
@@ -90,6 +95,8 @@ func NewServer(
 func (s *Server) Run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sandbox", s.handleSandbox)
+	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte("Not found"))
@@ -98,6 +105,25 @@ func (s *Server) Run() error {
 	addr := fmt.Sprintf("%s:%d", env.DefaultSandboxWSHost, env.DefaultSandboxWSPort)
 	s.logger.Info("sandbox ws server listening", slog.String("addr", addr))
 	return http.ListenAndServe(addr, mux)
+}
+
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
+	s.healthMu.Lock()
+	recovering := s.recovering
+	s.healthMu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if recovering {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"ok":false,"status":"recovering"}`))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"ok":true}`))
 }
 
 const wsReadLimit = 50 * 1024 * 1024 // 50MB per websocket message
@@ -560,24 +586,35 @@ func (s *Server) maybeSelfHealOnStaleMount(request protocol.RPCRequest, failed p
 		return
 	}
 	s.mountSelfHealTriggered = true
+	s.recovering = true
 	s.healthMu.Unlock()
 
-	s.logger.Warn("sandbox self-heal triggered due to stale mount",
+	s.logger.Warn("sandbox recovery requested due to stale mount",
 		slog.String("method", request.Method),
 		slog.String("requestId", request.RequestID),
 		slog.String("path", matchedRoot),
 		slog.String("error", failed.Error.Message),
 	)
 	go func() {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				s.logger.Error("self-heal goroutine panicked", slog.Any("recover", recovered))
-				os.Exit(1)
+		for attempt := 1; attempt <= 3; attempt++ {
+			if err := s.reporter.Report(report.Payload{
+				Status: "error",
+				Meta: map[string]interface{}{
+					"errorClass":          "stale_mount",
+					"requiresPodRecreate": true,
+					"mountPath":           matchedRoot,
+					"lastError":           failed.Error.Message,
+					"recoverySource":      "sandbox",
+				},
+			}); err != nil {
+				s.logger.Warn("failed to report stale mount recovery request", slog.Int("attempt", attempt), slog.String("error", err.Error()))
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
 			}
-		}()
-		// Stale mount self-heal is asynchronous so the current rpc.failed payload can reach the agent first.
-		time.Sleep(500 * time.Millisecond)
-		s.selfTerminate("stale mount")
+			return
+		}
+		s.logger.Warn("stale mount recovery report failed; falling back to self terminate")
+		s.selfTerminate("stale mount report failed")
 	}()
 }
 

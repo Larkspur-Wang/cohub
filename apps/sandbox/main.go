@@ -96,7 +96,7 @@ func main() {
 
 	processManager := process.NewManager(logger)
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
-	server := ws.NewServer(cfg, dispatcher, processManager, state, hostname, logger)
+	server := ws.NewServer(cfg, dispatcher, processManager, reporter, state, hostname, logger)
 
 	if watcher, err := filewatch.Start(cfg.WorkspaceDir, logger, func(batch filewatch.Batch) {
 		server.BroadcastFSChanged(protocol.FSChangedPayload{

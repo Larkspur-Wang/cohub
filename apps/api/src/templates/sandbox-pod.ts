@@ -30,7 +30,7 @@ export const SANDBOX_POD_TEMPLATE = {
     },
   },
   spec: {
-    restartPolicy: "OnFailure",
+    restartPolicy: "Always",
     imagePullSecrets: [{ name: "gitea-registry" }],
     securityContext: {
       runAsUser: 1000,
@@ -60,6 +60,20 @@ export const SANDBOX_POD_TEMPLATE = {
             cpu: "0.1",
             memory: "256Mi",
           },
+        },
+        readinessProbe: {
+          httpGet: { path: "/readyz", port: 8788 },
+          initialDelaySeconds: 5,
+          periodSeconds: 10,
+          timeoutSeconds: 2,
+          failureThreshold: 2,
+        },
+        livenessProbe: {
+          httpGet: { path: "/healthz", port: 8788 },
+          initialDelaySeconds: 30,
+          periodSeconds: 15,
+          timeoutSeconds: 3,
+          failureThreshold: 4,
         },
         volumeMounts: [
           {

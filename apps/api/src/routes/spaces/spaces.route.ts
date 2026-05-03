@@ -12,7 +12,7 @@ import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildSto
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
-import { getSpaceSandboxBySpaceId, reconcileSpaceSandbox } from "../../space-sandboxes.js";
+import { getSpaceSandboxBySpaceId, recoverSpaceSandbox, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -694,13 +694,14 @@ router.post("/:id/sandbox/recreate", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
-  void reconcileSpaceSandbox({
+  const result = await recoverSpaceSandbox({
     ...getSpaceProvisionParams(user, space, gitAccount),
-    mode: "replace",
     reason: "manual_recreate",
-  }).catch(console.error);
+    source: "manual",
+    verify: true,
+  });
 
-  return c.json({ ok: true, message: "Sandbox recreation triggered" });
+  return c.json(result);
 });
 
 // ── Sessions ─────────────────────────────────────────────────────────────────

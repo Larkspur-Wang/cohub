@@ -419,6 +419,21 @@ export async function getSpaceSandbox(input: { spaceId: string }) {
   } | null>;
 }
 
+export async function recoverSpaceSandbox(input: { spaceId: string; reason?: string; source?: string }) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sandbox/recover`;
+  return postJsonWithRetry({
+    url,
+    body: { reason: input.reason ?? "recover", source: input.source ?? "agent" },
+    errorPrefix: "Recover sandbox failed",
+    maxAttempts: 1,
+  }) as Promise<{
+    ok: boolean;
+    status?: string;
+    verified?: boolean;
+    message?: string;
+  } | null>;
+}
+
 export async function getSpace(input: { spaceId: string }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}`;
   const response = await fetch(url, {

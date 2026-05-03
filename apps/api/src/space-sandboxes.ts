@@ -6,7 +6,9 @@ import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { deleteSandboxPublicNetwork, getSandboxPublicEndpoints, reconcileSandboxPublicNetwork } from "./sandbox-public-network.js";
 import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
+import { redisCommandClient } from "./redis.js";
 import type { SpaceSandboxStatus } from "./lib/sandbox/types.js";
+import { smokeVerifySandboxPod } from "./lib/sandbox/recovery.js";
 import type { V1Pod } from "@kubernetes/client-node";
 
 export const toSandboxImageVersion = (image: string) => {
@@ -16,6 +18,8 @@ export const toSandboxImageVersion = (image: string) => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const RECOVERY_LOCK_TTL_MS = 180_000;
+const RECOVERY_COOLDOWN_MS = 60_000;
 
 const asMetaObject = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -53,6 +57,22 @@ export const waitForSandboxPodDeleted = async (podName: string, timeoutMs = 120_
       if (statusCode === 404) return true;
       throw error;
     }
+  }
+  return false;
+};
+
+export const waitForSandboxPodReady = async (podName: string, timeoutMs = 120_000) => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const pod = await k8sCoreApi.readNamespacedPod({ name: podName, namespace: sessionsNamespace });
+      const ready = pod.status?.conditions?.some((condition) => condition.type === "Ready" && condition.status === "True") === true;
+      if (ready) return true;
+    } catch (error: unknown) {
+      const statusCode = getK8sStatusCode(error);
+      if (statusCode !== 404) throw error;
+    }
+    await sleep(1000);
   }
   return false;
 };
@@ -250,7 +270,7 @@ export const reconcileSpaceSandbox = async (input: {
   userUuid: string;
   ownerUserUuid?: string;
   mode: "ensure" | "replace";
-  reason: "space_created" | "manual_recreate";
+  reason: "space_created" | "manual_recreate" | "auto_recover";
 }) => {
   const podName = `sandbox-${input.spaceId}`;
   const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
@@ -377,3 +397,103 @@ export const provisionSpaceSandbox = async (input: {
     throw error;
   });
 };
+
+export const recoverSpaceSandbox = async (input: {
+  spaceId: string;
+  userUuid: string;
+  ownerUserUuid?: string;
+  reason?: string;
+  source?: string;
+  verify?: boolean;
+}) => {
+  const lockKey = `sandbox:recover:${input.spaceId}`;
+  const cooldownKey = `sandbox:recover:cooldown:${input.spaceId}`;
+  const locked = await redisCommandClient.set(lockKey, `${process.pid}:${Date.now()}`, "PX", RECOVERY_LOCK_TTL_MS, "NX");
+  if (locked !== "OK") {
+    const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+    return {
+      ok: sandbox?.status === "ready",
+      status: sandbox?.status ?? "provisioning",
+      verified: false,
+      recovering: true,
+    };
+  }
+
+  try {
+    const cooldown = await redisCommandClient.get(cooldownKey).catch(() => null);
+    if (cooldown && input.source !== "manual") {
+      const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+      return {
+        ok: sandbox?.status === "ready",
+        status: sandbox?.status ?? "provisioning",
+        verified: false,
+        throttled: true,
+      };
+    }
+    await redisCommandClient.set(cooldownKey, "1", "PX", RECOVERY_COOLDOWN_MS).catch(() => undefined);
+
+    const startedAt = new Date().toISOString();
+    const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+    const existingMeta = asMetaObject(existingSandbox?.meta);
+    await updateSpaceSandbox({
+      spaceId: input.spaceId,
+      status: "provisioning",
+      meta: {
+        ...existingMeta,
+        recoveryStatus: "recreating",
+        recoveryLevel: "L2",
+        recoverySource: input.source ?? "auto",
+        lastRecoveryReason: input.reason ?? "recover",
+        lastRecoveryStartedAt: startedAt,
+        lastRecoveryError: null,
+      },
+    });
+
+    await reconcileSpaceSandbox({
+      spaceId: input.spaceId,
+      userUuid: input.userUuid,
+      ownerUserUuid: input.ownerUserUuid,
+      mode: "replace",
+      reason: input.source === "manual" ? "manual_recreate" : "auto_recover",
+    });
+
+    const podName = `sandbox-${input.spaceId}`;
+    const ready = await waitForSandboxPodReady(podName);
+    if (!ready) throw new Error(`Timed out waiting for sandbox pod ready: ${podName}`);
+
+    const checks = input.verify === false
+      ? null
+      : await smokeVerifySandboxPod(podName, sessionsNamespace);
+    const latest = await getSpaceSandboxBySpaceId(input.spaceId);
+    await updateSpaceSandbox({
+      spaceId: input.spaceId,
+      status: "ready",
+      meta: {
+        ...asMetaObject(latest?.meta),
+        recoveryStatus: "ready",
+        lastRecoveredAt: new Date().toISOString(),
+        lastRecoveryReason: input.reason ?? "recover",
+        lastRecoveryChecks: checks,
+        lastRecoveryError: null,
+      },
+    });
+    return { ok: true as const, status: "ready" as const, verified: input.verify !== false, checks };
+  } catch (error) {
+    const latest = await getSpaceSandboxBySpaceId(input.spaceId);
+    await updateSpaceSandbox({
+      spaceId: input.spaceId,
+      status: "error",
+      meta: {
+        ...asMetaObject(latest?.meta),
+        recoveryStatus: "failed",
+        lastRecoveryFailedAt: new Date().toISOString(),
+        lastRecoveryReason: input.reason ?? "recover",
+        lastRecoveryError: error instanceof Error ? error.message : String(error),
+      },
+    }).catch(() => undefined);
+    throw error;
+  } finally {
+    await redisCommandClient.del(lockKey).catch(() => undefined);
+  }
+};
+

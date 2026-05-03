@@ -34,7 +34,9 @@ import {
 import { getCurrentSessionExecutionAuth } from "../runtime/session-execution-auth.js";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
-import { type SandboxConnection, waitForSandboxConnection } from "./ws-client.js";
+import { type SandboxConnection, waitForSandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
+import { recoverSpaceSandbox } from "../api.js";
+import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
 
 function getCurrentTraceContext() {
   const ctx = getCurrentToolExecutionContext();
@@ -116,6 +118,16 @@ async function getCurrentConnection() {
   return waitForSandboxConnection(getCurrentSpaceId());
 }
 
+async function recoverAndRetryAfterInfraError<T>(spaceId: string, error: SandboxInfrastructureError, retry: () => Promise<T>) {
+  console.warn(`[SandboxRecovery] ${error.code} detected spaceId=${spaceId} mount=${error.mountPath ?? "unknown"}; triggering recovery`);
+  disconnectSandboxWsClient(spaceId, `sandbox recovery requested: ${error.code}`);
+  const result = await recoverSpaceSandbox({ spaceId, reason: error.code, source: "agent" });
+  if (!result?.ok) {
+    throw new Error(`Sandbox recovery failed after ${error.code}: ${result?.message ?? error.message}`);
+  }
+  return retry();
+}
+
 async function tracedRpc<M extends RpcMethod>(
   connection: SandboxConnection,
   method: M,
@@ -123,11 +135,12 @@ async function tracedRpc<M extends RpcMethod>(
   options?: {
     onEvent?: (event: import("@cohub/agent-sandbox-protocol").RpcEventPayload) => void;
   },
-) {
+  retryInfraError = true,
+): Promise<RpcRequestMap[M]["result"]> {
   const tracer = getAgentTracer();
   const spaceId = getCurrentSpaceId();
   const traceCtx = getCurrentTraceContext();
-  return wrapSandboxRpc(tracer, {
+  const execute = () => wrapSandboxRpc(tracer, {
     method,
     sandboxId: connection.sandboxId,
     spaceId,
@@ -145,6 +158,17 @@ async function tracedRpc<M extends RpcMethod>(
       onEvent: options?.onEvent,
     });
   });
+
+  try {
+    return await execute();
+  } catch (error) {
+    const classified = classifySandboxInfrastructureError(error instanceof Error ? error.message : String(error));
+    if (!classified || !retryInfraError) throw error;
+    return recoverAndRetryAfterInfraError(spaceId, classified, async () => {
+      const freshConnection = await waitForSandboxConnection(spaceId, 60_000);
+      return tracedRpc(freshConnection, method, params, options, false);
+    });
+  }
 }
 
 function createRemoteReadOperations(): ReadOperations {
