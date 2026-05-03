@@ -1,20 +1,15 @@
 <script lang="ts">
 import {
-	type Channel,
 	type CheckpointRecord,
 	type CronJobRecord,
 	HttpError,
 	type PromptTemplateCatalogEntry,
 	type SessionRecord,
 	type SpaceAccessPolicy,
-	type SpaceChannelBindingRecord,
-	type SpaceEnvInput,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceMarkListItem,
-	type SpaceMember,
 	type SpaceRecord,
-	type SpaceRole,
 	type SpaceUsageResponse,
 	type TaskRunRecord,
 } from "@neta-art/cohub";
@@ -40,7 +35,6 @@ import {
 	FolderKanban,
 	GitCommitHorizontal,
 	Globe,
-	Hash,
 	Link,
 	Loader2,
 	Lock,
@@ -62,8 +56,6 @@ import {
 	Share2,
 	Terminal,
 	Trash2,
-	Users,
-	Webhook,
 	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
@@ -518,6 +510,7 @@ let shareCopied = $state(false);
 let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let shareModalError = $state("");
 let shareModalSaving = $state(false);
+let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
 let checkpointDetail = $state<CheckpointRecord | null>(null);
 let spaceCheckpoints = $state<CheckpointRecord[]>([]);
 let checkpointDetailLoading = $state(false);
@@ -545,197 +538,9 @@ let cronjobNewError = $state("");
 let taskRunDetail = $state<TaskRunRecord | null>(null);
 let taskRunDetailLoading = $state(false);
 let taskRunDetailError = $state("");
-// ─── Space access & members ───
-let spaceAccess = $state<SpaceAccessPolicy | null>(null);
-let savingAccess = $state(false);
-// Session-level access cache
-let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
-// Members
-let spaceMembers = $state<SpaceMember[]>([]);
-let loadingMembers = $state(false);
-let addingMemberUuid = $state("");
-let addingMemberRole = $state<SpaceRole>("guest");
-let savingMember = $state(false);
-let addingMemberError = $state("");
-
-// ─── Invitations ───
-type InvitationItem = {
-	token: string;
-	role: SpaceRole;
-	status: "active" | "revoked" | "exhausted";
-	useCount: number;
-	maxUses: number | null;
-	createdAt: string | null;
-	expiresInSeconds: number | null;
-};
-let spaceInvitations = $state<InvitationItem[]>([]);
-let loadingInvitations = $state(false);
-let showInvitePanel = $state(false);
-let inviteRole = $state<SpaceRole>("builder");
-let inviteTtlDays = $state(7);
-let inviteMaxUses = $state(0);
-let creatingInvite = $state(false);
-let inviteCreateError = $state("");
-let copiedInviteToken = $state<string | null>(null);
-let copiedInviteTimer: ReturnType<typeof setTimeout> | null = null;
-let invitationsError = $state<string | null>(null);
-
-// Cleanup timers on destroy
-onDestroy(() => {
-	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
-});
-
-async function loadInvitations() {
-	loadingInvitations = true;
-	invitationsError = null;
-	try {
-		const result = await sdk.space(spaceId).invitations.list();
-		spaceInvitations = result.items;
-	} catch (error) {
-		invitationsError =
-			error instanceof Error ? error.message : "Failed to load invitations";
-	} finally {
-		loadingInvitations = false;
-	}
-}
-
-async function handleCreateInvite() {
-	if (creatingInvite) return;
-	// Validate maxUses
-	if (inviteMaxUses < 0 || inviteMaxUses > 10000) {
-		inviteCreateError = "Max uses must be between 0 and 10000";
-		return;
-	}
-	inviteCreateError = "";
-	creatingInvite = true;
-	try {
-		await sdk.space(spaceId).invitations.create({
-			role: inviteRole,
-			ttlSeconds: inviteTtlDays * 24 * 60 * 60,
-			maxUses: inviteMaxUses || undefined,
-		});
-		showInvitePanel = false;
-		await loadInvitations();
-	} catch (error) {
-		inviteCreateError =
-			error instanceof Error ? error.message : "Failed to create invitation";
-	} finally {
-		creatingInvite = false;
-	}
-}
-
-async function handleRevokeInvite(token: string) {
-	if (!confirm("Revoke this invitation link? It will no longer work.")) return;
-	try {
-		await sdk.space(spaceId).invitations.revoke(token);
-		await loadInvitations();
-	} catch (error) {
-		invitationsError =
-			error instanceof Error ? error.message : "Failed to revoke invitation";
-	}
-}
-
-async function handleCopyInviteLink(token: string) {
-	try {
-		const url = `${window.location.origin}/invite/${token}`;
-		await navigator.clipboard.writeText(url);
-		copiedInviteToken = token;
-		if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
-		copiedInviteTimer = setTimeout(() => {
-			copiedInviteToken = null;
-		}, 2000);
-	} catch {
-		// Clipboard API may fail in non-HTTPS contexts
-		inviteCreateError = "Failed to copy link. Please copy manually.";
-	}
-}
-
-// ─── Current user ───
-let myUuid = $state<string | null>(null);
-
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
 let tokenUsage = $state<TokenUsageData | null>(null);
-
-// ─── Space Channels ───
-let spaceChannelBindings = $state<SpaceChannelBindingRecord[]>([]);
-let spaceChannelsLoading = $state(false);
-let availableChannels = $state<Channel[]>([]);
-let showBindDialog = $state(false);
-let bindChannelId = $state("");
-let bindSubmitting = $state(false);
-let bindError = $state("");
-let unbindingChannelId = $state<string | null>(null);
-
-// ─── Space environment variables ───
-let spaceEnv = $state<SpaceEnvInput[]>([]);
-let spaceEnvLoading = $state(false);
-let spaceEnvError = $state("");
-let envNameInput = $state("");
-let envValueInput = $state("");
-let envSubmitting = $state(false);
-let envEditingName = $state<string | null>(null);
-let envEditingValue = $state("");
-let envUpdatingName = $state<string | null>(null);
-let envDeletingName = $state<string | null>(null);
-let envVisibleValues = $state<Record<string, boolean>>({});
-let envImportInput = $state("");
-let envImportSubmitting = $state(false);
-let showEnvImport = $state(false);
-
-const canManageChannels = $derived.by(() => {
-	if (!myUuid) return false;
-	const member = spaceMembers.find((m) => m.userId === myUuid);
-	if (member) return member.role === "host";
-	return spaceAccess?.signed_in_user === "host";
-});
-
-async function loadSpaceChannels() {
-	spaceChannelsLoading = true;
-	try {
-		const [bindings, allChannels] = await Promise.all([
-			sdk.space(spaceId).channels.list(),
-			sdk.channels.list(),
-		]);
-		spaceChannelBindings = bindings;
-		const boundIds = new Set(bindings.map((b) => b.channelId));
-		availableChannels = allChannels.filter((ch) => !boundIds.has(ch.id));
-	} catch {
-		// Non-blocking
-	} finally {
-		spaceChannelsLoading = false;
-	}
-}
-
-async function handleBindChannel() {
-	if (!bindChannelId || bindSubmitting) return;
-	bindError = "";
-	bindSubmitting = true;
-	try {
-		await sdk.space(spaceId).channels.bind(bindChannelId);
-		showBindDialog = false;
-		bindChannelId = "";
-		await loadSpaceChannels();
-	} catch (error) {
-		bindError =
-			error instanceof Error ? error.message : "Failed to bind channel";
-	} finally {
-		bindSubmitting = false;
-	}
-}
-
-async function handleUnbindChannel(channelId: string) {
-	if (unbindingChannelId) return;
-	unbindingChannelId = channelId;
-	try {
-		await sdk.space(spaceId).channels.unbind(channelId);
-		await loadSpaceChannels();
-	} catch {
-		// Silently fail
-	} finally {
-		unbindingChannelId = null;
-	}
-}
 
 // ─── Heatmap helpers ───
 type HeatmapCell = { date: string; tokens: number; dayOfWeek: number };
@@ -785,200 +590,7 @@ function formatCost(n: number): string {
 		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
 	return `$${formatted}`;
 }
-function maskEnvValue(value: string): string {
-	if (!value) return "(empty)";
-	return "•".repeat(Math.min(Math.max(value.length, 8), 32));
-}
-function startEnvEdit(item: SpaceEnvInput) {
-	envEditingName = item.name;
-	envEditingValue = item.value;
-	spaceEnvError = "";
-}
-function cancelEnvEdit() {
-	envEditingName = null;
-	envEditingValue = "";
-}
-function parseEnvImport(input: string): SpaceEnvInput[] {
-	const entries: SpaceEnvInput[] = [];
-	const lines = input.split(/\r?\n/);
 
-	for (let index = 0; index < lines.length; index += 1) {
-		let line = lines[index].trim();
-		if (!line || line.startsWith("#")) continue;
-		if (line.startsWith("export ")) line = line.slice(7).trimStart();
-
-		const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/s);
-		if (!match) continue;
-
-		const name = match[1];
-		let value = match[2] ?? "";
-		const quote = value[0];
-
-		if (quote === '"' || quote === "'") {
-			let quoted = value;
-			while (!hasClosingEnvQuote(quoted, quote) && index < lines.length - 1) {
-				index += 1;
-				quoted += `\n${lines[index]}`;
-			}
-			value = unquoteEnvValue(quoted, quote);
-		} else {
-			value = stripEnvInlineComment(value).trimEnd();
-		}
-
-		entries.push({ name, value });
-	}
-	return entries;
-}
-
-function hasClosingEnvQuote(value: string, quote: string): boolean {
-	for (let index = value.length - 1; index > 0; index -= 1) {
-		const char = value[index];
-		if (char === " " || char === "\t") continue;
-		if (char === quote && (quote === "'" || !isEscaped(value, index)))
-			return true;
-		return false;
-	}
-	return false;
-}
-
-function unquoteEnvValue(value: string, quote: string): string {
-	let endIndex = value.length - 1;
-	while (endIndex > 0 && /\s/.test(value[endIndex])) endIndex -= 1;
-	if (
-		value[endIndex] === quote &&
-		(quote === "'" || !isEscaped(value, endIndex))
-	) {
-		value = value.slice(1, endIndex);
-	} else {
-		value = value.slice(1);
-	}
-	if (quote !== '"') return value;
-	return value
-		.replace(/\\n/g, "\n")
-		.replace(/\\r/g, "\r")
-		.replace(/\\t/g, "\t")
-		.replace(/\\"/g, '"')
-		.replace(/\\\\/g, "\\");
-}
-
-function stripEnvInlineComment(value: string): string {
-	const commentIndex = value.search(/\s#/);
-	return commentIndex >= 0 ? value.slice(0, commentIndex) : value;
-}
-
-function isEscaped(value: string, index: number): boolean {
-	let slashCount = 0;
-	for (
-		let cursor = index - 1;
-		cursor >= 0 && value[cursor] === "\\";
-		cursor -= 1
-	) {
-		slashCount += 1;
-	}
-	return slashCount % 2 === 1;
-}
-async function loadSpaceEnv() {
-	spaceEnvLoading = true;
-	spaceEnvError = "";
-	try {
-		const result = await sdk.space(spaceId).env.list();
-		spaceEnv = result.env;
-	} catch (error) {
-		spaceEnvError =
-			error instanceof Error
-				? error.message
-				: "Failed to load environment variables";
-	} finally {
-		spaceEnvLoading = false;
-	}
-}
-async function handleAddEnv() {
-	if (envSubmitting) return;
-	const name = envNameInput.trim();
-	if (!name) return;
-	envSubmitting = true;
-	spaceEnvError = "";
-	try {
-		const result = await sdk
-			.space(spaceId)
-			.env.create({ name, value: envValueInput });
-		spaceEnv = result.env;
-		envNameInput = "";
-		envValueInput = "";
-	} catch (error) {
-		spaceEnvError =
-			error instanceof Error
-				? error.message
-				: "Failed to add environment variable";
-	} finally {
-		envSubmitting = false;
-	}
-}
-async function handleImportEnv() {
-	if (envImportSubmitting) return;
-	const entries = parseEnvImport(envImportInput);
-	if (entries.length === 0) {
-		spaceEnvError = "No valid KEY=value entries found";
-		return;
-	}
-	envImportSubmitting = true;
-	spaceEnvError = "";
-	try {
-		let latest = spaceEnv;
-		for (const entry of entries) {
-			const result = await sdk.space(spaceId).env.create(entry);
-			latest = result.env;
-		}
-		spaceEnv = latest;
-		envImportInput = "";
-		showEnvImport = false;
-	} catch (error) {
-		spaceEnvError =
-			error instanceof Error
-				? error.message
-				: "Failed to import environment variables";
-	} finally {
-		envImportSubmitting = false;
-	}
-}
-async function handleUpdateEnv(name: string) {
-	if (envUpdatingName) return;
-	envUpdatingName = name;
-	spaceEnvError = "";
-	try {
-		const result = await sdk.space(spaceId).env.update(name, envEditingValue);
-		spaceEnv = result.env;
-		cancelEnvEdit();
-	} catch (error) {
-		spaceEnvError =
-			error instanceof Error
-				? error.message
-				: "Failed to update environment variable";
-	} finally {
-		envUpdatingName = null;
-	}
-}
-async function handleDeleteEnv(name: string) {
-	if (envDeletingName) return;
-	if (!confirm(`Delete environment variable ${name}?`)) return;
-	envDeletingName = name;
-	spaceEnvError = "";
-	try {
-		const result = await sdk.space(spaceId).env.remove(name);
-		spaceEnv = result.env;
-		if (envEditingName === name) cancelEnvEdit();
-		const nextVisible = { ...envVisibleValues };
-		delete nextVisible[name];
-		envVisibleValues = nextVisible;
-	} catch (error) {
-		spaceEnvError =
-			error instanceof Error
-				? error.message
-				: "Failed to delete environment variable";
-	} finally {
-		envDeletingName = null;
-	}
-}
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
 	for (const candidate of candidates) {
@@ -1000,76 +612,18 @@ function hasSessionPermission(sessionId: string): boolean {
 			access.signed_in_user === "builder")
 	);
 }
-async function loadPermissions() {
+async function loadTokenUsage() {
 	try {
-		const access = await sdk.space(spaceId).access.get();
-		spaceAccess = access;
+		const result = await sdk.space(spaceId).usage.get(30);
+		tokenUsage = result;
 	} catch {
 		// Non-blocking
-	}
-}
-async function setSpaceAccess(body: {
-	signed_in_user?: SpaceRole | null;
-	anonymous_user?: SpaceRole | null;
-}) {
-	savingAccess = true;
-	try {
-		spaceAccess = await sdk.space(spaceId).access.set(body);
-	} catch {
-		// Silently fail
-	} finally {
-		savingAccess = false;
 	}
 }
 async function removeSessionAccess(sessionId: string) {
 	try {
 		await sdk.sessionAccess.remove(sessionId);
 		sessionAccessById = { ...sessionAccessById, [sessionId]: null };
-	} catch {
-		// Silently fail
-	}
-}
-// Member management
-async function loadMembers() {
-	loadingMembers = true;
-	try {
-		const result = await sdk.space(spaceId).members.list();
-		spaceMembers = result.items;
-	} catch {
-		// Non-blocking
-	} finally {
-		loadingMembers = false;
-	}
-}
-async function handleAddMember() {
-	if (!addingMemberUuid.trim()) return;
-	savingMember = true;
-	addingMemberError = "";
-	try {
-		await sdk
-			.space(spaceId)
-			.members.update(addingMemberUuid.trim(), addingMemberRole);
-		addingMemberUuid = "";
-		await loadMembers();
-	} catch (error) {
-		addingMemberError =
-			error instanceof Error ? error.message : "Failed to add member";
-	} finally {
-		savingMember = false;
-	}
-}
-async function handleUpdateMemberRole(userId: string, role: SpaceRole) {
-	try {
-		await sdk.space(spaceId).members.update(userId, role);
-		await loadMembers();
-	} catch {
-		// Silently fail
-	}
-}
-async function handleRemoveMember(userId: string) {
-	try {
-		await sdk.space(spaceId).members.remove(userId);
-		await loadMembers();
 	} catch {
 		// Silently fail
 	}
@@ -1779,6 +1333,32 @@ async function refreshSessionsList(force = true) {
 	});
 	return refreshSessionsListInFlight;
 }
+function prepareRouteSession(sessionId: string) {
+	activeSessionId = sessionId;
+	pendingRestoreSessionId = sessionId;
+	activeAnchorRestore = null;
+	anchorRestoreWaitingForMarkdown = false;
+	userScrollActive = false;
+	programmaticScrollActive = false;
+	programmaticScrollTarget = null;
+	ensureSessionModelLoaded(sessionId);
+	shouldAutoFollow = true;
+	if (!sessionStateById[sessionId]) {
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				session: spaceSessions.find((s) => s.id === sessionId),
+				turns: [],
+				loading: true,
+				loaded: false,
+				error: "",
+				hasMore: true,
+				loadingOlder: false,
+				oldestCursor: undefined,
+			},
+		};
+	}
+}
 async function loadSpace(_options?: { force?: boolean }) {
 	spaceLoadError = "";
 	const force = _options?.force ?? false;
@@ -1789,8 +1369,8 @@ async function loadSpace(_options?: { force?: boolean }) {
 			seedSessions(cachedSessions);
 		}
 	}
-	const tasks: Array<Promise<void>> = [];
-	tasks.push(
+	const criticalTasks: Array<Promise<void>> = [];
+	criticalTasks.push(
 		(async () => {
 			try {
 				space = await sdk.space(spaceId).get();
@@ -1800,7 +1380,7 @@ async function loadSpace(_options?: { force?: boolean }) {
 			}
 		})(),
 	);
-	tasks.push(
+	criticalTasks.push(
 		(async () => {
 			try {
 				const sessions = await fetchSessionListWithCache(
@@ -1815,86 +1395,22 @@ async function loadSpace(_options?: { force?: boolean }) {
 			} catch {
 				// Sessions list not available — if viewing a session, fetch it directly
 				if (routeView === "session" && routeSessionId) {
-					void (async () => {
-						try {
-							const { session } = await sdk
-								.space(spaceId)
-								.session(routeSessionId)
-								.get();
-							seedSessions([session]);
-						} catch {
-							// Silently fail
-						}
-					})();
+					try {
+						const { session } = await sdk
+							.space(spaceId)
+							.session(routeSessionId)
+							.get();
+						seedSessions([session]);
+					} catch {
+						// Silently fail
+					}
 				}
 			}
 		})(),
 	);
-	tasks.push(
-		(async () => {
-			try {
-				const access = await sdk.space(spaceId).access.get();
-				spaceAccess = access;
-			} catch {
-				/* Non-blocking */
-			}
-		})(),
-	);
-	tasks.push(
-		(async () => {
-			try {
-				const result = await sdk.space(spaceId).members.list();
-				spaceMembers = result.items;
-			} catch {
-				/* Non-blocking */
-			}
-		})(),
-	);
-	tasks.push(
-		(async () => {
-			try {
-				const result = await sdk.space(spaceId).usage.get(30);
-				tokenUsage = result;
-			} catch {
-				/* Non-blocking */
-			}
-		})(),
-	);
-	tasks.push(
-		(async () => {
-			try {
-				const me = (await sdk.user.getMe()) as { uuid?: string };
-				if (me?.uuid) myUuid = me.uuid;
-			} catch {
-				/* Non-blocking */
-			}
-		})(),
-	);
-	tasks.push(
-		(async () => {
-			try {
-				await loadSpaceChannels();
-			} catch {
-				/* Non-blocking */
-			}
-		})(),
-	);
-	tasks.push(
-		(async () => {
-			try {
-				await loadSpaceEnv();
-			} catch {
-				/* Non-blocking */
-			}
-		})(),
-	);
-	tasks.push(
-		(async () => {
-			await loadSpaceCheckpoints();
-		})(),
-	);
-	await Promise.all(tasks);
+	await Promise.all(criticalTasks);
 }
+
 function showSpaceStatusNotice(message: string) {
 	spaceStatusNotice = message;
 	if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
@@ -3769,13 +3285,6 @@ $effect(() => {
 	cronjobDetail = null;
 	taskRunDetail = null;
 	spaceCheckpoints = [];
-	spaceAccess = null;
-	spaceMembers = [];
-	spaceEnv = [];
-	spaceEnvError = "";
-	envNameInput = "";
-	envValueInput = "";
-	envEditingName = null;
 	tokenUsage = null;
 	creatingSession = false;
 	createSessionError = "";
@@ -3783,22 +3292,21 @@ $effect(() => {
 	bootstrapping = true;
 	untrack(() => {
 		void (async () => {
+			let sessionLoad: Promise<void> | null = null;
 			try {
+				if (routeView === "session" && routeSessionId) {
+					prepareRouteSession(routeSessionId);
+					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
+				}
 				await loadSpace();
 				if (spaceId !== currentSpaceId) return;
 				void loadSpacePins();
 				void loadFileTree(true);
+				void loadSpaceCheckpoints();
+				if (routeView === "space") void loadTokenUsage();
 				if (routeView === "session" && routeSessionId) {
-					activeSessionId = routeSessionId;
-					pendingRestoreSessionId = routeSessionId;
-					activeAnchorRestore = null;
-					anchorRestoreWaitingForMarkdown = false;
-					userScrollActive = false;
-					programmaticScrollActive = false;
-					programmaticScrollTarget = null;
-					ensureSessionModelLoaded(routeSessionId);
-					shouldAutoFollow = true;
-					await loadSessionState(routeSessionId).catch(() => undefined);
+					prepareRouteSession(routeSessionId);
+					await sessionLoad;
 				}
 			} catch {
 				// Non-blocking; bootstrapping released below
@@ -3844,15 +3352,7 @@ $effect(() => {
 		routeSessionId &&
 		routeSessionId !== activeSessionId
 	) {
-		activeSessionId = routeSessionId;
-		pendingRestoreSessionId = routeSessionId;
-		activeAnchorRestore = null;
-		anchorRestoreWaitingForMarkdown = false;
-		userScrollActive = false;
-		programmaticScrollActive = false;
-		programmaticScrollTarget = null;
-		ensureSessionModelLoaded(routeSessionId);
-		shouldAutoFollow = true;
+		prepareRouteSession(routeSessionId);
 		const state = sessionStateById[routeSessionId];
 		const latestTurn =
 			state?.turns.findLast((turn) => turn.status !== "running") ??
@@ -5270,597 +4770,6 @@ $effect(() => {
               </div>
             {/if}
           </section>
-          {#if !spaceHasMinimalAccess}
-            <!-- Sharing -->
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
-              <div class="flex items-center gap-2">
-                <Globe class="w-4 h-4 text-text-tertiary" />
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sharing</div>
-                  <div class="text-[15px] font-medium text-text-primary">Space access & sharing</div>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <div class="text-[11px] text-text-placeholder">Space access</div>
-                <div class="flex items-center justify-between">
-                  <span class="text-[12px] text-text-secondary">Signed-in users</span>
-                  <select id="bind-channel-select"
-                    value={spaceAccess?.signed_in_user ?? ''}
-                    onchange={(event) => {
-                      const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
-                      void setSpaceAccess({ signed_in_user: val || null });
-                    }}
-                    disabled={savingAccess}
-                    class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
-                  >
-                    <option value="">None</option>
-                    <option value="builder">Builder (edit)</option>
-                    <option value="guest">Guest (read)</option>
-                  </select>
-                </div>
-                <div class="flex items-center justify-between">
-                  <span class="text-[12px] text-text-secondary">Anonymous</span>
-                  <select id="bind-channel-select"
-                    value={spaceAccess?.anonymous_user ?? ''}
-                    onchange={(event) => {
-                      const val = (event.currentTarget as HTMLSelectElement).value as SpaceRole | '';
-                      void setSpaceAccess({ anonymous_user: val || null });
-                    }}
-                    disabled={savingAccess}
-                    class="px-2 py-1 rounded-sm bg-bg-input border border-border-subtle text-[11px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-50"
-                  >
-                    <option value="">None</option>
-                    <option value="guest">Guest (read)</option>
-                  </select>
-                </div>
-              </div>
-              <div class="w-full h-px bg-border-subtle"></div>
-              <div class="space-y-1">
-                <div class="text-[11px] text-text-placeholder">Shared sessions</div>
-                {#each Object.entries(sessionAccessById).filter(([_, v]) => v) as [sid, acc] (sid)}
-                  <div class="flex items-center gap-2 py-1.5 group">
-                    <Globe class="w-3.5 h-3.5 text-text-secondary shrink-0" />
-                    <span class="text-[12.5px] text-text-secondary truncate flex-1">Session {sid.slice(0, 8)}</span>
-                    <button
-                      type="button"
-                      class="p-1 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
-                      onclick={() => { void navigator.clipboard.writeText(`${window.location.origin}${buildSpaceSessionRoute(spaceId, sid)}`); }}
-                      title="Copy link"
-                    >
-                      <Copy class="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
-                      onclick={() => { void removeSessionAccess(sid); }}
-                      title="Remove access"
-                    >
-                      <X class="w-3 h-3" />
-                    </button>
-                  </div>
-                {:else}
-                  <div class="py-1 text-[12px] text-text-tertiary italic">No shared sessions</div>
-                {/each}
-              </div>
-            </section>
-            <!-- Members -->
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <Users class="w-4 h-4 text-text-tertiary" />
-                  <div>
-                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Members</div>
-                    <div class="text-[15px] font-medium text-text-primary">{spaceMembers.length} member{spaceMembers.length !== 1 ? 's' : ''}</div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
-                  onclick={() => { showInvitePanel = true; inviteCreateError = ""; }}
-                >
-                  <Link class="w-3.5 h-3.5" />
-                  Invite
-                </button>
-              </div>
-              <div class="flex gap-2">
-                <input
-                  type="text"
-                  bind:value={addingMemberUuid}
-                  placeholder="Paste user UUID"
-                  class="flex-1 px-2.5 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
-                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddMember(); } }}
-                />
-                <select id="bind-channel-select"
-                  bind:value={addingMemberRole}
-                  class="px-2 py-[5px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"
-                >
-                  <option value="guest">Guest</option>
-                  <option value="builder">Builder</option>
-                  <option value="host">Host</option>
-                </select>
-                <button
-                  type="button"
-                  onclick={() => { void handleAddMember(); }}
-                  disabled={savingMember || !addingMemberUuid.trim()}
-                  class="px-2.5 py-[5px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
-                >
-                  {savingMember ? '...' : 'Add'}
-                </button>
-              </div>
-              {#if addingMemberError}
-                <div class="text-[11px] text-error-soft break-all">{addingMemberError}</div>
-              {/if}
-              {#if spaceMembers.length > 0}
-                <div class="space-y-1">
-                  {#each spaceMembers as member (member.userId)}
-                    <div class="flex items-center gap-2 py-1.5 group hover:bg-bg-hover rounded-[4px]">
-                      {#if member.role === 'host'}<span class="text-[10px]">👑</span>
-                      {:else if member.role === 'builder'}<Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
-                      {:else}<Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-                      <code class="flex-1 text-[11px] font-mono text-text-secondary truncate select-all">{member.userId}</code>
-                      <span class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium w-10 text-right">{member.role}</span>
-                      <button
-                        type="button"
-                        class="p-1 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors opacity-0 group-hover:opacity-100"
-                        onclick={() => { void handleRemoveMember(member.userId); }}
-                        title="Remove member"
-                      >
-                        <X class="w-3 h-3" />
-                      </button>
-                    </div>
-                  {/each}
-                </div>
-              {:else}
-                <div class="py-1 text-[12px] text-text-tertiary italic">No members</div>
-              {/if}
-
-              <!-- Invite Links Sub-section -->
-              <div class="w-full h-px bg-border-subtle"></div>
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] text-text-placeholder">Invite links</span>
-                  {#if loadingInvitations}
-                    <span class="text-[11px] text-text-tertiary">Loading...</span>
-                  {:else}
-                    <span class="text-[11px] text-text-tertiary">{spaceInvitations.filter(i => i.status === 'active').length} active</span>
-                  {/if}
-                </div>
-
-                {#if invitationsError}
-                  <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{invitationsError}</div>
-                {:else if spaceInvitations.length === 0}
-                  <div class="py-1 text-[12px] text-text-tertiary italic">No invite links yet. Click "Invite" to create one.</div>
-                {:else}
-                  <div class="space-y-1.5">
-                    {#each spaceInvitations as inv (inv.token)}
-                      <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50 px-3 py-2">
-                        <div class="flex items-center justify-between gap-2">
-                          <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-2">
-                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider {inv.role === 'host' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : inv.role === 'builder' ? 'bg-brand/10 text-brand' : 'bg-bg-code text-text-tertiary'}">
-                                {inv.role}
-                              </span>
-                              <span class="text-[11px] text-text-tertiary">
-                                {inv.useCount} use{inv.useCount !== 1 ? 's' : ''}{inv.maxUses ? ` / ${inv.maxUses}` : ''}
-                              </span>
-                            </div>
-                            <div class="text-[10px] text-text-placeholder mt-0.5">
-                              {#if inv.status === 'active'}
-                                {#if inv.expiresInSeconds !== null}
-                                  Expires in {Math.ceil(inv.expiresInSeconds / 86400)}d
-                                {:else}
-                                  No expiry
-                                {/if}
-                              {:else if inv.status === 'revoked'}
-                                Revoked
-                              {:else}
-                                Exhausted
-                              {/if}
-                            </div>
-                          </div>
-                          <div class="flex items-center gap-1 shrink-0">
-                            {#if inv.status === 'active'}
-                              <button
-                                type="button"
-                                class="p-1.5 rounded-sm text-text-tertiary hover:text-brand hover:bg-bg-hover transition-colors"
-                                title="Copy invite link"
-                                onclick={() => void handleCopyInviteLink(inv.token)}
-                              >
-                                {#if copiedInviteToken === inv.token}
-                                  <Check class="w-3.5 h-3.5 text-success-soft" />
-                                {:else}
-                                  <Copy class="w-3.5 h-3.5" />
-                                {/if}
-                              </button>
-                              <button
-                                type="button"
-                                class="p-1.5 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors"
-                                title="Revoke"
-                                onclick={() => void handleRevokeInvite(inv.token)}
-                              >
-                                <Trash2 class="w-3.5 h-3.5" />
-                              </button>
-                            {/if}
-                          </div>
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-            </section>
-
-            <!-- Create Invite Dialog -->
-            {#if showInvitePanel}
-              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => { showInvitePanel = false; }} role="dialog" aria-modal="true">
-                <div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 space-y-4" onclick={(e) => e.stopPropagation()}>
-                  <div class="flex items-center justify-between">
-                    <h3 class="text-[15px] font-medium text-text-primary">Create Invite Link</h3>
-                    <button
-                      type="button"
-                      class="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
-                      onclick={() => { showInvitePanel = false; }}
-                    >
-                      <X class="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {#if inviteCreateError}
-                    <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{inviteCreateError}</div>
-                  {/if}
-
-                  <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="invite-role">Role</label>
-                    <select
-                      id="invite-role"
-                      bind:value={inviteRole}
-                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                    >
-                      <option value="builder">Builder</option>
-                      <option value="guest">Guest</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="invite-ttl">Valid for</label>
-                    <select
-                      id="invite-ttl"
-                      bind:value={inviteTtlDays}
-                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                    >
-                      <option value={1}>1 day</option>
-                      <option value={7}>7 days</option>
-                      <option value={14}>14 days</option>
-                      <option value={30}>30 days</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="invite-maxuses">Max uses (0 = unlimited)</label>
-                    <input
-                      id="invite-maxuses"
-                      type="number"
-                      bind:value={inviteMaxUses}
-                      min="0"
-                      max="10000"
-                      step="1"
-                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                    />
-                  </div>
-
-                  <div class="flex items-center justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onclick={() => { showInvitePanel = false; }}
-                      class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={creatingInvite}
-                      onclick={() => void handleCreateInvite()}
-                      class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      {#if creatingInvite}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
-                        Creating...
-                      {:else}
-                        Create Link
-                      {/if}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- Environment Variables -->
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="flex items-center gap-2">
-                  <Terminal class="w-4 h-4 text-text-tertiary" />
-                  <div>
-                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Environment</div>
-                    <div class="text-[15px] font-medium text-text-primary">{spaceEnv.length} variable{spaceEnv.length !== 1 ? 's' : ''}</div>
-                    <div class="mt-0.5 text-[12px] text-text-tertiary">Injected into new sandbox sessions for this space.</div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-text-tertiary hover:text-text-secondary transition-colors"
-                  onclick={() => { showEnvImport = !showEnvImport; spaceEnvError = ""; }}
-                >
-                  <Download class="w-3.5 h-3.5" />
-                  Import
-                </button>
-              </div>
-
-              {#if spaceEnvError}
-                <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceEnvError}</div>
-              {/if}
-
-              {#if showEnvImport}
-                <div class="rounded-[6px] border border-border-subtle bg-bg-hover/30 p-3 space-y-2">
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="text-[12px] text-text-secondary">Paste .env content. Existing keys will be overwritten.</div>
-                    <button
-                      type="button"
-                      class="p-1 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover"
-                      title="Close import"
-                      onclick={() => { showEnvImport = false; envImportInput = ""; }}
-                      disabled={envImportSubmitting}
-                    >
-                      <X class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <textarea
-                    bind:value={envImportInput}
-                    rows="6"
-                    placeholder={'OPENAI_API_KEY=sk-...\nDATABASE_URL="postgres://user:p=a=s=s@host/db"\nNODE_ENV=production'}
-                    autocapitalize="off"
-                    spellcheck="false"
-                    class="w-full min-h-[120px] px-2.5 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono resize-y"
-                  ></textarea>
-                  <div class="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      class="px-3 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-50"
-                      onclick={() => { showEnvImport = false; envImportInput = ""; }}
-                      disabled={envImportSubmitting}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onclick={() => void handleImportEnv()}
-                      disabled={envImportSubmitting || !envImportInput.trim()}
-                      class="inline-flex items-center justify-center gap-1.5 px-3 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
-                    >
-                      {#if envImportSubmitting}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Download class="w-3.5 h-3.5" />{/if}
-                      Import
-                    </button>
-                  </div>
-                </div>
-              {/if}
-
-              <div class="grid gap-2 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)_auto]">
-                <input
-                  type="text"
-                  bind:value={envNameInput}
-                  placeholder="ENV_NAME"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  class="min-w-0 px-2.5 py-[7px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
-                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddEnv(); } }}
-                />
-                <input
-                  type="password"
-                  bind:value={envValueInput}
-                  placeholder="value"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  class="min-w-0 px-2.5 py-[7px] rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono"
-                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddEnv(); } }}
-                />
-                <button
-                  type="button"
-                  onclick={() => void handleAddEnv()}
-                  disabled={envSubmitting || !envNameInput.trim()}
-                  class="inline-flex items-center justify-center gap-1.5 px-3 py-[7px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
-                >
-                  {#if envSubmitting}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if}
-                  Add
-                </button>
-              </div>
-
-              {#if spaceEnvLoading && spaceEnv.length === 0}
-                <div class="flex items-center justify-center py-6 text-[12px] text-text-tertiary">
-                  <Loader2 class="w-4 h-4 animate-spin mr-2" />
-                  Loading environment...
-                </div>
-              {:else if spaceEnv.length === 0}
-                <div class="rounded-[6px] border border-dashed border-border-subtle bg-bg-hover/30 px-3 py-4 text-[12px] text-text-tertiary">
-                  No custom environment variables. Add keys like <code class="font-mono text-text-secondary">OPENAI_API_KEY</code> or project-specific flags here.
-                </div>
-              {:else}
-                <div class="space-y-1.5">
-                  {#each spaceEnv as item (item.name)}
-                    <div class="group rounded-[6px] border border-border-subtle bg-bg-hover/40 px-3 py-2">
-                      <div class="flex items-center gap-2">
-                        <code class="min-w-0 flex-[0.8] truncate text-[12px] font-mono text-text-primary select-all">{item.name}</code>
-                        {#if envEditingName === item.name}
-                          <input
-                            type="password"
-                            bind:value={envEditingValue}
-                            class="min-w-0 flex-1 px-2 py-1 rounded-[4px] bg-bg-input border border-border-subtle text-[12px] text-text-primary focus:border-brand/40 focus:outline-none font-mono"
-                            onkeydown={(e) => {
-                              if (e.key === 'Enter') { e.preventDefault(); void handleUpdateEnv(item.name); }
-                              if (e.key === 'Escape') cancelEnvEdit();
-                            }}
-                          />
-                          <button type="button" class="p-1.5 rounded-sm text-success-soft hover:bg-bg-hover" title="Save" disabled={envUpdatingName === item.name} onclick={() => void handleUpdateEnv(item.name)}>
-                            {#if envUpdatingName === item.name}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Check class="w-3.5 h-3.5" />{/if}
-                          </button>
-                          <button type="button" class="p-1.5 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover" title="Cancel" onclick={cancelEnvEdit}>
-                            <X class="w-3.5 h-3.5" />
-                          </button>
-                        {:else}
-                          <code class="min-w-0 flex-1 truncate text-[12px] font-mono text-text-tertiary select-all">
-                            {envVisibleValues[item.name] ? (item.value || '(empty)') : maskEnvValue(item.value)}
-                          </code>
-                          <button
-                            type="button"
-                            class="p-1.5 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                            title={envVisibleValues[item.name] ? 'Hide value' : 'Reveal value'}
-                            onclick={() => { envVisibleValues = { ...envVisibleValues, [item.name]: !envVisibleValues[item.name] }; }}
-                          >
-                            <Eye class="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" class="p-1.5 rounded-sm text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Edit value" onclick={() => startEnvEdit(item)}>
-                            <Pencil class="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" class="p-1.5 rounded-sm text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Delete" disabled={envDeletingName === item.name} onclick={() => void handleDeleteEnv(item.name)}>
-                            {#if envDeletingName === item.name}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Trash2 class="w-3.5 h-3.5" />{/if}
-                          </button>
-                        {/if}
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </section>
-
-            <!-- Channels -->
-            <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <Hash class="w-4 h-4 text-text-tertiary" />
-                  <div>
-                    <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Channels</div>
-                    <div class="text-[15px] font-medium text-text-primary">{spaceChannelBindings.length} bound</div>
-                  </div>
-                </div>
-                {#if availableChannels.length > 0 && canManageChannels}
-                  <button
-                    type="button"
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
-                    onclick={() => { showBindDialog = true; bindChannelId = ""; bindError = ""; }}
-                  >
-                    <Plus class="w-3.5 h-3.5" />
-                    Bind
-                  </button>
-                {/if}
-              </div>
-
-              {#if spaceChannelsLoading}
-                <div class="flex items-center justify-center py-6 text-[12px] text-text-tertiary">
-                  <Loader2 class="w-4 h-4 animate-spin mr-2" />
-                  Loading channels...
-                </div>
-              {:else if spaceChannelBindings.length === 0}
-                <div class="py-2">
-                  <div class="text-[13px] text-text-tertiary">No channels bound.</div>
-                  {#if availableChannels.length === 0}
-                    <a href="/settings/channels/new" class="text-[12px] text-brand hover:underline mt-1 inline-block">Create a channel first →</a>
-                  {/if}
-                </div>
-              {:else}
-                <div class="space-y-2">
-                  {#each spaceChannelBindings as binding (binding.id)}
-                    {@const ch = binding.channel}
-                    {@const providerDotColor = ch?.provider === "discord" ? "bg-indigo-400" : ch?.provider === "feishu" ? "bg-cyan-400" : "bg-status-running"}
-                    <div class="border border-border-subtle rounded-[5px] bg-bg-hover/50 flex items-center justify-between">
-                      <div class="flex items-center gap-2 px-3 py-2.5 min-w-0 flex-1">
-                        <div class="w-6 h-6 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0">
-                          <div class="w-1.5 h-1.5 rounded-full {providerDotColor}"></div>
-                          {#if ch?.provider === "discord"}<MessageSquare class="w-3 h-3 text-text-tertiary ml-0.5" />
-                          {:else if ch?.provider === "feishu"}<Webhook class="w-3 h-3 text-text-tertiary ml-0.5" />
-                          {:else}<Hash class="w-3 h-3 text-text-tertiary ml-0.5" />{/if}
-                        </div>
-                        <div class="min-w-0">
-                          <div class="text-[13px] font-medium text-text-primary truncate">{ch?.name || ch?.provider || "Unnamed"}</div>
-                          <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{ch?.provider ?? "unknown"}</div>
-                        </div>
-                      </div>
-                      {#if canManageChannels}
-                        <button
-                          type="button"
-                          class="shrink-0 p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors ml-2"
-                          title="Unbind channel"
-                          disabled={unbindingChannelId === binding.channelId}
-                          onclick={() => void handleUnbindChannel(binding.channelId)}
-                        >
-                          {#if unbindingChannelId === binding.channelId}
-                            <Loader2 class="w-4 h-4 animate-spin" />
-                          {:else}
-                            <Trash2 class="w-4 h-4" />
-                          {/if}
-                        </button>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </section>
-
-            <!-- Bind Channel Dialog -->
-            {#if showBindDialog}
-              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => { showBindDialog = false; }}>
-                <div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 space-y-4" onclick={(e) => e.stopPropagation()}>
-                  <div class="flex items-center justify-between">
-                    <h3 class="text-[15px] font-medium text-text-primary">Bind Channel</h3>
-                    <button
-                      type="button"
-                      class="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
-                      onclick={() => { showBindDialog = false; }}
-                    >
-                      <X class="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {#if bindError}
-                    <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{bindError}</div>
-                  {/if}
-
-                  <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="bind-channel-select">Available Channels</label>
-                    <select id="bind-channel-select"
-                      bind:value={bindChannelId}
-                      class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none transition-colors"
-                    >
-                      <option value="" disabled>Select a channel</option>
-                      {#each availableChannels as ch (ch.id)}
-                        <option value={ch.id}>{ch.name} ({ch.provider})</option>
-                      {/each}
-                    </select>
-                  </div>
-
-                  <div class="flex items-center justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onclick={() => { showBindDialog = false; }}
-                      class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={bindSubmitting || !bindChannelId}
-                      onclick={() => void handleBindChannel()}
-                      class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      {#if bindSubmitting}
-                        <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
-                        Binding...
-                      {:else}
-                        Bind
-                      {/if}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            {/if}
-          {/if}
         </div>
       </div>
     {:else if !activeSessionState}

@@ -229,22 +229,19 @@ export function buildTurnTimelineItems(input: {
 		});
 	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
-	const latestStreamingMessage = input.streaming?.intermediateMessages?.at(-1);
 	const showPendingPlaceholder =
 		input.streaming?.status === "pending" && streamingBlocks.length === 0;
 	if (
 		!streamingAssistantInserted &&
-		(latestStreamingMessage || showPendingPlaceholder)
+		(streamingBlocks.length > 0 || showPendingPlaceholder)
 	) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.turnId ?? input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
 		);
-		const blocks = latestStreamingMessage
-			? buildStreamingPreviewBlocks(latestStreamingMessage.content, {
-					truncatedStart: input.streaming?.truncatedStart,
-				})
-			: [];
+		const blocks = buildStreamingPreviewBlocks(streamingBlocks, {
+			truncatedStart: input.streaming?.truncatedStart,
+		});
 		const effectiveBlocks =
 			blocks.length > 0
 				? blocks

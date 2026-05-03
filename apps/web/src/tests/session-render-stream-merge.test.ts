@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { mergeStreamingDeltaBlocks } from "../lib/session-streaming";
-import { buildStreamingPreviewBlocks } from "../lib/session-turn-render";
+import {
+	buildStreamingPreviewBlocks,
+	buildTurnTimelineItems,
+} from "../lib/session-turn-render";
 
 test("mergeStreamingDeltaBlocks appends text deltas by stream index", () => {
 	const existing: ContentBlock[] = [
@@ -66,5 +69,86 @@ test("buildStreamingPreviewBlocks preserves stream block order", () => {
 		(blocks[1] as Extract<ContentBlock, { type: "thinking" }>)._meta
 			?.streamIndex,
 		3,
+	);
+});
+
+test("buildTurnTimelineItems previews the active stream instead of the last intermediate message", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "running",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: null,
+				assistantText: null,
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				usage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: null,
+				startedAt: null,
+				completedAt: null,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			},
+		],
+		streaming: {
+			sessionId: "s1",
+			turnId: "t1",
+			contentBlocks: [
+				{
+					type: "thinking",
+					thinking: "still thinking",
+					_meta: { streamIndex: 0 },
+				},
+			],
+			intermediateMessages: [
+				{
+					id: "m1",
+					sessionId: "s1",
+					role: "assistant",
+					content: [
+						{
+							type: "text",
+							text: "previous answer",
+							_meta: { streamIndex: 1 },
+						},
+					],
+					text: "previous answer",
+					provider: null,
+					model: null,
+					stopReason: null,
+					errorMessage: null,
+					usage: null,
+					toolCallsObjectKey: null,
+					meta: null,
+					createdAt: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			status: "streaming",
+		},
+	});
+
+	const preview = items.find(
+		(item) =>
+			item.kind === "message" &&
+			item.message.meta?.messageKind === "assistant_streaming_preview",
+	);
+	assert.equal(preview?.kind, "message");
+	assert.deepEqual(
+		preview?.kind === "message"
+			? preview.message.content.map((block) => block.type)
+			: [],
+		["thinking"],
 	);
 });
