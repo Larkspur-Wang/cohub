@@ -441,6 +441,7 @@ $effect(() => {
 	if (inlineFile?.response)
 		inlineFileEdit = shouldOpenFileInEditMode(inlineFile.response);
 });
+let loadedSpaceId = $state<string | null>(null);
 let pageMounted = false;
 let pageVisible = true;
 let pageOnline = true;
@@ -3743,7 +3744,9 @@ onMount(() => {
 // React to space changes: reset state and reload data
 $effect(() => {
 	const currentSpaceId = spaceId;
-	if (!pageMounted || !currentSpaceId) return;
+	if (!pageMounted || !currentSpaceId || loadedSpaceId === currentSpaceId)
+		return;
+	loadedSpaceId = currentSpaceId;
 	// Reset space-specific state
 	space = null;
 	spaceLoadError = "";
