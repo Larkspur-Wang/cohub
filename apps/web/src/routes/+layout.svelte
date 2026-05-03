@@ -53,6 +53,20 @@ let dragOffsetPx = $state(0);
 let velocityX = $state(0);
 let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
+let vConsole: InstanceType<typeof import("vconsole").default> | null = null;
+
+function shouldEnableVConsole() {
+	if (import.meta.env.DEV) return true;
+
+	const hostname = window.location.hostname;
+	return (
+		hostname === "localhost" ||
+		hostname === "127.0.0.1" ||
+		hostname.startsWith("dev.") ||
+		hostname.startsWith("dev-") ||
+		hostname.includes("-dev.")
+	);
+}
 
 const isDrawerVisible = $derived(
 	isDragging || gesturePhase === "settling" || uiState.mobileDrawerOpen,
@@ -378,6 +392,19 @@ $effect(() => {
 });
 
 onMount(() => {
+	let disposed = false;
+
+	if (shouldEnableVConsole()) {
+		void import("vconsole").then(({ default: VConsole }) => {
+			const instance = new VConsole({ theme: "dark" });
+			if (disposed) {
+				instance.destroy();
+				return;
+			}
+			vConsole = instance;
+		});
+	}
+
 	uiState.loadLayoutPrefs();
 	void authStore.ensureLoaded().finally(() => {
 		authReady = true;
@@ -392,6 +419,9 @@ onMount(() => {
 	}
 
 	return () => {
+		disposed = true;
+		vConsole?.destroy();
+		vConsole = null;
 		leftSidebarResizeCleanup?.();
 		document.body.classList.remove("sidebar-resizing");
 	};

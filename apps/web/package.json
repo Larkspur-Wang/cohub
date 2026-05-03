@@ -30,18 +30,19 @@
 		"@codemirror/search": "^6.7.0",
 		"@codemirror/state": "^6.6.0",
 		"@codemirror/view": "^6.41.1",
-		"@neta-art/cohub-protocol": "workspace:*",
-		"@neta-art/cohub": "workspace:*",
 		"@fontsource/geist": "^5.2.8",
 		"@fontsource/geist-mono": "^5.2.7",
 		"@lezer/highlight": "^1.2.3",
 		"@logto/browser": "^3.0.13",
+		"@neta-art/cohub": "workspace:*",
+		"@neta-art/cohub-protocol": "workspace:*",
 		"@uiw/codemirror-theme-github": "^4.25.9",
 		"codemirror": "^6.0.2",
 		"isomorphic-dompurify": "3.9.0",
 		"lucide-svelte": "^1.0.1",
 		"marked": "18.0.2",
-		"shiki": "^4.0.2"
+		"shiki": "^4.0.2",
+		"vconsole": "^3.15.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.12",
