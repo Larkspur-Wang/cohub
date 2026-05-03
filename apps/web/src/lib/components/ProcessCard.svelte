@@ -49,12 +49,7 @@ let loadedIntermediateMessages = $state<StoredIntermediateMessage[] | null>(
 const effectiveMessages = $derived(
 	liveIntermediateMessages ?? loadedIntermediateMessages ?? [],
 );
-const latestVisibleMessage = $derived(
-	streaming && !expanded ? (effectiveMessages.at(-1) ?? null) : null,
-);
-const expandedMessages = $derived(
-	streaming && !expanded ? effectiveMessages.slice(0, -1) : effectiveMessages,
-);
+const expandedMessages = $derived(effectiveMessages);
 
 async function ensureLoaded() {
 	if (liveIntermediateMessages) return;
@@ -98,7 +93,6 @@ const labelParts = $derived(
 			? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}`
 			: "",
 		usageTokens > 0 ? `${usageTokens} tokens` : "",
-		streaming && messageCount > 0 ? "running" : "",
 	].filter(Boolean),
 );
 const summaryLabel = $derived(
@@ -107,15 +101,10 @@ const summaryLabel = $derived(
 </script>
 
 {#if !expanded}
-	<div class="flex flex-col gap-1">
-		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()}>
-			{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-			<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
-		</button>
-		{#if latestVisibleMessage}
-			<IntermediateMessageBubble message={latestVisibleMessage} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: latestVisibleMessage }) : undefined} />
-		{/if}
-	</div>
+	<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()}>
+		{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
+		<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
+	</button>
 {:else}
 	<div class="flex flex-col gap-0">
 		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md" onclick={() => void toggle()}>
