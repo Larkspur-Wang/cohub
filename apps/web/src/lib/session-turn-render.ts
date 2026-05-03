@@ -109,6 +109,7 @@ export function buildTurnTimelineItems(input: {
 				input.streaming.status === "streaming"),
 	);
 	let streamingProcessInserted = false;
+	let streamingAssistantInserted = false;
 	for (const turn of input.turns) {
 		items.push({
 			id: `turn:${turn.id}:user`,
@@ -159,7 +160,10 @@ export function buildTurnTimelineItems(input: {
 		}
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant) {
-			if (streamingTurnId === turn.id) streamingProcessInserted = true;
+			if (streamingTurnId === turn.id) {
+				streamingProcessInserted = true;
+				streamingAssistantInserted = true;
+			}
 			items.push({
 				id: `turn:${turn.id}:assistant`,
 				kind: "message",
@@ -228,7 +232,10 @@ export function buildTurnTimelineItems(input: {
 	const latestStreamingMessage = input.streaming?.intermediateMessages?.at(-1);
 	const showPendingPlaceholder =
 		input.streaming?.status === "pending" && streamingBlocks.length === 0;
-	if (latestStreamingMessage || showPendingPlaceholder) {
+	if (
+		!streamingAssistantInserted &&
+		(latestStreamingMessage || showPendingPlaceholder)
+	) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.turnId ?? input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
