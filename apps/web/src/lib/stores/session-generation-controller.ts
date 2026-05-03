@@ -27,16 +27,25 @@ export function clearGenerationError(sessionId: string | null | undefined) {
 
 export function startGenerationRequest(
 	sessionId: string,
-	input?: { requestId?: string | null },
+	input?: {
+		requestId?: string | null;
+		spaceId?: string | null;
+		turnId?: string | null;
+	},
 ) {
 	clearGenerationError(sessionId);
-	realtimePatchReducer.start({ sessionId });
+	realtimePatchReducer.start({
+		sessionId,
+		spaceId: input?.spaceId ?? null,
+		turnId: input?.turnId ?? null,
+	});
 	sessionGenerationStore.startPending(sessionId, input);
 }
 
 export function applyRealtimeGenerationProgress(
 	sessionId: string,
 	input: {
+		spaceId?: string | null;
 		content: ContentBlock[];
 		anchorUserMessageId?: string | null;
 	},
@@ -45,6 +54,7 @@ export function applyRealtimeGenerationProgress(
 	if (input.content.length === 0) {
 		if (!input.anchorUserMessageId) return;
 		sessionGenerationStore.applyProgress(sessionId, {
+			spaceId: input.spaceId,
 			contentBlocks: current?.contentBlocks ?? [],
 			anchorUserMessageId: input.anchorUserMessageId,
 			truncatedStart: current?.truncatedStart ?? false,
@@ -62,6 +72,7 @@ export function applyRealtimeGenerationProgress(
 		: (current?.contentBlocks ?? []);
 	const mergedContent = mergeStreamingDeltaBlocks(previewBase, input.content);
 	sessionGenerationStore.applyProgress(sessionId, {
+		spaceId: input.spaceId,
 		contentBlocks: mergedContent,
 		anchorUserMessageId: input.anchorUserMessageId,
 		truncatedStart:
@@ -76,6 +87,7 @@ export function applyRealtimeGenerationProgress(
 export function applyRealtimeGenerationPatch(
 	sessionId: string,
 	input: {
+		spaceId?: string | null;
 		turnId?: string | null;
 		seq: number;
 		baseSeq: number;
@@ -92,6 +104,7 @@ export function applyRealtimeGenerationPatch(
 		};
 	}
 	sessionGenerationStore.applyProgress(sessionId, {
+		spaceId: input.spaceId ?? result.state.spaceId ?? null,
 		contentBlocks: result.state.contentBlocks,
 		anchorUserMessageId: result.state.anchorUserMessageId,
 		truncatedStart:

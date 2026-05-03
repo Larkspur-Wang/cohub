@@ -19,6 +19,7 @@ export type ChatMessage = {
 	createdAt: string;
 	meta?: {
 		messageKind?: string | null;
+		streaming?: boolean;
 		turnId?: string | null;
 		sessionId?: string | null;
 		model?: string | null;
@@ -54,6 +55,8 @@ export type TimelineItem =
 			kind: "process";
 			turn: SessionTurnRecord;
 			summary?: SessionTurnIntermediateSummary;
+			intermediateMessages?: import("@neta-art/cohub-protocol/model").StoredIntermediateMessage[];
+			streaming?: boolean;
 	  };
 
 export const stringifyUnknown = (value: unknown) => {

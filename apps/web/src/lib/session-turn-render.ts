@@ -1,6 +1,11 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
+import type {
+	SessionTurnIntermediateSummary,
+	SessionTurnRecord,
+	StoredIntermediateMessage,
+} from "@neta-art/cohub-protocol/model";
 import { getStreamingRenderKey } from "./session-streaming";
+import { buildStreamingIntermediateMessages } from "./session-streaming-intermediate";
 import type { ChatMessage, TimelineItem } from "./session-tree";
 
 function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
@@ -90,11 +95,20 @@ export function buildTurnTimelineItems(input: {
 		turnId?: string | null;
 		anchorUserMessageId?: string | null;
 		contentBlocks: ContentBlock[];
+		intermediateMessages?: StoredIntermediateMessage[];
 		truncatedStart?: boolean;
-		status?: "pending" | "streaming";
+		status?: string;
 	} | null;
 }): TimelineItem[] {
+	const renderCreatedAt = new Date().toISOString();
 	const items: TimelineItem[] = [];
+	const streamingTurnId = input.streaming?.turnId ?? null;
+	const hasStreamingState = Boolean(
+		input.streaming &&
+			(input.streaming.status === "pending" ||
+				input.streaming.status === "streaming"),
+	);
+	let streamingProcessInserted = false;
 	for (const turn of input.turns) {
 		items.push({
 			id: `turn:${turn.id}:user`,
@@ -108,6 +122,41 @@ export function buildTurnTimelineItems(input: {
 				turn,
 				summary: turn.intermediateSummary,
 			});
+		} else if (
+			hasStreamingState &&
+			turn.status === "running" &&
+			(!streamingTurnId || streamingTurnId === turn.id)
+		) {
+			const intermediateMessages =
+				input.streaming?.intermediateMessages ??
+				buildStreamingIntermediateMessages({
+					sessionId:
+						input.streaming?.sessionId ?? input.sessionId ?? turn.sessionId,
+					turnId: input.streaming?.turnId ?? turn.id,
+					contentBlocks: input.streaming?.contentBlocks ?? [],
+					createdAt: renderCreatedAt,
+				});
+			const summary = {
+				messageCount: Math.max(
+					intermediateMessages.length,
+					input.streaming?.status === "pending" ? 1 : 0,
+				),
+				toolCallCount: intermediateMessages.reduce(
+					(count, message) =>
+						count +
+						message.content.filter((block) => block.type === "tool_use").length,
+					0,
+				),
+			} satisfies SessionTurnIntermediateSummary;
+			items.push({
+				id: `turn:${turn.id}:process:streaming`,
+				kind: "process",
+				turn,
+				summary,
+				intermediateMessages,
+				streaming: true,
+			});
+			streamingProcessInserted = true;
 		}
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant)
@@ -118,6 +167,61 @@ export function buildTurnTimelineItems(input: {
 			});
 	}
 	const fallbackSequence = (input.turns.at(-1)?.sequence ?? 0) * 10 + 10;
+	if (hasStreamingState && !streamingProcessInserted) {
+		const fallbackTurn = input.turns.at(-1);
+		const sessionId = input.streaming?.sessionId ?? input.sessionId ?? "active";
+		const turn = fallbackTurn
+			? { ...fallbackTurn, status: "running" as const }
+			: ({
+					id: input.streaming?.turnId ?? `streaming:${sessionId}`,
+					sessionId,
+					userUuid: null,
+					sequence: Math.max(1, Math.floor(fallbackSequence / 10)),
+					status: "running",
+					intent: "steer",
+					userContent: [],
+					userText: null,
+					assistantContent: null,
+					assistantText: null,
+					provider: null,
+					model: null,
+					stopReason: null,
+					errorMessage: null,
+					usage: null,
+					summary: null,
+					intermediateIndex: null,
+					intermediateSummary: null,
+					meta: null,
+					startedAt: null,
+					completedAt: null,
+					createdAt: renderCreatedAt,
+					updatedAt: renderCreatedAt,
+				} satisfies SessionTurnRecord);
+		const intermediateMessages =
+			input.streaming?.intermediateMessages ??
+			buildStreamingIntermediateMessages({
+				sessionId,
+				turnId: input.streaming?.turnId ?? turn.id,
+				contentBlocks: input.streaming?.contentBlocks ?? [],
+				createdAt: renderCreatedAt,
+			});
+		items.push({
+			id: `turn:${turn.id}:process:streaming`,
+			kind: "process",
+			turn,
+			summary: {
+				messageCount: Math.max(intermediateMessages.length, 1),
+				toolCallCount: intermediateMessages.reduce(
+					(count, message) =>
+						count +
+						message.content.filter((block) => block.type === "tool_use").length,
+					0,
+				),
+			},
+			intermediateMessages,
+			streaming: true,
+		});
+	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
 	const showPendingPlaceholder =
 		input.streaming?.status === "pending" && streamingBlocks.length === 0;
@@ -143,7 +247,7 @@ export function buildTurnTimelineItems(input: {
 				text:
 					effectiveBlocks.find((block) => block.type === "text")?.text ?? "",
 				sequence: fallbackSequence + 1,
-				createdAt: new Date().toISOString(),
+				createdAt: renderCreatedAt,
 				meta: { messageKind: "assistant_streaming_preview" },
 			},
 		});

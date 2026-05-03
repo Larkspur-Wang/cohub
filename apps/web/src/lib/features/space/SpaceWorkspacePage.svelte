@@ -83,6 +83,7 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
+import { buildStreamingIntermediateMessages } from "$lib/session-streaming-intermediate";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -102,7 +103,6 @@ import {
 	clearGenerationError,
 	completeGeneration,
 	failGeneration,
-	resetGeneration,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
 import { applyGenerationRealtimeEnvelope } from "$lib/stores/session-generation-realtime";
@@ -1376,6 +1376,12 @@ const firstCatalogModel = $derived(
 			}
 		: null,
 );
+const TERMINAL_GENERATION_STATUSES = new Set([
+	"idle",
+	"completed",
+	"failed",
+	"interrupted",
+]);
 const activeSessionModel = $derived.by(() => {
 	if (!activeSessionId) return null;
 	return sessionModelById[activeSessionId] ?? firstCatalogModel;
@@ -1383,6 +1389,15 @@ const activeSessionModel = $derived.by(() => {
 const activeGenerationState = $derived.by(() =>
 	sessionGenerationStore.get(activeSessionId),
 );
+const activeStreamingIntermediateMessages = $derived.by(() => {
+	if (!activeGenerationState || !activeSessionId) return [];
+	return buildStreamingIntermediateMessages({
+		spaceId,
+		sessionId: activeSessionId,
+		turnId: activeGenerationState.turnId,
+		contentBlocks: activeGenerationState.contentBlocks,
+	});
+});
 const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");
 const composerNotice = $derived.by(() => activeStreamError || composerError);
 const timeline = $derived.by<TimelineItem[]>(() => {
@@ -1392,13 +1407,16 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 		sessionId: activeSessionId,
 		turns: state.turns,
 		streaming:
-			activeGenerationState?.status === "streaming" ||
-			activeGenerationState?.status === "pending"
+			activeGenerationState &&
+			(activeGenerationState.status === "streaming" ||
+				activeGenerationState.status === "pending" ||
+				!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status))
 				? {
 						sessionId: activeSessionId ?? "active",
 						turnId: activeGenerationState.turnId ?? null,
 						anchorUserMessageId:
 							activeGenerationState.anchorUserMessageId ?? null,
+						intermediateMessages: activeStreamingIntermediateMessages,
 						contentBlocks: activeGenerationState.contentBlocks,
 						truncatedStart: activeGenerationState.truncatedStart,
 						status: activeGenerationState.status,
@@ -2154,6 +2172,16 @@ async function loadSessionState(sessionId: string, force = false) {
 			.turns.listPaginated({
 				limit: 30,
 			});
+		const runningTurn = response.turns.findLast(
+			(turn) => turn.status === "running",
+		);
+		if (runningTurn) {
+			sessionGenerationStore.resumePending(sessionId, {
+				spaceId,
+				turnId: runningTurn.id,
+				anchorUserMessageId: runningTurn.id,
+			});
+		}
 		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
 			session: response.session,
 			turns: response.turns,
@@ -2477,28 +2505,43 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			await handleSpaceFsChanged(payload);
 			return;
 		}
+		const targetSessionId =
+			typeof payload.sessionId === "string" ? payload.sessionId : null;
+		if (!targetSessionId) return;
+		if (typeof payload.spaceId === "string" && payload.spaceId !== spaceId) {
+			// Keep cross-space generation state warm for the current user, but avoid
+			// mutating this space view's turns/list state.
+			applyGenerationRealtimeEnvelope(targetSessionId, payload);
+			return;
+		}
 		const currentActiveSessionId = activeSessionId;
-		if (!currentActiveSessionId) return;
-		if (payload.sessionId !== currentActiveSessionId) return;
-		const state = sessionStateById[currentActiveSessionId];
-		if (!state) return;
+		const isActiveSession = targetSessionId === currentActiveSessionId;
+		const state = sessionStateById[targetSessionId];
 		const generationEffect = applyGenerationRealtimeEnvelope(
-			currentActiveSessionId,
+			targetSessionId,
 			payload,
 		);
 		if (generationEffect.handled) {
-			if (generationEffect.shouldReconcile) {
-				void reconcileSessionTail(currentActiveSessionId);
+			if (generationEffect.shouldReconcile && isActiveSession) {
+				void reconcileSessionTail(targetSessionId);
 			}
 			if (generationEffect.shouldRefreshSessions) {
 				void refreshSessionsList(true);
 			}
-			if (generationEffect.shouldScroll && shouldAutoFollow) {
+			if (
+				generationEffect.shouldScroll &&
+				isActiveSession &&
+				shouldAutoFollow
+			) {
 				await tick();
 				scrollToBottomNow();
 			}
 			return;
 		}
+		if (payload.type === "session.turn.finalized") {
+			completeGeneration(targetSessionId);
+		}
+		if (!state) return;
 		if (
 			payload.type === "session.turn.finalized" ||
 			payload.type === "session.turn.updated"
@@ -2513,31 +2556,29 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			if (existingTurn) {
 				const snapshot = await sessionTurnsRepo.mergeTurns(
 					spaceId,
-					currentActiveSessionId,
+					targetSessionId,
 					[{ ...existingTurn, ...turnPatch } as SessionTurnRecord],
 					{ session: state.session ?? null },
 				);
 				sessionStateById = {
 					...sessionStateById,
-					[currentActiveSessionId]: {
+					[targetSessionId]: {
 						...state,
 						turns: snapshot.turns,
 					},
 				};
 			}
 			if (!existingTurn || payload.type === "session.turn.finalized") {
-				if (payload.type === "session.turn.finalized")
-					completeGeneration(currentActiveSessionId);
 				void sdk
 					.space(spaceId)
-					.session(currentActiveSessionId)
+					.session(targetSessionId)
 					.turns.get(turnId)
 					.then(async (response) => {
-						const current = sessionStateById[currentActiveSessionId];
+						const current = sessionStateById[targetSessionId];
 						if (!current) return;
 						const snapshot = await sessionTurnsRepo.mergeTurns(
 							spaceId,
-							currentActiveSessionId,
+							targetSessionId,
 							[response.turn],
 							{
 								session: response.session ?? current.session ?? null,
@@ -2546,7 +2587,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 						);
 						sessionStateById = {
 							...sessionStateById,
-							[currentActiveSessionId]: {
+							[targetSessionId]: {
 								...current,
 								session: snapshot.session ?? current.session,
 								turns: snapshot.turns,
@@ -2557,7 +2598,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 						console.warn("[turn.event] Failed to load full turn:", error),
 					);
 			}
-			if (shouldAutoFollow) {
+			if (isActiveSession && shouldAutoFollow) {
 				await tick();
 				scrollToBottomNow();
 			}
@@ -2648,7 +2689,7 @@ async function handleSend() {
 		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
 			session: activeSessionState.session,
 		});
-		startGenerationRequest(sessionId);
+		startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
 		const sendResult = await sdk
 			.space(spaceId)
 			.session(sessionId)
@@ -3798,7 +3839,6 @@ $effect(() => {
 		routeSessionId &&
 		routeSessionId !== activeSessionId
 	) {
-		resetGeneration(activeSessionId);
 		activeSessionId = routeSessionId;
 		pendingRestoreSessionId = routeSessionId;
 		activeAnchorRestore = null;
@@ -3817,7 +3857,6 @@ $effect(() => {
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {
-		resetGeneration(activeSessionId);
 		activeSessionId = null;
 		pendingRestoreSessionId = null;
 		activeAnchorRestore = null;

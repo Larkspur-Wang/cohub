@@ -34,6 +34,7 @@ export function applyGenerationRealtimeEnvelope(
 			};
 		}
 		const result = applyRealtimeGenerationPatch(sessionId, {
+			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
 			turnId:
 				typeof payload.payload.turnId === "string"
 					? payload.payload.turnId
@@ -71,6 +72,7 @@ export function applyGenerationRealtimeEnvelope(
 				? payload.payload.anchorUserMessageId
 				: null;
 		applyRealtimeGenerationProgress(sessionId, {
+			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
 			content,
 			anchorUserMessageId,
 		});
@@ -83,7 +85,11 @@ export function applyGenerationRealtimeEnvelope(
 	}
 
 	if (payload.type === "session.turn.error") {
-		failGeneration(sessionId, "Generation failed");
+		const error =
+			typeof payload.payload.error === "string" && payload.payload.error.trim()
+				? payload.payload.error.trim().slice(0, 1000)
+				: "Generation failed";
+		failGeneration(sessionId, error);
 		return {
 			handled: true,
 			shouldScroll: false,

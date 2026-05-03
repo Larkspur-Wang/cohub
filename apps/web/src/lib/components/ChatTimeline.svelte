@@ -151,7 +151,7 @@ $effect(() => {
 					{#if item.kind === 'message'}
 						<ChatMessageBubble message={item.message} {modelsCatalog} {onMarkdownRenderStart} {onMarkdownRendered} />
 					{:else if item.kind === 'process' && item.turn}
-						<ProcessCard turn={item.turn} summary={item.summary} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} />
+						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} />
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} />
 				{/if}

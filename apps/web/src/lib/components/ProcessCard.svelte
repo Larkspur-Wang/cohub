@@ -17,6 +17,8 @@ type ModelCatalogItem = {
 type Props = {
 	turn: SessionTurnRecord;
 	summary?: SessionTurnIntermediateSummary;
+	intermediateMessages?: StoredIntermediateMessage[] | null;
+	streaming?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadIntermediate?: (
 		turn: SessionTurnRecord,
@@ -30,6 +32,8 @@ type Props = {
 const {
 	turn,
 	summary,
+	intermediateMessages: liveIntermediateMessages = null,
+	streaming = false,
 	modelsCatalog,
 	onLoadIntermediate,
 	onLoadToolCalls,
@@ -38,15 +42,28 @@ const {
 let expanded = $state(false);
 let loading = $state(false);
 let loadError = $state<string | null>(null);
-let intermediateMessages = $state<StoredIntermediateMessage[] | null>(null);
+let loadedIntermediateMessages = $state<StoredIntermediateMessage[] | null>(
+	null,
+);
+
+const effectiveMessages = $derived(
+	liveIntermediateMessages ?? loadedIntermediateMessages ?? [],
+);
+const latestVisibleMessage = $derived(
+	streaming && !expanded ? (effectiveMessages.at(-1) ?? null) : null,
+);
+const expandedMessages = $derived(
+	streaming && !expanded ? effectiveMessages.slice(0, -1) : effectiveMessages,
+);
 
 async function ensureLoaded() {
+	if (liveIntermediateMessages) return;
 	if (!onLoadIntermediate) return;
-	if (intermediateMessages) return;
+	if (loadedIntermediateMessages) return;
 	loading = true;
 	loadError = null;
 	try {
-		intermediateMessages = await onLoadIntermediate(turn);
+		loadedIntermediateMessages = await onLoadIntermediate(turn);
 	} catch (error) {
 		loadError =
 			error instanceof Error
@@ -63,7 +80,9 @@ async function toggle() {
 }
 
 const toolCallCount = $derived(summary?.toolCallCount ?? 0);
-const messageCount = $derived(summary?.messageCount ?? 0);
+const messageCount = $derived(
+	Math.max(summary?.messageCount ?? 0, effectiveMessages.length),
+);
 const usageTokens = $derived(
 	summary?.usage?.totalTokens ??
 		((summary?.usage?.input ?? 0) + (summary?.usage?.output ?? 0) || 0),
@@ -72,21 +91,31 @@ const labelParts = $derived(
 	[
 		messageCount > 0
 			? `${messageCount} step${messageCount > 1 ? "s" : ""}`
-			: "",
+			: streaming
+				? "Running"
+				: "",
 		toolCallCount > 0
 			? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}`
 			: "",
 		usageTokens > 0 ? `${usageTokens} tokens` : "",
+		streaming && messageCount > 0 ? "running" : "",
 	].filter(Boolean),
 );
-const summaryLabel = $derived(labelParts.join(" · "));
+const summaryLabel = $derived(
+	labelParts.join(" · ") || (streaming ? "Running…" : "Process"),
+);
 </script>
 
 {#if !expanded}
-	<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()}>
-		{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-		<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
-	</button>
+	<div class="flex flex-col gap-1">
+		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()}>
+			{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
+			<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
+		</button>
+		{#if latestVisibleMessage}
+			<IntermediateMessageBubble message={latestVisibleMessage} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: latestVisibleMessage }) : undefined} />
+		{/if}
+	</div>
 {:else}
 	<div class="flex flex-col gap-0">
 		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md" onclick={() => void toggle()}>
@@ -99,7 +128,7 @@ const summaryLabel = $derived(labelParts.join(" · "));
 					{loadError} · Click to retry
 				</button>
 			{/if}
-			{#each intermediateMessages ?? [] as msg (msg.id)}
+			{#each expandedMessages as msg (msg.id)}
 				<IntermediateMessageBubble message={msg} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} />
 			{/each}
 		</div>

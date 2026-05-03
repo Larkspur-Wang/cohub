@@ -34,6 +34,7 @@ let thinkingUserToggled = $state(false);
 // Auto-expand during streaming, auto-collapse after (unless user toggled)
 const isStreaming = $derived(
 	message.meta?.messageKind === "assistant_streaming_preview" ||
+		message.meta?.streaming === true ||
 		message.id.startsWith("assistant-streaming:") ||
 		message.id === "assistant-streaming" ||
 		message.id === "assistant-thinking",
