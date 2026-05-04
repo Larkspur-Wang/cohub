@@ -73,10 +73,13 @@ export function startGenerationRequest(
 ) {
 	clearGenerationError(sessionId);
 	const current = sessionGenerationStore.get(sessionId);
-	if (current?.status === "streaming") return;
+	const isDifferentTurn = Boolean(
+		input?.turnId && current?.turnId && input.turnId !== current.turnId,
+	);
+	if (current?.status === "streaming" && !isDifferentTurn) return;
 	realtimePatchReducer.start({
 		sessionId,
-		spaceId: input?.spaceId ?? null,
+		spaceId: input?.spaceId ?? current?.spaceId ?? null,
 		turnId: input?.turnId ?? null,
 	});
 	sessionGenerationStore.startPending(sessionId, input);
@@ -86,6 +89,7 @@ export function applyRealtimeGenerationProgress(
 	sessionId: string,
 	input: {
 		spaceId?: string | null;
+		turnId?: string | null;
 		content: ContentBlock[];
 		anchorUserMessageId?: string | null;
 		messageId?: string | null;
@@ -93,11 +97,32 @@ export function applyRealtimeGenerationProgress(
 	},
 ) {
 	const current = sessionGenerationStore.get(sessionId);
+	const incomingTurnId = input.turnId ?? null;
+	const isDifferentTurn = Boolean(
+		incomingTurnId && current?.turnId && incomingTurnId !== current.turnId,
+	);
+	const baseContentBlocks = isDifferentTurn
+		? []
+		: (current?.contentBlocks ?? []);
+	const baseIntermediateMessages = isDifferentTurn
+		? []
+		: (current?.intermediateMessages ?? []);
+	const baseStreamMessageId = isDifferentTurn
+		? null
+		: (current?.streamMessageId ?? null);
+	const baseMessageOrdinal = isDifferentTurn
+		? null
+		: (current?.messageOrdinal ?? null);
+	const baseAnchorUserMessageId = isDifferentTurn
+		? null
+		: (current?.anchorUserMessageId ?? null);
 	const resolvedSpaceId = input.spaceId ?? current?.spaceId ?? null;
+	const resolvedTurnId =
+		incomingTurnId ?? (isDifferentTurn ? null : current?.turnId) ?? null;
 	const nextStreamMessageId = resolveStreamMessageId({
 		sessionId,
-		turnId: current?.turnId,
-		anchorUserMessageId: input.anchorUserMessageId,
+		turnId: resolvedTurnId,
+		anchorUserMessageId: input.anchorUserMessageId ?? baseAnchorUserMessageId,
 		messageId: input.messageId,
 		messageOrdinal: input.messageOrdinal,
 	});
@@ -106,54 +131,54 @@ export function applyRealtimeGenerationProgress(
 		if (!input.anchorUserMessageId && !nextStreamMessageId) return;
 		sessionGenerationStore.applyProgress(sessionId, {
 			spaceId: resolvedSpaceId,
-			contentBlocks: current?.contentBlocks ?? [],
-			intermediateMessages: current?.intermediateMessages ?? [],
-			streamMessageId: nextStreamMessageId ?? current?.streamMessageId ?? null,
-			messageOrdinal: input.messageOrdinal ?? current?.messageOrdinal ?? null,
-			anchorUserMessageId:
-				input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
-			truncatedStart: current?.truncatedStart ?? false,
+			contentBlocks: baseContentBlocks,
+			intermediateMessages: baseIntermediateMessages,
+			streamMessageId: nextStreamMessageId ?? baseStreamMessageId,
+			messageOrdinal: input.messageOrdinal ?? baseMessageOrdinal,
+			anchorUserMessageId: input.anchorUserMessageId ?? baseAnchorUserMessageId,
+			truncatedStart: isDifferentTurn
+				? false
+				: (current?.truncatedStart ?? false),
+			turnId: resolvedTurnId,
 		});
 		return;
 	}
 
 	const messageChanged = Boolean(
 		nextStreamMessageId &&
-			current?.streamMessageId &&
-			nextStreamMessageId !== current.streamMessageId,
+			baseStreamMessageId &&
+			nextStreamMessageId !== baseStreamMessageId,
 	);
 	const intermediateMessages = messageChanged
 		? appendCurrentMessageToIntermediate({
-				contentBlocks: current?.contentBlocks ?? [],
-				intermediateMessages: current?.intermediateMessages,
+				contentBlocks: baseContentBlocks,
+				intermediateMessages: baseIntermediateMessages,
 			})
-		: (current?.intermediateMessages ?? []);
-	const hadPreviousStreamingPreview = (current?.contentBlocks.length ?? 0) > 0;
-	const hasExistingStreamingState =
-		(current?.contentBlocks.length ?? 0) > 0 ||
-		Boolean(current?.anchorUserMessageId);
+		: baseIntermediateMessages;
 	const shouldStartFreshPreview =
-		hadPreviousStreamingPreview && current?.status !== "streaming";
+		baseContentBlocks.length > 0 && current?.status !== "streaming";
 	const previewBase = messageChanged
 		? []
 		: shouldStartFreshPreview
 			? []
-			: (current?.contentBlocks ?? []);
+			: baseContentBlocks;
 	const mergedContent = mergeStreamingDeltaBlocks(previewBase, input.content);
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: resolvedSpaceId,
 		contentBlocks: mergedContent,
 		intermediateMessages,
-		streamMessageId: nextStreamMessageId ?? current?.streamMessageId ?? null,
-		messageOrdinal: input.messageOrdinal ?? current?.messageOrdinal ?? null,
-		anchorUserMessageId:
-			input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
+		streamMessageId: nextStreamMessageId ?? baseStreamMessageId,
+		messageOrdinal: input.messageOrdinal ?? baseMessageOrdinal,
+		anchorUserMessageId: input.anchorUserMessageId ?? baseAnchorUserMessageId,
 		truncatedStart:
-			!hasExistingStreamingState && current?.status === "pending"
+			!isDifferentTurn &&
+			baseContentBlocks.length === 0 &&
+			current?.status === "pending"
 				? true
 				: shouldStartFreshPreview
 					? false
 					: (current?.truncatedStart ?? false),
+		turnId: resolvedTurnId,
 	});
 }
 
@@ -171,30 +196,49 @@ export function applyRealtimeGenerationPatch(
 	},
 ): PatchApplyResult {
 	const current = sessionGenerationStore.get(sessionId);
+	const incomingTurnId = input.turnId ?? null;
+	const isDifferentTurn = Boolean(
+		incomingTurnId && current?.turnId && incomingTurnId !== current.turnId,
+	);
+	const baseContentBlocks = isDifferentTurn
+		? []
+		: (current?.contentBlocks ?? []);
+	const baseIntermediateMessages = isDifferentTurn
+		? []
+		: (current?.intermediateMessages ?? []);
+	const baseStreamMessageId = isDifferentTurn
+		? null
+		: (current?.streamMessageId ?? null);
+	const baseMessageOrdinal = isDifferentTurn
+		? null
+		: (current?.messageOrdinal ?? null);
 	const resolvedSpaceId = input.spaceId ?? current?.spaceId ?? null;
+	const resolvedTurnId =
+		incomingTurnId ?? (isDifferentTurn ? null : current?.turnId) ?? null;
 	const nextStreamMessageId = resolveStreamMessageId({
 		sessionId,
-		turnId: input.turnId,
+		turnId: resolvedTurnId,
 		anchorUserMessageId: input.anchorUserMessageId,
 		messageId: input.messageId,
 		messageOrdinal: input.messageOrdinal,
 	});
 	const messageChanged = Boolean(
 		nextStreamMessageId &&
-			current?.streamMessageId &&
-			nextStreamMessageId !== current.streamMessageId,
+			baseStreamMessageId &&
+			nextStreamMessageId !== baseStreamMessageId,
 	);
-	if (messageChanged) {
+	if (isDifferentTurn || messageChanged) {
 		realtimePatchReducer.start({
 			sessionId,
 			spaceId: resolvedSpaceId,
-			turnId: input.turnId ?? current?.turnId ?? null,
+			turnId: resolvedTurnId,
 		});
 	}
 	const result = realtimePatchReducer.applyPatch({
 		sessionId,
 		...input,
 		spaceId: resolvedSpaceId,
+		turnId: resolvedTurnId,
 	});
 	if (!result.applied) {
 		return {
@@ -204,21 +248,21 @@ export function applyRealtimeGenerationPatch(
 	}
 	const intermediateMessages = messageChanged
 		? appendCurrentMessageToIntermediate({
-				contentBlocks: current?.contentBlocks ?? [],
-				intermediateMessages: current?.intermediateMessages,
+				contentBlocks: baseContentBlocks,
+				intermediateMessages: baseIntermediateMessages,
 			})
-		: (current?.intermediateMessages ?? []);
+		: baseIntermediateMessages;
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: resolvedSpaceId ?? result.state.spaceId ?? null,
 		contentBlocks: result.state.contentBlocks,
 		intermediateMessages,
-		streamMessageId: nextStreamMessageId ?? current?.streamMessageId ?? null,
-		messageOrdinal: input.messageOrdinal ?? current?.messageOrdinal ?? null,
+		streamMessageId: nextStreamMessageId ?? baseStreamMessageId,
+		messageOrdinal: input.messageOrdinal ?? baseMessageOrdinal,
 		anchorUserMessageId: result.state.anchorUserMessageId,
 		truncatedStart:
-			input.baseSeq !== 0 && current?.status === "pending"
+			!isDifferentTurn && input.baseSeq !== 0 && current?.status === "pending"
 				? true
-				: messageChanged
+				: messageChanged || isDifferentTurn
 					? false
 					: (current?.truncatedStart ?? false),
 		patchSeq: result.state.patchSeq,

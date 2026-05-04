@@ -81,6 +81,10 @@ export function applyGenerationRealtimeEnvelope(
 				: null;
 		applyRealtimeGenerationProgress(sessionId, {
 			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
+			turnId:
+				typeof payload.payload.turnId === "string"
+					? payload.payload.turnId
+					: null,
 			content,
 			anchorUserMessageId,
 			messageId:

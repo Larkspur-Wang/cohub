@@ -247,7 +247,10 @@ class SessionGenerationStore {
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
-		if (current.status === "streaming") return;
+		const isDifferentTurn = Boolean(
+			input?.turnId && current.turnId && input.turnId !== current.turnId,
+		);
+		if (current.status === "streaming" && !isDifferentTurn) return;
 		this.setState(sessionId, {
 			...current,
 			sessionId,
