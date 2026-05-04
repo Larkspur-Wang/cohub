@@ -130,6 +130,10 @@ export function buildTurnTimelineItems(input: {
 		) {
 			const processIntermediateMessages =
 				input.streaming?.intermediateMessages ?? [];
+			streamingProcessInserted = true;
+			if (processIntermediateMessages.length === 0) {
+				continue;
+			}
 			const summary = {
 				messageCount: processIntermediateMessages.length,
 				toolCallCount: processIntermediateMessages.reduce(
@@ -147,7 +151,6 @@ export function buildTurnTimelineItems(input: {
 				intermediateMessages: processIntermediateMessages,
 				streaming: true,
 			});
-			streamingProcessInserted = true;
 		}
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant) {
@@ -195,22 +198,25 @@ export function buildTurnTimelineItems(input: {
 				} satisfies SessionTurnRecord);
 		const processIntermediateMessages =
 			input.streaming?.intermediateMessages ?? [];
-		items.push({
-			id: `turn:${turn.id}:process:streaming`,
-			kind: "process",
-			turn,
-			summary: {
-				messageCount: processIntermediateMessages.length,
-				toolCallCount: processIntermediateMessages.reduce(
-					(count, message) =>
-						count +
-						message.content.filter((block) => block.type === "tool_use").length,
-					0,
-				),
-			},
-			intermediateMessages: processIntermediateMessages,
-			streaming: true,
-		});
+		if (processIntermediateMessages.length > 0) {
+			items.push({
+				id: `turn:${turn.id}:process:streaming`,
+				kind: "process",
+				turn,
+				summary: {
+					messageCount: processIntermediateMessages.length,
+					toolCallCount: processIntermediateMessages.reduce(
+						(count, message) =>
+							count +
+							message.content.filter((block) => block.type === "tool_use")
+								.length,
+						0,
+					),
+				},
+				intermediateMessages: processIntermediateMessages,
+				streaming: true,
+			});
+		}
 	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
 	const showPendingPlaceholder =
