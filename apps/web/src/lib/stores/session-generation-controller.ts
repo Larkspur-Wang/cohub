@@ -97,25 +97,24 @@ export function applyRealtimeGenerationProgress(
 	},
 ) {
 	const current = sessionGenerationStore.get(sessionId);
+	const currentContentBlocks = current?.contentBlocks ?? [];
+	const currentIntermediateMessages = current?.intermediateMessages ?? [];
+	const currentStreamMessageId = current?.streamMessageId ?? null;
+	const currentMessageOrdinal = current?.messageOrdinal ?? null;
+	const currentAnchorUserMessageId = current?.anchorUserMessageId ?? null;
 	const incomingTurnId = input.turnId ?? null;
 	const isDifferentTurn = Boolean(
 		incomingTurnId && current?.turnId && incomingTurnId !== current.turnId,
 	);
-	const baseContentBlocks = isDifferentTurn
-		? []
-		: (current?.contentBlocks ?? []);
+	const baseContentBlocks = isDifferentTurn ? [] : currentContentBlocks;
 	const baseIntermediateMessages = isDifferentTurn
 		? []
-		: (current?.intermediateMessages ?? []);
-	const baseStreamMessageId = isDifferentTurn
-		? null
-		: (current?.streamMessageId ?? null);
-	const baseMessageOrdinal = isDifferentTurn
-		? null
-		: (current?.messageOrdinal ?? null);
+		: currentIntermediateMessages;
+	const baseStreamMessageId = isDifferentTurn ? null : currentStreamMessageId;
+	const baseMessageOrdinal = isDifferentTurn ? null : currentMessageOrdinal;
 	const baseAnchorUserMessageId = isDifferentTurn
 		? null
-		: (current?.anchorUserMessageId ?? null);
+		: currentAnchorUserMessageId;
 	const resolvedSpaceId = input.spaceId ?? current?.spaceId ?? null;
 	const resolvedTurnId =
 		incomingTurnId ?? (isDifferentTurn ? null : current?.turnId) ?? null;
@@ -146,14 +145,15 @@ export function applyRealtimeGenerationProgress(
 
 	const messageChanged = Boolean(
 		nextStreamMessageId &&
-			baseContentBlocks.length > 0 &&
-			((baseStreamMessageId && nextStreamMessageId !== baseStreamMessageId) ||
-				(!baseStreamMessageId && current?.status === "streaming")),
+			currentContentBlocks.length > 0 &&
+			((currentStreamMessageId &&
+				nextStreamMessageId !== currentStreamMessageId) ||
+				(!currentStreamMessageId && current?.status === "streaming")),
 	);
 	const intermediateMessages = messageChanged
 		? appendCurrentMessageToIntermediate({
-				contentBlocks: baseContentBlocks,
-				intermediateMessages: baseIntermediateMessages,
+				contentBlocks: currentContentBlocks,
+				intermediateMessages: currentIntermediateMessages,
 			})
 		: baseIntermediateMessages;
 	const shouldStartFreshPreview =
@@ -197,22 +197,19 @@ export function applyRealtimeGenerationPatch(
 	},
 ): PatchApplyResult {
 	const current = sessionGenerationStore.get(sessionId);
+	const currentContentBlocks = current?.contentBlocks ?? [];
+	const currentIntermediateMessages = current?.intermediateMessages ?? [];
+	const currentStreamMessageId = current?.streamMessageId ?? null;
+	const currentMessageOrdinal = current?.messageOrdinal ?? null;
 	const incomingTurnId = input.turnId ?? null;
 	const isDifferentTurn = Boolean(
 		incomingTurnId && current?.turnId && incomingTurnId !== current.turnId,
 	);
-	const baseContentBlocks = isDifferentTurn
-		? []
-		: (current?.contentBlocks ?? []);
 	const baseIntermediateMessages = isDifferentTurn
 		? []
-		: (current?.intermediateMessages ?? []);
-	const baseStreamMessageId = isDifferentTurn
-		? null
-		: (current?.streamMessageId ?? null);
-	const baseMessageOrdinal = isDifferentTurn
-		? null
-		: (current?.messageOrdinal ?? null);
+		: currentIntermediateMessages;
+	const baseStreamMessageId = isDifferentTurn ? null : currentStreamMessageId;
+	const baseMessageOrdinal = isDifferentTurn ? null : currentMessageOrdinal;
 	const resolvedSpaceId = input.spaceId ?? current?.spaceId ?? null;
 	const resolvedTurnId =
 		incomingTurnId ?? (isDifferentTurn ? null : current?.turnId) ?? null;
@@ -225,11 +222,10 @@ export function applyRealtimeGenerationPatch(
 	});
 	const messageChanged = Boolean(
 		nextStreamMessageId &&
-			baseContentBlocks.length > 0 &&
-			((baseStreamMessageId && nextStreamMessageId !== baseStreamMessageId) ||
-				(!baseStreamMessageId &&
-					current?.status === "streaming" &&
-					(input.baseSeq === 0 || baseContentBlocks.length > 0))),
+			currentContentBlocks.length > 0 &&
+			((currentStreamMessageId &&
+				nextStreamMessageId !== currentStreamMessageId) ||
+				(!currentStreamMessageId && current?.status === "streaming")),
 	);
 	if (isDifferentTurn || messageChanged) {
 		realtimePatchReducer.start({
@@ -252,8 +248,8 @@ export function applyRealtimeGenerationPatch(
 	}
 	const intermediateMessages = messageChanged
 		? appendCurrentMessageToIntermediate({
-				contentBlocks: baseContentBlocks,
-				intermediateMessages: baseIntermediateMessages,
+				contentBlocks: currentContentBlocks,
+				intermediateMessages: currentIntermediateMessages,
 			})
 		: baseIntermediateMessages;
 	sessionGenerationStore.applyProgress(sessionId, {
