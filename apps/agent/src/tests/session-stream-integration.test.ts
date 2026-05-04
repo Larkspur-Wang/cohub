@@ -105,6 +105,7 @@ function createHandle(session: FakeSession): SessionHandle {
       preferredDisplayMode: "compact",
       lastSent: [],
       pendingFlush: false,
+      pendingBoundary: false,
       flushPromise: null,
     },
   };

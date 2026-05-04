@@ -71,6 +71,7 @@ export type SessionHandle = {
     lastSent?: ContentBlock[];
     patchSeq?: number;
     pendingFlush?: boolean;
+    pendingBoundary?: boolean;
     flushPromise?: Promise<void> | null;
     flushTimer?: ReturnType<typeof setTimeout> | null;
   };
@@ -152,11 +153,13 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     const full = handle.streamState.content;
     const last = handle.streamState.lastSent ?? [];
     const delta = computeDelta(full, last);
+    const forceBoundary = handle.streamState.pendingBoundary === true;
 
     handle.streamState.lastSent = structuredClone(full);
     handle.streamState.pendingFlush = false;
+    handle.streamState.pendingBoundary = false;
 
-    if (delta.length === 0) {
+    if (delta.length === 0 && !forceBoundary) {
       handle.streamState.flushPromise = null;
       return;
     }
@@ -254,6 +257,7 @@ function resetStreamState(handle: SessionHandle) {
     lastSent: [],
     patchSeq: 0,
     pendingFlush: false,
+    pendingBoundary: false,
     flushPromise: null,
     flushTimer: null,
   };
@@ -434,6 +438,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       }
       if (message.role === "assistant") {
         resetStreamState(handle);
+        handle.streamState.pendingBoundary = true;
         flushProviderRenderUpdate(handle, "assistant_message_start");
       }
     }
@@ -726,6 +731,7 @@ export async function loadOrCreateSessionHandle(input: {
       lastSent: [],
       patchSeq: 0,
       pendingFlush: false,
+      pendingBoundary: false,
       flushPromise: null,
       flushTimer: null,
     },
