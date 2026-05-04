@@ -146,8 +146,9 @@ export function applyRealtimeGenerationProgress(
 
 	const messageChanged = Boolean(
 		nextStreamMessageId &&
-			baseStreamMessageId &&
-			nextStreamMessageId !== baseStreamMessageId,
+			baseContentBlocks.length > 0 &&
+			((baseStreamMessageId && nextStreamMessageId !== baseStreamMessageId) ||
+				(!baseStreamMessageId && current?.status === "streaming")),
 	);
 	const intermediateMessages = messageChanged
 		? appendCurrentMessageToIntermediate({
@@ -224,8 +225,11 @@ export function applyRealtimeGenerationPatch(
 	});
 	const messageChanged = Boolean(
 		nextStreamMessageId &&
-			baseStreamMessageId &&
-			nextStreamMessageId !== baseStreamMessageId,
+			baseContentBlocks.length > 0 &&
+			((baseStreamMessageId && nextStreamMessageId !== baseStreamMessageId) ||
+				(!baseStreamMessageId &&
+					current?.status === "streaming" &&
+					input.baseSeq === 0)),
 	);
 	if (isDifferentTurn || messageChanged) {
 		realtimePatchReducer.start({
