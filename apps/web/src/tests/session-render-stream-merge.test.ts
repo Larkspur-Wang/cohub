@@ -152,3 +152,72 @@ test("buildTurnTimelineItems renders streaming intermediate messages separately 
 		["thinking"],
 	);
 });
+
+test("buildTurnTimelineItems keeps streaming intermediate messages after final turn patch", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "completed",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: [{ type: "text", text: "final" }],
+				assistantText: "final",
+				provider: null,
+				model: null,
+				stopReason: "end_turn",
+				errorMessage: null,
+				usage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: null,
+				startedAt: null,
+				completedAt: "2026-01-01T00:00:01.000Z",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:01.000Z",
+			},
+		],
+		streaming: {
+			sessionId: "s1",
+			turnId: "t1",
+			contentBlocks: [{ type: "text", text: "final" }],
+			intermediateMessages: [
+				{
+					id: "m1",
+					sessionId: "s1",
+					role: "assistant",
+					content: [{ type: "text", text: "previous answer" }],
+					text: "previous answer",
+					provider: null,
+					model: null,
+					stopReason: null,
+					errorMessage: null,
+					usage: null,
+					toolCallsObjectKey: null,
+					meta: null,
+					createdAt: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			status: "streaming",
+		},
+	});
+
+	const process = items.find(
+		(item) => item.kind === "process" && item.streaming,
+	);
+	assert.equal(process?.kind, "process");
+	assert.equal(
+		process?.kind === "process" ? process.summary?.messageCount : 0,
+		1,
+	);
+	assert.equal(
+		process?.kind === "process" ? process.intermediateMessages?.[0]?.text : "",
+		"previous answer",
+	);
+});

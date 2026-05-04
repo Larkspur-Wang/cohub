@@ -1,4 +1,7 @@
-import { spawn } from "node:child_process";
+import { Writable } from "node:stream";
+import type { V1Status } from "@kubernetes/client-node";
+import { Exec } from "@kubernetes/client-node";
+import { kubeConfig } from "../../k8s.js";
 
 export type SandboxInfraErrorCode = "STALE_MOUNT" | "CRITICAL_MOUNT_IO";
 
@@ -54,7 +57,7 @@ export const smokeVerifySandboxPod = async (podName: string, namespace: string, 
   let lastError: unknown = null;
   while (Date.now() < deadline) {
     try {
-      const output = await kubectlExec(namespace, podName, script, Math.min(10_000, Math.max(1000, deadline - Date.now())));
+      const output = await execInSandboxPod(namespace, podName, script, Math.min(10_000, Math.max(1000, deadline - Date.now())));
       const jsonStart = output.indexOf("{");
       if (jsonStart < 0) throw new Error(`smoke verify returned no json: ${output}`);
       return JSON.parse(output.slice(jsonStart)) as Record<string, boolean>;
@@ -66,29 +69,64 @@ export const smokeVerifySandboxPod = async (podName: string, namespace: string, 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 };
 
-const kubectlExec = (namespace: string, podName: string, script: string, timeoutMs: number) => {
+const k8sExec = new Exec(kubeConfig);
+
+const execInSandboxPod = (namespace: string, podName: string, script: string, timeoutMs: number) => {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn("kubectl", ["-n", namespace, "exec", podName, "--", "sh", "-lc", script], {
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let socket: { close: () => void } | null = null;
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(`${stdout}${stderr ? `\n${stderr}` : ""}`.trim());
+    };
+
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`kubectl exec timed out after ${timeoutMs}ms`));
+      socket?.close();
+      finish(new Error(`kubernetes exec timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+
+    const stdoutStream = new Writable({
+      write(chunk, _encoding, callback) {
+        stdout += chunk.toString();
+        callback();
+      },
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      const output = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim();
-      if (code === 0) resolve(output);
-      else reject(new Error(`kubectl exec failed with code ${code}: ${output}`));
+    const stderrStream = new Writable({
+      write(chunk, _encoding, callback) {
+        stderr += chunk.toString();
+        callback();
+      },
+    });
+
+    k8sExec.exec(
+      namespace,
+      podName,
+      "sandbox",
+      ["sh", "-lc", script],
+      stdoutStream,
+      stderrStream,
+      null,
+      false,
+      (status: V1Status) => {
+        const exitCode = status.details?.causes?.find((cause) => cause.reason === "ExitCode")?.message;
+        if (status.status === "Success" || exitCode === "0") {
+          finish();
+          return;
+        }
+        const message = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim();
+        finish(new Error(`kubernetes exec failed${exitCode ? ` with code ${exitCode}` : ""}: ${message || status.message || status.reason || "unknown error"}`));
+      },
+    ).then((ws) => {
+      socket = ws;
+      ws.on("error", (error) => finish(error instanceof Error ? error : new Error(String(error))));
+    }).catch((error: unknown) => {
+      finish(error instanceof Error ? error : new Error(String(error)));
     });
   });
 };

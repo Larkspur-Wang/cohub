@@ -125,7 +125,6 @@ export function buildTurnTimelineItems(input: {
 			if (streamingTurnId === turn.id) streamingProcessInserted = true;
 		} else if (
 			hasStreamingState &&
-			turn.status === "running" &&
 			(!streamingTurnId || streamingTurnId === turn.id)
 		) {
 			const processIntermediateMessages =
@@ -155,7 +154,6 @@ export function buildTurnTimelineItems(input: {
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant) {
 			if (streamingTurnId === turn.id) {
-				streamingProcessInserted = true;
 				streamingAssistantInserted = true;
 			}
 			items.push({

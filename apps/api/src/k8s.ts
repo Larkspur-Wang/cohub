@@ -26,7 +26,7 @@ const createKubeConfig = () => {
   return kubeConfig;
 };
 
-const kubeConfig = createKubeConfig();
+export const kubeConfig = createKubeConfig();
 
 export const k8sCoreApi = kubeConfig.makeApiClient(CoreV1Api);
 export const k8sCustomObjectsApi = kubeConfig.makeApiClient(CustomObjectsApi);
