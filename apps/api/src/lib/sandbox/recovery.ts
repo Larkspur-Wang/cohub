@@ -124,7 +124,7 @@ const execInSandboxPod = (namespace: string, podName: string, script: string, ti
       },
     ).then((ws) => {
       socket = ws;
-      ws.on("error", (error) => finish(error instanceof Error ? error : new Error(String(error))));
+      ws.on("error", (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
     }).catch((error: unknown) => {
       finish(error instanceof Error ? error : new Error(String(error)));
     });
