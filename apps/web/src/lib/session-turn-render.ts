@@ -131,26 +131,26 @@ export function buildTurnTimelineItems(input: {
 			const processIntermediateMessages =
 				input.streaming?.intermediateMessages ?? [];
 			streamingProcessInserted = true;
-			if (processIntermediateMessages.length === 0) {
-				continue;
+			if (processIntermediateMessages.length > 0) {
+				const summary = {
+					messageCount: processIntermediateMessages.length,
+					toolCallCount: processIntermediateMessages.reduce(
+						(count, message) =>
+							count +
+							message.content.filter((block) => block.type === "tool_use")
+								.length,
+						0,
+					),
+				} satisfies SessionTurnIntermediateSummary;
+				items.push({
+					id: `turn:${turn.id}:process:streaming`,
+					kind: "process",
+					turn,
+					summary,
+					intermediateMessages: processIntermediateMessages,
+					streaming: true,
+				});
 			}
-			const summary = {
-				messageCount: processIntermediateMessages.length,
-				toolCallCount: processIntermediateMessages.reduce(
-					(count, message) =>
-						count +
-						message.content.filter((block) => block.type === "tool_use").length,
-					0,
-				),
-			} satisfies SessionTurnIntermediateSummary;
-			items.push({
-				id: `turn:${turn.id}:process:streaming`,
-				kind: "process",
-				turn,
-				summary,
-				intermediateMessages: processIntermediateMessages,
-				streaming: true,
-			});
 		}
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant) {
