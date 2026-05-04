@@ -250,8 +250,18 @@ export class SessionPatchReducer {
       contentBlocks: [],
       anchorUserMessageId: null,
       patchSeq: 0,
-      turnId: null,
+      turnId: input.turnId ?? null,
       appendPath: null,
+    };
+    this.states.set(this.key(input), state);
+    return state;
+  }
+
+  replaceTurnId(input: SessionPatchKeyInput & { nextTurnId: string | null }): SessionPatchState {
+    const current = this.get(input);
+    const state: SessionPatchState = {
+      ...current,
+      turnId: input.nextTurnId,
     };
     this.states.set(this.key(input), state);
     return state;

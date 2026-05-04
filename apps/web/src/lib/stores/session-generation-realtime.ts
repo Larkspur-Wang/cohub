@@ -104,6 +104,30 @@ export function applyGenerationRealtimeEnvelope(
 		};
 	}
 
+	if (payload.type === "session.message.persisted") {
+		const message = payload.payload.message as
+			| { role?: unknown; meta?: Record<string, unknown> | null }
+			| null
+			| undefined;
+		if (message?.role === "assistant") {
+			const kind = message.meta?.messageKind;
+			return {
+				handled: true,
+				shouldScroll: false,
+				shouldReconcile:
+					kind === "assistant_final" || kind === "assistant_error",
+				shouldRefreshSessions:
+					kind === "assistant_final" || kind === "assistant_error",
+			};
+		}
+		return {
+			handled: true,
+			shouldScroll: false,
+			shouldReconcile: false,
+			shouldRefreshSessions: false,
+		};
+	}
+
 	if (payload.type === "session.turn.error") {
 		const error =
 			typeof payload.payload.error === "string" && payload.payload.error.trim()

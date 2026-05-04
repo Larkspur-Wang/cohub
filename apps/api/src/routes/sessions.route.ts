@@ -13,7 +13,7 @@ import {
   summarizeMessageForHistory,
   markMessageAsFull,
 } from "../space-sessions.js";
-import { createSignedTurnUrls, createSessionTurn, failSessionTurn, getSessionTurnById, listSessionTurns } from "../session-turns.js";
+import { createSignedTurnUrls, createSessionTurn, failSessionTurn, getSessionTurnById, getSessionTurnSequenceById, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { expandPromptTemplate } from "../prompt-templates.js";
 
 const router = new Hono();
@@ -95,6 +95,56 @@ router.get("/:id/turns", async (c) => {
         : turns[turns.length - 1]?.sequence
       : undefined,
   });
+});
+
+router.get("/:id/turns/index", async (c) => {
+  const user = getOptionalAuth(c);
+  const sessionId = c.req.param("id");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const cursorParam = c.req.query("cursor");
+  let cursor = cursorParam ? Number(cursorParam) : undefined;
+  if (cursor !== undefined && (!Number.isFinite(cursor) || cursor < 1)) return c.json({ message: "invalid cursor" }, 400);
+  cursor = cursor === undefined ? undefined : Math.floor(cursor);
+  const rawLimit = Number(c.req.query("limit") ?? 200);
+  if (!Number.isFinite(rawLimit)) return c.json({ message: "invalid limit" }, 400);
+  const limit = Math.min(Math.max(Math.floor(rawLimit), 1), 500);
+  const result = await listSessionTurnIndex(session.id, { cursor, limit });
+  return c.json({ session, ...result });
+});
+
+router.get("/:id/turns/window", async (c) => {
+  const user = getOptionalAuth(c);
+  const sessionId = c.req.param("id");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const turnId = c.req.query("turnId");
+  let sequence = c.req.query("sequence") ? Number(c.req.query("sequence")) : undefined;
+  if (turnId) {
+    if (!requireValidId(turnId)) return c.json({ message: "invalid turn id" }, 400);
+    const found = await getSessionTurnSequenceById(session.id, turnId);
+    if (found == null) return c.json({ message: "turn not found" }, 404);
+    sequence = found;
+  }
+  if (sequence === undefined || !Number.isFinite(sequence) || sequence < 1) return c.json({ message: "invalid sequence" }, 400);
+  const before = Number(c.req.query("before") ?? 10);
+  const after = Number(c.req.query("after") ?? 20);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return c.json({ message: "invalid window" }, 400);
+  const result = await listSessionTurnWindow(session.id, { sequence: Math.floor(sequence), before, after });
+  if (!result) return c.json({ message: "turn not found" }, 404);
+  return c.json({ session, ...result });
 });
 
 router.get("/:id/turns/:turnId", async (c) => {

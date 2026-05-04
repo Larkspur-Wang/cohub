@@ -199,7 +199,7 @@ export const buildSessionOutputsForStreamEvent = async (
       spaceId: event.spaceId,
       sessionId: event.sessionId,
       turnId: event.turnId ?? null,
-      messageId: event.messageId ?? (event.sourceMessageId ? `assistant:${event.sourceMessageId}` : null),
+      messageId: event.messageId ?? null,
       messageOrdinal: event.messageOrdinal ?? null,
       anchorUserMessageId: event.anchorUserMessageId ?? null,
       seq: event.seq,

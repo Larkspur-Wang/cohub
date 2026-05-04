@@ -229,7 +229,7 @@ export function applyRealtimeGenerationPatch(
 			((baseStreamMessageId && nextStreamMessageId !== baseStreamMessageId) ||
 				(!baseStreamMessageId &&
 					current?.status === "streaming" &&
-					input.baseSeq === 0)),
+					(input.baseSeq === 0 || baseContentBlocks.length > 0))),
 	);
 	if (isDifferentTurn || messageChanged) {
 		realtimePatchReducer.start({
@@ -278,6 +278,18 @@ export function applyRealtimeGenerationPatch(
 export function failGeneration(sessionId: string, error?: string | null) {
 	realtimePatchReducer.fail({ sessionId });
 	sessionGenerationStore.fail(sessionId, error ?? "Generation failed");
+}
+
+export function replaceGenerationTurnId(
+	sessionId: string,
+	input: { previousTurnId?: string | null; nextTurnId: string | null },
+) {
+	realtimePatchReducer.replaceTurnId({
+		sessionId,
+		turnId: input.previousTurnId ?? null,
+		nextTurnId: input.nextTurnId,
+	});
+	sessionGenerationStore.replaceTurnId(sessionId, input);
 }
 
 export function completeGeneration(sessionId: string) {

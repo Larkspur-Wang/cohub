@@ -13,6 +13,8 @@ import type {
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
   SessionTurnResponse,
+  SessionTurnIndexResponse,
+  SessionTurnWindowResponse,
   SessionTurnsPaginatedResponse,
   SessionTurnSignedUrlsResponse,
   SessionRecord,
@@ -345,6 +347,44 @@ class SessionTurnsClient {
     const query = params.toString();
     return this.transport.request<SessionTurnsPaginatedResponse>(
       `/api/sessions/${this.sessionId}/turns${query ? `?${query}` : ""}`,
+      { fetch: customFetch },
+    );
+  }
+
+  index(
+    options?: {
+      cursor?: number;
+      limit?: number;
+    },
+    customFetch?: Fetch,
+  ) {
+    const params = new URLSearchParams();
+    if (options?.cursor !== undefined) params.set("cursor", String(options.cursor));
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    const query = params.toString();
+    return this.transport.request<SessionTurnIndexResponse>(
+      `/api/sessions/${this.sessionId}/turns/index${query ? `?${query}` : ""}`,
+      { fetch: customFetch },
+    );
+  }
+
+  window(
+    options: {
+      sequence?: number;
+      turnId?: string;
+      before?: number;
+      after?: number;
+    },
+    customFetch?: Fetch,
+  ) {
+    const params = new URLSearchParams();
+    if (options.sequence !== undefined) params.set("sequence", String(options.sequence));
+    if (options.turnId) params.set("turnId", options.turnId);
+    if (options.before !== undefined) params.set("before", String(options.before));
+    if (options.after !== undefined) params.set("after", String(options.after));
+    const query = params.toString();
+    return this.transport.request<SessionTurnWindowResponse>(
+      `/api/sessions/${this.sessionId}/turns/window${query ? `?${query}` : ""}`,
       { fetch: customFetch },
     );
   }

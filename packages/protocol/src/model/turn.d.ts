@@ -65,6 +65,22 @@ export type TurnIntermediateMessagesFile = {
   summary: SessionTurnIntermediateSummary;
   messages: StoredIntermediateMessage[];
 };
+export type SessionTurnIndexItem = {
+  id: string;
+  sessionId: string;
+  sequence: number;
+  status: SessionTurnStatus;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  userPreview: string | null;
+  assistantPreview: string | null;
+  provider: string | null;
+  model: string | null;
+  usage: Usage | null;
+  errorMessage: string | null;
+};
 export type SessionTurnRecord = {
   id: string;
   sessionId: string;

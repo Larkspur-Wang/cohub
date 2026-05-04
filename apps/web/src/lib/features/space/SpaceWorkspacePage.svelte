@@ -16,6 +16,7 @@ import {
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type {
 	MessageToolCallsFile,
+	SessionTurnIndexItem,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
 } from "@neta-art/cohub-protocol/model";
@@ -24,6 +25,7 @@ import {
 	Activity,
 	AlertCircle,
 	ArrowDown,
+	ArrowUp,
 	Check,
 	Clock,
 	Clock3,
@@ -74,6 +76,8 @@ import PageHeader from "$lib/components/PageHeader.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
+import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
+import TurnRail from "$lib/components/TurnRail.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
@@ -96,6 +100,7 @@ import {
 	clearGenerationError,
 	completeGeneration,
 	failGeneration,
+	replaceGenerationTurnId,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
 import { applyGenerationRealtimeEnvelope } from "$lib/stores/session-generation-realtime";
@@ -152,6 +157,7 @@ type Props = {
 		checkpointId?: string | null;
 		cronjobId?: string | null;
 		taskId?: string | null;
+		turnSequence?: string | null;
 	};
 };
 type ComposerImageAttachment = {
@@ -174,6 +180,7 @@ type SessionViewState = {
 	loaded: boolean;
 	error: string;
 	hasMore: boolean;
+	hasMoreNewer: boolean;
 	loadingOlder: boolean;
 	oldestCursor: number | undefined;
 };
@@ -190,6 +197,14 @@ const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
 const routeCronjobId = $derived(data.cronjobId ?? null);
 const routeTaskId = $derived(data.taskId ?? null);
+const routeTurnSequence = $derived.by(() => {
+	const value = data.turnSequence;
+	if (!value) return null;
+	const sequence = Number(value);
+	return Number.isFinite(sequence) && sequence > 0
+		? Math.floor(sequence)
+		: null;
+});
 const fileMode = $derived<"chat" | "file">(
 	routeView === "file" ? "file" : "chat",
 );
@@ -478,6 +493,13 @@ let chatTimelineRef = $state<{
 	preparePrepend: () => void;
 	finalizePrepend: () => void;
 } | null>(null);
+let turnIndexBySessionId = $state<Record<string, SessionTurnIndexItem[]>>({});
+let turnIndexLoadingBySessionId = $state<Record<string, boolean>>({});
+let loadingTurnSequence = $state<number | null>(null);
+let currentTurnSequence = $state<number | null>(null);
+let highlightedTurnSequence = $state<number | null>(null);
+let showTurnBottomSheet = $state(false);
+let appliedRouteTurnKey = $state<string | null>(null);
 let preloadingSessionIds = new Set<string>();
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
@@ -945,6 +967,9 @@ const activeSessionModel = $derived.by(() => {
 const activeGenerationState = $derived.by(() =>
 	sessionGenerationStore.get(activeSessionId),
 );
+const activeTurnIndex = $derived.by(() =>
+	activeSessionId ? (turnIndexBySessionId[activeSessionId] ?? []) : [],
+);
 const activeStreamingIntermediateMessages = $derived.by(() => {
 	if (!activeGenerationState || !activeSessionId) return [];
 	return buildStreamingStoredIntermediateMessages({
@@ -1166,6 +1191,7 @@ function captureCurrentScrollAnchor(sessionId: string) {
 		updatedAt: Date.now(),
 	});
 	markVisibleLatestTurnViewed(sessionId, nodes, containerRect);
+	updateCurrentTurnSequence();
 }
 function writeBottomScrollAnchor(sessionId: string) {
 	if (!listEl) return;
@@ -1286,6 +1312,7 @@ function applySessionsSnapshot(sessions: SessionRecord[]) {
 			loaded: existing?.loaded ?? false,
 			error: existing?.error ?? "",
 			hasMore: existing?.hasMore ?? true,
+			hasMoreNewer: existing?.hasMoreNewer ?? false,
 			loadingOlder: existing?.loadingOlder ?? false,
 			oldestCursor: existing?.oldestCursor,
 		};
@@ -1341,7 +1368,8 @@ function prepareRouteSession(sessionId: string) {
 	anchorRestoreWaitingForMarkdown = false;
 	userScrollActive = false;
 	programmaticScrollActive = false;
-	programmaticScrollTarget = null;
+	currentTurnSequence = null;
+	showTurnBottomSheet = false;
 	ensureSessionModelLoaded(sessionId);
 	shouldAutoFollow = true;
 	if (!sessionStateById[sessionId]) {
@@ -1354,6 +1382,7 @@ function prepareRouteSession(sessionId: string) {
 				loaded: false,
 				error: "",
 				hasMore: true,
+				hasMoreNewer: false,
 				loadingOlder: false,
 				oldestCursor: undefined,
 			},
@@ -1622,6 +1651,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				loaded: true,
 				error: "",
 				hasMore: cached.hasMoreOlder,
+				hasMoreNewer: cached.hasMoreNewer,
 				loadingOlder: false,
 				oldestCursor: cached.oldestSequence ?? undefined,
 			},
@@ -1641,6 +1671,8 @@ async function loadSessionState(sessionId: string, force = false) {
 			loaded: currentSeed?.loaded ?? existing?.loaded ?? false,
 			error: currentSeed?.error ?? existing?.error ?? "",
 			hasMore: currentSeed?.hasMore ?? existing?.hasMore ?? true,
+			hasMoreNewer:
+				currentSeed?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
 			loadingOlder: false,
 			oldestCursor: currentSeed?.oldestCursor ?? existing?.oldestCursor,
 		},
@@ -1676,6 +1708,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				loaded: true,
 				error: "",
 				hasMore: snapshot.hasMoreOlder,
+				hasMoreNewer: snapshot.hasMoreNewer,
 				loadingOlder: false,
 				oldestCursor: snapshot.oldestSequence ?? undefined,
 			},
@@ -1695,6 +1728,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				error:
 					error instanceof Error ? error.message : "Failed to load session",
 				hasMore: fallback?.hasMore ?? existing?.hasMore ?? true,
+				hasMoreNewer: fallback?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
 				loadingOlder: false,
 				oldestCursor: fallback?.oldestCursor ?? existing?.oldestCursor,
 			},
@@ -1702,6 +1736,132 @@ async function loadSessionState(sessionId: string, force = false) {
 	} finally {
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 	}
+}
+async function loadTurnIndex(sessionId: string, force = false) {
+	if (!force && turnIndexBySessionId[sessionId]?.length) return;
+	if (turnIndexLoadingBySessionId[sessionId]) return;
+	turnIndexLoadingBySessionId = {
+		...turnIndexLoadingBySessionId,
+		[sessionId]: true,
+	};
+	try {
+		let cursor: number | undefined;
+		const collected: SessionTurnIndexItem[] = [];
+		for (let page = 0; page < 20; page += 1) {
+			const response = await sdk.space(spaceId).session(sessionId).turns.index({
+				cursor,
+				limit: 500,
+			});
+			collected.push(...response.turns);
+			if (!response.hasMore || response.nextCursor == null) break;
+			cursor = response.nextCursor;
+		}
+		turnIndexBySessionId = {
+			...turnIndexBySessionId,
+			[sessionId]: collected,
+		};
+	} catch (error) {
+		console.warn("[loadTurnIndex] Failed to load turn index:", error);
+	} finally {
+		turnIndexLoadingBySessionId = {
+			...turnIndexLoadingBySessionId,
+			[sessionId]: false,
+		};
+	}
+}
+function getTurnAnchorNode(sequence: number) {
+	return (
+		listEl?.querySelector<HTMLElement>(
+			`[data-turn-anchor="user"][data-turn-sequence="${sequence}"]`,
+		) ?? null
+	);
+}
+function scrollToTurnAnchor(sequence: number) {
+	if (!listEl) return false;
+	const node = getTurnAnchorNode(sequence);
+	if (!node) return false;
+	setProgrammaticScrollTop(
+		Math.max(0, getMessageElementAbsoluteTop(node) - 16),
+	);
+	shouldAutoFollow = false;
+	currentTurnSequence = sequence;
+	requestAnimationFrame(() => updateCurrentTurnSequence());
+	highlightedTurnSequence = sequence;
+	window.setTimeout(() => {
+		if (highlightedTurnSequence === sequence) highlightedTurnSequence = null;
+	}, 1400);
+	return true;
+}
+async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
+	const state = sessionStateById[sessionId];
+	loadingTurnSequence = sequence;
+	try {
+		const response = await sdk.space(spaceId).session(sessionId).turns.window({
+			sequence,
+			before: 10,
+			after: 20,
+		});
+		const snapshot = await sessionTurnsRepo.mergeTurns(
+			spaceId,
+			sessionId,
+			response.turns,
+			{
+				session: response.session,
+				hasMoreOlder: response.hasMoreOlder,
+				hasMoreNewer:
+					"hasMoreNewer" in response ? response.hasMoreNewer : undefined,
+				source: "network",
+			},
+		);
+		const current = sessionStateById[sessionId] ?? state;
+		if (current) {
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...current,
+					session: snapshot.session ?? current.session,
+					turns: snapshot.turns,
+					hasMore: snapshot.hasMoreOlder,
+					hasMoreNewer: snapshot.hasMoreNewer,
+					oldestCursor: snapshot.oldestSequence ?? undefined,
+					loaded: true,
+					loading: false,
+				},
+			};
+		}
+	} finally {
+		loadingTurnSequence = null;
+	}
+}
+async function jumpToTurn(sequence: number) {
+	if (!activeSessionId) return;
+	try {
+		composerError = "";
+		if (scrollToTurnAnchor(sequence)) return;
+		await ensureTurnWindowLoaded(activeSessionId, sequence);
+		await tick();
+		requestAnimationFrame(() => scrollToTurnAnchor(sequence));
+	} catch (error) {
+		console.warn("[jumpToTurn] Failed to jump to turn:", error);
+		composerError =
+			error instanceof Error ? error.message : "Failed to jump to turn";
+	}
+}
+function jumpAdjacentTurn(direction: "previous" | "next") {
+	if (activeTurnIndex.length === 0) return;
+	const current =
+		currentTurnSequence ??
+		activeSessionState?.turns.at(-1)?.sequence ??
+		activeTurnIndex.at(-1)?.sequence;
+	const index = activeTurnIndex.findIndex(
+		(turn) => turn.sequence >= (current ?? 0),
+	);
+	const baseIndex = index < 0 ? activeTurnIndex.length - 1 : index;
+	const target =
+		direction === "previous"
+			? activeTurnIndex[baseIndex - 1]
+			: activeTurnIndex[baseIndex + 1];
+	if (target) void jumpToTurn(target.sequence);
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
 	const state = sessionStateById[sessionId];
@@ -1772,6 +1932,7 @@ async function loadOlderTurns(sessionId: string) {
 				session: snapshot.session ?? state.session,
 				turns: snapshot.turns,
 				hasMore: snapshot.hasMoreOlder,
+				hasMoreNewer: snapshot.hasMoreNewer,
 				loadingOlder: false,
 				oldestCursor: snapshot.oldestSequence ?? undefined,
 			},
@@ -1829,6 +1990,7 @@ async function reconcileSessionTail(sessionId: string) {
 				session: snapshot.session ?? state.session,
 				turns: snapshot.turns,
 				hasMore: snapshot.hasMoreOlder,
+				hasMoreNewer: snapshot.hasMoreNewer,
 				loading: false,
 				loaded: true,
 				error: "",
@@ -2055,7 +2217,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					.session(targetSessionId)
 					.turns.get(turnId)
 					.then(async (response) => {
-						completeGeneration(targetSessionId);
 						const current = sessionStateById[targetSessionId];
 						if (!current) return;
 						const snapshot = await sessionTurnsRepo.mergeTurns(
@@ -2075,6 +2236,9 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 								turns: snapshot.turns,
 							},
 						};
+						if (payload.type === "session.turn.finalized") {
+							completeGeneration(targetSessionId);
+						}
 					})
 					.catch((error) =>
 						console.warn("[turn.event] Failed to load full turn:", error),
@@ -2181,6 +2345,19 @@ async function handleSend() {
 				provider: model?.provider,
 			});
 		if (sendResult.turnId) {
+			replaceGenerationTurnId(sessionId, {
+				previousTurnId: optimisticTurnId,
+				nextTurnId: sendResult.turnId,
+			});
+			void sessionTurnsRepo.replaceTurnId(
+				spaceId,
+				sessionId,
+				{
+					previousTurnId: optimisticTurnId,
+					nextTurnId: sendResult.turnId,
+				},
+				{ source: "indexeddb" },
+			);
 			const current = sessionStateById[sessionId];
 			if (current) {
 				sessionStateById = {
@@ -2253,6 +2430,28 @@ function updateAutoFollow() {
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
 	shouldAutoFollow = distanceFromBottom <= threshold;
+}
+function updateCurrentTurnSequence() {
+	if (!listEl) return;
+	const nodes = Array.from(
+		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
+	);
+	if (nodes.length === 0) {
+		currentTurnSequence = null;
+		return;
+	}
+	const containerRect = listEl.getBoundingClientRect();
+	const probeY = containerRect.top + Math.min(160, containerRect.height * 0.35);
+	let best: { sequence: number; distance: number } | null = null;
+	for (const node of nodes) {
+		const sequence = Number(node.dataset.turnSequence);
+		if (!Number.isFinite(sequence)) continue;
+		const rect = node.getBoundingClientRect();
+		const distance =
+			rect.top <= probeY ? probeY - rect.top : rect.top - probeY + 1000;
+		if (!best || distance < best.distance) best = { sequence, distance };
+	}
+	currentTurnSequence = best?.sequence ?? null;
 }
 function setProgrammaticScrollTop(scrollTop: number) {
 	if (!listEl) return;
@@ -3063,6 +3262,7 @@ function handleCreateNewSession() {
 					loaded: true,
 					error: "",
 					hasMore: false,
+					hasMoreNewer: false,
 					loadingOlder: false,
 					oldestCursor: undefined,
 				},
@@ -3235,6 +3435,12 @@ $effect(() => {
 	sessionStateById = {};
 	loadingSessionIds = {};
 	activeSessionId = null;
+	turnIndexBySessionId = {};
+	turnIndexLoadingBySessionId = {};
+	currentTurnSequence = null;
+	loadingTurnSequence = null;
+	showTurnBottomSheet = false;
+	appliedRouteTurnKey = null;
 	fileTree = [];
 	pinnedMarks = [];
 	pinnedFilePaths = new Set();
@@ -3286,6 +3492,7 @@ $effect(() => {
 				if (routeView === "session" && routeSessionId) {
 					prepareRouteSession(routeSessionId);
 					await sessionLoad;
+					void loadTurnIndex(routeSessionId);
 				}
 			} catch {
 				// Non-blocking; bootstrapping released below
@@ -3320,10 +3527,36 @@ $effect(() => {
 				session: snapshot.session ?? current.session,
 				turns: snapshot.turns,
 				hasMore: snapshot.hasMoreOlder,
+				hasMoreNewer: snapshot.hasMoreNewer,
 				oldestCursor: snapshot.oldestSequence ?? undefined,
 			},
 		};
 	});
+});
+$effect(() => {
+	const sessionId = activeSessionId;
+	const sequence = routeTurnSequence;
+	if (!pageMounted || !sessionId || !sequence) return;
+	const key = `${sessionId}:${sequence}`;
+	if (appliedRouteTurnKey === key) return;
+	appliedRouteTurnKey = key;
+	void jumpToTurn(sequence);
+});
+$effect(() => {
+	if (routeView === "session" && routeSessionId) return;
+	appliedRouteTurnKey = null;
+});
+$effect(() => {
+	if (routeView === "session" && activeSessionId) return;
+	showTurnBottomSheet = false;
+});
+$effect(() => {
+	if (!activeSessionId) return;
+	void loadTurnIndex(activeSessionId);
+});
+$effect(() => {
+	if (!listEl || timeline.length === 0) return;
+	tick().then(() => updateCurrentTurnSequence());
 });
 $effect(() => {
 	if (
@@ -3338,6 +3571,7 @@ $effect(() => {
 			state?.turns.at(-1) ??
 			null;
 		unreadTracker.markViewed(routeSessionId, latestTurn?.id ?? null);
+		void loadTurnIndex(routeSessionId);
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {
@@ -3348,6 +3582,8 @@ $effect(() => {
 		userScrollActive = false;
 		programmaticScrollActive = false;
 		programmaticScrollTarget = null;
+		currentTurnSequence = null;
+		showTurnBottomSheet = false;
 	}
 });
 $effect(() => {
@@ -3363,12 +3599,14 @@ $effect(() => {
 			programmaticScrollActive = false;
 			programmaticScrollTarget = null;
 			updateAutoFollow();
+			updateCurrentTurnSequence();
 			return;
 		}
 		if (activeSessionId && userScrollActive) {
 			captureCurrentScrollAnchor(activeSessionId);
 		}
 		updateAutoFollow();
+		updateCurrentTurnSequence();
 	}
 	container.addEventListener("wheel", beginUserScroll, { passive: true });
 	container.addEventListener("touchstart", beginUserScroll, { passive: true });
@@ -4793,27 +5031,82 @@ $effect(() => {
           loadingOlder={activeSessionState?.loadingOlder ?? false}
           modelsCatalog={modelsCatalog ?? undefined}
         />
-        {#if hasUnread || !shouldAutoFollow}
+        <TurnRail
+          turns={activeTurnIndex}
+          loadedTurns={activeSessionState.turns}
+          currentSequence={currentTurnSequence}
+          loadingSequence={loadingTurnSequence}
+          onJump={(sequence) => { void jumpToTurn(sequence); }}
+        />
+        {#if highlightedTurnSequence}
+          <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
+        {/if}
+        {#if hasUnread || !shouldAutoFollow || activeTurnIndex.length > 1}
           <div class="absolute left-1/2 z-20 -translate-x-1/2"
             style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
-            <button
-              type="button"
-              aria-label="Scroll to bottom"
-              class="flex h-8 min-w-8 items-center justify-center rounded-full bg-brand text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] transition-transform duration-150 active:scale-95"
-              onclick={() => {
-                shouldAutoFollow = true;
-                void forceScrollToBottom();
-              }}
-            >
-              {#if hasUnread}
-                <span class="text-[10px] font-medium leading-none">New</span>
-              {:else}
-                <ArrowDown class="w-4 h-4" />
+            <div class="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary/95 p-1 shadow-[0_2px_10px_rgba(0,0,0,0.16)] backdrop-blur-sm">
+              <button
+                type="button"
+                aria-label="Open turn navigator"
+                class="flex h-7 items-center justify-center rounded-full px-2 text-[11px] font-medium text-text-secondary transition-colors active:scale-95 lg:hidden"
+                onclick={() => { showTurnBottomSheet = true; if (activeSessionId) void loadTurnIndex(activeSessionId, true); }}
+              >
+                {currentTurnSequence ? `#${currentTurnSequence}` : 'Turns'}
+              </button>
+              <button
+                type="button"
+                aria-label="Previous turn"
+                class="hidden h-7 w-7 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-bg-hover active:scale-95 sm:flex lg:hidden disabled:opacity-35"
+                disabled={activeTurnIndex.length < 2}
+                onclick={() => {
+                  const index = activeTurnIndex.findIndex((turn) => turn.sequence === currentTurnSequence);
+                  const hasPrevious = index > 0;
+                  if (hasPrevious) jumpAdjacentTurn('previous');
+                }}
+              >
+                <ArrowUp class="w-3.5 h-3.5" />
+              </button>
+              {#if hasUnread || !shouldAutoFollow}
+                <button
+                  type="button"
+                  aria-label="Scroll to bottom"
+                  class="flex h-7 min-w-7 items-center justify-center rounded-full bg-brand px-2 text-white transition-transform duration-150 active:scale-95"
+                  onclick={() => {
+                    shouldAutoFollow = true;
+                    void forceScrollToBottom();
+                  }}
+                >
+                  {#if hasUnread}
+                    <span class="text-[10px] font-medium leading-none">New</span>
+                  {:else}
+                    <ArrowDown class="w-4 h-4" />
+                  {/if}
+                </button>
               {/if}
-            </button>
+              <button
+                type="button"
+                aria-label="Next turn"
+                class="hidden h-7 w-7 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-bg-hover active:scale-95 sm:flex lg:hidden disabled:opacity-35"
+                disabled={activeTurnIndex.length < 2}
+                onclick={() => {
+                  const index = activeTurnIndex.findIndex((turn) => turn.sequence === currentTurnSequence);
+                  const hasNext = index >= 0 && index < activeTurnIndex.length - 1;
+                  if (hasNext) jumpAdjacentTurn('next');
+                }}
+              >
+                <ArrowDown class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         {/if}
+        <TurnBottomSheet
+          open={showTurnBottomSheet}
+          turns={activeTurnIndex}
+          currentSequence={currentTurnSequence}
+          onClose={() => { showTurnBottomSheet = false; }}
+          onJump={(sequence) => { void jumpToTurn(sequence); }}
+        />
         <div bind:this={composerHostEl}>
           <SessionComposer
             bind:value={input}

@@ -337,6 +337,32 @@ class SessionGenerationStore {
 		});
 	}
 
+	replaceTurnId(
+		sessionId: string,
+		input: { previousTurnId?: string | null; nextTurnId: string | null },
+	) {
+		const current = this.get(sessionId);
+		if (!current) return;
+		if (
+			input.previousTurnId &&
+			current.turnId &&
+			current.turnId !== input.previousTurnId
+		) {
+			return;
+		}
+		this.setState(sessionId, {
+			...current,
+			turnId: input.nextTurnId,
+			streamMessageId:
+				current.streamMessageId && current.turnId && input.nextTurnId
+					? current.streamMessageId.replace(
+							`turn:${current.turnId}:`,
+							`turn:${input.nextTurnId}:`,
+						)
+					: current.streamMessageId,
+		});
+	}
+
 	complete(sessionId: string) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
 		this.setState(sessionId, {

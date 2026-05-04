@@ -28,6 +28,7 @@ export type SessionTurnsCacheRecord = {
 	newestSequence: number | null;
 	oldestSequence: number | null;
 	hasMoreOlder: boolean;
+	hasMoreNewer?: boolean;
 	reconciledAt: number;
 	updatedAt: number;
 	lastAccessedAt: number;

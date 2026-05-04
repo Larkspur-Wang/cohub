@@ -28,6 +28,7 @@ export type SessionTurnsSnapshot = {
 	session: SessionRecord | null;
 	turns: SessionTurnRecord[];
 	hasMoreOlder: boolean;
+	hasMoreNewer: boolean;
 	oldestSequence: number | null;
 	newestSequence: number | null;
 	updatedAt: number;
@@ -51,6 +52,10 @@ function toSnapshot(
 		session: record.session,
 		turns: record.turns,
 		hasMoreOlder: record.hasMoreOlder,
+		hasMoreNewer: Boolean(
+			(record as SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
+				.hasMoreNewer,
+		),
 		oldestSequence: record.oldestSequence,
 		newestSequence: record.newestSequence,
 		updatedAt: record.updatedAt,
@@ -79,6 +84,7 @@ async function writeRecord(
 		session: SessionRecord | null;
 		turns: SessionTurnRecord[];
 		hasMoreOlder: boolean;
+		hasMoreNewer?: boolean;
 		reconciledAt?: number;
 	},
 	options?: { broadcast?: boolean; source?: CacheSource },
@@ -97,6 +103,9 @@ async function writeRecord(
 		newestSequence: getNewestSequence(turns),
 		oldestSequence: getOldestSequence(turns),
 		hasMoreOlder: input.hasMoreOlder,
+		...(input.hasMoreNewer !== undefined
+			? { hasMoreNewer: input.hasMoreNewer }
+			: {}),
 		reconciledAt: input.reconciledAt ?? now,
 		updatedAt: now,
 		lastAccessedAt: now,
@@ -145,6 +154,7 @@ function ensureBroadcastSubscription() {
 				session: null,
 				turns: [],
 				hasMoreOlder: false,
+				hasMoreNewer: false,
 				oldestSequence: null,
 				newestSequence: null,
 				updatedAt: message.updatedAt,
@@ -189,6 +199,7 @@ export const sessionTurnsRepo = {
 				session: response.session,
 				turns: response.turns,
 				hasMoreOlder: response.hasMore,
+				hasMoreNewer: false,
 			},
 			{ source: options?.source ?? "network" },
 		);
@@ -203,6 +214,7 @@ export const sessionTurnsRepo = {
 			session?: SessionRecord | null;
 			preferIncoming?: boolean;
 			hasMoreOlder?: boolean;
+			hasMoreNewer?: boolean;
 			source?: CacheSource;
 		},
 	) {
@@ -219,6 +231,60 @@ export const sessionTurnsRepo = {
 				turns: merged,
 				hasMoreOlder:
 					options?.hasMoreOlder ?? current?.record.hasMoreOlder ?? false,
+				hasMoreNewer:
+					options?.hasMoreNewer ??
+					Boolean(
+						(
+							current?.record as
+								| (SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
+								| undefined
+						)?.hasMoreNewer,
+					),
+			},
+			{ source: options?.source ?? "indexeddb" },
+		);
+		return toSnapshot(record, options?.source ?? "indexeddb");
+	},
+
+	async replaceTurnId(
+		spaceId: string,
+		sessionId: string,
+		input: { previousTurnId: string; nextTurnId: string },
+		options?: { source?: CacheSource },
+	) {
+		ensureBroadcastSubscription();
+		if (input.previousTurnId === input.nextTurnId) {
+			const current = await readRecord(spaceId, sessionId);
+			return current ? toSnapshot(current.record, current.source) : null;
+		}
+		const current = await readRecord(spaceId, sessionId);
+		if (!current) return null;
+		const remappedTurns = current.record.turns.map((turn) => {
+			if (turn.id !== input.previousTurnId) return turn;
+			const meta = turn.meta ? { ...turn.meta } : null;
+			if (meta && "optimistic" in meta) delete meta.optimistic;
+			return {
+				...turn,
+				id: input.nextTurnId,
+				meta,
+			};
+		});
+		const merged = mergeTurnsById([], remappedTurns, { preferIncoming: true });
+		const record = await writeRecord(
+			spaceId,
+			sessionId,
+			{
+				session: current.record.session,
+				turns: merged,
+				hasMoreOlder: current.record.hasMoreOlder,
+				hasMoreNewer: Boolean(
+					(
+						current.record as SessionTurnsCacheRecord & {
+							hasMoreNewer?: boolean;
+						}
+					).hasMoreNewer,
+				),
+				reconciledAt: current.record.reconciledAt,
 			},
 			{ source: options?.source ?? "indexeddb" },
 		);
@@ -245,6 +311,13 @@ export const sessionTurnsRepo = {
 				session: response.session ?? current?.record.session ?? null,
 				turns: merged,
 				hasMoreOlder: response.hasMore,
+				hasMoreNewer: Boolean(
+					(
+						current?.record as
+							| (SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
+							| undefined
+					)?.hasMoreNewer,
+				),
 			},
 			{ source: "network" },
 		);

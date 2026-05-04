@@ -1,6 +1,7 @@
 import type {
   SessionBindingRecord as ProtocolSessionBindingRecord,
   SessionRecord as ProtocolSessionRecord,
+  SessionTurnIndexItem,
   SessionTurnRecord,
 } from "@neta-art/cohub-protocol/model";
 import type {
@@ -20,7 +21,7 @@ export type ApiError = {
   message: string;
 };
 
-export type { ContentBlock, MessageRecord, SessionTurnRecord };
+export type { ContentBlock, MessageRecord, SessionTurnRecord, SessionTurnIndexItem };
 
 export type SpaceFsEntry = {
   name: string;
@@ -140,6 +141,23 @@ export type SessionTurnsPaginatedResponse = {
   turns: SessionTurnRecord[];
   hasMore: boolean;
   nextCursor: number | undefined;
+};
+
+export type SessionTurnIndexResponse = {
+  session: SessionRecord;
+  turns: SessionTurnIndexItem[];
+  hasMore: boolean;
+  nextCursor: number | undefined;
+};
+
+export type SessionTurnWindowResponse = {
+  session: SessionRecord;
+  turns: SessionTurnRecord[];
+  hasMoreOlder: boolean;
+  hasMoreNewer: boolean;
+  oldestCursor: number | undefined;
+  newestCursor: number | undefined;
+  anchorSequence: number | undefined;
 };
 
 export type SessionTurnResponse = {

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type {
   MessageToolCallsFile,
+  SessionTurnIndexItem,
   SessionTurnIntent,
   SessionTurnRecord,
   SessionTurnStatus,
@@ -45,6 +46,12 @@ const addUsage = (a: Usage | null | undefined, b: Usage | null | undefined): Usa
 const truncateText = (text: string, limit: number) => {
   if (text.length <= limit) return { value: text, truncated: false, originalLength: text.length };
   return { value: `${text.slice(0, Math.max(0, limit - 1))}…`, truncated: true, originalLength: text.length };
+};
+
+const previewText = (value: string | null | undefined, limit = 160) => {
+  const normalized = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return truncateText(normalized, limit).value;
 };
 
 const summarizeValue = (value: unknown, limit = 240): unknown => {
@@ -169,6 +176,40 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   updatedAt: toIso(row.updatedAt),
 });
 
+type SessionTurnIndexRow = {
+  id: string;
+  sessionId: string;
+  sequence: number;
+  status: SessionTurnStatus;
+  startedAt: Date | string | null;
+  completedAt: Date | string | null;
+  createdAt: Date | string | null;
+  updatedAt: Date | string | null;
+  userText: string | null;
+  assistantText: string | null;
+  provider: string | null;
+  model: string | null;
+  usage: Usage | null;
+  errorMessage: string | null;
+};
+
+const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
+  id: row.id,
+  sessionId: row.sessionId,
+  sequence: row.sequence,
+  status: row.status,
+  startedAt: row.startedAt ? toIso(row.startedAt) : null,
+  completedAt: row.completedAt ? toIso(row.completedAt) : null,
+  createdAt: toIso(row.createdAt),
+  updatedAt: toIso(row.updatedAt),
+  userPreview: previewText(row.userText),
+  assistantPreview: previewText(row.assistantText),
+  provider: row.provider ?? null,
+  model: row.model ?? null,
+  usage: row.usage ?? null,
+  errorMessage: previewText(row.errorMessage, 220),
+});
+
 export const createSessionTurn = async (input: {
   id: string;
   sessionId: string;
@@ -213,6 +254,68 @@ export const listSessionTurns = async (sessionId: string, options?: { cursor?: n
   }
   rows = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, options.cursor))).orderBy(asc(sessionTurns.sequence)).limit(limit);
   return rows.map(toTurnRecord);
+};
+
+export const listSessionTurnIndex = async (sessionId: string, options?: { cursor?: number; limit?: number }) => {
+  const limit = Math.min(Math.max(Math.floor(options?.limit ?? 200), 1), 500);
+  const rows = await db.select({
+    id: sessionTurns.id,
+    sessionId: sessionTurns.sessionId,
+    sequence: sessionTurns.sequence,
+    status: sessionTurns.status,
+    startedAt: sessionTurns.startedAt,
+    completedAt: sessionTurns.completedAt,
+    createdAt: sessionTurns.createdAt,
+    updatedAt: sessionTurns.updatedAt,
+    userText: sessionTurns.userText,
+    assistantText: sessionTurns.assistantText,
+    provider: sessionTurns.provider,
+    model: sessionTurns.model,
+    usage: sessionTurns.usage,
+    errorMessage: sessionTurns.errorMessage,
+  }).from(sessionTurns).where(
+    options?.cursor == null
+      ? eq(sessionTurns.sessionId, sessionId)
+      : and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, options.cursor)),
+  ).orderBy(asc(sessionTurns.sequence)).limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  return {
+    turns: pageRows.map(toTurnIndexItem),
+    hasMore,
+    nextCursor: pageRows.at(-1)?.sequence,
+  };
+};
+
+export const getSessionTurnSequenceById = async (sessionId: string, turnId: string) => {
+  const [row] = await db.select({ sequence: sessionTurns.sequence }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.id, turnId))).limit(1);
+  return row?.sequence ?? null;
+};
+
+export const listSessionTurnWindow = async (sessionId: string, input: { sequence: number; before?: number; after?: number }) => {
+  const before = Math.min(Math.max(Math.floor(input.before ?? 10), 0), 100);
+  const after = Math.min(Math.max(Math.floor(input.after ?? 20), 0), 100);
+  const [anchor] = await db.select({ id: sessionTurns.id }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.sequence, input.sequence))).limit(1);
+  if (!anchor) return null;
+  const [olderRows, anchorAndNewerRows] = await Promise.all([
+    before > 0
+      ? db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), lt(sessionTurns.sequence, input.sequence))).orderBy(desc(sessionTurns.sequence)).limit(before + 1)
+      : Promise.resolve([] as Array<typeof sessionTurns.$inferSelect>),
+    db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, input.sequence - 1))).orderBy(asc(sessionTurns.sequence)).limit(after + 2),
+  ]);
+  const hasMoreOlder = olderRows.length > before;
+  const older = (hasMoreOlder ? olderRows.slice(0, before) : olderRows).reverse();
+  const hasMoreNewer = anchorAndNewerRows.length > after + 1;
+  const anchorAndNewer = hasMoreNewer ? anchorAndNewerRows.slice(0, after + 1) : anchorAndNewerRows;
+  const turns = [...older, ...anchorAndNewer].map(toTurnRecord);
+  return {
+    turns,
+    hasMoreOlder,
+    hasMoreNewer,
+    oldestCursor: turns[0]?.sequence,
+    newestCursor: turns.at(-1)?.sequence,
+    anchorSequence: anchorAndNewer[0]?.sequence,
+  };
 };
 
 export const getSessionTurnById = async (sessionId: string, turnId: string) => {

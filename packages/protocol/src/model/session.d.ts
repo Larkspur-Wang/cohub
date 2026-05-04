@@ -5,6 +5,7 @@ export type {
   SessionTurnIntent,
   SessionTurnIntermediateIndex,
   SessionTurnIntermediateSummary,
+  SessionTurnIndexItem,
   SessionTurnRecord,
   SessionTurnStatus,
   SessionTurnSummary,

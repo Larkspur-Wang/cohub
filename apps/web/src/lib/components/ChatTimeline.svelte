@@ -141,7 +141,13 @@ $effect(() => {
 					: item.kind === 'process'
 						? item.turn.sequence
 						: undefined}
-				data-turn-sequence={item.kind === 'message'
+				data-turn-id={item.kind === 'message' && item.message.meta?.messageKind === 'turn_user'
+			? item.message.meta.turnId
+			: undefined}
+		data-turn-anchor={item.kind === 'message' && item.message.meta?.messageKind === 'turn_user'
+			? 'user'
+			: undefined}
+		data-turn-sequence={item.kind === 'message'
 					? Math.floor(item.message.sequence / 10)
 					: item.kind === 'process'
 						? item.turn.sequence
