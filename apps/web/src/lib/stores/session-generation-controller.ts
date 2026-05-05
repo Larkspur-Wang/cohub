@@ -132,27 +132,32 @@ function scheduleStreamDebugReport() {
 }
 
 function printStreamDebugReport() {
-	const rows = [...streamDebugStatsBySession.entries()].map(
-		([sessionId, stats]) => ({
-			sessionId,
-			seconds: Math.round((Date.now() - stats.startedAt) / 1000),
-			events: stats.events,
-			patches: stats.patches,
-			progresses: stats.progresses,
-			messageChanged: stats.messageChanged,
-			differentTurn: stats.differentTurn,
-			streamMessages: new Set(stats.streamMessageIds).size,
-			lastStreamMessageId: stats.lastStreamMessageId,
-			ordinals: [...new Set(stats.messageOrdinals)].join(","),
-			intermediateMessages: stats.intermediateMessages,
-			lastTurnId: stats.lastTurnId,
-			lastSeq: stats.lastSeq,
-			lastBaseSeq: stats.lastBaseSeq,
-			lastOps: stats.lastOps,
-		}),
+	const lines = [...streamDebugStatsBySession.entries()].map(
+		([sessionId, stats]) => {
+			const streamMessages = new Set(stats.streamMessageIds).size;
+			const ordinals = [...new Set(stats.messageOrdinals)].join(",") || "none";
+			return [
+				`session=${sessionId}`,
+				`seconds=${Math.round((Date.now() - stats.startedAt) / 1000)}`,
+				`events=${stats.events}`,
+				`patches=${stats.patches}`,
+				`progresses=${stats.progresses}`,
+				`messageChanged=${stats.messageChanged}`,
+				`differentTurn=${stats.differentTurn}`,
+				`streamMessages=${streamMessages}`,
+				`ordinals=${ordinals}`,
+				`intermediateMessages=${stats.intermediateMessages}`,
+				`lastStream=${stats.lastStreamMessageId ?? "none"}`,
+				`lastTurn=${stats.lastTurnId ?? "none"}`,
+				`lastSeq=${stats.lastSeq ?? "none"}`,
+				`lastBaseSeq=${stats.lastBaseSeq ?? "none"}`,
+				`lastOps=${stats.lastOps ?? "none"}`,
+			].join(" | ");
+		},
 	);
-	console.info("[cohub:stream] summary");
-	console.table(rows);
+	console.info(
+		`[cohub:stream] summary\n${lines.join("\n") || "no stream events"}`,
+	);
 }
 
 function debugStream(label: string, payload: Record<string, unknown>) {
