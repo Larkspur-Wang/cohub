@@ -59,6 +59,19 @@ export function buildStreamingStoredIntermediateMessages(input: {
 		);
 }
 
+function debugStreamEnabled() {
+	try {
+		return globalThis.localStorage?.getItem("cohub:debug:stream") === "1";
+	} catch {
+		return false;
+	}
+}
+
+function debugStream(label: string, payload: Record<string, unknown>) {
+	if (!debugStreamEnabled()) return;
+	console.debug(`[cohub:stream] ${label}`, payload);
+}
+
 export function clearGenerationError(sessionId: string | null | undefined) {
 	sessionGenerationStore.clearError(sessionId);
 }
@@ -150,12 +163,6 @@ export function applyRealtimeGenerationProgress(
 				nextStreamMessageId !== currentStreamMessageId) ||
 				(!currentStreamMessageId && current?.status === "streaming")),
 	);
-	const intermediateMessages = messageChanged
-		? appendCurrentMessageToIntermediate({
-				contentBlocks: currentContentBlocks,
-				intermediateMessages: currentIntermediateMessages,
-			})
-		: baseIntermediateMessages;
 	const shouldStartFreshPreview =
 		baseContentBlocks.length > 0 && current?.status !== "streaming";
 	const previewBase = messageChanged
@@ -164,6 +171,24 @@ export function applyRealtimeGenerationProgress(
 			? []
 			: baseContentBlocks;
 	const mergedContent = mergeStreamingDeltaBlocks(previewBase, input.content);
+	const intermediateMessages = messageChanged
+		? appendCurrentMessageToIntermediate({
+				contentBlocks: currentContentBlocks,
+				intermediateMessages: currentIntermediateMessages,
+			})
+		: baseIntermediateMessages;
+	debugStream("progress", {
+		sessionId,
+		turnId: resolvedTurnId,
+		messageId: input.messageId,
+		messageOrdinal: input.messageOrdinal,
+		nextStreamMessageId,
+		currentStreamMessageId,
+		messageChanged,
+		isDifferentTurn,
+		contentBlocks: currentContentBlocks.length,
+		intermediateMessages: intermediateMessages.length,
+	});
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: resolvedSpaceId,
 		contentBlocks: mergedContent,
@@ -252,6 +277,22 @@ export function applyRealtimeGenerationPatch(
 				intermediateMessages: currentIntermediateMessages,
 			})
 		: baseIntermediateMessages;
+	debugStream("patch", {
+		sessionId,
+		turnId: resolvedTurnId,
+		messageId: input.messageId,
+		messageOrdinal: input.messageOrdinal,
+		nextStreamMessageId,
+		currentStreamMessageId,
+		messageChanged,
+		isDifferentTurn,
+		seq: input.seq,
+		baseSeq: input.baseSeq,
+		ops: input.ops.length,
+		contentBlocks: currentContentBlocks.length,
+		resultBlocks: result.state.contentBlocks.length,
+		intermediateMessages: intermediateMessages.length,
+	});
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: resolvedSpaceId ?? result.state.spaceId ?? null,
 		contentBlocks: result.state.contentBlocks,
