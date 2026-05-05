@@ -59,140 +59,6 @@ export function buildStreamingStoredIntermediateMessages(input: {
 		);
 }
 
-type StreamDebugStats = {
-	startedAt: number;
-	events: number;
-	patches: number;
-	progresses: number;
-	messageChanged: number;
-	differentTurn: number;
-	lastTurnId: string | null;
-	lastStreamMessageId: string | null;
-	streamMessageIds: string[];
-	messageOrdinals: Array<number | null>;
-	intermediateMessages: number;
-	lastSeq: number | null;
-	lastBaseSeq: number | null;
-	lastOps: number | null;
-};
-
-const streamDebugStatsBySession = new Map<string, StreamDebugStats>();
-let streamDebugReportTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debugStreamEnabled() {
-	try {
-		return (
-			globalThis.localStorage?.getItem("cohub:debug:stream") === "1" ||
-			globalThis.localStorage?.getItem("cohub:debug:stream") === "summary"
-		);
-	} catch {
-		return false;
-	}
-}
-
-function debugStreamVerboseEnabled() {
-	try {
-		return globalThis.localStorage?.getItem("cohub:debug:stream") === "verbose";
-	} catch {
-		return false;
-	}
-}
-
-function getStreamDebugStats(sessionId: string): StreamDebugStats {
-	let stats = streamDebugStatsBySession.get(sessionId);
-	if (!stats) {
-		stats = {
-			startedAt: Date.now(),
-			events: 0,
-			patches: 0,
-			progresses: 0,
-			messageChanged: 0,
-			differentTurn: 0,
-			lastTurnId: null,
-			lastStreamMessageId: null,
-			streamMessageIds: [],
-			messageOrdinals: [],
-			intermediateMessages: 0,
-			lastSeq: null,
-			lastBaseSeq: null,
-			lastOps: null,
-		};
-		streamDebugStatsBySession.set(sessionId, stats);
-	}
-	return stats;
-}
-
-function scheduleStreamDebugReport() {
-	if (streamDebugReportTimer) return;
-	streamDebugReportTimer = setTimeout(() => {
-		streamDebugReportTimer = null;
-		if (!debugStreamEnabled() && !debugStreamVerboseEnabled()) return;
-		printStreamDebugReport();
-	}, 1200);
-}
-
-function printStreamDebugReport() {
-	const lines = [...streamDebugStatsBySession.entries()].map(
-		([sessionId, stats]) => {
-			const streamMessages = new Set(stats.streamMessageIds).size;
-			const ordinals = [...new Set(stats.messageOrdinals)].join(",") || "none";
-			return [
-				`session=${sessionId}`,
-				`seconds=${Math.round((Date.now() - stats.startedAt) / 1000)}`,
-				`events=${stats.events}`,
-				`patches=${stats.patches}`,
-				`progresses=${stats.progresses}`,
-				`messageChanged=${stats.messageChanged}`,
-				`differentTurn=${stats.differentTurn}`,
-				`streamMessages=${streamMessages}`,
-				`ordinals=${ordinals}`,
-				`intermediateMessages=${stats.intermediateMessages}`,
-				`lastStream=${stats.lastStreamMessageId ?? "none"}`,
-				`lastTurn=${stats.lastTurnId ?? "none"}`,
-				`lastSeq=${stats.lastSeq ?? "none"}`,
-				`lastBaseSeq=${stats.lastBaseSeq ?? "none"}`,
-				`lastOps=${stats.lastOps ?? "none"}`,
-			].join(" | ");
-		},
-	);
-	console.info(
-		`[cohub:stream] summary\n${lines.join("\n") || "no stream events"}`,
-	);
-}
-
-function debugStream(label: string, payload: Record<string, unknown>) {
-	if (!debugStreamEnabled() && !debugStreamVerboseEnabled()) return;
-	if (debugStreamVerboseEnabled())
-		console.debug(`[cohub:stream] ${label}`, payload);
-	const sessionId = String(payload.sessionId ?? "unknown");
-	const stats = getStreamDebugStats(sessionId);
-	stats.events += 1;
-	if (label === "patch") stats.patches += 1;
-	if (label === "progress") stats.progresses += 1;
-	if (payload.messageChanged === true) stats.messageChanged += 1;
-	if (payload.isDifferentTurn === true) stats.differentTurn += 1;
-	stats.lastTurnId = typeof payload.turnId === "string" ? payload.turnId : null;
-	stats.lastStreamMessageId =
-		typeof payload.nextStreamMessageId === "string"
-			? payload.nextStreamMessageId
-			: stats.lastStreamMessageId;
-	if (typeof payload.nextStreamMessageId === "string") {
-		stats.streamMessageIds.push(payload.nextStreamMessageId);
-	}
-	stats.messageOrdinals.push(
-		typeof payload.messageOrdinal === "number" ? payload.messageOrdinal : null,
-	);
-	stats.intermediateMessages =
-		typeof payload.intermediateMessages === "number"
-			? payload.intermediateMessages
-			: stats.intermediateMessages;
-	stats.lastSeq = typeof payload.seq === "number" ? payload.seq : stats.lastSeq;
-	stats.lastBaseSeq =
-		typeof payload.baseSeq === "number" ? payload.baseSeq : stats.lastBaseSeq;
-	stats.lastOps = typeof payload.ops === "number" ? payload.ops : stats.lastOps;
-	scheduleStreamDebugReport();
-}
-
 export function clearGenerationError(sessionId: string | null | undefined) {
 	sessionGenerationStore.clearError(sessionId);
 }
@@ -298,18 +164,6 @@ export function applyRealtimeGenerationProgress(
 				intermediateMessages: currentIntermediateMessages,
 			})
 		: baseIntermediateMessages;
-	debugStream("progress", {
-		sessionId,
-		turnId: resolvedTurnId,
-		messageId: input.messageId,
-		messageOrdinal: input.messageOrdinal,
-		nextStreamMessageId,
-		currentStreamMessageId,
-		messageChanged,
-		isDifferentTurn,
-		contentBlocks: currentContentBlocks.length,
-		intermediateMessages: intermediateMessages.length,
-	});
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: resolvedSpaceId,
 		contentBlocks: mergedContent,
@@ -398,22 +252,6 @@ export function applyRealtimeGenerationPatch(
 				intermediateMessages: currentIntermediateMessages,
 			})
 		: baseIntermediateMessages;
-	debugStream("patch", {
-		sessionId,
-		turnId: resolvedTurnId,
-		messageId: input.messageId,
-		messageOrdinal: input.messageOrdinal,
-		nextStreamMessageId,
-		currentStreamMessageId,
-		messageChanged,
-		isDifferentTurn,
-		seq: input.seq,
-		baseSeq: input.baseSeq,
-		ops: input.ops.length,
-		contentBlocks: currentContentBlocks.length,
-		resultBlocks: result.state.contentBlocks.length,
-		intermediateMessages: intermediateMessages.length,
-	});
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: resolvedSpaceId ?? result.state.spaceId ?? null,
 		contentBlocks: result.state.contentBlocks,

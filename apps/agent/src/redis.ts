@@ -130,11 +130,7 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
     "cohub.space_id": parsed.data.spaceId,
     "cohub.session_id": parsed.data.sessionId ?? "",
     "agent.output.type": parsed.data.type,
-    ...(parsed.data.type === "stream_update" ? {
-      "agent.output.delta_block_count": parsed.data.content.length,
-      ...(parsed.data.messageId ? { "agent.output.message_id": parsed.data.messageId } : {}),
-      ...(parsed.data.messageOrdinal != null ? { "agent.output.message_ordinal": parsed.data.messageOrdinal } : {}),
-    } : {}),
+    ...(parsed.data.type === "stream_update" ? { "agent.output.delta_block_count": parsed.data.content.length } : {}),
   });
 
   try {
