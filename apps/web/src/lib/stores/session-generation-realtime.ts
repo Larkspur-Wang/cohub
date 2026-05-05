@@ -3,6 +3,7 @@ import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
 	applyRealtimeGenerationPatch,
 	applyRealtimeGenerationProgress,
+	applyRealtimeGenerationSnapshot,
 	failGeneration,
 } from "./session-generation-controller";
 
@@ -13,10 +14,70 @@ export type GenerationRealtimeEffect = {
 	shouldRefreshSessions: boolean;
 };
 
+type ParsedSnapshotMessage = {
+	messageId: string | null;
+	messageOrdinal: number | null;
+	content: ContentBlock[];
+};
+
+function parseSnapshotMessage(value: unknown): ParsedSnapshotMessage | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	if (!Array.isArray(record.content)) return null;
+	return {
+		messageId: typeof record.messageId === "string" ? record.messageId : null,
+		messageOrdinal:
+			typeof record.messageOrdinal === "number" ? record.messageOrdinal : null,
+		content: record.content as ContentBlock[],
+	};
+}
+
 export function applyGenerationRealtimeEnvelope(
 	sessionId: string,
 	payload: ChannelEnvelope,
 ): GenerationRealtimeEffect {
+	if (payload.type === "session.turn.snapshot") {
+		const current = parseSnapshotMessage(payload.payload.current);
+		const intermediateMessages = Array.isArray(
+			payload.payload.intermediateMessages,
+		)
+			? payload.payload.intermediateMessages
+					.map(parseSnapshotMessage)
+					.filter((message): message is ParsedSnapshotMessage =>
+						Boolean(message),
+					)
+			: [];
+		const seq = payload.payload.seq;
+		if (!current || typeof seq !== "number") {
+			return {
+				handled: true,
+				shouldScroll: false,
+				shouldReconcile: true,
+				shouldRefreshSessions: false,
+			};
+		}
+		applyRealtimeGenerationSnapshot(sessionId, {
+			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
+			turnId:
+				typeof payload.payload.turnId === "string"
+					? payload.payload.turnId
+					: null,
+			seq,
+			anchorUserMessageId:
+				typeof payload.payload.anchorUserMessageId === "string"
+					? payload.payload.anchorUserMessageId
+					: null,
+			current,
+			intermediateMessages,
+		});
+		return {
+			handled: true,
+			shouldScroll: true,
+			shouldReconcile: false,
+			shouldRefreshSessions: false,
+		};
+	}
+
 	if (payload.type === "session.turn.patch") {
 		const seq = payload.payload.seq;
 		const baseSeq = payload.payload.baseSeq;

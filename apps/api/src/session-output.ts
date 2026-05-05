@@ -21,16 +21,21 @@ const streamSnapshotKey = (spaceId: string, sessionId: string) =>
 const streamSnapshotUserIndexKey = (userId: string) =>
   `session:stream:snapshots:user:${userId}`;
 
+export type SessionStreamSnapshotMessage = {
+  messageId: string | null;
+  messageOrdinal: number | null;
+  content: ContentBlock[];
+};
+
 export type SessionStreamSnapshot = {
+  version: 2;
   spaceId: string;
   sessionId: string;
   turnId: string | null;
-  messageId: string | null;
-  messageOrdinal: number | null;
   anchorUserMessageId: string | null;
   seq: number;
-  content: ContentBlock[];
-  appendPath: string | null;
+  current: SessionStreamSnapshotMessage & { appendPath: string | null };
+  intermediateMessages: SessionStreamSnapshotMessage[];
   targetUserIds: string[];
   updatedAt: number;
 };
@@ -249,6 +254,31 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
   return outputs;
 };
 
+const isSameSnapshotMessage = (
+  a: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
+  b: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
+) => {
+  if (a.messageId && b.messageId) return a.messageId === b.messageId;
+  return a.messageOrdinal != null && b.messageOrdinal != null && a.messageOrdinal === b.messageOrdinal;
+};
+
+const parseExistingStreamSnapshot = (raw: string | null): SessionStreamSnapshot | null => {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<SessionStreamSnapshot> & {
+      messageId?: string | null;
+      messageOrdinal?: number | null;
+      content?: unknown;
+      appendPath?: string | null;
+    };
+    if (value.version !== 2) return null;
+    if (!Array.isArray(value.current?.content)) return null;
+    return value as SessionStreamSnapshot;
+  } catch {
+    return null;
+  }
+};
+
 const cacheSessionStreamSnapshot = async (
   output: Extract<GatewaySessionOutput, { type: "session.turn.patch" }>,
   targetUserIds: string[],
@@ -256,20 +286,42 @@ const cacheSessionStreamSnapshot = async (
   const snapshotContent = (output as { snapshotContent?: unknown }).snapshotContent;
   if (!Array.isArray(snapshotContent) || output.seq <= 0) return;
 
+  const key = streamSnapshotKey(output.spaceId, output.sessionId);
+  const existing = parseExistingStreamSnapshot(await redisCommandClient.get(key).catch(() => null));
+  const incoming: SessionStreamSnapshotMessage & { appendPath: string | null } = {
+    messageId: output.messageId,
+    messageOrdinal: output.messageOrdinal ?? null,
+    content: snapshotContent as ContentBlock[],
+    appendPath: (output as { appendPath?: unknown }).appendPath as string | null ?? null,
+  };
+  const sameTurnSnapshot = existing &&
+    existing.spaceId === output.spaceId &&
+    existing.sessionId === output.sessionId &&
+    existing.turnId === output.turnId
+    ? existing
+    : null;
+  const intermediateMessages = sameTurnSnapshot
+    ? isSameSnapshotMessage(sameTurnSnapshot.current, incoming)
+      ? sameTurnSnapshot.intermediateMessages
+      : [...sameTurnSnapshot.intermediateMessages, {
+          messageId: sameTurnSnapshot.current.messageId,
+          messageOrdinal: sameTurnSnapshot.current.messageOrdinal,
+          content: sameTurnSnapshot.current.content,
+        }]
+    : [];
+
   const snapshot: SessionStreamSnapshot = {
+    version: 2,
     spaceId: output.spaceId,
     sessionId: output.sessionId,
     turnId: output.turnId,
-    messageId: output.messageId,
-    messageOrdinal: output.messageOrdinal ?? null,
     anchorUserMessageId: output.anchorUserMessageId,
     seq: output.seq,
-    content: snapshotContent as ContentBlock[],
-    appendPath: (output as { appendPath?: unknown }).appendPath as string | null ?? null,
+    current: incoming,
+    intermediateMessages,
     targetUserIds,
     updatedAt: Date.now(),
   };
-  const key = streamSnapshotKey(output.spaceId, output.sessionId);
   const pipeline = redisCommandClient.pipeline();
   pipeline.set(key, JSON.stringify(snapshot), "EX", STREAM_SNAPSHOT_TTL_SECONDS);
   for (const userId of targetUserIds) {

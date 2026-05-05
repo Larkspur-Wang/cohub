@@ -842,18 +842,18 @@ $effect(() => {
       <div class="px-2 py-1.5 shrink-0 space-y-[2px]">
         <button
           type="button"
-          class="group relative flex w-full items-center gap-2 overflow-hidden rounded-[7px] border border-brand/45 bg-brand px-2.5 py-2 text-white shadow-[0_1px_0_rgba(255,255,255,0.16)_inset,0_8px_18px_rgba(255,62,0,0.18)] transition-colors duration-100 hover:bg-brand-hover disabled:opacity-60"
+          class="flex w-full items-center gap-2 rounded-[7px] border border-[#FF3E00]/20 bg-[#FF3E00]/10 px-2 py-1.5 text-brand transition-colors duration-100 hover:bg-[#FF3E00]/15 disabled:cursor-not-allowed disabled:opacity-50"
           onclick={() => { void handleCreateNewSession(); }}
           disabled={creatingSession}
           title="New chat"
         >
-          <span class="absolute inset-y-0 left-0 w-px bg-white/45"></span>
           {#if creatingSession}
             <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
+            <span class="text-[12px] font-medium">Creating…</span>
           {:else}
-            <Plus class="w-3.5 h-3.5 shrink-0 transition-transform duration-150 group-hover:rotate-90" />
+            <Plus class="w-3.5 h-3.5 shrink-0" />
+            <span class="text-[12px] font-medium">New Chat</span>
           {/if}
-          <span class="text-[12px] font-semibold tracking-[-0.01em]">New Chat</span>
         </button>
         <button
           type="button"

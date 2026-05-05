@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { Check, Copy } from "lucide-svelte";
+import { Check, Copy, UserRound } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
@@ -92,8 +92,6 @@ function shortenUserUuid(uuid?: string | null): string {
 const userDisplayName = $derived(
 	message.authorName?.trim() || shortenUserUuid(message.authorUuid),
 );
-
-const userInitial = $derived(userDisplayName.charAt(0).toUpperCase());
 
 function toggleThinking() {
 	thinkingExpanded = !thinkingExpanded;
@@ -283,8 +281,8 @@ function handleCopy() {
             {#if message.authorAvatar}
               <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
             {:else}
-              <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-[9px] text-brand font-semibold shrink-0">
-                {userInitial}
+              <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-brand shrink-0">
+                <UserRound class="w-3 h-3" aria-hidden="true" />
               </span>
             {/if}
             <span class="min-w-0 truncate">{userDisplayName}</span>

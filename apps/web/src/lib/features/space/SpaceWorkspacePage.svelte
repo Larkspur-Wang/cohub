@@ -93,6 +93,7 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
+import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
@@ -2271,6 +2272,15 @@ async function handleSend() {
 	];
 	const sessionId = activeSessionState.session.id;
 	const optimisticTurnId = crypto.randomUUID();
+	const currentUser = {
+		uuid: authStore.userUuid ?? null,
+		name:
+			typeof authStore.claims?.name === "string" ? authStore.claims.name : null,
+		avatar:
+			typeof authStore.claims?.picture === "string"
+				? authStore.claims.picture
+				: null,
+	};
 	// Clear input immediately so it disappears from the composer at the same
 	// time the optimistic turn appears in the list — avoids the awkward "stuck"
 	// feeling where the message shows in the list but lingers in the input.
@@ -2285,7 +2295,7 @@ async function handleSend() {
 		const optimisticTurn = {
 			id: optimisticTurnId,
 			sessionId,
-			userUuid: null,
+			userUuid: currentUser.uuid,
 			sequence: sequenceHint,
 			status: "running",
 			intent: "steer",
@@ -2301,7 +2311,12 @@ async function handleSend() {
 			summary: null,
 			intermediateIndex: null,
 			intermediateSummary: null,
-			meta: { optimistic: true },
+			meta: {
+				optimistic: true,
+				authorUuid: currentUser.uuid,
+				authorName: currentUser.name,
+				authorAvatar: currentUser.avatar,
+			},
 			startedAt: now,
 			completedAt: null,
 			createdAt: now,
@@ -2350,12 +2365,51 @@ async function handleSend() {
 						...current,
 						turns: current.turns.map((turn) =>
 							turn.id === optimisticTurnId
-								? { ...turn, id: sendResult.turnId }
+								? {
+										...turn,
+										id: sendResult.turnId,
+										userUuid: currentUser.uuid ?? turn.userUuid,
+										meta: {
+											...(turn.meta ?? {}),
+											optimistic: true,
+											authorUuid: currentUser.uuid,
+											authorName: currentUser.name,
+											authorAvatar: currentUser.avatar,
+										},
+									}
 								: turn,
 						),
 					},
 				};
 			}
+			void sdk
+				.space(spaceId)
+				.session(sessionId)
+				.turns.get(sendResult.turnId)
+				.then(async (response) => {
+					const latest = sessionStateById[sessionId];
+					if (!latest) return;
+					const snapshot = await sessionTurnsRepo.mergeTurns(
+						spaceId,
+						sessionId,
+						[response.turn],
+						{
+							session: response.session ?? latest.session ?? null,
+							source: "network",
+						},
+					);
+					sessionStateById = {
+						...sessionStateById,
+						[sessionId]: {
+							...latest,
+							session: snapshot.session ?? latest.session,
+							turns: snapshot.turns,
+						},
+					};
+				})
+				.catch((error) =>
+					console.warn("[send] Failed to refresh created turn:", error),
+				);
 		}
 		if (wsConnectionState !== "open") {
 			void recoveryCoordinator

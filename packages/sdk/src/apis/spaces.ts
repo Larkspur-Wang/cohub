@@ -45,6 +45,7 @@ const DEFAULT_DEDUP_WINDOW_MS = 2000;
 export type SessionSubscriptionHandlers = {
   patch?: (event: WebsocketEventPayload) => void;
   patchState?: (result: SessionPatchApplyResult) => void;
+  snapshot?: (event: WebsocketEventPayload) => void;
   progress?: (event: WebsocketEventPayload) => void;
   final?: (event: WebsocketEventPayload) => void;
   turnUpdated?: (event: WebsocketEventPayload) => void;
@@ -54,7 +55,7 @@ export type SessionSubscriptionHandlers = {
   event?: (event: WebsocketEventPayload) => void;
 };
 
-export type SessionEventName = "turn.patch" | "turn.progress" | "turn.final" | "turn.updated" | "turn.error" | "message.persisted";
+export type SessionEventName = "turn.patch" | "turn.snapshot" | "turn.progress" | "turn.final" | "turn.updated" | "turn.error" | "message.persisted";
 export type SpaceEventName = SessionEventName | "event";
 
 type SessionSendMessageInput = {
@@ -67,6 +68,8 @@ const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventNa
   switch (type) {
     case "session.turn.patch":
       return "turn.patch";
+    case "session.turn.snapshot":
+      return "turn.snapshot";
     case "session.turn.progress":
       return "turn.progress";
     case "session.turn.error":
@@ -452,6 +455,7 @@ class SessionRealtimeClient {
           }
         }
       }
+      if (eventName === "turn.snapshot") handlers.snapshot?.(event);
       if (eventName === "turn.progress") handlers.progress?.(event);
       if (eventName === "turn.error") {
         this.patchReducer.fail({

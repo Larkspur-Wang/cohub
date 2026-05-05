@@ -183,6 +183,56 @@ export function applyRealtimeGenerationProgress(
 	});
 }
 
+export function applyRealtimeGenerationSnapshot(
+	sessionId: string,
+	input: {
+		spaceId?: string | null;
+		turnId?: string | null;
+		seq: number;
+		anchorUserMessageId?: string | null;
+		current: {
+			messageId?: string | null;
+			messageOrdinal?: number | null;
+			content: ContentBlock[];
+		};
+		intermediateMessages?: Array<{
+			messageId?: string | null;
+			messageOrdinal?: number | null;
+			content: ContentBlock[];
+		}>;
+	},
+) {
+	const current = sessionGenerationStore.get(sessionId);
+	const resolvedTurnId = input.turnId ?? current?.turnId ?? null;
+	const streamMessageId = resolveStreamMessageId({
+		sessionId,
+		turnId: resolvedTurnId,
+		anchorUserMessageId:
+			input.anchorUserMessageId ?? current?.anchorUserMessageId,
+		messageId: input.current.messageId,
+		messageOrdinal: input.current.messageOrdinal,
+	});
+	realtimePatchReducer.start({
+		sessionId,
+		spaceId: input.spaceId ?? current?.spaceId ?? null,
+		turnId: resolvedTurnId,
+	});
+	sessionGenerationStore.applyProgress(sessionId, {
+		spaceId: input.spaceId ?? current?.spaceId ?? null,
+		contentBlocks: input.current.content,
+		intermediateMessages: (input.intermediateMessages ?? []).map(
+			(message) => message.content,
+		),
+		streamMessageId,
+		messageOrdinal: input.current.messageOrdinal ?? null,
+		anchorUserMessageId:
+			input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
+		truncatedStart: false,
+		patchSeq: input.seq,
+		turnId: resolvedTurnId,
+	});
+}
+
 export function applyRealtimeGenerationPatch(
 	sessionId: string,
 	input: {

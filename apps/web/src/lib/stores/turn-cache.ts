@@ -24,20 +24,51 @@ function isTerminal(status: SessionTurnRecord["status"]) {
 	);
 }
 
+function isOptimistic(turn: SessionTurnRecord) {
+	return turn.meta?.optimistic === true;
+}
+
+function mergeAuthorIdentity(
+	current: SessionTurnRecord,
+	incoming: SessionTurnRecord,
+): SessionTurnRecord {
+	const incomingMeta = incoming.meta ?? {};
+	const nextMeta = current.meta ? { ...current.meta } : {};
+	let changed = false;
+
+	if (!current.userUuid && incoming.userUuid) changed = true;
+	for (const key of ["authorUuid", "authorName", "authorAvatar"] as const) {
+		const value = incomingMeta[key];
+		if (value == null) continue;
+		if (nextMeta[key] === value) continue;
+		nextMeta[key] = value;
+		changed = true;
+	}
+
+	if (!changed) return current;
+	return {
+		...current,
+		userUuid: current.userUuid ?? incoming.userUuid,
+		meta: Object.keys(nextMeta).length > 0 ? nextMeta : current.meta,
+	};
+}
+
 export function mergeTurnRecord(
 	current: SessionTurnRecord,
 	incoming: SessionTurnRecord,
 	preferIncoming: boolean,
 ): SessionTurnRecord {
 	if (isTerminal(current.status) && !isTerminal(incoming.status))
-		return current;
+		return mergeAuthorIdentity(current, incoming);
 	if (isTerminal(incoming.status) && !isTerminal(current.status))
 		return incoming;
+	if (isOptimistic(current) && !isOptimistic(incoming)) return incoming;
 	const currentTime = Date.parse(current.updatedAt);
 	const incomingTime = Date.parse(incoming.updatedAt);
 	if (Number.isFinite(currentTime) && Number.isFinite(incomingTime)) {
 		if (incomingTime > currentTime) return { ...current, ...incoming };
-		if (currentTime > incomingTime) return current;
+		if (currentTime > incomingTime)
+			return mergeAuthorIdentity(current, incoming);
 	}
 	return preferIncoming
 		? { ...current, ...incoming }

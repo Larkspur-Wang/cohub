@@ -239,91 +239,80 @@ const buildRealtimeEnvelope = (input: Omit<RealtimeEnvelope, "id" | "timestamp">
   ...input,
 });
 
+type SessionStreamSnapshotMessage = {
+  messageId: string | null;
+  messageOrdinal: number | null;
+  content: ContentBlock[];
+};
+
 type SessionStreamSnapshot = {
+  version: 2;
   spaceId: string;
   sessionId: string;
   turnId: string | null;
-  messageId: string | null;
-  messageOrdinal: number | null;
   anchorUserMessageId: string | null;
   seq: number;
-  content: ContentBlock[];
-  appendPath: string | null;
+  current: SessionStreamSnapshotMessage & { appendPath: string | null };
+  intermediateMessages: SessionStreamSnapshotMessage[];
   targetUserIds: string[];
   updatedAt: number;
 };
 
-const getStreamIndex = (block: ContentBlock, fallback: number) => {
-  const value = block._meta?.streamIndex;
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-};
-
-const blockPatchPath = (block: ContentBlock, fallback: number) =>
-  `/message/content/blocks/${getStreamIndex(block, fallback)}`;
-
 const isContentBlock = (value: unknown): value is ContentBlock =>
   Boolean(value && typeof value === "object" && "type" in value);
 
+const isSnapshotMessage = (value: unknown): value is SessionStreamSnapshotMessage => {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<SessionStreamSnapshotMessage>;
+  return Array.isArray(record.content) && record.content.every(isContentBlock);
+};
+
 const parseSessionStreamSnapshot = (raw: string, userId: string): SessionStreamSnapshot | null => {
   const value = JSON.parse(raw) as Partial<SessionStreamSnapshot>;
+  if (value.version !== 2) return null;
   if (typeof value.spaceId !== "string" || typeof value.sessionId !== "string") return null;
   if (!isNonNegativeInteger(value.seq) || value.seq <= 0) return null;
-  if (!Array.isArray(value.content) || !value.content.every(isContentBlock)) return null;
+  if (!isSnapshotMessage(value.current)) return null;
+  if (!Array.isArray(value.intermediateMessages) || !value.intermediateMessages.every(isSnapshotMessage)) return null;
   if (!Array.isArray(value.targetUserIds) || !value.targetUserIds.includes(userId)) return null;
   if (typeof value.updatedAt !== "number" || Date.now() - value.updatedAt > STREAM_SNAPSHOT_TTL_MS) return null;
   return {
+    version: 2,
     spaceId: value.spaceId,
     sessionId: value.sessionId,
     turnId: typeof value.turnId === "string" ? value.turnId : null,
-    messageId: typeof value.messageId === "string" ? value.messageId : null,
-    messageOrdinal: typeof value.messageOrdinal === "number" ? value.messageOrdinal : null,
     anchorUserMessageId: typeof value.anchorUserMessageId === "string" ? value.anchorUserMessageId : null,
     seq: value.seq,
-    content: value.content,
-    appendPath: typeof value.appendPath === "string" && value.appendPath ? value.appendPath : null,
+    current: {
+      messageId: typeof value.current.messageId === "string" ? value.current.messageId : null,
+      messageOrdinal: typeof value.current.messageOrdinal === "number" ? value.current.messageOrdinal : null,
+      content: value.current.content,
+      appendPath: typeof value.current.appendPath === "string" && value.current.appendPath ? value.current.appendPath : null,
+    },
+    intermediateMessages: value.intermediateMessages.map((message) => ({
+      messageId: typeof message.messageId === "string" ? message.messageId : null,
+      messageOrdinal: typeof message.messageOrdinal === "number" ? message.messageOrdinal : null,
+      content: message.content,
+    })),
     targetUserIds: value.targetUserIds,
     updatedAt: value.updatedAt,
   };
 };
 
-const buildSnapshotPatchEnvelope = (snapshot: SessionStreamSnapshot): RealtimeEnvelope => {
-  const ops: RealtimePatchOperation[] = [
-    { o: "replace", p: "/message/status", v: "streaming" },
-    { o: "replace", p: "/message/end_turn", v: false },
-    {
-      o: "merge",
-      p: "/message/metadata",
-      v: {
-        is_complete: false,
-        ...(snapshot.turnId ? { turnId: snapshot.turnId } : {}),
-        ...(snapshot.anchorUserMessageId ? { anchorUserMessageId: snapshot.anchorUserMessageId } : {}),
-      },
-    },
-  ];
-
-  snapshot.content.forEach((block, index) => {
-    ops.push({ o: "replace", p: blockPatchPath(block, index), v: block });
-  });
-  if (snapshot.appendPath) {
-    ops.push({ o: "append", p: snapshot.appendPath, v: "" });
-  }
-
-  return buildRealtimeEnvelope({
+const buildSnapshotEnvelope = (snapshot: SessionStreamSnapshot): RealtimeEnvelope =>
+  buildRealtimeEnvelope({
     domain: "session",
-    type: "session.turn.patch",
+    type: "session.turn.snapshot",
     spaceId: snapshot.spaceId,
     sessionId: snapshot.sessionId,
     payload: {
       turnId: snapshot.turnId,
-      messageId: snapshot.messageId,
-      messageOrdinal: snapshot.messageOrdinal,
       anchorUserMessageId: snapshot.anchorUserMessageId,
       seq: snapshot.seq,
-      baseSeq: 0,
-      ops,
+      current: snapshot.current,
+      intermediateMessages: snapshot.intermediateMessages,
     },
   });
-};
 
 const sendActiveStreamSnapshots = async (ctx: WsConnectionContext, socket: WebSocket) => {
   if (!ctx.userId) return;
@@ -345,7 +334,7 @@ const sendActiveStreamSnapshots = async (ctx: WsConnectionContext, socket: WebSo
         if (key) staleKeys.push(key);
         return;
       }
-      sendWsRealtime(socket, ctx, buildSnapshotPatchEnvelope(snapshot));
+      sendWsRealtime(socket, ctx, buildSnapshotEnvelope(snapshot));
     } catch {
       if (key) staleKeys.push(key);
     }

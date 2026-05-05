@@ -262,6 +262,29 @@ export type SessionTurnPatchEvent = {
   };
 };
 
+export type SessionTurnSnapshotMessage = {
+  messageId: string | null;
+  messageOrdinal: number | null;
+  content: ContentBlock[];
+};
+
+export type SessionTurnSnapshotEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.snapshot";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    turnId: string | null;
+    anchorUserMessageId: string | null;
+    seq: number;
+    current: SessionTurnSnapshotMessage & { appendPath: string | null };
+    intermediateMessages: SessionTurnSnapshotMessage[];
+  };
+};
+
 export type SessionTurnErrorEvent = {
   id: string;
   timestamp: number;
@@ -377,6 +400,7 @@ export type RealtimeServerEvent =
   | SessionRequestErrorEvent
   | SessionTurnProgressEvent
   | SessionTurnPatchEvent
+  | SessionTurnSnapshotEvent
   | SessionTurnErrorEvent
   | SessionTurnUpdatedEvent
   | SessionTurnFinalizedEvent
