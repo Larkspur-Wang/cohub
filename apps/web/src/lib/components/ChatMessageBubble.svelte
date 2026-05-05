@@ -258,61 +258,60 @@ function handleCopy() {
         </div>
       {/if}
 
-
-      {#if (message.role === 'assistant' && (message.meta?.model || shortTime)) || (message.role === 'user' && shortTime)}
-        <!-- Meta bar: copy | identity/model | tokens | time -->
-        <div class="mt-2 flex items-center gap-1 text-[11px] text-text-placeholder/50 select-none">
-          <!-- Copy button -->
-          <button
-            type="button"
-            class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
-            onclick={(e) => { e.stopPropagation(); handleCopy(); }}
-            title="Copy message"
-          >
-            {#if copied}
-              <Check class="w-3.5 h-3.5 text-status-running" />
-            {:else}
-              <Copy class="w-3.5 h-3.5" />
-            {/if}
-          </button>
-
-          {#if message.role === 'user'}
-            <!-- User identity -->
-            <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
-              {#if message.authorAvatar}
-                <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
-              {:else}
-                <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-[9px] text-brand font-semibold shrink-0">
-                  {userInitial}
-                </span>
-              {/if}
-              <span class="min-w-0 truncate">{userDisplayName}</span>
-            </span>
-          {:else}
-            <!-- Model (truncates when space is tight) -->
-            {#if modelDisplayName}
-              <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
-                {modelDisplayName}
-              </span>
-            {/if}
-
-            <!-- Tokens -->
-            {#if hasUsage}
-              <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
-                {tokenDisplay}
-              </span>
-            {/if}
-          {/if}
-
-          <!-- Time (always visible on the right) -->
-          {#if shortTime}
-            <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
-              {shortTime}
-            </time>
-          {/if}
-        </div>
-      {/if}
-
     </div>
+
+    {#if (message.role === 'assistant' && (message.meta?.model || shortTime)) || (message.role === 'user' && shortTime)}
+      <!-- Meta bar: copy | identity/model | tokens | time -->
+      <div class="mt-1 flex items-center gap-1 px-2 text-[11px] text-text-placeholder/50 select-none">
+        <!-- Copy button -->
+        <button
+          type="button"
+          class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+          onclick={(e) => { e.stopPropagation(); handleCopy(); }}
+          title="Copy message"
+        >
+          {#if copied}
+            <Check class="w-3.5 h-3.5 text-status-running" />
+          {:else}
+            <Copy class="w-3.5 h-3.5" />
+          {/if}
+        </button>
+
+        {#if message.role === 'user'}
+          <!-- User identity -->
+          <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
+            {#if message.authorAvatar}
+              <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
+            {:else}
+              <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-[9px] text-brand font-semibold shrink-0">
+                {userInitial}
+              </span>
+            {/if}
+            <span class="min-w-0 truncate">{userDisplayName}</span>
+          </span>
+        {:else}
+          <!-- Model (truncates when space is tight) -->
+          {#if modelDisplayName}
+            <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
+              {modelDisplayName}
+            </span>
+          {/if}
+
+          <!-- Tokens -->
+          {#if hasUsage}
+            <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
+              {tokenDisplay}
+            </span>
+          {/if}
+        {/if}
+
+        <!-- Time (always visible on the right) -->
+        {#if shortTime}
+          <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
+            {shortTime}
+          </time>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
