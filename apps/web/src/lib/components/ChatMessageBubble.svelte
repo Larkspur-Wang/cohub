@@ -83,6 +83,18 @@ const assistantErrorMessage = $derived(
 
 const isUserMessage = $derived(message.role === "user");
 
+function shortenUserUuid(uuid?: string | null): string {
+	if (!uuid) return "User";
+	const compact = uuid.replaceAll("-", "");
+	return compact.length > 8 ? compact.slice(0, 8) : compact;
+}
+
+const userDisplayName = $derived(
+	message.authorName?.trim() || shortenUserUuid(message.authorUuid),
+);
+
+const userInitial = $derived(userDisplayName.charAt(0).toUpperCase());
+
 function toggleThinking() {
 	thinkingExpanded = !thinkingExpanded;
 	thinkingUserToggled = true;
@@ -225,18 +237,6 @@ function handleCopy() {
   />
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
-    {#if message.role === 'user' && message.authorName}
-      <div class="flex items-center gap-2 mb-1 justify-end">
-        <span class="text-[12px] text-text-tertiary font-medium">{message.authorName}</span>
-        {#if message.authorAvatar}
-          <img src={message.authorAvatar} alt="" class="w-5 h-5 rounded-full shrink-0" />
-        {:else}
-          <span class="w-5 h-5 rounded-full bg-brand/20 flex items-center justify-center text-[10px] text-brand font-semibold shrink-0">
-            {message.authorName.charAt(0).toUpperCase()}
-          </span>
-        {/if}
-      </div>
-    {/if}
     <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary border border-status-error/30 rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
 
       <MessageContentFlow
@@ -259,8 +259,8 @@ function handleCopy() {
       {/if}
 
 
-      {#if message.role === 'assistant' && (message.meta?.model || shortTime)}
-        <!-- Meta bar: copy | model | tokens | time -->
+      {#if (message.role === 'assistant' && (message.meta?.model || shortTime)) || (message.role === 'user' && shortTime)}
+        <!-- Meta bar: copy | identity/model | tokens | time -->
         <div class="mt-2 flex items-center gap-1 text-[11px] text-text-placeholder/50 select-none">
           <!-- Copy button -->
           <button
@@ -276,18 +276,32 @@ function handleCopy() {
             {/if}
           </button>
 
-          <!-- Model (truncates when space is tight) -->
-          {#if modelDisplayName}
-            <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
-              {modelDisplayName}
+          {#if message.role === 'user'}
+            <!-- User identity -->
+            <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
+              {#if message.authorAvatar}
+                <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
+              {:else}
+                <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-[9px] text-brand font-semibold shrink-0">
+                  {userInitial}
+                </span>
+              {/if}
+              <span class="min-w-0 truncate">{userDisplayName}</span>
             </span>
-          {/if}
+          {:else}
+            <!-- Model (truncates when space is tight) -->
+            {#if modelDisplayName}
+              <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
+                {modelDisplayName}
+              </span>
+            {/if}
 
-          <!-- Tokens -->
-          {#if hasUsage}
-            <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
-              {tokenDisplay}
-            </span>
+            <!-- Tokens -->
+            {#if hasUsage}
+              <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
+                {tokenDisplay}
+              </span>
+            {/if}
           {/if}
 
           <!-- Time (always visible on the right) -->
