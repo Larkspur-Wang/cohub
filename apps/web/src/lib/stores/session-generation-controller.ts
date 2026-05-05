@@ -81,7 +81,18 @@ let streamDebugReportTimer: ReturnType<typeof setTimeout> | null = null;
 
 function debugStreamEnabled() {
 	try {
-		return globalThis.localStorage?.getItem("cohub:debug:stream") === "1";
+		return (
+			globalThis.localStorage?.getItem("cohub:debug:stream") === "1" ||
+			globalThis.localStorage?.getItem("cohub:debug:stream") === "summary"
+		);
+	} catch {
+		return false;
+	}
+}
+
+function debugStreamVerboseEnabled() {
+	try {
+		return globalThis.localStorage?.getItem("cohub:debug:stream") === "verbose";
 	} catch {
 		return false;
 	}
@@ -115,32 +126,39 @@ function scheduleStreamDebugReport() {
 	if (streamDebugReportTimer) return;
 	streamDebugReportTimer = setTimeout(() => {
 		streamDebugReportTimer = null;
-		if (!debugStreamEnabled()) return;
-		const rows = [...streamDebugStatsBySession.entries()].map(
-			([sessionId, stats]) => ({
-				sessionId,
-				seconds: Math.round((Date.now() - stats.startedAt) / 1000),
-				events: stats.events,
-				patches: stats.patches,
-				progresses: stats.progresses,
-				messageChanged: stats.messageChanged,
-				differentTurn: stats.differentTurn,
-				streamMessages: new Set(stats.streamMessageIds).size,
-				lastStreamMessageId: stats.lastStreamMessageId,
-				ordinals: [...new Set(stats.messageOrdinals)].join(","),
-				intermediateMessages: stats.intermediateMessages,
-				lastTurnId: stats.lastTurnId,
-				lastSeq: stats.lastSeq,
-				lastBaseSeq: stats.lastBaseSeq,
-				lastOps: stats.lastOps,
-			}),
-		);
-		console.table(rows);
+		if (!debugStreamEnabled() && !debugStreamVerboseEnabled()) return;
+		printStreamDebugReport();
 	}, 1200);
 }
 
+function printStreamDebugReport() {
+	const rows = [...streamDebugStatsBySession.entries()].map(
+		([sessionId, stats]) => ({
+			sessionId,
+			seconds: Math.round((Date.now() - stats.startedAt) / 1000),
+			events: stats.events,
+			patches: stats.patches,
+			progresses: stats.progresses,
+			messageChanged: stats.messageChanged,
+			differentTurn: stats.differentTurn,
+			streamMessages: new Set(stats.streamMessageIds).size,
+			lastStreamMessageId: stats.lastStreamMessageId,
+			ordinals: [...new Set(stats.messageOrdinals)].join(","),
+			intermediateMessages: stats.intermediateMessages,
+			lastTurnId: stats.lastTurnId,
+			lastSeq: stats.lastSeq,
+			lastBaseSeq: stats.lastBaseSeq,
+			lastOps: stats.lastOps,
+		}),
+	);
+	console.info("[cohub:stream] summary");
+	console.table(rows);
+}
+
 function debugStream(label: string, payload: Record<string, unknown>) {
-	if (!debugStreamEnabled()) return;
+	if (!debugStreamEnabled() && !debugStreamVerboseEnabled()) return;
+	if (debugStreamVerboseEnabled())
+		console.debug(`[cohub:stream] ${label}`, payload);
 	const sessionId = String(payload.sessionId ?? "unknown");
 	const stats = getStreamDebugStats(sessionId);
 	stats.events += 1;
