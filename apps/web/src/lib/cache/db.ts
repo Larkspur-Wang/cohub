@@ -154,12 +154,16 @@ export async function idbGet<T>(storeName: StoreName, key: string) {
 	});
 }
 
+function sanitizeForIndexedDb<T>(value: T): T {
+	return JSON.parse(JSON.stringify(value)) as T;
+}
+
 export async function idbPut<T>(storeName: StoreName, value: T) {
 	const db = await openCacheDb();
 	if (!db) return;
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction(storeName, "readwrite");
-		tx.objectStore(storeName).put(value);
+		tx.objectStore(storeName).put(sanitizeForIndexedDb(value));
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);
 	});
