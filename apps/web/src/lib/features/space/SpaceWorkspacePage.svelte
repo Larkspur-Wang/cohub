@@ -25,7 +25,6 @@ import {
 	Activity,
 	AlertCircle,
 	ArrowDown,
-	ArrowUp,
 	Check,
 	Clock,
 	Clock3,
@@ -38,6 +37,7 @@ import {
 	GitCommitHorizontal,
 	Globe,
 	Link,
+	ListTree,
 	Loader2,
 	Lock,
 	MessageSquare,
@@ -1846,22 +1846,6 @@ async function jumpToTurn(sequence: number) {
 		composerError =
 			error instanceof Error ? error.message : "Failed to jump to turn";
 	}
-}
-function jumpAdjacentTurn(direction: "previous" | "next") {
-	if (activeTurnIndex.length === 0) return;
-	const current =
-		currentTurnSequence ??
-		activeSessionState?.turns.at(-1)?.sequence ??
-		activeTurnIndex.at(-1)?.sequence;
-	const index = activeTurnIndex.findIndex(
-		(turn) => turn.sequence >= (current ?? 0),
-	);
-	const baseIndex = index < 0 ? activeTurnIndex.length - 1 : index;
-	const target =
-		direction === "previous"
-			? activeTurnIndex[baseIndex - 1]
-			: activeTurnIndex[baseIndex + 1];
-	if (target) void jumpToTurn(target.sequence);
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
 	const state = sessionStateById[sessionId];
@@ -5042,61 +5026,46 @@ $effect(() => {
           <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
         {/if}
         {#if hasUnread || !shouldAutoFollow || activeTurnIndex.length > 1}
-          <div class="absolute left-1/2 z-20 -translate-x-1/2"
+          <div class="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
             style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
-            <div class="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary/95 p-1 shadow-[0_2px_10px_rgba(0,0,0,0.16)] backdrop-blur-sm">
-              <button
-                type="button"
-                aria-label="Open turn navigator"
-                class="flex h-7 items-center justify-center rounded-full px-2 text-[11px] font-medium text-text-secondary transition-colors active:scale-95 lg:hidden"
-                onclick={() => { showTurnBottomSheet = true; if (activeSessionId) void loadTurnIndex(activeSessionId, true); }}
-              >
-                {currentTurnSequence ? `#${currentTurnSequence}` : 'Turns'}
-              </button>
-              <button
-                type="button"
-                aria-label="Previous turn"
-                class="hidden h-7 w-7 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-bg-hover active:scale-95 sm:flex lg:hidden disabled:opacity-35"
-                disabled={activeTurnIndex.length < 2}
-                onclick={() => {
-                  const index = activeTurnIndex.findIndex((turn) => turn.sequence === currentTurnSequence);
-                  const hasPrevious = index > 0;
-                  if (hasPrevious) jumpAdjacentTurn('previous');
-                }}
-              >
-                <ArrowUp class="w-3.5 h-3.5" />
-              </button>
-              {#if hasUnread || !shouldAutoFollow}
+            <div class="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border-subtle/80 bg-bg-primary/95 p-1 shadow-[0_4px_18px_rgba(0,0,0,0.16)] backdrop-blur-sm">
+              {#if hasUnread}
                 <button
                   type="button"
-                  aria-label="Scroll to bottom"
-                  class="flex h-7 min-w-7 items-center justify-center rounded-full bg-brand px-2 text-white transition-transform duration-150 active:scale-95"
+                  aria-label="Jump to new messages"
+                  class="flex h-7 items-center justify-center rounded-full bg-brand px-2.5 text-[11px] font-semibold leading-none text-white transition-colors duration-150 hover:bg-brand-hover active:scale-95"
                   onclick={() => {
                     shouldAutoFollow = true;
                     void forceScrollToBottom();
                   }}
                 >
-                  {#if hasUnread}
-                    <span class="text-[10px] font-medium leading-none">New</span>
-                  {:else}
-                    <ArrowDown class="w-4 h-4" />
-                  {/if}
+                  New
                 </button>
               {/if}
-              <button
-                type="button"
-                aria-label="Next turn"
-                class="hidden h-7 w-7 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-bg-hover active:scale-95 sm:flex lg:hidden disabled:opacity-35"
-                disabled={activeTurnIndex.length < 2}
-                onclick={() => {
-                  const index = activeTurnIndex.findIndex((turn) => turn.sequence === currentTurnSequence);
-                  const hasNext = index >= 0 && index < activeTurnIndex.length - 1;
-                  if (hasNext) jumpAdjacentTurn('next');
-                }}
-              >
-                <ArrowDown class="w-3.5 h-3.5" />
-              </button>
+              {#if !shouldAutoFollow}
+                <button
+                  type="button"
+                  aria-label="Jump to bottom"
+                  class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95"
+                  onclick={() => {
+                    shouldAutoFollow = true;
+                    void forceScrollToBottom();
+                  }}
+                >
+                  <ArrowDown class="w-4 h-4" />
+                </button>
+              {/if}
+              {#if activeTurnIndex.length > 1}
+                <button
+                  type="button"
+                  aria-label="Open turn list"
+                  class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95"
+                  onclick={() => { showTurnBottomSheet = true; if (activeSessionId) void loadTurnIndex(activeSessionId, true); }}
+                >
+                  <ListTree class="w-4 h-4" />
+                </button>
+              {/if}
             </div>
           </div>
         {/if}

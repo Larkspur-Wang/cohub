@@ -52,7 +52,11 @@ import {
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
-import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
+import {
+	clearRecentSpace,
+	getRecentSpaces,
+	setRecentSpace,
+} from "$lib/stores/recent-space";
 import {
 	clearAllCachedSessionLists,
 	getCachedSessionListSnapshot,
@@ -164,6 +168,24 @@ const currentSpaceId = $derived.by(() => {
 const currentSpace = $derived(
 	currentSpaceId ? (spaces.find((s) => s.id === currentSpaceId) ?? null) : null,
 );
+
+const recentSpaceIds = $derived.by(() => {
+	if (!showSpaceModal) return [];
+	const userUuid = authStore.userUuid;
+	if (!userUuid) return [];
+	return getRecentSpaces(userUuid).map((entry) => entry.spaceId);
+});
+
+const recentSpaces = $derived.by(() => {
+	return recentSpaceIds
+		.map((id) => spaces.find((space) => space.id === id))
+		.filter((space): space is SpaceRecord => Boolean(space));
+});
+
+const otherSpaces = $derived.by(() => {
+	const recentIds = new Set(recentSpaceIds);
+	return spaces.filter((space) => !recentIds.has(space.id));
+});
 
 const settingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
@@ -820,6 +842,21 @@ $effect(() => {
       <div class="px-2 py-1.5 shrink-0 space-y-[2px]">
         <button
           type="button"
+          class="group relative flex w-full items-center gap-2 overflow-hidden rounded-[7px] border border-brand/45 bg-brand px-2.5 py-2 text-white shadow-[0_1px_0_rgba(255,255,255,0.16)_inset,0_8px_18px_rgba(255,62,0,0.18)] transition-colors duration-100 hover:bg-brand-hover disabled:opacity-60"
+          onclick={() => { void handleCreateNewSession(); }}
+          disabled={creatingSession}
+          title="New chat"
+        >
+          <span class="absolute inset-y-0 left-0 w-px bg-white/45"></span>
+          {#if creatingSession}
+            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
+          {:else}
+            <Plus class="w-3.5 h-3.5 shrink-0 transition-transform duration-150 group-hover:rotate-90" />
+          {/if}
+          <span class="text-[12px] font-semibold tracking-[-0.01em]">New Chat</span>
+        </button>
+        <button
+          type="button"
           class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
           title="Space details"
@@ -835,20 +872,6 @@ $effect(() => {
         >
           <History class="w-3.5 h-3.5 shrink-0" />
           <span class="text-[12px] font-medium">New Save</span>
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={() => { void handleCreateNewSession(); }}
-          disabled={creatingSession}
-          title="New chat"
-        >
-          {#if creatingSession}
-            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
-          {:else}
-            <Plus class="w-3.5 h-3.5 shrink-0" />
-          {/if}
-          <span class="text-[12px] font-medium">New Chat</span>
         </button>
         {#if createSessionError}
           <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
@@ -1480,36 +1503,72 @@ $effect(() => {
         <p class="text-[11px] text-text-placeholder mt-1">Create your first space to get started</p>
       </div>
     {:else}
-      {#each spaces as space (space.id)}
-        {@const isActive = currentSpaceId === space.id}
-        {@const status = displayStatus(space)}
-        <button
-          type="button"
-          class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
-          onclick={() => { void handleNavigateToSpace(space.id); }}
-        >
-          <!-- Status dot -->
-          <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
+      {#if recentSpaces.length > 0}
+        <div class="px-4 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Recent</div>
+        {#each recentSpaces as space (space.id)}
+          {@const isActive = currentSpaceId === space.id}
+          {@const status = displayStatus(space)}
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
+            onclick={() => { void handleNavigateToSpace(space.id); }}
+          >
+            <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
 
-          <!-- Name & meta -->
-          <div class="flex-1 min-w-0">
-            <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
-              {space.name || space.title || space.id.slice(0, 12)}
-            </div>
-            {#if space.userUuid !== authStore.userUuid}
-              <div class="flex items-center gap-1 mt-0.5">
-                <Users class="w-2.5 h-2.5 text-text-placeholder" />
-                <span class="text-[10px] text-text-placeholder">Shared</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
+                {space.name || space.title || space.id.slice(0, 12)}
               </div>
-            {/if}
-          </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                {#if space.userUuid !== authStore.userUuid}
+                  <Users class="w-2.5 h-2.5 text-text-placeholder" />
+                  <span class="text-[10px] text-text-placeholder">Shared</span>
+                {:else}
+                  <span class="text-[10px] text-text-placeholder">Recently used</span>
+                {/if}
+              </div>
+            </div>
 
-          <!-- Active indicator -->
-          {#if isActive}
-            <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
-          {/if}
-        </button>
-      {/each}
+            {#if isActive}
+              <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
+            {/if}
+          </button>
+        {/each}
+      {/if}
+
+      {#if otherSpaces.length > 0}
+        {#if recentSpaces.length > 0}
+          <div class="mt-1 border-t border-border-subtle"></div>
+        {/if}
+        <div class="px-4 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-text-placeholder">All Spaces</div>
+        {#each otherSpaces as space (space.id)}
+          {@const isActive = currentSpaceId === space.id}
+          {@const status = displayStatus(space)}
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 {isActive ? 'bg-bg-active' : 'hover:bg-bg-hover'}"
+            onclick={() => { void handleNavigateToSpace(space.id); }}
+          >
+            <span class="w-2 h-2 rounded-full shrink-0 {statusColorClass(status)}"></span>
+
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px] truncate {isActive ? 'text-text-primary font-medium' : 'text-text-secondary'}">
+                {space.name || space.title || space.id.slice(0, 12)}
+              </div>
+              {#if space.userUuid !== authStore.userUuid}
+                <div class="flex items-center gap-1 mt-0.5">
+                  <Users class="w-2.5 h-2.5 text-text-placeholder" />
+                  <span class="text-[10px] text-text-placeholder">Shared</span>
+                </div>
+              {/if}
+            </div>
+
+            {#if isActive}
+              <span class="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
+            {/if}
+          </button>
+        {/each}
+      {/if}
     {/if}
   </div>
   {#snippet footer()}
