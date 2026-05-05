@@ -225,91 +225,89 @@ function handleCopy() {
 }
 </script>
 
-{#if message.role === 'system' && message.content?.some(b => b.type === 'thinking')}
-  <MessageContentFlow
-    content={message.content ?? []}
-    {thinkingExpanded}
-    {isStreaming}
-    showToolCalls={false}
-    onToggleThinking={toggleThinking}
-  />
+{#if message.role === 'system' && message.content?.some((block: ContentBlock) => block.type === 'thinking')}
+	<MessageContentFlow
+		content={message.content ?? []}
+		{thinkingExpanded}
+		{isStreaming}
+		showToolCalls={false}
+		onToggleThinking={toggleThinking}
+	/>
 {:else}
-  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
-    <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary border border-status-error/30 rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
+	<div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
+		<div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary border border-status-error/30 rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
+			<MessageContentFlow
+				content={message.content?.length ? message.content : [{ type: 'text', text: message.text }]}
+				{isUserMessage}
+				{thinkingExpanded}
+				{isStreaming}
+				{showToolCalls}
+				onToggleThinking={toggleThinking}
+				onMarkdownSegmentRendered={handleMarkdownSegmentRendered}
+				onMarkdownSegmentStart={handleMarkdownSegmentStart}
+				onLoadToolCalls={message.toolCallsLoader ?? undefined}
+			/>
 
-      <MessageContentFlow
-        content={message.content?.length ? message.content : [{ type: 'text', text: message.text }]}
-        {isUserMessage}
-        {thinkingExpanded}
-        {isStreaming}
-        {showToolCalls}
-        onToggleThinking={toggleThinking}
-        onMarkdownSegmentRendered={handleMarkdownSegmentRendered}
-        onMarkdownSegmentStart={handleMarkdownSegmentStart}
-        onLoadToolCalls={message.toolCallsLoader ?? undefined}
-      />
+			{#if assistantErrorMessage}
+				<div class="mt-3 rounded-lg border border-status-error/30 bg-status-error/8 px-3 py-2 text-[12px] text-status-error whitespace-pre-wrap break-words">
+					<div class="font-medium">Error</div>
+					<div class="mt-1">{assistantErrorMessage}</div>
+				</div>
+			{/if}
+		</div>
 
-      {#if assistantErrorMessage}
-        <div class="mt-3 rounded-lg border border-status-error/30 bg-status-error/8 px-3 py-2 text-[12px] text-status-error whitespace-pre-wrap break-words">
-          <div class="font-medium">Error</div>
-          <div class="mt-1">{assistantErrorMessage}</div>
-        </div>
-      {/if}
+		{#if (message.role === 'assistant' && (message.meta?.model || shortTime)) || (message.role === 'user' && shortTime)}
+			<div class="timeline-row mt-1 text-[11px] text-text-placeholder/50 select-none">
+				<div class="timeline-row-leading">
+					<button
+						type="button"
+						class="inline-flex h-6 w-6 items-center justify-center rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+						onclick={(e) => { e.stopPropagation(); handleCopy(); }}
+						title="Copy message"
+					>
+						{#if copied}
+							<Check class="w-3.5 h-3.5 text-status-running" />
+						{:else}
+							<Copy class="w-3.5 h-3.5" />
+						{/if}
+					</button>
+				</div>
 
-    </div>
+				<div class="timeline-row-main flex min-w-0 items-center gap-1.5">
+					{#if message.role === 'user'}
+						<span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
+							{#if message.authorAvatar}
+								<img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
+							{:else}
+								<span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-brand shrink-0">
+									<UserRound class="w-3 h-3" aria-hidden="true" />
+								</span>
+							{/if}
+							<span class="min-w-0 truncate">{userDisplayName}</span>
+						</span>
+					{:else}
+						{#if modelDisplayName}
+							<span class="min-w-0 truncate cursor-default" title={modelHoverText}>
+								{modelDisplayName}
+							</span>
+						{/if}
 
-    {#if (message.role === 'assistant' && (message.meta?.model || shortTime)) || (message.role === 'user' && shortTime)}
-      <!-- Meta bar: copy | identity/model | tokens | time -->
-      <div class="mt-1 flex items-center gap-1 px-2 text-[11px] text-text-placeholder/50 select-none">
-        <!-- Copy button -->
-        <button
-          type="button"
-          class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
-          onclick={(e) => { e.stopPropagation(); handleCopy(); }}
-          title="Copy message"
-        >
-          {#if copied}
-            <Check class="w-3.5 h-3.5 text-status-running" />
-          {:else}
-            <Copy class="w-3.5 h-3.5" />
-          {/if}
-        </button>
+						{#if hasUsage}
+							<span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
+								{tokenDisplay}
+							</span>
+						{/if}
+					{/if}
+				</div>
 
-        {#if message.role === 'user'}
-          <!-- User identity -->
-          <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
-            {#if message.authorAvatar}
-              <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
-            {:else}
-              <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-brand shrink-0">
-                <UserRound class="w-3 h-3" aria-hidden="true" />
-              </span>
-            {/if}
-            <span class="min-w-0 truncate">{userDisplayName}</span>
-          </span>
-        {:else}
-          <!-- Model (truncates when space is tight) -->
-          {#if modelDisplayName}
-            <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
-              {modelDisplayName}
-            </span>
-          {/if}
-
-          <!-- Tokens -->
-          {#if hasUsage}
-            <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
-              {tokenDisplay}
-            </span>
-          {/if}
-        {/if}
-
-        <!-- Time (always visible on the right) -->
-        {#if shortTime}
-          <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
-            {shortTime}
-          </time>
-        {/if}
-      </div>
-    {/if}
-  </div>
+				<div class="timeline-row-trailing">
+					{#if shortTime}
+						<time datetime={message.createdAt} class="shrink-0 tabular-nums cursor-default" title={fullDateTime}>
+							{shortTime}
+						</time>
+					{/if}
+				</div>
+			</div>
+		{/if}
+	</div>
 {/if}

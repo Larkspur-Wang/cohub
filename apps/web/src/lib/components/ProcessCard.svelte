@@ -103,19 +103,42 @@ const summaryLabel = $derived(
 </script>
 
 {#if !expanded}
-	<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()}>
-		{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-		<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
+	<button
+		type="button"
+		class="timeline-row py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75"
+		disabled={loading}
+		onclick={() => void toggle()}
+	>
+		<span class="timeline-row-leading text-text-tertiary">
+			{#if loading}
+				<Loader2 class="w-3.5 h-3.5 shrink-0 animate-spin" />
+			{:else}
+				<ChevronRight class="w-3.5 h-3.5 shrink-0" />
+			{/if}
+		</span>
+		<span class="timeline-row-main truncate text-[13px] text-text-tertiary">{summaryLabel}</span>
+		<span class="timeline-row-trailing"></span>
 	</button>
 {:else}
 	<div class="flex flex-col gap-0">
-		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md" onclick={() => void toggle()}>
-			<ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-			<span class="text-[13px] text-text-tertiary">{summaryLabel}</span>
+		<button
+			type="button"
+			class="timeline-row py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md"
+			onclick={() => void toggle()}
+		>
+			<span class="timeline-row-leading text-text-tertiary">
+				<ChevronDown class="w-3.5 h-3.5 shrink-0" />
+			</span>
+			<span class="timeline-row-main truncate text-[13px] text-text-tertiary">{summaryLabel}</span>
+			<span class="timeline-row-trailing"></span>
 		</button>
 		<div class="flex flex-col gap-2">
 			{#if loadError}
-				<button type="button" class="mx-2 rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-left text-[12px] text-status-error hover:bg-status-error/10" onclick={() => void ensureLoaded()}>
+				<button
+					type="button"
+					class="timeline-row-nested rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-left text-[12px] text-status-error hover:bg-status-error/10"
+					onclick={() => void ensureLoaded()}
+				>
 					{loadError} · Click to retry
 				</button>
 			{/if}
@@ -123,9 +146,16 @@ const summaryLabel = $derived(
 				<IntermediateMessageBubble message={msg} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} />
 			{/each}
 		</div>
-		<button type="button" class="flex items-center gap-1.5 px-2 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer text-text-placeholder hover:text-text-tertiary rounded-md self-start" onclick={() => void toggle()}>
-			<ChevronRight class="w-3 h-3" />
-			<span class="text-[11px]">Collapse</span>
+		<button
+			type="button"
+			class="timeline-row mt-0.5 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer text-text-placeholder hover:text-text-tertiary rounded-md"
+			onclick={() => void toggle()}
+		>
+			<span class="timeline-row-leading">
+				<ChevronRight class="w-3 h-3" />
+			</span>
+			<span class="timeline-row-main text-[11px]">Collapse</span>
+			<span class="timeline-row-trailing"></span>
 		</button>
 	</div>
 {/if}
