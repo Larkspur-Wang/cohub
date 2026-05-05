@@ -41,6 +41,36 @@ export const classifySandboxInfraError = (message: string): {
 
 export const isSandboxInfraError = (message: string) => classifySandboxInfraError(message) !== null;
 
+const getObjectString = (value: unknown, key: string): string | null => {
+  if (!value || typeof value !== "object") return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+};
+
+const describeUnknownError = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+
+  const directMessage = getObjectString(error, "message");
+  if (directMessage) return directMessage;
+
+  const nestedError = error && typeof error === "object" ? (error as Record<string, unknown>).error : null;
+  if (nestedError instanceof Error && nestedError.message.trim()) return nestedError.message;
+
+  const nestedMessage = getObjectString(nestedError, "message");
+  if (nestedMessage) return nestedMessage;
+
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== "{}") return serialized;
+  } catch {
+    // ignore JSON serialization failures and fall back to String below
+  }
+
+  return String(error);
+};
+
+const toExecError = (error: unknown) => new Error(describeUnknownError(error));
+
 export const smokeVerifySandboxPod = async (podName: string, namespace: string, timeoutMs = 45_000) => {
   const script = [
     "set -eu",
@@ -66,7 +96,7 @@ export const smokeVerifySandboxPod = async (podName: string, namespace: string, 
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  throw toExecError(lastError);
 };
 
 const k8sExec = new Exec(kubeConfig);
@@ -124,9 +154,9 @@ const execInSandboxPod = (namespace: string, podName: string, script: string, ti
       },
     ).then((ws) => {
       socket = ws;
-      ws.on("error", (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
+      ws.on("error", (error: unknown) => finish(toExecError(error)));
     }).catch((error: unknown) => {
-      finish(error instanceof Error ? error : new Error(String(error)));
+      finish(toExecError(error));
     });
   });
 };
