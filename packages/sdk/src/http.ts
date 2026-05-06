@@ -6,7 +6,7 @@ import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
-import { PublicInviteApi, SpaceInvitationsApi } from "./apis/invitations.js";
+import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
 import { resolveApiBaseUrl } from "./environment.js";
 

@@ -10,37 +10,7 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
-		"moduleResolution": "bundler",
-		"paths": {
-			"$lib": ["./src/lib"],
-			"$lib/*": ["./src/lib/*"],
-			"$app/types": ["./.svelte-kit/types/index.d.ts"],
-			"@neta-art/cohub-protocol": ["../../packages/protocol/src/index.ts"],
-			"@neta-art/cohub-protocol/core": [
-				"../../packages/protocol/src/core/index.ts"
-			],
-			"@neta-art/cohub-protocol/model": [
-				"../../packages/protocol/src/model/session.ts"
-			],
-			"@neta-art/cohub-protocol/realtime": [
-				"../../packages/protocol/src/realtime/index.ts"
-			],
-			"@neta-art/cohub-protocol/gateway": [
-				"../../packages/protocol/src/gateway/index.ts"
-			],
-			"@neta-art/cohub-protocol/task": [
-				"../../packages/protocol/src/task/index.ts"
-			],
-			"@neta-art/cohub-protocol/fs": [
-				"../../packages/protocol/src/fs/index.ts"
-			],
-			"@neta-art/cohub-protocol/ports": [
-				"../../packages/protocol/src/ports/index.ts"
-			],
-			"@neta-art/cohub": ["../../packages/sdk/src/index.ts"],
-			"@neta-art/cohub/http": ["../../packages/sdk/src/http.ts"],
-			"@neta-art/cohub/websocket": ["../../packages/sdk/src/websocket.ts"]
-		}
+		"moduleResolution": "bundler"
 	}
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files

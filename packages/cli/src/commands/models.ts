@@ -23,7 +23,7 @@ export function registerModels(program: Command): void {
         // catalog is Record<provider, ModelCatalogEntry[]>
         for (const [provider, entries] of Object.entries(catalog)) {
           console.log(`\n  ${provider}`);
-          console.log("  " + "─".repeat(provider.length));
+          console.log(`  ${"─".repeat(provider.length)}`);
           table(entries as Row[], [
             { key: "id", label: "ID" },
             { key: "provider", label: "Provider" },

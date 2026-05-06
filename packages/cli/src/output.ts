@@ -22,7 +22,7 @@ export function table(rows: Row[], columns: { key: string; label: string }[]): v
   const widths = columns.map((c) => colWidth(rows, c.key, c.label));
 
   const header = columns
-    .map((c, i) => c.label.padEnd(widths[i]!))
+    .map((c, i) => c.label.padEnd(widths[i] ?? 0))
     .join(" │ ")
     .trimEnd();
 
@@ -34,7 +34,7 @@ export function table(rows: Row[], columns: { key: string; label: string }[]): v
       .map((c, i) => {
         const v = row[c.key] ?? "";
         const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-        return s.padEnd(widths[i]!);
+        return s.padEnd(widths[i] ?? 0);
       })
       .join(" │ ")
       .trimEnd();
@@ -69,7 +69,7 @@ export function handleHttp(e: unknown): never {
   let detail: string | undefined;
   if (status) detail = `HTTP ${status}`;
   if (body && typeof body === "object" && "message" in body) {
-    detail = `${detail ? detail + " — " : ""}${(body as { message?: string }).message}`;
+    detail = `${detail ? `${detail} — ` : ""}${(body as { message?: string }).message}`;
   }
 
   error(msg, detail);
@@ -92,7 +92,7 @@ export function spinner(): { start(msg: string): void; stop(msg: string): void }
       interval = setInterval(() => {
         process.stderr.clearLine?.(0);
         process.stderr.cursorTo?.(0);
-        process.stderr.write(`  ${frames[i++ % frames.length]!} ${msg}  `);
+        process.stderr.write(`  ${frames[i++ % frames.length] ?? ""} ${msg}  `);
       }, 80);
     },
     stop(msg: string) {

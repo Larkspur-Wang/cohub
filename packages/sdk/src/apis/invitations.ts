@@ -1,7 +1,6 @@
 import type { HttpTransport } from "../transport.js";
 import type {
   SpaceInvitation,
-  SpaceRole,
   CreateInvitationInput,
   CreateInvitationResponse,
   InvitationDetail,
