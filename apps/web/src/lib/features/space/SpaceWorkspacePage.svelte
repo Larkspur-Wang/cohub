@@ -1781,7 +1781,7 @@ async function loadSessionState(sessionId: string, force = false) {
 	}
 }
 async function loadTurnIndex(sessionId: string, force = false) {
-	if (!force && turnIndexBySessionId[sessionId]?.length) return;
+	if (!force && Object.hasOwn(turnIndexBySessionId, sessionId)) return;
 	if (turnIndexLoadingBySessionId[sessionId]) return;
 	turnIndexLoadingBySessionId = {
 		...turnIndexLoadingBySessionId,
