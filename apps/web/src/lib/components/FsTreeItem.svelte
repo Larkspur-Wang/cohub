@@ -238,7 +238,6 @@ function handleDirUploadClick() {
 
   .tree-item.selected {
     background: var(--bg-active);
-    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--brand-400) 55%, transparent);
     color: var(--text-primary);
   }
 
