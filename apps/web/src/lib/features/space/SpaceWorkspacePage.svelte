@@ -480,11 +480,7 @@ let hasUnread = $derived.by(() => {
 		activeSessionState.turns.length === 0
 	)
 		return false;
-	const latestTurn =
-		activeSessionState.turns.findLast((turn) => turn.status !== "running") ??
-		activeSessionState.turns.at(-1) ??
-		null;
-	return unreadTracker.isUnread(session, latestTurn?.id ?? null);
+	return unreadTracker.isUnread(session, session.lastMessageId);
 });
 let autoScrollGuard = $state(false);
 let restoringBottomSessionId = $state<string | null>(null);
@@ -1171,7 +1167,7 @@ function markVisibleLatestTurnViewed(
 		return Number.isFinite(sequence) ? Math.max(latest, sequence) : latest;
 	}, -Infinity);
 	if (latestVisibleTurnSequence >= latestTurn.sequence) {
-		unreadTracker.markViewed(sessionId, latestTurn.id);
+		unreadTracker.markViewed(sessionId, state.session.lastMessageId);
 	}
 }
 function captureCurrentScrollAnchor(sessionId: string) {
@@ -1219,9 +1215,7 @@ function writeBottomScrollAnchor(sessionId: string) {
 		updatedAt: Date.now(),
 	});
 	const state = sessionStateById[sessionId];
-	const latestCompletedTurn =
-		state?.turns.findLast((turn) => turn.status !== "running") ?? null;
-	unreadTracker.markViewed(sessionId, latestCompletedTurn?.id ?? null);
+	unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
 }
 function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
 	return {
@@ -2061,12 +2055,15 @@ async function reconnectSync() {
 				: null,
 		);
 		if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
+			const activeState = sessionStateById[activeSessionId];
 			const latestTurn =
-				sessionStateById[activeSessionId]?.turns.findLast(
-					(turn) => turn.status !== "running",
-				) ?? sessionStateById[activeSessionId]?.turns.at(-1);
+				activeState?.turns.findLast((turn) => turn.status !== "running") ??
+				activeState?.turns.at(-1);
 			if (latestTurn && shouldAutoFollow) {
-				unreadTracker.markViewed(activeSessionId, latestTurn.id);
+				unreadTracker.markViewed(
+					activeSessionId,
+					activeState?.session?.lastMessageId ?? null,
+				);
 			}
 		}
 		wsConnectionState = "open";
@@ -3659,11 +3656,10 @@ $effect(() => {
 	) {
 		prepareRouteSession(routeSessionId);
 		const state = sessionStateById[routeSessionId];
-		const latestTurn =
-			state?.turns.findLast((turn) => turn.status !== "running") ??
-			state?.turns.at(-1) ??
-			null;
-		unreadTracker.markViewed(routeSessionId, latestTurn?.id ?? null);
+		unreadTracker.markViewed(
+			routeSessionId,
+			state?.session?.lastMessageId ?? null,
+		);
 		void loadTurnIndex(routeSessionId);
 		return;
 	}
