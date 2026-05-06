@@ -10,6 +10,7 @@ import (
 
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/filewatch"
+	"github.com/cohub/apps/sandbox/portwatch"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
 	"github.com/cohub/apps/sandbox/report"
@@ -69,6 +70,19 @@ func toProtocolFSChanges(changes []filewatch.Change) []protocol.FSChange {
 	return out
 }
 
+func toProtocolPortChanges(changes []portwatch.Change) []protocol.PortChange {
+	out := make([]protocol.PortChange, 0, len(changes))
+	for _, change := range changes {
+		out = append(out, protocol.PortChange{
+			Port:       change.Port,
+			Protocol:   change.Protocol,
+			Status:     protocol.PortStatus(change.Status),
+			ObservedAt: change.ObservedAt,
+		})
+	}
+	return out
+}
+
 func main() {
 	showVersion := flag.Bool("version", false, "print sandbox version and exit")
 	flag.Parse()
@@ -109,6 +123,19 @@ func main() {
 	} else {
 		defer watcher.Close()
 		logger.Info("file watcher started", slog.String("workspaceDir", cfg.WorkspaceDir))
+	}
+
+	if watcher, err := portwatch.Start(cfg.PublicPorts, logger, func(batch portwatch.Batch) {
+		server.BroadcastPortsChanged(protocol.PortsChangedPayload{
+			Seq:    batch.Seq,
+			Resync: batch.Resync,
+			Ports:  toProtocolPortChanges(batch.Changes),
+		})
+	}); err != nil {
+		logger.Warn("port watcher disabled", slog.String("error", err.Error()))
+	} else {
+		defer watcher.Close()
+		logger.Info("port watcher started", slog.Any("ports", cfg.PublicPorts))
 	}
 
 	initialMeta := map[string]interface{}{

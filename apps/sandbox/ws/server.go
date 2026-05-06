@@ -128,6 +128,23 @@ func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
 
 const wsReadLimit = 50 * 1024 * 1024 // 50MB per websocket message
 
+func (s *Server) broadcastAttached(message interface{}, warnMessage string) {
+	s.mu.RLock()
+	targets := make([]*connectionSession, 0, len(s.sessionsByID))
+	for _, session := range s.sessionsByID {
+		if session.attached {
+			targets = append(targets, session)
+		}
+	}
+	s.mu.RUnlock()
+
+	for _, session := range targets {
+		if err := s.sendToConnection(session, message); err != nil {
+			s.logger.Warn(warnMessage, slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("error", err.Error()))
+		}
+	}
+}
+
 func (s *Server) BroadcastFSChanged(payload protocol.FSChangedPayload) {
 	message := protocol.FSChanged{
 		BaseMessage: protocol.BaseMessage{
@@ -140,20 +157,22 @@ func (s *Server) BroadcastFSChanged(payload protocol.FSChangedPayload) {
 		Payload: payload,
 	}
 
-	s.mu.RLock()
-	targets := make([]*connectionSession, 0, len(s.sessionsByID))
-	for _, session := range s.sessionsByID {
-		if session.attached {
-			targets = append(targets, session)
-		}
-	}
-	s.mu.RUnlock()
+	s.broadcastAttached(message, "failed to enqueue fs.changed")
+}
 
-	for _, session := range targets {
-		if err := s.sendToConnection(session, message); err != nil {
-			s.logger.Warn("failed to enqueue fs.changed", slog.String("connectionId", session.id), slog.String("identity", session.identity), slog.String("error", err.Error()))
-		}
+func (s *Server) BroadcastPortsChanged(payload protocol.PortsChangedPayload) {
+	message := protocol.PortsChanged{
+		BaseMessage: protocol.BaseMessage{
+			Version:   protocol.Version,
+			Type:      "ports.changed",
+			SpaceID:   s.cfg.SpaceID,
+			SandboxID: s.hostname,
+			Timestamp: time.Now().UnixMilli(),
+		},
+		Payload: payload,
 	}
+
+	s.broadcastAttached(message, "failed to enqueue ports.changed")
 }
 
 func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {

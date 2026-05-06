@@ -314,40 +314,6 @@ body.drawer-open {
 	overflow: hidden;
 }
 
-/* ============================================================
-   Session timeline alignment
-   One shared grid for message metadata, process rows, and tool rows.
-   ============================================================ */
-.timeline-row {
-	display: grid;
-	grid-template-columns: 1.5rem minmax(0, 1fr) auto;
-	align-items: center;
-	column-gap: 0.5rem;
-	width: 100%;
-	min-width: 0;
-	padding-inline: 0.5rem;
-}
-
-.timeline-row-leading,
-.timeline-row-trailing {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 0;
-}
-
-.timeline-row-main {
-	min-width: 0;
-}
-
-.timeline-row-trailing {
-	justify-self: end;
-}
-
-.timeline-row-nested {
-	margin-left: 2.5rem;
-}
-
 /*
  Enable custom mobile drawer swipe gestures on real touch devices.
  `touch-action: pan-y` allows normal vertical scrolling while preventing

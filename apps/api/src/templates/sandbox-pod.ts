@@ -1,3 +1,4 @@
+import { SANDBOX_PUBLIC_PORTS } from "@neta-art/cohub-protocol/ports";
 import { config } from "../config.js";
 
 type SandboxPodTemplateVariables = {
@@ -49,6 +50,10 @@ export const SANDBOX_POD_TEMPLATE = {
                 fieldPath: "status.podIP",
               },
             },
+          },
+          {
+            name: "COHUB_PUBLIC_PORTS",
+            value: SANDBOX_PUBLIC_PORTS.join(","),
           },
         ],
         resources: {

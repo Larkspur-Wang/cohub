@@ -42,6 +42,26 @@ export type FsChanged = BaseMessage & {
   };
 };
 
+export type PortStatus = "listening" | "closed";
+
+export type PortChange = {
+  port: number;
+  protocol: "tcp";
+  status: PortStatus;
+  observedAt: number;
+};
+
+export type PortsChangedPayload = {
+  seq: number;
+  resync?: boolean;
+  ports: PortChange[];
+};
+
+export type PortsChanged = BaseMessage & {
+  type: "ports.changed";
+  payload: PortsChangedPayload;
+};
+
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
 export const RPC_ERROR_CODES = [
@@ -342,6 +362,7 @@ export type AgentSandboxMessage =
   | SessionAttach
   | SessionAttachOk
   | FsChanged
+  | PortsChanged
   | RpcRequest
   | RpcAccepted
   | RpcEvent

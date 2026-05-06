@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import type { SpaceFsChangedPayload } from "@neta-art/cohub-protocol/fs";
+import type { SpacePortsChangedPayload } from "@neta-art/cohub-protocol/ports";
 import { injectTrace } from "@cohub/tracing/propagator";
 import { env } from "./env.js";
 import {
@@ -178,6 +179,27 @@ export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChange
     );
   } catch (err) {
     console.error("[Redis] Failed to send space fs changed event:", err);
+  }
+}
+
+export async function sendSpacePortsChanged(spaceId: string, payload: SpacePortsChangedPayload) {
+  try {
+    const traceCarrier = injectTrace();
+    await redis.xadd(
+      SPACE_EVENTS_STREAM,
+      "MAXLEN",
+      STREAM_APPROX,
+      STREAM_MAXLEN,
+      "*",
+      "spaceId",
+      spaceId,
+      "type",
+      "space.ports.changed",
+      "payload",
+      JSON.stringify({ type: "space.ports.changed", spaceId, payload, trace: traceCarrier }),
+    );
+  } catch (err) {
+    console.error("[Redis] Failed to send space ports changed event:", err);
   }
 }
 

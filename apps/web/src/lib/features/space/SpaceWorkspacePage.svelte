@@ -20,6 +20,7 @@ import type {
 	SessionTurnRecord,
 	StoredIntermediateMessage,
 } from "@neta-art/cohub-protocol/model";
+import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import {
 	Activity,
@@ -248,6 +249,7 @@ let pinnedFilePaths = $state<Set<string>>(new Set());
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
+let previewEndpoints = $state<SpacePublicEndpoints>({});
 let directoryLoadTokenByPath = $state<Record<string, number>>({});
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
@@ -1390,11 +1392,55 @@ function prepareRouteSession(sessionId: string) {
 		};
 	}
 }
+function extractPublicEndpoints(value: unknown): SpacePublicEndpoints {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const sandbox = (value as { sandbox?: unknown }).sandbox;
+	if (!sandbox || typeof sandbox !== "object" || Array.isArray(sandbox))
+		return {};
+	const endpoints = (sandbox as { publicEndpoints?: unknown }).publicEndpoints;
+	if (!endpoints || typeof endpoints !== "object" || Array.isArray(endpoints))
+		return {};
+	return endpoints as SpacePublicEndpoints;
+}
+
+async function loadPreviewEndpoints() {
+	try {
+		const result = await sdk.space(spaceId).sandbox.ports();
+		previewEndpoints = result.endpoints ?? {};
+	} catch {
+		previewEndpoints = extractPublicEndpoints(space);
+	}
+}
+
+function applyPortsChanged(payload: ChannelEnvelope) {
+	const eventPayload = payload.payload as {
+		ports?: Array<{
+			port?: number;
+			status?: "listening" | "closed";
+			observedAt?: number;
+		}>;
+	};
+	const next: SpacePublicEndpoints = { ...previewEndpoints };
+	for (const item of eventPayload.ports ?? []) {
+		if (!item.port || !item.status) continue;
+		const key = String(item.port);
+		const current = next[key];
+		if (!current) continue;
+		next[key] = {
+			...current,
+			status: item.status,
+			observedAt: item.observedAt,
+		};
+	}
+	previewEndpoints = next;
+}
+
 async function loadSpace() {
 	spaceLoadError = "";
 	try {
 		const nextSpace = await sdk.space(spaceId).get();
 		space = nextSpace;
+		previewEndpoints = extractPublicEndpoints(nextSpace);
 		void spaceRecordRepo.set(spaceId, nextSpace).catch(() => undefined);
 	} catch (error) {
 		spaceLoadError =
@@ -1427,6 +1473,7 @@ async function refreshSpaceStatus() {
 		const nextSpace = await sdk.space(spaceId).get();
 		const previousBootstrapStatus = bootstrapStatus;
 		space = nextSpace;
+		previewEndpoints = extractPublicEndpoints(nextSpace);
 		void spaceRecordRepo.set(spaceId, nextSpace).catch(() => undefined);
 		const nextBootstrap = (() => {
 			const raw = nextSpace.meta;
@@ -2130,6 +2177,10 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
 		if (payload.type === "space.fs.changed") {
 			await handleSpaceFsChanged(payload);
+			return;
+		}
+		if (payload.type === "space.ports.changed") {
+			applyPortsChanged(payload);
 			return;
 		}
 		const targetSessionId =
@@ -3484,6 +3535,7 @@ $effect(() => {
 	pinnedFilePaths = new Set();
 	fileTreeLoading = false;
 	fileTreeError = null;
+	previewEndpoints = {};
 	openFile = null;
 	openFileDraft = "";
 	inlineFile = null;
@@ -3509,6 +3561,7 @@ $effect(() => {
 				const cachedSpace = await spaceRecordRepo.getCached(spaceId);
 				if (cachedSpace?.space) {
 					space = cachedSpace.space;
+					previewEndpoints = extractPublicEndpoints(cachedSpace.space);
 					hasCachedSpace = true;
 				}
 				const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
@@ -3524,6 +3577,7 @@ $effect(() => {
 				if (spaceId !== currentSpaceId) return;
 				void refreshSessionsList(false);
 				void loadSpacePins();
+				void loadPreviewEndpoints();
 				void loadFileTree(true);
 				void loadSpaceCheckpoints();
 				if (routeView === "space") void loadTokenUsage();
@@ -5481,6 +5535,7 @@ $effect(() => {
           draggable={true}
           showItemActions={true}
           canWrite={true}
+          previewEndpoints={previewEndpoints}
         />
         <FileUploadPane
           {spaceId}
@@ -5525,6 +5580,7 @@ $effect(() => {
         draggable={false}
         showItemActions={false}
         canWrite={true}
+        previewEndpoints={previewEndpoints}
       />
       <FileUploadPane
         {spaceId}

@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import {
 	AlertCircle,
 	FolderPlus,
@@ -9,6 +10,7 @@ import {
 } from "lucide-svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
+import SpacePreviewPorts from "$lib/components/SpacePreviewPorts.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 
 const {
@@ -30,6 +32,7 @@ const {
 	draggable = true,
 	showItemActions = true,
 	canWrite = true,
+	previewEndpoints = {},
 }: {
 	nodes: SpaceFsNode[];
 	selectedPath: string;
@@ -49,6 +52,7 @@ const {
 	draggable?: boolean;
 	showItemActions?: boolean;
 	canWrite?: boolean;
+	previewEndpoints?: SpacePublicEndpoints;
 } = $props();
 
 function handleCreateFileAtRoot() {
@@ -99,6 +103,8 @@ function handleUploadClick() {
       <RefreshCw class="w-3.5 h-3.5 {loading ? 'animate-spin' : ''}" />
     </button>
   </div>
+
+  <SpacePreviewPorts endpoints={previewEndpoints} />
 
   {#if error}
     <div class="mx-3 mt-3 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[12px] text-error-soft">

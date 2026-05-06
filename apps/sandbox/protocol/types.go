@@ -166,6 +166,31 @@ type FSChanged struct {
 	Payload FSChangedPayload `json:"payload"`
 }
 
+type PortStatus string
+
+const (
+	PortStatusListening PortStatus = "listening"
+	PortStatusClosed    PortStatus = "closed"
+)
+
+type PortChange struct {
+	Port       int        `json:"port"`
+	Protocol   string     `json:"protocol"`
+	Status     PortStatus `json:"status"`
+	ObservedAt int64      `json:"observedAt"`
+}
+
+type PortsChangedPayload struct {
+	Seq    int64        `json:"seq"`
+	Resync bool         `json:"resync,omitempty"`
+	Ports  []PortChange `json:"ports"`
+}
+
+type PortsChanged struct {
+	BaseMessage
+	Payload PortsChangedPayload `json:"payload"`
+}
+
 type IncomingEnvelope struct {
 	Type string `json:"type"`
 }

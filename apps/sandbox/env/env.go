@@ -30,6 +30,7 @@ type Config struct {
 	SandboxReportToken             string
 	PublicURLPrefix                string
 	PodIP                          string
+	PublicPorts                    []int
 	ZombieSelfHealThreshold        int
 	ZombieSelfHealConsecutiveTicks int
 }
@@ -73,6 +74,7 @@ func Load() (Config, error) {
 		SandboxReportToken:             strings.TrimSpace(os.Getenv("SANDBOX_REPORT_TOKEN")),
 		PublicURLPrefix:                strings.TrimSpace(os.Getenv("PUBLIC_URL_PREFIX")),
 		PodIP:                          strings.TrimSpace(os.Getenv("POD_IP")),
+		PublicPorts:                    parsePortsEnv("COHUB_PUBLIC_PORTS", []int{3000, 5173}),
 		ZombieSelfHealThreshold:        parseIntEnv("ZOMBIE_SELF_HEAL_THRESHOLD", 0),
 		ZombieSelfHealConsecutiveTicks: parseIntEnv("ZOMBIE_SELF_HEAL_CONSECUTIVE_TICKS", 3),
 	}, nil
@@ -91,6 +93,30 @@ func parseIntEnv(name string, defaultValue int) int {
 		return 0
 	}
 	return value
+}
+
+func parsePortsEnv(name string, defaultValue []int) []int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return append([]int(nil), defaultValue...)
+	}
+	seen := map[int]struct{}{}
+	ports := []int{}
+	for _, part := range strings.Split(raw, ",") {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || port <= 0 || port > 65535 {
+			continue
+		}
+		if _, ok := seen[port]; ok {
+			continue
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	if len(ports) == 0 {
+		return append([]int(nil), defaultValue...)
+	}
+	return ports
 }
 
 func (c Config) FilesystemRoots() []FilesystemRoot {

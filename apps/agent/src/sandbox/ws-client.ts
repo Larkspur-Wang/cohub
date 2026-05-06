@@ -10,7 +10,7 @@ import type {
 } from "@cohub/agent-sandbox-protocol";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
-import { sendSpaceFsChanged } from "../redis.js";
+import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
 
 type PendingOperation = {
@@ -392,6 +392,16 @@ async function connectOnce(registration: SandboxClientRegistration) {
             seq: message.payload.seq,
             resync: message.payload.resync,
             changes: message.payload.changes,
+          });
+          return;
+        }
+
+        if (message.type === "ports.changed") {
+          void sendSpacePortsChanged(registration.spaceId, {
+            source: message.payload.resync && message.payload.ports.length === 0 ? "sandbox-port-watch-started" : "sandbox-port-watch",
+            seq: message.payload.seq,
+            resync: message.payload.resync,
+            ports: message.payload.ports,
           });
           return;
         }

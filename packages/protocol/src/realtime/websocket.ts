@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord, SessionTurnRecord } from "../model/session.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
+import type { SpacePortsChangedPayload } from "../ports/index.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
 
@@ -390,6 +391,17 @@ export type SpaceFsChangedEvent = {
   payload: SpaceFsChangedPayload;
 };
 
+export type SpacePortsChangedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "space.ports.changed";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+  payload: SpacePortsChangedPayload;
+};
+
 export type RealtimeServerEvent =
   | SystemReadyEvent
   | SystemAuthOkEvent
@@ -405,7 +417,8 @@ export type RealtimeServerEvent =
   | SessionTurnUpdatedEvent
   | SessionTurnFinalizedEvent
   | SessionMessagePersistedEvent
-  | SpaceFsChangedEvent;
+  | SpaceFsChangedEvent
+  | SpacePortsChangedEvent;
 
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

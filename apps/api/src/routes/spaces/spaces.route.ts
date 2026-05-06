@@ -685,6 +685,16 @@ router.get("/:id/sandbox", async (c) => {
   return c.json({ sandbox: attachSandboxPublicEndpoints(sandbox) });
 });
 
+router.get("/:id/sandbox/ports", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+  return c.json({ endpoints: attachSandboxPublicEndpoints(sandbox)?.publicEndpoints ?? {} });
+});
+
 router.post("/:id/sandbox/recreate", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");

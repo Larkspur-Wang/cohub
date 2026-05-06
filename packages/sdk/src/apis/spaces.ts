@@ -1,3 +1,4 @@
+import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import type { HttpTransport, Fetch } from "../transport.js";
@@ -56,7 +57,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "turn.patch" | "turn.snapshot" | "turn.progress" | "turn.final" | "turn.updated" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "event";
+export type SpaceEventName = SessionEventName | "ports.changed" | "event";
 
 type SessionSendMessageInput = {
   content: ContentBlock[];
@@ -628,6 +629,10 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
+      if (type === "ports.changed" && event.type === "space.ports.changed") {
+        handler(event);
+        return;
+      }
       if (type === "turn.final" && isAssistantFinalPersistedEvent(event)) {
         handler(event);
         return;
@@ -821,6 +826,12 @@ export class SpaceSandboxApi {
   get() {
     return this.transport.request<{ sandbox: SpaceSandboxRecord | null }>(
       `/api/spaces/${this.spaceId}/sandbox`,
+    );
+  }
+
+  ports() {
+    return this.transport.request<{ endpoints: SpacePublicEndpoints }>(
+      `/api/spaces/${this.spaceId}/sandbox/ports`,
     );
   }
 

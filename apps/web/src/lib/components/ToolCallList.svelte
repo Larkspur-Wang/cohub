@@ -51,16 +51,13 @@ function retryLoad() {
 {#if tools.length > 0}
 	<div class={flush ? "space-y-0.5" : "mt-2 space-y-0.5"}>
 		{#if loadError}
-			<button
-				type="button"
-				class="timeline-row-nested mb-1 rounded-md border border-status-error/30 bg-status-error/5 px-2 py-1 text-left text-[12px] leading-snug text-status-error hover:bg-status-error/10"
-				onclick={retryLoad}
-			>
+			<button type="button" class="ml-[26px] mb-1 rounded-md border border-status-error/30 bg-status-error/5 px-2 py-1 text-left text-[12px] leading-snug text-status-error hover:bg-status-error/10" onclick={retryLoad}>
 				{loadError} · Retry
 			</button>
 		{/if}
 		{#each tools as tool (tool.id)}
 			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} onExpand={ensureLoaded} />
 		{/each}
+
 	</div>
 {/if}

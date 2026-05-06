@@ -26,7 +26,7 @@ import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, handleWebsocke
 import { gatewayInboundEventSchema } from "@neta-art/cohub-protocol/gateway";
 import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import { buildSessionOutputsForStreamEvent, dispatchSessionOutputs } from "./session-output.js";
-import { dispatchSpaceFsChanged, type SpaceFsChangedStreamEvent } from "./space-events.js";
+import { dispatchSpaceFsChanged, dispatchSpacePortsChanged, type SpaceEventStreamEvent } from "./space-events.js";
 import router from "./routes/index.js";
 
 const tracer = getTracer("cohub-api");
@@ -210,9 +210,11 @@ const startSpaceEventsBridge = async () => {
             continue;
           }
           try {
-            const event = JSON.parse(payload) as SpaceFsChangedStreamEvent;
+            const event = JSON.parse(payload) as SpaceEventStreamEvent;
             if (event.type === "space.fs.changed" && event.spaceId) {
               await dispatchSpaceFsChanged(event.spaceId, event.payload);
+            } else if (event.type === "space.ports.changed" && event.spaceId) {
+              await dispatchSpacePortsChanged(event.spaceId, event.payload);
             }
             await client.xack(SPACE_EVENTS_STREAM, SPACE_EVENTS_CONSUMER_GROUP, id);
           } catch (error) {

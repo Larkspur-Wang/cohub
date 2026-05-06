@@ -1,8 +1,9 @@
 import type { V1Service } from "@kubernetes/client-node";
+import { SANDBOX_PUBLIC_PORTS, type SpacePublicEndpoints, type SpacePortsChangedPayload } from "@neta-art/cohub-protocol/ports";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi, k8sCustomObjectsApi } from "./k8s.js";
 
-const SANDBOX_PUBLIC_PORTS = [3000, 5173] as const;
+type SandboxPublicPort = (typeof SANDBOX_PUBLIC_PORTS)[number];
 const HTTP_ROUTE_GROUP = "gateway.networking.k8s.io";
 const HTTP_ROUTE_VERSION = "v1";
 const HTTP_ROUTE_PLURAL = "httproutes";
@@ -10,7 +11,6 @@ const GATEWAY_NAMESPACE = "kube-system";
 const GATEWAY_NAME = "traefik-gateway";
 const SANDBOX_PUBLIC_DOMAIN = "cohub.run";
 
-type SandboxPublicPort = (typeof SANDBOX_PUBLIC_PORTS)[number];
 type HttpRouteObject = {
   apiVersion: `${typeof HTTP_ROUTE_GROUP}/${typeof HTTP_ROUTE_VERSION}`;
   kind: "HTTPRoute";
@@ -49,16 +49,66 @@ export const getSandboxPublicHostname = (spaceId: string, port: SandboxPublicPor
 
 export const getSandboxPublicEndpoints = (spaceId: string) => {
   return Object.fromEntries(
-    SANDBOX_PUBLIC_PORTS.map((port) => [port, `https://${getSandboxPublicHostname(spaceId, port)}`]),
-  ) as Record<SandboxPublicPort, string>;
+    SANDBOX_PUBLIC_PORTS.map((port) => [port, {
+      url: `https://${getSandboxPublicHostname(spaceId, port)}`,
+      status: "unknown" as const,
+    }]),
+  ) as SpacePublicEndpoints;
 };
 
-export const attachSandboxPublicEndpoints = <T extends { spaceId: string }>(sandbox: T | null) => {
+const isPortStatus = (value: unknown): value is "listening" | "closed" =>
+  value === "listening" || value === "closed";
+
+const getCachedPortStatuses = (sandbox: { meta?: unknown }) => {
+  const meta = sandbox.meta && typeof sandbox.meta === "object" && !Array.isArray(sandbox.meta)
+    ? sandbox.meta as Record<string, unknown>
+    : null;
+  const ports = meta?.ports;
+  if (!ports || typeof ports !== "object" || Array.isArray(ports)) return new Map<number, { status: "listening" | "closed"; observedAt?: number }>();
+  const result = new Map<number, { status: "listening" | "closed"; observedAt?: number }>();
+  for (const [key, raw] of Object.entries(ports as Record<string, unknown>)) {
+    const port = Number(key);
+    if (!Number.isInteger(port)) continue;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const status = (raw as { status?: unknown }).status;
+    if (!isPortStatus(status)) continue;
+    const observedAt = (raw as { observedAt?: unknown }).observedAt;
+    result.set(port, { status, observedAt: typeof observedAt === "number" ? observedAt : undefined });
+  }
+  return result;
+};
+
+export const attachSandboxPublicEndpoints = <T extends { spaceId: string; meta?: unknown }>(sandbox: T | null) => {
   if (!sandbox) return null;
+  const statuses = getCachedPortStatuses(sandbox);
+  const endpoints = getSandboxPublicEndpoints(sandbox.spaceId);
+  for (const [portKey, endpoint] of Object.entries(endpoints)) {
+    const status = statuses.get(Number(portKey));
+    if (status) endpoints[portKey] = { ...endpoint, ...status };
+  }
   return {
     ...sandbox,
-    publicEndpoints: getSandboxPublicEndpoints(sandbox.spaceId),
+    publicEndpoints: endpoints,
   };
+};
+
+export const mergePortStatusesIntoMeta = (
+  meta: Record<string, unknown> | null | undefined,
+  payload: SpacePortsChangedPayload,
+) => {
+  const existingMeta = meta ?? {};
+  const existingPorts = existingMeta.ports && typeof existingMeta.ports === "object" && !Array.isArray(existingMeta.ports)
+    ? existingMeta.ports as Record<string, unknown>
+    : {};
+  const nextPorts: Record<string, unknown> = { ...existingPorts };
+  for (const item of payload.ports) {
+    nextPorts[String(item.port)] = {
+      protocol: item.protocol,
+      status: item.status,
+      observedAt: item.observedAt,
+    };
+  }
+  return { ...existingMeta, ports: nextPorts };
 };
 
 const buildSandboxPublicService = (spaceId: string): V1Service => ({
