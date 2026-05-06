@@ -237,13 +237,13 @@ function handleDirUploadClick() {
   }
 
   .tree-item.selected {
-    background: color-mix(in srgb, var(--brand, #58a6ff) 18%, transparent);
-    box-shadow: inset 2px 0 0 var(--brand, #58a6ff);
+    background: var(--bg-active);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--brand-400) 55%, transparent);
     color: var(--text-primary);
   }
 
   .tree-item.selected .icon {
-    color: var(--brand, #58a6ff);
+    color: var(--text-secondary);
   }
 
   .tree-item.drop-target {
