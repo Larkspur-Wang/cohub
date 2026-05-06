@@ -692,6 +692,7 @@ export class WebsocketClient {
         seq: frame.s,
         baseSeq: frame.b,
         ops: [op],
+        _rt: { sid: frame.sid },
       },
     };
 
