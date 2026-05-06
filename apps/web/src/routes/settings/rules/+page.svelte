@@ -121,8 +121,8 @@ onMount(() => {
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 class="text-[18px] font-semibold text-text-primary tracking-tight">User Rules</h1>
-          <p class="mt-1 text-[13px] text-text-tertiary max-w-2xl">
-            User Rules are published from your personal <span class="font-mono text-text-secondary">config</span> Space. Edit <span class="font-mono text-text-secondary">AGENTS.md</span> there, then create a Save to publish it into every new Chat context.
+          <p class="mt-1 text-[13px] text-text-tertiary max-w-2xl leading-5">
+            <span class="font-medium text-text-secondary">1.</span> Open or create your personal <span class="font-mono text-text-secondary">config</span> Space · <span class="font-medium text-text-secondary">2.</span> Create or edit <span class="font-mono text-text-secondary">AGENTS.md</span> · <span class="font-medium text-text-secondary">3.</span> Create a Save to publish it into every new Chat context.
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
