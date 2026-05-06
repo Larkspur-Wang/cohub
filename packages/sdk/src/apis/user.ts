@@ -20,22 +20,6 @@ export class UserApi {
     });
   }
 
-  updateRules(content: string) {
-    return this.transport.request<UserRulesResponse>("/api/me/rules", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ content }),
-    });
-  }
-
-  deleteRules() {
-    return this.transport.request<{ ok: true }>("/api/me/rules", {
-      method: "DELETE",
-    });
-  }
-
   async setAuthToken(token: string) {
     const trimmedToken = token.trim();
     const response = await fetch(

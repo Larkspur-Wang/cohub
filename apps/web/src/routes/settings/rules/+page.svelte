@@ -1,51 +1,37 @@
 <script lang="ts">
+import type { SpaceRecord } from "@neta-art/cohub";
 import {
-	Check,
+	ArrowUpRight,
+	CheckCircle2,
+	FileText,
 	Loader2,
-	RotateCcw,
-	Save,
+	Plus,
+	RefreshCw,
 	ShieldAlert,
-	Trash2,
 } from "lucide-svelte";
 import { onMount } from "svelte";
+import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { sdk } from "$lib/sdk";
 
-const MAX_BYTES = 32 * 1024;
-const defaultTemplate = `## Working style
-
-- Read relevant files before making changes
-- Share a plan before risky or complex work
-- Validate changes with typecheck, lint, and relevant tests
-
-## Code preferences
-
-- Keep solutions simple, lightweight, and extensible
-- Prefer reusable components and shared utilities for repeated patterns
-- Fix lint issues instead of ignoring them
-`;
-
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-let content = $state("");
-let savedContent = $state("");
+let userUuid = $state("");
+let rulesContent = $state("");
 let updatedAt = $state<string | null>(null);
+let configSpace = $state<SpaceRecord | null>(null);
 let isLoading = $state(true);
-let isSaving = $state(false);
-let isDeleting = $state(false);
+let isCreating = $state(false);
 let loadError = $state("");
-let saveMessage = $state("");
+let actionMessage = $state("");
 
-const byteCount = $derived(new TextEncoder().encode(content).byteLength);
-const isTooLarge = $derived(byteCount > MAX_BYTES);
-const isDirty = $derived(content !== savedContent);
-const canSave = $derived(!isLoading && !isSaving && isDirty && !isTooLarge);
+const hasPublishedRules = $derived(rulesContent.trim().length > 0);
 
 function formatUpdatedAt(value: string | null) {
-	if (!value) return "Not saved yet";
+	if (!value) return "Not published yet";
 	try {
 		return new Intl.DateTimeFormat(undefined, {
 			dateStyle: "medium",
@@ -56,17 +42,30 @@ function formatUpdatedAt(value: string | null) {
 	}
 }
 
-async function loadRules() {
+function findConfigSpace(spaces: SpaceRecord[], currentUserUuid: string) {
+	return (
+		spaces.find(
+			(space) => space.name === "config" && space.userUuid === currentUserUuid,
+		) ?? null
+	);
+}
+
+async function loadRulesPage() {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
 	isLoading = true;
 	loadError = "";
-	saveMessage = "";
+	actionMessage = "";
 	try {
-		const rules = await sdk.user.getRules();
-		content = rules.content;
-		savedContent = rules.content;
+		const me = (await sdk.user.getMe()) as { uuid?: string };
+		userUuid = me.uuid ?? "";
+		const [rules, spaces] = await Promise.all([
+			sdk.user.getRules(),
+			sdk.spaces.list(),
+		]);
+		rulesContent = rules.content;
 		updatedAt = rules.updatedAt;
+		configSpace = userUuid ? findConfigSpace(spaces, userUuid) : null;
 	} catch (error) {
 		if (
 			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
@@ -80,66 +79,39 @@ async function loadRules() {
 	}
 }
 
-async function saveRules() {
-	if (!canSave) return;
-	isSaving = true;
-	saveMessage = "";
+async function createConfigSpace() {
+	if (isCreating) return;
+	isCreating = true;
+	actionMessage = "";
 	try {
-		const rules = await sdk.user.updateRules(content);
-		content = rules.content;
-		savedContent = rules.content;
-		updatedAt = rules.updatedAt;
-		saveMessage = "Saved";
+		const result = await sdk.spaces.create({
+			name: "config",
+			description:
+				"Personal Cohub configuration. Edit AGENTS.md here, then create a Save to publish user rules.",
+		});
+		configSpace = result.space;
+		actionMessage = "Config Space created";
+		await goto(`/spaces/${result.space.id}`);
 	} catch (error) {
 		if (
 			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
 		) {
 			return;
 		}
-		saveMessage =
-			error instanceof Error ? error.message : "Failed to save user rules";
+		actionMessage =
+			error instanceof Error ? error.message : "Failed to create config Space";
 	} finally {
-		isSaving = false;
+		isCreating = false;
 	}
 }
 
-async function deleteRules() {
-	if (!content && !savedContent) return;
-	if (!confirm("Clear your user rules? New chats will stop receiving them."))
-		return;
-	isDeleting = true;
-	saveMessage = "";
-	try {
-		await sdk.user.deleteRules();
-		content = "";
-		savedContent = "";
-		updatedAt = null;
-		saveMessage = "Cleared";
-	} catch (error) {
-		if (
-			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
-		) {
-			return;
-		}
-		saveMessage =
-			error instanceof Error ? error.message : "Failed to clear user rules";
-	} finally {
-		isDeleting = false;
-	}
-}
-
-function insertTemplate() {
-	if (
-		content.trim() &&
-		!confirm("Replace the current editor content with the template?")
-	)
-		return;
-	content = defaultTemplate;
-	saveMessage = "";
+function openConfigSpace() {
+	if (!configSpace) return;
+	void goto(`/spaces/${configSpace.id}`);
 }
 
 onMount(() => {
-	void loadRules();
+	void loadRulesPage();
 });
 </script>
 
@@ -150,54 +122,50 @@ onMount(() => {
         <div>
           <h1 class="text-[18px] font-semibold text-text-primary tracking-tight">User Rules</h1>
           <p class="mt-1 text-[13px] text-text-tertiary max-w-2xl">
-            These Markdown instructions are automatically included in every chat you start. Use them for working style, coding preferences, review standards, and communication preferences.
+            User Rules are published from your personal <span class="font-mono text-text-secondary">config</span> Space. Edit <span class="font-mono text-text-secondary">AGENTS.md</span> there, then create a Save to publish it into every new Chat context.
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onclick={insertTemplate}
+            onclick={loadRulesPage}
             class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle bg-bg-surface text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-50"
-            disabled={isLoading || isSaving || isDeleting}
+            disabled={isLoading || isCreating}
           >
-            <RotateCcw class="w-3.5 h-3.5" />
-            Template
+            <RefreshCw class="w-3.5 h-3.5" />
+            Refresh
           </button>
-          <button
-            type="button"
-            onclick={deleteRules}
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-error-soft/25 bg-error-bg text-[12px] text-error-soft hover:bg-error-bg/80 transition-colors disabled:opacity-50"
-            disabled={isLoading || isSaving || isDeleting || (!content && !savedContent)}
-          >
-            {#if isDeleting}
-              <Loader2 class="w-3.5 h-3.5 animate-spin" />
-            {:else}
-              <Trash2 class="w-3.5 h-3.5" />
-            {/if}
-            Clear
-          </button>
-          <button
-            type="button"
-            onclick={saveRules}
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand text-[12px] font-medium hover:bg-[#FF3E00]/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!canSave}
-          >
-            {#if isSaving}
-              <Loader2 class="w-3.5 h-3.5 animate-spin" />
-            {:else if saveMessage === "Saved"}
-              <Check class="w-3.5 h-3.5" />
-            {:else}
-              <Save class="w-3.5 h-3.5" />
-            {/if}
-            Save
-          </button>
+          {#if configSpace}
+            <button
+              type="button"
+              onclick={openConfigSpace}
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand text-[12px] font-medium hover:bg-[#FF3E00]/15 transition-colors"
+            >
+              <ArrowUpRight class="w-3.5 h-3.5" />
+              Open config Space
+            </button>
+          {:else}
+            <button
+              type="button"
+              onclick={createConfigSpace}
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand text-[12px] font-medium hover:bg-[#FF3E00]/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading || isCreating}
+            >
+              {#if isCreating}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+              {:else}
+                <Plus class="w-3.5 h-3.5" />
+              {/if}
+              Create config Space
+            </button>
+          {/if}
         </div>
       </div>
 
       <div class="mt-5 rounded-md border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2.5">
         <ShieldAlert class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <p class="text-[12px] leading-5 text-text-tertiary">
-          Do not put tokens, passwords, private keys, or sensitive personal data here. These rules are sent to the model as part of the system context.
+          Do not put tokens, passwords, private keys, or sensitive personal data in User Rules. Published rules are sent to the model as part of the system context.
         </p>
       </div>
 
@@ -209,23 +177,54 @@ onMount(() => {
           Loading user rules...
         </div>
       {:else}
-        <div class="mt-6 space-y-2">
-          <textarea
-            bind:value={content}
-            spellcheck="false"
-            class="w-full min-h-[420px] resize-y rounded-md border border-border-subtle bg-bg-surface px-3 py-3 font-mono text-[12px] leading-5 text-text-primary outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/10 placeholder:text-text-placeholder"
-            placeholder="Add your personal rules in Markdown..."
-          ></textarea>
-          <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between text-[11px]">
-            <div class="text-text-tertiary">
-              Updated: {formatUpdatedAt(updatedAt)}{#if isDirty}<span class="text-brand"> · Unsaved changes</span>{/if}
-            </div>
-            <div class={isTooLarge ? "text-error-soft" : "text-text-tertiary"}>
-              {byteCount.toLocaleString()} / {MAX_BYTES.toLocaleString()} bytes
+        <div class="mt-6 grid gap-3 sm:grid-cols-3">
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-3">
+            <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Config Space</div>
+            <div class="mt-2 flex items-center gap-2 text-[13px] text-text-primary">
+              {#if configSpace}
+                <CheckCircle2 class="w-4 h-4 text-status-running" />
+                <span class="font-medium">Ready</span>
+              {:else}
+                <FileText class="w-4 h-4 text-text-placeholder" />
+                <span class="font-medium">Not created</span>
+              {/if}
             </div>
           </div>
-          {#if saveMessage}
-            <div class={saveMessage === "Saved" || saveMessage === "Cleared" ? "text-[12px] text-status-running" : "text-[12px] text-error-soft"}>{saveMessage}</div>
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-3">
+            <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Published File</div>
+            <div class="mt-2 text-[13px] text-text-primary font-mono truncate">/configs/user/AGENTS.md</div>
+          </div>
+          <div class="rounded-md border border-border-subtle bg-bg-surface p-3">
+            <div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Updated</div>
+            <div class="mt-2 text-[13px] text-text-primary truncate">{formatUpdatedAt(updatedAt)}</div>
+          </div>
+        </div>
+
+        {#if actionMessage}
+          <div class={actionMessage.includes("Failed") ? "mt-3 text-[12px] text-error-soft" : "mt-3 text-[12px] text-status-running"}>{actionMessage}</div>
+        {/if}
+
+        <div class="mt-6 rounded-md border border-border-subtle bg-bg-surface overflow-hidden">
+          <div class="flex items-center justify-between gap-3 px-3 py-2 border-b border-border-subtle bg-bg-header-alt">
+            <div class="text-[12px] font-medium text-text-secondary">Published User Rules preview</div>
+            <div class="text-[11px] text-text-tertiary">Read-only</div>
+          </div>
+          {#if hasPublishedRules}
+            <pre class="max-h-[520px] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[12px] leading-5 text-text-primary">{rulesContent}</pre>
+          {:else}
+            <div class="p-8 text-center">
+              <div class="mx-auto w-11 h-11 rounded-md bg-bg-hover border border-border-subtle flex items-center justify-center mb-3">
+                <FileText class="w-5 h-5 text-text-placeholder" />
+              </div>
+              <p class="text-[14px] text-text-tertiary">No published User Rules yet</p>
+              <p class="text-[12px] text-text-placeholder mt-1 max-w-md mx-auto">
+                {#if configSpace}
+                  Open your config Space, create or edit AGENTS.md, then create a Save to publish it here.
+                {:else}
+                  Create a config Space first, then add AGENTS.md and create a Save to publish it here.
+                {/if}
+              </p>
+            </div>
           {/if}
         </div>
       {/if}

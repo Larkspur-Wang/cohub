@@ -24,7 +24,7 @@ export type ApiError = {
 export type UserRulesResponse = {
   content: string;
   updatedAt: string | null;
-  source: "file";
+  source: "config-space";
   path: string;
 };
 
