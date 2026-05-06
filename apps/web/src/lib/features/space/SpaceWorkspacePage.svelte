@@ -5135,7 +5135,7 @@ $effect(() => {
           <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
         {/if}
         {#if hasUnread || !shouldAutoFollow || activeTurnIndex.length > 1}
-          <div class="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+          <div class={`pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 ${!hasUnread && shouldAutoFollow ? 'lg:hidden' : ''}`}
             style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
             <div class="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border-subtle/80 bg-bg-primary/95 p-1 shadow-[0_4px_18px_rgba(0,0,0,0.16)] backdrop-blur-sm">
@@ -5169,7 +5169,7 @@ $effect(() => {
                 <button
                   type="button"
                   aria-label="Open turn list"
-                  class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95"
+                  class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95 lg:hidden"
                   onclick={() => { showTurnBottomSheet = true; if (activeSessionId) void loadTurnIndex(activeSessionId, true); }}
                 >
                   <ListTree class="w-4 h-4" />
