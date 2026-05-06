@@ -267,6 +267,7 @@ let inlineFile = $state<{
 	error: string | null;
 	tooLarge: boolean;
 } | null>(null);
+const selectedFilePath = $derived(inlineFile?.path ?? routeFilePath ?? "");
 const inlineFileDirty = $derived(
 	Boolean(
 		inlineFile &&
@@ -5518,7 +5519,7 @@ $effect(() => {
       <div class="w-full relative">
         <SpaceFileSidebar
           nodes={fileTree}
-          selectedPath={routeFilePath ?? ""}
+          selectedPath={selectedFilePath}
           loading={fileTreeLoading}
           error={fileTreeError}
           onToggle={expandDirectory}
@@ -5563,7 +5564,7 @@ $effect(() => {
     {#if !spaceHasMinimalAccess}
       <SpaceFileSidebar
         nodes={fileTree}
-        selectedPath={routeFilePath ?? ""}
+        selectedPath={selectedFilePath}
         loading={fileTreeLoading}
         error={fileTreeError}
         onToggle={expandDirectory}

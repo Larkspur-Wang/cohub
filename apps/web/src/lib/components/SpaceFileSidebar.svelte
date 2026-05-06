@@ -8,6 +8,7 @@ import {
 	RefreshCw,
 	Upload,
 } from "lucide-svelte";
+import { tick } from "svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import SpacePreviewPorts from "$lib/components/SpacePreviewPorts.svelte";
@@ -55,6 +56,8 @@ const {
 	previewEndpoints?: SpacePublicEndpoints;
 } = $props();
 
+let treeScrollContainer: HTMLDivElement | null = $state(null);
+
 function handleCreateFileAtRoot() {
 	onCreateFile("");
 }
@@ -74,6 +77,23 @@ function handleUploadClick() {
 	};
 	input.click();
 }
+$effect(() => {
+	const path = selectedPath;
+	const container = treeScrollContainer;
+	if (!path || !container || container.clientHeight === 0) return;
+
+	void tick().then(() => {
+		if (selectedPath !== path || !treeScrollContainer) return;
+		const selectedItem = treeScrollContainer.querySelector<HTMLElement>(
+			`[data-space-file-path="${CSS.escape(path)}"]`,
+		);
+		selectedItem?.scrollIntoView({
+			block: "center",
+			inline: "nearest",
+			behavior: "smooth",
+		});
+	});
+});
 </script>
 
 <div class="flex h-full flex-col bg-bg-primary min-w-0 relative">
@@ -113,7 +133,7 @@ function handleUploadClick() {
     </div>
   {/if}
 
-  <div class="min-h-0 flex-1 overflow-auto px-2 py-2">
+  <div class="min-h-0 flex-1 overflow-auto px-2 py-2" bind:this={treeScrollContainer}>
     {#if nodes.length === 0 && !loading}
       <div class="px-2 py-3 text-[12px] text-text-tertiary">No files</div>
     {:else}

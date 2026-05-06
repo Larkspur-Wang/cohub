@@ -126,6 +126,7 @@ function handleDirUploadClick() {
 
 <div
   class:selected={isActive}
+  data-space-file-path={node.path}
   class="tree-item"
   class:drop-target={isDragOver}
   role="button"
@@ -236,8 +237,13 @@ function handleDirUploadClick() {
   }
 
   .tree-item.selected {
-    background: var(--bg-hover-strong);
+    background: color-mix(in srgb, var(--brand, #58a6ff) 18%, transparent);
+    box-shadow: inset 2px 0 0 var(--brand, #58a6ff);
     color: var(--text-primary);
+  }
+
+  .tree-item.selected .icon {
+    color: var(--brand, #58a6ff);
   }
 
   .tree-item.drop-target {
