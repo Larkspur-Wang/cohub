@@ -5,10 +5,11 @@ import type { ToolState } from "$lib/session-tree";
 
 type Props = {
 	tool: ToolState;
+	onOpenFile?: (path: string) => void;
 };
 
-const { tool }: Props = $props();
+const { tool, onOpenFile }: Props = $props();
 const viewModel = $derived(toolStateToViewModel(tool));
 </script>
 
-<ToolCallItem tool={viewModel} />
+<ToolCallItem tool={viewModel} {onOpenFile} />

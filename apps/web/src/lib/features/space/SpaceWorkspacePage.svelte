@@ -5118,6 +5118,7 @@ $effect(() => {
           onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
           onMarkdownRendered={handleTimelineMarkdownRendered}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
+          onOpenFile={openInlineFile}
           modelsCatalog={modelsCatalog ?? undefined}
         />
         <TurnRail

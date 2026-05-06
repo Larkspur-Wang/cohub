@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
 import {
 	formatToolInput,
+	getToolFilePath,
 	isSimpleInput,
 	summarizeToolInput,
 	type ToolCallViewModel,
@@ -12,6 +13,7 @@ type Props = {
 	loading?: boolean;
 	needsDetails?: boolean;
 	onExpand?: () => void | Promise<void>;
+	onOpenFile?: (path: string) => void;
 };
 
 const {
@@ -19,6 +21,7 @@ const {
 	loading = false,
 	needsDetails = false,
 	onExpand,
+	onOpenFile,
 }: Props = $props();
 let expanded = $state(false);
 
@@ -39,10 +42,15 @@ const isPlaceholderResult = $derived(
 );
 const showResult = $derived(!needsDetails && hasResult && !isPlaceholderResult);
 const resultLabel = $derived(tool.status === "failed" ? "err" : "out");
+const filePath = $derived(getToolFilePath(tool.name, tool.input));
 function toggle() {
 	const opening = !expanded;
 	expanded = opening;
 	if (opening) void onExpand?.();
+}
+function handleFileClick(e: MouseEvent | KeyboardEvent) {
+	e.stopPropagation();
+	if (filePath) onOpenFile?.(filePath);
 }
 </script>
 
@@ -55,6 +63,16 @@ function toggle() {
 		<span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 align-middle {statusDotMap[tool.status]} {tool.status === 'running' ? 'animate-pulse' : ''}"></span>
 		<span class="text-[13px] font-mono text-text-tertiary shrink-0 w-[3em] truncate">{tool.name}</span>
 		<span class="min-w-0 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
+		{#if filePath}
+			<span
+				role="link"
+				tabindex="0"
+				class="ml-1 text-[12px] font-mono text-brand/70 truncate cursor-pointer hover:text-brand hover:underline shrink-0 transition-colors"
+				onclick={handleFileClick}
+				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleFileClick(e); } }}
+				title="Open file"
+			>{filePath}</span>
+		{/if}
 		<span class="ml-auto text-text-tertiary shrink-0">
 			{#if loading && expanded}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-placeholder" />

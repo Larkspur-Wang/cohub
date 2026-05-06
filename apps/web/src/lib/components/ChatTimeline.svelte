@@ -34,6 +34,7 @@ type Props = {
 		turn: SessionTurnRecord;
 		message: StoredIntermediateMessage;
 	}) => Promise<MessageToolCallsFile | null>;
+	onOpenFile?: (path: string) => void;
 };
 
 let {
@@ -47,6 +48,7 @@ let {
 	onMarkdownRendered,
 	onLoadIntermediate,
 	onLoadToolCalls,
+	onOpenFile,
 }: Props = $props();
 
 // Track all observed elements for re-observation.
@@ -155,11 +157,11 @@ $effect(() => {
 				use:observeItem={originalIdx}
 			>
 					{#if item.kind === 'message'}
-						<ChatMessageBubble message={item.message} {modelsCatalog} {onMarkdownRenderStart} {onMarkdownRendered} />
+						<ChatMessageBubble message={item.message} {modelsCatalog} {onMarkdownRenderStart} {onMarkdownRendered} {onOpenFile} />
 					{:else if item.kind === 'process' && item.turn}
-						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} />
+						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
 				{:else if item.kind === 'tool'}
-					<ToolExecutionCard tool={item.tool} />
+					<ToolExecutionCard tool={item.tool} {onOpenFile} />
 				{/if}
 			</div>
 		{/each}

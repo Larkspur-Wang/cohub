@@ -16,6 +16,7 @@ type Props = {
 	onMarkdownSegmentRendered?: () => void;
 	onMarkdownSegmentStart?: () => void;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
+	onOpenFile?: (path: string) => void;
 };
 
 type Segment =
@@ -34,6 +35,7 @@ const {
 	onMarkdownSegmentRendered,
 	onMarkdownSegmentStart,
 	onLoadToolCalls,
+	onOpenFile,
 }: Props = $props();
 
 const segments = $derived.by(() => {
@@ -103,7 +105,7 @@ const segments = $derived.by(() => {
 		{:else if segment.type === 'image'}
 			<ImageBlocks blocks={segment.blocks} />
 		{:else if segment.type === 'tool' && showToolCalls}
-			<ToolCallList content={segment.blocks} {onLoadToolCalls} flush />
+			<ToolCallList content={segment.blocks} {onLoadToolCalls} flush {onOpenFile} />
 		{/if}
 	</div>
 {/each}

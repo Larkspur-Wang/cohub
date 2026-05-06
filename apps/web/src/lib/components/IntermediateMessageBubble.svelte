@@ -16,9 +16,10 @@ type Props = {
 	message: StoredIntermediateMessage;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
+	onOpenFile?: (path: string) => void;
 };
 
-const { message, modelsCatalog, onLoadToolCalls }: Props = $props();
+const { message, modelsCatalog, onLoadToolCalls, onOpenFile }: Props = $props();
 const chatMessage = $derived({
 	id: message.id,
 	sourceId: message.id,
@@ -41,5 +42,5 @@ const chatMessage = $derived({
 </script>
 
 <div class="pl-5">
-	<ChatMessageBubble message={chatMessage} {modelsCatalog} />
+	<ChatMessageBubble message={chatMessage} {modelsCatalog} {onOpenFile} />
 </div>

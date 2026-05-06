@@ -9,6 +9,7 @@ type Props = {
 	toolCallsFile?: MessageToolCallsFile | null;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
 	flush?: boolean;
+	onOpenFile?: (path: string) => void;
 };
 
 const {
@@ -16,6 +17,7 @@ const {
 	toolCallsFile = null,
 	onLoadToolCalls,
 	flush = false,
+	onOpenFile,
 }: Props = $props();
 let loading = $state(false);
 let loadError = $state<string | null>(null);
@@ -56,8 +58,7 @@ function retryLoad() {
 			</button>
 		{/if}
 		{#each tools as tool (tool.id)}
-			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} onExpand={ensureLoaded} />
+			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} onExpand={ensureLoaded} {onOpenFile} />
 		{/each}
-
 	</div>
 {/if}

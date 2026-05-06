@@ -78,6 +78,20 @@ export function formatToolInput(input?: Record<string, unknown>): string {
 	return JSON.stringify(input, null, 2);
 }
 
+/**
+ * Returns the file path for read/write/edit tools if present and valid,
+ * otherwise null. Used to render clickable file links in tool call UI.
+ */
+export function getToolFilePath(
+	name: string,
+	input?: Record<string, unknown>,
+): string | null {
+	if (!["read", "write", "edit"].includes(name)) return null;
+	const path = input?.path;
+	if (typeof path !== "string" || path.length === 0) return null;
+	return path;
+}
+
 export function isSimpleInput(
 	name: string,
 	input?: Record<string, unknown>,

@@ -16,6 +16,7 @@ type Props = {
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
 	showToolCalls?: boolean;
+	onOpenFile?: (path: string) => void;
 };
 
 const {
@@ -24,6 +25,7 @@ const {
 	onMarkdownRenderStart,
 	onMarkdownRendered,
 	showToolCalls = true,
+	onOpenFile,
 }: Props = $props();
 let pendingMarkdownSegments = $state(0);
 let markdownStartedForSignature = $state("");
@@ -232,6 +234,7 @@ function handleCopy() {
     {isStreaming}
     showToolCalls={false}
     onToggleThinking={toggleThinking}
+    {onOpenFile}
   />
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
@@ -247,6 +250,7 @@ function handleCopy() {
         onMarkdownSegmentRendered={handleMarkdownSegmentRendered}
         onMarkdownSegmentStart={handleMarkdownSegmentStart}
         onLoadToolCalls={message.toolCallsLoader ?? undefined}
+        {onOpenFile}
       />
 
       {#if assistantErrorMessage}
