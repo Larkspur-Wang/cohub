@@ -31,8 +31,8 @@
 			"@neta-art/cohub-protocol/task": [
 				"../../packages/protocol/src/task/index.ts"
 			],
-			"@neta-art/cohub-protocol/fs": [
-				"../../packages/protocol/src/fs/index.ts"
+			"@neta-art/cohub-protocol/ports": [
+				"../../packages/protocol/src/ports/index.ts"
 			],
 			"@neta-art/cohub": ["../../packages/sdk/src/index.ts"],
 			"@neta-art/cohub/http": ["../../packages/sdk/src/http.ts"],
