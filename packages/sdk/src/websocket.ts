@@ -109,6 +109,7 @@ const isRetryableCloseCode = (code: number) => {
 };
 
 const AUTH_CLOSE_REASON = "authentication failed";
+const PATCH_STREAM_BUFFER_MAX_PENDING = 128;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -150,6 +151,11 @@ type CompactStreamContext = {
   anchorUserMessageId: string | null;
 };
 
+type PatchStreamBuffer = {
+  nextSeq: number;
+  pending: Map<number, ChannelEnvelope>;
+};
+
 export class WebsocketClient {
   private readonly url: string;
   private readonly autoReconnect: boolean;
@@ -177,6 +183,7 @@ export class WebsocketClient {
   private lastPingRequestId: string | null = null;
   private pongDeadlineAt = 0;
   private readonly compactStreamContexts = new Map<string, CompactStreamContext>();
+  private readonly patchStreamBuffers = new Map<string, PatchStreamBuffer>();
 
   public state: WebsocketClientState = "idle";
   public connectionId: string | null = null;
@@ -283,6 +290,8 @@ export class WebsocketClient {
         const wasConnecting = this.state === "connecting" || this.state === "reconnecting";
         this.state = "closed";
         this.ws = null;
+        this.compactStreamContexts.clear();
+        this.patchStreamBuffers.clear();
         const closeError = new Error(formatCloseMessage(event.code, event.reason));
         this.rejectAuthWaiter(closeError);
         const willReconnect = !this.manuallyClosed && this.autoReconnect && isRetryableCloseCode(event.code);
@@ -313,6 +322,8 @@ export class WebsocketClient {
     this.ws?.close(code, reason);
     this.ws = null;
     this.connectPromise = null;
+    this.compactStreamContexts.clear();
+    this.patchStreamBuffers.clear();
   }
 
   async sendMessage(input: {
@@ -427,6 +438,10 @@ export class WebsocketClient {
 
     const envelope = result.data as ChannelEnvelope;
     this.rememberCompactStreamContext(envelope);
+    if (envelope.type === "session.turn.patch") {
+      this.handlePatchEnvelope(envelope);
+      return;
+    }
     switch (envelope.type) {
       case "system.ready": {
         const connectionId = typeof envelope.payload.connectionId === "string"
@@ -555,7 +570,91 @@ export class WebsocketClient {
     const turnId = typeof meta?.turnId === "string" ? meta.turnId : null;
     if (!turnId) return;
     for (const [sid, context] of this.compactStreamContexts.entries()) {
-      if (context.turnId === turnId) this.compactStreamContexts.delete(sid);
+      if (context.turnId === turnId) {
+        this.compactStreamContexts.delete(sid);
+        this.patchStreamBuffers.delete(sid);
+      }
+    }
+  }
+
+  private getPatchStreamBufferKey(envelope: ChannelEnvelope): string | null {
+    if (envelope.type !== "session.turn.patch") return null;
+    const payload = envelope.payload;
+    const realtimeMeta = payload._rt && typeof payload._rt === "object"
+      ? payload._rt as Record<string, unknown>
+      : null;
+    if (typeof realtimeMeta?.sid === "string" && realtimeMeta.sid.trim()) {
+      return realtimeMeta.sid;
+    }
+    if (typeof payload.turnId === "string" && payload.turnId.trim()) return payload.turnId;
+    if (typeof payload.messageId === "string" && payload.messageId.trim()) return payload.messageId;
+    return typeof envelope.sessionId === "string" && envelope.sessionId.trim()
+      ? envelope.sessionId
+      : null;
+  }
+
+  private handlePatchEnvelope(envelope: ChannelEnvelope) {
+    const payload = envelope.payload;
+    if (
+      typeof payload.seq !== "number" ||
+      typeof payload.baseSeq !== "number" ||
+      !Number.isInteger(payload.seq) ||
+      !Number.isInteger(payload.baseSeq) ||
+      payload.seq < 0 ||
+      payload.baseSeq < 0
+    ) {
+      this.emit("event", envelope);
+      return;
+    }
+
+    const key = this.getPatchStreamBufferKey(envelope);
+    if (!key) {
+      this.emit("event", envelope);
+      return;
+    }
+
+    if (payload.baseSeq === 0) {
+      const buffer: PatchStreamBuffer = { nextSeq: payload.seq + 1, pending: new Map() };
+      this.patchStreamBuffers.set(key, buffer);
+      this.emit("event", envelope);
+      this.flushPatchStreamBuffer(buffer);
+      return;
+    }
+
+    const buffer = this.patchStreamBuffers.get(key);
+    if (!buffer) {
+      this.patchStreamBuffers.set(key, {
+        nextSeq: payload.baseSeq,
+        pending: new Map([[payload.seq, envelope]]),
+      });
+      return;
+    }
+
+    if (payload.seq < buffer.nextSeq) return;
+    buffer.pending.set(payload.seq, envelope);
+    if (!this.enforcePatchStreamBufferLimit(key, buffer)) return;
+    this.flushPatchStreamBuffer(buffer);
+  }
+
+  private enforcePatchStreamBufferLimit(key: string, buffer: PatchStreamBuffer) {
+    if (buffer.pending.size <= PATCH_STREAM_BUFFER_MAX_PENDING) return true;
+    this.patchStreamBuffers.delete(key);
+    this.emit("error", {
+      error: new Error(`patch stream buffer overflow: ${key}`),
+      recoverable: true,
+    });
+    return false;
+  }
+
+  private flushPatchStreamBuffer(buffer: PatchStreamBuffer) {
+    while (true) {
+      const envelope = buffer.pending.get(buffer.nextSeq);
+      if (!envelope) return;
+      const seq = envelope.payload.seq;
+      if (typeof seq !== "number" || !Number.isInteger(seq)) return;
+      buffer.pending.delete(buffer.nextSeq);
+      buffer.nextSeq = seq + 1;
+      this.emit("event", envelope);
     }
   }
 
@@ -596,7 +695,7 @@ export class WebsocketClient {
       },
     };
 
-    this.emit("event", envelope);
+    this.handlePatchEnvelope(envelope);
   }
 
   private startPingLoop() {
