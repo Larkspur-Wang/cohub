@@ -1,5 +1,5 @@
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
-import type { UserSshKey } from "../types.js";
+import type { UserRulesResponse, UserSshKey } from "../types.js";
 
 export class UserApi {
   constructor(
@@ -11,6 +11,29 @@ export class UserApi {
 
   getMe(customFetch?: Fetch) {
     return this.transport.request("/api/me", { fetch: customFetch });
+  }
+
+  getRules(customFetch?: Fetch) {
+    return this.transport.request<UserRulesResponse>("/api/me/rules", {
+      method: "GET",
+      fetch: customFetch,
+    });
+  }
+
+  updateRules(content: string) {
+    return this.transport.request<UserRulesResponse>("/api/me/rules", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  deleteRules() {
+    return this.transport.request<{ ok: true }>("/api/me/rules", {
+      method: "DELETE",
+    });
   }
 
   async setAuthToken(token: string) {

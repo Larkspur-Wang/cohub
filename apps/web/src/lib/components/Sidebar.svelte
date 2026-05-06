@@ -22,6 +22,7 @@ import {
 	Loader2,
 	LogOut,
 	Network,
+	NotebookPen,
 	Palette,
 	Pencil,
 	Pin,
@@ -200,6 +201,12 @@ const settingsTabs = [
 		label: "SSH Keys",
 		icon: KeyRound,
 		href: "/settings/ssh-keys",
+	},
+	{
+		id: "rules",
+		label: "User Rules",
+		icon: NotebookPen,
+		href: "/settings/rules",
 	},
 	{
 		id: "channels",

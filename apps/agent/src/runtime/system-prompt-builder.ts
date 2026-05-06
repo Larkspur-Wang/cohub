@@ -222,7 +222,7 @@ export function buildCohubSystemPrompt(options: BuildCohubSystemPromptOptions): 
   const sections: string[] = [systemPrompt, ...appendSystemPrompts];
 
   if (userContextFiles.length > 0) {
-    let userContext = "# User Context\n\nUser-specific instructions and preferences:";
+    let userContext = "# User Context\n\nThe following are user-specific preferences and instructions. Follow them when they do not conflict with platform, safety, or project-specific instructions:";
     for (const file of userContextFiles) {
       userContext += `\n\n## ${file.sandboxPath}\n\n${file.content}`;
     }

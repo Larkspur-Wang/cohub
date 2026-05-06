@@ -21,6 +21,13 @@ export type ApiError = {
   message: string;
 };
 
+export type UserRulesResponse = {
+  content: string;
+  updatedAt: string | null;
+  source: "file";
+  path: string;
+};
+
 export type { ContentBlock, MessageRecord, SessionTurnRecord, SessionTurnIndexItem };
 
 export type SpaceFsEntry = {
