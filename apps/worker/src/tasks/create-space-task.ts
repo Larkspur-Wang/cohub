@@ -173,12 +173,26 @@ const buildCloneUrl = (repoUrl: string, token?: string) => {
   return url.toString();
 };
 
+const hasHeadCommit = async (workspaceDir: string) =>
+  runGit(["rev-parse", "--verify", "HEAD"], workspaceDir)
+    .then(() => true)
+    .catch(() => false);
+
 const pushExistingHistory = async (input: {
   workspaceDir: string;
   authenticatedRemoteUrl: string;
 }) => {
   await runGit(["remote", "remove", "origin"], input.workspaceDir).catch(() => undefined);
   await runGit(["remote", "add", "origin", input.authenticatedRemoteUrl], input.workspaceDir);
+
+  if (!(await hasHeadCommit(input.workspaceDir))) {
+    return commitAllAndPush({
+      workspaceDir: input.workspaceDir,
+      authenticatedRemoteUrl: input.authenticatedRemoteUrl,
+      branch: "main",
+      message: "chore: initialize space",
+    });
+  }
 
   // Resolve current branch; if detached HEAD (e.g. checked out a specific commit), create main
   const branchResult = await runGitWithOutput(["rev-parse", "--abbrev-ref", "HEAD"], input.workspaceDir);
