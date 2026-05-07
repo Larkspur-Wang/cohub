@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
 type CliOptions = {
@@ -81,7 +81,10 @@ const parseArgs = (argv: string[]) => {
   return options;
 };
 
+const expandPath = (path: string) => (path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path);
+
 const options = parseArgs(process.argv.slice(2));
+options.kubeconfig = expandPath(options.kubeconfig);
 
 const runKubectl = (args: string[]) => {
   return execFileSync(
@@ -98,6 +101,11 @@ const runKubectlExec = (args: string[]): Promise<string> => {
       [...(options.kubeconfig ? ["--kubeconfig", options.kubeconfig] : []), ...args],
       { stdio: ["ignore", "pipe", "inherit"] },
     );
+    const killTimer = setTimeout(() => {
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+    }, options.timeoutMs + 60_000);
+    killTimer.unref();
     const chunks: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => {
       chunks.push(chunk);
@@ -110,10 +118,14 @@ const runKubectlExec = (args: string[]): Promise<string> => {
       }
     });
     child.on("close", (code) => {
+      clearTimeout(killTimer);
       if (code === 0) resolve(Buffer.concat(chunks).toString().trim());
       else reject(new Error(`kubectl exec exited with code ${code}`));
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      clearTimeout(killTimer);
+      reject(error);
+    });
   });
 };
 
@@ -281,7 +293,7 @@ const summary = {
   successes: successes.slice(0, 20),
 };
 console.log(JSON.stringify({ phase: 'summary', ...summary }));
-if (failures.length > 0) process.exit(1);
+process.exit(failures.length > 0 ? 1 : 0);
 `;
 
 writeFileSync(localScriptPath, innerScript);
