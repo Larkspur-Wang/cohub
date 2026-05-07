@@ -74,11 +74,13 @@ import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
+import PortPreview from "$lib/components/PortPreview.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
+import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
@@ -180,6 +182,11 @@ type SelectedModel = {
 	id: string;
 	name?: string;
 };
+type InlinePortPreview = {
+	port: string;
+	url: string;
+	autoOpened: boolean;
+};
 type SessionViewState = {
 	session: SessionRecord | undefined;
 	turns: SessionTurnRecord[];
@@ -256,6 +263,7 @@ let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
 let previewEndpoints = $state<SpacePublicEndpoints>({});
+let inlinePortPreview = $state<InlinePortPreview | null>(null);
 let directoryLoadTokenByPath = $state<Record<string, number>>({});
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
@@ -315,6 +323,13 @@ const inlineFileDownloadName = $derived.by(() => {
 	if (!inlineFile) return "";
 	return inlineFile.path.split("/").pop() ?? "download";
 });
+const inlinePortEndpoint = $derived.by(() => {
+	if (!inlinePortPreview) return null;
+	return previewEndpoints[inlinePortPreview.port] ?? null;
+});
+const activePreviewKind = $derived(
+	inlinePortPreview ? "port" : inlineFile ? "file" : null,
+);
 let inlineFileMarkdownHtml = $state("");
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
@@ -335,8 +350,8 @@ let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let gitRepoCopied = $state(false);
 let gitRepoCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let inlineFilePanelWidth = $state(480);
-let inlineFilePanelResizeCleanup: (() => void) | null = null;
+let previewPanelWidth = $state(480);
+let previewPanelResizeCleanup: (() => void) | null = null;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
 let pendingFileSavePaths = $state<Set<string>>(new Set());
 function markFileSavePending(path: string) {
@@ -1528,11 +1543,37 @@ function extractPublicEndpoints(value: unknown): SpacePublicEndpoints {
 }
 
 async function loadPreviewEndpoints() {
+	const previous = previewEndpoints;
 	try {
 		const result = await sdk.space(spaceId).sandbox.ports();
-		previewEndpoints = result.endpoints ?? {};
+		const next = result.endpoints ?? {};
+		previewEndpoints = next;
+		maybeAutoOpenPortPreview(previous, next);
 	} catch {
-		previewEndpoints = extractPublicEndpoints(space);
+		const next = extractPublicEndpoints(space);
+		previewEndpoints = next;
+		maybeAutoOpenPortPreview(previous, next);
+	}
+}
+
+function maybeAutoOpenPortPreview(
+	previous: SpacePublicEndpoints,
+	next: SpacePublicEndpoints,
+	changedPorts?: string[],
+) {
+	if (!pageMounted || activePreviewKind || routeView === "file") return;
+	if (spaceHasMinimalAccess) return;
+	const entries = (
+		changedPorts?.length
+			? changedPorts.map((port) => [port, next[port]] as const)
+			: Object.entries(next)
+	).filter(([, endpoint]) => endpoint?.status === "listening" && endpoint.url);
+	for (const [port, endpoint] of entries) {
+		const previousStatus = previous[port]?.status;
+		const becameListening = previousStatus !== "listening";
+		if (!becameListening || !endpoint?.url) continue;
+		openInlinePort(port, endpoint.url, { autoOpened: true });
+		return;
 	}
 }
 
@@ -1544,7 +1585,9 @@ function applyPortsChanged(payload: ChannelEnvelope) {
 			observedAt?: number;
 		}>;
 	};
+	const previous = previewEndpoints;
 	const next: SpacePublicEndpoints = { ...previewEndpoints };
+	const changedPorts: string[] = [];
 	for (const item of eventPayload.ports ?? []) {
 		if (!item.port || !item.status) continue;
 		const key = String(item.port);
@@ -1555,8 +1598,10 @@ function applyPortsChanged(payload: ChannelEnvelope) {
 			status: item.status,
 			observedAt: item.observedAt,
 		};
+		changedPorts.push(key);
 	}
 	previewEndpoints = next;
+	maybeAutoOpenPortPreview(previous, next, changedPorts);
 }
 
 async function loadSpace() {
@@ -2880,28 +2925,27 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointerup", stop);
 	window.addEventListener("pointercancel", stop);
 }
-function beginInlineFilePanelResize(event: PointerEvent) {
+function beginPreviewPanelResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024) return;
-	inlineFilePanelResizeCleanup?.();
+	previewPanelResizeCleanup?.();
 	const startX = event.clientX;
-	const startWidth = inlineFilePanelWidth;
+	const startWidth = previewPanelWidth;
 	const minMainWidth = 400;
 	const onPointerMove = (moveEvent: PointerEvent) => {
 		const delta = startX - moveEvent.clientX;
 		const maxAllowed = window.innerWidth - minMainWidth - RIGHT_SIDEBAR_MIN;
 		const nextWidth = Math.min(Math.max(280, startWidth + delta), maxAllowed);
-		inlineFilePanelWidth = nextWidth;
+		previewPanelWidth = nextWidth;
 	};
 	const stop = () => {
 		document.body.classList.remove("sidebar-resizing");
 		window.removeEventListener("pointermove", onPointerMove);
 		window.removeEventListener("pointerup", stop);
 		window.removeEventListener("pointercancel", stop);
-		if (inlineFilePanelResizeCleanup === stop)
-			inlineFilePanelResizeCleanup = null;
+		if (previewPanelResizeCleanup === stop) previewPanelResizeCleanup = null;
 	};
-	inlineFilePanelResizeCleanup = stop;
+	previewPanelResizeCleanup = stop;
 	document.body.classList.add("sidebar-resizing");
 	window.addEventListener("pointermove", onPointerMove);
 	window.addEventListener("pointerup", stop);
@@ -3025,6 +3069,7 @@ async function refreshFileTree() {
 	await loadFileTree(true);
 }
 async function openFileFromUrl(path: string) {
+	inlinePortPreview = null;
 	openFileLoading = true;
 	openFileError = null;
 	openFileTooLarge = false;
@@ -3192,6 +3237,7 @@ function closeFile() {
 	});
 }
 async function openInlineFile(path: string) {
+	inlinePortPreview = null;
 	inlineFile = {
 		response: null,
 		draft: "",
@@ -3239,6 +3285,17 @@ async function openInlineFile(path: string) {
 }
 function closeInlineFile() {
 	inlineFile = null;
+}
+function openInlinePort(
+	port: string,
+	url: string,
+	options: { autoOpened?: boolean } = {},
+) {
+	inlineFile = null;
+	inlinePortPreview = { port, url, autoOpened: options.autoOpened ?? false };
+}
+function closeInlinePort() {
+	inlinePortPreview = null;
 }
 async function downloadOpenFile() {
 	if (!routeFilePath) return;
@@ -3291,9 +3348,10 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 			await saveOpenFile();
 		}
 	}
-	if (event.key === "Escape" && inlineFile) {
+	if (event.key === "Escape" && (inlineFile || inlinePortPreview)) {
 		event.preventDefault();
-		closeInlineFile();
+		if (inlinePortPreview) closeInlinePort();
+		else closeInlineFile();
 	}
 }
 async function copyFileContent() {
@@ -3655,7 +3713,7 @@ onMount(() => {
 		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
-		inlineFilePanelResizeCleanup?.();
+		previewPanelResizeCleanup?.();
 	};
 });
 // React to space changes: reset state and reload data
@@ -3686,6 +3744,7 @@ $effect(() => {
 	fileTreeLoading = false;
 	fileTreeError = null;
 	previewEndpoints = {};
+	inlinePortPreview = null;
 	openFile = null;
 	openFileDraft = "";
 	inlineFile = null;
@@ -5496,7 +5555,12 @@ $effect(() => {
       {/if}
     </div>
     <!-- Desktop side panel -->
-    <div class="hidden lg:flex shrink-0 relative border-l border-border-subtle" style={`width: ${inlineFilePanelWidth}px`}>
+    <WorkspacePreviewPane
+      desktopOnly={true}
+      width={previewPanelWidth}
+      ariaLabel="File preview"
+      onResizeStart={beginPreviewPanelResize}
+    >
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
@@ -5707,14 +5771,22 @@ $effect(() => {
           <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
         {/if}
       </div>
-      <button
-        type="button"
-        class="inline-panel-resize-handle"
-        aria-label="Resize file panel"
-        title="Resize file panel"
-        onpointerdown={beginInlineFilePanelResize}
-      ></button>
-    </div>
+    </WorkspacePreviewPane>
+  {/if}
+  {#if inlinePortPreview}
+    <WorkspacePreviewPane
+      width={previewPanelWidth}
+      ariaLabel={`Port ${inlinePortPreview.port} preview`}
+      onResizeStart={beginPreviewPanelResize}
+    >
+      <PortPreview
+        port={inlinePortPreview.port}
+        url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
+        status={inlinePortEndpoint?.status ?? "unknown"}
+        observedAt={inlinePortEndpoint?.observedAt}
+        onClose={closeInlinePort}
+      />
+    </WorkspacePreviewPane>
   {/if}
   <!-- Desktop right sidebar — file tree only -->
   {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
@@ -5736,6 +5808,8 @@ $effect(() => {
           isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
           onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
           onInsertReference={insertPathReference}
+          onOpenPort={(port, url) => openInlinePort(port, url)}
+          activePort={inlinePortPreview?.port ?? null}
           draggable={true}
           showItemActions={true}
           canWrite={true}
@@ -5782,6 +5856,8 @@ $effect(() => {
         isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
         onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
         onInsertReference={insertPathReference}
+        onOpenPort={(port, url) => { openInlinePort(port, url); uiState.mobileRightDrawerOpen = false; }}
+        activePort={inlinePortPreview?.port ?? null}
         draggable={false}
         showItemActions={false}
         canWrite={true}

@@ -2,7 +2,15 @@
 import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import { ExternalLink } from "lucide-svelte";
 
-const { endpoints = {} }: { endpoints?: SpacePublicEndpoints } = $props();
+const {
+	endpoints = {},
+	activePort = null,
+	onOpen,
+}: {
+	endpoints?: SpacePublicEndpoints;
+	activePort?: string | null;
+	onOpen?: (port: string, url: string) => void;
+} = $props();
 
 const items = $derived.by(() =>
 	Object.entries(endpoints)
@@ -24,17 +32,29 @@ function statusTooltip(status: string | undefined) {
 		</div>
 		<div class="flex flex-wrap gap-1.5">
 			{#each items as item (item.port)}
-				<a
-					class="group inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] transition-colors {item.status === 'listening' ? 'border-success-soft/35 bg-success-bg text-success-soft hover:border-success-soft/60' : 'border-border-subtle bg-bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'}"
-					href={item.url}
-					target="_blank"
-					rel="noreferrer"
+				<div
+					class="group inline-flex max-w-full items-center overflow-hidden rounded-full border text-[11px] transition-colors {activePort === item.port ? 'border-brand/60 bg-brand/10 text-brand' : item.status === 'listening' ? 'border-success-soft/35 bg-success-bg text-success-soft hover:border-success-soft/60' : 'border-border-subtle bg-bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'}"
 					title={`:${item.port} — ${statusTooltip(item.status)}`}
 				>
-					<span class="h-1.5 w-1.5 rounded-full {item.status === 'listening' ? 'bg-success-soft' : 'bg-text-placeholder'}"></span>
-					<span class="font-medium">:{item.port}</span>
-					<ExternalLink class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70" />
-				</a>
+					<button
+						type="button"
+						class="inline-flex min-w-0 items-center gap-1.5 px-2 py-1 text-left font-medium"
+						onclick={() => onOpen?.(item.port, item.url)}
+					>
+						<span class="h-1.5 w-1.5 rounded-full {item.status === 'listening' ? 'bg-success-soft' : 'bg-text-placeholder'}"></span>
+						<span>:{item.port}</span>
+					</button>
+					<a
+						class="inline-flex h-6 w-6 shrink-0 items-center justify-center border-l border-current/10 opacity-55 transition-opacity hover:opacity-100"
+						href={item.url}
+						target="_blank"
+						rel="noreferrer"
+						title={`Open :${item.port} externally`}
+						onclick={(event) => event.stopPropagation()}
+					>
+						<ExternalLink class="h-3 w-3" />
+					</a>
+				</div>
 			{/each}
 		</div>
 	</div>

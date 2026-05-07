@@ -35,6 +35,8 @@ const {
 	isPinned,
 	onTogglePin,
 	onInsertReference,
+	onOpenPort,
+	activePort = null,
 	draggable = true,
 	showItemActions = true,
 	canWrite = true,
@@ -55,6 +57,8 @@ const {
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
+	onOpenPort?: (port: string, url: string) => void;
+	activePort?: string | null;
 	draggable?: boolean;
 	showItemActions?: boolean;
 	canWrite?: boolean;
@@ -153,7 +157,7 @@ $effect(() => {
     </button>
   </div>
 
-  <SpacePreviewPorts endpoints={previewEndpoints} />
+  <SpacePreviewPorts endpoints={previewEndpoints} {activePort} onOpen={onOpenPort} />
 
   {#if error}
     <div class="mx-3 mt-3 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[12px] text-error-soft">
