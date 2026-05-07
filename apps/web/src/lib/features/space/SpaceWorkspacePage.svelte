@@ -499,6 +499,7 @@ let chatTimelineRef = $state<{
 } | null>(null);
 let turnIndexBySessionId = $state<Record<string, SessionTurnIndexItem[]>>({});
 let turnIndexLoadingBySessionId = $state<Record<string, boolean>>({});
+let turnIndexRetryAfterBySessionId = $state<Record<string, number>>({});
 let loadingTurnSequence = $state<number | null>(null);
 let currentTurnSequence = $state<number | null>(null);
 let highlightedTurnSequence = $state<number | null>(null);
@@ -1787,6 +1788,11 @@ async function loadSessionState(sessionId: string, force = false) {
 async function loadTurnIndex(sessionId: string, force = false) {
 	if (!force && Object.hasOwn(turnIndexBySessionId, sessionId)) return;
 	if (turnIndexLoadingBySessionId[sessionId]) return;
+	if (!force) {
+		if (typeof navigator !== "undefined" && !navigator.onLine) return;
+		const retryAfter = turnIndexRetryAfterBySessionId[sessionId] ?? 0;
+		if (retryAfter > Date.now()) return;
+	}
 	turnIndexLoadingBySessionId = {
 		...turnIndexLoadingBySessionId,
 		[sessionId]: true,
@@ -1807,7 +1813,18 @@ async function loadTurnIndex(sessionId: string, force = false) {
 			...turnIndexBySessionId,
 			[sessionId]: collected,
 		};
+		if (turnIndexRetryAfterBySessionId[sessionId]) {
+			const nextRetryAfterBySessionId = { ...turnIndexRetryAfterBySessionId };
+			delete nextRetryAfterBySessionId[sessionId];
+			turnIndexRetryAfterBySessionId = nextRetryAfterBySessionId;
+		}
 	} catch (error) {
+		const retryDelayMs =
+			error instanceof HttpError && error.status === 401 ? 60_000 : 15_000;
+		turnIndexRetryAfterBySessionId = {
+			...turnIndexRetryAfterBySessionId,
+			[sessionId]: Date.now() + retryDelayMs,
+		};
 		console.warn("[loadTurnIndex] Failed to load turn index:", error);
 	} finally {
 		turnIndexLoadingBySessionId = {
@@ -3536,6 +3553,7 @@ $effect(() => {
 	activeSessionId = null;
 	turnIndexBySessionId = {};
 	turnIndexLoadingBySessionId = {};
+	turnIndexRetryAfterBySessionId = {};
 	currentTurnSequence = null;
 	loadingTurnSequence = null;
 	showTurnBottomSheet = false;
@@ -3653,8 +3671,11 @@ $effect(() => {
 	showTurnBottomSheet = false;
 });
 $effect(() => {
-	if (!activeSessionId) return;
-	void loadTurnIndex(activeSessionId);
+	const sessionId = activeSessionId;
+	if (!sessionId) return;
+	untrack(() => {
+		void loadTurnIndex(sessionId);
+	});
 });
 $effect(() => {
 	if (!listEl || timeline.length === 0) return;
@@ -3672,7 +3693,9 @@ $effect(() => {
 			routeSessionId,
 			state?.session?.lastMessageId ?? null,
 		);
-		void loadTurnIndex(routeSessionId);
+		untrack(() => {
+			void loadTurnIndex(routeSessionId);
+		});
 		return;
 	}
 	if (routeView !== "session" && activeSessionId) {

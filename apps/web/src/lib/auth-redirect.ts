@@ -6,11 +6,21 @@ export const getCurrentRedirectPath = () => {
 	return `${window.location.pathname}${window.location.search}`;
 };
 
+let signInRedirectPromise: Promise<void> | null = null;
+
 export const redirectToSignIn = async (
 	redirectPath = getCurrentRedirectPath(),
 ) => {
-	await clearBrokenAuthSession();
-	await signInWithRedirectPath(redirectPath);
+	if (signInRedirectPromise) return signInRedirectPromise;
+
+	signInRedirectPromise = (async () => {
+		await clearBrokenAuthSession();
+		await signInWithRedirectPath(redirectPath);
+	})().finally(() => {
+		signInRedirectPromise = null;
+	});
+
+	return signInRedirectPromise;
 };
 
 export const handleUnauthorizedError = async (

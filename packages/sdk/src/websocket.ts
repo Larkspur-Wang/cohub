@@ -763,6 +763,18 @@ export class WebsocketClient {
       }, delay);
     });
     if (this.manuallyClosed) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      await new Promise<void>((resolve) => {
+        const fallbackTimer = setTimeout(resolve, this.reconnectMaxDelayMs);
+        const handleOnline = () => {
+          clearTimeout(fallbackTimer);
+          globalThis.removeEventListener?.("online", handleOnline);
+          resolve();
+        };
+        globalThis.addEventListener?.("online", handleOnline, { once: true });
+      });
+      if (this.manuallyClosed) return;
+    }
     await this.connect().catch((error) => {
       this.emit("error", { error, recoverable: true });
     });

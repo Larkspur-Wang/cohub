@@ -1,4 +1,5 @@
 import type { IdTokenClaims } from "@logto/browser";
+import { HttpError } from "@neta-art/cohub";
 import {
 	clearBrokenAuthSession,
 	getAuthToken,
@@ -37,6 +38,10 @@ const restoreAuthSession = async (): Promise<RestoredAuthSession> => {
 		const me = await sdk.user.getMe();
 		userUuid = (me as { uuid?: string } | null)?.uuid ?? null;
 	} catch (error) {
+		if (error instanceof HttpError && error.status === 401) {
+			await clearBrokenAuthSession();
+			return unauthenticatedSession();
+		}
 		console.warn("[auth] Failed to load current user profile:", error);
 	}
 
