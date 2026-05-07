@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
 import { injectTrace } from "@cohub/tracing/propagator";
@@ -396,9 +396,24 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
 const DEFAULT_SESSION_LIST_LIMIT = 20;
 const MAX_SESSION_LIST_LIMIT = 100;
 
-const encodeSessionListCursor = (date: Date | string | null | undefined) => {
-  if (!date) return null;
-  return date instanceof Date ? date.toISOString() : new Date(date).toISOString();
+const encodeSessionListCursor = (
+  session: typeof spaceSessions.$inferSelect | null | undefined,
+) => {
+  if (!session?.lastMessageAt) return null;
+  const lastMessageAt = session.lastMessageAt instanceof Date
+    ? session.lastMessageAt.toISOString()
+    : new Date(session.lastMessageAt).toISOString();
+  return `${lastMessageAt}|${session.id}`;
+};
+
+const decodeSessionListCursor = (cursor: string | null | undefined) => {
+  if (!cursor) return null;
+  const separatorIndex = cursor.lastIndexOf("|");
+  const rawDate = separatorIndex > 0 ? cursor.slice(0, separatorIndex) : cursor;
+  const id = separatorIndex > 0 ? cursor.slice(separatorIndex + 1) : null;
+  const date = new Date(rawDate);
+  if (Number.isNaN(date.getTime())) return null;
+  return { date, id };
 };
 
 export const listSpaceSessions = async (
@@ -409,15 +424,27 @@ export const listSpaceSessions = async (
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(rawLimit, 1), MAX_SESSION_LIST_LIMIT)
     : DEFAULT_SESSION_LIST_LIMIT;
-  const cursorDate = options?.cursor ? new Date(options.cursor) : null;
-  const cursor = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
+  const cursor = decodeSessionListCursor(options?.cursor);
 
   const rows = await db.select().from(spaceSessions).where(
     cursor
-      ? and(eq(spaceSessions.spaceId, spaceId), lt(spaceSessions.lastMessageAt, cursor))
+      ? and(
+        eq(spaceSessions.spaceId, spaceId),
+        or(
+          lt(spaceSessions.lastMessageAt, cursor.date),
+          cursor.id
+            ? and(
+              eq(spaceSessions.lastMessageAt, cursor.date),
+              lt(spaceSessions.id, cursor.id),
+            )
+            : undefined,
+          isNull(spaceSessions.lastMessageAt),
+        ),
+      )
       : eq(spaceSessions.spaceId, spaceId),
   ).orderBy(
     sql`${spaceSessions.lastMessageAt} desc nulls last`,
+    desc(spaceSessions.id),
   ).limit(limit + 1);
 
   const hasMore = rows.length > limit;
@@ -428,7 +455,7 @@ export const listSpaceSessions = async (
     sessions,
     pageInfo: {
       hasMore,
-      nextCursor: hasMore ? encodeSessionListCursor(lastSession?.lastMessageAt) : null,
+      nextCursor: hasMore ? encodeSessionListCursor(lastSession) : null,
     },
   };
 };

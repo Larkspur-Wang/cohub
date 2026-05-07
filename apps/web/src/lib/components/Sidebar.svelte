@@ -107,6 +107,7 @@ let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 	hasMore: false,
 	nextCursor: null,
 });
+let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
 
 let sessionsCollapsed = $state(false);
@@ -235,6 +236,20 @@ function displayStatus(space: SpaceRecord) {
 	return space.status ?? "unknown";
 }
 
+function getFallbackSessionCursor(sessionList: SessionRecord[]) {
+	return sessionList.at(-1)?.lastMessageAt ?? null;
+}
+
+function shouldShowLoadMoreSessions() {
+	if (sessionsPageInfo.hasMore && sessionsPageInfo.nextCursor) return true;
+	const fallbackCursor = getFallbackSessionCursor(sessions);
+	return Boolean(
+		sessions.length >= SESSION_PAGE_SIZE &&
+			fallbackCursor &&
+			fallbackCursor !== exhaustedFallbackSessionCursor,
+	);
+}
+
 function statusColorClass(status: string): string {
 	switch (status) {
 		case "running":
@@ -351,17 +366,15 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 }
 
 async function loadMoreSessionsForSpace(spaceId: string) {
-	if (
-		loadingMoreSessions ||
-		!sessionsPageInfo.hasMore ||
-		!sessionsPageInfo.nextCursor
-	)
-		return;
+	if (loadingMoreSessions) return;
+	const cursor =
+		sessionsPageInfo.nextCursor ?? getFallbackSessionCursor(sessions);
+	if (!cursor || cursor === exhaustedFallbackSessionCursor) return;
 	loadingMoreSessions = true;
 	try {
 		const result = await sdk.space(spaceId).sessions.list({
 			limit: SESSION_PAGE_SIZE,
-			cursor: sessionsPageInfo.nextCursor,
+			cursor,
 		});
 		const moreSessions = result.sessions ?? [];
 		const nextPageInfo = result.pageInfo ?? {
@@ -374,6 +387,8 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 			nextPageInfo,
 		);
 		sessionsPageInfo = nextPageInfo;
+		exhaustedFallbackSessionCursor =
+			!nextPageInfo.hasMore && moreSessions.length === 0 ? cursor : null;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load more sessions", { spaceId, error });
 	} finally {
@@ -679,6 +694,7 @@ onMount(() => {
 				if (spaceId !== currentSpaceId) return;
 				sessions = nextSessions;
 				if (pageInfo) sessionsPageInfo = pageInfo;
+				exhaustedFallbackSessionCursor = null;
 			},
 		);
 		offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(({ spaceId, marks }) => {
@@ -785,6 +801,7 @@ $effect(() => {
 		sessions = [];
 		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
+		exhaustedFallbackSessionCursor = null;
 		untrack(() => {
 			void loadSessionsForSpace(id);
 			void loadPinsForSpace(id);
@@ -796,6 +813,7 @@ $effect(() => {
 		sessions = [];
 		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
+		exhaustedFallbackSessionCursor = null;
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
@@ -1091,7 +1109,7 @@ $effect(() => {
                     </a>
                   {/if}
                 {/each}
-                {#if sessionsPageInfo.hasMore}
+                {#if shouldShowLoadMoreSessions()}
                   <button
                     type="button"
                     class="mt-1 flex items-center justify-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-60"
