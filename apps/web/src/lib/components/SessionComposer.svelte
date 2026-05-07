@@ -1,6 +1,14 @@
 <script lang="ts">
 import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
-import { ArrowUp, ChevronDown, Plus, Upload, X } from "lucide-svelte";
+import {
+	ArrowUp,
+	ChevronDown,
+	Maximize2,
+	Minimize2,
+	Plus,
+	Upload,
+	X,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 
 type ComposerImageAttachment = {
@@ -26,6 +34,7 @@ type Props = {
 	attachments?: ComposerImageAttachment[];
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
+	contextUsagePercent?: number | null;
 	onsubmit: () => void;
 	onpickimage?: (files: FileList | File[] | null) => void;
 	onremoveattachment?: (id: string) => void;
@@ -40,6 +49,7 @@ let {
 	attachments = [],
 	currentModel = null,
 	promptTemplates = [],
+	contextUsagePercent = null,
 	onsubmit,
 	onpickimage,
 	onremoveattachment,
@@ -53,6 +63,7 @@ let dragCounter = 0;
 let isPathDragOver = $state(false);
 let showPromptSuggestions = $state(false);
 let selectedPromptIndex = $state(0);
+let isComposerExpanded = $state(false);
 
 const filteredPromptTemplates = $derived.by(() => {
 	const trimmed = value.trimStart();
@@ -79,11 +90,39 @@ function isMobile(): boolean {
 	);
 }
 
+function getViewportHeight(): number {
+	if (typeof window === "undefined") return 800;
+	return window.visualViewport?.height ?? window.innerHeight;
+}
+
+function getTextareaLimits() {
+	const mobile = isMobile();
+	const viewportHeight = getViewportHeight();
+	const min = isComposerExpanded ? (mobile ? 132 : 160) : 44;
+	const max = isComposerExpanded
+		? Math.min(viewportHeight * (mobile ? 0.5 : 0.6), mobile ? 420 : 560)
+		: Math.min(viewportHeight * (mobile ? 0.34 : 0.38), mobile ? 220 : 220);
+
+	return {
+		min,
+		max: Math.max(min, max),
+	};
+}
+
 function resizeTextarea() {
 	if (!textareaEl) return;
+	const { min, max } = getTextareaLimits();
 	textareaEl.style.height = "0px";
-	const nextHeight = Math.min(textareaEl.scrollHeight, 168);
-	textareaEl.style.height = `${Math.max(nextHeight, 44)}px`;
+	const nextHeight = Math.min(textareaEl.scrollHeight, max);
+	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
+}
+
+function toggleComposerExpanded() {
+	isComposerExpanded = !isComposerExpanded;
+	requestAnimationFrame(() => {
+		textareaEl?.focus();
+		resizeTextarea();
+	});
 }
 
 function applyPromptTemplate(item: PromptTemplateCatalogEntry) {
@@ -191,15 +230,21 @@ onMount(() => {
 		if (!snippet) return;
 		insertSnippet(snippet);
 	};
+	const handleViewportResize = () => resizeTextarea();
 	window.addEventListener("cohub:composer-insert", handleComposerInsert);
+	window.addEventListener("resize", handleViewportResize);
+	window.visualViewport?.addEventListener("resize", handleViewportResize);
 	return () => {
 		window.removeEventListener("cohub:composer-insert", handleComposerInsert);
+		window.removeEventListener("resize", handleViewportResize);
+		window.visualViewport?.removeEventListener("resize", handleViewportResize);
 	};
 });
 
 $effect(() => {
 	value;
 	attachments.length;
+	isComposerExpanded;
 	resizeTextarea();
 });
 
@@ -219,7 +264,7 @@ $effect(() => {
 </script>
 
 <div class="px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-4">
-	<div class="relative mx-auto max-w-4xl">
+	<div class={`relative mx-auto transition-[max-width] duration-200 ${isComposerExpanded ? 'max-w-5xl' : 'max-w-4xl'}`}>
 		{#if streamError}
 			<div class="mb-3 rounded-2xl border border-error-soft/25 bg-error-bg px-3 py-2 text-[11px] text-error-soft">
 				{streamError}
@@ -247,7 +292,10 @@ $effect(() => {
 			{/if}
 
 			{#if attachments.length > 0}
-				<div class="mb-2 flex flex-wrap gap-2 px-1 pb-1" data-drawer-swipe-ignore>
+				<div
+					class={`mb-2 flex flex-wrap gap-2 overflow-y-auto px-1 pb-1 ${isComposerExpanded ? 'max-h-36' : 'max-h-24'}`}
+					data-drawer-swipe-ignore
+				>
 					{#each attachments as attachment (attachment.id)}
 						<div class="group relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content">
 							<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-cover" />
@@ -283,7 +331,7 @@ $effect(() => {
 						bind:value
 						rows="1"
 						placeholder={placeholder}
-						class="block min-h-[44px] max-h-[168px] w-full resize-none bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
+						class="block min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
 						oninput={() => resizeTextarea()}
 						ondragover={handlePathDragOver}
 						ondragleave={handlePathDragLeave}
@@ -324,8 +372,24 @@ $effect(() => {
 									return;
 								}
 							}
+
+							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing) {
+								event.preventDefault();
+								if (!disabled && (value.trim() || attachments.length > 0)) {
+									onsubmit();
+								}
+								return;
+							}
+
+							if (event.key === 'Escape' && isComposerExpanded) {
+								event.preventDefault();
+								isComposerExpanded = false;
+								requestAnimationFrame(resizeTextarea);
+								return;
+							}
+
 							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-								if (isMobile()) return;
+								if (isMobile() || isComposerExpanded) return;
 								event.preventDefault();
 								if (!disabled && (value.trim() || attachments.length > 0)) {
 									onsubmit();
@@ -387,14 +451,40 @@ $effect(() => {
 							{/if}
 						</div>
 
-						<button
-							type="submit"
-							disabled={disabled || (!value.trim() && attachments.length === 0)}
-							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-all hover:scale-[1.02] hover:bg-brand-hover disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled"
-							title="Send"
-						>
-							<ArrowUp class="h-4 w-4" />
-						</button>
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+								onclick={toggleComposerExpanded}
+								disabled={disabled}
+								title={isComposerExpanded ? "Collapse editor" : "Expand editor"}
+								aria-label={isComposerExpanded ? "Collapse editor" : "Expand editor"}
+								aria-pressed={isComposerExpanded}
+							>
+								{#if isComposerExpanded}
+									<Minimize2 class="h-4 w-4" />
+								{:else}
+									<Maximize2 class="h-4 w-4" />
+								{/if}
+							</button>
+
+							{#if contextUsagePercent !== null && Number.isFinite(contextUsagePercent)}
+								<div
+									class="min-w-11 rounded-full border border-border-subtle bg-bg-surface px-2 py-1 text-center text-[11px] font-medium tabular-nums text-text-tertiary"
+									title="Context used (estimated)"
+								>
+									{Math.round(contextUsagePercent)}%
+								</div>
+							{/if}
+							<button
+								type="submit"
+								disabled={disabled || (!value.trim() && attachments.length === 0)}
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-all hover:scale-[1.02] hover:bg-brand-hover disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled"
+								title="Send"
+							>
+								<ArrowUp class="h-4 w-4" />
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>
