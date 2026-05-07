@@ -1,5 +1,11 @@
 # @neta-art/cohub-protocol
 
+## 1.2.3
+
+### Patch Changes
+
+- Release current package updates.
+
 ## 1.2.2
 
 ### Patch Changes

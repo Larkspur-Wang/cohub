@@ -1,5 +1,13 @@
 # @neta-art/cohub
 
+## 1.3.1
+
+### Patch Changes
+
+- Release current package updates.
+- Updated dependencies
+  - @neta-art/cohub-protocol@1.2.3
+
 ## 1.3.0
 
 ### Minor Changes
