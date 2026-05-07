@@ -195,6 +195,7 @@ const MAX_IMAGE_EDGE = 2160;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const WEBP_QUALITIES = [0.88, 0.82, 0.76, 0.7, 0.62, 0.54];
 const PRELOAD_THRESHOLD = 10;
+const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -522,9 +523,12 @@ let turnIndexRetryAfterBySessionId = $state<Record<string, number>>({});
 let loadingTurnSequence = $state<number | null>(null);
 let currentTurnSequence = $state<number | null>(null);
 let highlightedTurnSequence = $state<number | null>(null);
+let turnMarkerPositions = $state<Record<number, number>>({});
 let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
 let preloadingSessionIds = new Set<string>();
+let turnMarkerMeasureFrame: number | null = null;
+let lastTurnIndexRefreshKey = "";
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
@@ -1019,6 +1023,33 @@ const activeGenerationState = $derived.by(() =>
 const activeTurnIndex = $derived.by(() =>
 	activeSessionId ? (turnIndexBySessionId[activeSessionId] ?? []) : [],
 );
+const activeTurnRailItems = $derived.by<SessionTurnIndexItem[]>(() => {
+	const bySequence = new Map<number, SessionTurnIndexItem>();
+	for (const item of activeTurnIndex) bySequence.set(item.sequence, item);
+	for (const turn of activeSessionState?.turns ?? []) {
+		if (!bySequence.has(turn.sequence)) {
+			bySequence.set(turn.sequence, turnToIndexItem(turn));
+		}
+	}
+	return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence);
+});
+const loadedTurnSequences = $derived.by(() =>
+	(activeSessionState?.turns ?? [])
+		.map((turn) => turn.sequence)
+		.sort((a, b) => a - b),
+);
+const loadedMinTurnSequence = $derived(loadedTurnSequences.at(0) ?? null);
+const loadedMaxTurnSequence = $derived(loadedTurnSequences.at(-1) ?? null);
+const unloadedOlderTurnCount = $derived.by(() => {
+	if (loadedMinTurnSequence == null) return 0;
+	return activeTurnIndex.filter((turn) => turn.sequence < loadedMinTurnSequence)
+		.length;
+});
+const unloadedNewerTurnCount = $derived.by(() => {
+	if (loadedMaxTurnSequence == null) return 0;
+	return activeTurnIndex.filter((turn) => turn.sequence > loadedMaxTurnSequence)
+		.length;
+});
 const activeStreamingIntermediateMessages = $derived.by(() => {
 	if (!activeGenerationState || !activeSessionId) return [];
 	return buildStreamingStoredIntermediateMessages({
@@ -1054,6 +1085,24 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 				: null,
 	});
 });
+function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
+	return {
+		id: turn.id,
+		sessionId: turn.sessionId,
+		sequence: turn.sequence,
+		status: turn.status,
+		startedAt: turn.startedAt,
+		completedAt: turn.completedAt,
+		createdAt: turn.createdAt,
+		updatedAt: turn.updatedAt,
+		userPreview: turn.userText,
+		assistantPreview: turn.assistantText,
+		provider: turn.provider,
+		model: turn.model,
+		usage: turn.usage,
+		errorMessage: turn.errorMessage,
+	};
+}
 function getSessionModelKey(sessionId: string) {
 	return `cohub:model:${sessionId}`;
 }
@@ -1193,6 +1242,37 @@ function getMessageElementAbsoluteTop(node: HTMLElement) {
 	const containerRect = listEl.getBoundingClientRect();
 	const nodeRect = node.getBoundingClientRect();
 	return listEl.scrollTop + (nodeRect.top - containerRect.top);
+}
+function measureTurnMarkerPositions() {
+	if (!listEl) {
+		turnMarkerPositions = {};
+		return;
+	}
+	const maxScroll = Math.max(1, listEl.scrollHeight - listEl.clientHeight);
+	const anchors = Array.from(
+		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
+	);
+	const next: Record<number, number> = {};
+	for (const anchor of anchors) {
+		const sequence = Number(anchor.dataset.turnSequence);
+		if (!Number.isFinite(sequence)) continue;
+		const scrollTopAtAnchor = Math.max(
+			0,
+			getMessageElementAbsoluteTop(anchor) - TURN_SCROLL_ANCHOR_OFFSET,
+		);
+		next[sequence] = Math.min(
+			100,
+			Math.max(0, (scrollTopAtAnchor / maxScroll) * 100),
+		);
+	}
+	turnMarkerPositions = next;
+}
+function scheduleTurnMarkerMeasure() {
+	if (turnMarkerMeasureFrame != null) return;
+	turnMarkerMeasureFrame = requestAnimationFrame(() => {
+		turnMarkerMeasureFrame = null;
+		measureTurnMarkerPositions();
+	});
 }
 function isGenerationInProgress(sessionId: string) {
 	const status = sessionGenerationStore.get(sessionId)?.status;
@@ -1889,7 +1969,7 @@ function scrollToTurnAnchor(sequence: number) {
 	const node = getTurnAnchorNode(sequence);
 	if (!node) return false;
 	setProgrammaticScrollTop(
-		Math.max(0, getMessageElementAbsoluteTop(node) - 16),
+		Math.max(0, getMessageElementAbsoluteTop(node) - TURN_SCROLL_ANCHOR_OFFSET),
 	);
 	shouldAutoFollow = false;
 	currentTurnSequence = sequence;
@@ -2660,6 +2740,7 @@ function handleTimelineMarkdownRenderStart() {
 }
 function handleTimelineMarkdownRendered() {
 	if (pendingTimelineMarkdownRenders > 0) pendingTimelineMarkdownRenders -= 1;
+	scheduleTurnMarkerMeasure();
 	const restore = activeAnchorRestore;
 	if (restore?.sessionId === activeSessionId) {
 		requestAnimationFrame(() => {
@@ -3556,6 +3637,8 @@ onMount(() => {
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+		if (turnMarkerMeasureFrame != null)
+			cancelAnimationFrame(turnMarkerMeasureFrame);
 		recoveryCoordinator.dispose();
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
@@ -3593,6 +3676,8 @@ $effect(() => {
 	turnIndexRetryAfterBySessionId = {};
 	currentTurnSequence = null;
 	loadingTurnSequence = null;
+	turnMarkerPositions = {};
+	lastTurnIndexRefreshKey = "";
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
 	fileTree = [];
@@ -3715,8 +3800,35 @@ $effect(() => {
 	});
 });
 $effect(() => {
-	if (!listEl || timeline.length === 0) return;
-	tick().then(() => updateCurrentTurnSequence());
+	if (!listEl || timeline.length === 0) {
+		turnMarkerPositions = {};
+		return;
+	}
+	void tick().then(() => {
+		updateCurrentTurnSequence();
+		scheduleTurnMarkerMeasure();
+	});
+});
+$effect(() => {
+	const el = listEl;
+	if (!el) return;
+	const observer = new ResizeObserver(() => scheduleTurnMarkerMeasure());
+	observer.observe(el);
+	for (const child of Array.from(el.children)) observer.observe(child);
+	scheduleTurnMarkerMeasure();
+	return () => observer.disconnect();
+});
+$effect(() => {
+	const sessionId = activeSessionId;
+	const loadedCount = activeSessionState?.turns.length ?? 0;
+	const indexedCount = activeTurnIndex.length;
+	if (!sessionId || loadedCount < 2 || indexedCount >= loadedCount) return;
+	const key = `${sessionId}:${loadedCount}:${indexedCount}`;
+	if (lastTurnIndexRefreshKey === key) return;
+	lastTurnIndexRefreshKey = key;
+	untrack(() => {
+		void loadTurnIndex(sessionId, true);
+	});
 });
 $effect(() => {
 	if (
@@ -3761,6 +3873,7 @@ $effect(() => {
 			programmaticScrollTarget = null;
 			updateAutoFollow();
 			updateCurrentTurnSequence();
+			scheduleTurnMarkerMeasure();
 			return;
 		}
 		if (activeSessionId && userScrollActive) {
@@ -3768,6 +3881,7 @@ $effect(() => {
 		}
 		updateAutoFollow();
 		updateCurrentTurnSequence();
+		scheduleTurnMarkerMeasure();
 	}
 	container.addEventListener("wheel", beginUserScroll, { passive: true });
 	container.addEventListener("touchstart", beginUserScroll, { passive: true });
@@ -5200,16 +5314,24 @@ $effect(() => {
           modelsCatalog={modelsCatalog ?? undefined}
         />
         <TurnRail
-          turns={activeTurnIndex}
+          turns={activeTurnRailItems}
           loadedTurns={activeSessionState.turns}
+          markerPositions={turnMarkerPositions}
+          olderCount={unloadedOlderTurnCount}
+          newerCount={unloadedNewerTurnCount}
+          hasMoreOlder={activeSessionState.hasMore}
+          hasMoreNewer={activeSessionState.hasMoreNewer}
+          loadingOlder={activeSessionState.loadingOlder}
           currentSequence={currentTurnSequence}
           loadingSequence={loadingTurnSequence}
           onJump={(sequence) => { void jumpToTurn(sequence); }}
+          onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
+          onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
         />
         {#if highlightedTurnSequence}
           <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
         {/if}
-        {#if hasUnread || !shouldAutoFollow || activeTurnIndex.length > 1}
+        {#if hasUnread || !shouldAutoFollow || activeTurnRailItems.length > 1}
           <div class={`pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 ${!hasUnread && shouldAutoFollow ? 'lg:hidden' : ''}`}
             style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
             style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
@@ -5240,7 +5362,7 @@ $effect(() => {
                   <ArrowDown class="w-4 h-4" />
                 </button>
               {/if}
-              {#if activeTurnIndex.length > 1}
+              {#if activeTurnRailItems.length > 1}
                 <button
                   type="button"
                   aria-label="Open turn list"
@@ -5255,7 +5377,7 @@ $effect(() => {
         {/if}
         <TurnBottomSheet
           open={showTurnBottomSheet}
-          turns={activeTurnIndex}
+          turns={activeTurnRailItems}
           currentSequence={currentTurnSequence}
           onClose={() => { showTurnBottomSheet = false; }}
           onJump={(sequence) => { void jumpToTurn(sequence); }}
