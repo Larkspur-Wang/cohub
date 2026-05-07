@@ -16,10 +16,7 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		alias: {
-			"@neta-art/cohub": `${sdkDir}/index.ts`,
-			"@neta-art/cohub/http": `${sdkDir}/http.ts`,
-			"@neta-art/cohub/websocket": `${sdkDir}/websocket.ts`,
-			"@neta-art/cohub-protocol": `${protocolDir}/index.ts`,
+			// protocol subpaths — must come before bare package alias to avoid prefix matching
 			"@neta-art/cohub-protocol/core": `${protocolDir}/core/index.ts`,
 			"@neta-art/cohub-protocol/fs": `${protocolDir}/fs/index.ts`,
 			"@neta-art/cohub-protocol/gateway": `${protocolDir}/gateway/index.ts`,
@@ -27,6 +24,11 @@ const config = {
 			"@neta-art/cohub-protocol/ports": `${protocolDir}/ports/index.ts`,
 			"@neta-art/cohub-protocol/realtime": `${protocolDir}/realtime/index.ts`,
 			"@neta-art/cohub-protocol/task": `${protocolDir}/task/index.ts`,
+			// sdk subpaths
+			"@neta-art/cohub/http": `${sdkDir}/http.ts`,
+			"@neta-art/cohub/websocket": `${sdkDir}/websocket.ts`,
+			// bare package aliases — must be last
+			"@neta-art/cohub": `${sdkDir}/index.ts`,
 		},
 	},
 };

@@ -14,7 +14,7 @@ const sdkDir = fileURLToPath(
 export default defineConfig({
 	resolve: {
 		alias: [
-			// protocol subpaths — must come before bare package name
+			// protocol subpaths — more specific patterns MUST come before bare package name
 			{
 				find: /^@neta-art\/cohub-protocol\/core$/,
 				replacement: `${protocolDir}/core/index.ts`,
@@ -39,12 +39,16 @@ export default defineConfig({
 				find: /^@neta-art\/cohub-protocol\/fs$/,
 				replacement: `${protocolDir}/fs/index.ts`,
 			},
-			// protocol bare import
+			{
+				find: /^@neta-art\/cohub-protocol\/ports$/,
+				replacement: `${protocolDir}/ports/index.ts`,
+			},
+			// protocol bare import — must be last to avoid prefix-matching subpaths
 			{
 				find: /^@neta-art\/cohub-protocol$/,
 				replacement: `${protocolDir}/index.ts`,
 			},
-			// sdk subpaths
+			// sdk subpaths — more specific patterns first
 			{
 				find: /^@neta-art\/cohub\/http$/,
 				replacement: `${sdkDir}/http.ts`,
@@ -53,7 +57,7 @@ export default defineConfig({
 				find: /^@neta-art\/cohub\/websocket$/,
 				replacement: `${sdkDir}/websocket.ts`,
 			},
-			// sdk bare import
+			// sdk bare import — must be last
 			{
 				find: /^@neta-art\/cohub$/,
 				replacement: `${sdkDir}/index.ts`,
