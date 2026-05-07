@@ -100,7 +100,8 @@ async function main() {
   await run("GET /api/me", async () => {
     const user = await api("/api/me") as Record<string, unknown>;
     assert(user.uuid, "user.uuid should exist");
-    ok("GET /api/me", `user=${user.nick_name ?? user.uuid} (${user.uuid})`);
+    const profile = user.profile as { displayName?: string } | undefined;
+    ok("GET /api/me", `user=${profile?.displayName ?? user.uuid} (${user.uuid})`);
   });
 
   await run("GET /api/models", async () => {

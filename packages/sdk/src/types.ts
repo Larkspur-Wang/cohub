@@ -21,6 +21,19 @@ export type ApiError = {
   message: string;
 };
 
+export type UserProfile = {
+  userUuid: string;
+  logtoUserId?: string;
+  displayName: string;
+  avatarUrl: string | null;
+  syncedAt?: string;
+};
+
+export type MeResponse = {
+  uuid: string;
+  profile: UserProfile;
+};
+
 export type UserRulesResponse = {
   content: string;
   updatedAt: string | null;

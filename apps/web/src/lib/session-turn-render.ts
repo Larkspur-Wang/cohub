@@ -18,8 +18,7 @@ function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 		sequence: turn.sequence * 10,
 		blocks: [...turn.userContent],
 		authorUuid: (meta.authorUuid as string | undefined) ?? turn.userUuid,
-		authorName: (meta.authorName as string | undefined) ?? null,
-		authorAvatar: (meta.authorAvatar as string | undefined) ?? null,
+		authorProfile: turn.authorProfile ?? null,
 		createdAt: turn.startedAt ?? turn.createdAt,
 		meta: {
 			messageKind: "turn_user",

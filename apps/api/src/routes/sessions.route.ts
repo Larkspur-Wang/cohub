@@ -13,7 +13,7 @@ import {
   summarizeMessageForHistory,
   markMessageAsFull,
 } from "../space-sessions.js";
-import { createSignedTurnUrls, createSessionTurn, failSessionTurn, getSessionTurnById, getSessionTurnSequenceById, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
+import { createSignedTurnUrls, createSessionTurn, failSessionTurn, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { expandPromptTemplate } from "../prompt-templates.js";
 
 const router = new Hono();
@@ -84,7 +84,8 @@ router.get("/:id/turns", async (c) => {
   const fetchLimit = Math.min(pageLimit + 1, 101);
   const rows = await listSessionTurns(session.id, { cursor, limit: fetchLimit, direction });
   const hasMore = rows.length > pageLimit;
-  const turns = hasMore ? (direction === "newer" ? rows.slice(0, pageLimit) : rows.slice(1)) : rows;
+  const pageTurns = hasMore ? (direction === "newer" ? rows.slice(0, pageLimit) : rows.slice(1)) : rows;
+  const turns = await hydrateTurnAuthorProfiles(pageTurns);
   return c.json({
     session,
     turns,
@@ -144,7 +145,7 @@ router.get("/:id/turns/window", async (c) => {
   if (!Number.isFinite(before) || !Number.isFinite(after)) return c.json({ message: "invalid window" }, 400);
   const result = await listSessionTurnWindow(session.id, { sequence: Math.floor(sequence), before, after });
   if (!result) return c.json({ message: "turn not found" }, 404);
-  return c.json({ session, ...result });
+  return c.json({ session, ...result, turns: await hydrateTurnAuthorProfiles(result.turns) });
 });
 
 router.get("/:id/turns/:turnId", async (c) => {
@@ -162,7 +163,8 @@ router.get("/:id/turns/:turnId", async (c) => {
 
   const turn = await getSessionTurnById(session.id, turnId);
   if (!turn) return c.json({ message: "turn not found" }, 404);
-  return c.json({ session, turn });
+  const [hydratedTurn] = await hydrateTurnAuthorProfiles([turn]);
+  return c.json({ session, turn: hydratedTurn ?? turn });
 });
 
 router.post("/:id/turns/:turnId/signed-urls", async (c) => {
@@ -329,8 +331,6 @@ router.post("/:id/messages", async (c) => {
         provider: body.provider ?? null,
         promptTemplate: promptTemplateMeta,
         authorUuid: user?.uuid ?? null,
-        authorName: (user?.nick_name as string | undefined) ?? null,
-        authorAvatar: (user?.avatar_url as string | undefined) ?? null,
       },
     });
     await enqueueSpacePrompt({
@@ -347,8 +347,6 @@ router.post("/:id/messages", async (c) => {
         promptTemplate: promptTemplateMeta,
         actorUserId: user?.uuid ?? null,
         authorUuid: user?.uuid ?? null,
-        authorName: (user?.nick_name as string | undefined) ?? null,
-        authorAvatar: (user?.avatar_url as string | undefined) ?? null,
       },
     });
   } catch (error) {

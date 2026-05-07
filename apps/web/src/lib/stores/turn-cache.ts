@@ -37,18 +37,18 @@ function mergeAuthorIdentity(
 	let changed = false;
 
 	if (!current.userUuid && incoming.userUuid) changed = true;
-	for (const key of ["authorUuid", "authorName", "authorAvatar"] as const) {
-		const value = incomingMeta[key];
-		if (value == null) continue;
-		if (nextMeta[key] === value) continue;
-		nextMeta[key] = value;
+	const authorUuid = incomingMeta.authorUuid;
+	if (authorUuid != null && nextMeta.authorUuid !== authorUuid) {
+		nextMeta.authorUuid = authorUuid;
 		changed = true;
 	}
+	if (!current.authorProfile && incoming.authorProfile) changed = true;
 
 	if (!changed) return current;
 	return {
 		...current,
 		userUuid: current.userUuid ?? incoming.userUuid,
+		authorProfile: current.authorProfile ?? incoming.authorProfile,
 		meta: Object.keys(nextMeta).length > 0 ? nextMeta : current.meta,
 	};
 }

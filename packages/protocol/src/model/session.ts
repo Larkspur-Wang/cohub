@@ -104,6 +104,12 @@ export type SessionRecord = {
   updatedAt: string;
 };
 
+export type MessageAuthorProfile = {
+  userUuid: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export type MessageRecord = {
   id: string;
   sessionId: string;
@@ -117,5 +123,7 @@ export type MessageRecord = {
   errorMessage: string | null;
   usage: Usage | null;
   meta: Record<string, unknown> | null;
+  authorUuid?: string | null;
+  authorProfile?: MessageAuthorProfile | null;
   createdAt: string;
 };

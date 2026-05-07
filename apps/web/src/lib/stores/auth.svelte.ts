@@ -1,5 +1,5 @@
 import type { IdTokenClaims } from "@logto/browser";
-import { HttpError } from "@neta-art/cohub";
+import { HttpError, type UserProfile } from "@neta-art/cohub";
 import {
 	clearBrokenAuthSession,
 	getAuthToken,
@@ -12,12 +12,14 @@ type RestoredAuthSession = {
 	isAuthenticated: boolean;
 	claims: IdTokenClaims | null;
 	userUuid: string | null;
+	profile: UserProfile | null;
 };
 
 const unauthenticatedSession = (): RestoredAuthSession => ({
 	isAuthenticated: false,
 	claims: null,
 	userUuid: null,
+	profile: null,
 });
 
 const restoreAuthSession = async (): Promise<RestoredAuthSession> => {
@@ -33,10 +35,12 @@ const restoreAuthSession = async (): Promise<RestoredAuthSession> => {
 
 	const claims = await getCurrentIdTokenClaims();
 	let userUuid: string | null = null;
+	let profile: UserProfile | null = null;
 
 	try {
 		const me = await sdk.user.getMe();
-		userUuid = (me as { uuid?: string } | null)?.uuid ?? null;
+		userUuid = me.uuid ?? null;
+		profile = me.profile ?? null;
 	} catch (error) {
 		if (error instanceof HttpError && error.status === 401) {
 			await clearBrokenAuthSession();
@@ -49,6 +53,7 @@ const restoreAuthSession = async (): Promise<RestoredAuthSession> => {
 		isAuthenticated: true,
 		claims,
 		userUuid,
+		profile,
 	};
 };
 
@@ -61,6 +66,7 @@ class AuthStore {
 	// userUuid from backend API (/api/me), used for ownership checks
 	// against space.userUuid, session ownership, etc.
 	_userUuid = $state<string | null>(null);
+	profile = $state<UserProfile | null>(null);
 
 	// Shared promise for in-flight ensureLoaded calls so concurrent callers all wait
 	private _loadPromise: Promise<void> | null = null;
@@ -80,6 +86,7 @@ class AuthStore {
 				this.isAuthenticated = restored.isAuthenticated;
 				this.claims = restored.claims;
 				this._userUuid = restored.userUuid;
+				this.profile = restored.profile;
 				this.loaded = true;
 			} finally {
 				this.loading = false;
@@ -90,12 +97,22 @@ class AuthStore {
 		return this._loadPromise;
 	}
 
+	async updateProfile(input: {
+		displayName?: string;
+		avatarUrl?: string | null;
+	}) {
+		const { profile } = await sdk.user.updateProfile(input);
+		this.profile = profile;
+		return profile;
+	}
+
 	reset() {
 		this.claims = null;
 		this.isAuthenticated = false;
 		this.loaded = false;
 		this.loading = false;
 		this._userUuid = null;
+		this.profile = null;
 		this._loadPromise = null;
 	}
 }

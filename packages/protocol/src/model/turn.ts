@@ -88,6 +88,12 @@ export type SessionTurnIndexItem = {
   errorMessage: string | null;
 };
 
+export type SessionTurnAuthorProfile = {
+  userUuid: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export type SessionTurnRecord = {
   id: string;
   sessionId: string;
@@ -108,6 +114,7 @@ export type SessionTurnRecord = {
   intermediateIndex: SessionTurnIntermediateIndex | null;
   intermediateSummary: SessionTurnIntermediateSummary | null;
   meta: Record<string, unknown> | null;
+  authorProfile?: SessionTurnAuthorProfile | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;

@@ -308,6 +308,7 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "status"
   | "intent"
   | "userUuid"
+  | "authorProfile"
   | "userText"
   | "assistantText"
   | "provider"

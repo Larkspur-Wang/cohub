@@ -43,6 +43,13 @@
       "when": 1777601891701,
       "tag": "0005_sudden_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778144735495,
+      "tag": "0006_user_profiles",
+      "breakpoints": true
     }
   ]
 }

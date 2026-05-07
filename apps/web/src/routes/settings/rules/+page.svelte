@@ -57,7 +57,7 @@ async function loadRulesPage() {
 	loadError = "";
 	actionMessage = "";
 	try {
-		const me = (await sdk.user.getMe()) as { uuid?: string };
+		const me = await sdk.user.getMe();
 		userUuid = me.uuid ?? "";
 		const [rules, spaces] = await Promise.all([
 			sdk.user.getRules(),

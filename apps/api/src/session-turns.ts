@@ -12,6 +12,7 @@ import type {
 } from "@neta-art/cohub-protocol/model";
 import { db } from "./db/index.js";
 import { sessionMessages, sessionTurns } from "./db/schema-v2.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
 import { deriveMessagePreviewText } from "./space-sessions.js";
 
@@ -175,6 +176,18 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   createdAt: toIso(row.createdAt),
   updatedAt: toIso(row.updatedAt),
 });
+
+export async function hydrateTurnAuthorProfiles(turns: SessionTurnRecord[]) {
+  const userUuids = turns.map((turn) => turn.userUuid).filter((value): value is string => Boolean(value));
+  const profiles = await getProfilesByUuids(userUuids);
+  return turns.map((turn) => {
+    if (!turn.userUuid) return { ...turn, authorProfile: null };
+    return {
+      ...turn,
+      authorProfile: profiles.get(turn.userUuid) ?? fallbackPublicUserProfile(turn.userUuid),
+    };
+  });
+}
 
 type SessionTurnIndexRow = {
   id: string;

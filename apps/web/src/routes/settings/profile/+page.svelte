@@ -1,33 +1,33 @@
 <script lang="ts">
-import { Check, Copy, User } from "lucide-svelte";
+import { Check, Copy, Loader2, User } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
-import { sdk } from "$lib/sdk";
+import { authStore } from "$lib/stores/auth.svelte";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
 let userUuid = $state("");
-let userNickname = $state("");
-let userAvatar = $state("");
+let displayName = $state("");
+let avatarUrl = $state("");
 let uuidCopied = $state(false);
 let loadError = $state("");
+let saveError = $state("");
+let saving = $state(false);
+let saved = $state(false);
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let savedTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadProfile() {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
 	try {
-		const me = (await sdk.user.getMe()) as {
-			uuid?: string;
-			nick_name?: string;
-			avatar_url?: string;
-		};
-		userUuid = me.uuid ?? "";
-		userNickname = me.nick_name ?? "";
-		userAvatar = me.avatar_url ?? "";
+		await authStore.ensureLoaded(true);
+		userUuid = authStore.userUuid ?? "";
+		displayName = authStore.profile?.displayName ?? "";
+		avatarUrl = authStore.profile?.avatarUrl ?? "";
 	} catch (error) {
 		if (
 			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
@@ -37,6 +37,31 @@ async function loadProfile() {
 		loadError =
 			error instanceof Error ? error.message : "Failed to load profile";
 		console.error("[profile] Failed to load profile:", error);
+	}
+}
+
+async function saveProfile() {
+	if (saving) return;
+	saveError = "";
+	saved = false;
+	saving = true;
+	try {
+		const profile = await authStore.updateProfile({
+			displayName: displayName.trim(),
+			avatarUrl: avatarUrl.trim() || null,
+		});
+		displayName = profile.displayName;
+		avatarUrl = profile.avatarUrl ?? "";
+		saved = true;
+		if (savedTimer) clearTimeout(savedTimer);
+		savedTimer = setTimeout(() => {
+			saved = false;
+		}, 1800);
+	} catch (error) {
+		saveError =
+			error instanceof Error ? error.message : "Failed to save profile";
+	} finally {
+		saving = false;
 	}
 }
 
@@ -64,46 +89,67 @@ onMount(() => {
     <section class="max-w-xl">
       <h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Profile</h1>
       <p class="mt-1 text-[13px] text-text-tertiary">
-        Your user identity. Share your UUID to be added as a collaborator on shared spaces.
+        Your public name and avatar are stored in Logto and cached in Cohub for display.
       </p>
 
       {#if loadError}
         <div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if userUuid}
-        <div class="mt-6 border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
-        {#if userAvatar}
+        <div class="mt-6 border border-border-subtle rounded-md bg-bg-surface p-4 space-y-4">
           <div class="flex items-center gap-3">
-            <img src={userAvatar} alt="avatar" class="w-9 h-9 rounded-full border border-border-subtle" />
-            <span class="text-[14px] font-medium text-text-primary">{userNickname || "User"}</span>
-          </div>
-        {:else}
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-full bg-bg-hover-strong border border-border-subtle flex items-center justify-center">
-              <User class="w-4 h-4 text-text-tertiary" />
+            {#if avatarUrl}
+              <img src={avatarUrl} alt="avatar" class="w-10 h-10 rounded-full border border-border-subtle object-cover" />
+            {:else}
+              <div class="w-10 h-10 rounded-full bg-bg-hover-strong border border-border-subtle flex items-center justify-center">
+                <User class="w-4 h-4 text-text-tertiary" />
+              </div>
+            {/if}
+            <div class="min-w-0">
+              <div class="truncate text-[14px] font-medium text-text-primary">{displayName || "User"}</div>
+              <div class="text-[12px] text-text-tertiary">Public profile</div>
             </div>
-            <span class="text-[14px] font-medium text-text-primary">{userNickname || "User"}</span>
           </div>
-        {/if}
 
-        <div>
-          <div class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">User UUID</div>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 px-3 py-[6px] rounded-[5px] bg-bg-code border border-border-subtle text-[12px] font-mono text-text-primary truncate select-all">{userUuid}</code>
-            <button
-              type="button"
-              onclick={copyUuid}
-              class="shrink-0 p-2 rounded-[5px] border border-border-subtle bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-              title="Copy UUID"
-            >
-              {#if uuidCopied}
-                <Check class="w-4 h-4 text-status-running" />
-              {:else}
-                <Copy class="w-4 h-4" />
-              {/if}
+          <label class="block">
+            <div class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Display name</div>
+            <input bind:value={displayName} maxlength="120" class="w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none" />
+          </label>
+
+          <label class="block">
+            <div class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Avatar URL</div>
+            <input bind:value={avatarUrl} placeholder="https://..." class="w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+          </label>
+
+          {#if saveError}
+            <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{saveError}</div>
+          {/if}
+
+          <div class="flex items-center justify-between gap-3">
+            <button type="button" onclick={saveProfile} disabled={saving || !displayName.trim()} class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50">
+              {#if saving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else if saved}<Check class="w-3.5 h-3.5" />{/if}
+              {saved ? "Saved" : "Save"}
             </button>
           </div>
+
+          <div>
+            <div class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">User UUID</div>
+            <div class="flex items-center gap-2">
+              <code class="flex-1 px-3 py-[6px] rounded-[5px] bg-bg-code border border-border-subtle text-[12px] font-mono text-text-primary truncate select-all">{userUuid}</code>
+              <button
+                type="button"
+                onclick={copyUuid}
+                class="shrink-0 p-2 rounded-[5px] border border-border-subtle bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                title="Copy UUID"
+              >
+                {#if uuidCopied}
+                  <Check class="w-4 h-4 text-status-running" />
+                {:else}
+                  <Copy class="w-4 h-4" />
+                {/if}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
       {/if}
     </section>
   </div>

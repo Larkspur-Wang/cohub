@@ -14,8 +14,11 @@ export type ChatMessage = {
 	sequence: number;
 	blocks?: ContentBlock[];
 	authorUuid?: string | null;
-	authorName?: string | null;
-	authorAvatar?: string | null;
+	authorProfile?: {
+		userUuid: string;
+		displayName: string;
+		avatarUrl: string | null;
+	} | null;
 	createdAt: string;
 	meta?: {
 		messageKind?: string | null;

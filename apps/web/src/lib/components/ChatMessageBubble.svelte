@@ -92,7 +92,8 @@ function shortenUserUuid(uuid?: string | null): string {
 }
 
 const userDisplayName = $derived(
-	message.authorName?.trim() || shortenUserUuid(message.authorUuid),
+	message.authorProfile?.displayName?.trim() ||
+		shortenUserUuid(message.authorUuid),
 );
 
 function toggleThinking() {
@@ -282,8 +283,8 @@ function handleCopy() {
         {#if message.role === 'user'}
           <!-- User identity -->
           <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
-            {#if message.authorAvatar}
-              <img src={message.authorAvatar} alt="" class="w-4 h-4 rounded-full shrink-0" />
+            {#if message.authorProfile?.avatarUrl}
+              <img src={message.authorProfile.avatarUrl} alt="" class="w-4 h-4 rounded-full shrink-0" />
             {:else}
               <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-brand shrink-0">
                 <UserRound class="w-3 h-3" aria-hidden="true" />

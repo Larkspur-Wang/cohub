@@ -27,6 +27,26 @@ export type AccessPolicyResourceType = "space" | "session";
 
 export const v2 = pgSchema("v2");
 
+export const userProfiles = v2.table(
+  "user_profiles",
+  {
+    userUuid: varchar("user_uuid", { length: 255 }).primaryKey(),
+    logtoUserId: varchar("logto_user_id", { length: 255 }).notNull(),
+    displayName: varchar("display_name", { length: 120 }).notNull(),
+    avatarUrl: text("avatar_url"),
+    source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    logtoUserIdUniqueIdx: uniqueIndex("v2_uq_user_profiles_logto_user_id").on(
+      table.logtoUserId,
+    ),
+    updatedAtIdx: index("v2_idx_user_profiles_updated_at").on(table.updatedAt),
+  }),
+);
+
 export const userGitAccounts = v2.table(
   "user_git_accounts",
   {

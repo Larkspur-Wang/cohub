@@ -570,6 +570,22 @@ function getPinnedFallbackTitle(mark: SpaceMarkListItem) {
 	return mark.resource?.title ?? mark.label ?? mark.resourceRef;
 }
 
+function isPinnedMarkActive(mark: SpaceMarkListItem) {
+	if (!currentSpaceId) return false;
+	if (mark.resourceType === "session") {
+		return (
+			currentPath === buildSpaceSessionRoute(currentSpaceId, mark.resourceRef)
+		);
+	}
+	if (mark.resourceType === "checkpoint") {
+		return (
+			currentPath ===
+			buildSpaceCheckpointRoute(currentSpaceId, mark.resourceRef)
+		);
+	}
+	return currentPath === mark.href;
+}
+
 // ── Session rename ──────────────────────────────────────────────────────
 
 function startRenameSession(session: SessionRecord) {
@@ -904,13 +920,15 @@ $effect(() => {
               <div class="space-y-[2px] mt-1">
                 {#each pinnedMarks as mark (mark.id)}
                   {@const Icon = getPinnedIcon(mark.resourceType)}
+                  {@const isActivePinned = isPinnedMarkActive(mark)}
                   <button
                     type="button"
-                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-8 mx-[-2px] rounded-[6px] text-left text-[13px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-8 mx-[-2px] rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                     onclick={() => void handleNavigateToPinned(mark)}
                     title={mark.resource?.subtitle ?? mark.resourceRef}
+                    aria-current={isActivePinned ? "page" : undefined}
                   >
-                    <Icon class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                    <Icon class="w-3.5 h-3.5 shrink-0 {isActivePinned ? 'text-text-tertiary' : 'text-text-placeholder'}" />
                     <span class="truncate leading-tight flex-1">{getPinnedFallbackTitle(mark)}</span>
                     <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto"}>
                       <span
@@ -1476,8 +1494,8 @@ $effect(() => {
       onclick={() => { showUserMenu = !showUserMenu; }}
     >
       <div class="w-[22px] h-[22px] rounded-full bg-bg-hover-strong overflow-hidden shrink-0">
-        {#if authStore.claims?.picture}
-          <img src={authStore.claims.picture} alt="avatar" class="w-full h-full object-cover" />
+        {#if authStore.profile?.avatarUrl}
+          <img src={authStore.profile.avatarUrl} alt="avatar" class="w-full h-full object-cover" />
         {:else}
           <svg viewBox="0 0 32 32" class="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect width="32" height="32" rx="16" fill="#e5e7eb" />

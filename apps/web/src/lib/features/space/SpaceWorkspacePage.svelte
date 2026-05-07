@@ -2344,12 +2344,7 @@ async function handleSend() {
 	const optimisticTurnId = crypto.randomUUID();
 	const currentUser = {
 		uuid: authStore.userUuid ?? null,
-		name:
-			typeof authStore.claims?.name === "string" ? authStore.claims.name : null,
-		avatar:
-			typeof authStore.claims?.picture === "string"
-				? authStore.claims.picture
-				: null,
+		profile: authStore.profile,
 	};
 	// Clear input immediately so it disappears from the composer at the same
 	// time the optimistic turn appears in the list — avoids the awkward "stuck"
@@ -2384,9 +2379,8 @@ async function handleSend() {
 			meta: {
 				optimistic: true,
 				authorUuid: currentUser.uuid,
-				authorName: currentUser.name,
-				authorAvatar: currentUser.avatar,
 			},
+			authorProfile: currentUser.profile,
 			startedAt: now,
 			completedAt: null,
 			createdAt: now,
@@ -2443,9 +2437,8 @@ async function handleSend() {
 											...(turn.meta ?? {}),
 											optimistic: true,
 											authorUuid: currentUser.uuid,
-											authorName: currentUser.name,
-											authorAvatar: currentUser.avatar,
 										},
+										authorProfile: currentUser.profile ?? turn.authorProfile,
 									}
 								: turn,
 						),
