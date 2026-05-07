@@ -98,9 +98,9 @@ function getViewportHeight(): number {
 function getTextareaLimits() {
 	const mobile = isMobile();
 	const viewportHeight = getViewportHeight();
-	const min = isComposerExpanded ? (mobile ? 132 : 160) : 44;
+	const min = isComposerExpanded ? (mobile ? 160 : 200) : 44;
 	const max = isComposerExpanded
-		? Math.min(viewportHeight * (mobile ? 0.5 : 0.6), mobile ? 420 : 560)
+		? Math.min(viewportHeight * (mobile ? 0.58 : 0.7), mobile ? 520 : 720)
 		: Math.min(viewportHeight * (mobile ? 0.34 : 0.38), mobile ? 220 : 220);
 
 	return {
@@ -113,7 +113,9 @@ function resizeTextarea() {
 	if (!textareaEl) return;
 	const { min, max } = getTextareaLimits();
 	textareaEl.style.height = "0px";
-	const nextHeight = Math.min(textareaEl.scrollHeight, max);
+	const nextHeight = isComposerExpanded
+		? max
+		: Math.min(textareaEl.scrollHeight, max);
 	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
 }
 
