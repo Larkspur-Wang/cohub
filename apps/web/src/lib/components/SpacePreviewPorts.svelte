@@ -10,9 +10,9 @@ const items = $derived.by(() =>
 		.sort((a, b) => Number(a.port) - Number(b.port)),
 );
 
-function statusLabel(status: string | undefined) {
-	if (status === "listening") return "Live";
-	if (status === "closed") return "Idle";
+function statusTooltip(status: string | undefined) {
+	if (status === "listening") return "Listening";
+	if (status === "closed") return "Closed";
 	return "Detecting";
 }
 </script>
@@ -20,7 +20,7 @@ function statusLabel(status: string | undefined) {
 {#if items.length > 0}
 	<div class="border-b border-border-subtle px-3 py-2">
 		<div class="mb-1.5 flex items-center justify-between gap-2">
-			<div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Preview</div>
+			<div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Ports</div>
 		</div>
 		<div class="flex flex-wrap gap-1.5">
 			{#each items as item (item.port)}
@@ -29,11 +29,10 @@ function statusLabel(status: string | undefined) {
 					href={item.url}
 					target="_blank"
 					rel="noreferrer"
-					title={`Open port ${item.port} preview`}
+					title={`:${item.port} — ${statusTooltip(item.status)}`}
 				>
 					<span class="h-1.5 w-1.5 rounded-full {item.status === 'listening' ? 'bg-success-soft' : 'bg-text-placeholder'}"></span>
 					<span class="font-medium">:{item.port}</span>
-					<span class="text-[10px] opacity-80">{statusLabel(item.status)}</span>
 					<ExternalLink class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70" />
 				</a>
 			{/each}
