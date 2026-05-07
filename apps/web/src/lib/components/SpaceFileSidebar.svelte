@@ -13,6 +13,11 @@ import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import SpacePreviewPorts from "$lib/components/SpacePreviewPorts.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
+import {
+	entriesFromDataTransfer,
+	entriesFromFiles,
+	type LocalUploadEntry,
+} from "$lib/upload-entries";
 
 const {
 	nodes,
@@ -46,7 +51,7 @@ const {
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
-	onUpload?: (files: File[], targetDir: string) => void;
+	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
@@ -57,6 +62,7 @@ const {
 } = $props();
 
 let treeScrollContainer: HTMLDivElement | null = $state(null);
+let rootDragOver = $state(false);
 
 function handleCreateFileAtRoot() {
 	onCreateFile("");
@@ -66,16 +72,36 @@ function handleCreateDirAtRoot() {
 	onCreateDir("");
 }
 
-function handleUploadClick() {
+function openUploadPicker(folder = false) {
 	const input = document.createElement("input");
 	input.type = "file";
 	input.multiple = true;
+	if (folder) input.setAttribute("webkitdirectory", "");
 	input.onchange = () => {
 		if (input.files?.length && onUpload) {
-			onUpload(Array.from(input.files), "");
+			onUpload(entriesFromFiles(Array.from(input.files)), "");
 		}
 	};
 	input.click();
+}
+
+function handleUploadClick() {
+	openUploadPicker(false);
+}
+
+function handleFolderUploadClick() {
+	openUploadPicker(true);
+}
+
+async function handleRootDrop(e: DragEvent) {
+	if (!onUpload) return;
+	e.preventDefault();
+	e.stopPropagation();
+	rootDragOver = false;
+	if (!e.dataTransfer || e.dataTransfer.types.includes("text/cohub-path"))
+		return;
+	const entries = await entriesFromDataTransfer(e.dataTransfer);
+	if (entries.length > 0) onUpload(entries, "");
 }
 $effect(() => {
 	const path = selectedPath;
@@ -107,6 +133,9 @@ $effect(() => {
         <button class="icon-btn" type="button" title="Upload files" onclick={handleUploadClick}>
           <Upload class="w-3.5 h-3.5" />
         </button>
+        <button class="icon-btn" type="button" title="Upload folder" onclick={handleFolderUploadClick}>
+          <FolderPlus class="w-3.5 h-3.5" />
+        </button>
       {/if}
       <button class="icon-btn" type="button" title="New file" onclick={handleCreateFileAtRoot}>
         <Plus class="w-3.5 h-3.5" />
@@ -133,7 +162,15 @@ $effect(() => {
     </div>
   {/if}
 
-  <div class="min-h-0 flex-1 overflow-auto px-2 py-2" bind:this={treeScrollContainer}>
+  <div
+    class="min-h-0 flex-1 overflow-auto px-2 py-2 {rootDragOver ? 'outline outline-1 outline-brand/60 outline-offset-[-2px]' : ''}"
+    bind:this={treeScrollContainer}
+    role="tree"
+    tabindex="0"
+    ondragover={(e) => { if (!onUpload || e.dataTransfer?.types.includes("text/cohub-path")) return; e.preventDefault(); rootDragOver = true; }}
+    ondragleave={() => { rootDragOver = false; }}
+    ondrop={handleRootDrop}
+  >
     {#if nodes.length === 0 && !loading}
       <div class="px-2 py-3 text-[12px] text-text-tertiary">No files</div>
     {:else}

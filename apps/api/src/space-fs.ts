@@ -126,7 +126,7 @@ export async function ensureSpaceWorkspaceReady(spaceId: string) {
   return { spaceBaseDir, workspaceDir };
 }
 
-function assertSafeRelativePath(input: string, options?: { allowEmpty?: boolean }) {
+export function assertSafeRelativePath(input: string, options?: { allowEmpty?: boolean }) {
   const value = String(input ?? "").replace(/\\/g, "/").trim();
   if (!value) {
     if (options?.allowEmpty) return "";
@@ -148,7 +148,7 @@ async function resolveSpaceRealRoot(spaceId: string) {
   }
 }
 
-function assertInsideRoot(target: string, root: string) {
+export function assertInsideRoot(target: string, root: string) {
   const rel = relative(root, target);
   if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
     return;
@@ -290,7 +290,7 @@ export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
   return { fromPath: from.relativePath, toPath: to.relativePath };
 }
 
-function sanitizeFileName(name: string): string | null {
+export function sanitizeFileName(name: string): string | null {
   const cleaned = name
     .replace(/[<>:"/\\|?*]/g, "")
     .split("")

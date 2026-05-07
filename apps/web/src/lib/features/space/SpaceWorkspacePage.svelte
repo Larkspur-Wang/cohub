@@ -145,6 +145,7 @@ import {
 	RIGHT_SIDEBAR_MIN,
 	uiState,
 } from "$lib/stores/ui.svelte";
+import type { LocalUploadEntry } from "$lib/upload-entries";
 
 type Props = {
 	data: {
@@ -363,9 +364,27 @@ function isOwnPendingFileSave(
 let uploadPaneVisible = $state(false);
 let uploadPaneTargetDir = $state("");
 let pendingUploadFiles = $state<File[]>([]);
-function handleUploadFiles(files: File[], targetDir: string) {
+let pendingUploadEntries = $state<LocalUploadEntry[]>([]);
+function isLocalUploadEntries(
+	value: File[] | LocalUploadEntry[],
+): value is LocalUploadEntry[] {
+	return value.length > 0 && "file" in value[0] && "relativePath" in value[0];
+}
+function handleUploadFiles(
+	files: File[] | LocalUploadEntry[],
+	targetDir: string,
+) {
 	uploadPaneTargetDir = targetDir;
-	pendingUploadFiles = files;
+	if (isLocalUploadEntries(files)) {
+		pendingUploadEntries = files;
+		pendingUploadFiles = [];
+	} else {
+		pendingUploadFiles = files;
+		pendingUploadEntries = files.map((file) => ({
+			file,
+			relativePath: file.name,
+		}));
+	}
 	uploadPaneVisible = true;
 }
 async function handleUploadComplete() {
@@ -5603,6 +5622,7 @@ $effect(() => {
           {spaceId}
           targetDir={uploadPaneTargetDir}
           files={pendingUploadFiles}
+          entries={pendingUploadEntries}
           open={uploadPaneVisible}
           onClose={() => { uploadPaneVisible = false; }}
           onComplete={handleUploadComplete}
@@ -5648,6 +5668,7 @@ $effect(() => {
         {spaceId}
         targetDir={uploadPaneTargetDir}
         files={pendingUploadFiles}
+        entries={pendingUploadEntries}
         open={uploadPaneVisible}
         onClose={() => { uploadPaneVisible = false; }}
         onComplete={handleUploadComplete}

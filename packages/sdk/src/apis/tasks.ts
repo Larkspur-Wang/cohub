@@ -1,11 +1,11 @@
 import type { HttpTransport } from "../transport.js";
-import type { CreateScheduledTaskInput, TaskRunRecord } from "../types.js";
+import type { CreateScheduledTaskInput, TaskRunDetailResponse, TaskRunRecord } from "../types.js";
 
 export class TasksApi {
   constructor(private readonly transport: HttpTransport) {}
 
   get(taskRunId: string) {
-    return this.transport.request<{ run: TaskRunRecord }>(`/api/tasks/${taskRunId}`);
+    return this.transport.request<TaskRunDetailResponse>(`/api/tasks/${taskRunId}`);
   }
 
   list(filters?: { cronJobId?: string; spaceId?: string }) {

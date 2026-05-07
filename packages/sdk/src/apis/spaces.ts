@@ -25,6 +25,10 @@ import type {
   SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
   SpaceEnvInput,
+  SpaceFsCompleteUploadInput,
+  SpaceFsCompleteUploadResponse,
+  SpaceFsCreateUploadInput,
+  SpaceFsCreateUploadResponse,
   SpaceFsFileResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
@@ -277,6 +281,28 @@ export class SpaceFilesApi {
       {
         method: "POST",
         body: formData,
+      },
+    );
+  }
+
+  createUpload(input: SpaceFsCreateUploadInput) {
+    return this.transport.request<SpaceFsCreateUploadResponse>(
+      `/api/spaces/${this.spaceId}/fs/uploads`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  completeUpload(uploadId: string, input: SpaceFsCompleteUploadInput) {
+    return this.transport.request<SpaceFsCompleteUploadResponse>(
+      `/api/spaces/${this.spaceId}/fs/uploads/${uploadId}/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       },
     );
   }

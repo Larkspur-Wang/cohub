@@ -13,6 +13,11 @@ import {
 } from "lucide-svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
+import {
+	entriesFromDataTransfer,
+	entriesFromFiles,
+	type LocalUploadEntry,
+} from "$lib/upload-entries";
 
 const {
 	node,
@@ -41,7 +46,7 @@ const {
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
-	onUpload?: (files: File[], targetDir: string) => void;
+	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
@@ -96,31 +101,36 @@ function handleDragLeave(e: DragEvent) {
 	}
 }
 
-function handleDrop(e: DragEvent) {
+async function handleDrop(e: DragEvent) {
 	if (!isDir || !onUpload) return;
 	e.preventDefault();
 	e.stopPropagation();
 	isDragOver = false;
-
-	const files = e.dataTransfer?.files;
-	if (!files?.length) return;
-
-	// Only handle actual files, ignore internal drags
 	if (!e.dataTransfer) return;
 	if (e.dataTransfer.types.includes("text/cohub-path")) return;
-
-	onUpload(Array.from(files), node.path);
+	const entries = await entriesFromDataTransfer(e.dataTransfer);
+	if (entries.length > 0) onUpload(entries, node.path);
 }
 
-function handleDirUploadClick() {
+function openDirUploadPicker(folder = false) {
 	if (!onUpload) return;
 	const input = document.createElement("input");
 	input.type = "file";
 	input.multiple = true;
+	if (folder) input.setAttribute("webkitdirectory", "");
 	input.onchange = () => {
-		if (input.files?.length) onUpload(Array.from(input.files), node.path);
+		if (input.files?.length)
+			onUpload(entriesFromFiles(Array.from(input.files)), node.path);
 	};
 	input.click();
+}
+
+function handleDirUploadClick() {
+	openDirUploadPicker(false);
+}
+
+function handleDirUploadFolderClick() {
+	openDirUploadPicker(true);
 }
 </script>
 
@@ -184,7 +194,8 @@ function handleDirUploadClick() {
         <button type="button" class="action" title="New file" onclick={stop(() => onCreateFile(node.path))}><Plus class="w-3 h-3" /></button>
         <button type="button" class="action" title="New folder" onclick={stop(() => onCreateDir(node.path))}><FolderPlus class="w-3 h-3" /></button>
         {#if onUpload}
-          <button type="button" class="action" title="Upload here" onclick={stop(handleDirUploadClick)}><Upload class="w-3 h-3" /></button>
+          <button type="button" class="action" title="Upload files here" onclick={stop(handleDirUploadClick)}><Upload class="w-3 h-3" /></button>
+          <button type="button" class="action" title="Upload folder here" onclick={stop(handleDirUploadFolderClick)}><FolderPlus class="w-3 h-3" /></button>
         {/if}
       {/if}
       <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3 h-3" /></button>

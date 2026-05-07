@@ -80,11 +80,50 @@ export type SpaceFsUploadEntry = {
 };
 export type SpaceFsUploadError = {
   name: string;
-  code: "file_too_large" | "name_invalid" | "write_failed";
+  code: "file_too_large" | "name_invalid" | "path_invalid" | "write_failed" | "object_missing";
   message: string;
 };
 export type SpaceFsUploadResponse = {
   uploaded: SpaceFsUploadEntry[];
+  errors: SpaceFsUploadError[];
+};
+export type SpaceFsUploadPlanEntryInput = {
+  id: string;
+  name: string;
+  relativePath: string;
+  size: number;
+  mimeType?: string | null;
+  lastModified?: number;
+};
+export type SpaceFsCreateUploadInput = {
+  targetDir?: string;
+  entries: SpaceFsUploadPlanEntryInput[];
+};
+export type SpaceFsUploadPlanEntry = {
+  id: string;
+  objectKey: string;
+  uploadUrl: string;
+  headers?: Record<string, string>;
+};
+export type SpaceFsCreateUploadResponse = {
+  uploadId: string;
+  expiresAt: string;
+  entries: SpaceFsUploadPlanEntry[];
+};
+export type SpaceFsCompleteUploadInput = {
+  entries: Array<{ id: string; etag?: string | null }>;
+};
+export type SpaceFsCompleteUploadResponse = {
+  ok: true;
+  taskRunId: string;
+};
+export type SpaceFsUploadProgress = {
+  phase: "queued" | "importing" | "done" | "failed";
+  totalFiles: number;
+  importedFiles: number;
+  totalBytes: number;
+  importedBytes: number;
+  currentPath?: string;
   errors: SpaceFsUploadError[];
 };
 
@@ -262,6 +301,11 @@ export type CronJobRecord = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type TaskRunDetailResponse = {
+  run: TaskRunRecord;
+  progress: unknown;
 };
 
 export type TaskRunRecord = {

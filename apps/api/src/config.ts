@@ -20,6 +20,7 @@ export type AppConfig = {
   configsSubpath: string;
   platformConfigRoot: string;
   turnObjectS3Endpoint?: string;
+  turnObjectS3PublicEndpoint?: string;
   turnObjectS3Region: string;
   turnObjectS3Bucket?: string;
   turnObjectS3AccessKeyId?: string;
@@ -63,6 +64,7 @@ export const config: AppConfig = {
   configsSubpath: process.env.CONFIGS_SUBPATH ?? (env === "prod" ? "configs/prod" : "configs/dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
   turnObjectS3Endpoint: process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
+  turnObjectS3PublicEndpoint: process.env.TURN_OBJECT_S3_PUBLIC_ENDPOINT,
   turnObjectS3Region: process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
   turnObjectS3Bucket: process.env.TURN_OBJECT_S3_BUCKET ?? "cohub-sessions",
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,

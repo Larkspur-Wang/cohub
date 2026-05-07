@@ -5,7 +5,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { hasPermission } from "../permissions.js";
-import { enqueueTask, SUPPORTED_TASK_TYPES } from "../tasks.js";
+import { enqueueTask, SUPPORTED_TASK_TYPES, taskQueue } from "../tasks.js";
 
 const router = new Hono();
 
@@ -117,7 +117,8 @@ router.get("/:taskId", async (c) => {
     return c.json({ message: "task run not found" }, 404);
   }
 
-  return c.json({ run });
+  const job = await taskQueue.getJob(run.jobId).catch(() => null);
+  return c.json({ run, progress: job?.progress ?? null });
 });
 
 export default router;
