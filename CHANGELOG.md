@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.14.0 (2026-05-07)
+
+### Features
+
+- **web**: add clickable file paths in tool call display
+- **web**: restore space member invites in settings
+
+### Bug Fixes
+
+- **sdk**: download private space files via sdk
+- **web**: keep member remove action visible
+- resolve typecheck and biome lint issues
+
+### Refactoring
+
+- **config**: fix alias resolution order for protocol and sdk subpaths
+- **web**: rename Preview to Ports, simplify status to dot with hover tooltip
+
 ## v1.8.0 (2026-04-30)
 
 ### Bug Fixes
