@@ -3,6 +3,7 @@ export { CohubClient, createCohubClient } from "./client.js";
 export { WebsocketClient, createWebsocketClient } from "./websocket.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export { HttpError } from "./transport.js";
+export type { RawHttpResponse } from "./transport.js";
 export {
   COHUB_ENVIRONMENTS,
   normalizeBaseUrl,

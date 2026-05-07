@@ -83,6 +83,10 @@ import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
+import {
+	buildSpaceFileDownloadUrl,
+	downloadSpaceFile,
+} from "$lib/space-file-download";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	buildSpaceCheckpointNewRoute,
@@ -303,7 +307,7 @@ const inlineFileDataUrl = $derived.by(() => {
 });
 const inlineFileDownloadUrl = $derived.by(() => {
 	if (!inlineFile) return "";
-	return `/api/spaces/${spaceId}/fs/download?path=${encodeURIComponent(inlineFile.path)}`;
+	return buildSpaceFileDownloadUrl(spaceId, inlineFile.path);
 });
 const inlineFileDownloadName = $derived.by(() => {
 	if (!inlineFile) return "";
@@ -409,7 +413,7 @@ const openFileDataUrl = $derived.by(() => {
 });
 const openFileDownloadUrl = $derived.by(() => {
 	if (!routeFilePath) return "";
-	return `/api/spaces/${spaceId}/fs/download?path=${encodeURIComponent(routeFilePath)}`;
+	return buildSpaceFileDownloadUrl(spaceId, routeFilePath);
 });
 const openFileDownloadName = $derived.by(() => {
 	if (!routeFilePath) return "";
@@ -3101,6 +3105,14 @@ async function openInlineFile(path: string) {
 function closeInlineFile() {
 	inlineFile = null;
 }
+async function downloadOpenFile() {
+	if (!routeFilePath) return;
+	await downloadSpaceFile(spaceId, routeFilePath, openFileDownloadName);
+}
+async function downloadInlineFile() {
+	if (!inlineFile) return;
+	await downloadSpaceFile(spaceId, inlineFile.path, inlineFileDownloadName);
+}
 async function saveInlineFile() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
 	const savingPath = inlineFile.path;
@@ -4595,6 +4607,7 @@ $effect(() => {
               download={openFileDownloadName}
               class="action-btn"
               title="Download file"
+              onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
             >
               <Download class="w-3.5 h-3.5 shrink-0" />
               <span class="hidden sm:inline">Download</span>
@@ -4612,6 +4625,7 @@ $effect(() => {
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
                 class="action-btn primary"
+                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
               >
                 <Download class="w-3.5 h-3.5" />
                 Download file
@@ -4654,6 +4668,7 @@ $effect(() => {
                 download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -4714,6 +4729,7 @@ $effect(() => {
                 download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -4744,6 +4760,7 @@ $effect(() => {
                 download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -4768,6 +4785,7 @@ $effect(() => {
                 download={openFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -5216,7 +5234,7 @@ $effect(() => {
         </div>
         {@render FileHeaderCoreActions(inlineFile.path)}
         {#if inlineFile.response && inlineFile.response.kind === "text"}
-          <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="icon-btn" title="Download file">
+          <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="icon-btn" title="Download file" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
             <Download class="w-4 h-4" />
           </a>
         {/if}
@@ -5233,7 +5251,7 @@ $effect(() => {
             <div class="text-4xl mb-3">📦</div>
             <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
             <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary">
+            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
               <Download class="w-3.5 h-3.5" />
               Download file
             </a>
@@ -5282,7 +5300,7 @@ $effect(() => {
             <div><strong>Size:</strong> {formatFileSize(inlineFile.response.size)}</div>
             <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
             <div class="mt-3">
-              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary">
+              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
                 <Download class="w-3.5 h-3.5" />
                 Download file
               </a>
@@ -5316,7 +5334,7 @@ $effect(() => {
           <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn" title="Download file">
+            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn" title="Download file" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
               <Download class="w-3.5 h-3.5 shrink-0" />
               <span class="hidden sm:inline">Download</span>
             </a>
@@ -5329,7 +5347,7 @@ $effect(() => {
               <div class="text-4xl mb-3">📦</div>
               <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
               <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary">
+              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
                 <Download class="w-3.5 h-3.5" />
                 Download file
               </a>
@@ -5369,6 +5387,7 @@ $effect(() => {
                 download={inlineFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -5429,6 +5448,7 @@ $effect(() => {
                 download={inlineFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -5459,6 +5479,7 @@ $effect(() => {
                 download={inlineFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>
@@ -5483,6 +5504,7 @@ $effect(() => {
                 download={inlineFileDownloadName}
                 class="icon-btn"
                 title="Download file"
+                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
               >
                 <Download class="w-4 h-4" />
               </a>

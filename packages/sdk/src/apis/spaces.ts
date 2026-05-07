@@ -43,6 +43,22 @@ import { SpaceInvitationsApi } from "./invitations.js";
 
 const DEFAULT_DEDUP_WINDOW_MS = 2000;
 
+const getFilenameFromContentDisposition = (value: string | null) => {
+  if (!value) return null;
+
+  const encodedMatch = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1]);
+    } catch {
+      return encodedMatch[1];
+    }
+  }
+
+  const plainMatch = value.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? null;
+};
+
 export type SessionSubscriptionHandlers = {
   patch?: (event: WebsocketEventPayload) => void;
   patchState?: (result: SessionPatchApplyResult) => void;
@@ -178,9 +194,34 @@ export class SpaceFilesApi {
     );
   }
 
+  /**
+   * Build a direct download URL. For private files, prefer `download()` so the
+   * SDK can attach authorization headers.
+   */
   getDownloadUrl(path: string) {
     const params = new URLSearchParams({ path });
     return `/api/spaces/${this.spaceId}/fs/download?${params.toString()}`;
+  }
+
+  async download(path: string, customFetch?: Fetch) {
+    const params = new URLSearchParams({ path });
+    const raw = await this.transport.raw(
+      `/api/spaces/${this.spaceId}/fs/download?${params.toString()}`,
+      { fetch: customFetch },
+    );
+    const blob = await raw.blob();
+    const filename =
+      getFilenameFromContentDisposition(
+        raw.response.headers.get("content-disposition"),
+      ) ??
+      path.split("/").pop() ??
+      "download";
+    const mimeType =
+      raw.response.headers.get("content-type") ??
+      blob.type ??
+      "application/octet-stream";
+
+    return { blob, filename, mimeType };
   }
 
   write(input: SpaceFsWriteFileInput) {

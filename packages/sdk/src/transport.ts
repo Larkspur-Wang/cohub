@@ -4,6 +4,25 @@ import type { WebsocketClientOptions } from "./websocket.js";
 
 export type Fetch = typeof globalThis.fetch;
 
+type RequestInitWithFetch = RequestInit & { fetch?: Fetch };
+
+const responseBodyForError = async (response: Response) => {
+  const contentType = response.headers.get("content-type") ?? "";
+  return contentType.includes("application/json")
+    ? await response.json().catch(() => null)
+    : await response.text().catch(() => response.statusText);
+};
+
+const messageFromErrorBody = (body: unknown, fallback: string) =>
+  typeof body === "string" ? body : JSON.stringify(body ?? null) || fallback;
+
+export type RawHttpResponse = {
+  response: Response;
+  blob(): Promise<Blob>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+  text(): Promise<string>;
+};
+
 export type CohubClientOptions = {
   env?: CohubEnvironment;
   baseUrl?: string;
@@ -56,7 +75,7 @@ export class HttpTransport {
     };
   }
 
-  async request<T>(path: string, init?: RequestInit & { fetch?: Fetch }) {
+  private async send(path: string, init?: RequestInitWithFetch) {
     const fetcher = init?.fetch ?? this.fetcher;
     const url = this.baseUrl ? `${this.baseUrl}${path}` : path;
     const response = await fetcher(url, await this.withAuthorization(init));
@@ -67,19 +86,39 @@ export class HttpTransport {
     }
 
     if (!response.ok) {
-      const contentType = response.headers.get("content-type") ?? "";
-      const body = contentType.includes("application/json")
-        ? await response.json().catch(() => null)
-        : await response.text().catch(() => response.statusText);
-      const message =
-        typeof body === "string" ? body : JSON.stringify(body ?? null);
-      throw new HttpError(message || response.statusText, response.status, body);
+      const body = await responseBodyForError(response);
+      throw new HttpError(
+        messageFromErrorBody(body, response.statusText),
+        response.status,
+        body,
+      );
     }
+
+    return response;
+  }
+
+  async request<T>(path: string, init?: RequestInitWithFetch) {
+    const response = await this.send(path, init);
 
     if (response.status === 204) {
       return null as T;
     }
 
     return response.json() as Promise<T>;
+  }
+
+  async raw(path: string, init?: RequestInitWithFetch): Promise<RawHttpResponse> {
+    const response = await this.send(path, init);
+    return {
+      response,
+      blob: () => response.blob(),
+      arrayBuffer: () => response.arrayBuffer(),
+      text: () => response.text(),
+    };
+  }
+
+  async blob(path: string, init?: RequestInitWithFetch) {
+    const raw = await this.raw(path, init);
+    return raw.blob();
   }
 }
