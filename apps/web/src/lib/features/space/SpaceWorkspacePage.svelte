@@ -3843,6 +3843,7 @@ $effect(() => {
 			state?.session?.lastMessageId ?? null,
 		);
 		untrack(() => {
+			void loadSessionState(routeSessionId);
 			void loadTurnIndex(routeSessionId);
 		});
 		return;
