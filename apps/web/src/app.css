@@ -473,12 +473,76 @@ body.drawer-open {
 }
 
 /* Code block container — border + rounded corners */
+.prose .markdown-code-block {
+	position: relative;
+	margin-top: 0.75em;
+	margin-bottom: 0.75em;
+}
+
+.prose .markdown-code-block pre {
+	margin: 0;
+}
+
 .prose pre {
 	border-radius: 0.75rem;
 	border: 1px solid var(--border-subtle);
 	overflow-x: auto;
 	/* Allow horizontal scroll inside code blocks on mobile without triggering drawer swipe */
 	touch-action: pan-x pan-y;
+}
+
+.prose .markdown-code-copy {
+	position: absolute;
+	top: 0.45rem;
+	right: 0.45rem;
+	z-index: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 1.5rem;
+	padding: 0 0.45rem;
+	border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+	border-radius: 0.45rem;
+	background: color-mix(in srgb, var(--bg-code) 82%, transparent);
+	color: color-mix(in srgb, var(--text-secondary) 90%, white);
+	font: 500 0.68rem/1 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+	letter-spacing: 0.01em;
+	opacity: 0;
+	box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+	backdrop-filter: blur(8px);
+	transition:
+		opacity 140ms ease,
+		border-color 140ms ease,
+		background-color 140ms ease,
+		color 140ms ease;
+}
+
+.prose .markdown-code-block:hover .markdown-code-copy,
+.prose .markdown-code-copy:focus-visible,
+.prose .markdown-code-copy.copied {
+	opacity: 1;
+}
+
+.prose .markdown-code-copy:hover {
+	border-color: color-mix(in srgb, var(--brand) 34%, var(--border-subtle));
+	background: color-mix(in srgb, var(--bg-code) 72%, var(--brand) 10%);
+	color: var(--text-primary);
+}
+
+.prose .markdown-code-copy:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
+	outline-offset: 2px;
+}
+
+.prose .markdown-code-copy.copied {
+	border-color: color-mix(in srgb, var(--brand) 42%, var(--border-subtle));
+	color: color-mix(in srgb, var(--brand) 70%, var(--text-primary));
+}
+
+@media (hover: none) {
+	.prose .markdown-code-copy {
+		opacity: 1;
+	}
 }
 
 /* Shiki inject inline styles on <code>; reset padding/border here */

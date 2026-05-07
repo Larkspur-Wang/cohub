@@ -14,6 +14,7 @@ const { blocks, onStart, onRendered }: Props = $props();
 let renderedHtml = $state("");
 let markdownEl = $state<HTMLElement | null>(null);
 let renderSeq = 0;
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 const source = $derived(
 	blocks
 		.map((block) => block.text)
@@ -30,6 +31,7 @@ $effect(() => {
 			if (seq !== renderSeq) return;
 			renderedHtml = html;
 			await tick();
+			if (seq === renderSeq) enhanceCodeBlocks();
 			requestAnimationFrame(() => {
 				if (seq === renderSeq) untrack(() => onRendered?.());
 			});
@@ -39,12 +41,73 @@ $effect(() => {
 		});
 });
 
+function enhanceCodeBlocks() {
+	if (!markdownEl) return;
+
+	for (const pre of markdownEl.querySelectorAll("pre")) {
+		if (pre.parentElement?.classList.contains("markdown-code-block")) continue;
+
+		const wrapper = document.createElement("div");
+		wrapper.className = "markdown-code-block";
+		pre.parentNode?.insertBefore(wrapper, pre);
+		wrapper.appendChild(pre);
+
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "markdown-code-copy";
+		button.dataset.codeCopy = "";
+		button.textContent = "Copy";
+		button.setAttribute("aria-label", "Copy code");
+		button.title = "Copy code";
+		wrapper.appendChild(button);
+	}
+}
+
+async function copyText(text: string) {
+	if (navigator.clipboard?.writeText) {
+		await navigator.clipboard.writeText(text);
+		return;
+	}
+
+	const textArea = document.createElement("textarea");
+	textArea.value = text;
+	textArea.style.position = "fixed";
+	textArea.style.opacity = "0";
+	document.body.appendChild(textArea);
+	textArea.select();
+	document.execCommand("copy");
+	textArea.remove();
+}
+
+function markCopied(button: HTMLButtonElement) {
+	button.textContent = "Copied";
+	button.classList.add("copied");
+	button.setAttribute("aria-label", "Code copied");
+	button.title = "Code copied";
+	if (copyResetTimer) clearTimeout(copyResetTimer);
+	copyResetTimer = setTimeout(() => {
+		button.textContent = "Copy";
+		button.classList.remove("copied");
+		button.setAttribute("aria-label", "Copy code");
+		button.title = "Copy code";
+	}, 1400);
+}
+
 onMount(() => {
 	const el = markdownEl;
 	if (!el) return;
 
 	function onClick(e: Event) {
 		const target = e.target as HTMLElement;
+		const copyButton = target.closest<HTMLButtonElement>("[data-code-copy]");
+		if (copyButton) {
+			e.preventDefault();
+			e.stopPropagation();
+			const code = copyButton.parentElement?.querySelector("pre code");
+			void copyText(code?.textContent ?? "").then(() => markCopied(copyButton));
+			return;
+		}
+
 		if (target.tagName === "IMG") {
 			e.preventDefault();
 			e.stopPropagation();
@@ -72,7 +135,10 @@ onMount(() => {
 	}
 
 	el.addEventListener("click", onClick);
-	return () => el.removeEventListener("click", onClick);
+	return () => {
+		el.removeEventListener("click", onClick);
+		if (copyResetTimer) clearTimeout(copyResetTimer);
+	};
 });
 </script>
 
