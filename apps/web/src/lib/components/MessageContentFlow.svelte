@@ -2,7 +2,7 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageToolCallsFile } from "@neta-art/cohub-protocol/model";
 import ImageBlocks from "$lib/components/ImageBlocks.svelte";
-import MarkdownBlocks from "$lib/components/MarkdownBlocks.svelte";
+import MarkdownView from "$lib/components/MarkdownView.svelte";
 import ThinkingBlocks from "$lib/components/ThinkingBlocks.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 
@@ -98,7 +98,7 @@ const segments = $derived.by(() => {
 					{segment.blocks.map((block) => block.text).join('\n\n')}
 				</div>
 			{:else}
-				<MarkdownBlocks blocks={segment.blocks} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
+				<MarkdownView blocks={segment.blocks} variant="chat" onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
 			{/if}
 		{:else if segment.type === 'thinking'}
 			<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />

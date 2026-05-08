@@ -1,16 +1,8 @@
 <script lang="ts">
 import type { SpaceFsFileResponse } from "@neta-art/cohub";
-import {
-	Code,
-	Download,
-	Eye,
-	FileWarning,
-	Pencil,
-	Save,
-	X,
-} from "lucide-svelte";
+import { Download, Eye, FileWarning, Pencil, Save, X } from "lucide-svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
-import { renderMarkdown } from "$lib/markdown";
+import MarkdownView from "$lib/components/MarkdownView.svelte";
 
 const {
 	file,
@@ -40,23 +32,7 @@ const {
 	children?: import("svelte").Snippet;
 } = $props();
 
-let markdownHtml = $state("");
 let fileEdit = $state(true);
-
-$effect(() => {
-	const current = file;
-	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-		markdownHtml = "";
-		return;
-	}
-	void renderMarkdown(current.content)
-		.then((html) => {
-			if (file?.path === current.path) markdownHtml = html;
-		})
-		.catch(() => {
-			markdownHtml = "";
-		});
-});
 
 $effect(() => {
 	if (file) fileEdit = true;
@@ -154,8 +130,8 @@ const editorLanguage = $derived.by(() => {
     {:else if !file}
       {@render children?.()}
     {:else if isText}
-      {#if isMarkdown && !fileEdit && markdownHtml}
-        <article class="markdown-preview">{@html markdownHtml}</article>
+      {#if isMarkdown && !fileEdit}
+        <MarkdownView source={draftContent} variant="document" />
       {:else}
         <CodeEditor
           value={draftContent}
@@ -234,92 +210,5 @@ const editorLanguage = $derived.by(() => {
     border-color: var(--border-subtle);
     background: var(--bg-hover);
     color: var(--text-primary);
-  }
-
-  .markdown-preview {
-    height: 100%;
-    overflow: auto;
-    padding: 20px 24px;
-    max-width: 860px;
-    margin: 0 auto;
-    line-height: 1.7;
-    font-size: 14px;
-  }
-  .markdown-preview :global(h1) {
-    font-size: 1.8em;
-    font-weight: 700;
-    margin-top: 0;
-    margin-bottom: 0.5em;
-    padding-bottom: 0.3em;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-  .markdown-preview :global(h2) {
-    font-size: 1.4em;
-    font-weight: 600;
-    margin-top: 1.5em;
-    margin-bottom: 0.5em;
-  }
-  .markdown-preview :global(h3) {
-    font-size: 1.15em;
-    font-weight: 600;
-    margin-top: 1.2em;
-    margin-bottom: 0.4em;
-  }
-  .markdown-preview :global(p) { margin-bottom: 1em; }
-  .markdown-preview :global(code) {
-    background: var(--bg-hover);
-    border: 1px solid var(--border-subtle);
-    border-radius: 4px;
-    padding: 0.15em 0.4em;
-    font-size: 0.9em;
-    font-family: var(--font-mono, monospace);
-  }
-  .markdown-preview :global(pre) {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    padding: 16px;
-    overflow: auto;
-    margin-bottom: 1em;
-  }
-  .markdown-preview :global(pre code) {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 13px;
-    line-height: 1.5;
-  }
-  .markdown-preview :global(ul),
-  .markdown-preview :global(ol) {
-    padding-left: 1.5em;
-    margin-bottom: 1em;
-  }
-  .markdown-preview :global(li) { margin-bottom: 0.3em; }
-  .markdown-preview :global(blockquote) {
-    border-left: 3px solid var(--border-subtle);
-    padding-left: 1em;
-    color: var(--text-tertiary);
-    margin-bottom: 1em;
-  }
-  .markdown-preview :global(img) {
-    max-width: 100%;
-    border-radius: 6px;
-    margin: 0.5em 0;
-  }
-  .markdown-preview :global(a) { color: var(--brand, #58a6ff); }
-  .markdown-preview :global(table) {
-    border-collapse: collapse;
-    width: 100%;
-    margin-bottom: 1em;
-  }
-  .markdown-preview :global(th),
-  .markdown-preview :global(td) {
-    border: 1px solid var(--border-subtle);
-    padding: 8px 12px;
-    text-align: left;
-  }
-  .markdown-preview :global(th) {
-    background: var(--bg-hover);
-    font-weight: 600;
   }
 </style>

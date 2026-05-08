@@ -71,6 +71,7 @@ import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
+import MarkdownView from "$lib/components/MarkdownView.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
@@ -81,7 +82,6 @@ import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
-import { renderMarkdown } from "$lib/markdown";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
@@ -331,7 +331,6 @@ const inlinePortEndpoint = $derived.by(() => {
 const activePreviewKind = $derived(
 	inlinePortPreview ? "port" : inlineFile ? "file" : null,
 );
-let inlineFileMarkdownHtml = $state("");
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
 	return !(file.kind === "text" && /\.md$/i.test(file.path));
@@ -455,39 +454,9 @@ const openFileDownloadName = $derived.by(() => {
 	if (!routeFilePath) return "";
 	return routeFilePath.split("/").pop() ?? "download";
 });
-let fileMarkdownHtml = $state("");
 let fileEdit = $state(true);
 $effect(() => {
-	const current = openFile;
-	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-		fileMarkdownHtml = "";
-		return;
-	}
-	void renderMarkdown(current.content)
-		.then((html) => {
-			if (openFile?.path === current.path) fileMarkdownHtml = html;
-		})
-		.catch(() => {
-			fileMarkdownHtml = "";
-		});
-});
-$effect(() => {
 	if (openFile) fileEdit = shouldOpenFileInEditMode(openFile);
-});
-$effect(() => {
-	const current = inlineFile?.response;
-	if (!current || current.kind !== "text" || !/\.md$/i.test(current.path)) {
-		inlineFileMarkdownHtml = "";
-		return;
-	}
-	void renderMarkdown(current.content)
-		.then((html) => {
-			if (inlineFile?.response?.path === current.path)
-				inlineFileMarkdownHtml = html;
-		})
-		.catch(() => {
-			inlineFileMarkdownHtml = "";
-		});
 });
 $effect(() => {
 	if (inlineFile?.response)
@@ -4174,7 +4143,6 @@ $effect(() => {
 		openFileDraft = "";
 		openFileError = null;
 		openFileTooLarge = false;
-		fileMarkdownHtml = "";
 		fileEdit = true;
 		return;
 	}
@@ -5051,8 +5019,8 @@ $effect(() => {
                   language={openFileExt}
                   onInput={(v) => openFileDraft = v}
                 />
-              {:else if openFileIsMarkdown && fileMarkdownHtml}
-                <article class="markdown-preview">{@html fileMarkdownHtml}</article>
+              {:else if openFileIsMarkdown}
+                <MarkdownView source={openFileDraft} variant="document" />
               {:else}
                 <CodeEditor
                   value={openFileDraft}
@@ -5643,8 +5611,8 @@ $effect(() => {
           <div class="flex-1 min-h-0">
             {#if inlineFileEdit}
               <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} />
-            {:else if inlineFileIsMarkdown && inlineFileMarkdownHtml}
-              <article class="markdown-preview">{@html inlineFileMarkdownHtml}</article>
+            {:else if inlineFileIsMarkdown}
+              <MarkdownView source={inlineFile.draft} variant="document" />
             {:else}
               <CodeEditor value={inlineFile.draft} language={inlineFileExt} readonly={true} />
             {/if}
@@ -5790,8 +5758,8 @@ $effect(() => {
                   language={inlineFileExt}
                   onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
                 />
-              {:else if inlineFileIsMarkdown && inlineFileMarkdownHtml}
-                <article class="markdown-preview">{@html inlineFileMarkdownHtml}</article>
+              {:else if inlineFileIsMarkdown}
+                <MarkdownView source={inlineFile.draft} variant="document" />
               {:else}
                 <CodeEditor
                   value={inlineFile.draft}
@@ -6263,133 +6231,6 @@ $effect(() => {
     color: var(--text-primary);
     font-weight: 600;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.04);
-  }
-  .markdown-preview {
-    height: 100%;
-    overflow: auto;
-    padding: 24px 28px;
-    max-width: 860px;
-    margin: 0 auto;
-    line-height: 1.75;
-    font-size: 14px;
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(h1) {
-    font-size: 1.75em;
-    font-weight: 700;
-    margin-top: 0;
-    margin-bottom: 0.4em;
-    padding-bottom: 0.3em;
-    border-bottom: 1px solid var(--border-subtle);
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(h2) {
-    font-size: 1.4em;
-    font-weight: 600;
-    margin-top: 1.5em;
-    margin-bottom: 0.4em;
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(h3) {
-    font-size: 1.15em;
-    font-weight: 600;
-    margin-top: 1.2em;
-    margin-bottom: 0.3em;
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(h4),
-  .markdown-preview :global(h5),
-  .markdown-preview :global(h6) {
-    font-weight: 600;
-    margin-top: 1.2em;
-    margin-bottom: 0.3em;
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(p) { margin-bottom: 1em; }
-  .markdown-preview :global(strong) { font-weight: 600; }
-  .markdown-preview :global(em) { font-style: italic; }
-  .markdown-preview :global(code) {
-    background: var(--bg-hover);
-    border: 1px solid var(--border-subtle);
-    border-radius: 5px;
-    padding: 0.15em 0.45em;
-    font-size: 0.88em;
-    font-family: var(--font-mono, monospace);
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(pre) {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    padding: 16px 20px;
-    overflow: auto;
-    margin-bottom: 1em;
-    line-height: 1.55;
-  }
-  .markdown-preview :global(pre code) {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 13px;
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(ul),
-  .markdown-preview :global(ol) {
-    padding-left: 1.5em;
-    margin-bottom: 1em;
-  }
-  .markdown-preview :global(li) { margin-bottom: 0.3em; }
-  .markdown-preview :global(li) :global(ul),
-  .markdown-preview :global(li) :global(ol) {
-    margin-bottom: 0;
-  }
-  .markdown-preview :global(hr) {
-    border: none;
-    border-top: 1px solid var(--border-subtle);
-    margin: 1.5em 0;
-  }
-  .markdown-preview :global(blockquote) {
-    border-left: 3px solid var(--brand, #FF3E00);
-    padding-left: 1em;
-    color: var(--text-secondary);
-    margin: 1em 0;
-  }
-  .markdown-preview :global(blockquote p) {
-    color: var(--text-secondary);
-  }
-  .markdown-preview :global(img) {
-    max-width: 100%;
-    border-radius: 8px;
-    margin: 0.5em 0;
-    border: 1px solid var(--border-subtle);
-  }
-  .markdown-preview :global(a) {
-    color: var(--brand, #FF3E00);
-    text-decoration: none;
-  }
-  .markdown-preview :global(a:hover) { text-decoration: underline; }
-  .markdown-preview :global(table) {
-    border-collapse: collapse;
-    width: 100%;
-    margin-bottom: 1em;
-    font-size: 13px;
-  }
-  .markdown-preview :global(th),
-  .markdown-preview :global(td) {
-    border: 1px solid var(--border-subtle);
-    padding: 8px 12px;
-    text-align: left;
-  }
-  .markdown-preview :global(th) {
-    background: var(--bg-hover);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .markdown-preview :global(td) {
-    color: var(--text-secondary);
-  }
-  .markdown-preview :global(tr:nth-child(even)) :global(td) {
-    background: var(--bg-hover-soft, rgba(0,0,0,0.02));
   }
   .zoom-btn {
     display: inline-flex;

@@ -42,7 +42,7 @@
 	--brand-700: oklch(35% 0.16 30);
 	--brand-800: oklch(28% 0.1 30);
 	--brand-900: oklch(22% 0.06 30);
-	--brand-bg: var(--brand-900);	/* selected-state background */
+	--brand-bg: var(--brand-900); /* selected-state background */
 
 	/* Semantic colors — desaturated slightly for dark mode, 400=indicator dot */
 	--success-400: oklch(78% 0.12 160);
@@ -66,30 +66,32 @@
 	--info-900: oklch(22% 0.05 230);
 
 	/* Backgrounds — wider gaps between layers for clear visual hierarchy */
-	--bg-primary: var(--neutral-95);    /* 18% — deepest layer */
-	--bg-content: var(--neutral-90);    /* 22% — main content area */
-	--bg-surface: var(--neutral-80);    /* 27% — cards, panels */
+	--bg-primary: var(--neutral-95); /* 18% — deepest layer */
+	--bg-content: var(--neutral-90); /* 22% — main content area */
+	--bg-surface: var(--neutral-80); /* 27% — cards, panels */
 	--bg-surface-hover: var(--neutral-70); /* 32% — hover on surface */
-	--bg-elevated: var(--neutral-60);   /* 38% — overlays, dropdowns */
+	--bg-elevated: var(--neutral-60); /* 38% — overlays, dropdowns */
 	--bg-input: var(--neutral-90);
-	--bg-code: var(--neutral-100);      /* 14% — code blocks */
+	--bg-code: var(--neutral-100); /* 14% — code blocks */
 	--bg-header-alt: var(--neutral-80);
 
 	/* Text — all calibrated against bg-primary (18%) for WCAG compliance */
-	--text-primary: var(--neutral-0);     /* 98% → ~21:1 ✅ */
-	--text-secondary: var(--neutral-10);   /* 84% → ~11:1 ✅ */
-	--text-tertiary: var(--neutral-20);    /* 74% → ~6.5:1 ✅ */
+	--text-primary: var(--neutral-0); /* 98% → ~21:1 ✅ */
+	--text-secondary: var(--neutral-10); /* 84% → ~11:1 ✅ */
+	--text-tertiary: var(--neutral-20); /* 74% → ~6.5:1 ✅ */
 	--text-placeholder: var(--neutral-30); /* 64% → ~4.8:1 ✅ (meets AA 4.5:1) */
-	--text-disabled: var(--neutral-40);    /* 54% → ~3.4:1 ✅ (meets AA large text 3:1) */
+	--text-disabled: var(
+		--neutral-40
+	); /* 54% → ~3.4:1 ✅ (meets AA large text 3:1) */
 
 	/* Borders */
-	--border-primary: var(--neutral-60);   /* 38% — visible borders */
-	--border-subtle: var(--neutral-70);    /* 32% — subtle dividers */
+	--border-primary: var(--neutral-60); /* 38% — visible borders */
+	--border-subtle: var(--neutral-70); /* 32% — subtle dividers */
 
 	/* Interactive states — brighter than surface to signal affordance */
-	--bg-hover: oklch(28% 0.007 250 / 1);    /* > bg-surface (27%) */
+	--bg-hover: oklch(28% 0.007 250 / 1); /* > bg-surface (27%) */
 	--bg-hover-strong: oklch(34% 0.008 250 / 1); /* distinct from hover */
-	--bg-active: oklch(38% 0.01 250 / 1);      /* active/selected state */
+	--bg-active: oklch(38% 0.01 250 / 1); /* active/selected state */
 
 	/* Scrollbar */
 	--scrollbar-thumb: var(--neutral-50);
@@ -128,7 +130,7 @@
 	--brand-700: oklch(38% 0.15 30);
 	--brand-800: oklch(30% 0.1 30);
 	--brand-900: oklch(25% 0.1 30);
-	--brand-bg: oklch(94% 0.03 30);	/* selected-state background */
+	--brand-bg: oklch(94% 0.03 30); /* selected-state background */
 
 	/* Semantic colors — adjusted for light bg */
 	--success-400: oklch(45% 0.12 160);
@@ -256,7 +258,9 @@ body {
 	background-color: var(--bg-primary);
 	color: var(--text-primary);
 	font-family: var(--font-sans);
-	transition: background-color 0.2s ease, color 0.2s ease;
+	transition:
+		background-color 0.2s ease,
+		color 0.2s ease;
 }
 
 body.sidebar-resizing {
@@ -336,22 +340,216 @@ body.drawer-open {
 	}
 }
 
-/* Tables: auto layout so columns size to content. On desktop, constrain to container; on mobile, allow horizontal scroll. */
-.prose table {
-	table-layout: auto;
-	width: 100%;
+/* ============================================================
+   Markdown — shared renderer for chat and document previews
+   ============================================================ */
+.markdown-content {
+	color: var(--text-primary);
+	font-size: 14px;
+	line-height: 1.7;
+	word-break: break-word;
+	overflow-wrap: anywhere;
+	min-width: 0;
 }
 
-.prose th,
-.prose td,
-.prose a {
+.markdown-content[data-variant="document"] {
+	height: 100%;
+	overflow: auto;
+	max-width: 860px;
+	margin: 0 auto;
+	padding: 24px 28px;
+	line-height: 1.75;
+}
+
+.markdown-content > :first-child {
+	margin-top: 0;
+}
+
+.markdown-content > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown-content p {
+	margin: 0 0 0.85em;
+}
+
+.markdown-content p + p {
+	margin-top: 0.5em;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+	color: var(--text-primary);
+	font-weight: 600;
+	line-height: 1.25;
+}
+
+.markdown-content h1 {
+	margin: 0 0 0.55em;
+	padding-bottom: 0.35em;
+	border-bottom: 1px solid var(--border-subtle);
+	font-size: 1.65em;
+	font-weight: 700;
+}
+
+.markdown-content h2 {
+	margin: 1.35em 0 0.5em;
+	font-size: 1.35em;
+}
+
+.markdown-content h3 {
+	margin: 1.15em 0 0.4em;
+	font-size: 1.15em;
+}
+
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+	margin: 1em 0 0.35em;
+	font-size: 1em;
+}
+
+.markdown-content[data-variant="chat"] h1 {
+	font-size: 1.35em;
+}
+
+.markdown-content[data-variant="chat"] h2 {
+	font-size: 1.18em;
+}
+
+.markdown-content[data-variant="chat"] h3 {
+	font-size: 1.05em;
+}
+
+.markdown-content strong {
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.markdown-content em {
+	font-style: italic;
+}
+
+.markdown-content a {
+	color: var(--brand);
+	text-decoration: none;
+}
+
+.markdown-content a:hover {
+	text-decoration: underline;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+	padding-left: 1.5em;
+	margin: 0.5em 0 0.85em;
+}
+
+.markdown-content li {
+	margin: 0.18em 0;
+}
+
+.markdown-content li > ul,
+.markdown-content li > ol {
+	margin-bottom: 0;
+}
+
+.markdown-content hr {
+	border: none;
+	border-top: 1px solid var(--border-subtle);
+	margin: 1.5em 0;
+}
+
+.markdown-content blockquote {
+	margin: 0.9em 0;
+	padding-left: 1em;
+	border-left: 3px solid var(--brand);
+	color: var(--text-secondary);
+}
+
+.markdown-content blockquote p {
+	color: inherit;
+}
+
+.markdown-content code {
+	padding: 0.15em 0.42em;
+	border: 1px solid var(--border-subtle);
+	border-radius: 0.35rem;
+	background: var(--bg-code);
+	color: var(--text-primary);
+	font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+	font-size: 0.9em;
+	font-weight: 400;
 	word-break: break-word;
 	overflow-wrap: anywhere;
 }
 
-/* Mobile: horizontal scroll inside table, not page. Table scroll takes priority over drawer gesture. */
+.markdown-content img,
+.markdown-content video {
+	width: auto;
+	height: auto;
+	border: 1px solid var(--border-subtle);
+	border-radius: 0.5rem;
+	margin: 1em 0;
+	cursor: zoom-in;
+}
+
+.markdown-content[data-variant="chat"] img,
+.markdown-content[data-variant="chat"] video {
+	max-width: 90%;
+	max-height: 16rem;
+}
+
+.markdown-content[data-variant="document"] img,
+.markdown-content[data-variant="document"] video {
+	max-width: 100%;
+	max-height: none;
+}
+
+@media (min-width: 640px) {
+	.markdown-content[data-variant="chat"] img,
+	.markdown-content[data-variant="chat"] video {
+		max-width: 31.2rem;
+	}
+}
+
+.markdown-content table {
+	table-layout: auto;
+	width: 100%;
+	border-collapse: collapse;
+	margin: 0.85em 0;
+	font-size: 0.93em;
+}
+
+.markdown-content th,
+.markdown-content td {
+	border: 1px solid var(--border-subtle);
+	padding: 0.5rem 0.75rem;
+	text-align: left;
+	word-break: break-word;
+	overflow-wrap: anywhere;
+}
+
+.markdown-content th {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+	font-weight: 600;
+}
+
+.markdown-content td {
+	color: var(--text-secondary);
+}
+
+.markdown-content tr:nth-child(even) td {
+	background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+}
+
 @media (max-width: 640px) {
-	.prose table {
+	.markdown-content table {
 		display: block;
 		overflow-x: auto;
 		overflow-y: visible;
@@ -361,146 +559,71 @@ body.drawer-open {
 		width: 100%;
 		min-width: 0;
 	}
-	.prose table > thead,
-	.prose table > tbody {
+
+	.markdown-content table > thead,
+	.markdown-content table > tbody {
 		display: table;
 		width: max-content;
 		min-width: 100%;
 	}
-	/* Balance readability: allow wrap but cap column width */
-	.prose table th,
-	.prose table td {
+
+	.markdown-content table th,
+	.markdown-content table td {
 		white-space: normal;
 		min-width: 2.5em;
 		max-width: 200px;
 	}
 }
 
-/* ============================================================
-   Markdown Prose — theme-aware overrides for @tailwindcss/typography
-   ============================================================ */
-.prose {
-	--tw-prose-body: var(--text-primary);
-	--tw-prose-headings: var(--text-primary);
-	--tw-prose-lead: var(--text-secondary);
-	--tw-prose-links: var(--brand);
-	--tw-prose-bold: var(--text-primary);
-	--tw-prose-counters: var(--text-tertiary);
-	--tw-prose-bullets: var(--text-tertiary);
-	--tw-prose-hr: var(--border-subtle);
-	--tw-prose-quotes: var(--text-secondary);
-	--tw-prose-quote-borders: var(--border-subtle);
-	--tw-prose-code: var(--text-primary);
-	--tw-prose-pre-code: var(--text-primary);
-	--tw-prose-pre-bg: var(--bg-code);
-	--tw-prose-th-borders: var(--border-primary);
-	--tw-prose-td-borders: var(--border-subtle);
-	--tw-prose-kbd: var(--text-secondary);
-	--tw-prose-captions: var(--text-tertiary);
-	/* Prevent any descendant text from forcing horizontal scroll on mobile */
-	word-break: break-word;
-	overflow-wrap: anywhere;
-	min-width: 0;
-}
-
-/* Spacing — tighter than default typography */
-.prose p + p {
-	margin-top: 0.5em;
-}
-.prose h1,
-.prose h2,
-.prose h3,
-.prose h4 {
-	margin-top: 1em;
-	margin-bottom: 0.45em;
-}
-.prose h1 + *,
-.prose h2 + *,
-.prose h3 + *,
-.prose h4 + * {
-	margin-top: 0;
-}
-.prose ul,
-.prose ol {
-	margin-top: 0.5em;
-	margin-bottom: 0.75em;
-}
-.prose li {
-	margin-top: 0.15em;
-	margin-bottom: 0.15em;
-}
-.prose pre {
-	margin-top: 0.75em;
-	margin-bottom: 0.75em;
-}
-.prose table {
-	margin-top: 0.75em;
-	margin-bottom: 0.75em;
-}
-.prose blockquote {
-	margin-top: 0.75em;
-	margin-bottom: 0.75em;
-}
-.prose hr {
-	margin-top: 1.5em;
-	margin-bottom: 1.5em;
-}
-.prose > :first-child {
-	margin-top: 0;
-}
-.prose > :last-child {
-	margin-bottom: 0;
-}
-
-/* Inline code — rounded background pill */
-.prose code {
-	padding: 0.15em 0.4em;
-	border-radius: 0.375rem;
-	background-color: var(--bg-code);
-	font-weight: 400;
-	word-break: break-word;
-	overflow-wrap: anywhere;
-}
-
-/* Images & videos — constrained size, zoomable */
-.prose img,
-.prose video {
-	max-width: 90%;
-	max-height: 16rem;
-	width: auto;
-	height: auto;
-	border-radius: 0.5rem;
-	margin: 1em 0;
-	cursor: zoom-in;
-}
-
-@media (min-width: 640px) {
-	.prose img,
-	.prose video {
-		max-width: 31.2rem;
-	}
-}
-
-/* Code block container — border + rounded corners */
-.prose .markdown-code-block {
+.markdown-code-block {
 	position: relative;
-	margin-top: 0.75em;
-	margin-bottom: 0.75em;
+	margin: 0.85em 0;
 }
 
-.prose .markdown-code-block pre {
+.markdown-content[data-variant="chat"] .markdown-code-block {
+	margin: 0.75em 0;
+}
+
+.markdown-code-block pre {
 	margin: 0;
 }
 
-.prose pre {
-	border-radius: 0.75rem;
+.markdown-content pre {
 	border: 1px solid var(--border-subtle);
+	border-radius: 0.75rem;
 	overflow-x: auto;
-	/* Allow horizontal scroll inside code blocks on mobile without triggering drawer swipe */
 	touch-action: pan-x pan-y;
 }
 
-.prose .markdown-code-copy {
+.markdown-content[data-variant="document"] pre {
+	border-radius: 0.6rem;
+}
+
+.markdown-content pre code {
+	display: block;
+	min-width: max-content;
+	padding: 1rem 1.1rem;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: inherit;
+	font-size: 13px;
+	line-height: 1.55;
+	word-break: normal;
+	overflow-wrap: normal;
+}
+
+/* Shiki dual-theme output: github-light by default, github-dark under dark theme. */
+:where([data-theme="dark"] .markdown-content .shiki),
+:where([data-theme="dark"] .markdown-content .shiki span) {
+	color: var(--shiki-dark);
+}
+
+:where([data-theme="dark"] .markdown-content .shiki) {
+	background-color: var(--shiki-dark-bg);
+}
+
+.markdown-code-copy {
 	position: absolute;
 	top: 0.5rem;
 	right: 0.5rem;
@@ -508,53 +631,47 @@ body.drawer-open {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 1.45rem;
-	height: 1.45rem;
+	width: 1.65rem;
+	height: 1.65rem;
 	padding: 0;
-	border: 0;
-	border-radius: 0.4rem;
-	background: transparent;
-	color: color-mix(in srgb, var(--text-secondary) 62%, transparent);
-	font: 500 0.9rem/1 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+	border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+	border-radius: 0.35rem;
+	background: color-mix(in srgb, var(--bg-elevated) 84%, transparent);
+	color: var(--text-tertiary);
+	cursor: pointer;
 	opacity: 0;
 	transition:
 		opacity 140ms ease,
 		background-color 140ms ease,
+		border-color 140ms ease,
 		color 140ms ease;
 }
 
-.prose .markdown-code-block:hover .markdown-code-copy,
-.prose .markdown-code-copy:focus-visible,
-.prose .markdown-code-copy.copied {
+.markdown-code-block:hover .markdown-code-copy,
+.markdown-code-copy:focus-visible,
+.markdown-code-copy.copied {
 	opacity: 1;
 }
 
-.prose .markdown-code-copy:hover {
-	background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+.markdown-code-copy:hover {
+	border-color: var(--border-primary);
+	background: var(--bg-elevated);
 	color: var(--text-primary);
 }
 
-.prose .markdown-code-copy:focus-visible {
+.markdown-code-copy:focus-visible {
 	outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
 	outline-offset: 2px;
 }
 
-.prose .markdown-code-copy.copied {
-	background: color-mix(in srgb, var(--brand) 9%, transparent);
-	color: color-mix(in srgb, var(--brand) 68%, var(--text-primary));
+.markdown-code-copy.copied {
+	border-color: color-mix(in srgb, var(--brand) 34%, var(--border-subtle));
+	background: color-mix(in srgb, var(--brand) 12%, var(--bg-elevated));
+	color: var(--brand);
 }
 
 @media (hover: none) {
-	.prose .markdown-code-copy {
+	.markdown-code-copy {
 		opacity: 1;
 	}
 }
-
-/* Shiki inject inline styles on <code>; reset padding/border here */
-.prose pre code {
-	background-color: transparent;
-	padding: 0;
-	border-radius: 0;
-}
-
-

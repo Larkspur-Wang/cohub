@@ -1,44 +1,29 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { onMount, tick, untrack } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
-import { renderMarkdown } from "$lib/markdown";
+
+type MarkdownVariant = "chat" | "document";
 
 type Props = {
-	blocks: Extract<ContentBlock, { type: "text" }>[];
-	onStart?: () => void;
-	onRendered?: () => void;
+	html: string;
+	variant?: MarkdownVariant;
 };
 
-const { blocks, onStart, onRendered }: Props = $props();
-let renderedHtml = $state("");
+const { html, variant = "chat" }: Props = $props();
+
 let markdownEl = $state<HTMLElement | null>(null);
-let renderSeq = 0;
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
-const source = $derived(
-	blocks
-		.map((block) => block.text)
-		.join("\n\n")
-		.trim(),
-);
+
+const COPY_ICON =
+	'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+const CHECK_ICON =
+	'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
 
 $effect(() => {
-	const markdownSource = source;
-	const seq = ++renderSeq;
-	untrack(() => onStart?.());
-	void renderMarkdown(markdownSource)
-		.then(async (html) => {
-			if (seq !== renderSeq) return;
-			renderedHtml = html;
-			await tick();
-			if (seq === renderSeq) enhanceCodeBlocks();
-			requestAnimationFrame(() => {
-				if (seq === renderSeq) untrack(() => onRendered?.());
-			});
-		})
-		.catch(() => {
-			if (seq === renderSeq) untrack(() => onRendered?.());
-		});
+	const _html = html;
+	if (!markdownEl) return;
+	enhanceCodeBlocks();
 });
 
 function enhanceCodeBlocks() {
@@ -56,7 +41,7 @@ function enhanceCodeBlocks() {
 		button.type = "button";
 		button.className = "markdown-code-copy";
 		button.dataset.codeCopy = "";
-		button.textContent = "⧉";
+		button.innerHTML = COPY_ICON;
 		button.setAttribute("aria-label", "Copy code");
 		button.title = "Copy code";
 		wrapper.appendChild(button);
@@ -80,13 +65,13 @@ async function copyText(text: string) {
 }
 
 function markCopied(button: HTMLButtonElement) {
-	button.textContent = "✓";
+	button.innerHTML = CHECK_ICON;
 	button.classList.add("copied");
 	button.setAttribute("aria-label", "Code copied");
 	button.title = "Code copied";
 	if (copyResetTimer) clearTimeout(copyResetTimer);
 	copyResetTimer = setTimeout(() => {
-		button.textContent = "⧉";
+		button.innerHTML = COPY_ICON;
 		button.classList.remove("copied");
 		button.setAttribute("aria-label", "Copy code");
 		button.title = "Copy code";
@@ -137,11 +122,14 @@ onMount(() => {
 	el.addEventListener("click", onClick);
 	return () => {
 		el.removeEventListener("click", onClick);
-		if (copyResetTimer) clearTimeout(copyResetTimer);
 	};
+});
+
+onDestroy(() => {
+	if (copyResetTimer) clearTimeout(copyResetTimer);
 });
 </script>
 
-<div bind:this={markdownEl} class="prose prose-sm prose-invert max-w-none text-inherit">
-	{@html renderedHtml}
+<div bind:this={markdownEl} class="markdown-content" data-variant={variant}>
+	{@html html}
 </div>
