@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-svelte";
 type Marker = {
 	turn: SessionTurnIndexItem;
 	top: number;
+	height: number;
 	loaded: boolean;
 	current: boolean;
 };
@@ -16,6 +17,8 @@ type Props = {
 	turns: SessionTurnIndexItem[];
 	loadedTurns?: SessionTurnRecord[];
 	markerPositions?: Record<number, number>;
+	markerHeights?: Record<number, number>;
+	bottomOffset?: number;
 	olderCount?: number;
 	newerCount?: number;
 	hasMoreOlder?: boolean;
@@ -32,6 +35,8 @@ let {
 	turns,
 	loadedTurns = [],
 	markerPositions = {},
+	markerHeights = {},
+	bottomOffset = 0,
 	olderCount = 0,
 	newerCount = 0,
 	hasMoreOlder = false,
@@ -65,6 +70,7 @@ const markers = $derived.by<Marker[]>(() =>
 		top:
 			markerPositions[turn.sequence] ??
 			((turn.sequence - minSequence) / span) * 100,
+		height: markerHeights[turn.sequence] ?? 8,
 		loaded: loadedSequences.has(turn.sequence),
 		current: effectiveCurrent === turn.sequence,
 	})),
@@ -103,12 +109,15 @@ function metaLabel(turn: SessionTurnIndexItem) {
 </script>
 
 {#if shouldShow}
-	<div class="pointer-events-none absolute inset-y-8 right-1 z-10 hidden w-7 lg:block">
+	<div
+		class="pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
+		style:bottom={`${bottomOffset}px`}
+	>
 		<div class="absolute right-3 top-0 h-full w-px bg-border-subtle/70"></div>
 		{#if hasMoreOlder || olderCount > 0 || loadingOlder}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute -top-1 right-[5px] flex h-5 w-5 items-center justify-center"
+				class="group pointer-events-auto absolute -top-0.5 right-1 flex h-6 w-6 items-center justify-center"
 				aria-label={olderCount > 0 ? `Load ${olderCount} older turns` : "Load older turns"}
 				onclick={() => onLoadOlder?.()}
 			>
@@ -128,7 +137,7 @@ function metaLabel(turn: SessionTurnIndexItem) {
 		{#each markers as marker (marker.turn.id)}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute right-[7px] flex h-4 w-4 -translate-y-1/2 items-center justify-center"
+				class="group pointer-events-auto absolute right-1 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
 				onmouseenter={() => { hovered = marker; }}
@@ -138,7 +147,8 @@ function metaLabel(turn: SessionTurnIndexItem) {
 				onclick={() => onJump?.(marker.turn.sequence)}
 			>
 				<span
-					class={`block rounded-full transition-all duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-80' : 'opacity-30'} ${marker.current ? 'h-2.5 w-2.5 bg-brand opacity-100' : 'h-1.5 w-1.5 group-hover:h-2 group-hover:w-2 group-hover:opacity-100'}`}
+					class={`block rounded-full transition-[width,height,opacity,background-color,box-shadow] duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-85' : 'opacity-35'} ${marker.current ? 'w-3 bg-brand opacity-100 shadow-[0_0_0_3px_rgba(255,62,0,0.22)]' : 'w-2 group-hover:w-2.5 group-hover:opacity-100'}`}
+					style:height={`${marker.current ? Math.max(12, marker.height) : marker.height}px`}
 				></span>
 				{#if loadingSequence === marker.turn.sequence}
 					<Loader2 class="absolute h-3 w-3 animate-spin text-brand" />
@@ -148,7 +158,7 @@ function metaLabel(turn: SessionTurnIndexItem) {
 		{#if hasMoreNewer || newerCount > 0}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute -bottom-1 right-[5px] flex h-5 w-5 items-center justify-center"
+				class="group pointer-events-auto absolute -bottom-0.5 right-1 flex h-6 w-6 items-center justify-center"
 				aria-label={newerCount > 0 ? `Load ${newerCount} newer turns` : "Load newer turns"}
 				onclick={() => onLoadNewer?.()}
 			>

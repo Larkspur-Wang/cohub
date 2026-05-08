@@ -540,6 +540,7 @@ let loadingTurnSequence = $state<number | null>(null);
 let currentTurnSequence = $state<number | null>(null);
 let highlightedTurnSequence = $state<number | null>(null);
 let turnMarkerPositions = $state<Record<number, number>>({});
+let turnMarkerHeights = $state<Record<number, number>>({});
 let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
 let preloadingSessionIds = new Set<string>();
@@ -1238,13 +1239,15 @@ function getMessageElementAbsoluteTop(node: HTMLElement) {
 function measureTurnMarkerPositions() {
 	if (!listEl) {
 		turnMarkerPositions = {};
+		turnMarkerHeights = {};
 		return;
 	}
 	const maxScroll = Math.max(1, listEl.scrollHeight - listEl.clientHeight);
 	const anchors = Array.from(
 		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
 	);
-	const next: Record<number, number> = {};
+	const positions: Record<number, number> = {};
+	const heights: Record<number, number> = {};
 	for (const anchor of anchors) {
 		const sequence = Number(anchor.dataset.turnSequence);
 		if (!Number.isFinite(sequence)) continue;
@@ -1252,12 +1255,15 @@ function measureTurnMarkerPositions() {
 			0,
 			getMessageElementAbsoluteTop(anchor) - TURN_SCROLL_ANCHOR_OFFSET,
 		);
-		next[sequence] = Math.min(
+		positions[sequence] = Math.min(
 			100,
 			Math.max(0, (scrollTopAtAnchor / maxScroll) * 100),
 		);
+		const scrollRatio = Math.max(0.015, anchor.offsetHeight / maxScroll);
+		heights[sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
 	}
-	turnMarkerPositions = next;
+	turnMarkerPositions = positions;
+	turnMarkerHeights = heights;
 }
 function scheduleTurnMarkerMeasure() {
 	if (turnMarkerMeasureFrame != null) return;
@@ -3763,6 +3769,7 @@ $effect(() => {
 	currentTurnSequence = null;
 	loadingTurnSequence = null;
 	turnMarkerPositions = {};
+	turnMarkerHeights = {};
 	lastTurnIndexRefreshKey = "";
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
@@ -3889,6 +3896,7 @@ $effect(() => {
 $effect(() => {
 	if (!listEl || timeline.length === 0) {
 		turnMarkerPositions = {};
+		turnMarkerHeights = {};
 		return;
 	}
 	void tick().then(() => {
@@ -5405,6 +5413,8 @@ $effect(() => {
           turns={activeTurnRailItems}
           loadedTurns={activeSessionState.turns}
           markerPositions={turnMarkerPositions}
+          markerHeights={turnMarkerHeights}
+          bottomOffset={composerHeight}
           olderCount={unloadedOlderTurnCount}
           newerCount={unloadedNewerTurnCount}
           hasMoreOlder={activeSessionState.hasMore}
