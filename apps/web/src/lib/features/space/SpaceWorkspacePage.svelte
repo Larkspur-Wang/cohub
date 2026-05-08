@@ -992,9 +992,11 @@ const activeTurnRailItems = $derived.by<SessionTurnIndexItem[]>(() => {
 	const bySequence = new Map<number, SessionTurnIndexItem>();
 	for (const item of activeTurnIndex) bySequence.set(item.sequence, item);
 	for (const turn of activeSessionState?.turns ?? []) {
-		if (!bySequence.has(turn.sequence)) {
-			bySequence.set(turn.sequence, turnToIndexItem(turn));
-		}
+		const item = turnToIndexItem(turn);
+		bySequence.set(turn.sequence, {
+			...bySequence.get(turn.sequence),
+			...item,
+		});
 	}
 	return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence);
 });
