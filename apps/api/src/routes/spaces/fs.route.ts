@@ -9,7 +9,6 @@ import {
   listSpaceDirectory,
   moveSpaceNode,
   readSpaceFile,
-  sanitizeFileName,
   spaceFsJsonError,
   streamSpaceFile,
   uploadSpaceFiles,
@@ -37,18 +36,25 @@ const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 1000;
 
-const normalizeUploadRelativePath = (input: string) => {
-  const raw = assertSafeRelativePath(input, { allowEmpty: false });
-  const parts = raw.split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) {
+const assertSafeUploadPathPart = (part: string) => {
+  if (
+    !part ||
+    part === "." ||
+    part === ".." ||
+    part.length > 255 ||
+    part.trim() !== part ||
+    /[<>:"/\\|?*]/.test(part) ||
+    part.split("").some((char) => char.charCodeAt(0) <= 0x1f)
+  ) {
     throw new Error("Invalid upload path.");
   }
-  const safeParts = parts.map((part) => {
-    const safe = sanitizeFileName(part);
-    if (!safe || safe !== part) throw new Error("Invalid upload path.");
-    return safe;
-  });
-  const normalized = safeParts.join("/");
+  return part;
+};
+
+const normalizeUploadRelativePath = (input: string) => {
+  const raw = assertSafeRelativePath(input, { allowEmpty: false });
+  const parts = raw.split("/").map(assertSafeUploadPathPart);
+  const normalized = parts.join("/");
   if (normalized.length > 4096) throw new Error("Upload path is too long.");
   return normalized;
 };
