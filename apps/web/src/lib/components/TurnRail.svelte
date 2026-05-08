@@ -192,12 +192,12 @@ onDestroy(() => {
 		class="group/rail pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
 		style:bottom={`${bottomOffset}px`}
 	>
-		<div class="absolute right-3.5 top-0 h-full w-px bg-border-subtle/65 transition-colors duration-150 group-hover/rail:bg-border-subtle"></div>
+		<div class="absolute right-[13.5px] top-0 h-full w-px bg-border-subtle/65 transition-colors duration-150 group-hover/rail:bg-border-subtle"></div>
 		{#if canScroll}
 			<button
 				type="button"
 				bind:this={trackEl}
-				class="group/scroll pointer-events-auto absolute right-1 top-0 h-full w-5 cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
+				class="group/scroll pointer-events-auto absolute right-[4px] top-0 h-full w-5 cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
 				aria-label="Scroll session"
 				tabindex="-1"
 				onpointerdown={(event) =>
@@ -210,7 +210,7 @@ onDestroy(() => {
 				<div
 					bind:this={thumbEl}
 					data-scroll-thumb
-					class={`absolute right-[7px] w-[3px] rounded-full bg-text-placeholder/35 shadow-[0_0_0_1px_rgba(0,0,0,0.04)] transition-[width,background-color,opacity,box-shadow] duration-150 group-hover/scroll:right-[6px] group-hover/scroll:w-[5px] group-hover/scroll:bg-text-tertiary/45 ${dragging ? 'right-[6px] w-[5px] bg-brand/70 opacity-100 shadow-[0_0_0_1px_rgba(255,62,0,0.28)]' : 'opacity-80'}`}
+					class={`absolute right-[8.5px] w-[3px] rounded-full bg-text-placeholder/35 shadow-[0_0_0_1px_rgba(0,0,0,0.04)] transition-[width,background-color,opacity,box-shadow] duration-150 group-hover/scroll:right-[7.5px] group-hover/scroll:w-[5px] group-hover/scroll:bg-text-tertiary/45 ${dragging ? 'right-[7.5px] w-[5px] bg-brand/70 opacity-100 shadow-[0_0_0_1px_rgba(255,62,0,0.28)]' : 'opacity-80'}`}
 					style:top={`${thumbTopPercent}%`}
 					style:height={`${thumbHeightPercent}%`}
 				></div>
@@ -219,7 +219,7 @@ onDestroy(() => {
 		{#if hasMoreOlder || olderCount > 0 || loadingOlder}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute -top-0.5 right-1 flex h-6 w-6 items-center justify-center"
+				class="group pointer-events-auto absolute -top-0.5 right-[2px] flex h-6 w-6 items-center justify-center"
 				aria-label={olderCount > 0 ? `Load ${olderCount} older turns` : "Load older turns"}
 				onclick={() => onLoadOlder?.()}
 			>
@@ -239,7 +239,7 @@ onDestroy(() => {
 		{#each markers as marker (marker.turn.id)}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute right-[3px] flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
 				onmouseenter={() => { hovered = marker; }}
@@ -260,7 +260,7 @@ onDestroy(() => {
 		{#if hasMoreNewer || newerCount > 0}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute -bottom-0.5 right-1 flex h-6 w-6 items-center justify-center"
+				class="group pointer-events-auto absolute -bottom-0.5 right-[2px] flex h-6 w-6 items-center justify-center"
 				aria-label={newerCount > 0 ? `Load ${newerCount} newer turns` : "Load newer turns"}
 				onclick={() => onLoadNewer?.()}
 			>
