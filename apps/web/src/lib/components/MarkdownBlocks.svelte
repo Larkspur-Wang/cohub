@@ -56,7 +56,7 @@ function enhanceCodeBlocks() {
 		button.type = "button";
 		button.className = "markdown-code-copy";
 		button.dataset.codeCopy = "";
-		button.textContent = "Copy";
+		button.textContent = "⧉";
 		button.setAttribute("aria-label", "Copy code");
 		button.title = "Copy code";
 		wrapper.appendChild(button);
@@ -80,13 +80,13 @@ async function copyText(text: string) {
 }
 
 function markCopied(button: HTMLButtonElement) {
-	button.textContent = "Copied";
+	button.textContent = "✓";
 	button.classList.add("copied");
 	button.setAttribute("aria-label", "Code copied");
 	button.title = "Code copied";
 	if (copyResetTimer) clearTimeout(copyResetTimer);
 	copyResetTimer = setTimeout(() => {
-		button.textContent = "Copy";
+		button.textContent = "⧉";
 		button.classList.remove("copied");
 		button.setAttribute("aria-label", "Copy code");
 		button.title = "Copy code";
