@@ -26,7 +26,7 @@ export async function getLogtoManagementToken() {
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     resource,
-    scope: "read:users update:users",
+    scope: "all",
   });
 
   const response = await fetch(`${config.logtoEndpoint}/oidc/token`, {
