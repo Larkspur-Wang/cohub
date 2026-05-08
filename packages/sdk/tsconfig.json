@@ -11,7 +11,8 @@
       "@neta-art/cohub-protocol/realtime": ["../protocol/src/realtime/index.ts"],
       "@neta-art/cohub-protocol/gateway": ["../protocol/src/gateway/index.ts"],
       "@neta-art/cohub-protocol/task": ["../protocol/src/task/index.ts"],
-      "@neta-art/cohub-protocol/fs": ["../protocol/src/fs/index.ts"]
+      "@neta-art/cohub-protocol/fs": ["../protocol/src/fs/index.ts"],
+      "@neta-art/cohub-protocol/ports": ["../protocol/src/ports/index.ts"]
     }
   },
   "include": ["src"]

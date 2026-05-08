@@ -58,12 +58,10 @@ type PatchBlocksResult = {
   appendPath: string | null;
 };
 
-const blockTextPathPattern =
-  /^\/message\/content\/blocks\/(\d+)\/(text|thinking)$/;
+const blockSubPathPattern =
+  /^\/message\/content\/blocks\/(\d+)\/(.+)$/;
 const blockPathPattern = /^\/message\/content\/blocks\/(\d+)$/;
 const blockMetaPathPattern = /^\/message\/content\/blocks\/(\d+)\/_meta$/;
-const blockSignaturePathPattern =
-  /^\/message\/content\/blocks\/(\d+)\/signature$/;
 
 const createIdleState = (input: SessionPatchKeyInput): SessionPatchState => ({
   spaceId: input.spaceId ?? null,
@@ -104,6 +102,15 @@ function isContentBlock(value: unknown): value is ContentBlock {
   return Boolean(value && typeof value === "object" && "type" in value);
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function decodePointerSegments(encoded: string): string[] {
+  if (!encoded) return [];
+  return encoded.split("/").map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+
 function ensureTextLikeBlock(
   blocks: ContentBlock[],
   streamIndex: number,
@@ -131,23 +138,114 @@ function ensureTextLikeBlock(
   return block;
 }
 
-function appendTextLikeValue(
+function getOrCreateBlockForSubpath(
   blocks: ContentBlock[],
-  path: string,
+  streamIndex: number,
+  firstSegment: string,
+): ContentBlock | null {
+  const idx = findBlockByStreamIndex(blocks, streamIndex);
+  if (idx >= 0) return blocks[idx] ?? null;
+  if (firstSegment === "text") {
+    return ensureTextLikeBlock(blocks, streamIndex, "text");
+  }
+  if (firstSegment === "thinking") {
+    return ensureTextLikeBlock(blocks, streamIndex, "thinking");
+  }
+  return null;
+}
+
+function setDeepOnContentBlock(
+  root: ContentBlock,
+  segments: string[],
   value: unknown,
-) {
-  const match = path.match(blockTextPathPattern);
-  if (!match || typeof value !== "string") return false;
-  const streamIndex = Number(match[1]);
-  const field = match[2] as "text" | "thinking";
-  const block = ensureTextLikeBlock(blocks, streamIndex, field);
-  if (field === "text" && block.type === "text") {
-    block.text += value;
+): boolean {
+  if (segments.length === 0) return false;
+  let cur: unknown = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const k = segments[i];
+    if (k === undefined) return false;
+    if (!isPlainObject(cur)) return false;
+    const next = cur[k];
+    if (next === undefined) return false;
+    cur = next;
   }
-  if (field === "thinking" && block.type === "thinking") {
-    block.thinking += value;
-  }
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  if (!isPlainObject(cur)) return false;
+  const toAssign =
+    value !== null && typeof value === "object"
+      ? structuredClone(value)
+      : value;
+  (cur as Record<string, unknown>)[last] = toAssign;
   return true;
+}
+
+function appendDeepOnContentBlock(
+  root: ContentBlock,
+  segments: string[],
+  suffix: string,
+): boolean {
+  if (segments.length === 0) return false;
+  let cur: unknown = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const k = segments[i];
+    if (k === undefined) return false;
+    if (!isPlainObject(cur)) return false;
+    const next = cur[k];
+    if (next === undefined) return false;
+    cur = next;
+  }
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  if (!isPlainObject(cur)) return false;
+  const parent = cur as Record<string, unknown>;
+  const leaf = parent[last];
+  if (typeof leaf !== "string") return false;
+  parent[last] = leaf + suffix;
+  return true;
+}
+
+function resolveBlockForSubpath(
+  blocks: ContentBlock[],
+  streamIndex: number,
+  firstSegment: string,
+): ContentBlock | null {
+  const idx = findBlockByStreamIndex(blocks, streamIndex);
+  if (idx >= 0) return blocks[idx] ?? null;
+  return getOrCreateBlockForSubpath(blocks, streamIndex, firstSegment);
+}
+
+function applyReplaceAtBlockSubpath(
+  blocks: ContentBlock[],
+  streamIndex: number,
+  encodedTail: string,
+  value: unknown,
+): boolean {
+  const segs = decodePointerSegments(encodedTail);
+  if (segs.length === 0) return false;
+  const block = resolveBlockForSubpath(blocks, streamIndex, segs[0] ?? "");
+  if (!block) return false;
+  return setDeepOnContentBlock(block, segs, value);
+}
+
+function applyAppendAtBlockSubpath(
+  blocks: ContentBlock[],
+  streamIndex: number,
+  encodedTail: string,
+  suffix: unknown,
+): boolean {
+  if (typeof suffix !== "string") return false;
+  const segs = decodePointerSegments(encodedTail);
+  if (segs.length === 0) return false;
+  const block = resolveBlockForSubpath(blocks, streamIndex, segs[0] ?? "");
+  if (!block) return false;
+  return appendDeepOnContentBlock(block, segs, suffix);
+}
+
+function appendPatchStreamValue(blocks: ContentBlock[], path: string, value: unknown) {
+  const m = path.match(blockSubPathPattern);
+  if (!m) return false;
+  return applyAppendAtBlockSubpath(blocks, Number(m[1]), m[2] ?? "", value);
 }
 
 function applyPatchOpsToBlocks(
@@ -162,7 +260,7 @@ function applyPatchOpsToBlocks(
 
   for (const op of ops) {
     if (!op.o && !op.p) {
-      if (!appendPath || !appendTextLikeValue(next, appendPath, op.v)) {
+      if (!appendPath || !appendPatchStreamValue(next, appendPath, op.v)) {
         failed = true;
         break;
       }
@@ -178,7 +276,7 @@ function applyPatchOpsToBlocks(
     }
 
     if (op.o === "append") {
-      if (!appendTextLikeValue(next, op.p, op.v)) {
+      if (typeof op.p !== "string" || !appendPatchStreamValue(next, op.p, op.v)) {
         failed = true;
         break;
       }
@@ -198,13 +296,15 @@ function applyPatchOpsToBlocks(
     }
 
     if (op.o === "replace") {
-      const match = op.p.match(blockSignaturePathPattern);
-      if (match) {
-        if (typeof op.v !== "string") continue;
-        const blockIndex = findBlockByStreamIndex(next, Number(match[1]));
-        const block = blockIndex >= 0 ? next[blockIndex] : undefined;
-        if (block?.type === "thinking") block.signature = op.v;
-        continue;
+      const sub = op.p.match(blockSubPathPattern);
+      if (sub?.[2] && typeof op.p === "string") {
+        const streamIndex = Number(sub[1]);
+        const encodedTail = sub[2];
+        if (applyReplaceAtBlockSubpath(next, streamIndex, encodedTail, op.v)) {
+          continue;
+        }
+        failed = true;
+        break;
       }
     }
 

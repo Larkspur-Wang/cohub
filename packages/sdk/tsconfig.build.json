@@ -14,7 +14,8 @@
       "@neta-art/cohub-protocol/realtime": ["../protocol/dist/realtime/index.d.ts"],
       "@neta-art/cohub-protocol/gateway": ["../protocol/dist/gateway/index.d.ts"],
       "@neta-art/cohub-protocol/task": ["../protocol/dist/task/index.d.ts"],
-      "@neta-art/cohub-protocol/fs": ["../protocol/dist/fs/index.d.ts"]
+      "@neta-art/cohub-protocol/fs": ["../protocol/dist/fs/index.d.ts"],
+      "@neta-art/cohub-protocol/ports": ["../protocol/dist/ports/index.d.ts"]
     }
   },
   "include": ["src"]
