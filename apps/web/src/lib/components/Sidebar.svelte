@@ -9,6 +9,7 @@ import type {
 } from "@neta-art/cohub";
 import {
 	Activity,
+	ArrowLeft,
 	BarChart3,
 	Check,
 	ChevronDown,
@@ -23,7 +24,6 @@ import {
 	LogOut,
 	Network,
 	NotebookPen,
-	Palette,
 	Pencil,
 	Pin,
 	PinOff,
@@ -192,12 +192,6 @@ const otherSpaces = $derived.by(() => {
 const settingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
 	{
-		id: "appearance",
-		label: "Appearance",
-		icon: Palette,
-		href: "/settings/appearance",
-	},
-	{
 		id: "ssh-keys",
 		label: "SSH Keys",
 		icon: KeyRound,
@@ -216,6 +210,19 @@ const settingsTabs = [
 		href: "/settings/channels",
 	},
 ];
+
+const settingsReturnTo = $derived.by(() => {
+	const returnTo = page.url.searchParams.get("from");
+	if (!returnTo) return "/";
+	try {
+		const decoded = decodeURIComponent(returnTo);
+		if (!decoded.startsWith("/") || decoded.startsWith("//")) return "/";
+		if (decoded.startsWith("/settings")) return "/";
+		return decoded;
+	} catch {
+		return "/";
+	}
+});
 
 const activeSettingsTab = $derived.by(() => {
 	const tab = settingsTabs.find((tab) => currentPath.startsWith(tab.href));
@@ -464,9 +471,35 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 	}
 }
 
-async function handleNavigate(href: string) {
+async function handleNavigate(
+	href: string,
+	options?: { keepSettingsReturn?: boolean },
+) {
 	onClose?.();
+	if (options?.keepSettingsReturn && mode === "settings") {
+		const target = new URL(href, page.url);
+		const from = page.url.searchParams.get("from");
+		if (from && !target.searchParams.has("from")) {
+			target.searchParams.set("from", from);
+		}
+		await goto(target.pathname + target.search + target.hash);
+		return;
+	}
 	await goto(href);
+}
+
+function openSettings() {
+	const current = `${page.url.pathname}${page.url.search}${page.url.hash}`;
+	const target = new URL("/settings/profile", page.url);
+	if (!current.startsWith("/settings")) {
+		target.searchParams.set("from", current);
+	}
+	showUserMenu = false;
+	void handleNavigate(target.pathname + target.search + target.hash);
+}
+
+function returnFromSettings() {
+	void handleNavigate(settingsReturnTo);
 }
 
 async function handleNavigateToSpace(spaceId: string) {
@@ -1434,6 +1467,16 @@ $effect(() => {
       </div>
     {/if}
   {:else}
+    <div class="px-2 pt-2 pb-1">
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded-[5px] px-2.5 py-2 text-[13px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={returnFromSettings}
+      >
+        <ArrowLeft class="w-[15px] h-[15px] shrink-0" />
+        <span class="truncate">Back</span>
+      </button>
+    </div>
     <nav class="flex-1 overflow-y-auto px-2 py-2 space-y-[2px]">
       {#each settingsTabs as tab (tab.id)}
         {@const isActive = activeSettingsTab === tab.id}
@@ -1444,7 +1487,7 @@ $effect(() => {
               ? 'bg-bg-active text-text-primary font-medium'
               : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'
           }"
-          onclick={(e) => { e.preventDefault(); handleNavigate(tab.href); }}
+          onclick={(e) => { e.preventDefault(); handleNavigate(tab.href, { keepSettingsReturn: true }); }}
         >
           <tab.icon class="w-[15px] h-[15px] shrink-0" />
           <span>{tab.label}</span>
@@ -1464,7 +1507,7 @@ $effect(() => {
           <a
             href="/settings"
             class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-            onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings'); }}
+            onclick={(e) => { e.preventDefault(); openSettings(); }}
           >
             <Settings class="w-3.5 h-3.5" />
             <span>Settings</span>
