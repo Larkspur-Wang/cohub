@@ -9,17 +9,10 @@ type ManagementToken = {
 
 let cachedToken: ManagementToken | null = null;
 
-const normalizeBaseUrl = (value: string) => value.trim().replace(/\/+$/, "");
-
 const getRequiredEnv = (name: string) => {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required env: ${name}`);
   return value;
-};
-
-const getManagementApiBaseUrl = () => {
-  const explicit = process.env.LOGTO_MANAGEMENT_API_BASE_URL?.trim();
-  return normalizeBaseUrl(explicit || `${config.logtoEndpoint}/api`);
 };
 
 export async function getLogtoManagementToken() {
@@ -28,7 +21,7 @@ export async function getLogtoManagementToken() {
 
   const appId = getRequiredEnv("LOGTO_M2M_APP_ID");
   const appSecret = getRequiredEnv("LOGTO_M2M_APP_SECRET");
-  const resource = process.env.LOGTO_MANAGEMENT_API_RESOURCE?.trim() || getManagementApiBaseUrl();
+  const resource = process.env.LOGTO_MANAGEMENT_API_RESOURCE?.trim() || `${config.logtoEndpoint}/api`;
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
@@ -68,7 +61,8 @@ export async function getLogtoManagementToken() {
 
 async function logtoManagementRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getLogtoManagementToken();
-  const response = await fetch(`${getManagementApiBaseUrl()}${path}`, {
+  const baseUrl = `${config.logtoEndpoint}/api`;
+  const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
