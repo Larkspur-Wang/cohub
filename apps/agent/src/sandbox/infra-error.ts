@@ -8,6 +8,18 @@ const CRITICAL_MOUNT_PREFIXES = [
   "/public",
 ];
 
+const DEFINITIVE_STALE_MOUNT_PATTERNS = [
+  "stale nfs file handle",
+  "stale file handle",
+  "estale",
+];
+
+const DEFINITIVE_CRITICAL_IO_PATTERNS = [
+  "input/output error",
+  "i/o error",
+  "transport endpoint is not connected",
+];
+
 export class SandboxInfrastructureError extends Error {
   constructor(
     readonly code: SandboxInfraErrorCode,
@@ -24,15 +36,16 @@ export function classifySandboxInfrastructureError(message: string) {
   const mountPath = CRITICAL_MOUNT_PREFIXES.find((prefix) => normalized.includes(prefix.toLowerCase()));
   if (!mountPath) return null;
 
-  if (normalized.includes("stale nfs file handle") || normalized.includes("stale file handle") || normalized.includes("estale")) {
+  if (DEFINITIVE_STALE_MOUNT_PATTERNS.some((pattern) => normalized.includes(pattern))) {
     return new SandboxInfrastructureError("STALE_MOUNT", message, mountPath);
   }
-  if (
-    normalized.includes("input/output error") ||
-    normalized.includes("transport endpoint is not connected") ||
-    normalized.includes("not a directory")
-  ) {
+
+  // ENOENT/ENOTDIR style errors are often ordinary model path mistakes, even
+  // under /workspace (e.g. probing node_modules paths that are not installed).
+  // Do not escalate them to sandbox recovery without a definitive mount signal.
+  if (DEFINITIVE_CRITICAL_IO_PATTERNS.some((pattern) => normalized.includes(pattern))) {
     return new SandboxInfrastructureError("CRITICAL_MOUNT_IO", message, mountPath);
   }
+
   return null;
 }

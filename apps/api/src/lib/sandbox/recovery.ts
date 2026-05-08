@@ -13,6 +13,18 @@ const CRITICAL_MOUNT_PREFIXES = [
   "/public",
 ];
 
+const DEFINITIVE_STALE_MOUNT_PATTERNS = [
+  "stale nfs file handle",
+  "stale file handle",
+  "estale",
+];
+
+const DEFINITIVE_CRITICAL_IO_PATTERNS = [
+  "input/output error",
+  "i/o error",
+  "transport endpoint is not connected",
+];
+
 const normalize = (value: string) => value.toLowerCase();
 
 export const classifySandboxInfraError = (message: string): {
@@ -24,15 +36,13 @@ export const classifySandboxInfraError = (message: string): {
   const mountPath = CRITICAL_MOUNT_PREFIXES.find((prefix) => normalized.includes(prefix.toLowerCase()));
   if (!mountPath) return null;
 
-  if (normalized.includes("stale nfs file handle") || normalized.includes("stale file handle") || normalized.includes("estale")) {
+  if (DEFINITIVE_STALE_MOUNT_PATTERNS.some((pattern) => normalized.includes(pattern))) {
     return { code: "STALE_MOUNT", requiresPodRecreate: true, mountPath };
   }
 
-  if (
-    normalized.includes("input/output error") ||
-    normalized.includes("transport endpoint is not connected") ||
-    normalized.includes("not a directory")
-  ) {
+  // Treat ENOENT/ENOTDIR-style failures as ordinary path mistakes unless the
+  // message contains a more definitive mount failure signal.
+  if (DEFINITIVE_CRITICAL_IO_PATTERNS.some((pattern) => normalized.includes(pattern))) {
     return { code: "CRITICAL_MOUNT_IO", requiresPodRecreate: true, mountPath };
   }
 

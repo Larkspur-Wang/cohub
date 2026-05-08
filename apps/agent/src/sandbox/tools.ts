@@ -118,6 +118,29 @@ async function getCurrentConnection() {
   return waitForSandboxConnection(getCurrentSpaceId());
 }
 
+async function waitForRecoveredSandboxConnection(spaceId: string, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const remaining = Math.max(1_000, deadline - Date.now());
+      return await waitForSandboxConnection(spaceId, Math.min(15_000, remaining));
+    } catch (error) {
+      lastError = error;
+      attempt += 1;
+      if (Date.now() >= deadline) break;
+      const delayMs = Math.min(1_000 * 2 ** Math.min(attempt, 4), 5_000);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Timed out waiting for recovered sandbox connection for ${spaceId}`);
+}
+
 async function recoverAndRetryAfterInfraError<T>(spaceId: string, error: SandboxInfrastructureError, retry: () => Promise<T>) {
   console.warn(`[SandboxRecovery] ${error.code} detected spaceId=${spaceId} mount=${error.mountPath ?? "unknown"}; triggering recovery`);
   disconnectSandboxWsClient(spaceId, `sandbox recovery requested: ${error.code}`);
@@ -125,6 +148,7 @@ async function recoverAndRetryAfterInfraError<T>(spaceId: string, error: Sandbox
   if (!result?.ok) {
     throw new Error(`Sandbox recovery failed after ${error.code}: ${result?.message ?? error.message}`);
   }
+  await waitForRecoveredSandboxConnection(spaceId);
   return retry();
 }
 
