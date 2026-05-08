@@ -1,5 +1,5 @@
 import type { HttpTransport } from "../transport.js";
-import type { CreateCronJobInput, CronJobRecord, TaskRunRecord } from "../types.js";
+import type { CronJobRecord, TaskRunRecord } from "../types.js";
 
 export class CronJobsApi {
   constructor(private readonly transport: HttpTransport) {}
@@ -7,14 +7,6 @@ export class CronJobsApi {
   list(spaceId?: string) {
     const query = spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : "";
     return this.transport.request<{ jobs: CronJobRecord[] }>(`/api/cron-jobs${query}`);
-  }
-
-  create(data: CreateCronJobInput) {
-    return this.transport.request<CronJobRecord>("/api/cron-jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
   }
 
   delete(id: string) {

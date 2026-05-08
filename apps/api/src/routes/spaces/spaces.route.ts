@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
 import {
   userChannels,
@@ -15,22 +17,114 @@ import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import { getSpaceSandboxBySpaceId, recoverSpaceSandbox, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
+  enqueueSpacePrompt,
   getSpaceById,
+  getSpaceSessionById,
   listSpaceSessions,
   normalizeSpaceEnv,
   validateSpaceEnv,
   setSpaceEnv,
+  SandboxNotReadyError,
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
-import { enqueueTask } from "../../tasks.js";
+import { createCronJob, enqueueTask } from "../../tasks.js";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
+import { createSessionTurn, failSessionTurn } from "../../session-turns.js";
+import { expandPromptTemplate } from "../../prompt-templates.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/agent-sandbox-protocol";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 
 const router = new Hono();
+const { CronExpressionParser } = cronParser;
+
+type SpacePromptSchedule =
+  | { mode?: "immediate" }
+  | { mode: "delay"; delayMs?: number }
+  | { mode: "at"; sendAt?: string }
+  | { mode: "repeat"; cronExpression?: string; timezone?: string };
+
+type SpacePromptInput = {
+  sessionId?: string | null;
+  title?: string | null;
+  content?: ContentBlock[];
+  model?: string | null;
+  provider?: string | null;
+  schedule?: SpacePromptSchedule | null;
+};
+
+const hasExplicitTimezone = (value: string) => /(?:Z|[+-]\d{2}:\d{2})$/i.test(value.trim());
+
+const validateTimezone = (timezone: string) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const parseScheduledAt = (sendAt: string) => {
+  const trimmed = sendAt.trim();
+  if (!hasExplicitTimezone(trimmed)) {
+    throw new Error("sendAt must include timezone, e.g. 2026-05-09T10:00:00+08:00 or 2026-05-09T02:00:00Z");
+  }
+  const scheduledAt = new Date(trimmed);
+  if (Number.isNaN(scheduledAt.getTime())) {
+    throw new Error("sendAt must be a valid ISO 8601 datetime, e.g. 2026-05-09T10:00:00+08:00");
+  }
+  if (scheduledAt.getTime() <= Date.now()) throw new Error("sendAt must be in the future");
+  return scheduledAt;
+};
+
+const validateRepeatSchedule = (input: { cronExpression: string; timezone: string }) => {
+  const cronExpression = input.cronExpression.trim();
+  const timezone = input.timezone.trim();
+  if (cronExpression.split(/\s+/).length !== 5) {
+    throw new Error("cronExpression must have 5 fields, e.g. 0 9 * * *");
+  }
+  if (!validateTimezone(timezone)) throw new Error("timezone must be an IANA timezone, e.g. Asia/Shanghai or UTC");
+  const interval = CronExpressionParser.parse(cronExpression, { tz: timezone });
+  const nextRun = interval.next().toDate();
+  const secondRun = interval.next().toDate();
+  if (secondRun.getTime() - nextRun.getTime() < 60_000) {
+    throw new Error("cron interval must be at least 1 minute");
+  }
+  return { cronExpression, timezone, nextRun };
+};
+
+const expandPromptContent = async (input: {
+  content: ContentBlock[];
+  userId: string | null;
+  spaceId: string;
+}) => {
+  let content = input.content;
+  let promptTemplateMeta: Record<string, unknown> | null = null;
+  if (content.length === 1 && content[0]?.type === "text") {
+    const rawText = typeof content[0].text === "string" ? content[0].text.trim() : "";
+    if (rawText.startsWith("/")) {
+      const expanded = await expandPromptTemplate(rawText, {
+        userId: input.userId,
+        spaceId: input.spaceId,
+      });
+      if (expanded) {
+        content = [{ type: "text", text: expanded.renderedText } satisfies ContentBlock];
+        promptTemplateMeta = {
+          name: expanded.template.name,
+          description: expanded.template.description,
+          argumentHint: expanded.template.argumentHint ?? null,
+          category: expanded.template.category ?? null,
+          scope: expanded.template.scope,
+          rawInput: expanded.rawInput,
+          args: expanded.args,
+        };
+      }
+    }
+  }
+  return { content, promptTemplateMeta };
+};
 
 // ── Provisioning params builder ──────────────────────────────────────────────
 
@@ -716,6 +810,175 @@ router.post("/:id/sandbox/recreate", async (c) => {
 });
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
+
+router.post("/:id/prompt", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  const space = await getSpaceById(spaceId);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<SpacePromptInput>().catch(() => null);
+  if (!body?.content || !Array.isArray(body.content) || body.content.length === 0) {
+    return c.json({ message: "content is required and must be a non-empty ContentBlock array" }, 400);
+  }
+  if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
+
+  let sessionId = body.sessionId?.trim() || null;
+  if (sessionId) {
+    const session = await getSpaceSessionById(sessionId);
+    if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
+    if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId, sessionId }))) {
+      return c.json({ message: "not found" }, 404);
+    }
+  }
+
+  const schedule = body.schedule ?? { mode: "immediate" as const };
+  const mode = schedule.mode ?? "immediate";
+  if (!["immediate", "delay", "at", "repeat"].includes(mode)) {
+    return c.json({ message: "schedule.mode must be one of: immediate, delay, at, repeat" }, 400);
+  }
+
+  const { content, promptTemplateMeta } = await expandPromptContent({
+    content: body.content,
+    userId: user.uuid,
+    spaceId,
+  });
+
+  const taskData = {
+    content,
+    ...(sessionId ? { sessionId } : {}),
+    ...(body.title ? { title: body.title } : {}),
+    ...(body.model ? { model: body.model } : {}),
+    ...(body.provider ? { provider: body.provider } : {}),
+    ...(promptTemplateMeta ? { promptTemplate: promptTemplateMeta } : {}),
+  };
+
+  if (mode === "immediate") {
+    if (!sessionId) {
+      const session = await createInitialSpaceSession({
+        spaceId,
+        sessionId: crypto.randomUUID(),
+        title: body.title ?? null,
+        source: "prompt",
+        externalSessionId: null,
+        meta: { createdBy: "api_space_prompt" },
+      });
+      sessionId = session.id;
+    }
+
+    const userMessageId = crypto.randomUUID();
+    const turnId = crypto.randomUUID();
+    try {
+      await createSessionTurn({
+        id: turnId,
+        sessionId,
+        userUuid: user.uuid,
+        userContent: content,
+        intent: "steer",
+        meta: {
+          source: "prompt",
+          model: body.model ?? null,
+          provider: body.provider ?? null,
+          promptTemplate: promptTemplateMeta,
+          authorUuid: user.uuid,
+        },
+      });
+      await enqueueSpacePrompt({
+        spaceId,
+        sessionId,
+        userMessageId,
+        content,
+        meta: {
+          intent: "steer",
+          source: "prompt",
+          turnId,
+          model: body.model ?? null,
+          provider: body.provider ?? null,
+          promptTemplate: promptTemplateMeta,
+          actorUserId: user.uuid,
+          authorUuid: user.uuid,
+        },
+      });
+    } catch (error) {
+      await failSessionTurn({
+        sessionId,
+        turnId,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined);
+      if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
+      throw error;
+    }
+
+    return c.json({ ok: true, mode: "immediate", sessionId, userMessageId, turnId });
+  }
+
+  if (mode === "delay") {
+    const delayMs = Number((schedule as { delayMs?: number }).delayMs);
+    if (!Number.isFinite(delayMs) || delayMs <= 0) {
+      return c.json({ message: "delayMs must be a positive number of milliseconds, e.g. 600000" }, 400);
+    }
+    const scheduledAt = new Date(Date.now() + delayMs);
+    const { taskRunId } = await enqueueTask({
+      type: "send_message",
+      spaceId,
+      sessionId: sessionId ?? undefined,
+      userId: user.uuid,
+      data: taskData,
+    }, { delay: delayMs, scheduledAt });
+    return c.json({ ok: true, mode: "delay", taskRunId, scheduledAt: scheduledAt.toISOString(), sessionId });
+  }
+
+  if (mode === "at") {
+    const sendAt = (schedule as { sendAt?: string }).sendAt;
+    if (!sendAt?.trim()) return c.json({ message: "sendAt is required, e.g. 2026-05-09T10:00:00+08:00" }, 400);
+    let scheduledAt: Date;
+    try {
+      scheduledAt = parseScheduledAt(sendAt);
+    } catch (error) {
+      return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+    }
+    const { taskRunId } = await enqueueTask({
+      type: "send_message",
+      spaceId,
+      sessionId: sessionId ?? undefined,
+      userId: user.uuid,
+      data: taskData,
+    }, { delay: scheduledAt.getTime() - Date.now(), scheduledAt });
+    return c.json({ ok: true, mode: "at", taskRunId, scheduledAt: scheduledAt.toISOString(), sessionId });
+  }
+
+  const repeat = schedule as { cronExpression?: string; timezone?: string };
+  if (!repeat.cronExpression?.trim()) return c.json({ message: "cronExpression is required, e.g. 0 9 * * *" }, 400);
+  if (!repeat.timezone?.trim()) return c.json({ message: "timezone is required, e.g. Asia/Shanghai" }, 400);
+  let parsedRepeat: { cronExpression: string; timezone: string; nextRun: Date };
+  try {
+    parsedRepeat = validateRepeatSchedule({ cronExpression: repeat.cronExpression, timezone: repeat.timezone });
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+
+  const cronJob = await createCronJob({
+    userId: user.uuid,
+    title: body.title?.trim() || "Scheduled prompt",
+    taskType: "send_message",
+    payload: taskData,
+    schedule: { pattern: parsedRepeat.cronExpression, timezone: parsedRepeat.timezone },
+    spaceId,
+    sessionId,
+  });
+
+  return c.json({
+    ok: true,
+    mode: "repeat",
+    cronJobId: cronJob.id,
+    nextRunAt: parsedRepeat.nextRun.toISOString(),
+    timezone: parsedRepeat.timezone,
+    sessionId,
+  });
+});
 
 router.post("/:id/sessions", async (c) => {
   const user = useAuth(c);

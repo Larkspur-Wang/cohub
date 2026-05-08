@@ -41,11 +41,13 @@ const sendMessageHandler = async (job: Job) => {
 
   let targetSessionId = sessionId?.trim() || null;
 
-  if (!targetSessionId) {
-    const source = payload.cronJobId
-      ? `cronjob:${payload.cronJobId}`
-      : "cronjob:manual";
+  const source = payload.cronJobId
+    ? `cronjob:${payload.cronJobId}`
+    : job.id
+      ? `taskrun:${job.id}`
+      : "scheduled_prompt";
 
+  if (!targetSessionId) {
     const session = await registerCronjobSession(spaceId, {
       source,
       title: title ?? null,
@@ -57,7 +59,8 @@ const sendMessageHandler = async (job: Job) => {
       await enqueuePrompt(spaceId, targetSessionId, {
         content,
         meta: {
-          source: "cronjob",
+          source,
+          ...(payload.data?.promptTemplate ? { promptTemplate: payload.data.promptTemplate } : {}),
           actorUserId: payload.userId ?? null,
           ...(model && { model }),
           ...(provider && { provider }),
@@ -71,10 +74,6 @@ const sendMessageHandler = async (job: Job) => {
       };
     } catch (error) {
       if (error instanceof InternalApiError && error.statusCode === 404) {
-        const source = payload.cronJobId
-          ? `cronjob:${payload.cronJobId}`
-          : "cronjob:manual";
-
         const session = await registerCronjobSession(spaceId, {
           source,
           title: title ?? null,
@@ -94,7 +93,8 @@ const sendMessageHandler = async (job: Job) => {
   await enqueuePrompt(spaceId, targetSessionId, {
     content,
     meta: {
-      source: "cronjob",
+      source,
+      ...(payload.data?.promptTemplate ? { promptTemplate: payload.data.promptTemplate } : {}),
       actorUserId: payload.userId ?? null,
       ...(model && { model }),
       ...(provider && { provider }),

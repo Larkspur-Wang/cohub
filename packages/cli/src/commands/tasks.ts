@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+import { table, json as outJson, error, handleHttp } from "../output.js";
 
 export function registerTasks(program: Command): void {
   const cmd = program.command("tasks").description("Task management");
@@ -61,48 +61,4 @@ export function registerTasks(program: Command): void {
       }
     });
 
-  cmd
-    .command("create")
-    .description("Create a scheduled task")
-    .requiredOption("-t, --task-type <type>", "Task type")
-    .requiredOption("--schedule-at <time>", "ISO timestamp")
-    .option("--payload <json>", "Task payload as JSON")
-    .option("--space <id>", "Space ID")
-    .option("--session <id>", "Session ID")
-    .option("--json", "Output as JSON")
-    .action(async (opts: {
-      taskType: string;
-      scheduleAt: string;
-      payload?: string;
-      space?: string;
-      session?: string;
-      json?: boolean;
-    }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
-      let payload: Record<string, unknown> = {};
-      if (opts.payload) {
-        try {
-          payload = JSON.parse(opts.payload);
-        } catch {
-          return error("Invalid JSON", "--payload must be valid JSON");
-        }
-      }
-
-      const client = createClient(token);
-      try {
-        const result = await client.tasks.createScheduled({
-          taskType: opts.taskType,
-          payload,
-          scheduleAt: opts.scheduleAt,
-          spaceId: opts.space,
-          sessionId: opts.session,
-        });
-        if (opts.json) return outJson(result);
-        ok(`Task scheduled — taskRunId: ${result.taskRunId}`);
-      } catch (e: unknown) {
-        handleHttp(e);
-      }
-    });
 }

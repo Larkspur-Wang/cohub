@@ -25,6 +25,8 @@ import type {
   SpaceChannelBindingInput,
   SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
+  CreateSpacePromptInput,
+  CreateSpacePromptResponse,
   SpaceEnvInput,
   SpaceFsCompleteUploadInput,
   SpaceFsCompleteUploadResponse,
@@ -1026,6 +1028,17 @@ export class SpaceClient {
     return this.transport.request<SpaceRecord>(`/api/spaces/${this.id}`, {
       fetch: customFetch,
     });
+  }
+
+  prompt(input: CreateSpacePromptInput) {
+    return this.transport.request<CreateSpacePromptResponse>(
+      `/api/spaces/${this.id}/prompt`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
   }
 
   rename(name: string) {

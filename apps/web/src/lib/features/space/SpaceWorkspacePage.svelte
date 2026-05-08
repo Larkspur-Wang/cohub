@@ -814,22 +814,22 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 		return;
 	}
 	const cronParts = cronjobNewExpression.trim().split(/\s+/);
-	if (cronParts.length < 5 || cronParts.length > 6) {
+	if (cronParts.length !== 5) {
 		cronjobNewError =
-			"Invalid cron expression format. Expected 5 or 6 space-separated fields.";
+			"Invalid cron expression format. Expected 5 fields, e.g. 0 9 * * *.";
 		return;
 	}
 	cronjobNewError = "";
 	cronjobNewSubmitting = true;
 	try {
-		await sdk.cronJobs.create({
+		await sdk.space(spaceId).prompt({
 			title: cronjobNewTitle.trim(),
-			taskType: "send_message",
-			payload: {
-				content: [{ type: "text", text: cronjobNewPrompt.trim() }],
+			content: [{ type: "text", text: cronjobNewPrompt.trim() }],
+			schedule: {
+				mode: "repeat",
+				cronExpression: cronjobNewExpression.trim(),
+				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 			},
-			cronExpression: cronjobNewExpression.trim(),
-			spaceId,
 		});
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {

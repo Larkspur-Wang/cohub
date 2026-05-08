@@ -32,56 +32,6 @@ export function registerCronJobs(program: Command): void {
       }
     });
 
-  cmd
-    .command("create")
-    .description("Create a cron job")
-    .requiredOption("-t, --title <title>", "Job title")
-    .requiredOption("--task-type <type>", "Task type")
-    .requiredOption("--cron <expression>", "Cron expression")
-    .option("--payload <json>", "Payload as JSON")
-    .option("--timezone <tz>", "Timezone", "UTC")
-    .option("--space <id>", "Space ID")
-    .option("--session <id>", "Session ID")
-    .option("--json", "Output as JSON")
-    .action(async (opts: {
-      title: string;
-      taskType: string;
-      cron: string;
-      payload?: string;
-      timezone?: string;
-      space?: string;
-      session?: string;
-      json?: boolean;
-    }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
-      let payload: Record<string, unknown> = {};
-      if (opts.payload) {
-        try {
-          payload = JSON.parse(opts.payload);
-        } catch {
-          return error("Invalid JSON", "--payload must be valid JSON");
-        }
-      }
-
-      const client = createClient(token);
-      try {
-        const result = await client.cronJobs.create({
-          title: opts.title,
-          taskType: opts.taskType,
-          cronExpression: opts.cron,
-          payload,
-          timezone: opts.timezone,
-          spaceId: opts.space,
-          sessionId: opts.session,
-        });
-        if (opts.json) return outJson(result);
-        ok(`Cron job created: ${result.id}`);
-      } catch (e: unknown) {
-        handleHttp(e);
-      }
-    });
 
   cmd
     .command("delete <id>")

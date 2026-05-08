@@ -32,6 +32,7 @@ export type UserProfile = {
 export type MeResponse = {
   uuid: string;
   profile: UserProfile;
+  email: string | null;
 };
 
 export type UserRulesResponse = {
@@ -310,6 +311,43 @@ export type UserSshKey = {
   createdAt: string;
 };
 
+export type CreateSpacePromptInput = {
+  sessionId?: string | null;
+  title?: string | null;
+  content: ContentBlock[];
+  model?: string | null;
+  provider?: string | null;
+  schedule?:
+    | { mode?: "immediate" }
+    | { mode: "delay"; delayMs: number }
+    | { mode: "at"; sendAt: string }
+    | { mode: "repeat"; cronExpression: string; timezone: string };
+};
+
+export type CreateSpacePromptResponse =
+  | {
+      ok: true;
+      mode: "immediate";
+      sessionId: string;
+      userMessageId: string;
+      turnId: string;
+    }
+  | {
+      ok: true;
+      mode: "delay" | "at";
+      taskRunId: string;
+      scheduledAt: string;
+      sessionId: string | null;
+    }
+  | {
+      ok: true;
+      mode: "repeat";
+      cronJobId: string;
+      nextRunAt: string;
+      timezone: string;
+      sessionId: string | null;
+    };
+
 export type CronJobRecord = {
   id: string;
   userUuid: string;
@@ -364,24 +402,6 @@ export type CheckpointRecord = {
 
 export type SpaceCheckpointDetailResponse = {
   checkpoint: CheckpointRecord;
-};
-
-export type CreateCronJobInput = {
-  title: string;
-  taskType: string;
-  payload: Record<string, unknown>;
-  cronExpression: string;
-  timezone?: string;
-  spaceId?: string;
-  sessionId?: string;
-};
-
-export type CreateScheduledTaskInput = {
-  taskType: string;
-  payload: Record<string, unknown>;
-  scheduleAt: string;
-  spaceId?: string;
-  sessionId?: string;
 };
 
 // ─── RBAC types ───

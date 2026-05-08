@@ -1,13 +1,13 @@
 ---
 name: cohub
-description: Use Cohub runtime paths and CLI to inspect and manage spaces, chats, saves, files, tasks, schedules, channels, models, prompts, members, and access.
+description: Use Cohub runtime paths and CLI to inspect and manage spaces, chats, saves, files, prompts, task runs, schedules, channels, models, members, and access.
 ---
 
 # Cohub
 
 Use local Cohub runtime paths when inspecting the current Space, and use the Cohub CLI for Cohub control-plane operations.
 
-The CLI may operate the current Cohub context or any explicitly specified Space, Chat, Save, task, channel, or schedule.
+The CLI may operate the current Cohub context or any explicitly specified Space, Chat, Save, prompt, task run, channel, or schedule.
 
 ## Installation
 
@@ -31,25 +31,29 @@ Cohub has user-facing product terms and CLI/API terms. Treat them as equivalent:
 |---|---|
 | Chat | Session |
 | Saves | Checkpoints |
-| Scheduled | Cron jobs |
+| Scheduled prompt | Cron jobs |
+| Task / Task run | Task runs |
 
 When talking to users, prefer product UI terms:
 
 - Chat
 - Save
-- Scheduled task / Scheduled job
+- Task / task run
 
 When using commands, use CLI terms:
 
 - `sessions`
 - `checkpoints`
-- `cron-jobs`
+- `spaces prompt` for sending, delaying, or scheduling prompts
+- `tasks` for task / task run inspection
+- `cron-jobs` for scheduled prompt inspection and management
 
 Examples:
 
 ```bash
 cohub -s <spaceId> spaces sessions ls --json
 cohub -s <spaceId> spaces checkpoints create "Save progress" --json
+cohub -s <spaceId> spaces prompt "Summarize current project" --json
 cohub cron-jobs ls <spaceId> --json
 ```
 
@@ -94,9 +98,10 @@ Use the CLI when:
 
 - operating on another Space
 - creating, renaming, or managing Chats
-- sending messages or streaming Chat events
+- sending immediate, delayed, or scheduled prompts
+- streaming Chat events
 - creating Saves
-- checking tasks or schedules
+- checking tasks / task runs or schedules
 - managing access, members, channels, models, or prompts
 - local runtime paths are unavailable or insufficient
 
@@ -110,6 +115,7 @@ Good:
 cohub spaces ls --json
 cohub spaces get "$COHUB_SPACE_ID" --json
 cohub -s "$COHUB_SPACE_ID" spaces sessions ls --json
+cohub -s "$COHUB_SPACE_ID" spaces prompt "Summarize this space" --json
 cohub tasks ls --space "$COHUB_SPACE_ID" --json
 ```
 
@@ -341,7 +347,51 @@ cohub -s <spaceId> spaces files rm -r <path>
 
 Confirm before deleting files or directories.
 
-## Tasks
+## Prompt Sending and Scheduling
+
+Send a prompt to a Space. If `--session` is omitted, Cohub creates a new Chat when the prompt runs.
+
+```bash
+cohub -s <spaceId> spaces prompt "message" --json
+```
+
+Send to an existing Chat:
+
+```bash
+cohub -s <spaceId> spaces prompt --session <sessionId> "message" --json
+```
+
+Send from stdin:
+
+```bash
+echo "message" | cohub -s <spaceId> spaces prompt --json
+```
+
+Delay a prompt. This creates a task run and returns `taskRunId`:
+
+```bash
+cohub -s <spaceId> spaces prompt "message" --delay-ms 600000 --json
+```
+
+Send once at an absolute ISO time. The time must include `Z` or an explicit offset:
+
+```bash
+cohub -s <spaceId> spaces prompt "message" --at "2026-05-09T10:00:00+08:00" --json
+```
+
+Schedule a repeating prompt. Use a 5-field cron expression and an explicit IANA timezone. This creates a cron job and returns `cronJobId`:
+
+```bash
+cohub -s <spaceId> spaces prompt "Daily summary" \
+  --title "Daily summary" \
+  --cron "0 9 * * *" \
+  --timezone "Asia/Shanghai" \
+  --json
+```
+
+Confirm before sending or scheduling prompts with side effects.
+
+## Tasks / Task Runs
 
 List task runs:
 
@@ -361,24 +411,13 @@ Use current Space:
 cohub tasks ls --space "$COHUB_SPACE_ID" --json
 ```
 
-Get task details:
+Get task run details:
 
 ```bash
 cohub tasks get <taskRunId> --json
 ```
 
-Create a scheduled task:
-
-```bash
-cohub tasks create \
-  --task-type <type> \
-  --schedule-at <isoTime> \
-  --payload '<json>' \
-  --space <spaceId> \
-  --json
-```
-
-Confirm before creating scheduled tasks with side effects.
+Task runs are created internally by prompt scheduling and system operations. Do not create arbitrary tasks directly.
 
 ## Scheduled / Cron Jobs
 
@@ -389,17 +428,7 @@ cohub cron-jobs ls --json
 cohub cron-jobs ls <spaceId> --json
 ```
 
-Create a Scheduled job:
-
-```bash
-cohub cron-jobs create \
-  -t "<title>" \
-  --task-type <type> \
-  --cron "<expression>" \
-  --payload '<json>' \
-  --space <spaceId> \
-  --json
-```
+Create Scheduled prompts with `spaces prompt --cron`; do not create arbitrary cron jobs directly.
 
 Enable or disable:
 
@@ -420,7 +449,7 @@ Delete:
 cohub cron-jobs delete <id>
 ```
 
-Confirm before creating, enabling, disabling, or deleting Scheduled jobs.
+Confirm before enabling, disabling, or deleting Scheduled jobs.
 
 ## Channels
 

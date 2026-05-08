@@ -1,5 +1,5 @@
 import type { HttpTransport } from "../transport.js";
-import type { CreateScheduledTaskInput, TaskRunDetailResponse, TaskRunRecord } from "../types.js";
+import type { TaskRunDetailResponse, TaskRunRecord } from "../types.js";
 
 export class TasksApi {
   constructor(private readonly transport: HttpTransport) {}
@@ -17,15 +17,5 @@ export class TasksApi {
       `/api/tasks${query ? `?${query}` : ""}`,
     );
   }
-
-  createScheduled(data: CreateScheduledTaskInput) {
-    return this.transport.request<{ ok: true; taskRunId: string; scheduledAt: string }>(
-      "/api/tasks",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      },
-    );
-  }
 }
+

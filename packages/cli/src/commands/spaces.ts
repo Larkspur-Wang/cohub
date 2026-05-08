@@ -103,6 +103,69 @@ export function registerSpaces(program: Command): void {
       }
     });
 
+  // ── spaces prompt ──
+  spacesCmd
+    .command("prompt [content...]")
+    .description("Send or schedule a prompt in the target space")
+    .option("--session <id>", "Target session ID")
+    .option("--title <title>", "Title for a newly created session or schedule")
+    .option("-m, --model <model>", "Model name")
+    .option("-p, --provider <provider>", "Provider name")
+    .option("--delay-ms <ms>", "Delay sending by milliseconds")
+    .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
+    .option("--cron <expression>", "Repeat using a 5-field cron expression")
+    .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
+    .option("--json", "Output as JSON")
+    .action(async (words: string[], opts: {
+      session?: string;
+      title?: string;
+      model?: string;
+      provider?: string;
+      delayMs?: string;
+      at?: string;
+      cron?: string;
+      timezone?: string;
+      json?: boolean;
+    }) => {
+      const token = resolveToken() ?? missingAuth();
+      let content = words.join(" ");
+      if (!content && !process.stdin.isTTY) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of process.stdin) chunks.push(chunk);
+        content = Buffer.concat(chunks).toString().trim();
+      }
+      if (!content) return error("No content", "Pass as argument or pipe via stdin");
+      const scheduleFlags = [opts.delayMs, opts.at, opts.cron].filter((value) => value !== undefined);
+      if (scheduleFlags.length > 1) return error("Conflicting schedule", "Use only one of --delay-ms, --at, or --cron");
+      if (opts.cron && !opts.timezone) return error("Missing timezone", "--timezone is required with --cron");
+
+      const spaceId = requireSpace(spacesCmd);
+      const client = createClient(token);
+      try {
+        const schedule = opts.delayMs
+          ? { mode: "delay" as const, delayMs: Number.parseInt(opts.delayMs, 10) }
+          : opts.at
+            ? { mode: "at" as const, sendAt: opts.at }
+            : opts.cron
+              ? { mode: "repeat" as const, cronExpression: opts.cron, timezone: opts.timezone as string }
+              : undefined;
+        const result = await client.space(spaceId).prompt({
+          sessionId: opts.session,
+          title: opts.title,
+          content: [{ type: "text", text: content }],
+          model: opts.model,
+          provider: opts.provider,
+          schedule,
+        });
+        if (opts.json) return outJson(result);
+        if (result.mode === "immediate") return ok(`Prompt sent — sessionId: ${result.sessionId}, turnId: ${result.turnId}`);
+        if (result.mode === "repeat") return ok(`Prompt scheduled — cronJobId: ${result.cronJobId}, nextRunAt: ${result.nextRunAt}`);
+        return ok(`Prompt scheduled — taskRunId: ${result.taskRunId}, scheduledAt: ${result.scheduledAt}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
   // ── spaces files ──
   registerFiles(spacesCmd);
 

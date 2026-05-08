@@ -3,92 +3,10 @@ import { db } from "../db/index.js";
 import { cronJobs, taskRuns } from "../db/schema-v2.js";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
-import { getSpaceSessionById } from "../space-sessions.js";
 import { hasPermission } from "../permissions.js";
-import { createCronJob, disableCronJob, enableCronJob, removeCronJob, SUPPORTED_TASK_TYPES } from "../tasks.js";
-import type { TaskScheduleConfig } from "@neta-art/cohub-protocol/task";
-import * as cronParser from "cron-parser";
-
-const { CronExpressionParser } = cronParser;
+import { disableCronJob, enableCronJob, removeCronJob } from "../tasks.js";
 
 const router = new Hono();
-
-router.post("/", async (c) => {
-  const user = useAuth(c);
-
-  const body = await c.req
-    .json<{
-      title: string;
-      taskType: string;
-      payload: Record<string, unknown>;
-      cronExpression: string;
-      timezone?: string;
-      spaceId?: string;
-      sessionId?: string;
-    }>()
-    .catch(() => null);
-
-  if (!body?.title?.trim()) return c.json({ message: "title is required" }, 400);
-  if (!body?.taskType) return c.json({ message: "taskType is required" }, 400);
-  if (!SUPPORTED_TASK_TYPES.has(body.taskType)) return c.json({ message: "unsupported taskType" }, 400);
-  if (!body?.cronExpression) return c.json({ message: "cronExpression is required" }, 400);
-  if (body.spaceId && !requireValidId(body.spaceId)) return c.json({ message: "invalid spaceId" }, 400);
-  if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
-
-  let effectiveSpaceId = body.spaceId ?? null;
-  if (body.sessionId) {
-    const session = await getSpaceSessionById(body.sessionId);
-    if (!session) return c.json({ message: "session not found" }, 404);
-    effectiveSpaceId = effectiveSpaceId ?? session.spaceId;
-    if (session.spaceId !== effectiveSpaceId) return c.json({ message: "session does not belong to space" }, 400);
-  }
-  if (effectiveSpaceId && !(await hasPermission(user, "cronjob.manage", { spaceId: effectiveSpaceId }))) return c.json({ message: "not found" }, 404);
-
-  try {
-    const interval = CronExpressionParser.parse(body.cronExpression, {
-      tz: body.timezone ?? "Asia/Shanghai",
-    });
-    const nextRun = interval.next().toDate();
-    const secondRun = interval.next().toDate();
-    const intervalMs = secondRun.getTime() - nextRun.getTime();
-    if (intervalMs < 60_000) {
-      return c.json({ message: "cron interval must be at least 1 minute" }, 400);
-    }
-  } catch (parseError) {
-    return c.json(
-      { message: `invalid cron expression: ${parseError instanceof Error ? parseError.message : String(parseError)}` },
-      400,
-    );
-  }
-
-  const schedule: TaskScheduleConfig = {
-    pattern: body.cronExpression,
-    timezone: body.timezone,
-  };
-
-  try {
-    const cronJob = await createCronJob({
-      userId: user.uuid,
-      title: body.title.trim(),
-      taskType: body.taskType,
-      payload: body.payload ?? {},
-      schedule,
-      spaceId: effectiveSpaceId,
-      sessionId: body.sessionId ?? null,
-    });
-
-    return c.json(cronJob);
-  } catch (error) {
-    console.error("[CronJobs] Failed to create cron job:", error);
-    return c.json(
-      {
-        message:
-          "cron job was created, but scheduling failed; please check the job status and retry later",
-      },
-      500,
-    );
-  }
-});
 
 router.get("/", async (c) => {
   const spaceId = c.req.query("spaceId") ?? null;
