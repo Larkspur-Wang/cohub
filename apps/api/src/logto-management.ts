@@ -21,7 +21,7 @@ export async function getLogtoManagementToken() {
 
   const appId = getRequiredEnv("LOGTO_M2M_APP_ID");
   const appSecret = getRequiredEnv("LOGTO_M2M_APP_SECRET");
-  const resource = process.env.LOGTO_MANAGEMENT_API_RESOURCE?.trim() || `${config.logtoEndpoint}/api`;
+  const resource = process.env.LOGTO_MANAGEMENT_API_RESOURCE?.trim() || "https://default.logto.app/api";
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
