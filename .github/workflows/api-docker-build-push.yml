@@ -111,7 +111,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -125,7 +125,14 @@ jobs:
 
       - name: Run migration if needed
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
+          BASE_SHA="${{ github.event.before }}"
+          HEAD_SHA="${{ github.sha }}"
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="HEAD~1"
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
             'apps/api/src/db/schema-v2.ts' \
             'apps/api/drizzle/v2/*.sql' 2>/dev/null || true)
 
@@ -133,6 +140,9 @@ jobs:
             echo "No migration needed"
             exit 0
           fi
+
+          echo "Migration-related changes detected:"
+          echo "$CHANGED"
 
           IMAGE=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           echo "Migration needed, running with image: $IMAGE"
