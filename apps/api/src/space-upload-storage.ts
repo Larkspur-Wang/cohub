@@ -115,8 +115,14 @@ export const createPresignedPutUrl = (objectKey: string, contentType?: string | 
   url.searchParams.set("X-Amz-Date", amzDate);
   url.searchParams.set("X-Amz-Expires", String(PRESIGN_TTL_SECONDS));
   url.searchParams.set("X-Amz-SignedHeaders", signedHeaders);
+  url.searchParams.set("x-oss-cors", "true"); // Enable CORS for preflight OPTIONS requests
 
-  const canonicalQuery = Array.from(url.searchParams.entries())
+  // x-oss-cors should NOT be included in the signature calculation
+  const signableParams = new URLSearchParams();
+  for (const [key, value] of url.searchParams.entries()) {
+    if (key !== "x-oss-cors") signableParams.set(key, value);
+  }
+  const canonicalQuery = Array.from(signableParams.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join("&");
