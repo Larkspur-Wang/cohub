@@ -18,6 +18,7 @@ import type {
 import type { GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import {
+  getSessionTurnPatchStreamKey,
   realtimeEnvelopeSchema,
   WS_COMPACT_STREAM_CAPABILITY,
   wsClientEventSchema,
@@ -127,14 +128,7 @@ const isNonNegativeInteger = (value: unknown): value is number =>
 
 const getPatchStreamId = (envelope: RealtimeEnvelope) => {
   if (envelope.type !== "session.turn.patch") return null;
-  const payload = envelope.payload as Record<string, unknown>;
-  if (typeof payload.turnId === "string" && payload.turnId.trim()) {
-    return payload.turnId;
-  }
-  if (typeof payload.messageId === "string" && payload.messageId.trim()) {
-    return payload.messageId;
-  }
-  return null;
+  return getSessionTurnPatchStreamKey(envelope.payload);
 };
 
 const getPersistedTurnId = (envelope: RealtimeEnvelope) => {

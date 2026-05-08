@@ -1,4 +1,5 @@
 import {
+  getSessionTurnPatchStreamKey,
   realtimeCompactFrameSchema,
   realtimeEnvelopeSchema,
   WS_COMPACT_STREAM_CAPABILITY,
@@ -586,11 +587,7 @@ export class WebsocketClient {
     if (typeof realtimeMeta?.sid === "string" && realtimeMeta.sid.trim()) {
       return realtimeMeta.sid;
     }
-    if (typeof payload.turnId === "string" && payload.turnId.trim()) return payload.turnId;
-    if (typeof payload.messageId === "string" && payload.messageId.trim()) return payload.messageId;
-    return typeof envelope.sessionId === "string" && envelope.sessionId.trim()
-      ? envelope.sessionId
-      : null;
+    return getSessionTurnPatchStreamKey(payload, { includeSessionFallback: true });
   }
 
   private handlePatchEnvelope(envelope: ChannelEnvelope) {
@@ -688,6 +685,7 @@ export class WebsocketClient {
         turnId: context.turnId,
         messageId: context.messageId,
         messageOrdinal: context.messageOrdinal,
+        sourceMessageId: context.messageId,
         anchorUserMessageId: context.anchorUserMessageId,
         seq: frame.s,
         baseSeq: frame.b,

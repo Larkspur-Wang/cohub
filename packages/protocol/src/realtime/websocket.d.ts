@@ -321,6 +321,17 @@ export type RealtimePatchOperation = {
     o?: undefined;
     p?: undefined;
 };
+export type RealtimePatchIdentityInput = {
+    turnId?: unknown;
+    messageId?: unknown;
+    sourceMessageId?: unknown;
+    anchorUserMessageId?: unknown;
+    messageOrdinal?: unknown;
+    sessionId?: unknown;
+};
+export declare const getSessionTurnPatchStreamKey: (input: RealtimePatchIdentityInput, options?: {
+    includeSessionFallback?: boolean;
+}) => string | null;
 export type SessionTurnPatchEvent = {
     id: string;
     timestamp: number;
@@ -332,6 +343,8 @@ export type SessionTurnPatchEvent = {
     payload: {
         turnId: string | null;
         messageId: string | null;
+        messageOrdinal?: number | null;
+        sourceMessageId?: string | null;
         anchorUserMessageId: string | null;
         seq: number;
         baseSeq: number;
