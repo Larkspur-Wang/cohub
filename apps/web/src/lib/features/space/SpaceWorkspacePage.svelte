@@ -541,6 +541,9 @@ let currentTurnSequence = $state<number | null>(null);
 let highlightedTurnSequence = $state<number | null>(null);
 let turnMarkerPositions = $state<Record<number, number>>({});
 let turnMarkerHeights = $state<Record<number, number>>({});
+let timelineScrollTop = $state(0);
+let timelineScrollHeight = $state(0);
+let timelineClientHeight = $state(0);
 let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
 let preloadingSessionIds = new Set<string>();
@@ -1236,12 +1239,25 @@ function getMessageElementAbsoluteTop(node: HTMLElement) {
 	const nodeRect = node.getBoundingClientRect();
 	return listEl.scrollTop + (nodeRect.top - containerRect.top);
 }
+function updateTimelineScrollMetrics() {
+	if (!listEl) {
+		timelineScrollTop = 0;
+		timelineScrollHeight = 0;
+		timelineClientHeight = 0;
+		return;
+	}
+	timelineScrollTop = listEl.scrollTop;
+	timelineScrollHeight = listEl.scrollHeight;
+	timelineClientHeight = listEl.clientHeight;
+}
 function measureTurnMarkerPositions() {
 	if (!listEl) {
 		turnMarkerPositions = {};
 		turnMarkerHeights = {};
+		updateTimelineScrollMetrics();
 		return;
 	}
+	updateTimelineScrollMetrics();
 	const maxScroll = Math.max(1, listEl.scrollHeight - listEl.clientHeight);
 	const anchors = Array.from(
 		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
@@ -1992,6 +2008,27 @@ function getTurnAnchorNode(sequence: number) {
 			`[data-turn-anchor="user"][data-turn-sequence="${sequence}"]`,
 		) ?? null
 	);
+}
+function snapScrollToNearestTurn(threshold = 32) {
+	if (!listEl) return false;
+	const anchors = Array.from(
+		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
+	);
+	let nearest: { sequence: number; distance: number } | null = null;
+	for (const anchor of anchors) {
+		const sequence = Number(anchor.dataset.turnSequence);
+		if (!Number.isFinite(sequence)) continue;
+		const targetTop = Math.max(
+			0,
+			getMessageElementAbsoluteTop(anchor) - TURN_SCROLL_ANCHOR_OFFSET,
+		);
+		const distance = Math.abs(targetTop - listEl.scrollTop);
+		if (!nearest || distance < nearest.distance) {
+			nearest = { sequence, distance };
+		}
+	}
+	if (!nearest || nearest.distance > threshold) return false;
+	return scrollToTurnAnchor(nearest.sequence);
 }
 function scrollToTurnAnchor(sequence: number) {
 	if (!listEl) return false;
@@ -2759,10 +2796,15 @@ function updateCurrentTurnSequence() {
 }
 function setProgrammaticScrollTop(scrollTop: number) {
 	if (!listEl) return;
+	const nextScrollTop = Math.min(
+		Math.max(0, listEl.scrollHeight - listEl.clientHeight),
+		Math.max(0, scrollTop),
+	);
 	programmaticScrollActive = true;
-	programmaticScrollTarget = scrollTop;
+	programmaticScrollTarget = nextScrollTop;
 	userScrollActive = false;
-	listEl.scrollTop = scrollTop;
+	listEl.scrollTop = nextScrollTop;
+	updateTimelineScrollMetrics();
 	requestAnimationFrame(() => {
 		programmaticScrollActive = false;
 	});
@@ -3977,11 +4019,13 @@ $effect(() => {
 		if (isProgrammatic) {
 			programmaticScrollActive = false;
 			programmaticScrollTarget = null;
+			updateTimelineScrollMetrics();
 			updateAutoFollow();
 			updateCurrentTurnSequence();
 			scheduleTurnMarkerMeasure();
 			return;
 		}
+		updateTimelineScrollMetrics();
 		if (activeSessionId && userScrollActive) {
 			captureCurrentScrollAnchor(activeSessionId);
 		}
@@ -4174,7 +4218,10 @@ $effect(() => {
 });
 $effect(() => {
 	if (!listEl || !activeSessionId) return;
-	requestAnimationFrame(() => updateAutoFollow());
+	requestAnimationFrame(() => {
+		updateTimelineScrollMetrics();
+		updateAutoFollow();
+	});
 });
 // ResizeObserver: when the scroll container's content grows and the user
 // is already near the bottom (shouldAutoFollow), keep them pinned. This
@@ -4195,6 +4242,7 @@ $effect(() => {
 			scrollToBottomNow();
 		}
 		prevHeight = currentHeight;
+		updateTimelineScrollMetrics();
 		updateAutoFollow();
 	});
 	ro.observe(el);
@@ -5424,6 +5472,9 @@ $effect(() => {
           loadedTurns={activeSessionState.turns}
           markerPositions={turnMarkerPositions}
           markerHeights={turnMarkerHeights}
+          scrollTop={timelineScrollTop}
+          scrollHeight={timelineScrollHeight}
+          clientHeight={timelineClientHeight}
           bottomOffset={composerHeight}
           olderCount={unloadedOlderTurnCount}
           newerCount={unloadedNewerTurnCount}
@@ -5433,6 +5484,8 @@ $effect(() => {
           currentSequence={currentTurnSequence}
           loadingSequence={loadingTurnSequence}
           onJump={(sequence) => { void jumpToTurn(sequence); }}
+          onScrollTo={(scrollTop) => { setProgrammaticScrollTop(scrollTop); }}
+          onScrollCommit={() => { snapScrollToNearestTurn(); }}
           onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
           onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
         />

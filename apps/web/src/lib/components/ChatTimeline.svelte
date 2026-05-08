@@ -130,7 +130,7 @@ $effect(() => {
 
 <div
 	bind:this={bindListEl}
-	class="flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
+	class="chat-timeline-scroll flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
 >
 	<div class={`mx-auto max-w-4xl flex flex-col [&>*]:mt-2 pt-6 pb-6`}>
 		{#each timeline as item, idx (item.id)}
@@ -175,6 +175,15 @@ $effect(() => {
 </div>
 
 <style>
+	.chat-timeline-scroll {
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+
+	.chat-timeline-scroll::-webkit-scrollbar {
+		display: none;
+	}
+
 	/* Uniform spacing between items via gap on the parent flex container.
 	 * The previous column-reverse + :has() approach was fragile and hard to
 	 * reason about — a single gap value is cleaner and predictable.

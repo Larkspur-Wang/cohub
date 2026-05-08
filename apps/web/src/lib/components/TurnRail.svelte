@@ -4,6 +4,7 @@ import type {
 	SessionTurnRecord,
 } from "@neta-art/cohub-protocol/model";
 import { Loader2 } from "lucide-svelte";
+import { onDestroy } from "svelte";
 
 type Marker = {
 	turn: SessionTurnIndexItem;
@@ -18,6 +19,9 @@ type Props = {
 	loadedTurns?: SessionTurnRecord[];
 	markerPositions?: Record<number, number>;
 	markerHeights?: Record<number, number>;
+	scrollTop?: number;
+	scrollHeight?: number;
+	clientHeight?: number;
 	bottomOffset?: number;
 	olderCount?: number;
 	newerCount?: number;
@@ -27,6 +31,8 @@ type Props = {
 	currentSequence?: number | null;
 	loadingSequence?: number | null;
 	onJump?: (sequence: number) => void;
+	onScrollTo?: (scrollTop: number) => void;
+	onScrollCommit?: () => void;
 	onLoadOlder?: () => void;
 	onLoadNewer?: () => void;
 };
@@ -36,6 +42,9 @@ let {
 	loadedTurns = [],
 	markerPositions = {},
 	markerHeights = {},
+	scrollTop = 0,
+	scrollHeight = 0,
+	clientHeight = 0,
 	bottomOffset = 0,
 	olderCount = 0,
 	newerCount = 0,
@@ -45,11 +54,17 @@ let {
 	currentSequence = null,
 	loadingSequence = null,
 	onJump,
+	onScrollTo,
+	onScrollCommit,
 	onLoadOlder,
 	onLoadNewer,
 }: Props = $props();
 
 let hovered = $state<Marker | null>(null);
+let trackEl = $state<HTMLElement | null>(null);
+let thumbEl = $state<HTMLDivElement | null>(null);
+let dragging = $state(false);
+let dragOffsetPx = 0;
 
 const loadedSequences = $derived(
 	new Set(loadedTurns.map((turn) => turn.sequence)),
@@ -75,9 +90,67 @@ const markers = $derived.by<Marker[]>(() =>
 		current: effectiveCurrent === turn.sequence,
 	})),
 );
+const maxScroll = $derived(Math.max(0, scrollHeight - clientHeight));
+const canScroll = $derived(maxScroll > 1 && clientHeight > 0);
+const thumbHeightPercent = $derived.by(() => {
+	if (!canScroll || scrollHeight <= 0) return 100;
+	return Math.min(64, Math.max(6, (clientHeight / scrollHeight) * 100));
+});
+const thumbTopPercent = $derived.by(() => {
+	if (!canScroll) return 0;
+	const range = 100 - thumbHeightPercent;
+	return Math.min(range, Math.max(0, (scrollTop / maxScroll) * range));
+});
 const shouldShow = $derived(
-	markers.length > 1 || hasMoreOlder || hasMoreNewer || loadingOlder,
+	canScroll ||
+		markers.length > 1 ||
+		hasMoreOlder ||
+		hasMoreNewer ||
+		loadingOlder,
 );
+
+function clamp(value: number, min: number, max: number) {
+	return Math.min(max, Math.max(min, value));
+}
+
+function trackScrollTopForClientY(clientY: number, offsetPx: number) {
+	if (!trackEl || !canScroll) return scrollTop;
+	const rect = trackEl.getBoundingClientRect();
+	const thumbHeightPx = (rect.height * thumbHeightPercent) / 100;
+	const usableHeight = Math.max(1, rect.height - thumbHeightPx);
+	const y = clamp(clientY - rect.top - offsetPx, 0, usableHeight);
+	return (y / usableHeight) * maxScroll;
+}
+
+function handleScrollPointerMove(event: PointerEvent) {
+	onScrollTo?.(trackScrollTopForClientY(event.clientY, dragOffsetPx));
+}
+
+function endScrollDrag() {
+	if (!dragging) return;
+	dragging = false;
+	window.removeEventListener("pointermove", handleScrollPointerMove);
+	window.removeEventListener("pointerup", endScrollDrag);
+	window.removeEventListener("pointercancel", endScrollDrag);
+	onScrollCommit?.();
+}
+
+function startScrollDrag(event: PointerEvent, fromThumb: boolean) {
+	if (!canScroll) return;
+	event.preventDefault();
+	event.stopPropagation();
+	dragging = true;
+	if (fromThumb && thumbEl) {
+		dragOffsetPx = event.clientY - thumbEl.getBoundingClientRect().top;
+	} else if (trackEl) {
+		dragOffsetPx =
+			(trackEl.getBoundingClientRect().height * thumbHeightPercent) / 200;
+	}
+	onScrollTo?.(trackScrollTopForClientY(event.clientY, dragOffsetPx));
+	window.addEventListener("pointermove", handleScrollPointerMove);
+	window.addEventListener("pointerup", endScrollDrag);
+	window.addEventListener("pointercancel", endScrollDrag);
+}
 
 function statusClass(status: SessionTurnIndexItem["status"]) {
 	if (status === "failed") return "bg-error-soft";
@@ -106,14 +179,43 @@ function metaLabel(turn: SessionTurnIndexItem) {
 	}
 	return parts.join(" · ");
 }
+
+onDestroy(() => {
+	window.removeEventListener("pointermove", handleScrollPointerMove);
+	window.removeEventListener("pointerup", endScrollDrag);
+	window.removeEventListener("pointercancel", endScrollDrag);
+});
 </script>
 
 {#if shouldShow}
 	<div
-		class="pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
+		class="group/rail pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
 		style:bottom={`${bottomOffset}px`}
 	>
-		<div class="absolute right-3 top-0 h-full w-px bg-border-subtle/70"></div>
+		<div class="absolute right-3.5 top-0 h-full w-px bg-border-subtle/65 transition-colors duration-150 group-hover/rail:bg-border-subtle"></div>
+		{#if canScroll}
+			<button
+				type="button"
+				bind:this={trackEl}
+				class="group/scroll pointer-events-auto absolute right-1 top-0 h-full w-5 cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
+				aria-label="Scroll session"
+				tabindex="-1"
+				onpointerdown={(event) =>
+					startScrollDrag(
+						event,
+						event.target instanceof HTMLElement &&
+							Boolean(event.target.closest('[data-scroll-thumb]')),
+					)}
+			>
+				<div
+					bind:this={thumbEl}
+					data-scroll-thumb
+					class={`absolute right-[7px] w-[3px] rounded-full bg-text-placeholder/35 shadow-[0_0_0_1px_rgba(0,0,0,0.04)] transition-[width,background-color,opacity,box-shadow] duration-150 group-hover/scroll:right-[6px] group-hover/scroll:w-[5px] group-hover/scroll:bg-text-tertiary/45 ${dragging ? 'right-[6px] w-[5px] bg-brand/70 opacity-100 shadow-[0_0_0_1px_rgba(255,62,0,0.28)]' : 'opacity-80'}`}
+					style:top={`${thumbTopPercent}%`}
+					style:height={`${thumbHeightPercent}%`}
+				></div>
+			</button>
+		{/if}
 		{#if hasMoreOlder || olderCount > 0 || loadingOlder}
 			<button
 				type="button"
@@ -137,7 +239,7 @@ function metaLabel(turn: SessionTurnIndexItem) {
 		{#each markers as marker (marker.turn.id)}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute right-1 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+				class="group pointer-events-auto absolute right-[3px] flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
 				onmouseenter={() => { hovered = marker; }}
@@ -147,7 +249,7 @@ function metaLabel(turn: SessionTurnIndexItem) {
 				onclick={() => onJump?.(marker.turn.sequence)}
 			>
 				<span
-					class={`block rounded-full transition-[width,height,opacity,background-color,box-shadow] duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-85' : 'opacity-35'} ${marker.current ? 'w-3 bg-brand opacity-100 shadow-[0_0_0_3px_rgba(255,62,0,0.22)]' : 'w-2 group-hover:w-2.5 group-hover:opacity-100'}`}
+					class={`block rounded-full ring-1 ring-bg-content/90 transition-[width,height,opacity,background-color,box-shadow] duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-85' : 'opacity-35'} ${marker.current ? 'w-3 bg-brand opacity-100 shadow-[0_0_0_3px_rgba(255,62,0,0.20)]' : 'w-1.5 group-hover:w-2.5 group-hover:opacity-100'}`}
 					style:height={`${marker.current ? Math.max(12, marker.height) : marker.height}px`}
 				></span>
 				{#if loadingSequence === marker.turn.sequence}
@@ -173,7 +275,7 @@ function metaLabel(turn: SessionTurnIndexItem) {
 		{/if}
 		{#if hovered}
 			<div
-				class="pointer-events-none absolute right-8 w-72 -translate-y-1/2 rounded-md border border-border-subtle bg-bg-primary px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
+				class="pointer-events-none absolute right-8 w-72 -translate-y-1/2 rounded-lg border border-border-subtle/90 bg-bg-primary/98 px-3 py-2 shadow-[0_10px_32px_rgba(0,0,0,0.24)]"
 				style:top={`${Math.min(96, Math.max(4, hovered.top))}%`}
 			>
 				<div class="flex items-center justify-between gap-3">
