@@ -206,6 +206,29 @@ const tokenDetailText = $derived.by(() => {
 	return parts.join("  ·  ");
 });
 
+const modelContextWindow = $derived.by(() => {
+	const contextWindow =
+		(message.meta?.contextWindow as number | null | undefined) ??
+		modelMatch?.model?.contextWindow;
+	return typeof contextWindow === "number" && contextWindow > 0
+		? contextWindow
+		: null;
+});
+
+const inputContextPercent = $derived.by(() => {
+	const input = message.meta?.usage?.input;
+	if (!input || !modelContextWindow) return null;
+	return Math.max(0, Math.min(100, (input / modelContextWindow) * 100));
+});
+
+function getTokenDisplayClass(percent: number | null) {
+	const base = "tabular-nums shrink-0 cursor-default transition-colors";
+	if (percent === null || percent < 60)
+		return `${base} text-text-placeholder/65`;
+	if (percent < 85) return `${base} text-warning-soft/85`;
+	return `${base} text-error-soft/90`;
+}
+
 // Copy
 let copied = $state(false);
 let copyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -302,7 +325,7 @@ function handleCopy() {
 
           <!-- Tokens -->
           {#if hasUsage}
-            <span class="tabular-nums shrink-0 cursor-default" title={tokenDetailText}>
+            <span class={getTokenDisplayClass(inputContextPercent)} title={tokenDetailText}>
               {tokenDisplay}
             </span>
           {/if}

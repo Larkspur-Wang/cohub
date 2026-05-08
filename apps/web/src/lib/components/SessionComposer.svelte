@@ -34,7 +34,6 @@ type Props = {
 	attachments?: ComposerImageAttachment[];
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
-	contextUsagePercent?: number | null;
 	onsubmit: () => void;
 	onpickimage?: (files: FileList | File[] | null) => void;
 	onremoveattachment?: (id: string) => void;
@@ -49,7 +48,6 @@ let {
 	attachments = [],
 	currentModel = null,
 	promptTemplates = [],
-	contextUsagePercent = null,
 	onsubmit,
 	onpickimage,
 	onremoveattachment,
@@ -79,36 +77,6 @@ const filteredPromptTemplates = $derived.by(() => {
 		);
 	});
 });
-
-const contextUsageDisplayPercent = $derived.by(() => {
-	if (contextUsagePercent === null || !Number.isFinite(contextUsagePercent)) {
-		return null;
-	}
-	return Math.round(Math.max(0, Math.min(100, contextUsagePercent)));
-});
-
-function getContextUsageClass(percent: number) {
-	const visibility =
-		percent >= 60
-			? "inline-flex"
-			: "hidden group-hover:inline-flex group-focus-within:inline-flex";
-	const tone =
-		percent >= 95
-			? "border-error-soft/25 bg-error-bg text-error-soft"
-			: percent >= 80
-				? "border-warning-soft/25 bg-warning-bg text-warning-soft"
-				: percent >= 60
-					? "border-border-subtle bg-bg-surface text-text-tertiary"
-					: "border-transparent bg-transparent text-text-placeholder opacity-70";
-
-	return `${visibility} h-7 min-w-9 items-center justify-center rounded-full border px-1.5 text-center text-[11px] font-medium tabular-nums transition-colors ${tone}`;
-}
-
-function getContextUsageTitle(percent: number) {
-	return percent >= 95
-		? "Context nearly full (estimated)"
-		: "Context used (estimated)";
-}
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
 function isMobile(): boolean {
@@ -304,7 +272,7 @@ $effect(() => {
 		{/if}
 
 		<form
-			class={`group relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
+			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
 			onsubmit={(event) => {
 				event.preventDefault();
 				onsubmit();
@@ -499,15 +467,6 @@ $effect(() => {
 									<Maximize2 class="h-4 w-4" />
 								{/if}
 							</button>
-
-							{#if contextUsageDisplayPercent !== null}
-								<div
-									class={getContextUsageClass(contextUsageDisplayPercent)}
-									title={getContextUsageTitle(contextUsageDisplayPercent)}
-								>
-									{contextUsageDisplayPercent}%
-								</div>
-							{/if}
 							<button
 								type="submit"
 								disabled={disabled || (!value.trim() && attachments.length === 0)}

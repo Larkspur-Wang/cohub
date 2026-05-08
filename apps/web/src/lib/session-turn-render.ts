@@ -7,6 +7,11 @@ import type {
 import { getStreamingRenderKey } from "./session-streaming";
 import type { ChatMessage, TimelineItem } from "./session-tree";
 
+function getTurnContextWindow(turn: SessionTurnRecord) {
+	const raw = turn.meta?.contextWindow;
+	return typeof raw === "number" && raw > 0 ? raw : null;
+}
+
 function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	const meta = turn.meta ?? {};
 	return {
@@ -54,6 +59,7 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 			turnId: turn.id,
 			model: turn.model,
 			provider: turn.provider,
+			contextWindow: getTurnContextWindow(turn),
 			usage: turn.finalUsage,
 			stopReason: turn.stopReason,
 			errorMessage: turn.errorMessage,

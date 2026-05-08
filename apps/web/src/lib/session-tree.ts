@@ -27,6 +27,7 @@ export type ChatMessage = {
 		sessionId?: string | null;
 		model?: string | null;
 		provider?: string | null;
+		contextWindow?: number | null;
 		usage?: SessionTurnRecord["finalUsage"];
 		stopReason?: string | null;
 		errorMessage?: string | null;

@@ -1008,37 +1008,6 @@ const activeSessionModel = $derived.by(() => {
 	if (!activeSessionId) return null;
 	return sessionModelById[activeSessionId] ?? firstCatalogModel;
 });
-const activeModelContextWindow = $derived.by(() => {
-	const model = activeSessionModel;
-	if (!model) return null;
-	const catalogItem = modelsCatalog?.find(
-		(item) => item.provider === model.provider && item.id === model.id,
-	);
-	const contextWindow = catalogItem?.model.contextWindow;
-	return typeof contextWindow === "number" && contextWindow > 0
-		? contextWindow
-		: null;
-});
-const activeContextUsedTokens = $derived.by(() => {
-	const turns = activeSessionState?.turns ?? [];
-	const latestUsage = [...turns]
-		.reverse()
-		.map(
-			(turn) =>
-				turn.totalUsage ??
-				turn.finalUsage ??
-				turn.intermediateSummary?.usage ??
-				null,
-		)
-		.find((usage) => usage?.input || usage?.totalTokens);
-
-	return latestUsage?.input ?? latestUsage?.totalTokens ?? 0;
-});
-const activeContextUsagePercent = $derived.by(() => {
-	if (!activeModelContextWindow) return null;
-	const usageRatio = activeContextUsedTokens / activeModelContextWindow;
-	return Math.max(0, Math.min(100, usageRatio * 100));
-});
 const activeGenerationState = $derived.by(() =>
 	sessionGenerationStore.get(activeSessionId),
 );
@@ -5509,7 +5478,6 @@ $effect(() => {
             attachments={imageAttachments}
             currentModel={activeSessionModel}
             promptTemplates={promptTemplates}
-            contextUsagePercent={activeContextUsagePercent}
             onpickimage={handlePickImages}
             onremoveattachment={handleRemoveAttachment}
             onsubmit={handleSend}
