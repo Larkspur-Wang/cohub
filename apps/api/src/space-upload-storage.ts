@@ -91,10 +91,14 @@ const signingKey = (secret: string, dateStamp: string, region: string) => {
 
 const encodePath = (value: string) => value.split("/").map(encodeURIComponent).join("/");
 
-const publicEndpoint = () => {
+const publicEndpoint = (bucket: string) => {
   const endpoint = config.turnObjectS3PublicEndpoint ?? config.turnObjectS3Endpoint?.replace("-internal.", ".");
   if (!endpoint) throw new Error("TURN_OBJECT_S3_ENDPOINT is required for uploads");
-  return endpoint.replace(/\/+$/, "");
+  const parsed = new URL(endpoint.replace(/\/+$/, ""));
+  if (!parsed.hostname.startsWith(`${bucket}.`)) {
+    parsed.hostname = `${bucket}.${parsed.hostname}`;
+  }
+  return parsed.toString().replace(/\/+$/, "");
 };
 
 export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) => {
@@ -107,8 +111,8 @@ export const createPresignedPutUrl = (objectKey: string, contentType?: string | 
   const amzDate = toAmzDate(now);
   const dateStamp = toDateStamp(now);
   const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
-  const endpoint = publicEndpoint();
-  const url = new URL(`${endpoint}/${encodeURIComponent(bucket)}/${encodePath(objectKey)}`);
+  const endpoint = publicEndpoint(bucket);
+  const url = new URL(`${endpoint}/${encodePath(objectKey)}`);
   const signedHeaders = "host";
   url.searchParams.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
   url.searchParams.set("X-Amz-Credential", `${accessKeyId}/${credentialScope}`);
