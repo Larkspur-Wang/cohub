@@ -269,6 +269,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
         turnId: output.turnId,
         messageId: output.messageId,
         messageOrdinal: output.messageOrdinal ?? null,
+        sourceMessageId: output.messageId,
         anchorUserMessageId: output.anchorUserMessageId,
         seq: output.seq,
         baseSeq: output.baseSeq,

@@ -1,6 +1,6 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { GatewaySessionPatchOperation } from "@neta-art/cohub-protocol/gateway";
-import type { SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import { getSessionTurnPatchStreamKey, type SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 
 const getStreamIndex = (block: ContentBlock, fallback: number) => {
   const value = block._meta?.streamIndex;
@@ -16,7 +16,7 @@ const PATCH_CURSOR_MAX_AGE_MS = 10 * 60 * 1000;
 const appendPatchCursors = new Map<string, AppendPatchCursor>();
 
 const patchCursorKey = (event: SessionStreamEvent) =>
-  `${event.sessionId}:${event.turnId ?? event.sourceMessageId ?? event.anchorUserMessageId ?? "unknown"}`;
+  `${event.sessionId}:${getSessionTurnPatchStreamKey(event) ?? "unknown"}`;
 
 const pruneExpiredPatchCursors = (now: number) => {
   for (const [key, cursor] of appendPatchCursors) {
