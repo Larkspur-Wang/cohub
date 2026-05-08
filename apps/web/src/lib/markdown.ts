@@ -188,11 +188,6 @@ function splitMarkdownBlocks(source: string): MarkdownBlock[] {
 			continue;
 		}
 
-		if (line.trim().length === 0) {
-			pushBuffer();
-			continue;
-		}
-
 		buffer.push(line);
 	}
 

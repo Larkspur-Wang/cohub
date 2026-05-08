@@ -445,17 +445,69 @@ body.drawer-open {
 
 .markdown-content ul,
 .markdown-content ol {
-	padding-left: 1.5em;
+	padding-left: 1.45em;
 	margin: 0.5em 0 0.85em;
+}
+
+.markdown-content ul {
+	list-style-type: disc;
+}
+
+.markdown-content ol {
+	list-style-type: decimal;
+}
+
+.markdown-content ul ul {
+	list-style-type: circle;
+}
+
+.markdown-content ul ul ul {
+	list-style-type: square;
 }
 
 .markdown-content li {
 	margin: 0.18em 0;
+	padding-left: 0.12em;
+}
+
+.markdown-content li::marker {
+	color: var(--text-tertiary);
 }
 
 .markdown-content li > ul,
 .markdown-content li > ol {
+	margin-top: 0.18em;
 	margin-bottom: 0;
+}
+
+.markdown-content li > p {
+	margin: 0.35em 0;
+}
+
+.markdown-content li > p:first-child {
+	margin-top: 0;
+}
+
+.markdown-content li > p:last-child {
+	margin-bottom: 0;
+}
+
+.markdown-content input[type="checkbox"] {
+	width: 0.95em;
+	height: 0.95em;
+	margin: 0 0.48em 0 0;
+	vertical-align: -0.12em;
+	accent-color: var(--brand);
+}
+
+.markdown-content li:has(> input[type="checkbox"]) {
+	list-style-type: none;
+	margin-left: -1.45em;
+	padding-left: 0;
+}
+
+.markdown-content li:has(> input[type="checkbox"]) + li:has(> input[type="checkbox"]) {
+	margin-top: 0.28em;
 }
 
 .markdown-content hr {
