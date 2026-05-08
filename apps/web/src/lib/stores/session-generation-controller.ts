@@ -183,6 +183,10 @@ export function applyRealtimeGenerationProgress(
 	});
 }
 
+type RealtimeGenerationSnapshotResult =
+	| { applied: true }
+	| { applied: false; reason: "stale_snapshot" };
+
 export function applyRealtimeGenerationSnapshot(
 	sessionId: string,
 	input: {
@@ -194,6 +198,7 @@ export function applyRealtimeGenerationSnapshot(
 			messageId?: string | null;
 			messageOrdinal?: number | null;
 			content: ContentBlock[];
+			appendPath?: string | null;
 		};
 		intermediateMessages?: Array<{
 			messageId?: string | null;
@@ -201,9 +206,17 @@ export function applyRealtimeGenerationSnapshot(
 			content: ContentBlock[];
 		}>;
 	},
-) {
+): RealtimeGenerationSnapshotResult {
 	const current = sessionGenerationStore.get(sessionId);
 	const resolvedTurnId = input.turnId ?? current?.turnId ?? null;
+	if (
+		current?.turnId &&
+		resolvedTurnId &&
+		current.turnId === resolvedTurnId &&
+		current.patchSeq > input.seq
+	) {
+		return { applied: false, reason: "stale_snapshot" };
+	}
 	const streamMessageId = resolveStreamMessageId({
 		sessionId,
 		turnId: resolvedTurnId,
@@ -212,11 +225,20 @@ export function applyRealtimeGenerationSnapshot(
 		messageId: input.current.messageId,
 		messageOrdinal: input.current.messageOrdinal,
 	});
-	realtimePatchReducer.start({
+	const snapshotResult = realtimePatchReducer.applySnapshot({
 		sessionId,
 		spaceId: input.spaceId ?? current?.spaceId ?? null,
 		turnId: resolvedTurnId,
+		seq: input.seq,
+		contentBlocks: input.current.content,
+		anchorUserMessageId:
+			input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
+		appendPath:
+			"appendPath" in input.current ? (input.current.appendPath ?? null) : null,
 	});
+	if (!snapshotResult.applied) {
+		return { applied: false, reason: "stale_snapshot" };
+	}
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: input.spaceId ?? current?.spaceId ?? null,
 		contentBlocks: input.current.content,
@@ -231,6 +253,7 @@ export function applyRealtimeGenerationSnapshot(
 		patchSeq: input.seq,
 		turnId: resolvedTurnId,
 	});
+	return { applied: true };
 }
 
 export function applyRealtimeGenerationPatch(

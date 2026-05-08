@@ -53,7 +53,7 @@ type GatewayWsBroadcastPayload = RealtimeServerEvent & {
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
-const STREAM_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
+const STREAM_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 
 const wsConnections = new Map<string, WsConnectionContext>();
 const wsConnectionsByUserId = new Map<string, Set<string>>();

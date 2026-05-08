@@ -104,6 +104,7 @@ import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
+	applyRealtimeGenerationSnapshot,
 	buildStreamingStoredIntermediateMessages,
 	clearGenerationError,
 	completeGeneration,
@@ -1917,6 +1918,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				turnId: runningTurn.id,
 				anchorUserMessageId: runningTurn.id,
 			});
+			await restoreSessionStreamSnapshot(sessionId);
 		}
 		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
 			session: response.session,
@@ -2192,6 +2194,38 @@ function handleFirstVisible(index: number) {
 		);
 	}
 }
+async function restoreSessionStreamSnapshot(sessionId: string) {
+	try {
+		const { snapshot } = await sdk
+			.space(spaceId)
+			.session(sessionId)
+			.turns.streamSnapshot();
+		if (!snapshot) return false;
+		const current = sessionGenerationStore.get(sessionId);
+		if (
+			current?.turnId &&
+			snapshot.turnId &&
+			current.turnId !== snapshot.turnId
+		) {
+			return false;
+		}
+		const result = applyRealtimeGenerationSnapshot(sessionId, {
+			spaceId: snapshot.spaceId,
+			turnId: snapshot.turnId,
+			seq: snapshot.seq,
+			anchorUserMessageId: snapshot.anchorUserMessageId,
+			current: snapshot.current,
+			intermediateMessages: snapshot.intermediateMessages,
+		});
+		return result.applied;
+	} catch (error) {
+		console.warn(
+			"[restoreSessionStreamSnapshot] Failed to restore stream snapshot:",
+			error,
+		);
+		return false;
+	}
+}
 async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
@@ -2395,7 +2429,11 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			payload,
 		);
 		if (generationEffect.handled) {
-			if (generationEffect.shouldReconcile && isActiveSession) {
+			if (generationEffect.shouldRestoreSnapshot && isActiveSession) {
+				void restoreSessionStreamSnapshot(targetSessionId).then((restored) => {
+					if (!restored) void reconcileSessionTail(targetSessionId);
+				});
+			} else if (generationEffect.shouldReconcile && isActiveSession) {
 				void reconcileSessionTail(targetSessionId);
 			}
 			if (generationEffect.shouldRefreshSessions) {

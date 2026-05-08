@@ -14,6 +14,7 @@ import type {
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
   SessionTurnResponse,
+  SessionTurnStreamSnapshotResponse,
   SessionTurnIndexResponse,
   SessionTurnWindowResponse,
   SessionTurnsPaginatedResponse,
@@ -456,6 +457,13 @@ class SessionTurnsClient {
     const query = params.toString();
     return this.transport.request<SessionTurnWindowResponse>(
       `/api/sessions/${this.sessionId}/turns/window${query ? `?${query}` : ""}`,
+      { fetch: customFetch },
+    );
+  }
+
+  streamSnapshot(customFetch?: Fetch) {
+    return this.transport.request<SessionTurnStreamSnapshotResponse>(
+      `/api/sessions/${this.sessionId}/turns/stream-snapshot`,
       { fetch: customFetch },
     );
   }

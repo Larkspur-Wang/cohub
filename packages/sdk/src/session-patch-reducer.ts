@@ -37,6 +37,14 @@ export type SessionPatchApplyResult =
       state: SessionPatchState;
     };
 
+export type SessionPatchSnapshotInput = SessionPatchKeyInput & {
+  turnId?: string | null;
+  seq: number;
+  contentBlocks: ContentBlock[];
+  anchorUserMessageId?: string | null;
+  appendPath?: string | null;
+};
+
 type SessionPatchKeyInput = {
   spaceId?: string | null;
   sessionId: string;
@@ -295,6 +303,34 @@ export class SessionPatchReducer {
 
   reset(input: SessionPatchKeyInput) {
     this.states.delete(this.key(input));
+  }
+
+  applySnapshot(input: SessionPatchSnapshotInput): SessionPatchApplyResult {
+    const current = this.get(input);
+    const inputTurnId = input.turnId ?? null;
+    const currentTurnId = current.turnId;
+    const isDifferentKnownTurn = Boolean(
+      currentTurnId && inputTurnId && currentTurnId !== inputTurnId,
+    );
+
+    if (!isDifferentKnownTurn && input.seq < current.patchSeq) {
+      return { applied: false, reason: "duplicate", state: current };
+    }
+
+    const state: SessionPatchState = {
+      ...current,
+      spaceId: input.spaceId ?? current.spaceId ?? null,
+      sessionId: input.sessionId,
+      status: "streaming",
+      contentBlocks: sortBlocksByStreamIndex(input.contentBlocks.map(cloneBlock)),
+      anchorUserMessageId:
+        input.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
+      patchSeq: input.seq,
+      turnId: inputTurnId ?? current.turnId ?? null,
+      appendPath: input.appendPath ?? null,
+    };
+    this.states.set(this.key(input), state);
+    return { applied: true, state };
   }
 
   resetAll() {

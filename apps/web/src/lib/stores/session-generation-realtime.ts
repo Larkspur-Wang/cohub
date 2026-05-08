@@ -7,17 +7,28 @@ import {
 	failGeneration,
 } from "./session-generation-controller";
 
-export type GenerationRealtimeEffect = {
-	handled: boolean;
+type HandledGenerationRealtimeEffect = {
+	handled: true;
 	shouldScroll: boolean;
 	shouldReconcile: boolean;
 	shouldRefreshSessions: boolean;
+	shouldRestoreSnapshot?: boolean;
 };
+
+export type GenerationRealtimeEffect =
+	| HandledGenerationRealtimeEffect
+	| {
+			handled: false;
+			shouldScroll: false;
+			shouldReconcile: false;
+			shouldRefreshSessions: false;
+	  };
 
 type ParsedSnapshotMessage = {
 	messageId: string | null;
 	messageOrdinal: number | null;
 	content: ContentBlock[];
+	appendPath?: string | null;
 };
 
 function parseSnapshotMessage(value: unknown): ParsedSnapshotMessage | null {
@@ -29,6 +40,8 @@ function parseSnapshotMessage(value: unknown): ParsedSnapshotMessage | null {
 		messageOrdinal:
 			typeof record.messageOrdinal === "number" ? record.messageOrdinal : null,
 		content: record.content as ContentBlock[],
+		appendPath:
+			typeof record.appendPath === "string" ? record.appendPath : null,
 	};
 }
 
@@ -56,7 +69,7 @@ export function applyGenerationRealtimeEnvelope(
 				shouldRefreshSessions: false,
 			};
 		}
-		applyRealtimeGenerationSnapshot(sessionId, {
+		const result = applyRealtimeGenerationSnapshot(sessionId, {
 			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
 			turnId:
 				typeof payload.payload.turnId === "string"
@@ -72,7 +85,7 @@ export function applyGenerationRealtimeEnvelope(
 		});
 		return {
 			handled: true,
-			shouldScroll: true,
+			shouldScroll: result.applied,
 			shouldReconcile: false,
 			shouldRefreshSessions: false,
 		};
@@ -121,6 +134,8 @@ export function applyGenerationRealtimeEnvelope(
 			shouldScroll: result.applied,
 			shouldReconcile: !result.applied && result.reason === "version_mismatch",
 			shouldRefreshSessions: false,
+			shouldRestoreSnapshot:
+				!result.applied && result.reason === "version_mismatch",
 		};
 	}
 

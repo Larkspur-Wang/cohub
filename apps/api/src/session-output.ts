@@ -15,7 +15,7 @@ import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
 import { redisCommandClient } from "./redis.js";
 
-const STREAM_SNAPSHOT_TTL_SECONDS = 10 * 60;
+const STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;
 const streamSnapshotKey = (spaceId: string, sessionId: string) =>
   `session:stream:snapshot:${spaceId}:${sessionId}`;
 const streamSnapshotUserIndexKey = (userId: string) =>
@@ -330,6 +330,16 @@ const cacheSessionStreamSnapshot = async (
     pipeline.expire(indexKey, STREAM_SNAPSHOT_TTL_SECONDS);
   }
   await pipeline.exec();
+};
+
+export const getSessionStreamSnapshot = async (input: { spaceId: string; sessionId: string }) => {
+  const snapshot = parseExistingStreamSnapshot(
+    await redisCommandClient.get(streamSnapshotKey(input.spaceId, input.sessionId)).catch(() => null),
+  );
+  if (!snapshot) return null;
+  if (snapshot.spaceId !== input.spaceId || snapshot.sessionId !== input.sessionId) return null;
+  const { targetUserIds: _targetUserIds, ...safeSnapshot } = snapshot;
+  return safeSnapshot;
 };
 
 const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) => {

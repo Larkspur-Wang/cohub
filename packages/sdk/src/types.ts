@@ -228,6 +228,29 @@ export type SessionTurnSignedUrlsResponse = {
   urls: Record<string, string>;
 };
 
+export type SessionTurnStreamSnapshotResponse = {
+  snapshot: {
+    version: 2;
+    spaceId: string;
+    sessionId: string;
+    turnId: string | null;
+    anchorUserMessageId: string | null;
+    seq: number;
+    current: {
+      messageId: string | null;
+      messageOrdinal: number | null;
+      content: ContentBlock[];
+      appendPath: string | null;
+    };
+    intermediateMessages: Array<{
+      messageId: string | null;
+      messageOrdinal: number | null;
+      content: ContentBlock[];
+    }>;
+    updatedAt: number;
+  } | null;
+};
+
 export type ModelCatalogEntry = {
   provider: string;
   id: string;
