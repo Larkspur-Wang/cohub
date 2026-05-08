@@ -98,7 +98,7 @@ const segments = $derived.by(() => {
 					{segment.blocks.map((block) => block.text).join('\n\n')}
 				</div>
 			{:else}
-				<MarkdownView blocks={segment.blocks} variant="chat" onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
+				<MarkdownView blocks={segment.blocks} variant="chat" {isStreaming} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
 			{/if}
 		{:else if segment.type === 'thinking'}
 			<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
