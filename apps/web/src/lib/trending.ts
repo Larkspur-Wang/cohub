@@ -1,5 +1,11 @@
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 
+export type UserProfile = {
+	userUuid: string;
+	displayName: string;
+	avatarUrl: string | null;
+};
+
 export type TrendingRow = {
 	rank: number;
 	totalTokens: number;
@@ -13,11 +19,13 @@ export type SpaceRow = TrendingRow & {
 	spaceName: string;
 	userId: string;
 	userDisplay: string;
+	userProfile: UserProfile;
 };
 
 export type UserRow = TrendingRow & {
 	userId: string;
 	userDisplay: string;
+	userProfile: UserProfile;
 };
 
 export type ModelRow = TrendingRow & {

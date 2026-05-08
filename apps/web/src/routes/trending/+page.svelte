@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ModelRow, SpaceRow, UserRow } from "$lib/trending";
+import type { ModelRow, SpaceRow, UserProfile, UserRow } from "$lib/trending";
 import { fetchModels, fetchSpaces, fetchUsers } from "$lib/trending";
 
 type Tab = "spaces" | "users" | "models";
@@ -46,6 +46,26 @@ function getSubline(tab: Tab, row: SpaceRow | UserRow | ModelRow): string {
 		return `by ${(row as SpaceRow).userDisplay}`;
 	}
 	return "";
+}
+
+function getUserProfile(
+	tab: Tab,
+	row: SpaceRow | UserRow | ModelRow,
+): UserProfile | null {
+	if (tab === "spaces") return (row as SpaceRow).userProfile;
+	if (tab === "users") return (row as UserRow).userProfile;
+	return null;
+}
+
+function getInitials(name: string): string {
+	const initials = name
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((part) => part[0]?.toUpperCase() ?? "")
+		.join("");
+	return initials || "U";
 }
 
 async function loadData() {
@@ -149,6 +169,7 @@ const hasData = $derived(
 			<!-- Rows — staggered fade-in, varied visual treatment by rank -->
 			<div class="mt-0">
 				{#each currentRows as row, i (row.rank)}
+					{@const userProfile = getUserProfile(activeTab, row)}
 					<div
 						class="grid grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] gap-x-2 sm:gap-x-4 px-0 transition-all duration-300 ease-out"
 						class:row-top={row.rank <= 3}
@@ -170,10 +191,33 @@ const hasData = $derived(
 
 						<!-- Name + subline -->
 						<div class="min-w-0 py-2 sm:py-3">
-							<div class="text-[13px] font-medium text-text-primary truncate">
-								{getDisplayName(activeTab, row)}
+							<div class="flex min-w-0 items-center gap-2">
+								{#if activeTab === 'users' && userProfile}
+									<div class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-[10px] font-semibold text-text-tertiary">
+										{#if userProfile.avatarUrl}
+											<img src={userProfile.avatarUrl} alt="" class="h-full w-full object-cover" />
+										{:else}
+											{getInitials(userProfile.displayName)}
+										{/if}
+									</div>
+								{/if}
+								<div class="min-w-0 truncate text-[13px] font-medium text-text-primary">
+									{getDisplayName(activeTab, row)}
+								</div>
 							</div>
-							{#if getSubline(activeTab, row)}
+							{#if activeTab === 'spaces' && userProfile}
+								<div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
+									<span>by</span>
+									<div class="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full bg-bg-hover-strong text-[7px] font-semibold text-text-tertiary">
+										{#if userProfile.avatarUrl}
+											<img src={userProfile.avatarUrl} alt="" class="h-full w-full object-cover" />
+										{:else}
+											{getInitials(userProfile.displayName)}
+										{/if}
+									</div>
+									<span class="min-w-0 truncate">{userProfile.displayName}</span>
+								</div>
+							{:else if getSubline(activeTab, row)}
 								<div class="text-[11px] text-text-tertiary mt-0.5 truncate">
 									{getSubline(activeTab, row)}
 								</div>

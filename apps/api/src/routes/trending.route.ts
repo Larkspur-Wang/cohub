@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { sql, and, gte, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as schema from "../db/schema-v2.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 
 const router = new Hono();
 
@@ -56,15 +57,18 @@ router.get("/spaces", async (c) => {
 
   const nameMap = new Map(spaces.map((s) => [s.id, s.name]));
   const userMap = new Map(spaces.map((s) => [s.id, s.userUuid]));
+  const profileMap = await getProfilesByUuids(spaces.map((s) => s.userUuid));
 
   const result = rows.map((r, i) => {
     const uid = userMap.get(r.spaceId as string) ?? "";
+    const userProfile = profileMap.get(uid) ?? fallbackPublicUserProfile(uid);
     return {
       rank: i + 1,
       spaceId: r.spaceId,
       spaceName: nameMap.get(r.spaceId) ?? r.spaceId.slice(0, 8),
       userId: uid,
-      userDisplay: maskUserId(uid),
+      userDisplay: userProfile.displayName,
+      userProfile,
       totalTokens: r.totalTokens ?? 0,
       costTotal: Number(r.costTotal ?? 0),
       sessionCount: Number(r.sessionCount),
@@ -99,15 +103,24 @@ router.get("/users", async (c) => {
     .orderBy(sql`total_tokens DESC`)
     .limit(10);
 
-  const result = rows.map((r, i) => ({
-    rank: i + 1,
-    userId: r.userId ?? "",
-    userDisplay: maskUserId(r.userId),
-    totalTokens: r.totalTokens ?? 0,
-    costTotal: Number(r.costTotal ?? 0),
-    sessionCount: Number(r.sessionCount),
-    requestCount: r.requestCount ?? 0,
-  }));
+  const profileMap = await getProfilesByUuids(
+    rows.map((r) => r.userId).filter((userId): userId is string => Boolean(userId)),
+  );
+
+  const result = rows.map((r, i) => {
+    const userId = r.userId ?? "";
+    const userProfile = profileMap.get(userId) ?? fallbackPublicUserProfile(userId);
+    return {
+      rank: i + 1,
+      userId,
+      userDisplay: userProfile.displayName,
+      userProfile,
+      totalTokens: r.totalTokens ?? 0,
+      costTotal: Number(r.costTotal ?? 0),
+      sessionCount: Number(r.sessionCount),
+      requestCount: r.requestCount ?? 0,
+    };
+  });
 
   return c.json(result);
 });
@@ -151,11 +164,5 @@ router.get("/models", async (c) => {
   return c.json(result);
 });
 
-
-
-function maskUserId(userId: string | null | undefined): string {
-  if (!userId) return "unknown";
-  return `usr_${userId.slice(0, 8)}`;
-}
 
 export default router;
