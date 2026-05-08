@@ -1258,25 +1258,48 @@ function measureTurnMarkerPositions() {
 		return;
 	}
 	updateTimelineScrollMetrics();
-	const maxScroll = Math.max(1, listEl.scrollHeight - listEl.clientHeight);
+	const scrollContainer = listEl;
+	const maxScroll = Math.max(
+		1,
+		scrollContainer.scrollHeight - scrollContainer.clientHeight,
+	);
 	const anchors = Array.from(
 		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
 	);
-	const positions: Record<number, number> = {};
-	const heights: Record<number, number> = {};
-	for (const anchor of anchors) {
+	const turnRanges = anchors.map((anchor, index) => {
 		const sequence = Number(anchor.dataset.turnSequence);
-		if (!Number.isFinite(sequence)) continue;
-		const scrollTopAtAnchor = Math.max(
+		const start = Math.max(
 			0,
 			getMessageElementAbsoluteTop(anchor) - TURN_SCROLL_ANCHOR_OFFSET,
 		);
-		positions[sequence] = Math.min(
-			100,
-			Math.max(0, (scrollTopAtAnchor / maxScroll) * 100),
+		const nextAnchor = anchors[index + 1];
+		const nextStart = nextAnchor
+			? Math.max(
+					0,
+					getMessageElementAbsoluteTop(nextAnchor) - TURN_SCROLL_ANCHOR_OFFSET,
+				)
+			: scrollContainer.scrollHeight;
+		const end = Math.max(start, nextStart);
+		return { anchor, sequence, start, end };
+	});
+	const positions: Record<number, number> = {};
+	const heights: Record<number, number> = {};
+	for (const range of turnRanges) {
+		if (!Number.isFinite(range.sequence)) continue;
+		const turnHeight = Math.max(
+			range.anchor.offsetHeight,
+			range.end - range.start,
 		);
-		const scrollRatio = Math.max(0.015, anchor.offsetHeight / maxScroll);
-		heights[sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
+		const centerScrollTop = Math.min(
+			maxScroll,
+			range.start + Math.max(0, turnHeight - scrollContainer.clientHeight) / 2,
+		);
+		positions[range.sequence] = Math.min(
+			100,
+			Math.max(0, (centerScrollTop / maxScroll) * 100),
+		);
+		const scrollRatio = Math.max(0.015, turnHeight / maxScroll);
+		heights[range.sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
 	}
 	turnMarkerPositions = positions;
 	turnMarkerHeights = heights;
