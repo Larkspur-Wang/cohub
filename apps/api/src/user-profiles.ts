@@ -41,7 +41,7 @@ const emailLocalPart = (value: string | null) => {
   return local?.trim() || null;
 };
 
-const fallbackDisplayName = (userUuid: string) => `User ${userUuid.slice(0, 8)}`;
+const fallbackDisplayName = (userUuid: string) => userUuid.slice(0, 8);
 
 export function normalizeUserProfile(input: {
   userUuid: string;
