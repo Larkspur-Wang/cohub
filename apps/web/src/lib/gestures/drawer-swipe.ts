@@ -19,6 +19,14 @@ const INTERACTIVE_SELECTORS = [
 	"[data-drawer-swipe-ignore]",
 ].join(", ");
 
+const OPEN_DRAWER_GESTURE_BLOCKING_SELECTORS = [
+	"input",
+	"textarea",
+	"select",
+	"[contenteditable='true']",
+	"[data-drawer-swipe-ignore]",
+].join(", ");
+
 /**
  * Check if the touch target is inside an interactive element.
  */
@@ -26,6 +34,19 @@ export function isTouchOnInteractive(target: EventTarget | null): boolean {
 	const element = target instanceof Element ? target : null;
 	if (!element) return false;
 	return !!element.closest(INTERACTIVE_SELECTORS);
+}
+
+/**
+ * Check whether an opened drawer should avoid taking over this touch target.
+ * Closing gestures may start from buttons/links, but not from text-editing or
+ * explicitly ignored regions.
+ */
+export function isTouchOnGestureBlockingElementWhenOpen(
+	target: EventTarget | null,
+): boolean {
+	const element = target instanceof Element ? target : null;
+	if (!element) return false;
+	return !!element.closest(OPEN_DRAWER_GESTURE_BLOCKING_SELECTORS);
 }
 
 export type DrawerGesturePhase =
@@ -56,8 +77,10 @@ export function shouldStartDrawerGesture(options: {
 		options;
 	if (viewportWidth >= 1024) return false;
 	if (otherDrawerOpen) return false;
+	if (isOpen) {
+		return !isTouchOnGestureBlockingElementWhenOpen(target);
+	}
 	if (isTouchOnInteractive(target)) return false;
-	if (isOpen) return true;
 
 	// When closed, only allow from the left edge zone (leftmost 2/5 of screen)
 	const edgeZoneEnd = viewportWidth * EDGE_ZONE_RATIO;
@@ -191,8 +214,10 @@ export function shouldStartRightDrawerGesture(options: {
 		options;
 	if (viewportWidth >= 1024) return false;
 	if (otherDrawerOpen) return false;
+	if (isOpen) {
+		return !isTouchOnGestureBlockingElementWhenOpen(target);
+	}
 	if (isTouchOnInteractive(target)) return false;
-	if (isOpen) return true;
 
 	// When closed, only allow from the right edge zone (rightmost 2/5)
 	const edgeZoneStart = viewportWidth * (1 - EDGE_ZONE_RATIO);

@@ -88,7 +88,7 @@ $effect(() => {
 
   <!-- Drawer panel -->
   <div
-    class="absolute inset-y-0 right-0"
+    class="absolute inset-y-0 right-0 mobile-drawer-gesture-surface"
     style="pointer-events: auto; width: {MOBILE_DRAWER_WIDTH_PX}px; max-width: {MOBILE_DRAWER_MAX_WIDTH_VW}vw; {panelStyle}"
   >
     {#if renderContent}
