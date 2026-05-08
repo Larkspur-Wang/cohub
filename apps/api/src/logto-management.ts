@@ -85,12 +85,12 @@ export function getLogtoUser(logtoUserId: string) {
 }
 
 export async function updateLogtoUserProfile(logtoUserId: string, input: { displayName?: string; avatarUrl?: string | null }) {
-  const profile: Record<string, unknown> = {};
-  if (input.displayName !== undefined) profile.name = input.displayName;
-  if (input.avatarUrl !== undefined) profile.avatar = input.avatarUrl;
+  const updates: Record<string, unknown> = {};
+  if (input.displayName !== undefined) updates.name = input.displayName;
+  if (input.avatarUrl !== undefined) updates.avatar = input.avatarUrl;
 
-  await logtoManagementRequest<unknown>(`/users/${encodeURIComponent(logtoUserId)}/profile`, {
+  await logtoManagementRequest<unknown>(`/users/${encodeURIComponent(logtoUserId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ profile }),
+    body: JSON.stringify(updates),
   });
 }
