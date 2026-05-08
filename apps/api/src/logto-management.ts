@@ -91,6 +91,6 @@ export async function updateLogtoUserProfile(logtoUserId: string, input: { displ
 
   await logtoManagementRequest<unknown>(`/users/${encodeURIComponent(logtoUserId)}/profile`, {
     method: "PATCH",
-    body: JSON.stringify(profile),
+    body: JSON.stringify({ profile }),
   });
 }
