@@ -1233,6 +1233,19 @@ function measureTurnMarkerPositions() {
 		1,
 		scrollContainer.scrollHeight - scrollContainer.clientHeight,
 	);
+	const railThumbHeightPercent = Math.min(
+		64,
+		Math.max(
+			6,
+			(scrollContainer.clientHeight / scrollContainer.scrollHeight) * 100,
+		),
+	);
+	const railUsablePercent = 100 - railThumbHeightPercent;
+	const toRailTopPercent = (scrollTop: number) =>
+		Math.min(
+			railUsablePercent,
+			Math.max(0, (scrollTop / maxScroll) * railUsablePercent),
+		);
 	const anchors = Array.from(
 		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
 	);
@@ -1260,14 +1273,7 @@ function measureTurnMarkerPositions() {
 			range.anchor.offsetHeight,
 			range.end - range.start,
 		);
-		const centerScrollTop = Math.min(
-			maxScroll,
-			range.start + Math.max(0, turnHeight - scrollContainer.clientHeight) / 2,
-		);
-		positions[range.sequence] = Math.min(
-			100,
-			Math.max(0, (centerScrollTop / maxScroll) * 100),
-		);
+		positions[range.sequence] = toRailTopPercent(range.start);
 		const scrollRatio = Math.max(0.015, turnHeight / maxScroll);
 		heights[range.sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
 	}
