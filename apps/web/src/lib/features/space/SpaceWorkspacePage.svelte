@@ -2933,6 +2933,8 @@ function handleRemoveAttachment(id: string) {
 function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024 || uiState.rightSidebarCollapsed) return;
+	const target = event.currentTarget as HTMLElement | null;
+	target?.setPointerCapture?.(event.pointerId);
 	rightSidebarResizeCleanup?.();
 	const startX = event.clientX;
 	const startWidth = uiState.rightSidebarWidth;
@@ -2947,6 +2949,9 @@ function beginRightSidebarResize(event: PointerEvent) {
 		uiState.setRightSidebarWidth(nextWidth);
 	};
 	const stop = () => {
+		if (target?.hasPointerCapture?.(event.pointerId)) {
+			target.releasePointerCapture(event.pointerId);
+		}
 		document.body.classList.remove("sidebar-resizing");
 		window.removeEventListener("pointermove", onPointerMove);
 		window.removeEventListener("pointerup", stop);
@@ -2962,6 +2967,8 @@ function beginRightSidebarResize(event: PointerEvent) {
 function beginPreviewPanelResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024) return;
+	const target = event.currentTarget as HTMLElement | null;
+	target?.setPointerCapture?.(event.pointerId);
 	previewPanelResizeCleanup?.();
 	const startX = event.clientX;
 	const startWidth = previewPanelWidth;
@@ -2973,6 +2980,9 @@ function beginPreviewPanelResize(event: PointerEvent) {
 		previewPanelWidth = nextWidth;
 	};
 	const stop = () => {
+		if (target?.hasPointerCapture?.(event.pointerId)) {
+			target.releasePointerCapture(event.pointerId);
+		}
 		document.body.classList.remove("sidebar-resizing");
 		window.removeEventListener("pointermove", onPointerMove);
 		window.removeEventListener("pointerup", stop);
@@ -5993,10 +6003,6 @@ $effect(() => {
   />
 </div>
 <style>
-  :global(body.sidebar-resizing) {
-    cursor: col-resize;
-    user-select: none;
-  }
   /* Heatmap */
   .heatmap-cell {
     width: 12px;
@@ -6037,8 +6043,12 @@ $effect(() => {
     left: -4px;
     width: 8px;
     height: 100%;
+    border: none;
+    padding: 0;
     cursor: col-resize;
     background: transparent;
+    touch-action: none;
+    z-index: 10;
   }
   .right-sidebar-resize-handle::after {
     content: "";
@@ -6050,7 +6060,8 @@ $effect(() => {
     background: transparent;
     transition: background-color 120ms ease;
   }
-  .right-sidebar-resize-handle:hover::after {
+  .right-sidebar-resize-handle:hover::after,
+  :global(body.sidebar-resizing) .right-sidebar-resize-handle::after {
     background: var(--border-subtle);
   }
   .inline-panel-resize-handle {
@@ -6063,6 +6074,7 @@ $effect(() => {
     padding: 0;
     cursor: col-resize;
     background: transparent;
+    touch-action: none;
     z-index: 10;
   }
   .inline-panel-resize-handle::after {
@@ -6075,7 +6087,8 @@ $effect(() => {
     background: transparent;
     transition: background-color 120ms ease;
   }
-  .inline-panel-resize-handle:hover::after {
+  .inline-panel-resize-handle:hover::after,
+  :global(body.sidebar-resizing) .inline-panel-resize-handle::after {
     background: var(--border-subtle);
   }
   /* File viewer */

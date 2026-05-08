@@ -291,6 +291,8 @@ function beginLeftSidebarResize(event: PointerEvent) {
 	if (window.innerWidth < 1024) return;
 	event.preventDefault();
 
+	const target = event.currentTarget as HTMLElement | null;
+	target?.setPointerCapture?.(event.pointerId);
 	leftSidebarResizeCleanup?.();
 
 	const startX = event.clientX;
@@ -308,6 +310,9 @@ function beginLeftSidebarResize(event: PointerEvent) {
 	};
 
 	const stop = () => {
+		if (target?.hasPointerCapture?.(event.pointerId)) {
+			target.releasePointerCapture(event.pointerId);
+		}
 		document.body.classList.remove("sidebar-resizing");
 		window.removeEventListener("pointermove", onPointerMove);
 		window.removeEventListener("pointerup", stop);
@@ -493,8 +498,19 @@ onMount(() => {
     z-index: 10;
   }
 
-  :global(body.sidebar-resizing) {
-    cursor: col-resize;
-    user-select: none;
+  .sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 3px;
+    width: 2px;
+    height: 100%;
+    background: transparent;
+    transition: background-color 120ms ease;
+  }
+
+  .sidebar-resize-handle:hover::after,
+  :global(body.sidebar-resizing) .sidebar-resize-handle::after {
+    background: var(--border-subtle);
   }
 </style>

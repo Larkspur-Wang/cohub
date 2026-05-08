@@ -259,6 +259,15 @@ body {
 	transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+body.sidebar-resizing {
+	cursor: col-resize;
+	user-select: none;
+}
+
+body.sidebar-resizing iframe {
+	pointer-events: none;
+}
+
 /* Dark mode: reduce font weight slightly for readability */
 [data-theme="dark"] body {
 	font-weight: 350;

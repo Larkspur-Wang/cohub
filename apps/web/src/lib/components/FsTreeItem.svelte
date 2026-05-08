@@ -3,11 +3,10 @@ import {
 	File as FileIcon,
 	Folder,
 	FolderOpen,
-	FolderPlus,
+	MoreHorizontal,
 	Pencil,
 	Pin,
 	PinOff,
-	Plus,
 	Trash2,
 	Upload,
 } from "lucide-svelte";
@@ -60,6 +59,33 @@ const isActive = $derived(selectedPath === node.path);
 const isDir = $derived(node.type === "dir");
 let isDragOver = $state(false);
 
+// Inline dropdown state
+let menuOpen = $state(false);
+let menuEl: HTMLDivElement | null = $state(null);
+
+function openMenu() {
+	menuOpen = true;
+}
+
+function closeMenu() {
+	menuOpen = false;
+}
+
+function stop(handler: () => void) {
+	return (e: MouseEvent) => {
+		e.stopPropagation();
+		handler();
+	};
+}
+
+function stopAndCloseMenu(handler: () => void) {
+	return (e: MouseEvent) => {
+		e.stopPropagation();
+		handler();
+		menuOpen = false;
+	};
+}
+
 function handleClick() {
 	if (node.type === "dir") {
 		onToggle(node);
@@ -75,13 +101,6 @@ function handleKeydown(e: KeyboardEvent) {
 	}
 }
 
-function stop(handler: () => void) {
-	return (e: MouseEvent) => {
-		e.stopPropagation();
-		handler();
-	};
-}
-
 function handleDragOver(e: DragEvent) {
 	if (!isDir || !onUpload) return;
 	e.preventDefault();
@@ -92,7 +111,6 @@ function handleDragOver(e: DragEvent) {
 
 function handleDragLeave(e: DragEvent) {
 	if (!isDir) return;
-	// Only reset if we actually left the element (not entered a child)
 	const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 	const x = e.clientX;
 	const y = e.clientY;
@@ -112,7 +130,7 @@ async function handleDrop(e: DragEvent) {
 	if (entries.length > 0) onUpload(entries, node.path);
 }
 
-function openDirUploadPicker(folder = false) {
+function openUploadPicker(folder = false) {
 	if (!onUpload) return;
 	const input = document.createElement("input");
 	input.type = "file";
@@ -125,13 +143,25 @@ function openDirUploadPicker(folder = false) {
 	input.click();
 }
 
-function handleDirUploadClick() {
-	openDirUploadPicker(false);
+function handleUploadClick() {
+	openUploadPicker(false);
 }
 
-function handleDirUploadFolderClick() {
-	openDirUploadPicker(true);
+function handleFolderUploadClick() {
+	openUploadPicker(true);
 }
+
+// Close menu on outside click
+$effect(() => {
+	if (!menuOpen) return;
+	function onClick(e: MouseEvent) {
+		if (menuEl && !menuEl.contains(e.target as Node)) {
+			menuOpen = false;
+		}
+	}
+	document.addEventListener("click", onClick, true);
+	return () => document.removeEventListener("click", onClick, true);
+});
 </script>
 
 <div
@@ -174,32 +204,46 @@ function handleDirUploadFolderClick() {
   {#if node.isLoading}
     <span class="loading">...</span>
   {/if}
-  {#if showItemActions && node.type === "file" && onTogglePin}
-    <span class="pin-action">
-      {#if onInsertReference}
-        <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><FileIcon class="w-3 h-3" /></button>
-      {/if}
-      <button type="button" class="action" title={isPinned?.(node) ? "Unpin file" : "Pin file"} onclick={stop(() => onTogglePin(node))}>
-        {#if isPinned?.(node)}
-          <PinOff class="w-3 h-3" />
-        {:else}
-          <Pin class="w-3 h-3" />
-        {/if}
-      </button>
-    </span>
-  {/if}
+
   {#if showItemActions && canWrite}
     <span class="actions">
-      {#if isDir}
-        <button type="button" class="action" title="New file" onclick={stop(() => onCreateFile(node.path))}><Plus class="w-3 h-3" /></button>
-        <button type="button" class="action" title="New folder" onclick={stop(() => onCreateDir(node.path))}><FolderPlus class="w-3 h-3" /></button>
-        {#if onUpload}
-          <button type="button" class="action" title="Upload files here" onclick={stop(handleDirUploadClick)}><Upload class="w-3 h-3" /></button>
-          <button type="button" class="action" title="Upload folder here" onclick={stop(handleDirUploadFolderClick)}><FolderPlus class="w-3 h-3" /></button>
-        {/if}
+      {#if !isDir && onTogglePin}
+        <button type="button" class="action" title={isPinned?.(node) ? "Unpin" : "Pin"} onclick={stop(() => onTogglePin(node))}>
+          {#if isPinned?.(node)}
+            <PinOff class="w-3.5 h-3.5" />
+          {:else}
+            <Pin class="w-3.5 h-3.5" />
+          {/if}
+        </button>
       {/if}
-      <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3 h-3" /></button>
-      <button type="button" class="action danger" title="Delete" onclick={stop(() => onDelete(node))}><Trash2 class="w-3 h-3" /></button>
+      {#if onInsertReference}
+        <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><FileIcon class="w-3.5 h-3.5" /></button>
+      {/if}
+      <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3.5 h-3.5" /></button>
+      {#if isDir}
+        {#if onUpload}
+          <button type="button" class="action" title="Upload files" onclick={stop(handleUploadClick)}><Upload class="w-3.5 h-3.5" /></button>
+        {/if}
+        <span class="relative">
+          <button type="button" class="action" title="More actions" onclick={stop(openMenu)}>
+            <MoreHorizontal class="w-3.5 h-3.5" />
+          </button>
+          {#if menuOpen}
+            <div class="dropdown" bind:this={menuEl}>
+              {#if onUpload}
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(handleFolderUploadClick)}><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg> Upload folder</button>
+              {/if}
+              <div class="dropdown-sep"></div>
+              <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateFile(node.path))}>New file</button>
+              <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateDir(node.path))}>New folder</button>
+              <div class="dropdown-sep"></div>
+              <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}>Delete</button>
+            </div>
+          {/if}
+        </span>
+      {:else}
+        <button type="button" class="action danger" title="Delete" onclick={stop(() => onDelete(node))}><Trash2 class="w-3.5 h-3.5" /></button>
+      {/if}
     </span>
   {/if}
 </div>
@@ -283,8 +327,7 @@ function handleDirUploadFolderClick() {
     color: var(--text-tertiary);
   }
 
-  .actions,
-  .pin-action {
+  .actions {
     display: inline-flex;
     align-items: center;
     gap: 2px;
@@ -293,15 +336,13 @@ function handleDirUploadFolderClick() {
   }
 
   .tree-item:hover .actions,
-  .tree-item.selected .actions,
-  .tree-item:hover .pin-action,
-  .tree-item.selected .pin-action {
+  .tree-item.selected .actions {
     opacity: 1;
   }
 
   .action {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -317,7 +358,49 @@ function handleDirUploadFolderClick() {
     color: var(--text-primary);
   }
 
-  .action.danger:hover {
+  /* Inline dropdown */
+  .relative { position: relative; }
+
+  .dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 100;
+    min-width: 150px;
+    padding: 4px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .dropdown-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .dropdown-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .dropdown-item.danger:hover {
     color: var(--error-soft);
+    background: var(--error-bg);
+  }
+
+  .dropdown-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border-subtle);
   }
 </style>

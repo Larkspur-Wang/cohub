@@ -54,7 +54,10 @@ const {
 		height: 100%;
 		cursor: col-resize;
 		border: 0;
+		padding: 0;
 		background: transparent;
+		touch-action: none;
+		z-index: 10;
 	}
 
 	.preview-resize-handle::after {
@@ -69,7 +72,7 @@ const {
 	}
 
 	.preview-resize-handle:hover::after,
-	:global(.sidebar-resizing) .preview-resize-handle::after {
-		background: var(--brand, #ff3e00);
+	:global(body.sidebar-resizing) .preview-resize-handle::after {
+		background: var(--border-subtle);
 	}
 </style>

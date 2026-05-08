@@ -2,7 +2,7 @@
 import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import {
 	AlertCircle,
-	FolderPlus,
+	ChevronDown,
 	Lock,
 	Plus,
 	RefreshCw,
@@ -68,15 +68,39 @@ const {
 let treeScrollContainer: HTMLDivElement | null = $state(null);
 let rootDragOver = $state(false);
 
+// Dropdown state
+let newMenuOpen = $state(false);
+let uploadMenuOpen = $state(false);
+let newMenuEl: HTMLDivElement | null = $state(null);
+let uploadMenuEl: HTMLDivElement | null = $state(null);
+
+function closeMenus() {
+	newMenuOpen = false;
+	uploadMenuOpen = false;
+}
+
+function toggleNewMenu() {
+	newMenuOpen = !newMenuOpen;
+	uploadMenuOpen = false;
+}
+
+function toggleUploadMenu() {
+	uploadMenuOpen = !uploadMenuOpen;
+	newMenuOpen = false;
+}
+
 function handleCreateFileAtRoot() {
+	closeMenus();
 	onCreateFile("");
 }
 
 function handleCreateDirAtRoot() {
+	closeMenus();
 	onCreateDir("");
 }
 
 function openUploadPicker(folder = false) {
+	closeMenus();
 	const input = document.createElement("input");
 	input.type = "file";
 	input.multiple = true;
@@ -107,6 +131,7 @@ async function handleRootDrop(e: DragEvent) {
 	const entries = await entriesFromDataTransfer(e.dataTransfer);
 	if (entries.length > 0) onUpload(entries, "");
 }
+
 $effect(() => {
 	const path = selectedPath;
 	const container = treeScrollContainer;
@@ -124,36 +149,72 @@ $effect(() => {
 		});
 	});
 });
+
+// Close menus on outside click
+$effect(() => {
+	if (!newMenuOpen && !uploadMenuOpen) return;
+	function onClick(e: MouseEvent) {
+		if (newMenuEl?.contains(e.target as Node)) return;
+		if (uploadMenuEl?.contains(e.target as Node)) return;
+		closeMenus();
+	}
+	document.addEventListener("click", onClick, true);
+	return () => document.removeEventListener("click", onClick, true);
+});
 </script>
 
 <div class="flex h-full flex-col bg-bg-primary min-w-0 relative">
-  <div class="flex items-center gap-1 border-b border-border-subtle px-3 py-2 shrink-0 [&_button]:cursor-pointer">
+  <div class="flex items-center gap-2 border-b border-border-subtle px-3 py-2 shrink-0 [&_button]:cursor-pointer">
     <div class="min-w-0 flex-1">
       <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Files</div>
       <div class="text-[12px] text-text-secondary">Space files</div>
     </div>
     {#if canWrite}
+      <div class="relative">
+        <button class="icon-btn" type="button" onclick={toggleNewMenu} aria-expanded={newMenuOpen}>
+          <Plus class="w-4 h-4" />
+          <span class="sr-only">New</span>
+        </button>
+        {#if newMenuOpen}
+          <div class="dropdown" bind:this={newMenuEl}>
+            <button type="button" class="dropdown-item" onclick={handleCreateFileAtRoot}>
+              <Plus class="w-3.5 h-3.5" />
+              New file
+            </button>
+            <button type="button" class="dropdown-item" onclick={handleCreateDirAtRoot}>
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
+              New folder
+            </button>
+          </div>
+        {/if}
+      </div>
       {#if onUpload}
-        <button class="icon-btn" type="button" title="Upload files" onclick={handleUploadClick}>
-          <Upload class="w-3.5 h-3.5" />
-        </button>
-        <button class="icon-btn" type="button" title="Upload folder" onclick={handleFolderUploadClick}>
-          <FolderPlus class="w-3.5 h-3.5" />
-        </button>
+        <div class="relative">
+          <button class="icon-btn" type="button" onclick={toggleUploadMenu} aria-expanded={uploadMenuOpen}>
+            <Upload class="w-4 h-4" />
+            <span class="sr-only">Upload</span>
+          </button>
+          {#if uploadMenuOpen}
+            <div class="dropdown" bind:this={uploadMenuEl}>
+              <button type="button" class="dropdown-item" onclick={handleUploadClick}>
+                <Upload class="w-3.5 h-3.5" />
+                Upload files
+              </button>
+              <button type="button" class="dropdown-item" onclick={handleFolderUploadClick}>
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg>
+                Upload folder
+              </button>
+            </div>
+          {/if}
+        </div>
       {/if}
-      <button class="icon-btn" type="button" title="New file" onclick={handleCreateFileAtRoot}>
-        <Plus class="w-3.5 h-3.5" />
-      </button>
-      <button class="icon-btn" type="button" title="New folder" onclick={handleCreateDirAtRoot}>
-        <FolderPlus class="w-3.5 h-3.5" />
-      </button>
     {:else}
-      <div class="w-7 h-7 flex items-center justify-center text-text-tertiary" title="Read-only">
-        <Lock class="w-3.5 h-3.5" />
+      <div class="w-8 h-8 flex items-center justify-center text-text-tertiary" title="Read-only">
+        <Lock class="w-4 h-4" />
       </div>
     {/if}
     <button class="icon-btn" type="button" title="Refresh" onclick={onRefresh}>
-      <RefreshCw class="w-3.5 h-3.5 {loading ? 'animate-spin' : ''}" />
+      <RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
     </button>
   </div>
 
@@ -161,7 +222,7 @@ $effect(() => {
 
   {#if error}
     <div class="mx-3 mt-3 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[12px] text-error-soft">
-      <AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
       <span>{error}</span>
     </div>
   {/if}
@@ -201,3 +262,55 @@ $effect(() => {
     {/if}
   </div>
 </div>
+
+<style>
+  .relative { position: relative; }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+  }
+
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+  .dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 100;
+    min-width: 150px;
+    padding: 4px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .dropdown-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .dropdown-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+</style>
