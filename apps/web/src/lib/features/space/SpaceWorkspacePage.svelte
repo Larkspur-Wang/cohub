@@ -256,6 +256,7 @@ let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
+let fileActionMenuOpenPath = $state<string | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let pinnedMarks = $state<SpaceMarkListItem[]>([]);
@@ -3534,6 +3535,7 @@ function hasResourceActions() {
 
 function closeResourceActionMenu() {
 	resourceActionMenuOpen = false;
+	fileActionMenuOpenPath = null;
 }
 
 function toggleHeaderPin() {
@@ -4248,15 +4250,15 @@ $effect(() => {
 			class="icon-btn"
 			onclick={(event) => {
 				event.stopPropagation();
-				resourceActionMenuOpen = !resourceActionMenuOpen;
+				fileActionMenuOpenPath = fileActionMenuOpenPath === path ? null : path;
 			}}
 			title="More actions"
 			aria-haspopup="menu"
-			aria-expanded={resourceActionMenuOpen}
+			aria-expanded={fileActionMenuOpenPath === path}
 		>
 			<MoreHorizontal class="w-4 h-4" />
 		</button>
-		{#if resourceActionMenuOpen}
+		{#if fileActionMenuOpenPath === path}
 			<div
 				class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
 				role="menu"
@@ -4266,7 +4268,7 @@ $effect(() => {
 					class="menu-item"
 					onclick={() => {
 						void togglePinFilePath(path);
-						closeResourceActionMenu();
+						fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
 				>
@@ -4283,7 +4285,7 @@ $effect(() => {
 					class="menu-item"
 					onclick={() => {
 						insertFilePathReference(path);
-						closeResourceActionMenu();
+						fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
 				>
