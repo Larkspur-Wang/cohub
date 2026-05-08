@@ -35,6 +35,9 @@ SPACE_STORAGE_SUBPATH=$(get_value "SPACE_STORAGE_SUBPATH")
 PLATFORM_SPACE_ID=$(get_value "PLATFORM_SPACE_ID")
 CONFIGS_SUBPATH=$(get_value "CONFIGS_SUBPATH")
 ENV=$(get_value "ENV")
+TURN_OBJECT_S3_ENDPOINT=$(get_value "TURN_OBJECT_S3_ENDPOINT")
+TURN_OBJECT_S3_REGION=$(get_value "TURN_OBJECT_S3_REGION")
+TURN_OBJECT_S3_BUCKET=$(get_value "TURN_OBJECT_S3_BUCKET")
 
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Cohub Worker Prod 部署           ║${NC}"
@@ -83,6 +86,9 @@ PY
     -e "s|__PLATFORM_SPACE_ID__|${PLATFORM_SPACE_ID}|g" \
     -e "s|__CONFIGS_SUBPATH__|${CONFIGS_SUBPATH}|g" \
     -e "s|__ENV__|${ENV}|g" \
+    -e "s|__TURN_OBJECT_S3_ENDPOINT__|${TURN_OBJECT_S3_ENDPOINT}|g" \
+    -e "s|__TURN_OBJECT_S3_REGION__|${TURN_OBJECT_S3_REGION}|g" \
+    -e "s|__TURN_OBJECT_S3_BUCKET__|${TURN_OBJECT_S3_BUCKET}|g" \
     "$dst"
   rm -f "$dst.bak"
 }
