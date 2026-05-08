@@ -26,10 +26,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim tree tmux htop xz-utils less \
     build-essential \
     strace lsof \
-    fonts-noto-cjk \
+    fonts-noto-cjk fonts-noto-color-emoji fonts-freefont-ttf \
     bash procps \
+    libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \
+    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 \
+    libgtk-3-0 libpangocairo-1.0-0 libpango-1.0-0 libatk1.0-0 \
+    libcairo-gobject2 libcairo2 libgdk-pixbuf-2.0-0 libxrender1 \
+    libasound2 libfreetype6 libfontconfig1 libdbus-1-3 libnss3 \
+    libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 \
+    libcups2 libxshmfence1 libgbm1 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Install Chrome for Testing as a system browser so tools like agent-browser can
+# discover it via PATH, independent of the runtime user's home directory.
+RUN set -eux; \
+    CHROME_VERSION="$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
+      | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s); console.log(j.channels.Stable.version)})")"; \
+    CHROME_URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip"; \
+    mkdir -p /opt/chrome-for-testing; \
+    curl -fsSL "$CHROME_URL" -o /tmp/chrome-linux64.zip; \
+    unzip -q /tmp/chrome-linux64.zip -d /opt/chrome-for-testing; \
+    rm /tmp/chrome-linux64.zip; \
+    ln -sf /opt/chrome-for-testing/chrome-linux64/chrome /usr/local/bin/google-chrome; \
+    google-chrome --version
 
 # Install latest core CLI tools from GitHub releases (apt versions are too old)
 RUN curl -fsSL https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-unknown-linux-gnu.tar.gz | tar xz --wildcards -C /usr/local/bin --strip-components=1 '*/fd' \
