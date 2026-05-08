@@ -1022,7 +1022,13 @@ const activeContextUsedTokens = $derived.by(() => {
 	const turns = activeSessionState?.turns ?? [];
 	const latestUsage = [...turns]
 		.reverse()
-		.map((turn) => turn.usage ?? turn.intermediateSummary?.usage ?? null)
+		.map(
+			(turn) =>
+				turn.totalUsage ??
+				turn.finalUsage ??
+				turn.intermediateSummary?.usage ??
+				null,
+		)
 		.find((usage) => usage?.input || usage?.totalTokens);
 
 	return latestUsage?.input ?? latestUsage?.totalTokens ?? 0;
@@ -1114,7 +1120,8 @@ function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
 		assistantPreview: turn.assistantText,
 		provider: turn.provider,
 		model: turn.model,
-		usage: turn.usage,
+		finalUsage: turn.finalUsage,
+		totalUsage: turn.totalUsage,
 		errorMessage: turn.errorMessage,
 	};
 }
@@ -2416,7 +2423,20 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			const turnPatch = payload.payload.turn as
 				| Partial<SessionTurnRecord>
 				| undefined;
-			const turnId = typeof turnPatch?.id === "string" ? turnPatch.id : null;
+			const normalizedTurnPatch = turnPatch
+				? {
+						...turnPatch,
+						finalUsage:
+							turnPatch.finalUsage ??
+							(turnPatch as { usage?: SessionTurnRecord["finalUsage"] })
+								.usage ??
+							null,
+					}
+				: undefined;
+			const turnId =
+				typeof normalizedTurnPatch?.id === "string"
+					? normalizedTurnPatch.id
+					: null;
 			if (!turnId) return;
 			const existingTurn =
 				state.turns.find((turn) => turn.id === turnId) ?? null;
@@ -2424,7 +2444,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				const snapshot = await sessionTurnsRepo.mergeTurns(
 					spaceId,
 					targetSessionId,
-					[{ ...existingTurn, ...turnPatch } as SessionTurnRecord],
+					[{ ...existingTurn, ...normalizedTurnPatch } as SessionTurnRecord],
 					{ session: state.session ?? null },
 				);
 				sessionStateById = {
@@ -2541,7 +2561,8 @@ async function handleSend() {
 			model: model?.id ?? null,
 			stopReason: null,
 			errorMessage: null,
-			usage: null,
+			finalUsage: null,
+			totalUsage: null,
 			summary: null,
 			intermediateIndex: null,
 			intermediateSummary: null,

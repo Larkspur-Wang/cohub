@@ -56,7 +56,7 @@ type PlannedTurn = {
   status: SessionTurnStatus;
   assistant: MessageRow | null;
   finalAssistant: MessageRow | null;
-  usage: Usage | null;
+  totalUsage: Usage | null;
   anomalyReasons: string[];
 };
 
@@ -261,7 +261,7 @@ const planSegment = (segment: Segment, sequence: number): PlannedTurn => {
     status = "completed";
     anomalyReasons.push("turn_without_assistant_message");
   }
-  const usage = segment.assistantMessages.reduce<Usage | null>((sum, message) => addUsage(sum, message.usage as Usage | null), null);
+  const totalUsage = segment.assistantMessages.reduce<Usage | null>((sum, message) => addUsage(sum, message.usage as Usage | null), null);
   return {
     id: deterministicTurnId(segment.user.sessionId, segment.user.id),
     sequence,
@@ -269,7 +269,7 @@ const planSegment = (segment: Segment, sequence: number): PlannedTurn => {
     status,
     assistant,
     finalAssistant,
-    usage,
+    totalUsage,
     anomalyReasons,
   };
 };
@@ -339,7 +339,8 @@ const buildTurnInsertValues = (session: SessionRow, planned: PlannedTurn, cutoff
     errorMessage: planned.status === "failed"
       ? planned.assistant?.errorMessage ?? "Assistant response failed during historical session turn migration"
       : planned.assistant?.errorMessage ?? null,
-    usage: planned.usage,
+    finalUsage: planned.finalAssistant?.usage as Usage | null,
+    totalUsage: planned.totalUsage,
     summary: {
       text: assistantText,
       finishReason,
@@ -443,7 +444,8 @@ const backfillObjects = async (plan: SessionPlan) => {
       turnId: planned.id,
     });
     await db.update(sessionTurns).set({
-      usage: addUsage(intermediate.summary.usage, planned.finalAssistant?.usage as Usage | null),
+      finalUsage: planned.finalAssistant?.usage as Usage | null,
+      totalUsage: addUsage(intermediate.summary.usage, planned.finalAssistant?.usage as Usage | null),
       intermediateIndex: intermediate.index,
       intermediateSummary: intermediate.summary,
       meta: sql`jsonb_set(coalesce(${sessionTurns.meta}, '{}'::jsonb), '{migration,objectBackfillStatus}', '"completed"'::jsonb, true)`,

@@ -50,6 +50,13 @@
       "when": 1778144735495,
       "tag": "0006_user_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778196352503,
+      "tag": "0007_split_turn_usage",
+      "breakpoints": true
     }
   ]
 }

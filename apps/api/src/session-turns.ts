@@ -166,7 +166,8 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   model: row.model ?? null,
   stopReason: row.stopReason ?? null,
   errorMessage: row.errorMessage ?? null,
-  usage: row.usage ?? null,
+  finalUsage: row.finalUsage ?? row.totalUsage ?? null,
+  totalUsage: row.totalUsage ?? row.finalUsage ?? null,
   summary: row.summary ?? null,
   intermediateIndex: row.intermediateIndex ?? null,
   intermediateSummary: row.intermediateSummary ?? null,
@@ -202,7 +203,8 @@ type SessionTurnIndexRow = {
   assistantText: string | null;
   provider: string | null;
   model: string | null;
-  usage: Usage | null;
+  finalUsage: Usage | null;
+  totalUsage: Usage | null;
   errorMessage: string | null;
 };
 
@@ -219,7 +221,8 @@ const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
   assistantPreview: previewText(row.assistantText),
   provider: row.provider ?? null,
   model: row.model ?? null,
-  usage: row.usage ?? null,
+  finalUsage: row.finalUsage ?? row.totalUsage ?? null,
+  totalUsage: row.totalUsage ?? row.finalUsage ?? null,
   errorMessage: previewText(row.errorMessage, 220),
 });
 
@@ -284,7 +287,8 @@ export const listSessionTurnIndex = async (sessionId: string, options?: { cursor
     assistantText: sessionTurns.assistantText,
     provider: sessionTurns.provider,
     model: sessionTurns.model,
-    usage: sessionTurns.usage,
+    finalUsage: sessionTurns.finalUsage,
+    totalUsage: sessionTurns.totalUsage,
     errorMessage: sessionTurns.errorMessage,
   }).from(sessionTurns).where(
     options?.cursor == null
@@ -460,7 +464,8 @@ export const finalizeSessionTurnFromMessage = async (input: {
     model: input.model,
     stopReason: input.stopReason,
     errorMessage: input.errorMessage,
-    usage: addUsage(intermediate?.summary.usage, input.usage),
+    finalUsage: input.usage,
+    totalUsage: addUsage(intermediate?.summary.usage, input.usage),
     summary: {
       text: input.assistantText,
       finishReason: input.status === "failed" ? "failed" : "completed",
@@ -494,7 +499,8 @@ export const interruptSessionTurn = async (input: { spaceId: string; sessionId: 
     model: last?.model ?? null,
     stopReason: "interrupted",
     errorMessage: null,
-    usage: intermediate?.summary.usage ?? null,
+    finalUsage: (last?.usage as Usage | null | undefined) ?? null,
+    totalUsage: intermediate?.summary.usage ?? null,
     summary: {
       finishReason: "interrupted",
       interruptedByTurnId: input.interruptedByTurnId,

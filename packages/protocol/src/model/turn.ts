@@ -84,7 +84,8 @@ export type SessionTurnIndexItem = {
   assistantPreview: string | null;
   provider: string | null;
   model: string | null;
-  usage: Usage | null;
+  finalUsage: Usage | null;
+  totalUsage: Usage | null;
   errorMessage: string | null;
 };
 
@@ -109,7 +110,8 @@ export type SessionTurnRecord = {
   model: string | null;
   stopReason: string | null;
   errorMessage: string | null;
-  usage: Usage | null;
+  finalUsage: Usage | null;
+  totalUsage: Usage | null;
   summary: SessionTurnSummary | null;
   intermediateIndex: SessionTurnIntermediateIndex | null;
   intermediateSummary: SessionTurnIntermediateSummary | null;

@@ -92,7 +92,7 @@ function countLabel(count: number) {
 function metaLabel(turn: SessionTurnIndexItem) {
 	const parts: string[] = [turn.status];
 	if (turn.model) parts.push(turn.model);
-	const total = turn.usage?.totalTokens;
+	const total = turn.totalUsage?.totalTokens ?? turn.finalUsage?.totalTokens;
 	if (total) {
 		parts.push(
 			`${Intl.NumberFormat("en", { notation: "compact" }).format(total)} tokens`,

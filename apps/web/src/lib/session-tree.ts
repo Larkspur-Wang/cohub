@@ -27,7 +27,7 @@ export type ChatMessage = {
 		sessionId?: string | null;
 		model?: string | null;
 		provider?: string | null;
-		usage?: SessionTurnRecord["usage"];
+		usage?: SessionTurnRecord["finalUsage"];
 		stopReason?: string | null;
 		errorMessage?: string | null;
 	};
