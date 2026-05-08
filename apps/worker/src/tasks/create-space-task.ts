@@ -32,7 +32,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const getBootstrapMeta = (space: typeof spaces.$inferSelect) => {
   const meta = isRecord(space.meta) ? space.meta : {};
   const bootstrap = isRecord(meta.bootstrap) ? meta.bootstrap : {};
-  return { meta, bootstrap };
+  return { meta, bootstrap: isRecord(bootstrap) ? bootstrap : undefined };
 };
 
 const resolveSource = (payload: TaskPayload): SpaceCreateSource & { gitToken?: string } => {
@@ -78,8 +78,9 @@ const updateBootstrap = async (input: {
   errorMessage?: string | null;
   startedAt?: string;
   finishedAt?: string;
+  stageTimings?: Record<string, number>;
 }) => {
-  const { meta } = getBootstrapMeta(input.space);
+  const { meta, bootstrap: existingBootstrap } = getBootstrapMeta(input.space);
   const nextMeta = {
     ...meta,
     bootstrap: {
@@ -88,8 +89,9 @@ const updateBootstrap = async (input: {
       status: input.status,
       stage: input.stage ?? null,
       errorMessage: input.errorMessage ?? null,
-      startedAt: input.startedAt ?? (input.status === "running" ? new Date().toISOString() : null),
+      startedAt: input.startedAt ?? existingBootstrap?.startedAt ?? (input.status === "running" ? new Date().toISOString() : null),
       finishedAt: input.finishedAt ?? (input.status === "ready" || input.status === "failed" ? new Date().toISOString() : null),
+      stageTimings: input.stageTimings ?? existingBootstrap?.stageTimings ?? {},
     },
   };
 
@@ -253,6 +255,14 @@ const bootstrapFromCheckpoint = async (input: {
   return { branch: "main", commitHash: head.stdout.trim() };
 };
 
+const timeIt = async <T>(label: string, fn: () => Promise<T>): Promise<{ result: T; duration: number }> => {
+  const start = performance.now();
+  const result = await fn();
+  const duration = Math.round(performance.now() - start);
+  console.log(`[CreateSpace] ⏱ ${label}: ${duration}ms`);
+  return { result, duration };
+};
+
 const createSpaceHandler = async (job: Job) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
@@ -264,6 +274,8 @@ const createSpaceHandler = async (job: Job) => {
   if (!space) throw new Error("space not found");
 
   const source = resolveSource(payload);
+  const stageTimings: Record<string, number> = {};
+
   let currentSpace = await updateBootstrap({
     space,
     taskRunId,
@@ -274,7 +286,10 @@ const createSpaceHandler = async (job: Job) => {
   });
 
   try {
-    const gitAccount = await getUserGitAccount(currentSpace.userUuid);
+    const { result: gitAccount, duration: accountDuration } = await timeIt("getUserGitAccount", () =>
+      getUserGitAccount(currentSpace.userUuid),
+    );
+    stageTimings.getUserGitAccount = accountDuration;
 
     if (source.type === "checkpoint") {
       const [checkpoint] = await db
@@ -293,23 +308,27 @@ const createSpaceHandler = async (job: Job) => {
 
       const sourceGitAccount = await getUserGitAccount(sourceSpace.userUuid);
 
-      await forkRepository(
-        sourceGitAccount.giteaUsername,
-        sourceSpace.storageRepoName,
-        gitAccount.giteaAccessToken,
+      const { duration: forkDuration } = await timeIt("forkRepository", () =>
+        forkRepository(sourceGitAccount.giteaUsername, sourceSpace.storageRepoName, gitAccount.giteaAccessToken),
       );
+      stageTimings.forkRepository = forkDuration;
 
-      await renameRepository(
-        gitAccount.giteaUsername,
-        sourceSpace.storageRepoName,
-        currentSpace.storageRepoName,
-        gitAccount.giteaAccessToken,
+      const { duration: renameDuration } = await timeIt("renameRepository", () =>
+        renameRepository(gitAccount.giteaUsername, sourceSpace.storageRepoName, currentSpace.storageRepoName, gitAccount.giteaAccessToken),
       );
+      stageTimings.renameRepository = renameDuration;
     } else {
-      await createRepository(gitAccount.giteaAccessToken, currentSpace.storageRepoName, false);
+      const { duration: createRepoDuration } = await timeIt("createRepository", () =>
+        createRepository(gitAccount.giteaAccessToken, currentSpace.storageRepoName, false),
+      );
+      stageTimings.createRepository = createRepoDuration;
     }
 
-    await ensureSpaceWorkspaceReady(currentSpace.id);
+    const { duration: workspaceDuration } = await timeIt("ensureSpaceWorkspaceReady", () =>
+      ensureSpaceWorkspaceReady(currentSpace.id),
+    );
+    stageTimings.ensureSpaceWorkspaceReady = workspaceDuration;
+
     const workspaceDir = getSpaceWorkspaceDir(currentSpace.id);
     const authenticatedRemoteUrl = buildAuthenticatedRemoteUrl({
       username: gitAccount.giteaUsername,
@@ -325,14 +344,19 @@ const createSpaceHandler = async (job: Job) => {
         source,
         status: "running",
         stage: "import",
+        stageTimings,
       });
-      result = await bootstrapFromGitRepo({
-        workspaceDir,
-        authenticatedRemoteUrl,
-        repoUrl: source.repoUrl,
-        ref: source.ref,
-        gitToken: source.gitToken,
-      });
+      const { result: gitResult, duration: gitBootstrapDuration } = await timeIt("bootstrapFromGitRepo", () =>
+        bootstrapFromGitRepo({
+          workspaceDir,
+          authenticatedRemoteUrl,
+          repoUrl: source.repoUrl,
+          ref: source.ref,
+          gitToken: source.gitToken,
+        }),
+      );
+      stageTimings.bootstrapFromGitRepo = gitBootstrapDuration;
+      result = gitResult;
     } else if (source.type === "checkpoint") {
       currentSpace = await updateBootstrap({
         space: currentSpace,
@@ -340,12 +364,17 @@ const createSpaceHandler = async (job: Job) => {
         source,
         status: "running",
         stage: "checkpoint_restore",
+        stageTimings,
       });
-      result = await bootstrapFromCheckpoint({
-        workspaceDir,
-        authenticatedRemoteUrl,
-        checkpointId: source.checkpointId,
-      });
+      const { result: checkpointResult, duration: checkpointBootstrapDuration } = await timeIt("bootstrapFromCheckpoint", () =>
+        bootstrapFromCheckpoint({
+          workspaceDir,
+          authenticatedRemoteUrl,
+          checkpointId: source.checkpointId,
+        }),
+      );
+      stageTimings.bootstrapFromCheckpoint = checkpointBootstrapDuration;
+      result = checkpointResult;
 
       await db
         .update(checkpoints)
@@ -360,7 +389,11 @@ const createSpaceHandler = async (job: Job) => {
           .returning()
       )[0] ?? currentSpace;
     } else {
-      result = await bootstrapBlankSpace({ workspaceDir, authenticatedRemoteUrl });
+      const { result: blankResult, duration: blankBootstrapDuration } = await timeIt("bootstrapBlankSpace", () =>
+        bootstrapBlankSpace({ workspaceDir, authenticatedRemoteUrl }),
+      );
+      stageTimings.bootstrapBlankSpace = blankBootstrapDuration;
+      result = blankResult;
     }
 
     currentSpace = await updateBootstrap({
@@ -370,6 +403,7 @@ const createSpaceHandler = async (job: Job) => {
       status: "ready",
       stage: "finalize",
       finishedAt: new Date().toISOString(),
+      stageTimings,
     });
 
     await publishSpaceFsChanged(currentSpace.id, {
@@ -394,6 +428,7 @@ const createSpaceHandler = async (job: Job) => {
       source,
       status: "failed",
       errorMessage: sanitizeBootstrapError(error),
+      stageTimings,
       finishedAt: new Date().toISOString(),
     }).catch(() => undefined);
     throw error;
