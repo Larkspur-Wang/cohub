@@ -239,7 +239,7 @@ onDestroy(() => {
 		{#each markers as marker (marker.turn.id)}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
 				onmouseenter={() => { hovered = marker; }}
