@@ -270,6 +270,24 @@ async function addMember() {
 	}
 }
 
+function getMemberDisplayName(member: SpaceMember): string {
+	return member.profile?.displayName?.trim() || "User";
+}
+
+function getInitials(name: string): string {
+	const words = name.trim().split(/\s+/).filter(Boolean);
+	const initials = words
+		.slice(0, 2)
+		.map((word) => word[0]?.toUpperCase() ?? "")
+		.join("");
+	return initials || "U";
+}
+
+function getMemberRoleIcon(role: SpaceRole) {
+	if (role === "host") return "👑";
+	return null;
+}
+
 async function updateMemberRole(userId: string, role: SpaceRole) {
 	updatingMemberUserId = userId;
 	addingMemberError = "";
@@ -430,8 +448,24 @@ $effect(() => {
 					<div class="space-y-1">
 						{#each members as member (member.userId)}
 							<div class="group flex items-center gap-2 rounded-[5px] bg-bg-primary px-3 py-2">
-								{#if member.role === 'host'}<span class="w-3.5 text-center text-[12px]">👑</span>{:else if member.role === 'builder'}<Pencil class="w-3.5 h-3.5 text-brand shrink-0" />{:else}<Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-								<code class="min-w-0 flex-1 truncate text-[11px] text-text-secondary select-all">{member.userId}</code>
+								{#if getMemberRoleIcon(member.role)}
+									<span class="w-3.5 text-center text-[12px]">{getMemberRoleIcon(member.role)}</span>
+								{:else if member.role === 'builder'}
+									<Pencil class="w-3.5 h-3.5 text-brand shrink-0" />
+								{:else}
+									<Eye class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+								{/if}
+								<div class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-[10px] font-semibold text-text-tertiary">
+									{#if member.profile?.avatarUrl}
+										<img src={member.profile.avatarUrl} alt="" class="h-full w-full object-cover" />
+									{:else}
+										{getInitials(getMemberDisplayName(member))}
+									{/if}
+								</div>
+								<div class="min-w-0 flex-1">
+									<div class="truncate text-[12px] font-medium text-text-secondary">{getMemberDisplayName(member)}</div>
+									<div class="truncate text-[10px] text-text-placeholder" title={member.userId}>{member.profile?.userUuid === member.userId ? 'Profile' : 'Profile unavailable'}</div>
+								</div>
 								<select value={member.role} disabled={updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onchange={(event) => { const role = (event.currentTarget as HTMLSelectElement).value as SpaceRole; void updateMemberRole(member.userId, role); }} class="rounded bg-transparent px-1 py-0.5 text-[10px] uppercase tracking-wider text-text-placeholder hover:bg-bg-hover focus:bg-bg-input focus:outline-none disabled:opacity-50"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
 								<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={removingMemberUserId === member.userId} title="Remove member" class="rounded-sm p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50">{#if removingMemberUserId === member.userId}<Loader2 class="w-3 h-3 animate-spin" />{:else}<X class="w-3 h-3" />{/if}</button>
 							</div>

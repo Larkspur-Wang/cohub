@@ -85,15 +85,15 @@ const assistantErrorMessage = $derived(
 
 const isUserMessage = $derived(message.role === "user");
 
-function shortenUserUuid(uuid?: string | null): string {
+function fallbackUserName(uuid?: string | null): string {
 	if (!uuid) return "User";
 	const compact = uuid.replaceAll("-", "");
-	return compact.length > 8 ? compact.slice(0, 8) : compact;
+	return compact.slice(0, 8) || "User";
 }
 
 const userDisplayName = $derived(
 	message.authorProfile?.displayName?.trim() ||
-		shortenUserUuid(message.authorUuid),
+		fallbackUserName(message.authorUuid),
 );
 
 function toggleThinking() {
@@ -305,7 +305,7 @@ function handleCopy() {
 
         {#if message.role === 'user'}
           <!-- User identity -->
-          <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={message.authorUuid ?? userDisplayName}>
+          <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={userDisplayName}>
             {#if message.authorProfile?.avatarUrl}
               <img src={message.authorProfile.avatarUrl} alt="" class="w-4 h-4 rounded-full shrink-0" />
             {:else}

@@ -391,6 +391,7 @@ export type SpaceRole = "host" | "builder" | "guest";
 export type SpaceMember = {
   userId: string;
   role: SpaceRole;
+  profile: UserProfile;
   createdAt: string;
   updatedAt: string;
 };

@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { and, eq, count } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { spaceMembers } from "../../db/schema-v2.js";
+import { spaceMembers, userProfiles } from "../../db/schema-v2.js";
 import { requireValidId, useAuth } from "../../lib/middleware.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { hasPermission, getRoleForSpaceUser } from "../../permissions.js";
+import { fallbackPublicUserProfile } from "../../user-profiles.js";
 import type { SpaceRole } from "../../db/schema-v2.js";
 
 const VALID_ROLES: SpaceRole[] = ["host", "builder", "guest"];
@@ -30,12 +31,25 @@ router.get("/", async (c) => {
       role: spaceMembers.role,
       createdAt: spaceMembers.createdAt,
       updatedAt: spaceMembers.updatedAt,
+      profile: {
+        userUuid: userProfiles.userUuid,
+        displayName: userProfiles.displayName,
+        avatarUrl: userProfiles.avatarUrl,
+      },
     })
     .from(spaceMembers)
+    .leftJoin(userProfiles, eq(userProfiles.userUuid, spaceMembers.userId))
     .where(eq(spaceMembers.spaceId, spaceId))
     .orderBy(spaceMembers.createdAt);
 
-  return c.json({ items });
+  return c.json({
+    items: items.map((item) => ({
+      ...item,
+      profile: item.profile?.userUuid
+        ? item.profile
+        : fallbackPublicUserProfile(item.userId),
+    })),
+  });
 });
 
 router.put("/", async (c) => {
