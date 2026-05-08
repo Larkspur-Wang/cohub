@@ -613,7 +613,16 @@ body.drawer-open {
 	overflow-wrap: normal;
 }
 
-/* Shiki dual-theme output: github-light by default, github-dark under dark theme. */
+/* Shiki dual-theme output. */
+.markdown-content .shiki,
+.markdown-content .shiki span {
+	color: var(--shiki-light);
+}
+
+.markdown-content .shiki {
+	background-color: var(--shiki-light-bg);
+}
+
 :where([data-theme="dark"] .markdown-content .shiki),
 :where([data-theme="dark"] .markdown-content .shiki span) {
 	color: var(--shiki-dark);

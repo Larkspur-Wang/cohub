@@ -99,6 +99,7 @@ async function highlightCodeTokens(tokens: Token[]) {
 						light: "github-light",
 						dark: "github-dark",
 					},
+					defaultColor: false,
 				});
 
 				// Replace code token with html token so marked renders it unescaped
