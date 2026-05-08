@@ -434,13 +434,90 @@ body.drawer-open {
 	font-style: italic;
 }
 
+.markdown-content del {
+	color: var(--text-tertiary);
+	text-decoration-color: color-mix(in srgb, var(--text-tertiary) 72%, transparent);
+}
+
+.markdown-content mark {
+	border-radius: 0.22em;
+	padding: 0.03em 0.24em;
+	background: color-mix(in srgb, var(--brand) 18%, transparent);
+	color: var(--text-primary);
+}
+
+.markdown-content sub,
+.markdown-content sup {
+	position: relative;
+	font-size: 0.75em;
+	line-height: 0;
+	vertical-align: baseline;
+}
+
+.markdown-content sup {
+	top: -0.45em;
+}
+
+.markdown-content sub {
+	bottom: -0.2em;
+}
+
+.markdown-content kbd {
+	display: inline-flex;
+	align-items: center;
+	min-width: 1.45em;
+	padding: 0.08em 0.38em;
+	border: 1px solid var(--border-subtle);
+	border-bottom-color: var(--border-primary);
+	border-radius: 0.32rem;
+	background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg-code));
+	box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--border-primary) 45%, transparent);
+	color: var(--text-primary);
+	font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+	font-size: 0.82em;
+	line-height: 1.35;
+}
+
 .markdown-content a {
 	color: var(--brand);
 	text-decoration: none;
+	text-underline-offset: 0.18em;
 }
 
 .markdown-content a:hover {
 	text-decoration: underline;
+}
+
+.markdown-content details {
+	margin: 0.85em 0;
+	border: 1px solid var(--border-subtle);
+	border-radius: 0.65rem;
+	background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+}
+
+.markdown-content summary {
+	cursor: pointer;
+	padding: 0.62rem 0.78rem;
+	color: var(--text-primary);
+	font-weight: 600;
+	list-style-position: outside;
+}
+
+.markdown-content summary::marker {
+	color: var(--brand);
+}
+
+.markdown-content details[open] summary {
+	border-bottom: 1px solid var(--border-subtle);
+}
+
+.markdown-content details > :not(summary) {
+	margin-right: 0.78rem;
+	margin-left: 0.78rem;
+}
+
+.markdown-content details > :last-child {
+	margin-bottom: 0.78rem;
 }
 
 .markdown-content ul,
@@ -570,20 +647,49 @@ body.drawer-open {
 }
 
 .markdown-content table {
-	table-layout: auto;
+	display: block;
 	width: 100%;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: visible;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior-x: contain;
+	touch-action: pan-x pan-y;
+	table-layout: auto;
 	border-collapse: collapse;
 	margin: 0.85em 0;
 	font-size: 0.93em;
+	scrollbar-width: thin;
+}
+
+.markdown-content table > thead,
+.markdown-content table > tbody {
+	display: table;
+	width: max-content;
+	min-width: 100%;
 }
 
 .markdown-content th,
 .markdown-content td {
+	min-width: min(9rem, 52vw);
+	max-width: 24rem;
 	border: 1px solid var(--border-subtle);
 	padding: 0.5rem 0.75rem;
 	text-align: left;
+	vertical-align: top;
+	white-space: normal;
 	word-break: break-word;
 	overflow-wrap: anywhere;
+}
+
+.markdown-content th[align="center"],
+.markdown-content td[align="center"] {
+	text-align: center;
+}
+
+.markdown-content th[align="right"],
+.markdown-content td[align="right"] {
+	text-align: right;
 }
 
 .markdown-content th {
@@ -602,28 +708,13 @@ body.drawer-open {
 
 @media (max-width: 640px) {
 	.markdown-content table {
-		display: block;
-		overflow-x: auto;
-		overflow-y: visible;
-		-webkit-overflow-scrolling: touch;
-		overscroll-behavior-x: contain;
-		touch-action: pan-x pan-y;
-		width: 100%;
-		min-width: 0;
-	}
-
-	.markdown-content table > thead,
-	.markdown-content table > tbody {
-		display: table;
-		width: max-content;
-		min-width: 100%;
+		font-size: 0.9em;
 	}
 
 	.markdown-content table th,
 	.markdown-content table td {
-		white-space: normal;
-		min-width: 2.5em;
-		max-width: 200px;
+		min-width: min(7.5rem, 62vw);
+		max-width: 16rem;
 	}
 }
 

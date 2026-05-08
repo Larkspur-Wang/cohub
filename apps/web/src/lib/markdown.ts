@@ -128,12 +128,35 @@ async function renderMarkdownHtml(source: string) {
 	return marked.parser(tokens);
 }
 
+const EXTERNAL_LINK_PROTOCOLS = new Set(["http:", "https:"]);
+
+function isExternalHttpLink(href: string) {
+	try {
+		const url = new URL(
+			href,
+			typeof window === "undefined"
+				? "https://cohub.local"
+				: window.location.href,
+		);
+		return EXTERNAL_LINK_PROTOCOLS.has(url.protocol) && /^(https?:)?\/\//i.test(href);
+	} catch {
+		return false;
+	}
+}
+
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+	if (node.nodeName !== "A") return;
+
+	const element = node as Element;
+	const href = element.getAttribute("href")?.trim();
+	if (!href || !isExternalHttpLink(href)) return;
+
+	element.setAttribute("target", "_blank");
+	element.setAttribute("rel", "noopener noreferrer");
+});
+
 function sanitizeMarkdownHtml(html: string) {
-	const sanitized = DOMPurify.sanitize(html);
-	return sanitized.replace(
-		/<a /g,
-		'<a target="_blank" rel="noopener noreferrer" ',
-	);
+	return DOMPurify.sanitize(html);
 }
 
 function isFencedCodeFenceLine(line: string) {
