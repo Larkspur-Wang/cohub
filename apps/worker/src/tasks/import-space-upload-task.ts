@@ -59,6 +59,15 @@ const safeRelative = (value: string) => {
   return parts.join("/");
 };
 
+const getParentDirPaths = (path: string) => {
+  const parts = path.split("/").slice(0, -1);
+  const dirs: string[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    dirs.push(parts.slice(0, index + 1).join("/"));
+  }
+  return dirs;
+};
+
 const makeTempPath = (finalPath: string, uploadId: string, entryId: string) => {
   const name = basename(finalPath);
   return resolve(dirname(finalPath), `.${name}.cohub-upload-${uploadId}-${entryId}.tmp`);
@@ -90,6 +99,7 @@ registerTask("import_space_upload", async (job) => {
   const totalFiles = payload.entries.length;
   const totalBytes = payload.entries.reduce((sum, entry) => sum + entry.size, 0);
   const uploaded: Array<{ path: string; name: string; size: number; mimeType: string | null; mtimeMs: number }> = [];
+  const createdDirs = new Map<string, number>();
   const errors: Array<{ name: string; code: "write_failed" | "object_missing" | "path_invalid"; message: string }> = [];
   let importedBytes = 0;
 
@@ -116,6 +126,9 @@ registerTask("import_space_upload", async (job) => {
       const finalPath = resolve(workspaceDir, finalRelativePath);
       assertInsideRoot(finalPath, workspaceDir);
       await mkdir(dirname(finalPath), { recursive: true });
+      for (const dirPath of getParentDirPaths(finalRelativePath)) {
+        createdDirs.set(dirPath, Date.now());
+      }
       const tempPath = makeTempPath(finalPath, payload.uploadId, entry.id);
       await rm(tempPath, { force: true }).catch(() => undefined);
 
@@ -164,15 +177,24 @@ registerTask("import_space_upload", async (job) => {
   }
 
   if (uploaded.length > 0) {
+    const dirChanges = Array.from(createdDirs, ([path, mtimeMs]) => ({
+      path,
+      kind: "create" as const,
+      nodeType: "dir" as const,
+      mtimeMs,
+    }));
     await publishSpaceFsChanged(payload.spaceId, {
       source: "api-fs",
-      changes: uploaded.map((file) => ({
-        path: file.path,
-        kind: "create" as const,
-        nodeType: "file" as const,
-        size: file.size,
-        mtimeMs: file.mtimeMs,
-      })),
+      changes: [
+        ...dirChanges,
+        ...uploaded.map((file) => ({
+          path: file.path,
+          kind: "create" as const,
+          nodeType: "file" as const,
+          size: file.size,
+          mtimeMs: file.mtimeMs,
+        })),
+      ],
     }).catch(console.error);
   }
 
