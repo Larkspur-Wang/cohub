@@ -3,9 +3,9 @@
   "compilerOptions": {
     "paths": {
       "@neta-art/cohub-protocol": ["../../packages/protocol/src/index.ts"],
-      "@neta-art/cohub-protocol/core": ["../../packages/protocol/src/core/content.ts"],
+      "@neta-art/cohub-protocol/core": ["../../packages/protocol/src/core/index.ts"],
       "@neta-art/cohub-protocol/model": ["../../packages/protocol/src/model/session.ts"],
-      "@neta-art/cohub-protocol/realtime": ["../../packages/protocol/src/realtime/websocket.ts"],
+      "@neta-art/cohub-protocol/realtime": ["../../packages/protocol/src/realtime/index.ts"],
       "@neta-art/cohub-protocol/gateway": ["../../packages/protocol/src/gateway/index.ts"],
       "@neta-art/cohub-protocol/task": ["../../packages/protocol/src/task/index.ts"],
       "@neta-art/cohub-protocol/fs": ["../../packages/protocol/src/fs/index.ts"],
