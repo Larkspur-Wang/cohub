@@ -669,11 +669,16 @@ body.drawer-open {
 	scrollbar-width: thin;
 }
 
-.markdown-content table > thead,
+.markdown-content table > thead {
+	display: table-header-group;
+}
+
 .markdown-content table > tbody {
-	display: table;
-	width: max-content;
-	min-width: 100%;
+	display: table-row-group;
+}
+
+.markdown-content table > tfoot {
+	display: table-footer-group;
 }
 
 .markdown-content th,

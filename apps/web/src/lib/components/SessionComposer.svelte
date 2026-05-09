@@ -296,7 +296,7 @@ $effect(() => {
 
 			{#if attachments.length > 0}
 				<div
-					class={`mb-2 flex flex-wrap gap-2 overflow-y-auto px-1 pb-1 ${isComposerExpanded ? 'max-h-36' : 'max-h-24'}`}
+					class={`mb-2 flex flex-wrap gap-2 overflow-y-auto px-3 pb-1 ${isComposerExpanded ? 'max-h-36' : 'max-h-24'}`}
 					data-drawer-swipe-ignore
 				>
 					{#each attachments as attachment (attachment.id)}
@@ -444,7 +444,7 @@ $effect(() => {
 						<div class="flex items-center gap-1">
 							<button
 								type="button"
-								class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+								class="-ml-2 flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 								onclick={() => fileInputEl?.click()}
 								disabled={disabled}
 								title="Add files"
