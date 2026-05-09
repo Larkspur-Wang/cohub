@@ -29,6 +29,13 @@ export class SandboxNotReadyError extends Error {
   }
 }
 
+export class SpaceEnvValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpaceEnvValidationError";
+  }
+}
+
 export const deriveMessagePreviewText = (input: { role?: string | null; content: ContentBlock[] }): string => {
   return input.content
     .flatMap((block) => {
@@ -304,13 +311,15 @@ export const normalizeSpaceEnv = (input: unknown): Array<{ name: string; value: 
 };
 
 export const validateSpaceEnv = (envs: Array<{ name: string; value: string }>) => {
-  if (envs.length > 50) throw new Error("extraEnv cannot exceed 50 entries");
+  if (envs.length > 50) throw new SpaceEnvValidationError("extraEnv cannot exceed 50 entries");
   const seen = new Set<string>();
   for (const env of envs) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env.name)) throw new Error(`invalid env name: ${env.name}`);
-    if (env.name.length > 128) throw new Error(`env name too long: ${env.name}`);
-    if (env.value.length > 4000) throw new Error(`env value too long for: ${env.name}`);
-    if (seen.has(env.name)) throw new Error(`duplicate env name: ${env.name}`);
+    if (env.name.length > 128) throw new SpaceEnvValidationError("env name too long");
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env.name)) {
+      throw new SpaceEnvValidationError("env name must start with a letter or underscore and contain only letters, numbers, and underscores");
+    }
+    if (env.value.length > 4000) throw new SpaceEnvValidationError("env value too long");
+    if (seen.has(env.name)) throw new SpaceEnvValidationError(`duplicate env name: ${env.name}`);
     seen.add(env.name);
   }
 };
@@ -512,6 +521,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const userId = input.userId ?? null;
   const toolUseCount = countToolCallsInContent(content);
   const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
+  const displayErrorMessage = isAborted ? null : input.message.errorMessage ?? null;
 
   const [messageNode] = await db.insert(sessionMessages).values({
     id: input.message.id?.trim() || undefined,
@@ -530,7 +540,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     provider: input.message.provider ?? null,
     model: input.message.model ?? null,
     stopReason: input.message.stopReason ?? null,
-    errorMessage: input.message.errorMessage ?? null,
+    errorMessage: displayErrorMessage,
     usage: normalizedUsage,
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
@@ -577,7 +587,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         provider: input.message.provider ?? null,
         model: input.message.model ?? null,
         stopReason: input.message.stopReason ?? null,
-        errorMessage: input.message.errorMessage ?? null,
+        errorMessage: displayErrorMessage,
         usage: normalizedUsage,
       }).catch((error) => {
         console.warn("[SessionTurn] failed to finalize turn", error);

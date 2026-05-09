@@ -24,6 +24,7 @@ import {
   validateSpaceEnv,
   setSpaceEnv,
   SandboxNotReadyError,
+  SpaceEnvValidationError,
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
@@ -181,7 +182,8 @@ router.post("/", async (c) => {
   if (existingSpace.length > 0) return c.json({ message: "space already exists" }, 409);
 
   const normalizedExtraEnv = normalizeSpaceEnv(body.extraEnv);
-  validateSpaceEnv(normalizedExtraEnv);
+  const envValidationError = validateSpaceEnvForResponse(normalizedExtraEnv);
+  if (envValidationError) return c.json(envValidationError, 400);
 
   const normalizedChannelBindings = Array.isArray(body.channelBindings)
     ? body.channelBindings
@@ -662,6 +664,22 @@ router.get("/:id/env", async (c) => {
   return c.json({ env: envs });
 });
 
+const toSpaceEnvValidationResponse = (error: unknown) => {
+  if (!(error instanceof SpaceEnvValidationError)) return null;
+  return { message: error.message };
+};
+
+const validateSpaceEnvForResponse = (envs: Array<{ name: string; value: string }>) => {
+  try {
+    validateSpaceEnv(envs);
+    return null;
+  } catch (error) {
+    const response = toSpaceEnvValidationResponse(error);
+    if (response) return response;
+    throw error;
+  }
+};
+
 router.post("/:id/env", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
@@ -682,7 +700,8 @@ router.post("/:id/env", async (c) => {
   const existing = getExtraEnvFromSpace(space);
   const filtered = existing.filter((e) => e.name !== entry.name);
   const updated = [...filtered, entry];
-  validateSpaceEnv(updated);
+  const validationError = validateSpaceEnvForResponse(updated);
+  if (validationError) return c.json(validationError, 400);
   await persistSpaceEnv(space, updated);
 
   return c.json({ env: updated }, 201);
@@ -711,7 +730,8 @@ router.put("/:id/env/:name", async (c) => {
   if (!target) return c.json({ message: `env "${envName}" not found` }, 404);
 
   target.value = String(body.value);
-  validateSpaceEnv(existing);
+  const validationError = validateSpaceEnvForResponse(existing);
+  if (validationError) return c.json(validationError, 400);
   await persistSpaceEnv(space, existing);
 
   return c.json({ env: existing });

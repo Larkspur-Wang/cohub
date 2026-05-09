@@ -33,7 +33,13 @@ function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 }
 
 function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
-	if (!turn.assistantContent && !turn.errorMessage && !turn.assistantText)
+	const isAborted = turn.stopReason === "aborted";
+	if (
+		!turn.assistantContent &&
+		!turn.errorMessage &&
+		!turn.assistantText &&
+		!isAborted
+	)
 		return null;
 	const content =
 		turn.assistantContent ??
@@ -45,7 +51,9 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 		sourceId: turn.id,
 		role: "assistant",
 		content,
-		text: turn.assistantText ?? turn.errorMessage ?? "",
+		text: isAborted
+			? (turn.assistantText ?? "")
+			: (turn.assistantText ?? turn.errorMessage ?? ""),
 		sequence: turn.sequence * 10 + 2,
 		blocks: [...content],
 		createdAt: turn.completedAt ?? turn.updatedAt,
@@ -62,7 +70,7 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 			contextWindow: getTurnContextWindow(turn),
 			usage: turn.finalUsage,
 			stopReason: turn.stopReason,
-			errorMessage: turn.errorMessage,
+			errorMessage: isAborted ? null : turn.errorMessage,
 		},
 	};
 }
