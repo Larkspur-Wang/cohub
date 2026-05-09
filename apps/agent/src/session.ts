@@ -43,6 +43,7 @@ type AssistantMessageContext = {
   patchSeq: number;
 };
 
+
 export type SessionHandle = {
   spaceId: string;
   spaceOwnerUserId: string | null;
@@ -565,6 +566,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       if (!currentUserMessageId) return;
       const currentModel = handle.session.agent.state.model;
       const rawMessage = event.message as unknown as Record<string, unknown>;
+
 
       if (handle.session.shouldDeferErrorPersistence(rawMessage)) {
         resetStreamState(handle);

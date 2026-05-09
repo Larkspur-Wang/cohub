@@ -71,15 +71,18 @@ function handleMarkdownSegmentStart() {
 	pendingMarkdownSegments += 1;
 }
 
+const assistantAbortMessage = $derived(
+	message.role === "assistant" && message.meta?.stopReason === "aborted"
+		? "Generation was stopped by a user"
+		: "",
+);
+
 const assistantErrorMessage = $derived(
 	message.role === "assistant" &&
+		!assistantAbortMessage &&
 		(message.meta?.messageKind === "assistant_error" ||
-			message.meta?.stopReason === "error" ||
-			message.meta?.stopReason === "aborted")
-		? (message.meta?.errorMessage ??
-				(message.meta?.stopReason === "aborted"
-					? "Operation aborted"
-					: "Unknown error"))
+			message.meta?.stopReason === "error")
+		? (message.meta?.errorMessage ?? "Unknown error")
 		: "",
 );
 
@@ -328,6 +331,10 @@ function handleCopy() {
             <span class={getTokenDisplayClass(inputContextPercent)} title={tokenDetailText}>
               {tokenDisplay}
             </span>
+          {/if}
+
+          {#if assistantAbortMessage}
+            <span class="shrink-0 text-[11px] font-medium text-warning-soft/75" title={assistantAbortMessage}>user stopped</span>
           {/if}
         {/if}
 

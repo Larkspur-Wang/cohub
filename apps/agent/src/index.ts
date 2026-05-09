@@ -615,6 +615,7 @@ async function main() {
                 ? abortMeta.userId.trim()
                 : null;
             await handle.session.abort();
+            await handle.persistenceChain.catch(() => undefined);
             const completions = handle.pendingSteerCompletions.splice(0, handle.pendingSteerCompletions.length);
             for (const completion of completions) {
               await completion.reject("aborted").catch(() => undefined);
