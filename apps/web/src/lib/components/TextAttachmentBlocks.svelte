@@ -40,29 +40,24 @@ function getAttachmentBody(block: TextBlock) {
 <div class="space-y-2">
 	{#each blocks as block, index}
 		{#if isTextAttachment(block)}
-			<section class="overflow-hidden rounded-2xl border border-border-subtle bg-bg-content/70 text-left">
-				<button
-					type="button"
-					class="block w-full overflow-hidden rounded-2xl border border-border-subtle bg-bg-content/70 text-left transition-colors hover:border-border-strong hover:bg-bg-content"
-					onclick={() => {
-						previewBlock = { block, index };
-					}}
-					title="Preview file"
-					aria-label={`Preview ${getFilename(block, index)}`}
-				>
-					<div class="flex items-center gap-2.5 border-b border-border-subtle bg-bg-hover/45 px-3 py-2">
-						<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-content text-text-tertiary">
-							<FileText class="h-4 w-4" />
-						</div>
-						<div class="min-w-0 flex-1">
-							<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={getFilename(block, index)}>{getFilename(block, index)}</div>
-							<div class="mt-0.5 text-[10px] leading-3 text-text-tertiary">{getSizeLabel(block)}</div>
-						</div>
-						<Maximize2 class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-					</div>
-					<pre class="max-h-72 overflow-hidden whitespace-pre-wrap break-words px-3 py-2.5 text-[12px] leading-5 text-text-secondary"><code>{getAttachmentBody(block)}</code></pre>
-				</button>
-			</section>
+			<button
+				type="button"
+				class="flex w-full items-center gap-2.5 rounded-2xl border border-border-subtle bg-bg-content/70 px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-bg-content"
+				onclick={() => {
+					previewBlock = { block, index };
+				}}
+				title="Preview file"
+				aria-label={`Preview ${getFilename(block, index)}`}
+			>
+				<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-content text-text-tertiary">
+					<FileText class="h-4 w-4" />
+				</div>
+				<div class="min-w-0 flex-1">
+					<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={getFilename(block, index)}>{getFilename(block, index)}</div>
+					<div class="mt-0.5 text-[10px] leading-3 text-text-tertiary">{getSizeLabel(block)}</div>
+				</div>
+				<Maximize2 class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+			</button>
 		{:else}
 			<div class="whitespace-pre-wrap break-words text-inherit">
 				{block.text}
