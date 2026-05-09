@@ -3,8 +3,13 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageToolCallsFile } from "@neta-art/cohub-protocol/model";
 import ImageBlocks from "$lib/components/ImageBlocks.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
+import TextAttachmentBlocks from "$lib/components/TextAttachmentBlocks.svelte";
 import ThinkingBlocks from "$lib/components/ThinkingBlocks.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
+
+type TextBlock = Extract<ContentBlock, { type: "text" }>;
+type ThinkingBlock = Extract<ContentBlock, { type: "thinking" }>;
+type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
 type Props = {
 	content: ContentBlock[];
@@ -20,9 +25,9 @@ type Props = {
 };
 
 type Segment =
-	| { type: "text"; blocks: Extract<ContentBlock, { type: "text" }>[] }
-	| { type: "thinking"; blocks: Extract<ContentBlock, { type: "thinking" }>[] }
-	| { type: "image"; blocks: Extract<ContentBlock, { type: "image" }>[] }
+	| { type: "text"; blocks: TextBlock[] }
+	| { type: "thinking"; blocks: ThinkingBlock[] }
+	| { type: "image"; blocks: ImageBlock[] }
 	| { type: "tool"; blocks: ContentBlock[] };
 
 const {
@@ -38,33 +43,37 @@ const {
 	onOpenFile,
 }: Props = $props();
 
+function hasTextAttachment(blocks: TextBlock[]) {
+	return blocks.some((block) => block._meta?.attachmentKind === "text");
+}
+
 const segments = $derived.by(() => {
 	const result: Segment[] = [];
 	let i = 0;
 	while (i < content.length) {
 		const block = content[i];
 		if (block.type === "text") {
-			const blocks: Extract<ContentBlock, { type: "text" }>[] = [];
+			const blocks: TextBlock[] = [];
 			while (content[i]?.type === "text") {
-				blocks.push(content[i] as Extract<ContentBlock, { type: "text" }>);
+				blocks.push(content[i] as TextBlock);
 				i += 1;
 			}
 			result.push({ type: "text", blocks });
 			continue;
 		}
 		if (block.type === "thinking") {
-			const blocks: Extract<ContentBlock, { type: "thinking" }>[] = [];
+			const blocks: ThinkingBlock[] = [];
 			while (content[i]?.type === "thinking") {
-				blocks.push(content[i] as Extract<ContentBlock, { type: "thinking" }>);
+				blocks.push(content[i] as ThinkingBlock);
 				i += 1;
 			}
 			result.push({ type: "thinking", blocks });
 			continue;
 		}
 		if (block.type === "image") {
-			const blocks: Extract<ContentBlock, { type: "image" }>[] = [];
+			const blocks: ImageBlock[] = [];
 			while (content[i]?.type === "image") {
-				blocks.push(content[i] as Extract<ContentBlock, { type: "image" }>);
+				blocks.push(content[i] as ImageBlock);
 				i += 1;
 			}
 			result.push({ type: "image", blocks });
@@ -93,7 +102,9 @@ const segments = $derived.by(() => {
 {#each segments as segment, index (`${segment.type}:${index}`)}
 	<div class={index === 0 ? "" : "mt-2"}>
 		{#if segment.type === 'text'}
-			{#if isUserMessage}
+			{#if isUserMessage && hasTextAttachment(segment.blocks)}
+				<TextAttachmentBlocks blocks={segment.blocks} />
+			{:else if isUserMessage}
 				<div class="whitespace-pre-wrap break-words text-inherit">
 					{segment.blocks.map((block) => block.text).join('\n\n')}
 				</div>

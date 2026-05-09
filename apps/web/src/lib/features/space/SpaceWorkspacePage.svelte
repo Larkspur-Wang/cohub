@@ -82,6 +82,16 @@ import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import {
+	buildComposerTextContentBlock,
+	type ComposerAttachment,
+	type ComposerImageAttachment,
+	createComposerAttachmentId,
+	isComposerImageFile,
+	isSupportedComposerAttachmentFile,
+	MAX_COMPOSER_ATTACHMENTS,
+	readComposerTextAttachment,
+} from "$lib/composer-attachments";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
@@ -170,14 +180,6 @@ type Props = {
 		turnSequence?: string | null;
 	};
 };
-type ComposerImageAttachment = {
-	id: string;
-	name: string;
-	mediaType: string;
-	data: string;
-	previewUrl: string;
-	size: number;
-};
 type SelectedModel = {
 	provider: string;
 	id: string;
@@ -234,7 +236,7 @@ let spaceSessions = $state<SessionRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
 let input = $state("");
-let imageAttachments = $state<ComposerImageAttachment[]>([]);
+let attachments = $state<ComposerAttachment[]>([]);
 let sending = $state(false);
 let spaceLoadError = $state("");
 let renamingSpace = $state(false);
@@ -2553,7 +2555,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 async function handleSend() {
 	if (
 		!activeSessionState?.session ||
-		(!input.trim() && imageAttachments.length === 0) ||
+		(!input.trim() && attachments.length === 0) ||
 		sending ||
 		!space
 	)
@@ -2562,8 +2564,10 @@ async function handleSend() {
 	composerError = "";
 	clearGenerationError(activeSessionId);
 	const text = input.trim();
-	const attachmentBlocks: ContentBlock[] = imageAttachments.map(
-		(attachment) => ({
+	const attachmentBlocks: ContentBlock[] = attachments.map((attachment) => {
+		if (attachment.kind === "text")
+			return buildComposerTextContentBlock(attachment);
+		return {
 			type: "image",
 			source: {
 				type: "base64",
@@ -2574,11 +2578,11 @@ async function handleSend() {
 				filename: attachment.name,
 				size: attachment.size,
 			},
-		}),
-	);
+		} satisfies ContentBlock;
+	});
 	const content: ContentBlock[] = [
-		...attachmentBlocks,
 		...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
+		...attachmentBlocks,
 	];
 	const sessionId = activeSessionState.session.id;
 	const optimisticTurnId = crypto.randomUUID();
@@ -2590,9 +2594,9 @@ async function handleSend() {
 	// time the optimistic turn appears in the list — avoids the awkward "stuck"
 	// feeling where the message shows in the list but lingers in the input.
 	const pendingInput = input;
-	const pendingAttachments = imageAttachments;
+	const pendingAttachments = attachments;
 	input = "";
-	imageAttachments = [];
+	attachments = [];
 	try {
 		const model = activeSessionModel;
 		const now = new Date().toISOString();
@@ -2727,7 +2731,7 @@ async function handleSend() {
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
 		input = pendingInput;
-		imageAttachments = pendingAttachments;
+		attachments = pendingAttachments;
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
 		failGeneration(sessionId, sendError);
@@ -2940,20 +2944,35 @@ async function compressImageFile(file: File) {
 	const dataUrl = await fileToDataUrl(blob);
 	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
-async function handlePickImages(files: FileList | File[] | null) {
+async function handlePickAttachments(files: FileList | File[] | null) {
 	if (!files) return;
-	const validFiles = Array.from(files).filter((file) =>
-		file.type.startsWith("image/"),
+	const pickedFiles = Array.from(files).filter(
+		isSupportedComposerAttachmentFile,
 	);
-	if (validFiles.length === 0) return;
+	if (pickedFiles.length === 0) return;
+
+	const remainingSlots = MAX_COMPOSER_ATTACHMENTS - attachments.length;
+	if (remainingSlots <= 0) {
+		composerError = `You can attach up to ${MAX_COMPOSER_ATTACHMENTS} files.`;
+		return;
+	}
+	const acceptedFiles = pickedFiles.slice(0, remainingSlots);
+	if (acceptedFiles.length < pickedFiles.length) {
+		composerError = `Only the first ${remainingSlots} file${remainingSlots === 1 ? "" : "s"} were attached.`;
+	} else {
+		composerError = "";
+	}
+
 	try {
 		const nextAttachments = await Promise.all(
-			validFiles.map(async (file) => {
+			acceptedFiles.map(async (file): Promise<ComposerAttachment> => {
+				if (!isComposerImageFile(file)) return readComposerTextAttachment(file);
 				const compressed = await compressImageFile(file);
 				const [, base64 = ""] = compressed.dataUrl.split(",");
 				const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
 				return {
-					id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+					kind: "image",
+					id: createComposerAttachmentId(file),
 					name: `${webpName}.webp`,
 					mediaType: compressed.mediaType,
 					data: base64,
@@ -2962,16 +2981,14 @@ async function handlePickImages(files: FileList | File[] | null) {
 				} satisfies ComposerImageAttachment;
 			}),
 		);
-		imageAttachments = [...imageAttachments, ...nextAttachments];
+		attachments = [...attachments, ...nextAttachments];
 	} catch (error) {
 		composerError =
-			error instanceof Error ? error.message : "Failed to read image";
+			error instanceof Error ? error.message : "Failed to read attachment";
 	}
 }
 function handleRemoveAttachment(id: string) {
-	imageAttachments = imageAttachments.filter(
-		(attachment) => attachment.id !== id,
-	);
+	attachments = attachments.filter((attachment) => attachment.id !== id);
 }
 function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
@@ -5549,10 +5566,10 @@ $effect(() => {
             bind:value={input}
             disabled={sending || !activeSessionState}
             streamError={composerNotice}
-            attachments={imageAttachments}
+            attachments={attachments}
             currentModel={activeSessionModel}
             promptTemplates={promptTemplates}
-            onpickimage={handlePickImages}
+            onpickattachment={handlePickAttachments}
             onremoveattachment={handleRemoveAttachment}
             onsubmit={handleSend}
             onModelSelect={() => {

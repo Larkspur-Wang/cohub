@@ -3,6 +3,7 @@ import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import {
 	ArrowUp,
 	ChevronDown,
+	FileText,
 	Maximize2,
 	Minimize2,
 	Plus,
@@ -10,15 +11,11 @@ import {
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
-
-type ComposerImageAttachment = {
-	id: string;
-	name: string;
-	mediaType: string;
-	data: string;
-	previewUrl: string;
-	size: number;
-};
+import {
+	COMPOSER_ATTACHMENT_ACCEPT,
+	type ComposerAttachment,
+	isSupportedComposerAttachmentFile,
+} from "$lib/composer-attachments";
 
 type SelectedModel = {
 	provider: string;
@@ -31,11 +28,11 @@ type Props = {
 	disabled?: boolean;
 	streamError?: string;
 	placeholder?: string;
-	attachments?: ComposerImageAttachment[];
+	attachments?: ComposerAttachment[];
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
 	onsubmit: () => void;
-	onpickimage?: (files: FileList | File[] | null) => void;
+	onpickattachment?: (files: FileList | File[] | null) => void;
 	onremoveattachment?: (id: string) => void;
 	onModelSelect?: () => void;
 };
@@ -49,7 +46,7 @@ let {
 	currentModel = null,
 	promptTemplates = [],
 	onsubmit,
-	onpickimage,
+	onpickattachment,
 	onremoveattachment,
 	onModelSelect,
 }: Props = $props();
@@ -140,28 +137,31 @@ function applyPromptTemplate(item: PromptTemplateCatalogEntry) {
 	});
 }
 
-function hasImageFiles(dataTransfer: DataTransfer | null) {
+function hasAttachmentFiles(dataTransfer: DataTransfer | null) {
 	if (!dataTransfer) return false;
-	return Array.from(dataTransfer.items ?? []).some((item) =>
-		item.type.startsWith("image/"),
-	);
+	return Array.from(dataTransfer.items ?? []).some((item) => {
+		if (item.kind !== "file") return false;
+		const file = item.getAsFile();
+		if (file) return isSupportedComposerAttachmentFile(file);
+		return item.type.startsWith("image/") || item.type.startsWith("text/");
+	});
 }
 
 function handleDragEnter(event: DragEvent) {
-	if (!hasImageFiles(event.dataTransfer)) return;
+	if (!hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter += 1;
 	isDragOver = true;
 }
 
 function handleDragOver(event: DragEvent) {
-	if (!hasImageFiles(event.dataTransfer)) return;
+	if (!hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	isDragOver = true;
 }
 
 function handleDragLeave(event: DragEvent) {
-	if (!hasImageFiles(event.dataTransfer)) return;
+	if (!hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter = Math.max(0, dragCounter - 1);
 	if (dragCounter === 0) {
@@ -170,11 +170,11 @@ function handleDragLeave(event: DragEvent) {
 }
 
 function handleDrop(event: DragEvent) {
-	if (!hasImageFiles(event.dataTransfer)) return;
+	if (!hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	isDragOver = false;
 	dragCounter = 0;
-	onpickimage?.(event.dataTransfer?.files ?? null);
+	onpickattachment?.(event.dataTransfer?.files ?? null);
 }
 
 function handlePathDragOver(event: DragEvent) {
@@ -214,13 +214,16 @@ function handlePathDrop(event: DragEvent) {
 
 function handlePaste(event: ClipboardEvent) {
 	const files = Array.from(event.clipboardData?.items ?? [])
-		.filter((item) => item.type.startsWith("image/"))
+		.filter((item) => item.kind === "file")
 		.map((item) => item.getAsFile())
-		.filter((file): file is File => file instanceof File);
+		.filter(
+			(file): file is File =>
+				file instanceof File && isSupportedComposerAttachmentFile(file),
+		);
 
 	if (files.length === 0) return;
 	event.preventDefault();
-	onpickimage?.(files);
+	onpickattachment?.(files);
 }
 
 onMount(() => {
@@ -286,7 +289,7 @@ $effect(() => {
 				<div class="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-[24px] border border-dashed border-brand/40 bg-bg-primary/82 backdrop-blur-sm">
 					<div class="flex items-center gap-2 rounded-full border border-border-subtle bg-bg-elevated px-4 py-2 text-[12px] text-text-secondary">
 						<Upload class="h-4 w-4 text-brand" />
-						<span>Drop images to attach</span>
+						<span>Drop files to attach</span>
 					</div>
 				</div>
 			{/if}
@@ -297,13 +300,27 @@ $effect(() => {
 					data-drawer-swipe-ignore
 				>
 					{#each attachments as attachment (attachment.id)}
-						<div class="group relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content">
-							<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-cover" />
+						<div class={`group relative shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content transition-colors hover:border-border-strong ${attachment.kind === 'image' ? 'h-20 w-20' : 'flex h-20 w-44 items-center gap-2.5 p-3'}`}>
+							{#if attachment.kind === 'image'}
+								<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-cover" />
+							{:else}
+								<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-bg-hover text-text-tertiary">
+									<FileText class="h-4 w-4" />
+								</div>
+								<div class="min-w-0 flex-1 pr-4">
+									<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={attachment.name}>{attachment.name}</div>
+									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-3 text-text-tertiary">
+										<span>Text</span>
+										<span aria-hidden="true">·</span>
+										<span>{Math.ceil(attachment.size / 1024)} KB</span>
+									</div>
+								</div>
+							{/if}
 							<button
 								type="button"
-								class="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-white opacity-0 transition-opacity group-hover:opacity-100"
+								class="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-bg-elevated/90 text-text-tertiary opacity-0 shadow-sm ring-1 ring-border-subtle transition-all hover:text-text-primary group-hover:opacity-100"
 								onclick={() => onremoveattachment?.(attachment.id)}
-								title="Remove image"
+								title="Remove attachment"
 							>
 								<X class="h-3.5 w-3.5" />
 							</button>
@@ -317,11 +334,11 @@ $effect(() => {
 					<input
 						bind:this={fileInputEl}
 						type="file"
-						accept="image/*"
+						accept={COMPOSER_ATTACHMENT_ACCEPT}
 						multiple
 						class="hidden"
 						onchange={(event) => {
-							onpickimage?.((event.currentTarget as HTMLInputElement).files);
+							onpickattachment?.((event.currentTarget as HTMLInputElement).files);
 							(event.currentTarget as HTMLInputElement).value = "";
 						}}
 					/>
@@ -430,7 +447,7 @@ $effect(() => {
 								class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 								onclick={() => fileInputEl?.click()}
 								disabled={disabled}
-								title="Add image"
+								title="Add files"
 							>
 								<Plus class="h-[17px] w-[17px]" />
 							</button>
