@@ -8,6 +8,7 @@ import {
   getSessionMessageById,
   listSessionMessages,
   SandboxNotReadyError,
+  enqueueSessionAbort,
   updateSpaceSessionInfo,
   summarizeMessageForHistory,
   markMessageAsFull,
@@ -279,6 +280,31 @@ router.get("/:id/messages/:messageId", async (c) => {
       ? summarizeMessageForHistory(message, { placeholderIntermediate: false })
       : markMessageAsFull(message),
   });
+});
+
+router.post("/:id/abort", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const body = await c.req.json<{ turnId?: string | null }>().catch(() => null);
+  const turnId = body?.turnId?.trim() || null;
+  if (turnId && !requireValidId(turnId)) return c.json({ message: "invalid turn id" }, 400);
+
+  await enqueueSessionAbort({
+    spaceId: session.spaceId,
+    sessionId: session.id,
+    actorUserId: user.uuid,
+    turnId,
+  });
+
+  return c.json({ ok: true });
 });
 
 router.post("/:id/messages", async (c) => {

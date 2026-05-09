@@ -459,13 +459,27 @@ export async function interruptSessionTurn(input: {
   spaceId: string;
   sessionId: string;
   turnId: string;
-  interruptedByTurnId: string;
+  continuedByTurnId: string;
 }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/turns/${input.turnId}/interrupt`;
   return postJsonWithRetry({
     url,
-    body: { interruptedByTurnId: input.interruptedByTurnId },
+    body: { continuedByTurnId: input.continuedByTurnId },
     errorPrefix: "Interrupt session turn failed",
+  });
+}
+
+export async function abortSessionTurn(input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  actorUserId?: string | null;
+}) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/turns/${input.turnId}/abort`;
+  return postJsonWithRetry({
+    url,
+    body: { actorUserId: input.actorUserId ?? null },
+    errorPrefix: "Abort session turn failed",
   });
 }
 

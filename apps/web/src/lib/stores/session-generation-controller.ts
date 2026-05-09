@@ -349,6 +349,16 @@ export function failGeneration(sessionId: string, error?: string | null) {
 	sessionGenerationStore.fail(sessionId, error ?? "Generation failed");
 }
 
+export function interruptGeneration(sessionId: string) {
+	const current = sessionGenerationStore.get(sessionId);
+	realtimePatchReducer.interrupt({
+		sessionId,
+		spaceId: current?.spaceId ?? null,
+		turnId: current?.turnId ?? null,
+	});
+	sessionGenerationStore.interrupt(sessionId);
+}
+
 export function replaceGenerationTurnId(
 	sessionId: string,
 	input: { previousTurnId?: string | null; nextTurnId: string | null },

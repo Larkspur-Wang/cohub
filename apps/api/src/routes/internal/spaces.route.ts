@@ -16,8 +16,8 @@ import {
   updateSpaceStatus,
   SandboxNotReadyError,
 } from "../../space-sessions.js";
-import { interruptSessionTurn } from "../../session-turns.js";
-import { dispatchTurnUpdated } from "../../session-output.js";
+import { abortSessionTurn, interruptSessionTurn } from "../../session-turns.js";
+import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output.js";
 import { submitSessionPrompt, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
@@ -340,12 +340,36 @@ router.post("/:spaceId/sessions/:sessionId/turns/:turnId/interrupt", async (c) =
   const session = await getSpaceSessionById(sessionId);
   if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
 
-  const body = await c.req.json<{ interruptedByTurnId?: string | null }>().catch(() => null);
-  const interruptedByTurnId = body?.interruptedByTurnId?.trim();
-  if (!interruptedByTurnId || !requireValidId(interruptedByTurnId)) return c.json({ message: "interruptedByTurnId is required" }, 400);
+  const body = await c.req.json<{ continuedByTurnId?: string | null; interruptedByTurnId?: string | null }>().catch(() => null);
+  const continuedByTurnId = body?.continuedByTurnId?.trim() || body?.interruptedByTurnId?.trim();
+  if (!continuedByTurnId || !requireValidId(continuedByTurnId)) return c.json({ message: "continuedByTurnId is required" }, 400);
 
-  const turn = await interruptSessionTurn({ spaceId, sessionId, turnId, interruptedByTurnId });
+  const turn = await interruptSessionTurn({ spaceId, sessionId, turnId, continuedByTurnId });
   if (turn) await dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => console.warn("[SessionTurn] failed to dispatch interrupted turn", error));
+  return c.json({ ok: true, turn });
+});
+
+// POST /internal/spaces/:spaceId/sessions/:sessionId/turns/:turnId/abort
+router.post("/:spaceId/sessions/:sessionId/turns/:turnId/abort", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("spaceId");
+  const sessionId = c.req.param("sessionId");
+  const turnId = c.req.param("turnId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId) || !requireValidId(turnId)) return c.json({ message: "turn not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
+
+  const body = await c.req.json<{ actorUserId?: string | null }>().catch(() => null);
+  const turn = await abortSessionTurn({
+    spaceId,
+    sessionId,
+    turnId,
+    actorUserId: body?.actorUserId ?? null,
+  });
+  if (turn) await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => console.warn("[SessionTurn] failed to dispatch aborted turn", error));
   return c.json({ ok: true, turn });
 });
 

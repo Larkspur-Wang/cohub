@@ -6,7 +6,8 @@ export type SessionGenerationStatus =
 	| "pending"
 	| "streaming"
 	| "completed"
-	| "failed";
+	| "failed"
+	| "interrupted";
 
 export type SessionGenerationState = {
 	spaceId?: string | null;
@@ -387,6 +388,24 @@ class SessionGenerationStore {
 			...current,
 			status: "failed",
 			error: sanitizeError(error ?? current.error),
+			lastEventAt: Date.now(),
+			contentBlocks: [],
+			intermediateMessages: [],
+			streamMessageId: null,
+			messageOrdinal: null,
+			anchorUserMessageId: null,
+			truncatedStart: false,
+			patchSeq: current.patchSeq,
+			turnId: current.turnId,
+		});
+	}
+
+	interrupt(sessionId: string) {
+		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		this.setState(sessionId, {
+			...current,
+			status: "interrupted",
+			error: null,
 			lastEventAt: Date.now(),
 			contentBlocks: [],
 			intermediateMessages: [],

@@ -145,7 +145,7 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
     message: input.message,
   }];
 
-  if (input.message.meta?.messageKind === "assistant_error") {
+  if (input.message.meta?.messageKind === "assistant_error" && input.message.stopReason !== "aborted") {
     outputs.push({
       type: "session.turn.error",
       spaceId: input.spaceId,

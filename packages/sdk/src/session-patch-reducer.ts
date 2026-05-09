@@ -6,7 +6,8 @@ export type SessionPatchStatus =
   | "pending"
   | "streaming"
   | "completed"
-  | "failed";
+  | "failed"
+  | "interrupted";
 
 export type SessionPatchState = {
   spaceId: string | null;
@@ -62,6 +63,10 @@ const blockSubPathPattern =
   /^\/message\/content\/blocks\/(\d+)\/(.+)$/;
 const blockPathPattern = /^\/message\/content\/blocks\/(\d+)$/;
 const blockMetaPathPattern = /^\/message\/content\/blocks\/(\d+)\/_meta$/;
+
+const TERMINAL_PATCH_STATUSES = new Set<SessionPatchStatus>(["completed", "failed", "interrupted"]);
+
+const isTerminalPatchStatus = (status: SessionPatchStatus) => TERMINAL_PATCH_STATUSES.has(status);
 
 const createIdleState = (input: SessionPatchKeyInput): SessionPatchState => ({
   spaceId: input.spaceId ?? null,
@@ -401,6 +406,20 @@ export class SessionPatchReducer {
     return state;
   }
 
+  interrupt(input: SessionPatchKeyInput): SessionPatchState {
+    const current = this.get(input);
+    const state: SessionPatchState = {
+      ...current,
+      turnId: input.turnId ?? current.turnId,
+      status: "interrupted",
+      contentBlocks: [],
+      anchorUserMessageId: null,
+      appendPath: null,
+    };
+    this.states.set(this.key(input), state);
+    return state;
+  }
+
   reset(input: SessionPatchKeyInput) {
     this.states.delete(this.key(input));
   }
@@ -413,7 +432,9 @@ export class SessionPatchReducer {
       currentTurnId && inputTurnId && currentTurnId !== inputTurnId,
     );
 
-    if (!isDifferentKnownTurn && input.seq < current.patchSeq) {
+    const isTerminalSameTurn = isTerminalPatchStatus(current.status) && Boolean(currentTurnId) && currentTurnId === inputTurnId;
+
+    if (isTerminalSameTurn || (!isDifferentKnownTurn && input.seq < current.patchSeq)) {
       return { applied: false, reason: "duplicate", state: current };
     }
 
@@ -466,7 +487,7 @@ export class SessionPatchReducer {
       input.seq >= currentSeq,
     );
     const isTerminalSameTurn =
-      (current.status === "completed" || current.status === "failed") &&
+      isTerminalPatchStatus(current.status) &&
       Boolean(currentTurnId) &&
       currentTurnId === inputTurnId;
 

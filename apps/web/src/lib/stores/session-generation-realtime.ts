@@ -5,6 +5,7 @@ import {
 	applyRealtimeGenerationProgress,
 	applyRealtimeGenerationSnapshot,
 	failGeneration,
+	interruptGeneration,
 } from "./session-generation-controller";
 
 type HandledGenerationRealtimeEffect = {
@@ -198,6 +199,28 @@ export function applyGenerationRealtimeEnvelope(
 		}
 		return {
 			handled: true,
+			shouldScroll: false,
+			shouldReconcile: false,
+			shouldRefreshSessions: false,
+		};
+	}
+
+	if (payload.type === "session.turn.finalized") {
+		const turn = payload.payload.turn as
+			| { status?: unknown }
+			| null
+			| undefined;
+		if (turn?.status === "interrupted") {
+			interruptGeneration(sessionId);
+			return {
+				handled: true,
+				shouldScroll: false,
+				shouldReconcile: true,
+				shouldRefreshSessions: true,
+			};
+		}
+		return {
+			handled: false,
 			shouldScroll: false,
 			shouldReconcile: false,
 			shouldRefreshSessions: false,

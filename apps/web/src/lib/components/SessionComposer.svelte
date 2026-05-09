@@ -6,6 +6,7 @@ import {
 	Maximize2,
 	Minimize2,
 	Plus,
+	Square,
 	Upload,
 	X,
 } from "lucide-svelte";
@@ -25,12 +26,16 @@ type SelectedModel = {
 type Props = {
 	value: string;
 	disabled?: boolean;
+	sending?: boolean;
+	isRunning?: boolean;
+	aborting?: boolean;
 	streamError?: string;
 	placeholder?: string;
 	attachments?: ComposerAttachment[];
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
 	onsubmit: () => void;
+	onabort?: () => void;
 	onpickattachment?: (files: FileList | File[] | null) => void;
 	onremoveattachment?: (id: string) => void;
 	onModelSelect?: () => void;
@@ -39,12 +44,16 @@ type Props = {
 let {
 	value = $bindable(""),
 	disabled = false,
+	sending = false,
+	isRunning = false,
+	aborting = false,
 	streamError = "",
 	placeholder = "Send a message...",
 	attachments = [],
 	currentModel = null,
 	promptTemplates = [],
 	onsubmit,
+	onabort,
 	onpickattachment,
 	onremoveattachment,
 	onModelSelect,
@@ -58,6 +67,12 @@ let isPathDragOver = $state(false);
 let showPromptSuggestions = $state(false);
 let selectedPromptIndex = $state(0);
 let isComposerExpanded = $state(false);
+
+const hasDraft = $derived(Boolean(value.trim() || attachments.length > 0));
+const showAbort = $derived(Boolean(isRunning && !hasDraft));
+const submitDisabled = $derived(
+	disabled || sending || (!hasDraft && !showAbort),
+);
 
 const filteredPromptTemplates = $derived.by(() => {
 	const trimmed = value.trimStart();
@@ -277,7 +292,8 @@ $effect(() => {
 			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
 			onsubmit={(event) => {
 				event.preventDefault();
-				onsubmit();
+				if (showAbort) onabort?.();
+				else onsubmit();
 			}}
 			ondragenter={handleDragEnter}
 			ondragover={handleDragOver}
@@ -388,7 +404,7 @@ $effect(() => {
 
 							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing) {
 								event.preventDefault();
-								if (!disabled && (value.trim() || attachments.length > 0)) {
+								if (!submitDisabled && hasDraft) {
 									onsubmit();
 								}
 								return;
@@ -404,7 +420,7 @@ $effect(() => {
 							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 								if (isMobile() || isComposerExpanded) return;
 								event.preventDefault();
-								if (!disabled && (value.trim() || attachments.length > 0)) {
+								if (!submitDisabled && hasDraft) {
 									onsubmit();
 								}
 							}
@@ -442,7 +458,7 @@ $effect(() => {
 								type="button"
 								class="-ml-2 flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 								onclick={() => fileInputEl?.click()}
-								disabled={disabled}
+								disabled={disabled || sending}
 								title="Add files"
 							>
 								<Plus class="h-[17px] w-[17px]" />
@@ -453,7 +469,7 @@ $effect(() => {
 									type="button"
 									class="flex items-center gap-1 h-7 px-2 rounded-full text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary border border-border-subtle disabled:cursor-not-allowed disabled:opacity-50"
 									onclick={() => onModelSelect?.()}
-									disabled={disabled}
+									disabled={disabled || sending}
 									title="Select model"
 								>
 									<span class="max-w-[120px] truncate">
@@ -482,11 +498,16 @@ $effect(() => {
 							</button>
 							<button
 								type="submit"
-								disabled={disabled || (!value.trim() && attachments.length === 0)}
-								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-all hover:scale-[1.02] hover:bg-brand-hover disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled"
-								title="Send"
+								disabled={showAbort ? disabled || aborting : submitDisabled}
+								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white transition-all hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled ${showAbort ? 'bg-text-primary hover:bg-text-secondary' : 'bg-brand hover:bg-brand-hover'}`}
+								title={showAbort ? "Stop generation" : "Send"}
+								aria-label={showAbort ? "Stop generation" : "Send"}
 							>
-								<ArrowUp class="h-4 w-4" />
+								{#if showAbort}
+									<Square class="h-3.5 w-3.5 fill-current" />
+								{:else}
+									<ArrowUp class="h-4 w-4" />
+								{/if}
 							</button>
 						</div>
 					</div>

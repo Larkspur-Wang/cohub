@@ -443,7 +443,7 @@ export const finalizeSessionTurnFromMessage = async (input: {
   spaceId: string;
   sessionId: string;
   turnId: string;
-  status: Exclude<SessionTurnStatus, "running" | "interrupted">;
+  status: Exclude<SessionTurnStatus, "running">;
   assistantContent: ContentBlock[];
   assistantText: string | null;
   provider: string | null;
@@ -468,17 +468,24 @@ export const finalizeSessionTurnFromMessage = async (input: {
     totalUsage: addUsage(intermediate?.summary.usage, input.usage),
     summary: {
       text: input.assistantText,
-      finishReason: input.status === "failed" ? "failed" : "completed",
+      finishReason: input.status === "interrupted" ? "interrupted" : input.status === "failed" ? "failed" : "completed",
+      ...(input.status === "interrupted" && input.stopReason === "aborted" ? { reason: "abort" } : {}),
     },
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
     completedAt: new Date(),
     updatedAt: new Date(),
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running"))).returning();
   return row ? toTurnRecord(row) : null;
 };
 
-export const interruptSessionTurn = async (input: { spaceId: string; sessionId: string; turnId: string; interruptedByTurnId: string }) => {
+const finalizeInterruptedTurn = async (input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  stopReason: "interrupted" | "aborted";
+  summary: Record<string, unknown>;
+}) => {
   const [existing] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
   if (!existing || existing.status !== "running") return existing ? toTurnRecord(existing) : null;
   const rows = await db.select().from(sessionMessages).where(and(
@@ -497,21 +504,42 @@ export const interruptSessionTurn = async (input: { spaceId: string; sessionId: 
     assistantText: last?.text ?? null,
     provider: last?.provider ?? null,
     model: last?.model ?? null,
-    stopReason: "interrupted",
+    stopReason: input.stopReason,
     errorMessage: null,
     finalUsage: (last?.usage as Usage | null | undefined) ?? null,
     totalUsage: intermediate?.summary.usage ?? null,
-    summary: {
-      finishReason: "interrupted",
-      interruptedByTurnId: input.interruptedByTurnId,
-    },
+    summary: input.summary,
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
     completedAt: new Date(),
     updatedAt: new Date(),
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running"))).returning();
   return row ? toTurnRecord(row) : null;
 };
+
+export const interruptSessionTurn = async (input: { spaceId: string; sessionId: string; turnId: string; continuedByTurnId: string }) => {
+  return finalizeInterruptedTurn({
+    ...input,
+    stopReason: "interrupted",
+    summary: {
+      finishReason: "interrupted",
+      reason: "steer",
+      continuedByTurnId: input.continuedByTurnId,
+    },
+  });
+};
+
+export const abortSessionTurn = async (input: { spaceId: string; sessionId: string; turnId: string; actorUserId?: string | null }) => {
+  return finalizeInterruptedTurn({
+    ...input,
+    stopReason: "aborted",
+    summary: {
+      finishReason: "interrupted",
+      reason: "abort",
+    },
+  });
+};
+
 
 export const createSignedTurnUrls = async (input: { spaceId: string; sessionId: string; turnId: string; objectKeys: string[] }) => {
   return Object.fromEntries(input.objectKeys.map((objectKey) => [

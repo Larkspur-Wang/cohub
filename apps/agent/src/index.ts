@@ -27,7 +27,7 @@ import {
   recoverProcessingQueueOnStartup,
   sendOutput,
 } from "./redis.js";
-import { getSpace, getSpaceSandbox } from "./api.js";
+import { abortSessionTurn, getSpace, getSpaceSandbox } from "./api.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
   disconnectSandboxWsClient,
@@ -502,10 +502,15 @@ async function main() {
               }
             }
 
+            const sessionKey = getSessionKey(inputEntry.spaceId, sessionId);
+            const turnSeq = nextTurnSequence(sessionKey);
+            const turnId = typeof meta?.turnId === "string" ? meta.turnId : randomUUID();
+
             if (userMessageId) {
               handle.pendingUserMessages.push({
                 userMessageId,
-                turnId: typeof meta?.turnId === "string" ? meta.turnId : null,
+                turnId,
+                turnSeq,
                 content,
                 meta: meta ?? null,
               });
@@ -514,10 +519,6 @@ async function main() {
                 executionToken,
               });
             }
-
-            const sessionKey = getSessionKey(inputEntry.spaceId, sessionId);
-            const turnSeq = nextTurnSequence(sessionKey);
-            const turnId = typeof meta?.turnId === "string" ? meta.turnId : randomUUID();
             const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
             const mode = handle.session.isStreaming ? "steer" : "prompt";
             const text = extractContentText(content);
@@ -535,12 +536,9 @@ async function main() {
               modelId: handle.session.agent.state.model.id,
               isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
             }, async (turnSpan) => {
-              handle.currentTurnId = turnId;
-              handle.currentTurnSeq = turnSeq;
-              handle.currentTurnPatchSeq = 0;
-              handle.currentAssistantMessageOrdinal = null;
-              handle.currentStreamMessageId = null;
-              handle.currentLlmRound = 0;
+              if (!handle.session.isStreaming) {
+                handle.currentLlmRound = 0;
+              }
               if (handle.session.isStreaming) {
                 console.log(
                   `[Agent] Session ${sessionId} is streaming, using steer for new message`,
@@ -608,21 +606,58 @@ async function main() {
             await runInSessionOperation(handle, runPromptTurn);
           }
         } else if (inputEntry.action === "abort") {
+          const abortHandle = async (handle: SessionHandle) => {
+            const turnId = handle.activeAssistantContext?.turnId ?? handle.currentTurnId ?? inputEntry.turnId ?? null;
+            const abortMeta = (inputEntry as { meta?: Record<string, unknown> | null }).meta;
+            const actorUserId = typeof abortMeta?.actorUserId === "string" && abortMeta.actorUserId.trim()
+              ? abortMeta.actorUserId.trim()
+              : typeof abortMeta?.userId === "string" && abortMeta.userId.trim()
+                ? abortMeta.userId.trim()
+                : null;
+            await handle.session.abort();
+            const completions = handle.pendingSteerCompletions.splice(0, handle.pendingSteerCompletions.length);
+            for (const completion of completions) {
+              await completion.reject("aborted").catch(() => undefined);
+              completion.done();
+            }
+            handle.steerDrainPromise = null;
+            if (turnId) {
+              await abortSessionTurn({
+                spaceId: handle.spaceId,
+                sessionId: handle.sessionId,
+                turnId,
+                actorUserId,
+              });
+            }
+            handle.lastActiveAt = Date.now();
+            scheduleSessionIdleEviction(handle);
+          };
+
           if (inputEntry.sessionId) {
             const handle = sessionHandles.get(getSessionKey(inputEntry.spaceId, inputEntry.sessionId));
             if (!handle) {
               console.warn(
                 `[Agent] Abort requested for unknown session ${inputEntry.sessionId}`,
               );
+              if (inputEntry.turnId) {
+                const abortMeta = (inputEntry as { meta?: Record<string, unknown> | null }).meta;
+                const actorUserId = typeof abortMeta?.actorUserId === "string" && abortMeta.actorUserId.trim()
+                  ? abortMeta.actorUserId.trim()
+                  : typeof abortMeta?.userId === "string" && abortMeta.userId.trim()
+                    ? abortMeta.userId.trim()
+                    : null;
+                await abortSessionTurn({
+                  spaceId: inputEntry.spaceId,
+                  sessionId: inputEntry.sessionId,
+                  turnId: inputEntry.turnId,
+                  actorUserId,
+                });
+              }
             } else {
-              await handle.session.abort();
-              handle.lastActiveAt = Date.now();
-              scheduleSessionIdleEviction(handle);
+              await abortHandle(handle);
             }
           } else {
-            await Promise.all(
-              Array.from(sessionHandles.values()).map((handle) => handle.session.abort()),
-            );
+            await Promise.all(Array.from(sessionHandles.values()).map(abortHandle));
           }
           await ack();
         } else {

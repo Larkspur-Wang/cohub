@@ -28,8 +28,19 @@ import {
 export type PendingUserMessage = {
   userMessageId: string;
   turnId?: string | null;
+  turnSeq?: number | null;
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
+};
+
+type AssistantMessageContext = {
+  turnId: string | null;
+  turnSeq: number | null;
+  userMessageId: string | null;
+  userMeta: Record<string, unknown> | null;
+  assistantOrdinal: number;
+  streamMessageId: string | null;
+  patchSeq: number;
 };
 
 export type SessionHandle = {
@@ -61,6 +72,7 @@ export type SessionHandle = {
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
   currentUserMessageMeta: Record<string, unknown> | null;
+  activeAssistantContext: AssistantMessageContext | null;
   persistenceChain: Promise<void>;
   operationChain: Promise<void>;
   streamState: {
@@ -141,7 +153,8 @@ function addLifecycleEvent(name: string, attributes?: Record<string, string | nu
 const STREAM_UPDATE_DEBOUNCE_MS = Number(process.env.AGENT_STREAM_UPDATE_DEBOUNCE_MS ?? 100);
 
 async function emitProviderRenderUpdate(handle: SessionHandle) {
-  const sourceMessageId = handle.currentUserMessageId?.trim() || null;
+  const assistantContext = handle.activeAssistantContext;
+  const sourceMessageId = assistantContext?.userMessageId?.trim() || handle.currentUserMessageId?.trim() || null;
   if (!sourceMessageId) return;
 
   if (handle.streamState.flushPromise) {
@@ -163,9 +176,10 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
       handle.streamState.flushPromise = null;
       return;
     }
-    const startsFreshStream = (handle.streamState.patchSeq ?? 0) === 0;
-    const baseSeq = startsFreshStream ? 0 : (handle.currentTurnPatchSeq ?? handle.streamState.patchSeq ?? 0);
-    const seq = (handle.currentTurnPatchSeq ?? 0) + 1;
+    const startsFreshStream = (assistantContext?.patchSeq ?? handle.streamState.patchSeq ?? 0) === 0;
+    const baseSeq = startsFreshStream ? 0 : (assistantContext?.patchSeq ?? handle.currentTurnPatchSeq ?? handle.streamState.patchSeq ?? 0);
+    const seq = (assistantContext?.patchSeq ?? handle.currentTurnPatchSeq ?? 0) + 1;
+    if (assistantContext) assistantContext.patchSeq = seq;
     handle.currentTurnPatchSeq = seq;
     handle.streamState.patchSeq = seq;
 
@@ -175,7 +189,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
       "cohub.session_id": handle.sessionId,
       "agent.input_message_id": sourceMessageId,
       "agent.output.delta_block_count": delta.length,
-      ...(handle.currentUserMessageId ? { "agent.anchor_user_message_id": handle.currentUserMessageId } : {}),
+      ...(sourceMessageId ? { "agent.anchor_user_message_id": sourceMessageId } : {}),
       ...getSessionTraceAttributes(handle),
     });
 
@@ -184,15 +198,15 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
         type: "stream_update",
         spaceId: handle.spaceId,
         sessionId: handle.sessionId,
-        turnId: handle.currentTurnId ?? null,
+        turnId: assistantContext?.turnId ?? handle.currentTurnId ?? null,
         seq,
         baseSeq,
         content: delta,
         snapshotContent: full,
-        messageId: handle.currentStreamMessageId ?? null,
-        messageOrdinal: handle.currentAssistantMessageOrdinal ?? null,
+        messageId: assistantContext?.streamMessageId ?? handle.currentStreamMessageId ?? null,
+        messageOrdinal: assistantContext?.assistantOrdinal ?? handle.currentAssistantMessageOrdinal ?? null,
         sourceMessageId,
-        anchorUserMessageId: handle.currentUserMessageId,
+        anchorUserMessageId: sourceMessageId,
         timestamp: Date.now(),
       });
     } catch (error) {
@@ -401,6 +415,15 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         const ordinal = (handle.currentAssistantMessageOrdinal ?? -1) + 1;
         handle.currentAssistantMessageOrdinal = ordinal;
         handle.currentStreamMessageId = buildStreamMessageId(handle, ordinal);
+        handle.activeAssistantContext = {
+          turnId: handle.currentTurnId ?? null,
+          turnSeq: handle.currentTurnSeq ?? null,
+          userMessageId: handle.currentUserMessageId ?? null,
+          userMeta: handle.currentUserMessageMeta ?? null,
+          assistantOrdinal: ordinal,
+          streamMessageId: handle.currentStreamMessageId,
+          patchSeq: 0,
+        };
       }
       console.log(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.message_start", {
@@ -416,10 +439,11 @@ export function subscribeSessionEvents(handle: SessionHandle) {
               spaceId: handle.spaceId,
               sessionId: handle.sessionId,
               turnId: previousTurnId,
-              interruptedByTurnId: nextTurnId,
+              continuedByTurnId: nextTurnId,
             }).catch((error) => console.warn("[SessionTurn] failed to interrupt previous turn", error));
           }
           handle.currentTurnId = nextTurnId;
+          handle.currentTurnSeq = pending.turnSeq ?? handle.currentTurnSeq ?? null;
           handle.currentTurnPatchSeq = 0;
           handle.currentAssistantMessageOrdinal = null;
           handle.currentStreamMessageId = null;
@@ -467,7 +491,6 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         const content = handle.currentUserMessageContent;
         const meta = handle.currentUserMessageMeta;
         handle.currentUserMessageContent = null;
-        handle.currentUserMessageMeta = null;
 
         schedulePersistence(handle, `user:${userMessageId}`, async () => {
           const span = handle.turnTracer.startSpan("agent.persistence.user_message", {
@@ -531,13 +554,15 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       flushProviderRenderUpdate(handle, "tool_execution_end");
     }
 
-    if (event.type === "turn_end" && handle.currentUserMessageId) {
+    if (event.type === "turn_end" && (handle.activeAssistantContext?.userMessageId || handle.currentUserMessageId)) {
       const toolCount = (event as unknown as { toolResults?: unknown[] }).toolResults?.length ?? 0;
       console.log(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.turn_end", {
         "agent.tool_count": toolCount,
       });
-      const currentUserMessageId = handle.currentUserMessageId;
+      const assistantContext = handle.activeAssistantContext;
+      const currentUserMessageId = assistantContext?.userMessageId ?? handle.currentUserMessageId;
+      if (!currentUserMessageId) return;
       const currentModel = handle.session.agent.state.model;
       const rawMessage = event.message as unknown as Record<string, unknown>;
 
@@ -571,8 +596,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             spaceSessionId: handle.sessionId,
             userMessageId: currentUserMessageId,
             event: enrichedEvent as Record<string, unknown>,
-            userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
-            turnId: typeof handle.currentUserMessageMeta?.turnId === "string" ? handle.currentUserMessageMeta.turnId : handle.currentTurnId ?? null,
+            userId: ((assistantContext?.userMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
+            turnId: typeof assistantContext?.userMeta?.turnId === "string" ? assistantContext.userMeta.turnId : assistantContext?.turnId ?? handle.currentTurnId ?? null,
           });
         } catch (error) {
           if (error instanceof Error) span.recordException(error);
@@ -583,6 +608,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       });
 
       resetStreamState(handle);
+      if (handle.activeAssistantContext === assistantContext) handle.activeAssistantContext = null;
       handle.pendingUserMessages = handle.pendingUserMessages.filter((item) => item.userMessageId !== currentUserMessageId);
     }
 
@@ -599,6 +625,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       handle.currentAssistantMessageOrdinal = null;
       handle.currentStreamMessageId = null;
       handle.currentUserMessageId = null;
+      handle.currentUserMessageMeta = null;
+      handle.activeAssistantContext = null;
       clearCurrentSessionExecutionAuth(handle.sessionId);
       handle.onIdle?.(handle);
     }
@@ -722,6 +750,7 @@ export async function loadOrCreateSessionHandle(input: {
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
+    activeAssistantContext: null,
     persistenceChain: Promise.resolve(),
     operationChain: Promise.resolve(),
     streamState: {

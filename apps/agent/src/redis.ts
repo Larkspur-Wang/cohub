@@ -81,6 +81,7 @@ const AbortInputSchema = z.object({
   action: z.literal("abort"),
   spaceId: z.string().uuid(),
   sessionId: z.string().uuid().nullable().optional(),
+  turnId: z.string().uuid().nullable().optional(),
   timestamp: z.string().optional(),
   expectedOwnerId: z.string().min(1),
   expectedEpoch: z.coerce.number().int().positive(),

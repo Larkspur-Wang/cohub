@@ -7,6 +7,8 @@ export type SessionTurnIntent = "steer" | "followup";
 export type SessionTurnSummary = {
   text?: string | null;
   finishReason?: "completed" | "failed" | "interrupted";
+  reason?: "steer" | "abort" | string;
+  continuedByTurnId?: string | null;
   interruptedByTurnId?: string | null;
 };
 

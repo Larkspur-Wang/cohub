@@ -120,6 +120,7 @@ import {
 	clearGenerationError,
 	completeGeneration,
 	failGeneration,
+	interruptGeneration,
 	replaceGenerationTurnId,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
@@ -239,6 +240,7 @@ let activeSessionId = $state<string | null>(null);
 let input = $state("");
 let attachments = $state<ComposerAttachment[]>([]);
 let sending = $state(false);
+let aborting = $state(false);
 let spaceLoadError = $state("");
 let renamingSpace = $state(false);
 let renameInput = $state("");
@@ -1030,6 +1032,12 @@ const activeStreamingIntermediateMessages = $derived.by(() => {
 	});
 });
 const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");
+const activeSessionIsRunning = $derived.by(() =>
+	Boolean(
+		activeGenerationState &&
+			!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status),
+	),
+);
 const composerNotice = $derived.by(() => activeStreamError || composerError);
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
@@ -2613,6 +2621,27 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
 }
+async function handleAbort() {
+	if (!activeSessionId || !activeSessionState?.session || !space || aborting)
+		return;
+	aborting = true;
+	composerError = "";
+	try {
+		await sdk
+			.space(spaceId)
+			.session(activeSessionId)
+			.abort({
+				turnId: activeGenerationState?.turnId ?? null,
+			});
+		interruptGeneration(activeSessionId);
+	} catch (error) {
+		composerError =
+			error instanceof Error ? error.message : "Failed to stop generation";
+	} finally {
+		aborting = false;
+	}
+}
+
 async function handleSend() {
 	if (
 		!activeSessionState?.session ||
@@ -5700,7 +5729,10 @@ $effect(() => {
         <div bind:this={composerHostEl}>
           <SessionComposer
             bind:value={input}
-            disabled={sending || !activeSessionState}
+            disabled={!activeSessionState}
+            sending={sending}
+            isRunning={activeSessionIsRunning}
+            aborting={aborting}
             streamError={composerNotice}
             attachments={attachments}
             currentModel={activeSessionModel}
@@ -5708,6 +5740,7 @@ $effect(() => {
             onpickattachment={handlePickAttachments}
             onremoveattachment={handleRemoveAttachment}
             onsubmit={handleSend}
+            onabort={handleAbort}
             onModelSelect={() => {
               void loadModelsCatalog();
               showModelSelector = true;

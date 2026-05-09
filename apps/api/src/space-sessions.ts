@@ -7,6 +7,7 @@ import { SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
+  sessionTurns,
   spaceSessions,
   spaces,
   tokenUsageStatsHourly,
@@ -499,8 +500,10 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const _shouldDispatchToProvider = messageRole === "assistant";
   const normalizedUsage = normalizeUsage(input.message.usage);
 
-  const hasError = input.message.errorMessage || input.message.stopReason === "error" || input.message.stopReason === "aborted";
-  if (messageRole === "assistant" && content.length === 0 && !text?.trim() && !hasError) {
+  const isAborted = input.message.stopReason === "aborted";
+  const hasError = input.message.errorMessage || input.message.stopReason === "error";
+  const isUnsuccessful = hasError || isAborted;
+  if (messageRole === "assistant" && content.length === 0 && !text?.trim() && !isUnsuccessful) {
     throw new Error("Refusing to persist empty assistant message");
   }
 
@@ -508,7 +511,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   const userId = input.userId ?? null;
   const toolUseCount = countToolCallsInContent(content);
-  const messageKind = messageRole !== "assistant" ? messageRole : hasError ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
+  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
 
   const [messageNode] = await db.insert(sessionMessages).values({
     id: input.message.id?.trim() || undefined,
@@ -568,7 +571,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         spaceId: session.spaceId,
         sessionId: input.sessionId,
         turnId,
-        status: messageKind === "assistant_error" ? "failed" : "completed",
+        status: isAborted ? "interrupted" : messageKind === "assistant_error" ? "failed" : "completed",
         assistantContent: content,
         assistantText: text,
         provider: input.message.provider ?? null,
@@ -719,6 +722,37 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
       content: input.content,
       meta: input.meta ?? null,
       executionAuth: executionGrant,
+      timestamp: new Date().toISOString(),
+      expectedOwnerId: lease.ownerId,
+      expectedEpoch: lease.epoch,
+      ...traceCarrier,
+    }),
+  );
+};
+
+export const enqueueSessionAbort = async (input: { spaceId: string; sessionId: string; actorUserId?: string | null; turnId?: string | null }) => {
+  const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
+  const traceCarrier = injectTrace();
+  const explicitTurnId = input.turnId?.trim() || null;
+  const turnId = explicitTurnId ?? ((await db.select({ id: sessionTurns.id })
+    .from(sessionTurns)
+    .where(and(eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running")))
+    .orderBy(desc(sessionTurns.sequence))
+    .limit(1))[0]?.id ?? null);
+
+  await redisCommandClient.rpush(
+    getAgentInstanceInputQueueKey(lease.ownerId),
+    JSON.stringify({
+      action: "abort",
+      id: randomUUID(),
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId,
+      meta: {
+        source: "web",
+        userId: input.actorUserId ?? null,
+        actorUserId: input.actorUserId ?? null,
+      },
       timestamp: new Date().toISOString(),
       expectedOwnerId: lease.ownerId,
       expectedEpoch: lease.epoch,

@@ -624,6 +624,20 @@ export class SessionClient {
     );
   }
 
+  abort(optionsOrFetch?: { turnId?: string | null } | Fetch, customFetch?: Fetch) {
+    const options = typeof optionsOrFetch === "function" ? undefined : optionsOrFetch;
+    const fetch = typeof optionsOrFetch === "function" ? optionsOrFetch : customFetch;
+    return this.transport.request<{ ok: true }>(
+      `/api/sessions/${this.id}/abort`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turnId: options?.turnId ?? null }),
+        fetch,
+      },
+    );
+  }
+
   subscribe(handlers: SessionSubscriptionHandlers) {
     return this.realtime.subscribe(handlers);
   }

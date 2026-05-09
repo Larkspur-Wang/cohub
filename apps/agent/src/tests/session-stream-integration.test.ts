@@ -94,9 +94,10 @@ function createHandle(session: FakeSession): SessionHandle {
     pendingExecutionAuths: [],
     steerDrainPromise: null,
     pendingSteerCompletions: [],
-    currentUserMessageId: null,
+    currentUserMessageId: "00000000-0000-4000-8000-000000000001",
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
+    activeAssistantContext: null,
     persistenceChain: Promise.resolve(),
     operationChain: Promise.resolve(),
     streamState: {
