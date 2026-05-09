@@ -80,8 +80,12 @@ export const enqueuePrompt = async (
   sessionId: string,
   options: {
     content: ContentBlock[];
-    userMessageId?: string;
-    meta?: Record<string, unknown> | null;
+    userId: string;
+    clientMessageId: string;
+    source: string;
+    model?: string | null;
+    provider?: string | null;
+    context?: Record<string, unknown> | null;
   },
 ) => {
   return internalFetch(
@@ -90,8 +94,12 @@ export const enqueuePrompt = async (
       method: "POST",
       body: JSON.stringify({
         content: options.content,
-        userMessageId: options.userMessageId,
-        meta: options.meta,
+        userId: options.userId,
+        clientMessageId: options.clientMessageId,
+        source: options.source,
+        model: options.model,
+        provider: options.provider,
+        context: options.context,
       }),
     },
   );

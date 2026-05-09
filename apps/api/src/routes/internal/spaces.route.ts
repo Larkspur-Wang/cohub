@@ -13,12 +13,12 @@ import {
   persistMessageNode,
   registerSpaceSession,
   updateSpaceSessionInfo,
-  enqueueSpacePrompt,
   updateSpaceStatus,
   SandboxNotReadyError,
 } from "../../space-sessions.js";
 import { interruptSessionTurn } from "../../session-turns.js";
 import { dispatchTurnUpdated } from "../../session-output.js";
+import { submitSessionPrompt, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import {
@@ -252,6 +252,7 @@ router.post("/:id/sessions", async (c) => {
     spaceId,
     sessionId: body.sessionId,
     title: body.title,
+    source: body.source,
     externalSessionId: body.externalSessionId,
     meta: body.meta,
   });
@@ -361,27 +362,41 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
 
   const body = await c
-    .req.json<{ content: ContentBlock[]; userMessageId?: string | null; meta?: Record<string, unknown> | null }>()
+    .req.json<{
+      content: ContentBlock[];
+      userId?: string | null;
+      clientMessageId?: string | null;
+      source?: string | null;
+      model?: string | null;
+      provider?: string | null;
+      context?: SubmitSessionPromptContext | null;
+    }>()
     .catch(() => null);
   if (!body || !Array.isArray(body.content) || body.content.length === 0) {
     return c.json({ message: "content is required" }, 400);
   }
+  const userId = body.userId?.trim();
+  if (!userId) return c.json({ message: "userId is required" }, 400);
+  const clientMessageId = body.clientMessageId?.trim();
+  if (!clientMessageId) return c.json({ message: "clientMessageId is required" }, 400);
 
-  const userMessageId = body.userMessageId?.trim() || crypto.randomUUID();
   try {
-    await enqueueSpacePrompt({
+    const result = await submitSessionPrompt({
       spaceId,
       sessionId,
-      userMessageId,
+      userId,
+      clientMessageId,
       content: body.content,
-      meta: body.meta ?? null,
+      source: body.source?.trim() || "scheduled_task",
+      model: body.model ?? null,
+      provider: body.provider ?? null,
+      context: body.context ?? null,
     });
+    return c.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof SandboxNotReadyError) return c.json({ message: error.message }, 409);
     throw error as Error;
   }
-
-  return c.json({ ok: true, userMessageId });
 });
 
 export default router;

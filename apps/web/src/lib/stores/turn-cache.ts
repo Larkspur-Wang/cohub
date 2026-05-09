@@ -37,9 +37,9 @@ function mergeAuthorIdentity(
 	let changed = false;
 
 	if (!current.userUuid && incoming.userUuid) changed = true;
-	const authorUuid = incomingMeta.authorUuid;
-	if (authorUuid != null && nextMeta.authorUuid !== authorUuid) {
-		nextMeta.authorUuid = authorUuid;
+	const userId = incomingMeta.userId;
+	if (userId != null && nextMeta.userId !== userId) {
+		nextMeta.userId = userId;
 		changed = true;
 	}
 	if (!current.authorProfile && incoming.authorProfile) changed = true;

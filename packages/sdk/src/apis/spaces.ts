@@ -86,6 +86,7 @@ type SessionSendMessageInput = {
   content: ContentBlock[];
   model?: string;
   provider?: string;
+  clientMessageId?: string;
 };
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
@@ -394,6 +395,7 @@ class SessionMessagesClient {
           content: input.content,
           model: input.model,
           provider: input.provider,
+          clientMessageId: input.clientMessageId,
         }),
       },
     );

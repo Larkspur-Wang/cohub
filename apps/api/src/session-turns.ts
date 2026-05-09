@@ -227,7 +227,7 @@ const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
 });
 
 export const createSessionTurn = async (input: {
-  id: string;
+  id?: string;
   sessionId: string;
   userUuid: string | null;
   userContent: ContentBlock[];
@@ -241,7 +241,7 @@ export const createSessionTurn = async (input: {
     const [seqRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
     const sequence = (seqRow?.max ?? 0) + 1;
     return tx.insert(sessionTurns).values({
-      id: input.id,
+      ...(input.id ? { id: input.id } : {}),
       sessionId: input.sessionId,
       userUuid: input.userUuid,
       sequence,

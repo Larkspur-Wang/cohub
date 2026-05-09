@@ -4,8 +4,13 @@ import { eq } from "drizzle-orm";
 import { db } from "../db.js";
 import { taskRuns } from "../db-schema.js";
 
+export type TaskHandlerContext = {
+  taskRunId: string;
+};
+
 export type TaskHandler = (
   job: Job,
+  context?: TaskHandlerContext,
 ) => Promise<Record<string, unknown> | undefined>;
 
 const registry = new Map<string, TaskHandler>();
@@ -34,6 +39,8 @@ export const registerTask = (type: string, handler: TaskHandler) => {
       .where(eq(taskRuns.jobId, jobId))
       .limit(1);
 
+    let taskRunId = existing[0]?.id ?? crypto.randomUUID();
+
     if (existing.length > 0) {
       // Already exists (API-enqueued with pending status)
       await db
@@ -49,6 +56,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
       // Cron-spawned — first time we see this job
       // Use onConflictDoNothing to handle retry after DB write interruption
       await db.insert(taskRuns).values({
+        id: taskRunId,
         jobId,
         cronJobId: payload.cronJobId ?? null,
         taskType: job.name,
@@ -63,7 +71,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
     }
 
     try {
-      const result = await handler(job);
+      const result = await handler(job, { taskRunId });
 
       await db
         .update(taskRuns)

@@ -7,15 +7,14 @@ import {
   getSpaceSessionById,
   getSessionMessageById,
   listSessionMessages,
-  enqueueSpacePrompt,
   SandboxNotReadyError,
   updateSpaceSessionInfo,
   summarizeMessageForHistory,
   markMessageAsFull,
 } from "../space-sessions.js";
-import { createSignedTurnUrls, createSessionTurn, failSessionTurn, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
+import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { getSessionStreamSnapshot } from "../session-output.js";
-import { expandPromptTemplate } from "../prompt-templates.js";
+import { submitSessionPrompt } from "../session-prompts.js";
 
 const router = new Hono();
 
@@ -300,83 +299,32 @@ router.post("/:id/messages", async (c) => {
     content: ContentBlock[];
     model?: string;
     provider?: string;
+    clientMessageId?: string | null;
   }>();
 
   if (!body.content || body.content.length === 0) {
     return c.json({ message: "content is required" }, 400);
   }
 
-  const userMessageId = crypto.randomUUID();
-  const turnId = crypto.randomUUID();
-
-  let content = body.content;
-  let promptTemplateMeta: Record<string, unknown> | null = null;
-  if (body.content.length === 1 && body.content[0]?.type === "text") {
-    const rawText = typeof body.content[0].text === "string" ? body.content[0].text.trim() : "";
-    if (rawText.startsWith("/")) {
-      const expanded = await expandPromptTemplate(rawText, {
-        userId: user?.uuid ?? null,
-        spaceId: space.id,
-      });
-      if (expanded) {
-        content = [{ type: "text", text: expanded.renderedText } satisfies ContentBlock];
-        promptTemplateMeta = {
-          name: expanded.template.name,
-          description: expanded.template.description,
-          argumentHint: expanded.template.argumentHint ?? null,
-          category: expanded.template.category ?? null,
-          scope: expanded.template.scope,
-          rawInput: expanded.rawInput,
-          args: expanded.args,
-        };
-      }
-    }
-  }
-
   try {
-    await createSessionTurn({
-      id: turnId,
-      sessionId: session.id,
-      userUuid: user?.uuid ?? null,
-      userContent: content,
-      intent: "steer",
-      meta: {
-        source: "web",
-        model: body.model ?? null,
-        provider: body.provider ?? null,
-        promptTemplate: promptTemplateMeta,
-        authorUuid: user?.uuid ?? null,
-      },
-    });
-    await enqueueSpacePrompt({
+    const result = await submitSessionPrompt({
       spaceId: space.id,
       sessionId: session.id,
-      userMessageId,
-      content,
-      meta: {
-        intent: "steer",
-        source: "web",
-        turnId,
-        model: body.model ?? null,
-        provider: body.provider ?? null,
-        promptTemplate: promptTemplateMeta,
-        actorUserId: user?.uuid ?? null,
-        authorUuid: user?.uuid ?? null,
-      },
+      userId: user.uuid,
+      clientMessageId: body.clientMessageId?.trim() || crypto.randomUUID(),
+      content: body.content,
+      source: "web_app",
+      model: body.model ?? null,
+      provider: body.provider ?? null,
+      context: { kind: "web_app" },
     });
+    return c.json({ ok: true, ...result });
   } catch (error) {
-    await failSessionTurn({
-      sessionId: session.id,
-      turnId,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    }).catch(() => undefined);
     if (error instanceof SandboxNotReadyError) {
       return c.json({ message: "sandbox is not ready" }, 503);
     }
     throw error;
   }
-
-  return c.json({ ok: true, userMessageId, turnId });
 });
 
 export default router;

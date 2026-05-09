@@ -58,8 +58,8 @@ const PromptInputSchema = z.object({
   meta: z
     .object({
       source: z.string().optional(),
-      interactionId: z.string().optional(),
-      actorUserId: z.string().nullable().optional(),
+      clientMessageId: z.string().optional(),
+      userId: z.string().optional(),
     })
     .passthrough()
     .nullable()

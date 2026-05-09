@@ -47,7 +47,7 @@ const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefine
     "messageKind",
     "clientMessageId",
     "anchorUserMessageId",
-    "authorUuid",
+    "userId",
     "contentDetail",
     "contentPlaceholder",
     "historySummary",

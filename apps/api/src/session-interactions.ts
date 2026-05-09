@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
-import { enqueueSpacePrompt } from "./space-sessions.js";
 import { createProviderMessageRef } from "./channels.js";
-import { createSessionTurn, failSessionTurn } from "./session-turns.js";
+import { submitSessionPrompt, type ChannelPromptContext } from "./session-prompts.js";
 
 export type SessionInteractionInboundRef = {
   provider: string;
@@ -21,8 +19,8 @@ export type ResolvedInboundInteraction = {
   inputText: string;
   content: ContentBlock[];
   source: string;
-  interactionId: string;
-  actorUserId?: string | null;
+  userId: string;
+  clientMessageId: string;
   model?: string;
   provider?: string;
   inboundRef?: SessionInteractionInboundRef | null;
@@ -36,65 +34,49 @@ export const extractInboundText = (event: GatewayInboundEvent) => {
 };
 
 export const executeSessionInteraction = async (input: ResolvedInboundInteraction) => {
-  const userMessageId = randomUUID();
-  const turnId = randomUUID();
-  const promptMeta = {
-    ...(input.inboundRef?.meta ?? {}),
+  const context: ChannelPromptContext | null = input.inboundRef
+    ? {
+        kind: "channel",
+        provider: input.inboundRef.provider,
+        spaceChannelId: input.inboundRef.spaceChannelId,
+        externalConversationId: input.inboundRef.externalConversationId,
+        externalMessageId: input.inboundRef.externalMessageId,
+        providerContext: input.inboundRef.meta ?? null,
+      }
+    : null;
+
+  return submitSessionPrompt({
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    userId: input.userId,
+    clientMessageId: input.clientMessageId,
+    content: input.content,
     source: input.source,
-    interactionId: input.interactionId,
-    actorUserId: input.actorUserId ?? null,
     model: input.model ?? null,
     provider: input.provider ?? null,
-    turnId,
-  };
-
-  await createSessionTurn({
-    id: turnId,
-    sessionId: input.sessionId,
-    userUuid: input.actorUserId ?? null,
-    userContent: input.content,
-    intent: "steer",
-    meta: promptMeta,
+    context,
+  }, {
+    beforeEnqueue: async ({ turnId, userMessageId }) => {
+      if (!input.inboundRef) return;
+      await createProviderMessageRef({
+        provider: input.inboundRef.provider,
+        spaceId: input.spaceId,
+        spaceSessionId: input.sessionId,
+        spaceChannelId: input.inboundRef.spaceChannelId,
+        sessionMessageId: userMessageId,
+        direction: "inbound",
+        externalConversationId: input.inboundRef.externalConversationId,
+        externalMessageId: input.inboundRef.externalMessageId,
+        externalAuthorId: input.inboundRef.externalAuthorId ?? null,
+        externalAuthorName: input.inboundRef.externalAuthorName ?? null,
+        meta: {
+          ...(input.inboundRef.meta ?? {}),
+          messageKind: "user",
+          anchorUserMessageId: userMessageId,
+          turnId,
+          clientMessageId: input.clientMessageId,
+        },
+      });
+    },
   });
-
-  if (input.inboundRef) {
-    await createProviderMessageRef({
-      provider: input.inboundRef.provider,
-      spaceId: input.spaceId,
-      spaceSessionId: input.sessionId,
-      spaceChannelId: input.inboundRef.spaceChannelId,
-      sessionMessageId: userMessageId,
-      direction: "inbound",
-      externalConversationId: input.inboundRef.externalConversationId,
-      externalMessageId: input.inboundRef.externalMessageId,
-      externalAuthorId: input.inboundRef.externalAuthorId ?? null,
-      externalAuthorName: input.inboundRef.externalAuthorName ?? null,
-      meta: {
-        ...(input.inboundRef.meta ?? {}),
-        interactionId: input.interactionId,
-        messageKind: "user",
-        anchorUserMessageId: userMessageId,
-        turnId,
-      },
-    });
-  }
-
-  try {
-    await enqueueSpacePrompt({
-      spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      userMessageId,
-      content: input.content,
-      meta: promptMeta,
-    });
-  } catch (error) {
-    await failSessionTurn({
-      sessionId: input.sessionId,
-      turnId,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    }).catch(() => undefined);
-    throw error;
-  }
-
-  return { userMessageId, turnId };
 };

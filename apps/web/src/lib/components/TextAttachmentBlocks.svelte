@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { FileText, Maximize2 } from "lucide-svelte";
+import { ArrowUpRight, FileText } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
@@ -42,21 +42,21 @@ function getAttachmentBody(block: TextBlock) {
 		{#if isTextAttachment(block)}
 			<button
 				type="button"
-				class="flex w-full items-center gap-2.5 rounded-2xl border border-border-subtle bg-bg-content/70 px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-bg-content"
+				class="group flex w-fit items-center gap-2 rounded-xl border border-border-subtle bg-bg-content/60 px-2.5 py-1.5 text-left transition-colors hover:border-border-strong hover:bg-bg-content"
 				onclick={() => {
 					previewBlock = { block, index };
 				}}
 				title="Preview file"
 				aria-label={`Preview ${getFilename(block, index)}`}
 			>
-				<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-content text-text-tertiary">
-					<FileText class="h-4 w-4" />
+				<div class="flex h-6 w-6 items-center justify-center text-text-tertiary">
+					<FileText class="h-3.5 w-3.5" />
 				</div>
-				<div class="min-w-0 flex-1">
+				<div class="min-w-0">
 					<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={getFilename(block, index)}>{getFilename(block, index)}</div>
-					<div class="mt-0.5 text-[10px] leading-3 text-text-tertiary">{getSizeLabel(block)}</div>
+					<div class="text-[10px] leading-3 text-text-tertiary">{getSizeLabel(block)}</div>
 				</div>
-				<Maximize2 class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+				<ArrowUpRight class="h-3 w-3 shrink-0 text-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
 			</button>
 		{:else}
 			<div class="whitespace-pre-wrap break-words text-inherit">

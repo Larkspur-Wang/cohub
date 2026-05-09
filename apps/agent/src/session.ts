@@ -571,7 +571,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             spaceSessionId: handle.sessionId,
             userMessageId: currentUserMessageId,
             event: enrichedEvent as Record<string, unknown>,
-            userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.actorUserId as string | null | undefined) ?? null,
+            userId: ((handle.currentUserMessageMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
             turnId: typeof handle.currentUserMessageMeta?.turnId === "string" ? handle.currentUserMessageMeta.turnId : handle.currentTurnId ?? null,
           });
         } catch (error) {

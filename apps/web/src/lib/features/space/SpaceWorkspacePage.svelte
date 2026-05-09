@@ -2623,7 +2623,7 @@ async function handleSend() {
 			intermediateSummary: null,
 			meta: {
 				optimistic: true,
-				authorUuid: currentUser.uuid,
+				userId: currentUser.uuid,
 			},
 			authorProfile: currentUser.profile,
 			startedAt: now,
@@ -2681,7 +2681,7 @@ async function handleSend() {
 										meta: {
 											...(turn.meta ?? {}),
 											optimistic: true,
-											authorUuid: currentUser.uuid,
+											userId: currentUser.uuid,
 										},
 										authorProfile: currentUser.profile ?? turn.authorProfile,
 									}

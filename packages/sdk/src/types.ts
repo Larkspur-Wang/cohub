@@ -317,6 +317,7 @@ export type CreateSpacePromptInput = {
   content: ContentBlock[];
   model?: string | null;
   provider?: string | null;
+  clientMessageId?: string | null;
   schedule?:
     | { mode?: "immediate" }
     | { mode: "delay"; delayMs: number }

@@ -20,7 +20,7 @@ import { InternalApiError, registerCronjobSession, enqueuePrompt } from "../api-
  *   data.model       — optional model override
  *   data.provider    — optional provider override
  */
-const sendMessageHandler = async (job: Job) => {
+const sendMessageHandler = async (job: Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
   const { content, sessionId, title, model, provider } = (payload.data ?? {}) as {
@@ -39,13 +39,19 @@ const sendMessageHandler = async (job: Job) => {
     throw new Error("content (ContentBlock[]) is required for send_message task");
   }
 
+  const userId = payload.userId?.trim();
+  if (!userId) {
+    throw new Error("userId is required for send_message task");
+  }
+
+  const taskRunId = (context?.taskRunId ?? String(job.id ?? "")).trim();
+  if (!taskRunId) {
+    throw new Error("taskRunId is required for send_message task");
+  }
+
   let targetSessionId = sessionId?.trim() || null;
 
-  const source = payload.cronJobId
-    ? `cronjob:${payload.cronJobId}`
-    : job.id
-      ? `taskrun:${job.id}`
-      : "scheduled_prompt";
+  const source = "scheduled_task";
 
   if (!targetSessionId) {
     const session = await registerCronjobSession(spaceId, {
@@ -56,20 +62,25 @@ const sendMessageHandler = async (job: Job) => {
     targetSessionId = session.id;
   } else {
     try {
-      await enqueuePrompt(spaceId, targetSessionId, {
+      const result = await enqueuePrompt(spaceId, targetSessionId, {
         content,
-        meta: {
-          source,
-          ...(payload.data?.promptTemplate ? { promptTemplate: payload.data.promptTemplate } : {}),
-          actorUserId: payload.userId ?? null,
-          ...(model && { model }),
-          ...(provider && { provider }),
+        userId,
+        clientMessageId: `taskrun:${taskRunId}`,
+        source,
+        model: model ?? null,
+        provider: provider ?? null,
+        context: {
+          kind: "scheduled_task",
+          taskRunId,
+          cronJobId: payload.cronJobId ?? null,
         },
       });
 
       return {
         sessionId: targetSessionId,
         spaceId,
+        turnId: result.turnId,
+        userMessageId: result.userMessageId,
         messageSent: true,
       };
     } catch (error) {
@@ -90,20 +101,25 @@ const sendMessageHandler = async (job: Job) => {
     throw new Error("sessionId is unexpectedly null after session creation");
   }
 
-  await enqueuePrompt(spaceId, targetSessionId, {
+  const result = await enqueuePrompt(spaceId, targetSessionId, {
     content,
-    meta: {
-      source,
-      ...(payload.data?.promptTemplate ? { promptTemplate: payload.data.promptTemplate } : {}),
-      actorUserId: payload.userId ?? null,
-      ...(model && { model }),
-      ...(provider && { provider }),
+    userId,
+    clientMessageId: `taskrun:${taskRunId}`,
+    source,
+    model: model ?? null,
+    provider: provider ?? null,
+    context: {
+      kind: "scheduled_task",
+      taskRunId,
+      cronJobId: payload.cronJobId ?? null,
     },
   });
 
   return {
     sessionId: targetSessionId,
     spaceId,
+    turnId: result.turnId,
+    userMessageId: result.userMessageId,
     messageSent: true,
   };
 };

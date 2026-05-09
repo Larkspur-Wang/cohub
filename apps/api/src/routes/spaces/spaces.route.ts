@@ -17,7 +17,6 @@ import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import { getSpaceSandboxBySpaceId, recoverSpaceSandbox, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
-  enqueueSpacePrompt,
   getSpaceById,
   getSpaceSessionById,
   listSpaceSessions,
@@ -31,8 +30,7 @@ import { createCronJob, enqueueTask } from "../../tasks.js";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
-import { createSessionTurn, failSessionTurn } from "../../session-turns.js";
-import { expandPromptTemplate } from "../../prompt-templates.js";
+import { submitSessionPrompt } from "../../session-prompts.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/agent-sandbox-protocol";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
@@ -52,6 +50,7 @@ type SpacePromptInput = {
   content?: ContentBlock[];
   model?: string | null;
   provider?: string | null;
+  clientMessageId?: string | null;
   schedule?: SpacePromptSchedule | null;
 };
 
@@ -93,37 +92,6 @@ const validateRepeatSchedule = (input: { cronExpression: string; timezone: strin
     throw new Error("cron interval must be at least 1 minute");
   }
   return { cronExpression, timezone, nextRun };
-};
-
-const expandPromptContent = async (input: {
-  content: ContentBlock[];
-  userId: string | null;
-  spaceId: string;
-}) => {
-  let content = input.content;
-  let promptTemplateMeta: Record<string, unknown> | null = null;
-  if (content.length === 1 && content[0]?.type === "text") {
-    const rawText = typeof content[0].text === "string" ? content[0].text.trim() : "";
-    if (rawText.startsWith("/")) {
-      const expanded = await expandPromptTemplate(rawText, {
-        userId: input.userId,
-        spaceId: input.spaceId,
-      });
-      if (expanded) {
-        content = [{ type: "text", text: expanded.renderedText } satisfies ContentBlock];
-        promptTemplateMeta = {
-          name: expanded.template.name,
-          description: expanded.template.description,
-          argumentHint: expanded.template.argumentHint ?? null,
-          category: expanded.template.category ?? null,
-          scope: expanded.template.scope,
-          rawInput: expanded.rawInput,
-          args: expanded.args,
-        };
-      }
-    }
-  }
-  return { content, promptTemplateMeta };
 };
 
 // ── Provisioning params builder ──────────────────────────────────────────────
@@ -841,11 +809,8 @@ router.post("/:id/prompt", async (c) => {
     return c.json({ message: "schedule.mode must be one of: immediate, delay, at, repeat" }, 400);
   }
 
-  const { content, promptTemplateMeta } = await expandPromptContent({
-    content: body.content,
-    userId: user.uuid,
-    spaceId,
-  });
+  const content = body.content;
+  const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
 
   const taskData = {
     content,
@@ -853,7 +818,6 @@ router.post("/:id/prompt", async (c) => {
     ...(body.title ? { title: body.title } : {}),
     ...(body.model ? { model: body.model } : {}),
     ...(body.provider ? { provider: body.provider } : {}),
-    ...(promptTemplateMeta ? { promptTemplate: promptTemplateMeta } : {}),
   };
 
   if (mode === "immediate") {
@@ -862,57 +826,30 @@ router.post("/:id/prompt", async (c) => {
         spaceId,
         sessionId: crypto.randomUUID(),
         title: body.title ?? null,
-        source: "prompt",
+        source: "public_api",
         externalSessionId: null,
         meta: { createdBy: "api_space_prompt" },
       });
       sessionId = session.id;
     }
 
-    const userMessageId = crypto.randomUUID();
-    const turnId = crypto.randomUUID();
     try {
-      await createSessionTurn({
-        id: turnId,
-        sessionId,
-        userUuid: user.uuid,
-        userContent: content,
-        intent: "steer",
-        meta: {
-          source: "prompt",
-          model: body.model ?? null,
-          provider: body.provider ?? null,
-          promptTemplate: promptTemplateMeta,
-          authorUuid: user.uuid,
-        },
-      });
-      await enqueueSpacePrompt({
+      const result = await submitSessionPrompt({
         spaceId,
         sessionId,
-        userMessageId,
+        userId: user.uuid,
+        clientMessageId,
         content,
-        meta: {
-          intent: "steer",
-          source: "prompt",
-          turnId,
-          model: body.model ?? null,
-          provider: body.provider ?? null,
-          promptTemplate: promptTemplateMeta,
-          actorUserId: user.uuid,
-          authorUuid: user.uuid,
-        },
+        source: "public_api",
+        model: body.model ?? null,
+        provider: body.provider ?? null,
+        context: { kind: "public_api" },
       });
+      return c.json({ ok: true, mode: "immediate", sessionId, ...result });
     } catch (error) {
-      await failSessionTurn({
-        sessionId,
-        turnId,
-        errorMessage: error instanceof Error ? error.message : String(error),
-      }).catch(() => undefined);
       if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
       throw error;
     }
-
-    return c.json({ ok: true, mode: "immediate", sessionId, userMessageId, turnId });
   }
 
   if (mode === "delay") {

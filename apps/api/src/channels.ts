@@ -25,6 +25,7 @@ const readableUserIdsCache = new Map<string, { expiresAt: number; value: string[
 type ResolvedChannelInbound = {
   spaceId: string;
   spaceChannelId: string;
+  userId: string;
   sessionId: string;
   binding: typeof spaceSessionBindings.$inferSelect;
   conversationId: string;
@@ -295,9 +296,9 @@ async function buildDirectWebsocketInteraction(event: GatewayInboundEvent): Prom
     sessionId: context.sessionId,
     inputText: extractInboundText(event),
     content: event.content,
-    source: "channel:websocket",
-    interactionId: event.eventId,
-    actorUserId: context.userId,
+    source: "websocket",
+    userId: context.userId,
+    clientMessageId: context.clientMessageId ?? event.externalMessageId,
     model: typeof event.meta?.model === "string" && event.meta.model.trim() ? event.meta.model.trim() : undefined,
     provider: typeof event.meta?.provider === "string" && event.meta.provider.trim() ? event.meta.provider.trim() : undefined,
     inboundRef: {
@@ -629,7 +630,7 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
         source: sessionSource,
         externalSessionId: null,
         meta: {
-          source: `channel:${input.provider}`,
+          source: input.provider,
           createdFrom: input.event.eventType === "conversation_create" ? "gateway_conversation_create" : "gateway_inbound",
           conversation: input.event.conversation ?? null,
           providerMeta: input.event.meta ?? null,
@@ -659,6 +660,8 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
 export async function resolveChannelInboundForEvent(event: GatewayInboundEvent): Promise<ResolvedChannelInbound | null> {
   const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, event.channelId)).limit(1);
   if (!spaceChannel) return null;
+  const [userChannel] = await db.select({ userUuid: userChannels.userUuid }).from(userChannels).where(eq(userChannels.id, spaceChannel.channelId)).limit(1);
+  if (!userChannel) return null;
 
   const conversationId = event.conversation?.id?.trim() || event.externalChatId;
   const existingInboundRef = await getProviderMessageRef({
@@ -682,6 +685,7 @@ export async function resolveChannelInboundForEvent(event: GatewayInboundEvent):
   return {
     spaceId: spaceChannel.spaceId,
     spaceChannelId: spaceChannel.id,
+    userId: userChannel.userUuid,
     sessionId: binding.spaceSessionId,
     binding,
     conversationId,
@@ -718,9 +722,9 @@ async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
     sessionId: resolved.sessionId,
     inputText: extractInboundText(event),
     content: event.content,
-    source: `channel:${event.provider}`,
-    interactionId: event.eventId,
-    actorUserId: event.sender.id,
+    source: event.provider,
+    userId: resolved.userId,
+    clientMessageId: event.externalMessageId,
     inboundRef: {
       provider: event.provider,
       spaceChannelId: resolved.spaceChannelId,

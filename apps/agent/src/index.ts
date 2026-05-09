@@ -463,8 +463,8 @@ async function main() {
           const executionToken = typeof executionAuth?.token === "string" && executionAuth.token.trim()
             ? executionAuth.token.trim()
             : null;
-          const actorUserId = typeof meta?.actorUserId === "string" && meta.actorUserId.trim()
-            ? meta.actorUserId.trim()
+          const actorUserId = typeof meta?.userId === "string" && meta.userId.trim()
+            ? meta.userId.trim()
             : null;
 
           const runPromptTurn = async () => {

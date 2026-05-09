@@ -230,8 +230,8 @@ const resolveActorUserId = async (input: {
   const [anchorMessage] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(
     and(eq(sessionMessages.id, anchorUserMessageId), eq(sessionMessages.sessionId, input.sessionId)),
   ).limit(1);
-  const actorUserId = (anchorMessage?.meta as Record<string, unknown> | null | undefined)?.actorUserId;
-  return typeof actorUserId === "string" && actorUserId.trim() ? actorUserId.trim() : null;
+  const userId = (anchorMessage?.meta as Record<string, unknown> | null | undefined)?.userId;
+  return typeof userId === "string" && userId.trim() ? userId.trim() : null;
 };
 
 const updateTokenUsageStatsHourly = async (input: {
@@ -692,8 +692,8 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
 
   const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
-  const actorUserId = typeof input.meta?.actorUserId === "string" && input.meta.actorUserId.trim()
-    ? input.meta.actorUserId.trim()
+  const actorUserId = typeof input.meta?.userId === "string" && input.meta.userId.trim()
+    ? input.meta.userId.trim()
     : null;
   const source = typeof input.meta?.source === "string" && input.meta.source.trim()
     ? input.meta.source.trim()
