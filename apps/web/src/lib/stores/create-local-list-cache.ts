@@ -38,7 +38,7 @@ export function createLocalListCache<T>({
 	}
 
 	function getUserKey() {
-		return authStore.userUuid ?? authStore.claims?.sub ?? "guest";
+		return authStore.userUuid ?? "guest";
 	}
 
 	function warnDev(message: string, meta?: unknown) {

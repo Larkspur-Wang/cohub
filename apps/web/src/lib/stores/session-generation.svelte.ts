@@ -68,7 +68,7 @@ function getStorage(): Storage | null {
 }
 
 function getUserKey() {
-	return authStore.userUuid ?? authStore.claims?.sub ?? "guest";
+	return authStore.userUuid ?? "guest";
 }
 
 function storageKey(sessionId: string, userKey = getUserKey()) {

@@ -1,7 +1,7 @@
 import { authStore } from "$lib/stores/auth.svelte";
 
 export function getCacheUserKey() {
-	return authStore.userUuid ?? authStore.claims?.sub ?? "guest";
+	return authStore.userUuid ?? "guest";
 }
 
 export function encodeKeyPart(value: string) {

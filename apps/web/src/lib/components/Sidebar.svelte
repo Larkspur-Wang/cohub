@@ -189,6 +189,10 @@ const otherSpaces = $derived.by(() => {
 	return spaces.filter((space) => !recentIds.has(space.id));
 });
 
+const userDisplayName = $derived(
+	authStore.profile?.displayName?.trim() || "User",
+);
+
 const settingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
 	{
@@ -1566,7 +1570,7 @@ $effect(() => {
         {/if}
       </div>
       <div class="flex-1 min-w-0 text-left">
-        <p class="text-[12px] text-text-secondary truncate">{authStore.claims?.name ?? "Guest"}</p>
+        <p class="text-[12px] text-text-secondary truncate">{userDisplayName}</p>
       </div>
       <ChevronDown class={'w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 ' + (showUserMenu ? 'rotate-180' : '')} />
     </button>
