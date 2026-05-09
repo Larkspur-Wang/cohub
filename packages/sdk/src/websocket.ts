@@ -620,10 +620,12 @@ export class WebsocketClient {
 
     const buffer = this.patchStreamBuffers.get(key);
     if (!buffer) {
-      this.patchStreamBuffers.set(key, {
-        nextSeq: payload.baseSeq,
+      const newBuffer: PatchStreamBuffer = {
+        nextSeq: payload.baseSeq + 1,
         pending: new Map([[payload.seq, envelope]]),
-      });
+      };
+      this.patchStreamBuffers.set(key, newBuffer);
+      this.flushPatchStreamBuffer(newBuffer);
       return;
     }
 
