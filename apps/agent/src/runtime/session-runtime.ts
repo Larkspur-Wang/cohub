@@ -36,78 +36,6 @@ type ToolLike = {
 const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
-const TOOL_INPUT_DEBUG = process.env.AGENT_TOOL_INPUT_DEBUG !== "false";
-
-function safeJsonLength(value: unknown): number {
-  try {
-    return JSON.stringify(value)?.length ?? 0;
-  } catch {
-    return -1;
-  }
-}
-
-function getPartialToolArgs(partial: unknown, contentIndex: unknown): Record<string, unknown> | undefined {
-  if (!partial || typeof partial !== "object" || typeof contentIndex !== "number") return undefined;
-  const content = (partial as { content?: unknown }).content;
-  if (!Array.isArray(content)) return undefined;
-  const block = content[contentIndex];
-  if (!block || typeof block !== "object") return undefined;
-  const args = (block as { arguments?: unknown }).arguments;
-  return args && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : undefined;
-}
-
-function summarizeToolInput(args: Record<string, unknown> | undefined) {
-  const edits = Array.isArray(args?.edits) ? args.edits : undefined;
-  const firstEdit = edits?.[0] && typeof edits[0] === "object" ? edits[0] as Record<string, unknown> : undefined;
-  return {
-    argKeys: args ? Object.keys(args).sort() : [],
-    argsJsonLength: safeJsonLength(args ?? {}),
-    pathLength: typeof args?.path === "string" ? args.path.length : 0,
-    contentLength: typeof args?.content === "string" ? args.content.length : 0,
-    editsLength: edits?.length ?? 0,
-    firstEditKeys: firstEdit ? Object.keys(firstEdit).sort() : [],
-    oldTextLength: typeof firstEdit?.oldText === "string" ? firstEdit.oldText.length : 0,
-    newTextLength: typeof firstEdit?.newText === "string" ? firstEdit.newText.length : 0,
-  };
-}
-
-function logProviderToolInputEvent(input: {
-  event: unknown;
-  model: Model<Api>;
-  sessionId?: string;
-  turnId?: string;
-  round: number;
-}) {
-  if (!TOOL_INPUT_DEBUG || !input.event || typeof input.event !== "object") return;
-  const event = input.event as {
-    type?: string;
-    contentIndex?: number;
-    delta?: string;
-    partial?: unknown;
-    toolCall?: { id?: string; name?: string; arguments?: Record<string, unknown> };
-  };
-  if (event.type !== "toolcall_start" && event.type !== "toolcall_delta" && event.type !== "toolcall_end") return;
-  const partialArgs = getPartialToolArgs(event.partial, event.contentIndex);
-  const args = event.toolCall?.arguments ?? partialArgs;
-  const delta = typeof event.delta === "string" ? event.delta : "";
-  console.log("[ToolInputDebug] provider_event", JSON.stringify({
-    eventType: event.type,
-    provider: input.model.provider,
-    model: input.model.id,
-    sessionId: input.sessionId,
-    turnId: input.turnId,
-    round: input.round,
-    contentIndex: event.contentIndex,
-    toolCallId: event.toolCall?.id,
-    toolName: event.toolCall?.name,
-    deltaLength: delta.length,
-    deltaHasContent: delta.includes("\"content\""),
-    deltaHasEdits: delta.includes("\"edits\""),
-    deltaHasOldText: delta.includes("\"oldText\""),
-    deltaHasNewText: delta.includes("\"newText\""),
-    ...summarizeToolInput(args),
-  }));
-}
 
 function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
   if (!message || message.stopReason !== "error" || !message.errorMessage) return false;
@@ -174,13 +102,6 @@ function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
                 llmRound.markFirstToken();
               }
 
-              logProviderToolInputEvent({
-                event,
-                model,
-                sessionId: toolCtx?.sessionId,
-                turnId: toolCtx?.turnId,
-                round,
-              });
               wrapped.push(event);
 
               if (event.type === "done") {

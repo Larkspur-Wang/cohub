@@ -25,8 +25,6 @@ import {
   type AssistantStreamState,
 } from "./stream/assistant-stream-state.js";
 
-const TOOL_INPUT_DEBUG = process.env.AGENT_TOOL_INPUT_DEBUG !== "false";
-
 export type PendingUserMessage = {
   userMessageId: string;
   turnId?: string | null;
@@ -109,77 +107,6 @@ function summarizeToolArgs(toolName: string, args: unknown): string {
   return first.slice(0, 120);
 }
 
-function safeJsonLength(value: unknown): number {
-  try {
-    return JSON.stringify(value)?.length ?? 0;
-  } catch {
-    return -1;
-  }
-}
-
-function summarizeToolInput(args: Record<string, unknown> | undefined) {
-  const edits = Array.isArray(args?.edits) ? args.edits : undefined;
-  const firstEdit = edits?.[0] && typeof edits[0] === "object" ? edits[0] as Record<string, unknown> : undefined;
-  return {
-    argKeys: args ? Object.keys(args).sort() : [],
-    argsJsonLength: safeJsonLength(args ?? {}),
-    pathLength: typeof args?.path === "string" ? args.path.length : 0,
-    contentLength: typeof args?.content === "string" ? args.content.length : 0,
-    editsLength: edits?.length ?? 0,
-    firstEditKeys: firstEdit ? Object.keys(firstEdit).sort() : [],
-    oldTextLength: typeof firstEdit?.oldText === "string" ? firstEdit.oldText.length : 0,
-    newTextLength: typeof firstEdit?.newText === "string" ? firstEdit.newText.length : 0,
-  };
-}
-
-function summarizeToolBlocks(blocks: ContentBlock[]) {
-  return blocks
-    .filter((block): block is Extract<ContentBlock, { type: "tool_use" }> => block.type === "tool_use")
-    .map((block) => ({
-      id: block.id,
-      name: block.name,
-      streamIndex: block._meta?.streamIndex,
-      toolStatus: block._meta?.toolStatus,
-      summary: block._meta?.summary,
-      ...summarizeToolInput(block.input as Record<string, unknown> | undefined),
-    }));
-}
-
-function getAssistantEventToolSummary(event: unknown) {
-  if (!event || typeof event !== "object") return {};
-  const record = event as {
-    type?: string;
-    contentIndex?: number;
-    delta?: string;
-    partial?: { content?: unknown };
-    toolCall?: { id?: string; name?: string; arguments?: Record<string, unknown> };
-  };
-  const content = record.partial?.content;
-  const partialBlock = Array.isArray(content) && typeof record.contentIndex === "number"
-    ? content[record.contentIndex]
-    : undefined;
-  const partialArgs = partialBlock && typeof partialBlock === "object"
-    ? (partialBlock as { arguments?: unknown }).arguments
-    : undefined;
-  const args = record.toolCall?.arguments
-    ?? (partialArgs && typeof partialArgs === "object" && !Array.isArray(partialArgs)
-      ? partialArgs as Record<string, unknown>
-      : undefined);
-  const delta = typeof record.delta === "string" ? record.delta : "";
-  return {
-    eventType: record.type,
-    contentIndex: record.contentIndex,
-    toolCallId: record.toolCall?.id,
-    toolName: record.toolCall?.name,
-    deltaLength: delta.length,
-    deltaHasContent: delta.includes("\"content\""),
-    deltaHasEdits: delta.includes("\"edits\""),
-    deltaHasOldText: delta.includes("\"oldText\""),
-    deltaHasNewText: delta.includes("\"newText\""),
-    ...summarizeToolInput(args),
-  };
-}
-
 type SessionTraceContext = {
   turnId?: string;
   turnSeq?: number;
@@ -227,22 +154,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     const last = handle.streamState.lastSent ?? [];
     const delta = computeDelta(full, last);
     const forceBoundary = handle.streamState.pendingBoundary === true;
-
-    if (TOOL_INPUT_DEBUG && (summarizeToolBlocks(full).length > 0 || summarizeToolBlocks(delta).length > 0)) {
-      console.log("[ToolInputDebug] agent_flush", JSON.stringify({
-        sessionId: handle.sessionId,
-        turnId: handle.currentTurnId,
-        sourceMessageId,
-        baseSeq: handle.currentTurnPatchSeq ?? handle.streamState.patchSeq ?? 0,
-        nextSeq: (handle.currentTurnPatchSeq ?? 0) + 1,
-        forceBoundary,
-        pendingFlush: handle.streamState.pendingFlush === true,
-        hasFlushPromise: Boolean(handle.streamState.flushPromise),
-        deltaBlockCount: delta.length,
-        fullToolBlocks: summarizeToolBlocks(full),
-        deltaToolBlocks: summarizeToolBlocks(delta),
-      }));
-    }
 
     handle.streamState.lastSent = structuredClone(full);
     handle.streamState.pendingFlush = false;
@@ -543,18 +454,6 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
       );
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
-      if (TOOL_INPUT_DEBUG) {
-        const toolBlocks = summarizeToolBlocks(handle.streamState.content);
-        if (toolBlocks.length > 0) {
-          console.log("[ToolInputDebug] agent_message_update", JSON.stringify({
-            sessionId: handle.sessionId,
-            turnId: handle.currentTurnId,
-            sourceMessageId: handle.currentStreamMessageId,
-            event: getAssistantEventToolSummary(event.assistantMessageEvent),
-            projectedToolBlocks: toolBlocks,
-          }));
-        }
-      }
       scheduleProviderRenderUpdate(handle, "message_update");
     }
 
@@ -607,15 +506,6 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         "agent.tool_call_id": event.toolCallId,
       });
       handle.currentLlmRound = handle.currentLlmRound ?? 1;
-      if (TOOL_INPUT_DEBUG) {
-        console.log("[ToolInputDebug] agent_tool_execution_start", JSON.stringify({
-          sessionId: handle.sessionId,
-          turnId: handle.currentTurnId,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          ...summarizeToolInput(event.args as Record<string, unknown> | undefined),
-        }));
-      }
       handle.streamState.assistantState = applyToolExecutionStart(handle.streamState.assistantState, {
         toolCallId: event.toolCallId,
         summary: summarizeToolArgs(event.toolName, event.args),
