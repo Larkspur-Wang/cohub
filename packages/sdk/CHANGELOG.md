@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.5.1
+
+### Patch Changes
+
+- c469fb2: Fix websocket compact stream buffering after reconnecting into an active session turn from a snapshot.
+
 ## 1.5.0
 
 ### Minor Changes
