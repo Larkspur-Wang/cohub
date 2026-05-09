@@ -55,7 +55,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
     } else {
       // Cron-spawned — first time we see this job
       // Use onConflictDoNothing to handle retry after DB write interruption
-      await db.insert(taskRuns).values({
+      const inserted = await db.insert(taskRuns).values({
         id: taskRunId,
         jobId,
         cronJobId: payload.cronJobId ?? null,
@@ -67,7 +67,19 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         userUuid: payload.userId ?? null,
         startedAt: now,
         attemptCount: job.attemptsMade,
-      }).onConflictDoNothing();
+      }).onConflictDoNothing().returning({ id: taskRuns.id });
+
+      if (inserted[0]?.id) {
+        taskRunId = inserted[0].id;
+      } else {
+        const [createdByPeer] = await db
+          .select({ id: taskRuns.id })
+          .from(taskRuns)
+          .where(eq(taskRuns.jobId, jobId))
+          .limit(1);
+        if (!createdByPeer) throw new Error(`Task run not found after insert conflict for job ${jobId}`);
+        taskRunId = createdByPeer.id;
+      }
     }
 
     try {

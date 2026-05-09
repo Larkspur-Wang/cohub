@@ -281,14 +281,13 @@ async function buildDirectWebsocketInteraction(event: GatewayInboundEvent): Prom
   const context = resolveDirectWebsocketInboundContext(event);
   if (!context) return null;
 
-  const existingInboundRef = context.clientMessageId
-    ? await getProviderMessageRef({
-        provider: event.provider,
-        externalConversationId: context.sessionId,
-        externalMessageId: context.clientMessageId,
-        direction: "inbound",
-      })
-    : null;
+  const externalMessageId = context.clientMessageId ?? event.externalMessageId;
+  const existingInboundRef = await getProviderMessageRef({
+    provider: event.provider,
+    externalConversationId: context.sessionId,
+    externalMessageId,
+    direction: "inbound",
+  });
   if (existingInboundRef) return null;
 
   return {
@@ -298,14 +297,14 @@ async function buildDirectWebsocketInteraction(event: GatewayInboundEvent): Prom
     content: event.content,
     source: "websocket",
     userId: context.userId,
-    clientMessageId: context.clientMessageId ?? event.externalMessageId,
+    clientMessageId: externalMessageId,
     model: typeof event.meta?.model === "string" && event.meta.model.trim() ? event.meta.model.trim() : undefined,
     provider: typeof event.meta?.provider === "string" && event.meta.provider.trim() ? event.meta.provider.trim() : undefined,
     inboundRef: {
       provider: event.provider,
       spaceChannelId: context.sessionId,
       externalConversationId: context.sessionId,
-      externalMessageId: event.externalMessageId,
+      externalMessageId,
       externalAuthorId: context.userId,
       externalAuthorName: event.sender.name ?? null,
       meta: {
@@ -716,6 +715,12 @@ async function handleConversationCreateInboundEvent(event: GatewayInboundEvent) 
 async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
   const resolved = await resolveChannelInboundForEvent(event);
   if (!resolved) return;
+
+  const canChannelOwnerWrite = await hasPermission({ uuid: resolved.userId }, "session.prompt.fullaccess", {
+    spaceId: resolved.spaceId,
+    sessionId: resolved.sessionId,
+  });
+  if (!canChannelOwnerWrite) return;
 
   await executeSessionInteraction({
     spaceId: resolved.spaceId,

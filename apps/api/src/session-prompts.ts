@@ -135,20 +135,24 @@ export const submitSessionPrompt = async (
     spaceId: input.spaceId,
   });
 
+  const turnMeta = {
+    source: input.source,
+    userId,
+    clientMessageId,
+    model: input.model ?? null,
+    provider: input.provider ?? null,
+    promptTemplate,
+    context: input.context ?? null,
+  };
+
   const turn = await createSessionTurn({
     sessionId: input.sessionId,
     userUuid: userId,
     userContent: content,
     intent: "steer",
-    meta: {
-      source: input.source,
-      userId,
-      clientMessageId,
-      model: input.model ?? null,
-      provider: input.provider ?? null,
-      promptTemplate,
-      context: input.context ?? null,
-    },
+    meta: turnMeta,
+  }).catch((error: unknown) => {
+    throw new SubmitSessionPromptError("failed to create session turn", error);
   });
   const turnId = turn.id;
   const userMessageId = randomUUID();

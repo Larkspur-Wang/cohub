@@ -5,8 +5,17 @@ import { eq, and, isNull, desc } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { disableCronJob, enableCronJob, removeCronJob } from "../tasks.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 
 const router = new Hono();
+
+async function hydrateCronJobUserProfiles<T extends { userUuid: string }>(jobs: T[]) {
+  const profiles = await getProfilesByUuids(jobs.map((job) => job.userUuid));
+  return jobs.map((job) => ({
+    ...job,
+    userProfile: profiles.get(job.userUuid) ?? fallbackPublicUserProfile(job.userUuid),
+  }));
+}
 
 router.get("/", async (c) => {
   const spaceId = c.req.query("spaceId") ?? null;
@@ -22,7 +31,7 @@ router.get("/", async (c) => {
       .from(cronJobs)
       .where(and(eq(cronJobs.spaceId, spaceId), isNull(cronJobs.deletedAt)))
       .orderBy(desc(cronJobs.createdAt));
-    return c.json({ jobs });
+    return c.json({ jobs: await hydrateCronJobUserProfiles(jobs) });
   }
 
   if (!userId) return c.json({ message: "unauthorized" }, 401);
@@ -33,7 +42,7 @@ router.get("/", async (c) => {
     .where(and(eq(cronJobs.userUuid, userId), isNull(cronJobs.deletedAt)))
     .orderBy(desc(cronJobs.createdAt));
 
-  return c.json({ jobs });
+  return c.json({ jobs: await hydrateCronJobUserProfiles(jobs) });
 });
 
 router.get("/:id/runs", async (c) => {

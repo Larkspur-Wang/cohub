@@ -1,15 +1,15 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageToolCallsFile } from "@neta-art/cohub-protocol/model";
-import ImageBlocks from "$lib/components/ImageBlocks.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
-import TextAttachmentBlocks from "$lib/components/TextAttachmentBlocks.svelte";
+import AttachmentBlocks from "$lib/components/TextAttachmentBlocks.svelte";
 import ThinkingBlocks from "$lib/components/ThinkingBlocks.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
 type ThinkingBlock = Extract<ContentBlock, { type: "thinking" }>;
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
+type AttachmentBlock = TextBlock | ImageBlock;
 
 type Props = {
 	content: ContentBlock[];
@@ -43,9 +43,24 @@ const {
 	onOpenFile,
 }: Props = $props();
 
-function hasTextAttachment(blocks: TextBlock[]) {
-	return blocks.some((block) => block._meta?.attachmentKind === "text");
+function isTextAttachment(block: TextBlock) {
+	return block._meta?.attachmentKind === "text";
 }
+
+const userTextBlocks = $derived(
+	content.filter(
+		(block): block is TextBlock =>
+			block.type === "text" && !isTextAttachment(block),
+	),
+);
+
+const userAttachmentBlocks = $derived(
+	content.filter(
+		(block): block is AttachmentBlock =>
+			block.type === "image" ||
+			(block.type === "text" && block._meta?.attachmentKind === "text"),
+	),
+);
 
 const segments = $derived.by(() => {
 	const result: Segment[] = [];
@@ -99,24 +114,29 @@ const segments = $derived.by(() => {
 });
 </script>
 
-{#each segments as segment, index (`${segment.type}:${index}`)}
-	<div class={index === 0 ? "" : "mt-2"}>
-		{#if segment.type === 'text'}
-			{#if isUserMessage && hasTextAttachment(segment.blocks)}
-				<TextAttachmentBlocks blocks={segment.blocks} />
-			{:else if isUserMessage}
-				<div class="whitespace-pre-wrap break-words text-inherit">
-					{segment.blocks.map((block) => block.text).join('\n\n')}
-				</div>
-			{:else}
+{#if isUserMessage}
+	{#if userTextBlocks.length > 0}
+		<div class="whitespace-pre-wrap break-words text-inherit">
+			{userTextBlocks.map((block) => block.text).join('\n\n')}
+		</div>
+	{/if}
+	{#if userAttachmentBlocks.length > 0}
+		<div class={userTextBlocks.length > 0 ? "mt-2" : ""}>
+			<AttachmentBlocks blocks={userAttachmentBlocks} />
+		</div>
+	{/if}
+{:else}
+	{#each segments as segment, index (`${segment.type}:${index}`)}
+		<div class={index === 0 ? "" : "mt-2"}>
+			{#if segment.type === 'text'}
 				<MarkdownView blocks={segment.blocks} variant="chat" {isStreaming} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
+			{:else if segment.type === 'thinking'}
+				<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
+			{:else if segment.type === 'image'}
+				<AttachmentBlocks blocks={segment.blocks} />
+			{:else if segment.type === 'tool' && showToolCalls}
+				<ToolCallList content={segment.blocks} {onLoadToolCalls} flush {onOpenFile} />
 			{/if}
-		{:else if segment.type === 'thinking'}
-			<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
-		{:else if segment.type === 'image'}
-			<ImageBlocks blocks={segment.blocks} />
-		{:else if segment.type === 'tool' && showToolCalls}
-			<ToolCallList content={segment.blocks} {onLoadToolCalls} flush {onOpenFile} />
-		{/if}
-	</div>
-{/each}
+		</div>
+	{/each}
+{/if}

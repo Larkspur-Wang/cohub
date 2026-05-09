@@ -3,7 +3,6 @@ import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import {
 	ArrowUp,
 	ChevronDown,
-	FileText,
 	Maximize2,
 	Minimize2,
 	Plus,
@@ -300,13 +299,10 @@ $effect(() => {
 					data-drawer-swipe-ignore
 				>
 					{#each attachments as attachment (attachment.id)}
-						<div class={`group relative shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content transition-colors hover:border-border-strong ${attachment.kind === 'image' ? 'h-20 w-20' : 'flex h-20 w-44 items-center gap-2.5 p-3'}`}>
+						<div class={`group relative shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content transition-colors hover:border-border-strong ${attachment.kind === 'image' ? 'h-20 w-20 bg-bg-hover/45' : 'flex h-20 w-36 items-center px-3 py-2'}`}>
 							{#if attachment.kind === 'image'}
-								<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-cover" />
+								<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-contain" />
 							{:else}
-								<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-bg-hover text-text-tertiary">
-									<FileText class="h-4 w-4" />
-								</div>
 								<div class="min-w-0 flex-1 pr-4">
 									<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={attachment.name}>{attachment.name}</div>
 									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-3 text-text-tertiary">

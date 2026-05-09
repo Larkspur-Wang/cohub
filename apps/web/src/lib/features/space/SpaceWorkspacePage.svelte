@@ -59,6 +59,7 @@ import {
 	Share2,
 	Terminal,
 	Trash2,
+	UserRound,
 	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
@@ -1686,6 +1687,66 @@ function formatShortDateTime(dateStr: string | null | undefined): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
+}
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+function formatContentBlockForPreview(block: unknown): string {
+	const record = asRecord(block);
+	if (!record)
+		return typeof block === "string" ? block : JSON.stringify(block, null, 2);
+	if (record.type === "text" && typeof record.text === "string")
+		return record.text;
+	if (record.type === "thinking" && typeof record.thinking === "string") {
+		return `[thinking]\n${record.thinking}`;
+	}
+	if (record.type === "image") return "[image attachment]";
+	if (record.type === "tool_use" && typeof record.name === "string") {
+		return `[tool use: ${record.name}]\n${JSON.stringify(record.input ?? {}, null, 2)}`;
+	}
+	if (record.type === "tool_result") return "[tool result]";
+	return JSON.stringify(record, null, 2);
+}
+function cronjobPayloadContent(payload: unknown): unknown {
+	return asRecord(payload)?.content;
+}
+function formatCronjobPrompt(payload: unknown): string {
+	const content = cronjobPayloadContent(payload);
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		const preview = content
+			.map(formatContentBlockForPreview)
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.join("\n\n");
+		return preview || JSON.stringify(content, null, 2);
+	}
+	if (content !== undefined) return JSON.stringify(content, null, 2);
+	return "—";
+}
+function cronjobPromptMeta(payload: unknown): string {
+	const content = cronjobPayloadContent(payload);
+	if (Array.isArray(content)) {
+		const textLength = content.reduce((sum, block) => {
+			const record = asRecord(block);
+			return sum + (typeof record?.text === "string" ? record.text.length : 0);
+		}, 0);
+		return `${content.length} block${content.length === 1 ? "" : "s"}${textLength ? ` · ${textLength} chars` : ""}`;
+	}
+	if (typeof content === "string") return `${content.length} chars`;
+	return "Payload content";
+}
+function cronjobPayloadField(payload: unknown, key: string): string {
+	const value = asRecord(payload)?.[key];
+	if (typeof value === "string" && value.trim()) return value;
+	return "—";
+}
+function fallbackUserName(userUuid: string | null | undefined): string {
+	if (!userUuid) return "Unknown user";
+	const compact = userUuid.replaceAll("-", "");
+	return compact.slice(0, 8) || "User";
 }
 function formatFileSize(bytes: number): string {
 	if (bytes === 0) return "0 B";
@@ -4736,111 +4797,186 @@ $effect(() => {
         {/if}
       </div>
     {:else if routeView === 'cronjob'}
-      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
+      <div class="flex-1 min-h-0 overflow-y-auto px-5 py-6 lg:px-8">
+        <div class="max-w-5xl">
         {#if cronjobDetailLoading}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
+          <div class="flex items-center gap-2 text-[12px] text-text-tertiary">
+            <Loader2 class="w-3.5 h-3.5 animate-spin" />
             Loading scheduled job...
           </div>
         {:else if cronjobDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
         {:else if cronjobDetail}
-          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
-            <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Scheduled</div>
-              <div class="flex items-center gap-3">
-                <h1 class="text-[22px] font-semibold text-text-primary tracking-tight break-words">{cronjobDetail.title}</h1>
-                <span class="w-2.5 h-2.5 rounded-full shrink-0 {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+          <div class="space-y-8">
+            <div class="flex flex-col gap-5 border-b border-border-subtle/70 pb-6 lg:flex-row lg:items-start lg:justify-between">
+              <div class="min-w-0 space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
+                    <span class="h-1.5 w-1.5 rounded-full {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+                    {cronjobDetail.enabled ? 'Scheduled · Active' : 'Scheduled · Paused'}
+                  </span>
+                  <span class="font-mono text-[11px] text-text-placeholder">{cronjobDetail.id}</span>
+                </div>
+                <div>
+                  <h1 class="text-[26px] font-semibold tracking-tight text-text-primary break-words lg:text-[32px]">{cronjobDetail.title}</h1>
+                  <p class="mt-2 text-[13px] leading-6 text-text-tertiary">Sends a prepared prompt to <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> on every matching run.</p>
+                </div>
               </div>
-              <p class="text-[13px] text-text-tertiary">Running in <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
+              <div class="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 {cronjobDetail!.enabled ? 'text-status-running' : 'text-text-secondary'}"
+                  onclick={() => handleToggleCronjob(!cronjobDetail!.enabled)}
+                  disabled={cronjobActionInProgress}
+                >
+                  {#if cronjobActionInProgress}
+                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  {:else if cronjobDetail.enabled}
+                    <Power class="w-3.5 h-3.5" />
+                  {:else}
+                    <PowerOff class="w-3.5 h-3.5" />
+                  {/if}
+                  <span>{cronjobDetail.enabled ? 'Disable' : 'Enable'}</span>
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50"
+                  onclick={handleDeleteCronjob}
+                  disabled={cronjobActionInProgress}
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              </div>
             </div>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Clock class="w-3.5 h-3.5" />
-                  Schedule
-                </div>
-                <div class="mt-2 font-mono text-[14px] text-text-primary">{cronjobDetail.cronExpression}</div>
-              </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Clock3 class="w-3.5 h-3.5" />
-                  Timezone
-                </div>
-                <div class="mt-2 text-[13px] text-text-primary">{cronjobDetail.timezone}</div>
-              </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Terminal class="w-3.5 h-3.5" />
-                  Task Type
-                </div>
-                <div class="mt-2 text-[13px] text-text-primary">{cronjobDetail.taskType}</div>
-              </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Clock3 class="w-3.5 h-3.5" />
-                  Created At
-                </div>
-                <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(cronjobDetail.createdAt)}</div>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] font-medium transition-colors {cronjobDetail!.enabled ? 'text-status-running hover:bg-bg-hover' : 'text-text-tertiary hover:bg-bg-hover'}"
-                onclick={() => handleToggleCronjob(!cronjobDetail!.enabled)}
-                disabled={cronjobActionInProgress}
-              >
-                {#if cronjobActionInProgress}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                {:else if cronjobDetail.enabled}
-                  <Power class="w-3.5 h-3.5" />
-                {:else}
-                  <PowerOff class="w-3.5 h-3.5" />
-                {/if}
-                <span>{cronjobDetail.enabled ? 'Disable' : 'Enable'}</span>
-              </button>
-              <button
-                type="button"
-                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] font-medium text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors disabled:opacity-50"
-                onclick={handleDeleteCronjob}
-                disabled={cronjobActionInProgress}
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
-            </div>
+
             {#if cronjobToggleError}
               <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft">{cronjobToggleError}</div>
             {/if}
-            {#if cronjobRuns.length > 0}
-              <div class="border-t border-border-subtle pt-4">
-                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium mb-3">Recent Runs</div>
-                <div class="space-y-2">
+
+            <div class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <section class="min-w-0 space-y-3">
+                <div class="flex items-end justify-between gap-3">
+                  <div>
+                    <div class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Prompt to send</div>
+                    <div class="mt-1 text-[12px] text-text-tertiary">{cronjobPromptMeta(cronjobDetail.payload)}</div>
+                  </div>
+                </div>
+                <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/45 ring-1 ring-border-subtle/60">
+                  <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
+                  <pre class="max-h-[460px] overflow-auto px-5 py-4 pl-6 text-[13px] leading-6 text-text-secondary whitespace-pre-wrap break-words">{formatCronjobPrompt(cronjobDetail.payload)}</pre>
+                </div>
+              </section>
+
+              <aside class="space-y-6 text-[13px]">
+                <div class="space-y-4">
+                  <div class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Timing</div>
+                  <div class="space-y-4">
+                    <div>
+                      <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                        <Clock class="w-3.5 h-3.5" />
+                        Schedule
+                      </div>
+                      <div class="mt-1.5 font-mono text-[15px] text-text-primary">{cronjobDetail.cronExpression}</div>
+                    </div>
+                    <div>
+                      <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                        <Clock3 class="w-3.5 h-3.5" />
+                        Timezone
+                      </div>
+                      <div class="mt-1.5 text-text-primary">{cronjobDetail.timezone}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="h-px bg-border-subtle/70"></div>
+
+                <div class="space-y-4">
+                  <div class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Execution</div>
+                  <div>
+                    <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                      <Terminal class="w-3.5 h-3.5" />
+                      Task Type
+                    </div>
+                  <div>
+                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Owner</div>
+                    <div class="mt-2 flex min-w-0 items-center gap-2">
+                      {#if cronjobDetail.userProfile?.avatarUrl}
+                        <img src={cronjobDetail.userProfile.avatarUrl} alt="" class="h-7 w-7 shrink-0 rounded-full object-cover" />
+                      {:else}
+                        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                          <UserRound class="h-4 w-4" aria-hidden="true" />
+                        </span>
+                      {/if}
+                      <div class="min-w-0">
+                        <div class="truncate text-[13px] font-medium text-text-primary">{cronjobDetail.userProfile?.displayName?.trim() || fallbackUserName(cronjobDetail.userUuid)}</div>
+                        <div class="truncate font-mono text-[10px] text-text-placeholder" title={cronjobDetail.userUuid}>{cronjobDetail.userUuid}</div>
+                      </div>
+                    </div>
+                  </div>
+                    <div class="mt-1.5 font-mono text-[13px] text-text-primary">{cronjobDetail.taskType}</div>
+                  </div>
+                  <div>
+                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Session</div>
+                    <div class="mt-1.5 font-mono text-[12px] text-text-secondary break-all">{cronjobDetail.sessionId ?? 'New session on run'}</div>
+                  </div>
+                  <div>
+                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Created</div>
+                    <div class="mt-1.5 text-text-primary">{formatDateTime(cronjobDetail.createdAt)}</div>
+                  </div>
+                </div>
+
+                <div class="h-px bg-border-subtle/70"></div>
+
+                <div class="space-y-4">
+                  <div class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Prompt options</div>
+                  <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
+                    <div class="text-text-placeholder">Title</div>
+                    <div class="text-text-secondary break-words">{cronjobPayloadField(cronjobDetail.payload, 'title')}</div>
+                    <div class="text-text-placeholder">Model</div>
+                    <div class="font-mono text-text-secondary break-all">{cronjobPayloadField(cronjobDetail.payload, 'model')}</div>
+                    <div class="text-text-placeholder">Provider</div>
+                    <div class="font-mono text-text-secondary break-all">{cronjobPayloadField(cronjobDetail.payload, 'provider')}</div>
+                  </div>
+                </div>
+              </aside>
+            </div>
+
+            <section class="border-t border-border-subtle/70 pt-6">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Recent Runs</div>
+                  <div class="mt-1 text-[12px] text-text-tertiary">{cronjobRuns.length ? `${Math.min(cronjobRuns.length, 20)} latest executions` : 'No runs yet'}</div>
+                </div>
+              </div>
+              {#if cronjobRuns.length > 0}
+                <div class="divide-y divide-border-subtle/60">
                   {#each cronjobRuns.slice(0, 20) as run (run.id)}
                     {@const badge = taskRunStatusBadge(run)}
                     <a
                       href={buildSpaceTaskRoute(spaceId, run.id)}
-                      class="flex items-center gap-3 px-3 py-2 rounded-[6px] hover:bg-bg-hover transition-colors"
+                      class="grid grid-cols-[minmax(92px,0.8fr)_minmax(132px,1fr)_80px_minmax(0,1.5fr)] items-center gap-3 py-2.5 text-[12px] transition-colors hover:bg-bg-hover/70"
                       onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, run.id)); }}
                     >
-                      <span class="flex items-center gap-2 min-w-[100px]">
+                      <span class="flex items-center gap-2 px-1">
                         <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
-                        <span class="text-[12px] {badge.color}">{badge.label}</span>
+                        <span class="{badge.color}">{badge.label}</span>
                       </span>
-                      <span class="text-[12px] text-text-placeholder font-mono">{formatShortDateTime(run.scheduledAt)}</span>
-                      <span class="text-[12px] text-text-placeholder font-mono">{taskRunDuration(run)}</span>
-                      {#if run.errorMessage}
-                        <span class="text-[11px] text-status-error truncate flex-1" title={run.errorMessage}>{run.errorMessage}</span>
-                      {/if}
+                      <span class="font-mono text-text-placeholder">{formatShortDateTime(run.scheduledAt)}</span>
+                      <span class="font-mono text-text-placeholder">{taskRunDuration(run)}</span>
+                      <span class="truncate text-[11px] {run.errorMessage ? 'text-status-error' : 'text-text-placeholder'}" title={run.errorMessage ?? run.id}>{run.errorMessage ?? run.id}</span>
                     </a>
                   {/each}
                 </div>
-              </div>
-            {/if}
+              {:else}
+                <div class="py-6 text-[13px] text-text-tertiary">Runs will appear here after the first scheduled execution.</div>
+              {/if}
+            </section>
           </div>
         {:else}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Scheduled job not found.</div>
+          <div class="text-[12px] text-text-tertiary">Scheduled job not found.</div>
         {/if}
+        </div>
       </div>
     {:else if routeView === 'task'}
       <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">

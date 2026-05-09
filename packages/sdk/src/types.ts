@@ -352,6 +352,7 @@ export type CreateSpacePromptResponse =
 export type CronJobRecord = {
   id: string;
   userUuid: string;
+  userProfile?: UserProfile;
   title: string;
   taskType: string;
   payload: Record<string, unknown>;
