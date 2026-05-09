@@ -21,12 +21,44 @@ const streamSnapshotKey = (spaceId: string, sessionId: string) =>
   `session:stream:snapshot:${spaceId}:${sessionId}`;
 const streamSnapshotUserIndexKey = (userId: string) =>
   `session:stream:snapshots:user:${userId}`;
+const TOOL_INPUT_DEBUG = process.env.API_TOOL_INPUT_DEBUG !== "false";
 
 export type SessionStreamSnapshotMessage = {
   messageId: string | null;
   messageOrdinal: number | null;
   content: ContentBlock[];
 };
+
+function safeJsonLength(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return -1;
+  }
+}
+
+function summarizePatchValue(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return { valueType: typeof value, valueLength: typeof value === "string" ? value.length : 0 };
+  }
+  const record = value as Record<string, unknown>;
+  const input = record.type === "tool_use" && record.input && typeof record.input === "object"
+    ? record.input as Record<string, unknown>
+    : undefined;
+  const edits = Array.isArray(input?.edits) ? input.edits : undefined;
+  const firstEdit = edits?.[0] && typeof edits[0] === "object" ? edits[0] as Record<string, unknown> : undefined;
+  return {
+    valueType: record.type ?? "object",
+    valueJsonLength: safeJsonLength(value),
+    toolName: record.name,
+    inputKeys: input ? Object.keys(input).sort() : [],
+    editsLength: edits?.length ?? 0,
+    firstEditKeys: firstEdit ? Object.keys(firstEdit).sort() : [],
+    oldTextLength: typeof firstEdit?.oldText === "string" ? firstEdit.oldText.length : 0,
+    newTextLength: typeof firstEdit?.newText === "string" ? firstEdit.newText.length : 0,
+    contentLength: typeof input?.content === "string" ? input.content.length : 0,
+  };
+}
 
 export type SessionStreamSnapshot = {
   version: 2;
@@ -105,6 +137,45 @@ export const buildSessionOutputsForStreamEvent = async (
 ): Promise<GatewaySessionOutput[]> => {
   if (event.type === "stream_update") {
     const ops = buildPatchOpsForContentDelta({ event });
+    if (TOOL_INPUT_DEBUG) {
+      const toolOps = ops.filter((op) =>
+        typeof op.p === "string" && op.p.includes("/message/content/blocks/") && (
+          op.p.includes("/input")
+          || op.p.includes("/_meta")
+          || (op.o === "replace" && op.p.split("/").length <= 5)
+        )
+      );
+      if (toolOps.length > 0) {
+        console.log("[ToolInputDebug] api_patch_ops", JSON.stringify({
+          sessionId: event.sessionId,
+          turnId: event.turnId,
+          messageId: event.messageId,
+          seq: event.seq,
+          baseSeq: event.baseSeq,
+          opCount: ops.length,
+          toolOps: toolOps.map((op) => {
+            const value = "v" in op ? op.v : undefined;
+            const serialized = typeof value === "string"
+              ? value
+              : (() => {
+                try {
+                  return JSON.stringify(value);
+                } catch {
+                  return "";
+                }
+              })();
+            return {
+              o: op.o,
+              p: op.p,
+              valueLength: typeof value === "string" ? value.length : serialized.length,
+              valueHasEdits: serialized.includes("\"edits\""),
+              valueHasContent: serialized.includes("\"content\""),
+              summary: summarizePatchValue(value),
+            };
+          }),
+        }));
+      }
+    }
     return [{
       type: "session.turn.patch",
       spaceId: event.spaceId,
