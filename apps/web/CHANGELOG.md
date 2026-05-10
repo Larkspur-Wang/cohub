@@ -1,5 +1,11 @@
 # web
 
+## 0.1.0
+
+### Minor Changes
+
+- Stream partial tool execution results to UI in real time, with phase-aware visual feedback for running tool calls. Fix stream snapshot restoration and enrich with DB intermediate metadata. Improve fs watch ignore patterns and stabilize streaming markdown fences.
+
 ## 0.0.8
 
 ### Patch Changes
