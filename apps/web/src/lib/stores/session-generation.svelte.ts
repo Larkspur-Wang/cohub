@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import { authStore } from "$lib/stores/auth.svelte";
 
 export type SessionGenerationStatus =
@@ -9,6 +9,24 @@ export type SessionGenerationStatus =
 	| "failed"
 	| "interrupted";
 
+export type StreamingIntermediateMessage = {
+	messageId?: string | null;
+	messageOrdinal?: number | null;
+	content: ContentBlock[];
+	id?: string;
+	sessionId?: string;
+	role?: "user" | "assistant" | "system";
+	text?: string | null;
+	provider?: string | null;
+	model?: string | null;
+	stopReason?: string | null;
+	errorMessage?: string | null;
+	usage?: Usage | null;
+	toolCallsObjectKey?: string | null;
+	meta?: Record<string, unknown> | null;
+	createdAt?: string;
+};
+
 export type SessionGenerationState = {
 	spaceId?: string | null;
 	sessionId: string;
@@ -18,7 +36,7 @@ export type SessionGenerationState = {
 	startedAt?: number;
 	lastEventAt?: number;
 	contentBlocks: ContentBlock[];
-	intermediateMessages: ContentBlock[][];
+	intermediateMessages: StreamingIntermediateMessage[];
 	streamMessageId: string | null;
 	messageOrdinal: number | null;
 	anchorUserMessageId: string | null;
@@ -90,6 +108,54 @@ function sanitizeError(error: string | null | undefined) {
 	return trimmed ? trimmed.slice(0, MAX_PERSISTED_ERROR_LENGTH) : null;
 }
 
+function parseIntermediateMessage(
+	value: unknown,
+): StreamingIntermediateMessage | null {
+	if (Array.isArray(value)) return { content: value as ContentBlock[] };
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	if (!Array.isArray(record.content)) return null;
+	return {
+		...record,
+		content: record.content as ContentBlock[],
+		messageId: typeof record.messageId === "string" ? record.messageId : null,
+		messageOrdinal:
+			typeof record.messageOrdinal === "number" ? record.messageOrdinal : null,
+		id: typeof record.id === "string" ? record.id : undefined,
+		sessionId:
+			typeof record.sessionId === "string" ? record.sessionId : undefined,
+		role:
+			record.role === "user" ||
+			record.role === "assistant" ||
+			record.role === "system"
+				? record.role
+				: undefined,
+		text: typeof record.text === "string" ? record.text : null,
+		provider: typeof record.provider === "string" ? record.provider : null,
+		model: typeof record.model === "string" ? record.model : null,
+		stopReason:
+			typeof record.stopReason === "string" ? record.stopReason : null,
+		errorMessage:
+			typeof record.errorMessage === "string" ? record.errorMessage : null,
+		usage:
+			record.usage && typeof record.usage === "object"
+				? (record.usage as Usage)
+				: null,
+		toolCallsObjectKey:
+			typeof record.toolCallsObjectKey === "string"
+				? record.toolCallsObjectKey
+				: null,
+		meta:
+			record.meta &&
+			typeof record.meta === "object" &&
+			!Array.isArray(record.meta)
+				? (record.meta as Record<string, unknown>)
+				: null,
+		createdAt:
+			typeof record.createdAt === "string" ? record.createdAt : undefined,
+	};
+}
+
 function parsePersistedState(raw: string): SessionGenerationState | null {
 	try {
 		const parsed = JSON.parse(raw) as Partial<PersistedGenerationState>;
@@ -112,9 +178,11 @@ function parsePersistedState(raw: string): SessionGenerationState | null {
 				? (parsed.contentBlocks as ContentBlock[])
 				: [],
 			intermediateMessages: Array.isArray(parsed.intermediateMessages)
-				? (parsed.intermediateMessages.filter(
-						Array.isArray,
-					) as ContentBlock[][])
+				? parsed.intermediateMessages
+						.map(parseIntermediateMessage)
+						.filter((message): message is StreamingIntermediateMessage =>
+							Boolean(message),
+						)
 				: [],
 			streamMessageId:
 				typeof parsed.streamMessageId === "string"
@@ -302,7 +370,7 @@ class SessionGenerationStore {
 		input: {
 			spaceId?: string | null;
 			contentBlocks: ContentBlock[];
-			intermediateMessages?: ContentBlock[][];
+			intermediateMessages?: StreamingIntermediateMessage[];
 			streamMessageId?: string | null;
 			messageOrdinal?: number | null;
 			anchorUserMessageId?: string | null;

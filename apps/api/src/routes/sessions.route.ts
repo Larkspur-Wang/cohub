@@ -14,7 +14,7 @@ import {
   markMessageAsFull,
 } from "../space-sessions.js";
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
-import { getSessionStreamSnapshot } from "../session-stream-snapshot.js";
+import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
 import { submitSessionPrompt } from "../session-prompts.js";
 
 const router = new Hono();
@@ -160,7 +160,16 @@ router.get("/:id/turns/stream-snapshot", async (c) => {
     return c.json({ message: "not found" }, 404);
   }
 
-  return c.json({ snapshot: await getSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id }) });
+  const snapshot = await getSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id });
+  if (snapshot?.turnId) {
+    const turn = await getSessionTurnById(session.id, snapshot.turnId);
+    if (!turn || turn.status !== "running") {
+      await clearSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id });
+      return c.json({ snapshot: null });
+    }
+  }
+
+  return c.json({ snapshot });
 });
 
 router.get("/:id/turns/:turnId", async (c) => {

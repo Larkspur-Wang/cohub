@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
+import type { StreamingIntermediateMessage } from "./session-generation.svelte";
 import {
 	applyRealtimeGenerationPatch,
 	applyRealtimeGenerationProgress,
@@ -25,7 +26,7 @@ export type GenerationRealtimeEffect =
 			shouldRefreshSessions: false;
 	  };
 
-type ParsedSnapshotMessage = {
+type ParsedSnapshotMessage = StreamingIntermediateMessage & {
 	messageId: string | null;
 	messageOrdinal: number | null;
 	content: ContentBlock[];
@@ -37,12 +38,45 @@ function parseSnapshotMessage(value: unknown): ParsedSnapshotMessage | null {
 	const record = value as Record<string, unknown>;
 	if (!Array.isArray(record.content)) return null;
 	return {
+		...record,
 		messageId: typeof record.messageId === "string" ? record.messageId : null,
 		messageOrdinal:
 			typeof record.messageOrdinal === "number" ? record.messageOrdinal : null,
 		content: record.content as ContentBlock[],
 		appendPath:
 			typeof record.appendPath === "string" ? record.appendPath : null,
+		id: typeof record.id === "string" ? record.id : undefined,
+		sessionId:
+			typeof record.sessionId === "string" ? record.sessionId : undefined,
+		role:
+			record.role === "user" ||
+			record.role === "assistant" ||
+			record.role === "system"
+				? record.role
+				: undefined,
+		text: typeof record.text === "string" ? record.text : null,
+		provider: typeof record.provider === "string" ? record.provider : null,
+		model: typeof record.model === "string" ? record.model : null,
+		stopReason:
+			typeof record.stopReason === "string" ? record.stopReason : null,
+		errorMessage:
+			typeof record.errorMessage === "string" ? record.errorMessage : null,
+		usage:
+			record.usage && typeof record.usage === "object"
+				? (record.usage as ParsedSnapshotMessage["usage"])
+				: null,
+		toolCallsObjectKey:
+			typeof record.toolCallsObjectKey === "string"
+				? record.toolCallsObjectKey
+				: null,
+		meta:
+			record.meta &&
+			typeof record.meta === "object" &&
+			!Array.isArray(record.meta)
+				? (record.meta as Record<string, unknown>)
+				: null,
+		createdAt:
+			typeof record.createdAt === "string" ? record.createdAt : undefined,
 	};
 }
 

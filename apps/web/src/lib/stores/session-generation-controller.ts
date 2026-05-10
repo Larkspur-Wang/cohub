@@ -6,7 +6,10 @@ import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { StoredIntermediateMessage } from "@neta-art/cohub-protocol/model";
 import { mergeStreamingDeltaBlocks } from "$lib/session-streaming";
 import { createStreamingIntermediateMessage } from "$lib/session-streaming-message";
-import { sessionGenerationStore } from "./session-generation.svelte";
+import {
+	type StreamingIntermediateMessage,
+	sessionGenerationStore,
+} from "./session-generation.svelte";
 
 type PatchApplyResult =
 	| { applied: true }
@@ -31,27 +34,48 @@ function resolveStreamMessageId(input: {
 
 function appendCurrentMessageToIntermediate(input: {
 	contentBlocks: ContentBlock[];
-	intermediateMessages?: ContentBlock[][];
+	intermediateMessages?: StreamingIntermediateMessage[];
+	streamMessageId?: string | null;
+	messageOrdinal?: number | null;
 }) {
 	if (input.contentBlocks.length === 0) return input.intermediateMessages ?? [];
-	return [...(input.intermediateMessages ?? []), input.contentBlocks];
+	return [
+		...(input.intermediateMessages ?? []),
+		{
+			messageId: input.streamMessageId ?? null,
+			messageOrdinal: input.messageOrdinal ?? null,
+			content: input.contentBlocks,
+		},
+	];
 }
 
 export function buildStreamingStoredIntermediateMessages(input: {
 	spaceId?: string | null;
 	sessionId: string;
 	turnId?: string | null;
-	intermediateMessages?: ContentBlock[][];
+	intermediateMessages?: StreamingIntermediateMessage[];
 }): StoredIntermediateMessage[] {
 	return (input.intermediateMessages ?? [])
-		.map((contentBlocks, index) =>
+		.map((message, index) =>
 			createStreamingIntermediateMessage({
 				spaceId: input.spaceId,
 				sessionId: input.sessionId,
 				turnId: input.turnId,
-				streamMessageId: `stream:${input.sessionId}:${input.turnId ?? "turn"}:intermediate:${index}`,
-				messageOrdinal: index,
-				contentBlocks,
+				streamMessageId:
+					message.id ??
+					message.messageId ??
+					`stream:${input.sessionId}:${input.turnId ?? "turn"}:intermediate:${index}`,
+				messageOrdinal: message.messageOrdinal ?? index,
+				contentBlocks: message.content,
+				text: message.text,
+				provider: message.provider,
+				model: message.model,
+				stopReason: message.stopReason,
+				errorMessage: message.errorMessage,
+				usage: message.usage,
+				toolCallsObjectKey: message.toolCallsObjectKey,
+				meta: message.meta,
+				createdAt: message.createdAt,
 			}),
 		)
 		.filter((message): message is StoredIntermediateMessage =>
@@ -162,6 +186,8 @@ export function applyRealtimeGenerationProgress(
 		? appendCurrentMessageToIntermediate({
 				contentBlocks: currentContentBlocks,
 				intermediateMessages: currentIntermediateMessages,
+				streamMessageId: currentStreamMessageId,
+				messageOrdinal: currentMessageOrdinal,
 			})
 		: baseIntermediateMessages;
 	sessionGenerationStore.applyProgress(sessionId, {
@@ -242,9 +268,7 @@ export function applyRealtimeGenerationSnapshot(
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: input.spaceId ?? current?.spaceId ?? null,
 		contentBlocks: input.current.content,
-		intermediateMessages: (input.intermediateMessages ?? []).map(
-			(message) => message.content,
-		),
+		intermediateMessages: input.intermediateMessages ?? [],
 		streamMessageId,
 		messageOrdinal: input.current.messageOrdinal ?? null,
 		anchorUserMessageId:
@@ -323,6 +347,8 @@ export function applyRealtimeGenerationPatch(
 		? appendCurrentMessageToIntermediate({
 				contentBlocks: currentContentBlocks,
 				intermediateMessages: currentIntermediateMessages,
+				streamMessageId: currentStreamMessageId,
+				messageOrdinal: currentMessageOrdinal,
 			})
 		: baseIntermediateMessages;
 	sessionGenerationStore.applyProgress(sessionId, {

@@ -1,6 +1,8 @@
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type {
 	MessageToolCallsFile,
 	StoredIntermediateMessage,
+	StoredToolCall,
 	TurnIntermediateMessagesFile,
 } from "@neta-art/cohub-protocol/model";
 import { sdk } from "$lib/sdk";
@@ -10,6 +12,34 @@ async function fetchJson<T>(url: string): Promise<T> {
 	if (!response.ok)
 		throw new Error(`Failed to fetch turn object ${response.status}`);
 	return response.json() as Promise<T>;
+}
+
+function extractToolCalls(content: ContentBlock[]): StoredToolCall[] {
+	const byId = new Map<string, StoredToolCall>();
+	for (const block of content) {
+		if (block.type !== "tool_use") continue;
+		byId.set(block.id, {
+			id: block.id,
+			name: block.name,
+			input: block.input,
+			meta: block._meta ?? null,
+			result: null,
+		});
+	}
+	for (const block of content) {
+		if (block.type !== "tool_result") continue;
+		const existing = byId.get(block.tool_use_id);
+		if (!existing) continue;
+		byId.set(block.tool_use_id, {
+			...existing,
+			result: {
+				content: block.content,
+				isError: Boolean(block.is_error),
+				meta: block._meta ?? null,
+			},
+		});
+	}
+	return [...byId.values()];
 }
 
 export async function loadTurnIntermediate(input: {
@@ -35,7 +65,18 @@ export async function loadMessageToolCalls(input: {
 	turnId: string;
 	message: StoredIntermediateMessage;
 }): Promise<MessageToolCallsFile | null> {
-	if (!input.message.toolCallsObjectKey) return null;
+	if (!input.message.toolCallsObjectKey) {
+		const toolCalls = extractToolCalls(input.message.content);
+		if (toolCalls.length === 0) return null;
+		return {
+			version: 1,
+			spaceId: input.spaceId,
+			sessionId: input.sessionId,
+			turnId: input.turnId,
+			messageId: input.message.id,
+			toolCalls,
+		};
+	}
 	const { urls } = await sdk
 		.space(input.spaceId)
 		.session(input.sessionId)

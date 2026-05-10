@@ -9,6 +9,7 @@ import type {
 } from "@neta-art/cohub-protocol/gateway";
 import type {
   ContentBlock,
+  Usage,
 } from "@neta-art/cohub-protocol/core";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 
@@ -247,6 +248,18 @@ export type SessionTurnStreamSnapshotResponse = {
       messageId: string | null;
       messageOrdinal: number | null;
       content: ContentBlock[];
+      id?: string;
+      sessionId?: string;
+      role?: "user" | "assistant" | "system";
+      text?: string | null;
+      provider?: string | null;
+      model?: string | null;
+      stopReason?: string | null;
+      errorMessage?: string | null;
+      usage?: Usage | null;
+      toolCallsObjectKey?: string | null;
+      meta?: Record<string, unknown> | null;
+      createdAt?: string;
     }>;
     updatedAt: number;
   } | null;
