@@ -77,6 +77,10 @@ onMount(() => {
 });
 </script>
 
+<svelte:head>
+	<title>SSH keys — Cohub</title>
+</svelte:head>
+
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <div class="flex-1 p-6 overflow-y-auto">
     <section class="max-w-xl">

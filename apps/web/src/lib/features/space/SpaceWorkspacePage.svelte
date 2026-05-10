@@ -648,6 +648,16 @@ function getSessionTitle(session: SessionRecord): string {
 	}
 	return "New chat";
 }
+function normalizeTabTitleSegment(
+	value: string | null | undefined,
+	fallback: string,
+	maxLength = 48,
+): string {
+	const normalized = value?.replace(/\s+/g, " ").trim() || fallback;
+	return normalized.length > maxLength
+		? `${normalized.slice(0, maxLength - 1)}…`
+		: normalized;
+}
 function hasSessionPermission(sessionId: string): boolean {
 	const access = sessionAccessById[sessionId];
 	return (
@@ -909,6 +919,48 @@ async function makeSessionPrivate() {
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
 );
+const browserTabTitle = $derived.by(() => {
+	const spaceTitle = normalizeTabTitleSegment(
+		space?.name || space?.title || spaceId,
+		"Space",
+		42,
+	);
+	const routeTitle = (() => {
+		if (routeView === "space") return null;
+		if (routeView === "session") {
+			return activeSessionState?.session
+				? normalizeTabTitleSegment(
+						getSessionTitle(activeSessionState.session),
+						"Chat",
+					)
+				: "Chat";
+		}
+		if (routeView === "file") {
+			return normalizeTabTitleSegment(
+				routeFilePath?.split("/").pop(),
+				"File",
+				44,
+			);
+		}
+		if (routeView === "checkpoint") {
+			return normalizeTabTitleSegment(
+				checkpointDetail?.description?.trim() ||
+					(routeCheckpointId ? `Save ${routeCheckpointId.slice(0, 8)}` : null),
+				"Save",
+			);
+		}
+		if (routeView === "checkpoint-new") return "New save";
+		if (routeView === "cronjob") {
+			return normalizeTabTitleSegment(cronjobDetail?.title, "Cronjob");
+		}
+		if (routeView === "cronjob-new") return "New cronjob";
+		if (routeView === "task") return "Task";
+		return null;
+	})();
+	return routeTitle
+		? `${routeTitle} · ${spaceTitle} — Cohub`
+		: `${spaceTitle} — Cohub`;
+});
 const bootstrapMeta = $derived.by(() => {
 	const raw = space?.meta;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -4357,6 +4409,10 @@ $effect(() => {
 	return () => ro.disconnect();
 });
 </script>
+
+<svelte:head>
+	<title>{browserTabTitle}</title>
+</svelte:head>
 
 {#snippet FileHeaderCoreActions(path: string)}
 	<div class="relative shrink-0" data-resource-actions>

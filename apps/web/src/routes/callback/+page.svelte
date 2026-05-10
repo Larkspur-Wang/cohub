@@ -27,6 +27,10 @@ onMount(async () => {
 });
 </script>
 
+<svelte:head>
+	<title>Authenticating — Cohub</title>
+</svelte:head>
+
 <div class="flex-1 flex items-center justify-center min-h-100dvh">
   {#if error}
     <div class="text-center">

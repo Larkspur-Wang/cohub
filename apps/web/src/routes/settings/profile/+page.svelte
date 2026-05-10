@@ -128,6 +128,10 @@ onMount(() => {
 });
 </script>
 
+<svelte:head>
+	<title>Profile — Cohub</title>
+</svelte:head>
+
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <div class="flex-1 overflow-y-auto px-6 py-7">
     <section class="max-w-2xl">

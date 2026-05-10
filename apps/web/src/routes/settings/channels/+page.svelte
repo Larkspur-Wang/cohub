@@ -67,6 +67,10 @@ async function handleDelete(id: string) {
 }
 </script>
 
+<svelte:head>
+	<title>Channels — Cohub</title>
+</svelte:head>
+
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <div class="flex-1 p-6 overflow-y-auto">
     <section class="max-w-2xl">

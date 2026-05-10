@@ -170,6 +170,10 @@ async function handleSubmit(event: SubmitEvent) {
 }
 </script>
 
+<svelte:head>
+	<title>New space — Cohub</title>
+</svelte:head>
+
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
     <div class="flex items-center gap-3 min-w-0">
