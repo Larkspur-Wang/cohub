@@ -34,7 +34,17 @@ const (
 )
 
 var defaultIgnore = []string{
-	".git", "node_modules", ".pnpm-store", "dist", "build", ".next", ".svelte-kit", ".vite", "coverage", ".cache", "tmp",
+	// VCS metadata
+	".git", ".hg", ".svn",
+
+	// Dependencies / package manager stores
+	"node_modules", ".pnpm-store", ".yarn", ".bun", "vendor",
+
+	// Build outputs
+	"dist", "build", "out", "target", ".next", ".nuxt", ".svelte-kit", ".vite", ".vercel", ".output",
+
+	// Cache / coverage / logs / temporary files
+	"coverage", ".cache", ".turbo", ".parcel-cache", ".rollup.cache", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache", "tmp", "temp", ".tmp",
 }
 
 type Watcher struct {
@@ -79,15 +89,21 @@ func Start(root string, logger *slog.Logger, handler Handler) (*Watcher, error) 
 
 func buildIgnoreList() []string {
 	items := make([]string, 0, len(defaultIgnore)+8)
-	for _, raw := range defaultIgnore {
+	seen := make(map[string]struct{}, len(defaultIgnore)+8)
+	appendItem := func(raw string) {
 		if v := sanitizeIgnorePattern(raw); v != "" {
+			if _, ok := seen[v]; ok {
+				return
+			}
+			seen[v] = struct{}{}
 			items = append(items, v)
 		}
 	}
+	for _, raw := range defaultIgnore {
+		appendItem(raw)
+	}
 	for _, raw := range strings.Split(os.Getenv("FS_WATCH_IGNORE"), ",") {
-		if v := sanitizeIgnorePattern(raw); v != "" {
-			items = append(items, v)
-		}
+		appendItem(raw)
 	}
 	return items
 }
@@ -209,10 +225,25 @@ func (w *Watcher) relative(path string) (string, bool) {
 
 func (w *Watcher) isIgnored(rel string) bool {
 	rel = strings.Trim(rel, "/")
+	if rel == "" {
+		return false
+	}
+	segments := strings.Split(rel, "/")
 	for _, item := range w.ignored {
 		item = strings.Trim(item, "/")
-		if rel == item || strings.HasPrefix(rel, item+"/") {
-			return true
+		if item == "" {
+			continue
+		}
+		if strings.Contains(item, "/") {
+			if rel == item || strings.HasPrefix(rel, item+"/") {
+				return true
+			}
+			continue
+		}
+		for _, segment := range segments {
+			if segment == item {
+				return true
+			}
 		}
 	}
 	return false
