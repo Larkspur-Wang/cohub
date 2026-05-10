@@ -30,6 +30,8 @@ let activityText = $state("");
 let visibleDraftingTail = $state("");
 let inputTailSticky = $state(false);
 let inputTailStickyTimer: number | null = null;
+let previousDraftingLeaves = new Map<string, string>();
+let activeDraftingLeafPath = $state<string | null>(null);
 
 const statusDotMap = {
 	done: "bg-status-running",
@@ -66,7 +68,10 @@ const runningPhase = $derived(tool.phase ?? "drafting");
 const activity = $derived(
 	toolActivityMap[tool.name] ?? { glyph: "◆", verb: "running" },
 );
-const draftingTail = $derived(getDraftingTail(tool.name, tool.input));
+const draftingLeaves = $derived(flattenDraftingLeaves(tool.input));
+const draftingTail = $derived(
+	getDraftingTail(tool.name, tool.input, activeDraftingLeafPath),
+);
 const executionTail = $derived(
 	getExecutionTail(tool.partialResult ?? tool.result),
 );
@@ -127,14 +132,42 @@ function flattenDraftingLeaves(value: unknown, path = ""): DraftingLeaf[] {
 	return [];
 }
 
+function leafKey(leaf: DraftingLeaf) {
+	return leaf.path.split(".").at(-1)?.toLowerCase() ?? "";
+}
+
 function isPathLikeLeaf(leaf: DraftingLeaf) {
-	const key = leaf.path.split(".").at(-1)?.toLowerCase() ?? "";
+	const key = leafKey(leaf);
 	return (
 		key === "path" ||
 		key.endsWith("path") ||
 		key === "file" ||
 		key === "filename"
 	);
+}
+
+function isLowSignalConfigLeaf(leaf: DraftingLeaf) {
+	return new Set([
+		"timeout",
+		"limit",
+		"offset",
+		"ignorecase",
+		"glob",
+		"context",
+	]).has(leafKey(leaf));
+}
+
+function draftingLeafScore(leaf: DraftingLeaf) {
+	const key = leafKey(leaf);
+	if (
+		["content", "newtext", "oldtext", "command", "query", "pattern"].includes(
+			key,
+		)
+	)
+		return 40;
+	if (isPathLikeLeaf(leaf)) return 25;
+	if (isLowSignalConfigLeaf(leaf)) return 5;
+	return 20;
 }
 
 function formatDraftingLeaf(leaf: DraftingLeaf) {
@@ -144,11 +177,25 @@ function formatDraftingLeaf(leaf: DraftingLeaf) {
 	return isPathLikeLeaf(leaf) ? tail : `${key}: ${tail}`;
 }
 
-function getDraftingTail(name: string, input?: Record<string, unknown>) {
+function selectFallbackDraftingLeaf(leaves: DraftingLeaf[]) {
+	return leaves.reduce<DraftingLeaf | null>((best, leaf) => {
+		if (!best) return leaf;
+		const score = draftingLeafScore(leaf);
+		const bestScore = draftingLeafScore(best);
+		return score > bestScore || score === bestScore ? leaf : best;
+	}, null);
+}
+
+function getDraftingTail(
+	name: string,
+	input: Record<string, unknown> | undefined,
+	activePath: string | null,
+) {
 	const leaves = flattenDraftingLeaves(input);
-	const nonPathLeaf = leaves.findLast((leaf) => !isPathLikeLeaf(leaf));
-	const fallbackLeaf = leaves.at(-1);
-	const selected = nonPathLeaf ?? fallbackLeaf;
+	const activeLeaf = activePath
+		? leaves.find((leaf) => leaf.path === activePath)
+		: null;
+	const selected = activeLeaf ?? selectFallbackDraftingLeaf(leaves);
 	if (selected)
 		return formatDraftingLeaf(selected) || `${name || "tool"} forming`;
 	const raw = stringifyInputPreview(input);
@@ -181,6 +228,24 @@ function scrambleWord(word: string, tick: number) {
 	}
 	return chars.join("");
 }
+
+$effect(() => {
+	const current = new Map(
+		draftingLeaves.map((leaf) => [leaf.path, leaf.value]),
+	);
+	const changed = draftingLeaves.filter(
+		(leaf) => previousDraftingLeaves.get(leaf.path) !== leaf.value,
+	);
+	if (changed.length > 0) {
+		const changedNonPath = changed.filter((leaf) => !isPathLikeLeaf(leaf));
+		const selected =
+			selectFallbackDraftingLeaf(changedNonPath) ??
+			selectFallbackDraftingLeaf(changed) ??
+			null;
+		activeDraftingLeafPath = selected?.path ?? null;
+	}
+	previousDraftingLeaves = current;
+});
 
 $effect(() => {
 	if (!isRunning) {
