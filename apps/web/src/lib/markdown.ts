@@ -138,7 +138,9 @@ function isExternalHttpLink(href: string) {
 				? "https://cohub.local"
 				: window.location.href,
 		);
-		return EXTERNAL_LINK_PROTOCOLS.has(url.protocol) && /^(https?:)?\/\//i.test(href);
+		return (
+			EXTERNAL_LINK_PROTOCOLS.has(url.protocol) && /^(https?:)?\/\//i.test(href)
+		);
 	} catch {
 		return false;
 	}
@@ -200,12 +202,14 @@ function splitMarkdownBlocks(source: string): MarkdownBlock[] {
 				fenceState.fence.length >= fence.fence.length
 			) {
 				fence = null;
+				pushBuffer();
 			}
 			continue;
 		}
 
 		const openingFence = isFencedCodeFenceLine(line.trim());
 		if (openingFence) {
+			pushBuffer();
 			buffer.push(line);
 			fence = openingFence;
 			continue;
