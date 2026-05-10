@@ -545,7 +545,6 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         handle.streamState.assistantState = applyToolExecutionUpdate(handle.streamState.assistantState, {
           toolCallId: event.toolCallId,
           content: resultContent,
-          isError: false,
         });
         handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
         scheduleProviderRenderUpdate(handle, "tool_execution_update");

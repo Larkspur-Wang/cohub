@@ -129,27 +129,25 @@ import {
     toolCall: { id: "t-partial", name: "bash", arguments: { command: "pnpm test" } },
   });
   state = applyToolExecutionStart(state, { toolCallId: "t-partial", summary: "pnpm test" });
-  state = applyToolExecutionUpdate(state, { toolCallId: "t-partial", content: "running line 1", isError: false });
+  state = applyToolExecutionUpdate(state, { toolCallId: "t-partial", content: "running line 1" });
 
   let content = projectAssistantStreamState(state);
   assert.deepEqual(
     content.map((block) => block.type),
-    ["tool_use", "tool_result"],
-    "partial tool output should render as an adjacent running tool_result",
+    ["tool_use"],
+    "partial tool output should render on tool_use metadata without adding an ambiguous tool_result block",
   );
   let toolUse = content[0] as Extract<ContentBlock, { type: "tool_use" }>;
-  let toolResult = content[1] as Extract<ContentBlock, { type: "tool_result" }>;
   assert.equal(toolUse._meta?.toolStatus, "running");
-  assert.equal(toolResult.content, "running line 1");
-  assert.equal(toolResult._meta?.resultDetail, "partial");
+  assert.equal(toolUse._meta?.partialResult, "running line 1");
 
   state = applyToolExecutionEnd(state, { toolCallId: "t-partial", content: "final output", isError: false });
   content = projectAssistantStreamState(state);
   toolUse = content[0] as Extract<ContentBlock, { type: "tool_use" }>;
-  toolResult = content[1] as Extract<ContentBlock, { type: "tool_result" }>;
+  const toolResult = content[1] as Extract<ContentBlock, { type: "tool_result" }>;
   assert.equal(toolUse._meta?.toolStatus, "done");
+  assert.equal(toolUse._meta?.partialResult, undefined, "final tool_use should drop partial output metadata");
   assert.equal(toolResult.content, "final output");
-  assert.notEqual(toolResult._meta?.resultDetail, "partial", "final result should replace partial output");
 }
 
 {

@@ -11,6 +11,7 @@ export type ToolCallViewModel = {
 	name: string;
 	input?: Record<string, unknown>;
 	result?: string;
+	partialResult?: string;
 	status: ToolCallStatus;
 	phase?: ToolCallPhase;
 	resultPartial?: boolean;
@@ -165,14 +166,14 @@ export function buildToolCallViewModels(input: {
 			: result?.type === "tool_result"
 				? stringifyToolValue(result.content)
 				: "";
-		const resultPartial =
-			result?.type === "tool_result" &&
-			result._meta?.resultDetail === "partial";
+		const partialResult = stringifyToolValue(block._meta?.partialResult);
+		const resultPartial = Boolean(partialResult);
 		return {
 			id: block.id,
 			name: block.name,
 			input: fullTool?.input ?? block.input,
 			result: resultContent,
+			partialResult,
 			status,
 			phase,
 			resultPartial,

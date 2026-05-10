@@ -33,6 +33,7 @@ type StreamBlock =
 type ToolMeta = {
   toolStatus?: ToolStatus;
   summary?: string;
+  partialResult?: string | ContentBlock[];
 };
 
 type ToolResultState = {
@@ -46,7 +47,6 @@ export type AssistantStreamState = {
   blocks: StreamBlock[];
   toolMetaById: Map<string, ToolMeta>;
   toolResultsById: Map<string, ToolResultState>;
-  partialToolResultsById: Map<string, ToolResultState>;
 };
 
 type AssistantToolCall = {
@@ -78,7 +78,6 @@ export function createAssistantStreamState(): AssistantStreamState {
     blocks: [],
     toolMetaById: new Map(),
     toolResultsById: new Map(),
-    partialToolResultsById: new Map(),
   };
 }
 
@@ -232,17 +231,15 @@ export function applyToolExecutionUpdate(
   input: {
     toolCallId: string;
     content: string | ContentBlock[];
-    isError?: boolean;
   },
 ): AssistantStreamState {
-  const partialToolResultsById = new Map(state.partialToolResultsById);
-  partialToolResultsById.set(input.toolCallId, {
-    tool_use_id: input.toolCallId,
-    content: input.content,
-    is_error: input.isError ?? false,
-    _meta: { toolStatus: "running", resultDetail: "partial" },
+  const toolMetaById = new Map(state.toolMetaById);
+  toolMetaById.set(input.toolCallId, {
+    ...(toolMetaById.get(input.toolCallId) ?? {}),
+    toolStatus: "running",
+    partialResult: input.content,
   });
-  return { ...state, partialToolResultsById };
+  return { ...state, toolMetaById };
 }
 
 export function applyToolExecutionEnd(
@@ -254,8 +251,9 @@ export function applyToolExecutionEnd(
   },
 ): AssistantStreamState {
   const toolMetaById = new Map(state.toolMetaById);
+  const { partialResult: _partialResult, ...previousMeta } = toolMetaById.get(input.toolCallId) ?? {};
   toolMetaById.set(input.toolCallId, {
-    ...(toolMetaById.get(input.toolCallId) ?? {}),
+    ...previousMeta,
     toolStatus: input.isError ? "failed" : "done",
   });
 
@@ -267,10 +265,7 @@ export function applyToolExecutionEnd(
     _meta: { toolStatus: input.isError ? "failed" : "done" },
   });
 
-  const partialToolResultsById = new Map(state.partialToolResultsById);
-  partialToolResultsById.delete(input.toolCallId);
-
-  return { ...state, toolMetaById, toolResultsById, partialToolResultsById };
+  return { ...state, toolMetaById, toolResultsById };
 }
 
 function withStreamIndexMeta(
@@ -326,7 +321,7 @@ export function projectAssistantStreamState(state: AssistantStreamState): Conten
       _meta: withStreamIndexMeta(meta, block.contentIndex),
     });
 
-    const result = state.toolResultsById.get(block.id) ?? state.partialToolResultsById.get(block.id);
+    const result = state.toolResultsById.get(block.id);
     if (result) {
       content.push({
         type: "tool_result",

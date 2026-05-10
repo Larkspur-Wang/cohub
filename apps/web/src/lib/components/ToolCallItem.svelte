@@ -1,6 +1,6 @@
 <script lang="ts">
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import {
 	formatToolInput,
 	getToolFilePath,
@@ -27,6 +27,9 @@ const {
 let expanded = $state(false);
 let reducedMotion = $state(false);
 let activityText = $state("");
+let visibleDraftingTail = $state("");
+let inputTailSticky = $state(false);
+let inputTailStickyTimer: number | null = null;
 
 const statusDotMap = {
 	done: "bg-status-running",
@@ -64,7 +67,13 @@ const activity = $derived(
 	toolActivityMap[tool.name] ?? { glyph: "◆", verb: "running" },
 );
 const draftingTail = $derived(getDraftingTail(tool.name, tool.input));
-const executionTail = $derived(getExecutionTail(tool.result));
+const executionTail = $derived(
+	getExecutionTail(tool.partialResult ?? tool.result),
+);
+const showDraftingTail = $derived(
+	isRunning &&
+		(runningPhase === "drafting" || (inputTailSticky && !executionTail)),
+);
 
 function toggle() {
 	const opening = !expanded;
@@ -174,7 +183,28 @@ function scrambleWord(word: string, tick: number) {
 }
 
 $effect(() => {
-	if (!isRunning || runningPhase !== "executing") {
+	if (!isRunning) {
+		visibleDraftingTail = draftingTail;
+		inputTailSticky = false;
+		if (inputTailStickyTimer) {
+			window.clearTimeout(inputTailStickyTimer);
+			inputTailStickyTimer = null;
+		}
+		return;
+	}
+	if (draftingTail && draftingTail !== visibleDraftingTail) {
+		visibleDraftingTail = draftingTail;
+		inputTailSticky = true;
+		if (inputTailStickyTimer) window.clearTimeout(inputTailStickyTimer);
+		inputTailStickyTimer = window.setTimeout(() => {
+			inputTailSticky = false;
+			inputTailStickyTimer = null;
+		}, 850);
+	}
+});
+
+$effect(() => {
+	if (!isRunning || runningPhase !== "executing" || showDraftingTail) {
 		activityText = activity.verb;
 		return;
 	}
@@ -196,6 +226,10 @@ onMount(() => {
 	update();
 	media.addEventListener("change", update);
 	return () => media.removeEventListener("change", update);
+});
+
+onDestroy(() => {
+	if (inputTailStickyTimer) window.clearTimeout(inputTailStickyTimer);
 });
 </script>
 
@@ -224,9 +258,9 @@ onMount(() => {
 			<span class="min-w-0 flex-1 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
 		{/if}
 		{#if isRunning}
-			{#if runningPhase === 'drafting'}
-				<span class="tool-drafting-sliver shrink-0 max-w-[7rem] sm:max-w-[10rem] md:max-w-[12rem] text-[11px] font-mono leading-none text-brand/70" title={draftingTail}>
-					<span class="tool-drafting-text">{draftingTail}</span><span class="tool-cursor" aria-hidden="true">▌</span>
+			{#if showDraftingTail}
+				<span class="tool-drafting-sliver shrink-0 max-w-[7rem] sm:max-w-[10rem] md:max-w-[12rem] text-[11px] font-mono leading-none text-brand/70" title={visibleDraftingTail}>
+					<span class="tool-drafting-text">{visibleDraftingTail}</span><span class="tool-cursor" aria-hidden="true">▌</span>
 				</span>
 			{:else}
 				<span class={`tool-executing-mark shrink-0 text-[11px] font-mono leading-none text-brand/75 ${tool.resultPartial && executionTail ? 'max-w-[8.5rem] sm:max-w-[13rem]' : 'max-w-[7.5rem] sm:max-w-[9rem]'}`} aria-label={tool.resultPartial && executionTail ? 'Latest output' : activity.verb} title={tool.resultPartial && executionTail ? executionTail : activity.verb}>
