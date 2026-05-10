@@ -17,6 +17,7 @@ import {
   SandboxNotReadyError,
 } from "../../space-sessions.js";
 import { abortSessionTurn, interruptSessionTurn } from "../../session-turns.js";
+import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output.js";
 import { submitSessionPrompt, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
@@ -401,6 +402,9 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   }
   const userId = body.userId?.trim();
   if (!userId) return c.json({ message: "userId is required" }, 400);
+  if (!(await hasPermission({ uuid: userId }, "session.prompt.fullaccess", { spaceId, sessionId }))) {
+    return c.json({ message: "not found" }, 404);
+  }
   const clientMessageId = body.clientMessageId?.trim();
   if (!clientMessageId) return c.json({ message: "clientMessageId is required" }, 400);
 

@@ -1,21 +1,20 @@
 import type { SpaceFsChangedPayload } from "@neta-art/cohub-protocol/fs";
-import { redisCommandClient, SPACE_EVENTS_STREAM, STREAM_APPROX, STREAM_MAXLEN } from "./redis.js";
+import { config } from "./config.js";
 
 export async function publishSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
   try {
-    await redisCommandClient.xadd(
-      SPACE_EVENTS_STREAM,
-      "MAXLEN",
-      STREAM_APPROX,
-      STREAM_MAXLEN,
-      "*",
-      "spaceId",
-      spaceId,
-      "type",
-      "space.fs.changed",
-      "payload",
-      JSON.stringify({ type: "space.fs.changed", spaceId, payload, trace: {} }),
-    );
+    const response = await fetch(`${config.internalApiBaseUrl}/internal/space-events/${spaceId}/fs-changed`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-worker-secret": config.workerSecret,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Failed to report fs changes ${response.status}: ${text}`);
+    }
   } catch (error) {
     console.warn(`[SpaceEvents] Failed to publish space fs changed for ${spaceId}:`, error);
     throw error;

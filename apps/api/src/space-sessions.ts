@@ -8,12 +8,15 @@ import { db } from "./db/index.js";
 import {
   sessionMessages,
   sessionTurns,
+  spaceMembers,
   spaceSessions,
   spaces,
   tokenUsageStatsHourly,
 } from "./db/schema-v2.js";
 import {
   getAgentInstanceInputQueueKey,
+  getSpaceWsUsersKey,
+  getSpaceWsUsersUpdatedAtKey,
   redisCommandClient,
 } from "./redis.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
@@ -339,6 +342,24 @@ export const setSpaceEnv = async (spaceId: string, envs: Array<{ name: string; v
 export const getSpaceById = async (spaceId: string) => {
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   return space ?? null;
+};
+
+export const recomputeSpaceWsUsers = async (spaceId: string) => {
+  const [space] = await db.select({ ownerId: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  const members = await db.select({ userId: spaceMembers.userId }).from(spaceMembers).where(eq(spaceMembers.spaceId, spaceId));
+  const userIds = new Set<string>();
+  if (space?.ownerId) userIds.add(space.ownerId);
+  for (const member of members) {
+    if (member.userId) userIds.add(member.userId);
+  }
+  const values = [...userIds];
+  const pipeline = redisCommandClient.pipeline();
+  const key = getSpaceWsUsersKey(spaceId);
+  pipeline.del(key);
+  if (values.length > 0) pipeline.sadd(key, ...values);
+  pipeline.set(getSpaceWsUsersUpdatedAtKey(spaceId), String(Date.now()));
+  await pipeline.exec();
+  return values;
 };
 
 export const getSpaceSessionById = async (spaceSessionId: string) => {
@@ -703,6 +724,9 @@ export const forkSpaceSession = async (input: { spaceId: string; parentSessionId
 export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
+  await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
+    console.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
+  });
 
   const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
   const actorUserId = typeof input.meta?.userId === "string" && input.meta.userId.trim()

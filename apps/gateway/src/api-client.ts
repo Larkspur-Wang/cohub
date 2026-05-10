@@ -1,5 +1,6 @@
 import type { AuthUserProfile } from "@cohub/auth";
 import { AuthorizationError, verifyUserAccessToken } from "@cohub/auth";
+import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";
 
@@ -57,6 +58,45 @@ export const authenticateRealtimeToken = async (input: { token: string }): Promi
     ok: true,
     user,
   };
+};
+
+export const submitInternalSessionPrompt = async (input: {
+  spaceId: string;
+  sessionId: string;
+  userId: string;
+  clientMessageId: string;
+  content: ContentBlock[];
+  source: string;
+  model?: string | null;
+  provider?: string | null;
+  context?: Record<string, unknown> | null;
+}): Promise<{ ok: true; turnId: string; userMessageId: string }> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/prompt`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+    },
+    body: JSON.stringify({
+      content: input.content,
+      userId: input.userId,
+      clientMessageId: input.clientMessageId,
+      source: input.source,
+      model: input.model ?? null,
+      provider: input.provider ?? null,
+      context: input.context ?? null,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Internal prompt submit failed ${response.status}: ${text}`);
+  }
+  const data = await parseJson<{ ok?: boolean; turnId?: string; userMessageId?: string }>(response);
+  if (!data?.ok || !data.turnId || !data.userMessageId) {
+    throw new Error("Internal prompt submit returned an invalid response");
+  }
+  return { ok: true, turnId: data.turnId, userMessageId: data.userMessageId };
 };
 
 export const authorizeSessionAccess = async (input: {

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
-import { buildPatchOpsForContentDelta } from "../apps/api/src/session-stream-patch-delta.js";
+import { buildPatchOpsForContentDelta } from "../apps/agent/src/stream/patch-delta.js";
 import { createSessionPatchReducer } from "../packages/sdk/src/session-patch-reducer.js";
 
 const toolBlock = (input: Record<string, unknown>, streamIndex = 1): ContentBlock => ({
@@ -39,7 +39,7 @@ function main() {
     content: [toolBlock({ path: "/tmp/a.txt" }, 1)],
     snapshotContent: [toolBlock({ path: "/tmp/a.txt" }, 1)],
   };
-  const ops1 = buildPatchOpsForContentDelta({ event: e1 });
+  const ops1 = buildPatchOpsForContentDelta(e1);
   const replace1 = ops1.filter(
     (o) => o.o === "replace" && typeof o.p === "string" && /\/blocks\/1$/.test(o.p),
   );
@@ -62,7 +62,7 @@ function main() {
     content: [toolBlock({ path: "/tmp/a.txt", content: "hel" }, 1)],
     snapshotContent: [toolBlock({ path: "/tmp/a.txt", content: "hel" }, 1)],
   };
-  const ops2 = buildPatchOpsForContentDelta({ event: e2 });
+  const ops2 = buildPatchOpsForContentDelta(e2);
   const subReplace2 = ops2.filter(
     (o) =>
       o.o === "replace" &&
@@ -89,7 +89,7 @@ function main() {
     content: [toolBlock({ path: "/tmp/a.txt", content: "hello" }, 1)],
     snapshotContent: [toolBlock({ path: "/tmp/a.txt", content: "hello" }, 1)],
   };
-  const ops3 = buildPatchOpsForContentDelta({ event: e3 });
+  const ops3 = buildPatchOpsForContentDelta(e3);
   const append3 = ops3.filter(
     (o) =>
       o.o === "append" &&
@@ -117,7 +117,7 @@ function main() {
     content: [toolBlock({ path: "/tmp/a.txt", content: "hey" }, 1)],
     snapshotContent: [toolBlock({ path: "/tmp/a.txt", content: "hey" }, 1)],
   };
-  const ops4 = buildPatchOpsForContentDelta({ event: e4 });
+  const ops4 = buildPatchOpsForContentDelta(e4);
   const subReplace4 = ops4.filter(
     (o) =>
       o.o === "replace" &&
@@ -145,7 +145,7 @@ function main() {
     content: [toolBlock({ path: "/b", content: "x" }, 1)],
     snapshotContent: [toolBlock({ path: "/b", content: "x" }, 1)],
   };
-  const ops5 = buildPatchOpsForContentDelta({ event: e5 });
+  const ops5 = buildPatchOpsForContentDelta(e5);
   const replace5 = ops5.filter(
     (o) => o.o === "replace" && typeof o.p === "string" && /\/blocks\/1$/.test(o.p),
   );

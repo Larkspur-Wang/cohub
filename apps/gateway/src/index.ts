@@ -15,7 +15,7 @@ import type {
   RealtimeServerEvent,
   WsClientEvent,
 } from "@neta-art/cohub-protocol/realtime";
-import type { GatewayInboundEvent, GatewayOutboundCommand } from "@neta-art/cohub-protocol/gateway";
+
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import {
   getSessionTurnPatchStreamKey,
@@ -23,16 +23,16 @@ import {
   WS_COMPACT_STREAM_CAPABILITY,
   wsClientEventSchema,
 } from "@neta-art/cohub-protocol/realtime";
-import { authenticateRealtimeToken, type RealtimeAuthResult } from "./api-client.js";
-import { listenOutboundCommands, initOutboundConsumerGroup, INBOUND_STREAM, OUTBOUND_STREAM, publishInboundEvent } from "./bus.js";
+import { authenticateRealtimeToken, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
+import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
 import {
-  createBlockingRedisClient,
   createPubSubRedisClient,
   redisCommandClient,
-  xaddWithMaxlen,
-  GATEWAY_WS_BROADCAST_CHANNEL,
+  REALTIME_OUTBOUND_CHANNEL,
+  AGENT_REALTIME_PATCH_CHANNEL,
+  getSpaceWsUsersKey,
 } from "./redis.js";
 
 type WsConnectionContext = {
@@ -54,16 +54,15 @@ type GatewayWsBroadcastPayload = RealtimeServerEvent & {
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
-const STREAM_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 
 const wsConnections = new Map<string, WsConnectionContext>();
 const wsConnectionsByUserId = new Map<string, Set<string>>();
 const wsSockets = new Map<string, WebSocket>();
+const SPACE_WS_USERS_CACHE_TTL_MS = 10_000;
+const spaceWsUsersCache = new Map<string, { expiresAt: number; userIds: string[] }>();
 
 const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
 const getWsUserConnectionsKey = (userId: string) => `gateway:ws:user:${userId}:connections`;
-const streamSnapshotUserIndexKey = (userId: string) =>
-  `session:stream:snapshots:user:${userId}`;
 
 function logStartupInfo() {
   console.log("=".repeat(60));
@@ -233,112 +232,6 @@ const buildRealtimeEnvelope = (input: Omit<RealtimeEnvelope, "id" | "timestamp">
   ...input,
 });
 
-type SessionStreamSnapshotMessage = {
-  messageId: string | null;
-  messageOrdinal: number | null;
-  content: ContentBlock[];
-};
-
-type SessionStreamSnapshot = {
-  version: 2;
-  spaceId: string;
-  sessionId: string;
-  turnId: string | null;
-  anchorUserMessageId: string | null;
-  seq: number;
-  current: SessionStreamSnapshotMessage & { appendPath: string | null };
-  intermediateMessages: SessionStreamSnapshotMessage[];
-  targetUserIds: string[];
-  updatedAt: number;
-};
-
-const isContentBlock = (value: unknown): value is ContentBlock =>
-  Boolean(value && typeof value === "object" && "type" in value);
-
-const isSnapshotMessage = (value: unknown): value is SessionStreamSnapshotMessage => {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Partial<SessionStreamSnapshotMessage>;
-  return Array.isArray(record.content) && record.content.every(isContentBlock);
-};
-
-const parseSessionStreamSnapshot = (raw: string, userId: string): SessionStreamSnapshot | null => {
-  const value = JSON.parse(raw) as Partial<SessionStreamSnapshot>;
-  if (value.version !== 2) return null;
-  if (typeof value.spaceId !== "string" || typeof value.sessionId !== "string") return null;
-  if (!isNonNegativeInteger(value.seq) || value.seq <= 0) return null;
-  if (!isSnapshotMessage(value.current)) return null;
-  if (!Array.isArray(value.intermediateMessages) || !value.intermediateMessages.every(isSnapshotMessage)) return null;
-  if (!Array.isArray(value.targetUserIds) || !value.targetUserIds.includes(userId)) return null;
-  if (typeof value.updatedAt !== "number" || Date.now() - value.updatedAt > STREAM_SNAPSHOT_TTL_MS) return null;
-  return {
-    version: 2,
-    spaceId: value.spaceId,
-    sessionId: value.sessionId,
-    turnId: typeof value.turnId === "string" ? value.turnId : null,
-    anchorUserMessageId: typeof value.anchorUserMessageId === "string" ? value.anchorUserMessageId : null,
-    seq: value.seq,
-    current: {
-      messageId: typeof value.current.messageId === "string" ? value.current.messageId : null,
-      messageOrdinal: typeof value.current.messageOrdinal === "number" ? value.current.messageOrdinal : null,
-      content: value.current.content,
-      appendPath: typeof value.current.appendPath === "string" && value.current.appendPath ? value.current.appendPath : null,
-    },
-    intermediateMessages: value.intermediateMessages.map((message) => ({
-      messageId: typeof message.messageId === "string" ? message.messageId : null,
-      messageOrdinal: typeof message.messageOrdinal === "number" ? message.messageOrdinal : null,
-      content: message.content,
-    })),
-    targetUserIds: value.targetUserIds,
-    updatedAt: value.updatedAt,
-  };
-};
-
-const buildSnapshotEnvelope = (snapshot: SessionStreamSnapshot): RealtimeEnvelope =>
-  buildRealtimeEnvelope({
-    domain: "session",
-    type: "session.turn.snapshot",
-    spaceId: snapshot.spaceId,
-    sessionId: snapshot.sessionId,
-    payload: {
-      turnId: snapshot.turnId,
-      anchorUserMessageId: snapshot.anchorUserMessageId,
-      seq: snapshot.seq,
-      current: snapshot.current,
-      intermediateMessages: snapshot.intermediateMessages,
-    },
-  });
-
-const sendActiveStreamSnapshots = async (ctx: WsConnectionContext, socket: WebSocket) => {
-  if (!ctx.userId) return;
-  const indexKey = streamSnapshotUserIndexKey(ctx.userId);
-  const keys = await redisCommandClient.smembers(indexKey).catch(() => [] as string[]);
-  if (keys.length === 0) return;
-  const values = await redisCommandClient.mget(...keys).catch(() => [] as Array<string | null>);
-  const staleKeys: string[] = [];
-
-  values.forEach((raw, index) => {
-    const key = keys[index];
-    if (!raw) {
-      if (key) staleKeys.push(key);
-      return;
-    }
-    try {
-      const snapshot = parseSessionStreamSnapshot(raw, ctx.userId ?? "");
-      if (!snapshot) {
-        if (key) staleKeys.push(key);
-        return;
-      }
-      sendWsRealtime(socket, ctx, buildSnapshotEnvelope(snapshot));
-    } catch {
-      if (key) staleKeys.push(key);
-    }
-  });
-
-  if (staleKeys.length > 0) {
-    await redisCommandClient.srem(indexKey, ...staleKeys).catch(() => undefined);
-  }
-};
-
 const sendWsError = (
   socket: WebSocket,
   code: string,
@@ -397,22 +290,48 @@ class WsClientInputError extends Error {
   }
 }
 
-function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
+const getSpaceWsUsers = async (spaceId: string) => {
+  const now = Date.now();
+  const cached = spaceWsUsersCache.get(spaceId);
+  if (cached && cached.expiresAt > now) return cached.userIds;
+  if (cached) spaceWsUsersCache.delete(spaceId);
+  const userIds = await redisCommandClient.smembers(getSpaceWsUsersKey(spaceId)).catch(() => [] as string[]);
+  const normalized = userIds.map((value) => value.trim()).filter(Boolean);
+  spaceWsUsersCache.set(spaceId, { expiresAt: now + SPACE_WS_USERS_CACHE_TTL_MS, userIds: normalized });
+  return normalized;
+};
+
+async function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
+  const targetConnectionId = typeof payload.payload?.targetConnectionId === "string" ? payload.payload.targetConnectionId.trim() : "";
   const targetUserIds = Array.isArray(payload.payload?.targetUserIds)
     ? payload.payload.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     : [];
-  for (const userId of targetUserIds) {
+  const resolvedUserIds = targetUserIds.length > 0
+    ? targetUserIds
+    : typeof payload.spaceId === "string" && payload.spaceId.trim()
+      ? await getSpaceWsUsers(payload.spaceId)
+      : [];
+  const {
+    targetUserIds: _targetUserIds,
+    targetConnectionId: _targetConnectionId,
+    snapshotKey: _snapshotKey,
+    ...cleanPayload
+  } = (payload.payload ?? {}) as Record<string, unknown>;
+  const envelope = { ...payload, payload: cleanPayload } as RealtimeEnvelope;
+
+  if (targetConnectionId) {
+    const socket = wsSockets.get(targetConnectionId);
+    if (socket) sendWsRealtime(socket, wsConnections.get(targetConnectionId), envelope);
+    return;
+  }
+
+  for (const userId of resolvedUserIds) {
     const connectionIds = wsConnectionsByUserId.get(userId);
     if (!connectionIds) continue;
     for (const connectionId of connectionIds) {
       const socket = wsSockets.get(connectionId);
       if (!socket) continue;
-      const ctx = wsConnections.get(connectionId);
-      const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = payload.payload ?? {};
-      sendWsRealtime(socket, ctx, {
-        ...payload,
-        payload: cleanPayload,
-      } as RealtimeEnvelope);
+      sendWsRealtime(socket, wsConnections.get(connectionId), envelope);
     }
   }
 }
@@ -423,32 +342,32 @@ async function startSpaceOutputSubscriber() {
     await client.connect();
   }
 
-  await client.subscribe(GATEWAY_WS_BROADCAST_CHANNEL);
+  await client.subscribe(REALTIME_OUTBOUND_CHANNEL, AGENT_REALTIME_PATCH_CHANNEL);
   client.on("message", (channel, message) => {
-    if (channel !== GATEWAY_WS_BROADCAST_CHANNEL) return;
+    if (![REALTIME_OUTBOUND_CHANNEL, AGENT_REALTIME_PATCH_CHANNEL].includes(channel)) return;
     try {
       const parsed = realtimeEnvelopeSchema.safeParse(JSON.parse(message));
       if (!parsed.success) {
-        console.error("[Gateway] Invalid WS broadcast payload:", parsed.error.issues);
+        console.error("[Gateway] Invalid realtime payload:", parsed.error.issues);
         return;
       }
-      fanOutBroadcastToLocalSockets(parsed.data as GatewayWsBroadcastPayload);
+      void fanOutBroadcastToLocalSockets(parsed.data as GatewayWsBroadcastPayload).catch((error) => {
+        console.error("[Gateway] Failed to fan out realtime payload:", error);
+      });
     } catch (error) {
-      console.error("[Gateway] Failed to handle WS broadcast payload:", error);
+      console.error("[Gateway] Failed to handle realtime payload:", error);
     }
   });
 }
 
-const buildWebsocketBindingKey = (spaceId: string, sessionId: string) => `websocket:space:${spaceId}:session:${sessionId}`;
-
-const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestId: string | undefined, payload: Record<string, unknown>) => {
+const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId: string | undefined, payload: Record<string, unknown>) => {
   const spaceId = typeof payload.spaceId === "string" ? payload.spaceId.trim() : "";
   const sessionId = typeof payload.sessionId === "string" ? payload.sessionId.trim() : "";
   const clientMessageId = typeof payload.clientMessageId === "string" && payload.clientMessageId.trim()
     ? payload.clientMessageId.trim()
     : randomUUID();
   const content = Array.isArray(payload.content)
-    ? payload.content as GatewayInboundEvent["content"]
+    ? payload.content as ContentBlock[]
     : [];
   const model = typeof payload.model === "string" && payload.model.trim()
     ? payload.model.trim()
@@ -457,50 +376,27 @@ const publishWebsocketInboundMessage = async (ctx: WsConnectionContext, requestI
     ? payload.provider.trim()
     : null;
 
+  if (!ctx.userId) throw new WsClientInputError("authentication required");
   if (!spaceId || !sessionId) throw new WsClientInputError("spaceId and sessionId are required");
   if (content.length === 0) throw new WsClientInputError("content is required");
 
-  const event: GatewayInboundEvent = {
-    eventId: randomUUID(),
-    timestamp: Date.now(),
-    eventType: "message_create",
-    channelId: sessionId,
-    provider: "websocket",
-    externalChatId: sessionId,
-    externalMessageId: clientMessageId,
-    bindingKey: buildWebsocketBindingKey(spaceId, sessionId),
-    binding: {
-      key: buildWebsocketBindingKey(spaceId, sessionId),
-    },
-    conversation: {
-      id: sessionId,
-      parentId: null,
-      meta: { spaceId, source: "websocket" },
-    },
-    message: {
-      parentMessageId: null,
-      meta: { requestId: requestId ?? null, connectionId: ctx.connectionId },
-    },
-    sender: {
-      id: ctx.userId ?? "anonymous",
-      name: ctx.userName,
-    },
+  const result = await submitInternalSessionPrompt({
+    spaceId,
+    sessionId,
+    userId: ctx.userId,
+    clientMessageId,
     content,
-    meta: {
-      source: "websocket",
-      authToken: ctx.token ?? null,
-      userId: ctx.userId ?? null,
-      connectionId: ctx.connectionId,
+    source: "websocket",
+    model,
+    provider,
+    context: {
+      kind: "websocket",
       requestId: requestId ?? null,
-      spaceId,
-      sessionId,
-      clientMessageId,
-      model,
-      provider,
+      connectionId: ctx.connectionId,
     },
-  };
+  });
 
-  await publishInboundEvent(event);
+  return { ...result, spaceId, sessionId, clientMessageId };
 };
 
 async function main() {
@@ -686,9 +582,6 @@ async function main() {
             requestId: requestId ?? null,
             payload: { connectionId, user: result.user },
           }));
-          await sendActiveStreamSnapshots(ctx, socket).catch((error) => {
-            console.warn(`[Gateway] Failed to send active stream snapshots for user ${ctx.userId}:`, error);
-          });
           return;
         }
 
@@ -700,17 +593,36 @@ async function main() {
         await touchWsConnection(ctx);
 
         if (message.type === "session.message.create") {
-          await publishWebsocketInboundMessage(ctx, requestId, message.payload ?? {});
-          sendWsEnvelope(socket, buildRealtimeEnvelope({
-            domain: "session",
-            type: "session.request.accepted",
-            requestId: requestId ?? null,
-            spaceId: typeof message.payload?.spaceId === "string" ? message.payload.spaceId : null,
-            sessionId: typeof message.payload?.sessionId === "string" ? message.payload.sessionId : null,
-            payload: {
-              clientMessageId: typeof message.payload?.clientMessageId === "string" ? message.payload.clientMessageId : null,
-            },
-          }));
+          try {
+            const result = await submitWebsocketSessionMessage(ctx, requestId, message.payload ?? {});
+            sendWsEnvelope(socket, buildRealtimeEnvelope({
+              domain: "session",
+              type: "session.request.accepted",
+              requestId: requestId ?? null,
+              spaceId: result.spaceId,
+              sessionId: result.sessionId,
+              payload: {
+                clientMessageId: result.clientMessageId,
+                turnId: result.turnId,
+                userMessageId: result.userMessageId,
+              },
+            }));
+          } catch (error) {
+            if (error instanceof WsClientInputError) throw error;
+            const payload = message.payload ?? {};
+            sendWsEnvelope(socket, buildRealtimeEnvelope({
+              domain: "session",
+              type: "session.request.error",
+              requestId: requestId ?? null,
+              spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
+              sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
+              payload: {
+                code: "SUBMIT_FAILED",
+                message: error instanceof Error ? error.message : String(error),
+                clientMessageId: typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
+              },
+            }));
+          }
           return;
         }
 
@@ -793,39 +705,6 @@ async function main() {
       });
     }
 
-    const redis = createBlockingRedisClient();
-    await redis.connect().catch(() => undefined);
-
-    (async () => {
-      let lastId = "$";
-      while (true) {
-        const result = await redis.xread("BLOCK", 0, "STREAMS", INBOUND_STREAM, lastId);
-        if (!result) continue;
-        for (const [, messages] of result) {
-          for (const [id, fields] of messages) {
-            lastId = id;
-            const payloadIdx = fields.indexOf("payload");
-            const payloadStr = payloadIdx >= 0 ? fields[payloadIdx + 1] : undefined;
-            if (!payloadStr) continue;
-
-            const payload = JSON.parse(payloadStr) as GatewayInboundEvent;
-            if (payload.channelId.startsWith("debug-")) {
-              console.log(`[Debug] Received ping from ${payload.sender.name} via ${payload.provider}, sending pong...`);
-              const pongCmd: GatewayOutboundCommand = {
-                commandId: `pong-${Date.now()}`,
-                timestamp: Date.now(),
-                channelId: payload.channelId,
-                provider: payload.provider,
-                externalChatId: payload.externalChatId,
-                content: [{ type: "text", text: `pong from ${payload.provider} 🏓` }],
-                replyToExternalMessageId: payload.externalMessageId,
-              };
-              await xaddWithMaxlen(redis, OUTBOUND_STREAM, "*", "payload", JSON.stringify(pongCmd));
-            }
-          }
-        }
-      }
-    })().catch(console.error);
   }
 }
 

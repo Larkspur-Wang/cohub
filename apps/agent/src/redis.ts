@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { trace } from "@opentelemetry/api";
 import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import type { RealtimeEnvelope, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
 import type { SpaceFsChangedPayload } from "@neta-art/cohub-protocol/fs";
 import type { SpacePortsChangedPayload } from "@neta-art/cohub-protocol/ports";
 import { injectTrace } from "@cohub/tracing/propagator";
@@ -12,6 +13,7 @@ import {
   getAgentInstanceInputQueueKey,
   getAgentInstanceProcessingQueueKey,
 } from "./ownership.js";
+import { buildPatchOpsForContentDelta, getAppendPathForStreamEvent } from "./stream/patch-delta.js";
 
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
@@ -23,11 +25,12 @@ const PROCESSING_KEY = getAgentInstanceProcessingQueueKey(env.AGENT_INSTANCE_ID)
 const RECOVERING_KEY = `${PROCESSING_KEY}:recovering`;
 const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID);
 
-const STREAM_MAXLEN = 2000;
-const STREAM_APPROX = "~";
-const AGENT_SESSION_UPDATES_STREAM = "stream:agent:session_updates";
-const SPACE_EVENTS_STREAM = "stream:space:events";
+const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
+const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 const DEAD_LETTER_MAX_ITEMS = 200;
+const STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;
+const getTurnSnapshotKey = (spaceId: string, sessionId: string, turnId: string | null | undefined) =>
+  `realtime:snapshot:turn:${spaceId}:${sessionId}:${turnId ?? "unknown"}`;
 
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
@@ -136,24 +139,75 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   });
 
   try {
-    const sessionId = parsed.data.sessionId ?? "";
-    // Inject trace context so downstream (API → Gateway) can continue the same trace
     const traceCarrier = injectTrace();
-    const payload = JSON.stringify({ ...parsed.data, ...traceCarrier });
-    await redis.xadd(
-      AGENT_SESSION_UPDATES_STREAM,
-      "MAXLEN",
-      STREAM_APPROX,
-      STREAM_MAXLEN,
-      "*",
-      "spaceId",
-      parsed.data.spaceId,
-      "sessionId",
-      sessionId,
-      "payload",
-      payload,
-    ).catch((err) => {
-      console.error("[Redis] Failed to send output:", err);
+    const event = parsed.data;
+    let envelope: RealtimeEnvelope;
+
+    if (event.type === "stream_update") {
+      const streamEvent = event as SessionStreamEvent;
+      const ops = buildPatchOpsForContentDelta(streamEvent);
+      const snapshotKey = getTurnSnapshotKey(event.spaceId, event.sessionId, event.turnId ?? null);
+      if (event.snapshotContent?.length) {
+        await redis.set(
+          snapshotKey,
+          JSON.stringify({
+            version: 1,
+            spaceId: event.spaceId,
+            sessionId: event.sessionId,
+            turnId: event.turnId ?? null,
+            anchorUserMessageId: event.anchorUserMessageId ?? null,
+            seq: event.seq,
+            current: {
+              messageId: event.messageId ?? null,
+              messageOrdinal: event.messageOrdinal ?? null,
+              content: event.snapshotContent,
+              appendPath: getAppendPathForStreamEvent(streamEvent),
+            },
+            intermediateMessages: [],
+            updatedAt: Date.now(),
+          }),
+          "EX",
+          STREAM_SNAPSHOT_TTL_SECONDS,
+        );
+      }
+      envelope = {
+        id: randomUUID(),
+        timestamp: Date.now(),
+        domain: "session",
+        type: "session.turn.patch",
+        spaceId: event.spaceId,
+        sessionId: event.sessionId,
+        payload: {
+          turnId: event.turnId ?? null,
+          messageId: event.messageId ?? null,
+          messageOrdinal: event.messageOrdinal ?? null,
+          sourceMessageId: event.sourceMessageId ?? null,
+          anchorUserMessageId: event.anchorUserMessageId ?? event.sourceMessageId ?? null,
+          seq: event.seq,
+          baseSeq: event.baseSeq,
+          ops,
+          snapshotSeq: event.snapshotContent?.length ? event.seq : null,
+          snapshotKey: event.snapshotContent?.length ? snapshotKey : null,
+        },
+      };
+    } else {
+      envelope = {
+        id: randomUUID(),
+        timestamp: Date.now(),
+        domain: "session",
+        type: "session.turn.error",
+        spaceId: event.spaceId,
+        sessionId: event.sessionId ?? "unknown",
+        payload: {
+          turnId: null,
+          anchorUserMessageId: null,
+          error: event.error,
+        },
+      };
+    }
+
+    await redis.publish(AGENT_REALTIME_PATCH_CHANNEL, JSON.stringify({ ...envelope, ...traceCarrier })).catch((err) => {
+      console.error("[Redis] Failed to publish realtime output:", err);
       throw err;
     });
   } catch (error) {
@@ -165,19 +219,16 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
 export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
   try {
     const traceCarrier = injectTrace();
-    await redis.xadd(
-      SPACE_EVENTS_STREAM,
-      "MAXLEN",
-      STREAM_APPROX,
-      STREAM_MAXLEN,
-      "*",
-      "spaceId",
+    await redis.publish(REALTIME_OUTBOUND_CHANNEL, JSON.stringify({
+      id: randomUUID(),
+      timestamp: Date.now(),
+      domain: "space",
+      type: "space.fs.changed",
       spaceId,
-      "type",
-      "space.fs.changed",
-      "payload",
-      JSON.stringify({ type: "space.fs.changed", spaceId, payload, trace: traceCarrier }),
-    );
+      sessionId: null,
+      payload,
+      trace: traceCarrier,
+    }));
   } catch (err) {
     console.error("[Redis] Failed to send space fs changed event:", err);
   }
@@ -186,19 +237,16 @@ export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChange
 export async function sendSpacePortsChanged(spaceId: string, payload: SpacePortsChangedPayload) {
   try {
     const traceCarrier = injectTrace();
-    await redis.xadd(
-      SPACE_EVENTS_STREAM,
-      "MAXLEN",
-      STREAM_APPROX,
-      STREAM_MAXLEN,
-      "*",
-      "spaceId",
+    await redis.publish(REALTIME_OUTBOUND_CHANNEL, JSON.stringify({
+      id: randomUUID(),
+      timestamp: Date.now(),
+      domain: "space",
+      type: "space.ports.changed",
       spaceId,
-      "type",
-      "space.ports.changed",
-      "payload",
-      JSON.stringify({ type: "space.ports.changed", spaceId, payload, trace: traceCarrier }),
-    );
+      sessionId: null,
+      payload,
+      trace: traceCarrier,
+    }));
   } catch (err) {
     console.error("[Redis] Failed to send space ports changed event:", err);
   }

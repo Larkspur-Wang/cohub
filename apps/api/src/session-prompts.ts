@@ -15,6 +15,12 @@ export type WebAppPromptContext = {
   kind: "web_app";
 };
 
+export type WebsocketPromptContext = {
+  kind: "websocket";
+  requestId?: string | null;
+  connectionId?: string | null;
+};
+
 export type PublicApiPromptContext = {
   kind: "public_api";
 };
@@ -36,6 +42,7 @@ export type ChannelPromptContext = {
 
 export type SubmitSessionPromptContext =
   | WebAppPromptContext
+  | WebsocketPromptContext
   | PublicApiPromptContext
   | ScheduledTaskPromptContext
   | ChannelPromptContext;

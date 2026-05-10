@@ -14,7 +14,6 @@ import {
   markMessageAsFull,
 } from "../space-sessions.js";
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
-import { getSessionStreamSnapshot } from "../session-output.js";
 import { submitSessionPrompt } from "../session-prompts.js";
 
 const router = new Hono();
@@ -147,20 +146,6 @@ router.get("/:id/turns/window", async (c) => {
   const result = await listSessionTurnWindow(session.id, { sequence: Math.floor(sequence), before, after });
   if (!result) return c.json({ message: "turn not found" }, 404);
   return c.json({ session, ...result, turns: await hydrateTurnAuthorProfiles(result.turns) });
-});
-
-router.get("/:id/turns/stream-snapshot", async (c) => {
-  const user = getOptionalAuth(c);
-  const sessionId = c.req.param("id");
-  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-
-  const session = await getSpaceSessionById(sessionId);
-  if (!session) return c.json({ message: "session not found" }, 404);
-  if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
-  }
-
-  return c.json({ snapshot: await getSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id }) });
 });
 
 router.get("/:id/turns/:turnId", async (c) => {

@@ -27,10 +27,10 @@ redisCommandClient.on("reconnecting", () => {
   console.log("[Redis] Command client reconnecting...");
 });
 
-export const GATEWAY_INBOUND_STREAM = "stream:gateway:inbound";
 export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
-export const GATEWAY_LOGS_STREAM = "stream:gateway:logs";
-export const GATEWAY_WS_BROADCAST_CHANNEL = "gateway:ws:broadcast:agent_session_updates";
+export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
+export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
+export const getSpaceWsUsersKey = (spaceId: string) => `realtime:space:${spaceId}:ws_users`;
 export const STREAM_MAXLEN = 2000;
 export const STREAM_APPROX = "~";
 

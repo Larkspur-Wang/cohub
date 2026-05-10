@@ -1,5 +1,5 @@
 import type { V1Service } from "@kubernetes/client-node";
-import { SANDBOX_PUBLIC_PORTS, type SpacePublicEndpoints, type SpacePortsChangedPayload } from "@neta-art/cohub-protocol/ports";
+import { SANDBOX_PUBLIC_PORTS, type SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi, k8sCustomObjectsApi } from "./k8s.js";
 
@@ -90,25 +90,6 @@ export const attachSandboxPublicEndpoints = <T extends { spaceId: string; meta?:
     ...sandbox,
     publicEndpoints: endpoints,
   };
-};
-
-export const mergePortStatusesIntoMeta = (
-  meta: Record<string, unknown> | null | undefined,
-  payload: SpacePortsChangedPayload,
-) => {
-  const existingMeta = meta ?? {};
-  const existingPorts = existingMeta.ports && typeof existingMeta.ports === "object" && !Array.isArray(existingMeta.ports)
-    ? existingMeta.ports as Record<string, unknown>
-    : {};
-  const nextPorts: Record<string, unknown> = { ...existingPorts };
-  for (const item of payload.ports) {
-    nextPorts[String(item.port)] = {
-      protocol: item.protocol,
-      status: item.status,
-      observedAt: item.observedAt,
-    };
-  }
-  return { ...existingMeta, ports: nextPorts };
 };
 
 const buildSandboxPublicService = (spaceId: string): V1Service => ({

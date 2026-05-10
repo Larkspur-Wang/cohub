@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { MessageRecord, SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import type { GatewaySessionOutput } from "@neta-art/cohub-protocol/gateway";
-import type { RealtimeMessageRecord, RealtimeTurnRecord, SessionStreamError, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import type { RealtimeMessageRecord, RealtimeTurnRecord } from "@neta-art/cohub-protocol/realtime";
 import {
   dispatchOutboundMessage,
   dispatchRealtimeEventToUsers,
@@ -13,34 +12,6 @@ import {
 } from "./channels.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
-import { redisCommandClient } from "./redis.js";
-import { buildPatchOpsForContentDelta, getAppendPathForStreamEvent } from "./session-stream-patch-delta.js";
-
-const STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;
-const streamSnapshotKey = (spaceId: string, sessionId: string) =>
-  `session:stream:snapshot:${spaceId}:${sessionId}`;
-const streamSnapshotUserIndexKey = (userId: string) =>
-  `session:stream:snapshots:user:${userId}`;
-
-export type SessionStreamSnapshotMessage = {
-  messageId: string | null;
-  messageOrdinal: number | null;
-  content: ContentBlock[];
-};
-
-export type SessionStreamSnapshot = {
-  version: 2;
-  spaceId: string;
-  sessionId: string;
-  turnId: string | null;
-  anchorUserMessageId: string | null;
-  seq: number;
-  current: SessionStreamSnapshotMessage & { appendPath: string | null };
-  intermediateMessages: SessionStreamSnapshotMessage[];
-  targetUserIds: string[];
-  updatedAt: number;
-};
-
 const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
   if (!meta) return null;
   const keys = [
@@ -100,39 +71,6 @@ export const toRealtimeTurnRecord = (turn: SessionTurnRecord): RealtimeTurnRecor
   updatedAt: turn.updatedAt,
 });
 
-export const buildSessionOutputsForStreamEvent = async (
-  event: SessionStreamEvent | SessionStreamError,
-): Promise<GatewaySessionOutput[]> => {
-  if (event.type === "stream_update") {
-    const ops = buildPatchOpsForContentDelta({ event });
-    return [{
-      type: "session.turn.patch",
-      spaceId: event.spaceId,
-      sessionId: event.sessionId,
-      turnId: event.turnId ?? null,
-      messageId: event.messageId ?? null,
-      messageOrdinal: event.messageOrdinal ?? null,
-      anchorUserMessageId: event.anchorUserMessageId ?? null,
-      seq: event.seq,
-      baseSeq: event.baseSeq,
-      ops,
-      snapshotContent: event.snapshotContent,
-      appendPath: getAppendPathForStreamEvent(event),
-    } as Extract<GatewaySessionOutput, { type: "session.turn.patch" }> & {
-      snapshotContent?: ContentBlock[];
-      appendPath?: string | null;
-    }];
-  }
-
-  return [{
-    type: "session.turn.error",
-    spaceId: event.spaceId,
-    sessionId: event.sessionId ?? "unknown",
-    anchorUserMessageId: null,
-    error: event.error,
-  }];
-};
-
 export const buildSessionOutputsForPersistedMessage = async (input: {
   spaceId: string;
   sessionId: string;
@@ -160,128 +98,10 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
   return outputs;
 };
 
-const isSameSnapshotMessage = (
-  a: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
-  b: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
-) => {
-  if (a.messageId && b.messageId) return a.messageId === b.messageId;
-  return a.messageOrdinal != null && b.messageOrdinal != null && a.messageOrdinal === b.messageOrdinal;
-};
-
-const parseExistingStreamSnapshot = (raw: string | null): SessionStreamSnapshot | null => {
-  if (!raw) return null;
-  try {
-    const value = JSON.parse(raw) as Partial<SessionStreamSnapshot> & {
-      messageId?: string | null;
-      messageOrdinal?: number | null;
-      content?: unknown;
-      appendPath?: string | null;
-    };
-    if (value.version !== 2) return null;
-    if (!Array.isArray(value.current?.content)) return null;
-    return value as SessionStreamSnapshot;
-  } catch {
-    return null;
-  }
-};
-
-const cacheSessionStreamSnapshot = async (
-  output: Extract<GatewaySessionOutput, { type: "session.turn.patch" }>,
-  targetUserIds: string[],
-) => {
-  const snapshotContent = (output as { snapshotContent?: unknown }).snapshotContent;
-  if (!Array.isArray(snapshotContent) || output.seq <= 0) return;
-
-  const key = streamSnapshotKey(output.spaceId, output.sessionId);
-  const existing = parseExistingStreamSnapshot(await redisCommandClient.get(key).catch(() => null));
-  const incoming: SessionStreamSnapshotMessage & { appendPath: string | null } = {
-    messageId: output.messageId,
-    messageOrdinal: output.messageOrdinal ?? null,
-    content: snapshotContent as ContentBlock[],
-    appendPath: (output as { appendPath?: unknown }).appendPath as string | null ?? null,
-  };
-  const sameTurnSnapshot = existing &&
-    existing.spaceId === output.spaceId &&
-    existing.sessionId === output.sessionId &&
-    existing.turnId === output.turnId
-    ? existing
-    : null;
-  const intermediateMessages = sameTurnSnapshot
-    ? isSameSnapshotMessage(sameTurnSnapshot.current, incoming)
-      ? sameTurnSnapshot.intermediateMessages
-      : [...sameTurnSnapshot.intermediateMessages, {
-          messageId: sameTurnSnapshot.current.messageId,
-          messageOrdinal: sameTurnSnapshot.current.messageOrdinal,
-          content: sameTurnSnapshot.current.content,
-        }]
-    : [];
-
-  const snapshot: SessionStreamSnapshot = {
-    version: 2,
-    spaceId: output.spaceId,
-    sessionId: output.sessionId,
-    turnId: output.turnId,
-    anchorUserMessageId: output.anchorUserMessageId,
-    seq: output.seq,
-    current: incoming,
-    intermediateMessages,
-    targetUserIds,
-    updatedAt: Date.now(),
-  };
-  const pipeline = redisCommandClient.pipeline();
-  pipeline.set(key, JSON.stringify(snapshot), "EX", STREAM_SNAPSHOT_TTL_SECONDS);
-  for (const userId of targetUserIds) {
-    const indexKey = streamSnapshotUserIndexKey(userId);
-    pipeline.sadd(indexKey, key);
-    pipeline.expire(indexKey, STREAM_SNAPSHOT_TTL_SECONDS);
-  }
-  await pipeline.exec();
-};
-
-export const getSessionStreamSnapshot = async (input: { spaceId: string; sessionId: string }) => {
-  const snapshot = parseExistingStreamSnapshot(
-    await redisCommandClient.get(streamSnapshotKey(input.spaceId, input.sessionId)).catch(() => null),
-  );
-  if (!snapshot) return null;
-  if (snapshot.spaceId !== input.spaceId || snapshot.sessionId !== input.sessionId) return null;
-  const { targetUserIds: _targetUserIds, ...safeSnapshot } = snapshot;
-  return safeSnapshot;
-};
-
-const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) => {
-  await redisCommandClient.del(streamSnapshotKey(spaceId, sessionId)).catch(() => undefined);
-};
-
 const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => {
   const readableUserIds = await getReadableUserIdsForSpace(output.spaceId).catch(() => [] as string[]);
-  if (output.type === "session.turn.patch") {
-    await cacheSessionStreamSnapshot(output, readableUserIds).catch((error) => {
-      console.warn("[SessionStreamSnapshot] failed to cache snapshot:", error);
-    });
-    await dispatchRealtimeEventToUsers({
-      id: randomUUID(),
-      timestamp: Date.now(),
-      domain: "session",
-      type: output.type,
-      spaceId: output.spaceId,
-      sessionId: output.sessionId,
-      payload: {
-        turnId: output.turnId,
-        messageId: output.messageId,
-        messageOrdinal: output.messageOrdinal ?? null,
-        sourceMessageId: output.messageId,
-        anchorUserMessageId: output.anchorUserMessageId,
-        seq: output.seq,
-        baseSeq: output.baseSeq,
-        ops: output.ops,
-        targetUserIds: readableUserIds,
-      },
-    });
-    return;
-  }
 
   if (output.type === "session.turn.error") {
-    await clearSessionStreamSnapshot(output.spaceId, output.sessionId);
     await dispatchRealtimeEventToUsers({
       id: randomUUID(),
       timestamp: Date.now(),
@@ -298,7 +118,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
     return;
   }
 
-  await clearSessionStreamSnapshot(output.spaceId, output.sessionId);
+  if (output.type !== "session.message.persisted") return;
   await dispatchRealtimeEventToUsers({
     id: randomUUID(),
     timestamp: Date.now(),
@@ -388,7 +208,6 @@ export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: s
 };
 
 export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
-  await clearSessionStreamSnapshot(input.spaceId, input.sessionId);
   const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
   await dispatchRealtimeEventToUsers({
     id: randomUUID(),

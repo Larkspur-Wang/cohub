@@ -202,6 +202,8 @@ export type SessionRequestAcceptedEvent = {
   sessionId: string;
   payload: {
     clientMessageId?: string | null;
+    turnId?: string | null;
+    userMessageId?: string | null;
   };
 };
 
@@ -327,6 +329,7 @@ export type SessionTurnErrorEvent = {
   spaceId: string;
   sessionId: string;
   payload: {
+    turnId?: string | null;
     anchorUserMessageId: string | null;
     error: string;
   };

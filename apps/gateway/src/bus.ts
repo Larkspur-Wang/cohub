@@ -1,16 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayConversationCreateEvent, GatewayInboundEvent, GatewayLogEvent } from "@neta-art/cohub-protocol/gateway";
+import type { GatewayConversationCreateEvent, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import { injectTrace } from "@cohub/tracing/propagator";
 import {
   createBlockingRedisClient,
   type RedisStreamEntry,
   redisCommandClient,
-  xaddWithMaxlen,
-  GATEWAY_INBOUND_STREAM,
   GATEWAY_OUTBOUND_STREAM,
-  GATEWAY_LOGS_STREAM,
 } from "./redis.js";
+import { gatewayConfig } from "./config.js";
 
 const ensureConsumerGroup = async (streamKey: string, groupName: string) => {
   try {
@@ -21,20 +19,14 @@ const ensureConsumerGroup = async (streamKey: string, groupName: string) => {
   }
 };
 
-export const INBOUND_STREAM = GATEWAY_INBOUND_STREAM;
 export const OUTBOUND_STREAM = GATEWAY_OUTBOUND_STREAM;
-export const LOG_STREAM = GATEWAY_LOGS_STREAM;
 
-console.log(`[Bus] Stream names: inbound=${INBOUND_STREAM}, outbound=${OUTBOUND_STREAM}, logs=${LOG_STREAM}`);
+console.log(`[Bus] Stream names: outbound=${OUTBOUND_STREAM}`);
 
 // Inbound event dedup — prevents duplicate processing on WS reconnects
 const inboundDedup = new Map<string, number>();
 const DEDUP_TTL_MS = 5 * 60 * 1000;
 const DEDUP_MAX_ENTRIES = 10000;
-
-const publishLogEvent = async (event: GatewayLogEvent) => {
-  await xaddWithMaxlen(redisCommandClient, LOG_STREAM, "*", "payload", JSON.stringify(event));
-};
 
 export const publishInboundEvent = async (event: GatewayInboundEvent) => {
   // Dedup: skip if already processed (handles WS reconnect duplicate delivery)
@@ -42,7 +34,6 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     console.log(`[Bus] Duplicate inbound event ${event.eventId.slice(0, 8)}, skipping`);
     return;
   }
-  inboundDedup.set(event.eventId, Date.now());
 
   // Periodic cleanup
   if (inboundDedup.size > DEDUP_MAX_ENTRIES) {
@@ -52,29 +43,25 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     }
   }
 
-  const logEvent: GatewayLogEvent = {
-    logId: randomUUID(),
-    timestamp: Date.now(),
-    direction: "inbound",
-    provider: event.provider,
-    channelId: event.channelId,
-    externalChatId: event.externalChatId,
-    externalMessageId: event.externalMessageId,
-    rawPayload: event as unknown as Record<string, unknown>,
-    status: "success",
-    correlationId: event.eventId,
-  };
-
   // Inject trace context so downstream services (API → Agent) can continue the same trace
   const traceCarrier = injectTrace();
   const enrichedEvent = Object.keys(traceCarrier).length > 0 ? { ...event, ...traceCarrier } : event;
 
-  await Promise.all([
-    xaddWithMaxlen(redisCommandClient, INBOUND_STREAM, "*", "payload", JSON.stringify(enrichedEvent)),
-    publishLogEvent(logEvent),
-  ]);
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/inbound`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+    },
+    body: JSON.stringify(enrichedEvent),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Gateway inbound submit failed ${response.status}: ${text}`);
+  }
+  inboundDedup.set(event.eventId, Date.now());
 
-  console.log(`[Bus] Inbound: ${event.eventId.slice(0, 8)}`);
+  console.log(`[Bus] Inbound submitted: ${event.eventId.slice(0, 8)}`);
 };
 
 export const publishConversationCreateEvent = async (
@@ -87,25 +74,6 @@ export const publishConversationCreateEvent = async (
     sender: input.sender ?? { id: "system", name: "system" },
     content: [],
     ...input,
-  });
-};
-
-export const publishOutboundLog = async (input: {
-  cmd: PlannedGatewayOutboundCommand;
-  result: { success: boolean; error?: string; externalMessageId?: string };
-}) => {
-  await publishLogEvent({
-    logId: randomUUID(),
-    timestamp: Date.now(),
-    direction: "outbound",
-    provider: input.cmd.provider,
-    channelId: input.cmd.channelId,
-    externalChatId: input.cmd.externalChatId,
-    externalMessageId: input.result.externalMessageId,
-    rawPayload: input.cmd as unknown as Record<string, unknown>,
-    status: input.result.success ? "success" : "failed",
-    errorMessage: input.result.error,
-    correlationId: input.cmd.commandId,
   });
 };
 
@@ -165,7 +133,6 @@ export const listenOutboundCommands = async (
               replyToExternalMessageId: cmd.replyToExternalMessageId ?? null,
             });
             const result = await onCommand(cmd);
-            await publishOutboundLog({ cmd, result });
             await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
             console.log("[Bus] Acked outbound command", {
               streamId: id,

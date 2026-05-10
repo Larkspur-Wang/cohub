@@ -5,13 +5,12 @@ import type { ChannelConfig, ChannelProvider, GatewayChannelCommandEvent, Gatewa
 import type { RealtimeServerEvent } from "@neta-art/cohub-protocol/realtime";
 import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
-import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceSessions, spaceMembers } from "./db/schema-v2.js";
-import { GATEWAY_OUTBOUND_STREAM, GATEWAY_WS_BROADCAST_CHANNEL, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceMembers } from "./db/schema-v2.js";
+import { GATEWAY_OUTBOUND_STREAM, REALTIME_OUTBOUND_CHANNEL, getSpaceWsUsersKey, getSpaceWsUsersUpdatedAtKey, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
 import {
   executeSessionInteraction,
   extractInboundText,
-  type ResolvedInboundInteraction,
 } from "./session-interactions.js";
 import { hasPermission } from "./permissions.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
@@ -215,16 +214,22 @@ export async function dispatchOutboundMessage(input: {
 
 export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & { payload: RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null } }) {
   const targetUserIds = Array.from(new Set((input.payload.targetUserIds ?? []).map((value) => value.trim()).filter(Boolean)));
-  if (targetUserIds.length === 0 && !input.payload.targetConnectionId) return;
+  if (input.spaceId) {
+    await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
+      console.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
+    });
+  }
 
+  const { targetUserIds: _targetUserIds, targetConnectionId, ...cleanPayload } = input.payload as RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null };
   await redisCommandClient.publish(
-    GATEWAY_WS_BROADCAST_CHANNEL,
+    REALTIME_OUTBOUND_CHANNEL,
     JSON.stringify({
       ...input,
-      payload: {
-        ...input.payload,
-        targetUserIds,
-      },
+      payload: targetConnectionId
+        ? { ...cleanPayload, targetConnectionId }
+        : targetUserIds.length > 0
+          ? { ...cleanPayload, targetUserIds }
+          : cleanPayload,
     }),
   );
 }
@@ -250,144 +255,15 @@ export async function getReadableUserIdsForSpace(spaceId: string) {
   return result;
 }
 
-type DirectWebsocketInboundContext = {
-  token: string;
-  userId: string;
-  spaceId: string;
-  sessionId: string;
-  connectionId: string;
-  requestId: string;
-  clientMessageId: string | null;
-};
-
-function resolveDirectWebsocketInboundContext(event: GatewayInboundEvent): DirectWebsocketInboundContext | null {
-  const token = typeof event.meta?.authToken === "string" ? event.meta.authToken.trim() : "";
-  const userId = typeof event.meta?.userId === "string" ? event.meta.userId.trim() : event.sender.id;
-  const spaceId = typeof event.meta?.spaceId === "string" ? event.meta.spaceId.trim() : "";
-  const sessionId = typeof event.meta?.sessionId === "string"
-    ? event.meta.sessionId.trim()
-    : event.conversation?.id?.trim() || event.externalChatId;
-  const connectionId = typeof event.meta?.connectionId === "string" ? event.meta.connectionId.trim() : "";
-  const requestId = typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "";
-  const clientMessageId = typeof event.meta?.clientMessageId === "string" && event.meta.clientMessageId.trim()
-    ? event.meta.clientMessageId.trim()
-    : null;
-
-  if (!spaceId || !sessionId || !userId || !token) return null;
-  return { token, userId, spaceId, sessionId, connectionId, requestId, clientMessageId };
-}
-
-async function buildDirectWebsocketInteraction(event: GatewayInboundEvent): Promise<ResolvedInboundInteraction | null> {
-  const context = resolveDirectWebsocketInboundContext(event);
-  if (!context) return null;
-
-  const externalMessageId = context.clientMessageId ?? event.externalMessageId;
-  const existingInboundRef = await getProviderMessageRef({
-    provider: event.provider,
-    externalConversationId: context.sessionId,
-    externalMessageId,
-    direction: "inbound",
-  });
-  if (existingInboundRef) return null;
-
-  return {
-    spaceId: context.spaceId,
-    sessionId: context.sessionId,
-    inputText: extractInboundText(event),
-    content: event.content,
-    source: "websocket",
-    userId: context.userId,
-    clientMessageId: externalMessageId,
-    model: typeof event.meta?.model === "string" && event.meta.model.trim() ? event.meta.model.trim() : undefined,
-    provider: typeof event.meta?.provider === "string" && event.meta.provider.trim() ? event.meta.provider.trim() : undefined,
-    inboundRef: {
-      provider: event.provider,
-      spaceChannelId: context.sessionId,
-      externalConversationId: context.sessionId,
-      externalMessageId,
-      externalAuthorId: context.userId,
-      externalAuthorName: event.sender.name ?? null,
-      meta: {
-        requestId: context.requestId || null,
-        connectionId: context.connectionId || null,
-        clientMessageId: context.clientMessageId,
-      },
-    },
-  };
-}
-
-export async function handleWebsocketInboundEvent(event: GatewayInboundEvent) {
-  const context = resolveDirectWebsocketInboundContext(event);
-
-  if (!context) {
-    await dispatchRealtimeEventToUsers({
-      id: randomUUID(),
-      timestamp: Date.now(),
-      domain: "system",
-      type: "system.request.error",
-      requestId: (typeof event.meta?.requestId === "string" ? event.meta.requestId.trim() : "") || null,
-      spaceId: (typeof event.meta?.spaceId === "string" ? event.meta.spaceId.trim() : "") || null,
-      sessionId: (typeof event.meta?.sessionId === "string" ? event.meta.sessionId.trim() : event.conversation?.id?.trim() || event.externalChatId) || null,
-      payload: {
-        code: "BAD_REQUEST",
-        message: "invalid websocket message context",
-        targetConnectionId: (typeof event.meta?.connectionId === "string" ? event.meta.connectionId.trim() : "") || null,
-        targetUserIds: typeof event.meta?.userId === "string" && event.meta.userId.trim() ? [event.meta.userId.trim()] : [],
-      },
-    });
-    return;
-  }
-
-  const { userId, spaceId, sessionId, connectionId, requestId } = context;
-
-  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  const [session] = await db.select().from(spaceSessions).where(eq(spaceSessions.id, sessionId)).limit(1);
-  if (!space || !session || session.spaceId !== spaceId) {
-    await dispatchRealtimeEventToUsers({
-      id: randomUUID(),
-      timestamp: Date.now(),
-      domain: "session",
-      type: "session.request.error",
-      requestId: requestId || null,
-      spaceId,
-      sessionId,
-      payload: {
-        code: "NOT_FOUND",
-        message: "space or session not found",
-        targetConnectionId: connectionId || null,
-        targetUserIds: [userId],
-      },
-    });
-    return;
-  }
-
-  const canUserWrite = await hasPermission({ uuid: userId }, "session.prompt.fullaccess", {
-    spaceId,
-    sessionId,
-  });
-
-  if (!canUserWrite) {
-    await dispatchRealtimeEventToUsers({
-      id: randomUUID(),
-      timestamp: Date.now(),
-      domain: "session",
-      type: "session.request.error",
-      requestId: requestId || null,
-      spaceId,
-      sessionId,
-      payload: {
-        code: "FORBIDDEN",
-        message: "no write permission for session",
-        targetConnectionId: connectionId || null,
-        targetUserIds: [userId],
-      },
-    });
-    return;
-  }
-
-  const interaction = await buildDirectWebsocketInteraction(event);
-  if (!interaction) return;
-  await executeSessionInteraction(interaction);
+export async function recomputeSpaceWsUsers(spaceId: string, userIds?: string[]) {
+  const readableUserIds = userIds ?? await getReadableUserIdsForSpace(spaceId);
+  const key = getSpaceWsUsersKey(spaceId);
+  const pipeline = redisCommandClient.pipeline();
+  pipeline.del(key);
+  if (readableUserIds.length > 0) pipeline.sadd(key, ...readableUserIds);
+  pipeline.set(getSpaceWsUsersUpdatedAtKey(spaceId), String(Date.now()));
+  await pipeline.exec();
+  return readableUserIds;
 }
 
 export async function getBindingBySpaceChannelAndKey(input: { spaceChannelId: string; bindingKey: string }) {
