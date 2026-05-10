@@ -20,6 +20,7 @@ import {
   applyAssistantMessageEvent,
   applyToolExecutionEnd,
   applyToolExecutionStart,
+  applyToolExecutionUpdate,
   createAssistantStreamState,
   projectAssistantStreamState,
   type AssistantStreamState,
@@ -536,6 +537,19 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       });
       handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
       flushProviderRenderUpdate(handle, "tool_execution_start");
+    }
+
+    if (event.type === "tool_execution_update") {
+      const resultContent = event.partialResult ? extractTextFromToolResult(event.partialResult) : "";
+      if (resultContent) {
+        handle.streamState.assistantState = applyToolExecutionUpdate(handle.streamState.assistantState, {
+          toolCallId: event.toolCallId,
+          content: resultContent,
+          isError: false,
+        });
+        handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
+        scheduleProviderRenderUpdate(handle, "tool_execution_update");
+      }
     }
 
     if (event.type === "tool_execution_end") {

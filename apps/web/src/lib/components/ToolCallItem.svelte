@@ -64,6 +64,7 @@ const activity = $derived(
 	toolActivityMap[tool.name] ?? { glyph: "◆", verb: "running" },
 );
 const draftingTail = $derived(getDraftingTail(tool.name, tool.input));
+const executionTail = $derived(getExecutionTail(tool.result));
 
 function toggle() {
 	const opening = !expanded;
@@ -90,6 +91,12 @@ function getDraftingTail(name: string, input?: Record<string, unknown>) {
 	const source = raw || fallback;
 	const tail = source.length > 44 ? `…${source.slice(-43)}` : source;
 	return tail || "forming";
+}
+
+function getExecutionTail(result?: string) {
+	const source = result?.replace(/\s+/g, " ").trim() ?? "";
+	if (!source) return "";
+	return source.length > 58 ? `…${source.slice(-57)}` : source;
 }
 
 function scrambleWord(word: string, tick: number) {
@@ -153,11 +160,12 @@ onMount(() => {
 			<span
 				role="link"
 				tabindex="0"
-				class="min-w-0 flex-1 text-[13px] font-mono text-brand/70 truncate cursor-pointer hover:text-brand hover:underline transition-colors"
+				class="min-w-0 max-w-[48%] sm:max-w-[62%] text-[13px] font-mono text-text-secondary/85 truncate cursor-pointer transition-colors hover:text-text-primary hover:underline decoration-brand/35 underline-offset-2"
 				onclick={handleFileClick}
 				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleFileClick(e); } }}
 				title="Open file"
 			>{filePath}</span>
+			<span class="min-w-0 flex-1" aria-hidden="true"></span>
 		{:else}
 			<span class="min-w-0 flex-1 text-[13px] font-mono text-text-placeholder truncate">{summarizeToolInput(tool.name, tool.input)}</span>
 		{/if}
@@ -167,9 +175,13 @@ onMount(() => {
 					<span class="tool-drafting-text">{draftingTail}</span><span class="tool-cursor" aria-hidden="true">▌</span>
 				</span>
 			{:else}
-				<span class="tool-executing-mark shrink-0 max-w-[7.5rem] sm:max-w-[9rem] text-[11px] font-mono leading-none text-brand/75" aria-label={activity.verb}>
+				<span class={`tool-executing-mark shrink-0 text-[11px] font-mono leading-none text-brand/75 ${tool.resultPartial && executionTail ? 'max-w-[8.5rem] sm:max-w-[13rem]' : 'max-w-[7.5rem] sm:max-w-[9rem]'}`} aria-label={tool.resultPartial && executionTail ? 'Latest output' : activity.verb} title={tool.resultPartial && executionTail ? executionTail : activity.verb}>
 					<span class="tool-glyph" aria-hidden="true">{activity.glyph}</span>
-					<span class="tool-activity-word">{activityText}</span><span class="tool-cursor" aria-hidden="true">▌</span>
+					{#if tool.resultPartial && executionTail}
+						<span class="tool-output-tail">{executionTail}</span><span class="tool-cursor" aria-hidden="true">▌</span>
+					{:else}
+						<span class="tool-activity-word">{activityText}</span><span class="tool-cursor" aria-hidden="true">▌</span>
+					{/if}
 				</span>
 			{/if}
 		{/if}
@@ -224,16 +236,6 @@ onMount(() => {
 		isolation: isolate;
 	}
 
-	.tool-call-running::after {
-		content: "";
-		position: absolute;
-		inset: 1px 2px 1px -6px;
-		z-index: -1;
-		border-radius: 7px;
-		background: linear-gradient(90deg, rgba(255, 62, 0, 0.055), transparent 64%);
-		opacity: 0.85;
-	}
-
 	.tool-call-rail {
 		animation: cohub-tool-rail-breathe 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 	}
@@ -258,7 +260,10 @@ onMount(() => {
 	.tool-drafting-text {
 		min-width: 0;
 		overflow: hidden;
+		text-align: left;
 		text-overflow: clip;
+		direction: rtl;
+		unicode-bidi: plaintext;
 	}
 
 	.tool-executing-mark {
@@ -276,6 +281,16 @@ onMount(() => {
 		min-width: 4.7rem;
 		text-align: right;
 		letter-spacing: 0.01em;
+	}
+
+	.tool-output-tail {
+		min-width: 0;
+		overflow: hidden;
+		color: rgb(255 62 0 / 0.68);
+		text-align: left;
+		text-overflow: clip;
+		direction: rtl;
+		unicode-bidi: plaintext;
 	}
 
 	.tool-cursor {

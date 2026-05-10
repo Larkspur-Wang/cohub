@@ -13,6 +13,7 @@ export type ToolCallViewModel = {
 	result?: string;
 	status: ToolCallStatus;
 	phase?: ToolCallPhase;
+	resultPartial?: boolean;
 	resultOmitted?: boolean;
 };
 
@@ -164,6 +165,9 @@ export function buildToolCallViewModels(input: {
 			: result?.type === "tool_result"
 				? stringifyToolValue(result.content)
 				: "";
+		const resultPartial =
+			result?.type === "tool_result" &&
+			result._meta?.resultDetail === "partial";
 		return {
 			id: block.id,
 			name: block.name,
@@ -171,6 +175,7 @@ export function buildToolCallViewModels(input: {
 			result: resultContent,
 			status,
 			phase,
+			resultPartial,
 			resultOmitted:
 				result?.type === "tool_result" &&
 				result._meta?.resultDetail === "omitted",

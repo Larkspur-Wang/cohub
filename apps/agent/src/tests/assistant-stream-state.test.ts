@@ -12,6 +12,7 @@ import {
   applyAssistantMessageEvent,
   applyToolExecutionEnd,
   applyToolExecutionStart,
+  applyToolExecutionUpdate,
   createAssistantStreamState,
   projectAssistantStreamState,
 } from "../stream/assistant-stream-state.js";
@@ -118,6 +119,37 @@ import {
   assert.equal(toolUse._meta?.streamIndex, 1);
   assert.equal(toolResult.is_error, true);
   assert.equal(toolResult._meta?.streamIndex, 1);
+}
+
+{
+  let state = createAssistantStreamState();
+  state = applyAssistantMessageEvent(state, {
+    type: "toolcall_end",
+    contentIndex: 0,
+    toolCall: { id: "t-partial", name: "bash", arguments: { command: "pnpm test" } },
+  });
+  state = applyToolExecutionStart(state, { toolCallId: "t-partial", summary: "pnpm test" });
+  state = applyToolExecutionUpdate(state, { toolCallId: "t-partial", content: "running line 1", isError: false });
+
+  let content = projectAssistantStreamState(state);
+  assert.deepEqual(
+    content.map((block) => block.type),
+    ["tool_use", "tool_result"],
+    "partial tool output should render as an adjacent running tool_result",
+  );
+  let toolUse = content[0] as Extract<ContentBlock, { type: "tool_use" }>;
+  let toolResult = content[1] as Extract<ContentBlock, { type: "tool_result" }>;
+  assert.equal(toolUse._meta?.toolStatus, "running");
+  assert.equal(toolResult.content, "running line 1");
+  assert.equal(toolResult._meta?.resultDetail, "partial");
+
+  state = applyToolExecutionEnd(state, { toolCallId: "t-partial", content: "final output", isError: false });
+  content = projectAssistantStreamState(state);
+  toolUse = content[0] as Extract<ContentBlock, { type: "tool_use" }>;
+  toolResult = content[1] as Extract<ContentBlock, { type: "tool_result" }>;
+  assert.equal(toolUse._meta?.toolStatus, "done");
+  assert.equal(toolResult.content, "final output");
+  assert.notEqual(toolResult._meta?.resultDetail, "partial", "final result should replace partial output");
 }
 
 {

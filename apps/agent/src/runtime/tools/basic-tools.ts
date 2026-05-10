@@ -1,5 +1,5 @@
 import { Type, type Static } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./truncate.js";
 
 export interface ReadOperations {
@@ -25,6 +25,55 @@ export interface BashOperations {
     cwd: string,
     options: { onData: (chunk: Buffer) => void; signal?: AbortSignal; timeout?: number; env?: Record<string, string> },
   ) => Promise<{ exitCode: number | null }>;
+}
+
+function tailOutput(content: string, maxChars = 900) {
+  if (content.length <= maxChars) return content;
+  return `…${content.slice(-maxChars)}`;
+}
+
+function createThrottledToolUpdate(onUpdate?: AgentToolUpdateCallback<unknown>) {
+  let lastSentAt = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingText = "";
+
+  const emit = () => {
+    if (!onUpdate || !pendingText) return;
+    lastSentAt = Date.now();
+    onUpdate({
+      content: [{ type: "text", text: tailOutput(pendingText) }],
+      details: { partial: true },
+    });
+  };
+
+  return {
+    push(text: string) {
+      pendingText = text;
+      if (!onUpdate) return;
+      const elapsed = Date.now() - lastSentAt;
+      if (elapsed >= 250) {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        emit();
+        return;
+      }
+      if (!timer) {
+        timer = setTimeout(() => {
+          timer = null;
+          emit();
+        }, 250 - elapsed);
+      }
+    },
+    flush() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      emit();
+    },
+  };
 }
 
 export interface LsOperations {
@@ -181,14 +230,21 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
     label: "bash",
     description: "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
     parameters,
-    async execute(_toolCallId, rawParams, signal) {
+    async execute(_toolCallId, rawParams, signal, onUpdate) {
       const params = rawParams as Static<typeof parameters>;
       const chunks: Buffer[] = [];
+      let outputPreview = "";
+      const updates = createThrottledToolUpdate(onUpdate);
       const result = await options.operations.exec(params.command, cwd, {
-        onData: (chunk) => chunks.push(chunk),
+        onData: (chunk) => {
+          chunks.push(chunk);
+          outputPreview = tailOutput(`${outputPreview}${chunk.toString("utf-8")}`);
+          updates.push(outputPreview);
+        },
         signal,
         timeout: params.timeout,
       });
+      updates.flush();
       const output = Buffer.concat(chunks).toString("utf-8");
       const truncated = truncateHead(output, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
       return {

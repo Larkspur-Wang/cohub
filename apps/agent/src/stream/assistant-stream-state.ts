@@ -46,6 +46,7 @@ export type AssistantStreamState = {
   blocks: StreamBlock[];
   toolMetaById: Map<string, ToolMeta>;
   toolResultsById: Map<string, ToolResultState>;
+  partialToolResultsById: Map<string, ToolResultState>;
 };
 
 type AssistantToolCall = {
@@ -77,6 +78,7 @@ export function createAssistantStreamState(): AssistantStreamState {
     blocks: [],
     toolMetaById: new Map(),
     toolResultsById: new Map(),
+    partialToolResultsById: new Map(),
   };
 }
 
@@ -225,6 +227,24 @@ export function applyToolExecutionStart(
   return { ...state, toolMetaById };
 }
 
+export function applyToolExecutionUpdate(
+  state: AssistantStreamState,
+  input: {
+    toolCallId: string;
+    content: string | ContentBlock[];
+    isError?: boolean;
+  },
+): AssistantStreamState {
+  const partialToolResultsById = new Map(state.partialToolResultsById);
+  partialToolResultsById.set(input.toolCallId, {
+    tool_use_id: input.toolCallId,
+    content: input.content,
+    is_error: input.isError ?? false,
+    _meta: { toolStatus: "running", resultDetail: "partial" },
+  });
+  return { ...state, partialToolResultsById };
+}
+
 export function applyToolExecutionEnd(
   state: AssistantStreamState,
   input: {
@@ -247,7 +267,10 @@ export function applyToolExecutionEnd(
     _meta: { toolStatus: input.isError ? "failed" : "done" },
   });
 
-  return { ...state, toolMetaById, toolResultsById };
+  const partialToolResultsById = new Map(state.partialToolResultsById);
+  partialToolResultsById.delete(input.toolCallId);
+
+  return { ...state, toolMetaById, toolResultsById, partialToolResultsById };
 }
 
 function withStreamIndexMeta(
@@ -303,7 +326,7 @@ export function projectAssistantStreamState(state: AssistantStreamState): Conten
       _meta: withStreamIndexMeta(meta, block.contentIndex),
     });
 
-    const result = state.toolResultsById.get(block.id);
+    const result = state.toolResultsById.get(block.id) ?? state.partialToolResultsById.get(block.id);
     if (result) {
       content.push({
         type: "tool_result",
