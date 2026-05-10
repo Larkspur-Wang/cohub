@@ -1,5 +1,11 @@
 # @neta-art/cohub-protocol
 
+## 1.4.0
+
+### Minor Changes
+
+- 341bfc0: Add turn abort/steer reason, continuedByTurnId to turn summary; add turnId/userMessageId to websocket events
+
 ## 1.3.0
 
 ### Minor Changes
