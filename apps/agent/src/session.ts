@@ -345,7 +345,7 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
       if (
         !prev ||
         prev.type !== "tool_use" ||
-        prev._meta?.toolStatus !== block._meta?.toolStatus ||
+        JSON.stringify(prev._meta) !== JSON.stringify(block._meta) ||
         JSON.stringify(prev.input) !== JSON.stringify(block.input) ||
         prev.name !== block.name
       ) {

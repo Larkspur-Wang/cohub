@@ -88,8 +88,25 @@ function getStreamIndex(block: ContentBlock): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function blockIdentityCompatible(prev: ContentBlock, next: ContentBlock) {
+  if (prev.type !== next.type) return false;
+  if (prev.type === "tool_use" && next.type === "tool_use") return prev.id === next.id && prev.name === next.name;
+  if (prev.type === "tool_result" && next.type === "tool_result") return prev.tool_use_id === next.tool_use_id;
+  return true;
+}
+
 function findBlockByStreamIndex(blocks: ContentBlock[], streamIndex: number) {
   return blocks.findIndex((block) => getStreamIndex(block) === streamIndex);
+}
+
+function findBlockForReplacement(blocks: ContentBlock[], streamIndex: number, nextBlock: ContentBlock) {
+  const compatibleIndex = blocks.findIndex(
+    (block) => getStreamIndex(block) === streamIndex && blockIdentityCompatible(block, nextBlock),
+  );
+  if (compatibleIndex >= 0) return compatibleIndex;
+  const sameStreamIndex = blocks.findIndex((block) => getStreamIndex(block) === streamIndex);
+  if (sameStreamIndex >= 0 && nextBlock.type !== "tool_use" && nextBlock.type !== "tool_result") return sameStreamIndex;
+  return -1;
 }
 
 function sortBlocksByStreamIndex(blocks: ContentBlock[]) {
@@ -319,7 +336,7 @@ function applyPatchOpsToBlocks(
       const streamIndex = Number(match[1]);
       const block = cloneBlock(op.v);
       block._meta = { ...(block._meta ?? {}), streamIndex };
-      const blockIndex = findBlockByStreamIndex(next, streamIndex);
+      const blockIndex = findBlockForReplacement(next, streamIndex, block);
       if (blockIndex >= 0) {
         next[blockIndex] = block;
       } else {

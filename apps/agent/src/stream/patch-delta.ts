@@ -20,8 +20,14 @@ const streamBlockSnapshots = new Map<string, StreamBlockSnapshot>();
 const patchCursorKey = (event: SessionStreamEvent) =>
   `${event.sessionId}:${getSessionTurnPatchStreamKey(event) ?? "unknown"}`;
 
-const streamBlockSnapshotKey = (event: SessionStreamEvent, streamIndex: number) =>
-  `${patchCursorKey(event)}:${streamIndex}`;
+const blockSnapshotIdentity = (block: ContentBlock) => {
+  if (block.type === "tool_use") return `tool_use:${block.id}`;
+  if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
+  return block.type;
+};
+
+const streamBlockSnapshotKey = (event: SessionStreamEvent, streamIndex: number, block: ContentBlock) =>
+  `${patchCursorKey(event)}:${streamIndex}:${blockSnapshotIdentity(block)}`;
 
 const pruneExpired = (now: number) => {
   for (const [key, cursor] of appendPatchCursors) {
@@ -113,7 +119,7 @@ const diffContentBlocksToOps = (blockBasePath: string, prev: ContentBlock | unde
 
 const resolveFullBlockFromSnapshot = (snapshotContent: ContentBlock[] | undefined, streamIndex: number, deltaBlock: ContentBlock): ContentBlock => {
   if (!snapshotContent?.length) return structuredClone(deltaBlock);
-  const found = snapshotContent.find((b) => getStreamIndex(b, -1) === streamIndex);
+  const found = snapshotContent.find((b) => getStreamIndex(b, -1) === streamIndex && blockIdentityCompatible(b, deltaBlock));
   return structuredClone(found ?? deltaBlock);
 };
 
@@ -155,7 +161,7 @@ export const buildPatchOpsForContentDelta = (event: SessionStreamEvent): Realtim
   event.content.forEach((deltaBlock, index) => {
     const path = blockPatchPath(deltaBlock, index);
     const streamIndex = getStreamIndex(deltaBlock, index);
-    const snapKey = streamBlockSnapshotKey(event, streamIndex);
+    const snapKey = streamBlockSnapshotKey(event, streamIndex, deltaBlock);
     const nextFull = resolveFullBlockFromSnapshot(event.snapshotContent, streamIndex, deltaBlock);
     const prevFull = streamBlockSnapshots.get(snapKey)?.block;
     const diffResult = diffContentBlocksToOps(path, prevFull, nextFull);

@@ -141,20 +141,19 @@ export function buildToolCallViewModels(input: {
 			null;
 		const result = findToolResult(input.content, block.id);
 		const metaStatus = block._meta?.toolStatus;
-		const status: ToolCallStatus =
-			metaStatus === "done" ||
-			metaStatus === "failed" ||
-			metaStatus === "running"
-				? metaStatus
-				: fullTool?.result
-					? fullTool.result.isError
-						? "failed"
-						: "done"
-					: result?.type === "tool_result"
-						? result.is_error
-							? "failed"
-							: "done"
-						: "running";
+		const status: ToolCallStatus = fullTool?.result
+			? fullTool.result.isError
+				? "failed"
+				: "done"
+			: result?.type === "tool_result"
+				? result.is_error
+					? "failed"
+					: "done"
+				: metaStatus === "done" ||
+						metaStatus === "failed" ||
+						metaStatus === "running"
+					? metaStatus
+					: "running";
 		const phase =
 			status === "running"
 				? metaStatus === "running"
