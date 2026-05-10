@@ -4,12 +4,15 @@ import type { ToolState } from "$lib/session-tree";
 
 export type ToolCallStatus = "running" | "done" | "failed";
 
+export type ToolCallPhase = "drafting" | "executing";
+
 export type ToolCallViewModel = {
 	id: string;
 	name: string;
 	input?: Record<string, unknown>;
 	result?: string;
 	status: ToolCallStatus;
+	phase?: ToolCallPhase;
 	resultOmitted?: boolean;
 };
 
@@ -150,6 +153,12 @@ export function buildToolCallViewModels(input: {
 							? "failed"
 							: "done"
 						: "running";
+		const phase =
+			status === "running"
+				? metaStatus === "running"
+					? "executing"
+					: "drafting"
+				: undefined;
 		const resultContent = fullTool?.result
 			? stringifyToolValue(fullTool.result.content)
 			: result?.type === "tool_result"
@@ -161,6 +170,7 @@ export function buildToolCallViewModels(input: {
 			input: fullTool?.input ?? block.input,
 			result: resultContent,
 			status,
+			phase,
 			resultOmitted:
 				result?.type === "tool_result" &&
 				result._meta?.resultDetail === "omitted",
