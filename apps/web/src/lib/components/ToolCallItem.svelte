@@ -198,7 +198,12 @@ function getDraftingTail(
 }
 
 function getExecutionTail(result?: string) {
-	const source = result?.replace(/\s+/g, " ").trim() ?? "";
+	const lines =
+		result
+			?.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean) ?? [];
+	const source = lines.at(-1) ?? "";
 	if (!source) return "";
 	return source.length > 58 ? `…${source.slice(-57)}` : source;
 }
