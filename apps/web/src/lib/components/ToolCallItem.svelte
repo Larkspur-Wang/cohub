@@ -1,6 +1,6 @@
 <script lang="ts">
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
-import { onDestroy, onMount } from "svelte";
+import { onMount } from "svelte";
 import {
 	formatToolInput,
 	getToolFilePath,
@@ -27,9 +27,6 @@ const {
 let expanded = $state(false);
 let reducedMotion = $state(false);
 let activityText = $state("");
-let visibleDraftingTail = $state("");
-let inputTailSticky = $state(false);
-let inputTailStickyTimer: number | null = null;
 let previousDraftingLeaves = new Map<string, string>();
 let activeDraftingLeafPath = $state<string | null>(null);
 
@@ -75,10 +72,7 @@ const draftingTail = $derived(
 const executionTail = $derived(
 	getExecutionTail(tool.partialResult ?? tool.result),
 );
-const showDraftingTail = $derived(
-	isRunning &&
-		(runningPhase === "drafting" || (inputTailSticky && !executionTail)),
-);
+const showDraftingTail = $derived(isRunning && runningPhase === "drafting");
 
 function toggle() {
 	const opening = !expanded;
@@ -248,27 +242,6 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (!isRunning) {
-		visibleDraftingTail = draftingTail;
-		inputTailSticky = false;
-		if (inputTailStickyTimer) {
-			window.clearTimeout(inputTailStickyTimer);
-			inputTailStickyTimer = null;
-		}
-		return;
-	}
-	if (draftingTail && draftingTail !== visibleDraftingTail) {
-		visibleDraftingTail = draftingTail;
-		inputTailSticky = true;
-		if (inputTailStickyTimer) window.clearTimeout(inputTailStickyTimer);
-		inputTailStickyTimer = window.setTimeout(() => {
-			inputTailSticky = false;
-			inputTailStickyTimer = null;
-		}, 850);
-	}
-});
-
-$effect(() => {
 	if (!isRunning || runningPhase !== "executing" || showDraftingTail) {
 		activityText = activity.verb;
 		return;
@@ -291,10 +264,6 @@ onMount(() => {
 	update();
 	media.addEventListener("change", update);
 	return () => media.removeEventListener("change", update);
-});
-
-onDestroy(() => {
-	if (inputTailStickyTimer) window.clearTimeout(inputTailStickyTimer);
 });
 </script>
 
@@ -324,8 +293,8 @@ onDestroy(() => {
 		{/if}
 		{#if isRunning}
 			{#if showDraftingTail}
-				<span class="tool-drafting-sliver shrink-0 max-w-[7rem] sm:max-w-[10rem] md:max-w-[12rem] text-[11px] font-mono leading-none text-brand/70" title={visibleDraftingTail}>
-					<span class="tool-drafting-text">{visibleDraftingTail}</span><span class="tool-cursor" aria-hidden="true">▌</span>
+				<span class="tool-drafting-sliver shrink-0 max-w-[7rem] sm:max-w-[10rem] md:max-w-[12rem] text-[11px] font-mono leading-none text-brand/70" title={draftingTail}>
+					<span class="tool-drafting-text">{draftingTail}</span><span class="tool-cursor" aria-hidden="true">▌</span>
 				</span>
 			{:else}
 				<span class={`tool-executing-mark shrink-0 text-[11px] font-mono leading-none text-brand/75 ${tool.resultPartial && executionTail ? 'max-w-[8.5rem] sm:max-w-[13rem]' : 'max-w-[7.5rem] sm:max-w-[9rem]'}`} aria-label={tool.resultPartial && executionTail ? 'Latest output' : activity.verb} title={tool.resultPartial && executionTail ? executionTail : activity.verb}>
