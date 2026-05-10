@@ -314,7 +314,6 @@ async function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload)
   const {
     targetUserIds: _targetUserIds,
     targetConnectionId: _targetConnectionId,
-    snapshotKey: _snapshotKey,
     ...cleanPayload
   } = (payload.payload ?? {}) as Record<string, unknown>;
   const envelope = { ...payload, payload: cleanPayload } as RealtimeEnvelope;

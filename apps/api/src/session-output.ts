@@ -12,6 +12,7 @@ import {
 } from "./channels.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "./db/schema-v2.js";
+import { clearSessionStreamSnapshot } from "./session-stream-snapshot.js";
 const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
   if (!meta) return null;
   const keys = [
@@ -98,10 +99,16 @@ export const buildSessionOutputsForPersistedMessage = async (input: {
   return outputs;
 };
 
+const shouldClearStreamSnapshotForMessage = (message: MessageRecord) => {
+  const kind = message.meta?.messageKind;
+  return kind === "assistant_final" || kind === "assistant_error" || message.stopReason === "aborted";
+};
+
 const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => {
   const readableUserIds = await getReadableUserIdsForSpace(output.spaceId).catch(() => [] as string[]);
 
   if (output.type === "session.turn.error") {
+    await clearSessionStreamSnapshot({ spaceId: output.spaceId, sessionId: output.sessionId });
     await dispatchRealtimeEventToUsers({
       id: randomUUID(),
       timestamp: Date.now(),
@@ -119,6 +126,9 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
   }
 
   if (output.type !== "session.message.persisted") return;
+  if (shouldClearStreamSnapshotForMessage(output.message)) {
+    await clearSessionStreamSnapshot({ spaceId: output.spaceId, sessionId: output.sessionId });
+  }
   await dispatchRealtimeEventToUsers({
     id: randomUUID(),
     timestamp: Date.now(),
@@ -208,6 +218,7 @@ export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: s
 };
 
 export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
+  await clearSessionStreamSnapshot({ spaceId: input.spaceId, sessionId: input.sessionId });
   const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
   await dispatchRealtimeEventToUsers({
     id: randomUUID(),

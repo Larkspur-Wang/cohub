@@ -28,9 +28,95 @@ const DEAD_LETTER_KEY = getAgentInstanceDeadLetterQueueKey(env.AGENT_INSTANCE_ID
 const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 const DEAD_LETTER_MAX_ITEMS = 200;
-const STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;
-const getTurnSnapshotKey = (spaceId: string, sessionId: string, turnId: string | null | undefined) =>
-  `realtime:snapshot:turn:${spaceId}:${sessionId}:${turnId ?? "unknown"}`;
+const SESSION_STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;
+const getSessionStreamSnapshotKey = (spaceId: string, sessionId: string) =>
+  `session:stream:snapshot:${spaceId}:${sessionId}`;
+
+type SessionStreamSnapshotMessage = {
+  messageId: string | null;
+  messageOrdinal: number | null;
+  content: ContentBlock[];
+};
+
+type SessionStreamSnapshot = {
+  version: 2;
+  spaceId: string;
+  sessionId: string;
+  turnId: string | null;
+  anchorUserMessageId: string | null;
+  seq: number;
+  current: SessionStreamSnapshotMessage & { appendPath: string | null };
+  intermediateMessages: SessionStreamSnapshotMessage[];
+  updatedAt: number;
+};
+
+const isSameSnapshotMessage = (
+  a: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
+  b: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
+) => {
+  if (a.messageId && b.messageId) return a.messageId === b.messageId;
+  return a.messageOrdinal != null && b.messageOrdinal != null && a.messageOrdinal === b.messageOrdinal;
+};
+
+const parseSessionStreamSnapshot = (raw: string | null): SessionStreamSnapshot | null => {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<SessionStreamSnapshot>;
+    if (value.version !== 2) return null;
+    if (!value.spaceId || !value.sessionId) return null;
+    if (!Array.isArray(value.current?.content)) return null;
+    if (!Array.isArray(value.intermediateMessages)) return null;
+    return value as SessionStreamSnapshot;
+  } catch {
+    return null;
+  }
+};
+
+const cacheSessionStreamSnapshot = async (event: SessionStreamEvent) => {
+  if (!Array.isArray(event.snapshotContent) || event.seq <= 0) return;
+
+  const key = getSessionStreamSnapshotKey(event.spaceId, event.sessionId);
+  const existing = parseSessionStreamSnapshot(await redis.get(key).catch(() => null));
+  const incoming: SessionStreamSnapshot["current"] = {
+    messageId: event.messageId ?? null,
+    messageOrdinal: event.messageOrdinal ?? null,
+    content: event.snapshotContent,
+    appendPath: getAppendPathForStreamEvent(event),
+  };
+  const sameTurnSnapshot = existing &&
+    existing.spaceId === event.spaceId &&
+    existing.sessionId === event.sessionId &&
+    existing.turnId === (event.turnId ?? null)
+    ? existing
+    : null;
+  const intermediateMessages = sameTurnSnapshot
+    ? isSameSnapshotMessage(sameTurnSnapshot.current, incoming)
+      ? sameTurnSnapshot.intermediateMessages
+      : [...sameTurnSnapshot.intermediateMessages, {
+          messageId: sameTurnSnapshot.current.messageId,
+          messageOrdinal: sameTurnSnapshot.current.messageOrdinal,
+          content: sameTurnSnapshot.current.content,
+        }]
+    : [];
+
+  const snapshot: SessionStreamSnapshot = {
+    version: 2,
+    spaceId: event.spaceId,
+    sessionId: event.sessionId,
+    turnId: event.turnId ?? null,
+    anchorUserMessageId: event.anchorUserMessageId ?? event.sourceMessageId ?? null,
+    seq: event.seq,
+    current: incoming,
+    intermediateMessages,
+    updatedAt: Date.now(),
+  };
+
+  await redis.set(key, JSON.stringify(snapshot), "EX", SESSION_STREAM_SNAPSHOT_TTL_SECONDS);
+};
+
+const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) => {
+  await redis.del(getSessionStreamSnapshotKey(spaceId, sessionId)).catch(() => undefined);
+};
 
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
@@ -146,30 +232,9 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
     if (event.type === "stream_update") {
       const streamEvent = event as SessionStreamEvent;
       const ops = buildPatchOpsForContentDelta(streamEvent);
-      const snapshotKey = getTurnSnapshotKey(event.spaceId, event.sessionId, event.turnId ?? null);
-      if (event.snapshotContent?.length) {
-        await redis.set(
-          snapshotKey,
-          JSON.stringify({
-            version: 1,
-            spaceId: event.spaceId,
-            sessionId: event.sessionId,
-            turnId: event.turnId ?? null,
-            anchorUserMessageId: event.anchorUserMessageId ?? null,
-            seq: event.seq,
-            current: {
-              messageId: event.messageId ?? null,
-              messageOrdinal: event.messageOrdinal ?? null,
-              content: event.snapshotContent,
-              appendPath: getAppendPathForStreamEvent(streamEvent),
-            },
-            intermediateMessages: [],
-            updatedAt: Date.now(),
-          }),
-          "EX",
-          STREAM_SNAPSHOT_TTL_SECONDS,
-        );
-      }
+      await cacheSessionStreamSnapshot(streamEvent).catch((error) => {
+        console.warn("[SessionStreamSnapshot] failed to cache snapshot:", error);
+      });
       envelope = {
         id: randomUUID(),
         timestamp: Date.now(),
@@ -186,11 +251,10 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
           seq: event.seq,
           baseSeq: event.baseSeq,
           ops,
-          snapshotSeq: event.snapshotContent?.length ? event.seq : null,
-          snapshotKey: event.snapshotContent?.length ? snapshotKey : null,
         },
       };
     } else {
+      if (event.sessionId) await clearSessionStreamSnapshot(event.spaceId, event.sessionId);
       envelope = {
         id: randomUUID(),
         timestamp: Date.now(),
