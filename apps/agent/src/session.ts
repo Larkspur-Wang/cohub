@@ -297,10 +297,10 @@ function getStreamIndex(block: ContentBlock): number | null {
 }
 
 function buildBlockIdentity(block: ContentBlock): string {
-  const streamIndex = getStreamIndex(block);
-  if (streamIndex != null) return `stream:${streamIndex}`;
   if (block.type === "tool_use") return `tool_use:${block.id}`;
   if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
+  const streamIndex = getStreamIndex(block);
+  if (streamIndex != null) return `stream:${streamIndex}`;
   return `${block.type}:${JSON.stringify(block)}`;
 }
 

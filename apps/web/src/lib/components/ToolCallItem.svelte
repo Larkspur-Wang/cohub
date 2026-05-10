@@ -85,12 +85,66 @@ function stringifyInputPreview(input?: Record<string, unknown>): string {
 	}
 }
 
+function tailText(source: string, maxChars = 44) {
+	const compact = source.replace(/\s+/g, " ").trim();
+	if (!compact) return "";
+	return compact.length > maxChars
+		? `…${compact.slice(1 - maxChars)}`
+		: compact;
+}
+
+type DraftingLeaf = {
+	path: string;
+	value: string;
+};
+
+function flattenDraftingLeaves(value: unknown, path = ""): DraftingLeaf[] {
+	if (value == null) return [];
+	if (["string", "number", "boolean"].includes(typeof value)) {
+		const text = String(value).trim();
+		return text ? [{ path, value: text }] : [];
+	}
+	if (Array.isArray(value)) {
+		return value.flatMap((item, index) =>
+			flattenDraftingLeaves(item, path ? `${path}.${index}` : String(index)),
+		);
+	}
+	if (typeof value === "object") {
+		return Object.entries(value as Record<string, unknown>).flatMap(
+			([key, child]) =>
+				flattenDraftingLeaves(child, path ? `${path}.${key}` : key),
+		);
+	}
+	return [];
+}
+
+function isPathLikeLeaf(leaf: DraftingLeaf) {
+	const key = leaf.path.split(".").at(-1)?.toLowerCase() ?? "";
+	return (
+		key === "path" ||
+		key.endsWith("path") ||
+		key === "file" ||
+		key === "filename"
+	);
+}
+
+function formatDraftingLeaf(leaf: DraftingLeaf) {
+	const key = leaf.path.split(".").at(-1) ?? "input";
+	const tail = tailText(leaf.value);
+	if (!tail) return "";
+	return isPathLikeLeaf(leaf) ? tail : `${key}: ${tail}`;
+}
+
 function getDraftingTail(name: string, input?: Record<string, unknown>) {
-	const raw = stringifyInputPreview(input).replace(/\s+/g, " ").trim();
+	const leaves = flattenDraftingLeaves(input);
+	const nonPathLeaf = leaves.findLast((leaf) => !isPathLikeLeaf(leaf));
+	const fallbackLeaf = leaves.at(-1);
+	const selected = nonPathLeaf ?? fallbackLeaf;
+	if (selected)
+		return formatDraftingLeaf(selected) || `${name || "tool"} forming`;
+	const raw = stringifyInputPreview(input);
 	const fallback = `${name || "tool"} forming`;
-	const source = raw || fallback;
-	const tail = source.length > 44 ? `…${source.slice(-43)}` : source;
-	return tail || "forming";
+	return tailText(raw) || fallback;
 }
 
 function getExecutionTail(result?: string) {
