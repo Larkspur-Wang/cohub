@@ -202,6 +202,9 @@ export const markMessageAsFull = <T extends { meta: unknown }>(message: T): T =>
   };
 };
 
+const normalizeRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
 const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage | null => {
   if (!usage || typeof usage !== "object") return null;
   return {
@@ -614,6 +617,13 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       ? ((input.message.meta as Record<string, unknown>).turnId as string)
       : null;
     if (turnId && (messageKind === "assistant_final" || messageKind === "assistant_error")) {
+      const messageMeta = normalizeRecord(input.message.meta);
+      const agentMeta = normalizeRecord(messageMeta?.agent);
+      const agentSessionEntryId = typeof messageMeta?.agentSessionEntryId === "string"
+        ? messageMeta.agentSessionEntryId
+        : typeof agentMeta?.leafEntryId === "string"
+          ? agentMeta.leafEntryId
+          : null;
       const finalizedTurn = await finalizeSessionTurnFromMessage({
         spaceId: session.spaceId,
         sessionId: input.sessionId,
@@ -626,6 +636,11 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         stopReason: input.message.stopReason ?? null,
         errorMessage: displayErrorMessage,
         usage: normalizedUsage,
+        metaPatch: agentSessionEntryId
+          ? {
+              agentSessionEntryId,
+            }
+          : null,
       }).catch((error) => {
         console.warn("[SessionTurn] failed to finalize turn", error);
         return null;

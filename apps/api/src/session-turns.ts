@@ -496,6 +496,7 @@ export const finalizeSessionTurnFromMessage = async (input: {
   stopReason: string | null;
   errorMessage: string | null;
   usage: Usage | null;
+  metaPatch?: Record<string, unknown> | null;
 }) => {
   const intermediate = await buildIntermediateObjectsForTurn(input).catch((error) => {
     console.warn("[SessionTurn] failed to build intermediate objects", error);
@@ -511,6 +512,11 @@ export const finalizeSessionTurnFromMessage = async (input: {
     errorMessage: input.errorMessage,
     finalUsage: input.usage,
     totalUsage: addUsage(intermediate?.summary.usage, input.usage),
+    ...(input.metaPatch && Object.keys(input.metaPatch).length > 0
+      ? {
+          meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify(input.metaPatch)}::jsonb`,
+        }
+      : {}),
     summary: {
       text: input.assistantText,
       finishReason: input.status === "interrupted" ? "interrupted" : input.status === "failed" ? "failed" : "completed",
