@@ -1,5 +1,11 @@
 # @neta-art/cohub-protocol
 
+## 1.5.0
+
+### Minor Changes
+
+- c53aaec: Add direct shell command support for session turns, redesign session fork architecture with segment-based turns
+
 ## 1.4.0
 
 ### Minor Changes

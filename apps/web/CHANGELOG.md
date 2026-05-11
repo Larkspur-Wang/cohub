@@ -1,5 +1,14 @@
 # web
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [c53aaec]
+- Updated dependencies [c53aaec]
+  - @neta-art/cohub@1.7.0
+  - @neta-art/cohub-protocol@1.5.0
+
 ## 0.1.1
 
 ### Patch Changes
