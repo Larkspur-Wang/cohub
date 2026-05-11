@@ -5,6 +5,7 @@
 ### Minor Changes
 
 - 341bfc0: Add turn abort/steer reason, continuedByTurnId to turn summary; add turnId/userMessageId to websocket events
+- Add `SessionGenerationStreamClient` and `session.subscribeGeneration(...)` for normalized generation events across turn snapshots, patches, progress, persisted assistant commits, finalized turns, and errors.
 
 ### Patch Changes
 

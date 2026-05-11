@@ -120,6 +120,27 @@ space.on("message.persisted", (event) => {
 });
 ```
 
+For product UIs, prefer the normalized generation stream. It folds
+`session.turn.snapshot`, `session.turn.patch`, legacy `session.turn.progress`,
+persisted assistant messages, finalized turns, and turn errors into stable
+semantic events.
+
+```ts
+const stop = session.subscribeGeneration({
+  state(event) {
+    console.log(event.source, event.state.contentBlocks);
+  },
+  commit(event) {
+    if (event.commit.kind === "final") {
+      console.log("assistant final", event.commit.message);
+    }
+  },
+  outOfSync() {
+    // Fetch `session.turns.streamSnapshot()` or reconcile persisted turns.
+  },
+});
+```
+
 Supported business event names:
 
 - `turn.patch`

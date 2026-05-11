@@ -7,6 +7,10 @@ import {
   type SessionPatchApplyInput,
   type SessionPatchApplyResult,
 } from "../session-patch-reducer.js";
+import {
+  SessionGenerationStreamClient,
+  type GenerationStreamSubscriptionHandlers,
+} from "../session-generation-stream.js";
 import type {
   CheckpointRecord,
   ContentBlock,
@@ -68,9 +72,16 @@ const getFilenameFromContentDisposition = (value: string | null) => {
 
 export type SessionSubscriptionHandlers = {
   patch?: (event: WebsocketEventPayload) => void;
+  /**
+   * @deprecated Use `session.subscribeGeneration({ state })` for normalized
+   * snapshot/patch/progress generation state.
+   */
   patchState?: (result: SessionPatchApplyResult) => void;
+  /** @deprecated Use `session.subscribeGeneration({ state })`. */
   snapshot?: (event: WebsocketEventPayload) => void;
+  /** @deprecated Legacy progress events are normalized by `subscribeGeneration`. */
   progress?: (event: WebsocketEventPayload) => void;
+  /** @deprecated Use `session.subscribeGeneration({ commit, finalized })`. */
   final?: (event: WebsocketEventPayload) => void;
   turnUpdated?: (event: WebsocketEventPayload) => void;
   turnFinalized?: (event: WebsocketEventPayload) => void;
@@ -592,6 +603,7 @@ export class SessionClient {
   readonly messages: SessionMessagesClient;
   readonly turns: SessionTurnsClient;
   readonly realtime: SessionRealtimeClient;
+  readonly generation: SessionGenerationStreamClient;
 
   constructor(
     readonly spaceId: string,
@@ -602,6 +614,7 @@ export class SessionClient {
     this.messages = new SessionMessagesClient(transport, id);
     this.turns = new SessionTurnsClient(transport, id);
     this.realtime = new SessionRealtimeClient(websocketClient, spaceId, id);
+    this.generation = new SessionGenerationStreamClient(websocketClient, spaceId, id);
   }
 
   get(customFetch?: Fetch) {
@@ -640,6 +653,10 @@ export class SessionClient {
 
   subscribe(handlers: SessionSubscriptionHandlers) {
     return this.realtime.subscribe(handlers);
+  }
+
+  subscribeGeneration(handlers: GenerationStreamSubscriptionHandlers) {
+    return this.generation.subscribe(handlers);
   }
 
   on(type: SessionEventName, handler: (event: WebsocketEventPayload) => void) {
