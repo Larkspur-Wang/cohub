@@ -6,14 +6,14 @@ import { listPromptTemplates } from "../prompt-templates.js";
 const router = new Hono();
 
 router.get("/", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.query("spaceId")?.trim() || null;
+
+  if (spaceId && !(await hasPermission(user, "space.view", { spaceId }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
   try {
-    const user = useAuth(c);
-    const spaceId = c.req.query("spaceId")?.trim() || null;
-
-    if (spaceId && !(await hasPermission(user, "space.view", { spaceId }))) {
-      return c.json({ message: "not found" }, 404);
-    }
-
     return c.json({
       prompts: await listPromptTemplates({
         userId: user?.uuid ?? null,
