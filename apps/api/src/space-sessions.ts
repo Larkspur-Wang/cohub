@@ -47,6 +47,8 @@ export const deriveMessagePreviewText = (input: { role?: string | null; content:
           return [block.text];
         case "image":
           return block.source.type === "url" ? [block.source.url] : [];
+        case "shell_command":
+          return [["$", block.command].join("")];
         case "system_note":
           return [block.text];
         default:
@@ -67,6 +69,8 @@ export const extractPlainText = (blocks: ContentBlock[]): string => {
           return [block.thinking];
         case "image":
           return block.source.type === "url" ? [block.source.url] : [];
+        case "shell_command":
+          return [["$", block.command].join("")];
         case "tool_use":
           return [`${block.name}(...)`];
         case "tool_result":
@@ -541,7 +545,9 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   let anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   const userId = input.userId ?? null;
   const toolUseCount = countToolCallsInContent(content);
-  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
+  const requestedMessageKind = (input.message.meta as Record<string, unknown> | null | undefined)?.messageKind;
+  const isDirectShellCommandResult = requestedMessageKind === "shell_command_result";
+  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : isDirectShellCommandResult ? "assistant_final" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
   const displayErrorMessage = isAborted ? null : input.message.errorMessage ?? null;
 
   const [messageNode] = await db.insert(sessionMessages).values({

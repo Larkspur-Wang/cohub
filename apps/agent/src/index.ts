@@ -27,14 +27,14 @@ import {
   recoverProcessingQueueOnStartup,
   sendOutput,
 } from "./redis.js";
-import { abortSessionTurn, getSpace, getSpaceSandbox } from "./api.js";
+import { abortSessionTurn, getSpace, getSpaceSandbox, persistAssistantMessage, persistUserMessage } from "./api.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
   disconnectSandboxWsClient,
   startSandboxWsClient,
   waitForSandboxConnection,
 } from "./sandbox/ws-client.js";
-import { clearCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
+import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import {
   getSessionKey,
   loadOrCreateSessionHandle,
@@ -287,6 +287,41 @@ async function runInSessionOperation<T>(handle: SessionHandle, fn: () => Promise
   }
 }
 
+function getShellCommandBlock(content: ContentBlock[]): Extract<ContentBlock, { type: "shell_command" }> | null {
+  if (content.length !== 1) return null;
+  const block = content[0];
+  return block?.type === "shell_command" ? block : null;
+}
+
+function extractToolResultText(result: unknown): string {
+  if (!result || typeof result !== "object") return "";
+  const record = result as Record<string, unknown>;
+  if (Array.isArray(record.content)) {
+    return record.content
+      .map((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text"
+        ? String((item as Record<string, unknown>).text ?? "")
+        : "")
+      .join("");
+  }
+  return typeof record.content === "string" ? record.content : "";
+}
+
+function formatShellCommandResultForLlm(input: {
+  command: string;
+  output: string;
+  exitCode?: number | null;
+  cancelled?: boolean;
+}) {
+  let text = `Ran \`${input.command}\``;
+  text += input.output ? `\n\`\`\`\n${input.output}\n\`\`\`` : "\n(no output)";
+  if (input.cancelled) {
+    text += "\n\n(command cancelled)";
+  } else if (input.exitCode != null && input.exitCode !== 0) {
+    text += `\n\nCommand exited with code ${input.exitCode}`;
+  }
+  return text;
+}
+
 async function enqueueStreamingSteerAndWait(input: {
   handle: SessionHandle;
   sessionId: string;
@@ -360,6 +395,274 @@ async function enqueueStreamingSteerAndWait(input: {
   }
 
   await waiter;
+}
+
+async function waitForCurrentStreamingInput(handle: SessionHandle) {
+  if (!handle.session.isStreaming) return;
+  const inFlightDrain = handle.steerDrainPromise;
+  if (inFlightDrain) {
+    await inFlightDrain;
+    return;
+  }
+  handle.steerDrainPromise = (async () => {
+    try {
+      console.log(`[Agent] typed-input:drain:start sessionId=${handle.sessionId}`);
+      await handle.session.waitForIdle();
+      console.log(`[Agent] typed-input:drain:end sessionId=${handle.sessionId}`);
+    } finally {
+      handle.steerDrainPromise = null;
+      handle.lastActiveAt = Date.now();
+      if (!handle.session.isStreaming) {
+        scheduleSessionIdleEviction(handle);
+      }
+    }
+  })();
+  await handle.steerDrainPromise;
+}
+
+async function runDirectShellCommandTurn(input: {
+  handle: SessionHandle;
+  tools: ReturnType<typeof createSandboxCodingTools>;
+  spaceId: string;
+  sessionId: string;
+  userMessageId: string | null | undefined;
+  content: ContentBlock[];
+  meta: Record<string, unknown> | null | undefined;
+  command: string;
+  rawText: string;
+  turnId: string;
+  turnSeq: number;
+  actorUserId: string | null;
+  executionToken: string | null;
+  turnMetrics: { llmRoundCount: number; toolCallCount: number };
+  ack: () => Promise<void>;
+}) {
+  const userMessageId = input.userMessageId;
+  if (!userMessageId) throw new Error("userMessageId is required for shell command inputs");
+
+  const bashTool = input.tools.find((tool) => tool.name === "bash");
+  if (!bashTool) throw new Error("bash tool is not available");
+
+  const handle = input.handle;
+  handle.currentTurnId = input.turnId;
+  handle.currentTurnSeq = input.turnSeq;
+  handle.currentTurnPatchSeq = 0;
+  handle.currentAssistantMessageOrdinal = 0;
+  handle.currentStreamMessageId = `turn:${input.turnId}:assistant:0`;
+  handle.currentUserMessageId = userMessageId;
+  handle.currentUserMessageContent = input.content;
+  handle.currentUserMessageMeta = input.meta ?? null;
+  handle.currentLlmRound = 0;
+
+  setCurrentSessionExecutionAuth({
+    sessionId: input.sessionId,
+    actorUserId: input.actorUserId,
+    executionToken: input.executionToken,
+  });
+
+  try {
+    const userMeta = {
+      ...(input.meta ?? {}),
+      intent: "shell_command",
+      llm: false,
+      rawText: input.rawText,
+      command: input.command,
+    };
+    const userMessage = {
+      role: "user",
+      content: input.content,
+      timestamp: Date.now(),
+      meta: userMeta,
+    } as never;
+
+    handle.session.agent.state.messages.push(userMessage);
+    handle.sessionManager.appendMessage(userMessage);
+    await persistUserMessage({
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      userMessageId,
+      turnId: input.turnId,
+      content: input.content,
+      meta: userMeta,
+    });
+
+    const toolUseId = `direct_shell_${randomUUID()}`;
+    const abortController = new AbortController();
+    handle.activeDirectShellCommand = { turnId: input.turnId, abortController };
+
+    const toolUseBlock: ContentBlock = {
+      type: "tool_use",
+      id: toolUseId,
+      name: "bash",
+      input: { command: input.command },
+      _meta: { direct: true, source: "shell_command", toolStatus: "running" },
+    };
+    let patchSeq = 0;
+    let latestOutput = "";
+    let publishChain = Promise.resolve();
+
+    const publish = async (blocks: ContentBlock[], final = false) => {
+      patchSeq += 1;
+      handle.currentTurnPatchSeq = patchSeq;
+      await sendOutput({
+        type: "stream_update",
+        spaceId: input.spaceId,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        seq: patchSeq,
+        baseSeq: Math.max(0, patchSeq - 1),
+        content: blocks,
+        snapshotContent: blocks,
+        messageId: handle.currentStreamMessageId,
+        messageOrdinal: 0,
+        sourceMessageId: userMessageId,
+        anchorUserMessageId: userMessageId,
+        timestamp: Date.now(),
+        ...(final ? { turnEnd: true } : {}),
+      });
+    };
+
+    await publish([toolUseBlock]);
+
+    let result: unknown;
+    let exitCode: number | null | undefined;
+    let cancelled = false;
+    let truncated = false;
+    let executionFailed = false;
+    let errorMessage: string | null = null;
+    try {
+      result = await bashTool.execute(
+        toolUseId,
+        { command: input.command },
+        abortController.signal,
+        (partialResult: unknown) => {
+          const partialText = extractToolResultText(partialResult);
+          if (partialText) latestOutput = partialText;
+          const partialBlocks: ContentBlock[] = [
+            toolUseBlock,
+            {
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: latestOutput,
+              is_error: false,
+              _meta: { direct: true, source: "shell_command", partial: true, toolStatus: "running" },
+            },
+          ];
+          publishChain = publishChain
+            .then(() => publish(partialBlocks))
+            .catch((error) => {
+              console.error(`[Agent] Failed to publish shell command update for session ${input.sessionId}:`, error);
+            });
+        },
+      );
+      latestOutput = extractToolResultText(result);
+      const details = result && typeof result === "object" ? (result as Record<string, unknown>).details as Record<string, unknown> | undefined : undefined;
+      exitCode = typeof details?.exitCode === "number" ? details.exitCode : null;
+      truncated = Boolean(details?.truncation);
+    } catch (error) {
+      executionFailed = true;
+      cancelled = abortController.signal.aborted;
+      errorMessage = error instanceof Error ? error.message : String(error);
+      latestOutput = latestOutput || errorMessage;
+      exitCode = null;
+      if (!cancelled) {
+        console.error(`[Agent] Direct shell command failed sessionId=${input.sessionId}:`, error);
+      }
+    }
+
+    const isError = executionFailed || cancelled || (exitCode != null && exitCode !== 0);
+    const finalToolUseBlock: ContentBlock = {
+      ...toolUseBlock,
+      _meta: { direct: true, source: "shell_command", toolStatus: isError ? "failed" : "done" },
+    };
+    const finalToolResultBlock: ContentBlock = {
+      type: "tool_result",
+      tool_use_id: toolUseId,
+      content: latestOutput,
+      is_error: isError,
+      _meta: {
+        direct: true,
+        source: "shell_command",
+        partial: false,
+        toolStatus: isError ? "failed" : "done",
+        exitCode: exitCode ?? null,
+        cancelled,
+        truncated,
+        executionFailed,
+        ...(errorMessage ? { errorMessage } : {}),
+      },
+    };
+    const assistantContent: ContentBlock[] = [finalToolUseBlock, finalToolResultBlock];
+    await publishChain;
+    await publish(assistantContent, true);
+
+    const model = handle.session.agent.state.model;
+    const assistantMessage = {
+      role: "assistant",
+      content: assistantContent,
+      timestamp: Date.now(),
+      stopReason: cancelled ? "aborted" : "end",
+      provider: model.provider,
+      model: model.id,
+      meta: {
+        messageKind: "shell_command_result",
+        executionKind: "shell_command_result",
+        llm: false,
+        command: input.command,
+        rawText: input.rawText,
+        exitCode: exitCode ?? null,
+        cancelled,
+        truncated,
+        executionFailed,
+        ...(errorMessage ? { errorMessage } : {}),
+        llmContextText: formatShellCommandResultForLlm({
+          command: input.command,
+          output: latestOutput,
+          exitCode,
+          cancelled,
+        }),
+      },
+    } as never;
+    handle.session.agent.state.messages.push(assistantMessage);
+    handle.sessionManager.appendMessage(assistantMessage);
+
+    await persistAssistantMessage({
+      spaceId: input.spaceId,
+      spaceSessionId: input.sessionId,
+      userMessageId,
+      event: {
+        type: "turn_end",
+        message: assistantMessage as Record<string, unknown>,
+        toolResults: [{
+          toolCallId: toolUseId,
+          toolName: "bash",
+          input: { command: input.command },
+          content: latestOutput,
+          isError,
+          _meta: finalToolResultBlock._meta,
+        }],
+      },
+      userId: input.actorUserId,
+      turnId: input.turnId,
+    });
+
+    input.turnMetrics.toolCallCount += 1;
+    await input.ack();
+  } finally {
+    handle.activeDirectShellCommand = null;
+    clearCurrentSessionExecutionAuth(input.sessionId);
+    handle.currentLlmRound = null;
+    handle.currentTurnId = null;
+    handle.currentTurnSeq = null;
+    handle.currentTurnPatchSeq = null;
+    handle.currentAssistantMessageOrdinal = null;
+    handle.currentStreamMessageId = null;
+    handle.currentUserMessageId = null;
+    handle.currentUserMessageMeta = null;
+    handle.currentUserMessageContent = null;
+    handle.lastActiveAt = Date.now();
+    scheduleSessionIdleEviction(handle);
+  }
 }
 
 async function getModelRegistryForUser(userId: string | null | undefined) {
@@ -506,6 +809,62 @@ async function main() {
             const turnSeq = nextTurnSequence(sessionKey);
             const turnId = typeof meta?.turnId === "string" ? meta.turnId : randomUUID();
 
+            const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
+            const shellCommand = getShellCommandBlock(content);
+            if (shellCommand) {
+              const mode = handle.session.isStreaming ? "steer" : "prompt";
+              await wrapAgentTurn(agentTracer, {
+                action: inputEntry.action,
+                mode,
+                spaceId: inputEntry.spaceId,
+                sessionId,
+                turnId,
+                turnSeq,
+                userMessageId,
+                modelProvider: handle.session.agent.state.model.provider,
+                modelId: handle.session.agent.state.model.id,
+                isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
+              }, async (turnSpan) => {
+                await waitForCurrentStreamingInput(handle);
+                await runWithToolExecutionContext({
+                  spaceId: inputEntry.spaceId,
+                  sessionId,
+                  turnId,
+                  turnSeq,
+                  llmRound: 0,
+                  actorUserId,
+                  executionToken,
+                  metrics: turnMetrics,
+                }, async () => {
+                  await runInSessionOperation(handle, async () => {
+                    console.log(`[Agent] shell-command:start sessionId=${sessionId}`);
+                    await runDirectShellCommandTurn({
+                      handle,
+                      tools,
+                      spaceId: inputEntry.spaceId,
+                      sessionId,
+                      userMessageId,
+                      content,
+                      meta,
+                      command: shellCommand.command,
+                      rawText: shellCommand.rawText,
+                      turnId,
+                      turnSeq,
+                      actorUserId,
+                      executionToken,
+                      turnMetrics,
+                      ack,
+                    });
+                    console.log(`[Agent] shell-command:end sessionId=${sessionId}`);
+                  });
+                });
+                turnSpan.setAttribute("agent.llm_round_count", 0);
+                turnSpan.setAttribute("agent.tool_count", turnMetrics.toolCallCount);
+                turnSpan.setAttribute("agent.outcome", "ok");
+              });
+              return;
+            }
+
             if (userMessageId) {
               handle.pendingUserMessages.push({
                 userMessageId,
@@ -519,7 +878,6 @@ async function main() {
                 executionToken,
               });
             }
-            const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
             const mode = handle.session.isStreaming ? "steer" : "prompt";
             const text = extractContentText(content);
             const images = extractContentImages(content);
@@ -614,6 +972,7 @@ async function main() {
               : typeof abortMeta?.userId === "string" && abortMeta.userId.trim()
                 ? abortMeta.userId.trim()
                 : null;
+            handle.activeDirectShellCommand?.abortController.abort();
             await handle.session.abort();
             await handle.persistenceChain.catch(() => undefined);
             const completions = handle.pendingSteerCompletions.splice(0, handle.pendingSteerCompletions.length);

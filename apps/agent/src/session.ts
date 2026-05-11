@@ -71,6 +71,10 @@ export type SessionHandle = {
     reject: (reason: string) => Promise<void>;
     done: () => void;
   }>;
+  activeDirectShellCommand: {
+    turnId: string;
+    abortController: AbortController;
+  } | null;
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
   currentUserMessageMeta: Record<string, unknown> | null;
@@ -762,6 +766,7 @@ export async function loadOrCreateSessionHandle(input: {
     pendingExecutionAuths: [],
     steerDrainPromise: null,
     pendingSteerCompletions: [],
+    activeDirectShellCommand: null,
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,

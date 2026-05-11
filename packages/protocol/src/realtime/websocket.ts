@@ -29,6 +29,12 @@ export const contentBlockSchema = z.discriminatedUnion("type", [
     _meta: contentBlockMetaSchema.optional(),
   }),
   z.object({
+    type: z.literal("shell_command"),
+    command: z.string(),
+    rawText: z.string(),
+    _meta: contentBlockMetaSchema.optional(),
+  }),
+  z.object({
     type: z.literal("tool_use"),
     id: z.string(),
     name: z.string(),

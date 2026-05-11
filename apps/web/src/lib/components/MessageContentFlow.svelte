@@ -9,6 +9,7 @@ import ToolCallList from "$lib/components/ToolCallList.svelte";
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
 type ThinkingBlock = Extract<ContentBlock, { type: "thinking" }>;
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
+type ShellCommandBlock = Extract<ContentBlock, { type: "shell_command" }>;
 type AttachmentBlock = TextBlock | ImageBlock;
 
 type Props = {
@@ -59,6 +60,12 @@ const userAttachmentBlocks = $derived(
 		(block): block is AttachmentBlock =>
 			block.type === "image" ||
 			(block.type === "text" && block._meta?.attachmentKind === "text"),
+	),
+);
+
+const userShellCommandBlocks = $derived(
+	content.filter(
+		(block): block is ShellCommandBlock => block.type === "shell_command",
 	),
 );
 
@@ -115,8 +122,13 @@ const segments = $derived.by(() => {
 </script>
 
 {#if isUserMessage}
+	{#if userShellCommandBlocks.length > 0}
+		<div class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm text-inherit">
+			{userShellCommandBlocks.map((block) => ["$", block.command].join("")).join('\n')}
+		</div>
+	{/if}
 	{#if userTextBlocks.length > 0}
-		<div class="whitespace-pre-wrap break-words text-inherit">
+		<div class="whitespace-pre-wrap break-words text-inherit" class:mt-2={userShellCommandBlocks.length > 0}>
 			{userTextBlocks.map((block) => block.text).join('\n\n')}
 		</div>
 	{/if}

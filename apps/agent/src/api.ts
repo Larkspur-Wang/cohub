@@ -163,6 +163,7 @@ type ToolExecution = {
   resultContent?: string | ContentBlock[];
   isError: boolean;
   toolUseMeta?: Record<string, unknown>;
+  toolResultMeta?: Record<string, unknown>;
 };
 
 type NormalizedAssistantTurn = {
@@ -200,6 +201,7 @@ const normalizeToolExecutions = (
       input: (raw.input as Record<string, unknown>) ?? {},
       resultContent: rawResultContent,
       isError: Boolean(raw.isError),
+      toolResultMeta: (raw._meta as Record<string, unknown> | undefined) ?? (raw.meta as Record<string, unknown> | undefined),
     });
   }
 
@@ -232,6 +234,7 @@ const normalizeToolExecutions = (
         ...existing,
         resultContent: typeof block.content === "string" ? block.content : (existing.resultContent ?? ""),
         isError: Boolean(block.is_error) || existing.isError,
+        toolResultMeta: (block._meta as Record<string, unknown> | undefined) ?? existing.toolResultMeta,
       });
     }
   }
@@ -266,6 +269,7 @@ const emitToolResultBlock = (
     tool_use_id: execution.id,
     content: execution.resultContent,
     is_error: execution.isError,
+    ...(execution.toolResultMeta ? { _meta: execution.toolResultMeta } : {}),
   });
   emittedToolResults.add(execution.id);
 };
@@ -587,6 +591,9 @@ export async function persistAssistantMessage(input: {
       stopReason,
       errorMessage,
       meta: {
+        ...((assistant.meta && typeof assistant.meta === "object" && !Array.isArray(assistant.meta))
+          ? (assistant.meta as Record<string, unknown>)
+          : {}),
         turnId: input.turnId ?? null,
         spaceId: input.spaceId,
         sessionId: input.spaceSessionId,

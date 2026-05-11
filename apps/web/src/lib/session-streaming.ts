@@ -9,6 +9,7 @@ function cloneContentBlock(block: ContentBlock): ContentBlock {
 			source: { ...block.source },
 		};
 	}
+	if (block.type === "shell_command") return { ...block };
 	if (block.type === "tool_use") {
 		return {
 			...block,

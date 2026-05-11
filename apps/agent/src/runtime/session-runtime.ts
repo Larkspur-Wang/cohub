@@ -54,11 +54,69 @@ export type CreateCohubAgentSessionOptions = {
   model?: Model<Api>;
 };
 
+function extractTextFromToolResultContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => block && typeof block === "object" && (block as Record<string, unknown>).type === "text"
+      ? String((block as Record<string, unknown>).text ?? "")
+      : "")
+    .join("");
+}
+
+function shellCommandResultToText(message: Record<string, unknown>) {
+  const meta = message.meta && typeof message.meta === "object" && !Array.isArray(message.meta)
+    ? message.meta as Record<string, unknown>
+    : {};
+  if (typeof meta.llmContextText === "string") return meta.llmContextText;
+
+  const content = Array.isArray(message.content) ? message.content : [];
+  const toolUse = content.find((block) => block && typeof block === "object" && (block as Record<string, unknown>).type === "tool_use") as Record<string, unknown> | undefined;
+  const toolResult = content.find((block) => block && typeof block === "object" && (block as Record<string, unknown>).type === "tool_result") as Record<string, unknown> | undefined;
+  const input = toolUse?.input && typeof toolUse.input === "object" ? toolUse.input as Record<string, unknown> : {};
+  const command = typeof meta.command === "string" ? meta.command : typeof input.command === "string" ? input.command : "";
+  const output = extractTextFromToolResultContent(toolResult?.content);
+  const resultMeta = toolResult?._meta && typeof toolResult._meta === "object" ? toolResult._meta as Record<string, unknown> : {};
+  const exitCode = typeof meta.exitCode === "number" ? meta.exitCode : typeof resultMeta.exitCode === "number" ? resultMeta.exitCode : null;
+  const cancelled = meta.cancelled === true || resultMeta.cancelled === true;
+
+  let text = `Ran \`${command}\``;
+  text += output ? `\n\`\`\`\n${output}\n\`\`\`` : "\n(no output)";
+  if (cancelled) {
+    text += "\n\n(command cancelled)";
+  } else if (exitCode != null && exitCode !== 0) {
+    text += `\n\nCommand exited with code ${exitCode}`;
+  }
+  return text;
+}
+
 function toLlmMessages(messages: AgentMessage[]) {
-  return messages.filter((message) => {
-    const role = (message as { role?: string }).role;
-    return role === "user" || role === "assistant" || role === "toolResult";
-  }) as never;
+  const result: unknown[] = [];
+  for (const message of messages) {
+    const record = message as unknown as Record<string, unknown>;
+    const role = record.role;
+    const meta = record.meta && typeof record.meta === "object" && !Array.isArray(record.meta)
+      ? record.meta as Record<string, unknown>
+      : {};
+
+    if (role === "user" && Array.isArray(record.content) && record.content.some((block) => Boolean(block && typeof block === "object" && (block as Record<string, unknown>).type === "shell_command"))) {
+      continue;
+    }
+
+    if (role === "assistant" && meta.messageKind === "shell_command_result") {
+      result.push({
+        role: "user",
+        content: [{ type: "text", text: shellCommandResultToText(record) }],
+        timestamp: typeof record.timestamp === "number" ? record.timestamp : Date.now(),
+      });
+      continue;
+    }
+
+    if (role === "user" || role === "assistant" || role === "toolResult") {
+      result.push(message);
+    }
+  }
+  return result as never;
 }
 
 function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {

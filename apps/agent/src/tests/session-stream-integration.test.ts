@@ -94,6 +94,7 @@ function createHandle(session: FakeSession): SessionHandle {
     pendingExecutionAuths: [],
     steerDrainPromise: null,
     pendingSteerCompletions: [],
+    activeDirectShellCommand: null,
     currentUserMessageId: "00000000-0000-4000-8000-000000000001",
     currentUserMessageContent: null,
     currentUserMessageMeta: null,

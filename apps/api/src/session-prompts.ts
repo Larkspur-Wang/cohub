@@ -93,6 +93,16 @@ export class SubmitSessionPromptError extends Error {
   }
 }
 
+function normalizeDirectShellCommandContent(content: ContentBlock[]): ContentBlock[] {
+  if (content.length !== 1) return content;
+  const first = content[0];
+  if (first?.type !== "text") return content;
+  if (!first.text.startsWith("!")) return content;
+  const command = first.text.slice(1);
+  if (!command.trim()) throw new Error("shell command is empty");
+  return [{ type: "shell_command", command, rawText: first.text } satisfies ContentBlock];
+}
+
 export const expandPromptContent = async (input: {
   content: ContentBlock[];
   userId: string;
@@ -102,7 +112,8 @@ export const expandPromptContent = async (input: {
   let promptTemplate: PromptTemplateUsageMeta | null = null;
 
   if (content.length === 1 && content[0]?.type === "text") {
-    const rawText = typeof content[0].text === "string" ? content[0].text.trim() : "";
+    const originalText = typeof content[0].text === "string" ? content[0].text : "";
+    const rawText = originalText.trim();
     if (rawText.startsWith("/")) {
       const expanded = await expandPromptTemplate(rawText, {
         userId: input.userId,
@@ -120,6 +131,8 @@ export const expandPromptContent = async (input: {
           args: expanded.args,
         };
       }
+    } else if (originalText.startsWith("!")) {
+      content = normalizeDirectShellCommandContent(content);
     }
   }
 
@@ -142,10 +155,14 @@ export const submitSessionPrompt = async (
     spaceId: input.spaceId,
   });
 
+  const isDirectShellCommand = content.length === 1 && content[0]?.type === "shell_command";
+  const inputIntent = isDirectShellCommand ? "shell_command" : "steer";
   const turnMeta = {
     source: input.source,
     userId,
     clientMessageId,
+    intent: inputIntent,
+    llm: isDirectShellCommand ? false : undefined,
     model: input.model ?? null,
     provider: input.provider ?? null,
     promptTemplate,
@@ -168,7 +185,8 @@ export const submitSessionPrompt = async (
     userId,
     clientMessageId,
     turnId,
-    intent: "steer",
+    intent: inputIntent,
+    llm: isDirectShellCommand ? false : undefined,
     model: input.model ?? null,
     provider: input.provider ?? null,
     promptTemplate,

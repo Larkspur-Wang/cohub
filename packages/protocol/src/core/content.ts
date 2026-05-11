@@ -11,6 +11,12 @@ export type ContentBlock =
       _meta?: ContentBlockMeta;
     }
   | {
+      type: "shell_command";
+      command: string;
+      rawText: string;
+      _meta?: ContentBlockMeta;
+    }
+  | {
       type: "tool_use";
       id: string;
       name: string;
