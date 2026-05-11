@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type {
   MessageToolCallsFile,
@@ -11,7 +11,8 @@ import type {
   TurnIntermediateMessagesFile,
 } from "@neta-art/cohub-protocol/model";
 import { db } from "./db/index.js";
-import { sessionMessages, sessionTurns } from "./db/schema-v2.js";
+import { sessionMessages, sessionTurnSegments, sessionTurns } from "./db/schema-v2.js";
+import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
 import { deriveMessagePreviewText } from "./space-sessions.js";
@@ -226,6 +227,13 @@ const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
   errorMessage: previewText(row.errorMessage, 220),
 });
 
+const withTimelineSource = <T extends SessionTurnRecord | SessionTurnIndexItem>(turn: T, currentSessionId: string): T => ({
+  ...turn,
+  sessionId: currentSessionId,
+  sourceSessionId: turn.sessionId,
+  sourceTurnId: turn.id,
+});
+
 export const createSessionTurn = async (input: {
   id?: string;
   sessionId: string;
@@ -239,7 +247,14 @@ export const createSessionTurn = async (input: {
     const [sessionRow] = await tx.execute(sql`select id from v2.space_sessions where id = ${input.sessionId} for update`);
     if (!sessionRow) throw new Error("session not found");
     const [seqRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
-    const sequence = (seqRow?.max ?? 0) + 1;
+    let startSequence = 1;
+    const [localSegment] = await tx.select({ fromSequence: sessionTurnSegments.fromSequence }).from(sessionTurnSegments).where(and(
+      eq(sessionTurnSegments.sessionId, input.sessionId),
+      eq(sessionTurnSegments.sourceSessionId, input.sessionId),
+      isNull(sessionTurnSegments.toSequence),
+    )).orderBy(desc(sessionTurnSegments.ordinal)).limit(1);
+    startSequence = localSegment?.fromSequence ?? 1;
+    const sequence = seqRow?.max ? (seqRow.max + 1) : startSequence;
     return tx.insert(sessionTurns).values({
       ...(input.id ? { id: input.id } : {}),
       sessionId: input.sessionId,
@@ -256,88 +271,118 @@ export const createSessionTurn = async (input: {
   return toTurnRecord(row);
 };
 
+export async function getSourceSessionTurnById(turnId: string) {
+  const [row] = await db.select().from(sessionTurns).where(eq(sessionTurns.id, turnId)).limit(1);
+  return row ? toTurnRecord(row) : null;
+}
+
+const buildSegmentPredicate = (segment: Awaited<ReturnType<typeof ensureSessionTurnSegments>>[number], options?: { cursor?: number; direction?: "older" | "newer" }) => {
+  const clauses = [
+    eq(sessionTurns.sessionId, segment.sourceSessionId),
+    gte(sessionTurns.sequence, segment.fromSequence),
+  ];
+  if (segment.toSequence != null) clauses.push(lte(sessionTurns.sequence, segment.toSequence));
+  if (options?.cursor != null) clauses.push(options.direction === "newer" ? gt(sessionTurns.sequence, options.cursor) : lt(sessionTurns.sequence, options.cursor));
+  return and(...clauses);
+};
+
 export const listSessionTurns = async (sessionId: string, options?: { cursor?: number; limit?: number; direction?: "older" | "newer" }) => {
   const limit = Math.min(options?.limit ?? 30, 100);
   const direction = options?.direction ?? "older";
-  let rows: Array<typeof sessionTurns.$inferSelect>;
-  if (options?.cursor == null) {
-    rows = await db.select().from(sessionTurns).where(eq(sessionTurns.sessionId, sessionId)).orderBy(desc(sessionTurns.sequence)).limit(limit);
-    return rows.reverse().map(toTurnRecord);
+  const segments = await ensureSessionTurnSegments(sessionId);
+  const collected: SessionTurnRecord[] = [];
+  const orderedSegments = direction === "newer" ? segments : [...segments].reverse();
+
+  for (const segment of orderedSegments) {
+    const predicate = buildSegmentPredicate(segment, { cursor: options?.cursor, direction });
+    const remaining = limit - collected.length;
+    if (remaining <= 0) break;
+    const rows = await db.select().from(sessionTurns).where(predicate).orderBy(direction === "newer" ? asc(sessionTurns.sequence) : desc(sessionTurns.sequence)).limit(remaining);
+    collected.push(...rows.map((row) => withTimelineSource(toTurnRecord(row), sessionId)));
+    if (collected.length >= limit) break;
   }
-  if (direction === "older") {
-    rows = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), lt(sessionTurns.sequence, options.cursor))).orderBy(desc(sessionTurns.sequence)).limit(limit);
-    return rows.reverse().map(toTurnRecord);
-  }
-  rows = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, options.cursor))).orderBy(asc(sessionTurns.sequence)).limit(limit);
-  return rows.map(toTurnRecord);
+  return direction === "newer" ? collected : collected.reverse();
 };
 
 export const listSessionTurnIndex = async (sessionId: string, options?: { cursor?: number; limit?: number }) => {
   const limit = Math.min(Math.max(Math.floor(options?.limit ?? 200), 1), 500);
-  const rows = await db.select({
-    id: sessionTurns.id,
-    sessionId: sessionTurns.sessionId,
-    sequence: sessionTurns.sequence,
-    status: sessionTurns.status,
-    startedAt: sessionTurns.startedAt,
-    completedAt: sessionTurns.completedAt,
-    createdAt: sessionTurns.createdAt,
-    updatedAt: sessionTurns.updatedAt,
-    userText: sessionTurns.userText,
-    assistantText: sessionTurns.assistantText,
-    provider: sessionTurns.provider,
-    model: sessionTurns.model,
-    finalUsage: sessionTurns.finalUsage,
-    totalUsage: sessionTurns.totalUsage,
-    errorMessage: sessionTurns.errorMessage,
-  }).from(sessionTurns).where(
-    options?.cursor == null
-      ? eq(sessionTurns.sessionId, sessionId)
-      : and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, options.cursor)),
-  ).orderBy(asc(sessionTurns.sequence)).limit(limit + 1);
-  const hasMore = rows.length > limit;
-  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const segments = await ensureSessionTurnSegments(sessionId);
+  const collected: SessionTurnIndexItem[] = [];
+  for (const segment of segments) {
+    if (collected.length >= limit + 1) break;
+    const clauses = [
+      eq(sessionTurns.sessionId, segment.sourceSessionId),
+      gte(sessionTurns.sequence, segment.fromSequence),
+    ];
+    if (segment.toSequence != null) clauses.push(lte(sessionTurns.sequence, segment.toSequence));
+    if (options?.cursor != null) clauses.push(gt(sessionTurns.sequence, options.cursor));
+    const rows = await db.select({
+      id: sessionTurns.id,
+      sessionId: sessionTurns.sessionId,
+      sequence: sessionTurns.sequence,
+      status: sessionTurns.status,
+      startedAt: sessionTurns.startedAt,
+      completedAt: sessionTurns.completedAt,
+      createdAt: sessionTurns.createdAt,
+      updatedAt: sessionTurns.updatedAt,
+      userText: sessionTurns.userText,
+      assistantText: sessionTurns.assistantText,
+      provider: sessionTurns.provider,
+      model: sessionTurns.model,
+      finalUsage: sessionTurns.finalUsage,
+      totalUsage: sessionTurns.totalUsage,
+      errorMessage: sessionTurns.errorMessage,
+    }).from(sessionTurns).where(and(...clauses)).orderBy(asc(sessionTurns.sequence)).limit(limit + 1 - collected.length);
+    collected.push(...rows.map((row) => withTimelineSource(toTurnIndexItem(row), sessionId)));
+  }
+  const hasMore = collected.length > limit;
+  const pageRows = hasMore ? collected.slice(0, limit) : collected;
   return {
-    turns: pageRows.map(toTurnIndexItem),
+    turns: pageRows,
     hasMore,
     nextCursor: pageRows.at(-1)?.sequence,
   };
 };
 
 export const getSessionTurnSequenceById = async (sessionId: string, turnId: string) => {
-  const [row] = await db.select({ sequence: sessionTurns.sequence }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.id, turnId))).limit(1);
-  return row?.sequence ?? null;
+  const segments = await ensureSessionTurnSegments(sessionId);
+  const sourceIds = [...new Set(segments.map((segment) => segment.sourceSessionId))];
+  const [row] = await db.select({ sequence: sessionTurns.sequence, sessionId: sessionTurns.sessionId }).from(sessionTurns).where(and(inArray(sessionTurns.sessionId, sourceIds), eq(sessionTurns.id, turnId))).limit(1);
+  if (!row) return null;
+  return findSegmentForTurn(segments, { sourceSessionId: row.sessionId, sequence: row.sequence }) ? row.sequence : null;
 };
 
 export const listSessionTurnWindow = async (sessionId: string, input: { sequence: number; before?: number; after?: number }) => {
   const before = Math.min(Math.max(Math.floor(input.before ?? 10), 0), 100);
   const after = Math.min(Math.max(Math.floor(input.after ?? 20), 0), 100);
-  const [anchor] = await db.select({ id: sessionTurns.id }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.sequence, input.sequence))).limit(1);
-  if (!anchor) return null;
-  const [olderRows, anchorAndNewerRows] = await Promise.all([
-    before > 0
-      ? db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), lt(sessionTurns.sequence, input.sequence))).orderBy(desc(sessionTurns.sequence)).limit(before + 1)
-      : Promise.resolve([] as Array<typeof sessionTurns.$inferSelect>),
-    db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gt(sessionTurns.sequence, input.sequence - 1))).orderBy(asc(sessionTurns.sequence)).limit(after + 2),
+  const [older, anchorAndNewer] = await Promise.all([
+    listSessionTurns(sessionId, { cursor: input.sequence, direction: "older", limit: before + 1 }),
+    listSessionTurns(sessionId, { cursor: input.sequence - 1, direction: "newer", limit: after + 2 }),
   ]);
-  const hasMoreOlder = olderRows.length > before;
-  const older = (hasMoreOlder ? olderRows.slice(0, before) : olderRows).reverse();
-  const hasMoreNewer = anchorAndNewerRows.length > after + 1;
-  const anchorAndNewer = hasMoreNewer ? anchorAndNewerRows.slice(0, after + 1) : anchorAndNewerRows;
-  const turns = [...older, ...anchorAndNewer].map(toTurnRecord);
+  const anchor = anchorAndNewer.find((turn) => turn.sequence === input.sequence);
+  if (!anchor) return null;
+  const hasMoreOlder = older.length > before;
+  const hasMoreNewer = anchorAndNewer.length > after + 1;
+  const turns = [
+    ...(hasMoreOlder ? older.slice(1) : older),
+    ...(hasMoreNewer ? anchorAndNewer.slice(0, after + 1) : anchorAndNewer),
+  ];
   return {
     turns,
     hasMoreOlder,
     hasMoreNewer,
     oldestCursor: turns[0]?.sequence,
     newestCursor: turns.at(-1)?.sequence,
-    anchorSequence: anchorAndNewer[0]?.sequence,
+    anchorSequence: input.sequence,
   };
 };
 
 export const getSessionTurnById = async (sessionId: string, turnId: string) => {
-  const [row] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.id, turnId))).limit(1);
-  return row ? toTurnRecord(row) : null;
+  const segments = await ensureSessionTurnSegments(sessionId);
+  const sourceIds = [...new Set(segments.map((segment) => segment.sourceSessionId))];
+  const [row] = await db.select().from(sessionTurns).where(and(inArray(sessionTurns.sessionId, sourceIds), eq(sessionTurns.id, turnId))).limit(1);
+  if (!row || !findSegmentForTurn(segments, { sourceSessionId: row.sessionId, sequence: row.sequence })) return null;
+  return withTimelineSource(toTurnRecord(row), sessionId);
 };
 
 export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; sessionId: string; turnId: string }) => {
@@ -542,13 +587,17 @@ export const abortSessionTurn = async (input: { spaceId: string; sessionId: stri
 
 
 export const createSignedTurnUrls = async (input: { spaceId: string; sessionId: string; turnId: string; objectKeys: string[] }) => {
+  const turn = await getSessionTurnById(input.sessionId, input.turnId);
+  if (!turn) throw new Error("turn not found");
+  const sourceSessionId = turn.sourceSessionId ?? turn.sessionId;
+  const sourceTurnId = turn.sourceTurnId ?? turn.id;
   return Object.fromEntries(input.objectKeys.map((objectKey) => [
     objectKey,
     createTurnObjectCdnUrl(assertTurnObjectKeyForTurn({
       objectKey,
       spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      turnId: input.turnId,
+      sessionId: sourceSessionId,
+      turnId: sourceTurnId,
     })).url,
   ]));
 };

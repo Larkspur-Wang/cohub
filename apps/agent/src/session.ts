@@ -1,4 +1,4 @@
-import { existsSync, renameSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
@@ -699,34 +699,10 @@ export async function loadOrCreateSessionHandle(input: {
     console.log(`[Session] restore sessionId=${input.sessionId} spaceId=${input.spaceId}`);
     sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
   } else {
-    const forkSourceProtocolMessageId = registration?.bootstrap?.forkSourceProtocolMessageId ?? null;
-    const parentSessionId = ((registration?.session as { parentSessionId?: string | null } | undefined)?.parentSessionId) ?? null;
-    const parentSessionFile = parentSessionId ? getAgentSessionFilePath(input.spaceId, parentSessionId) : null;
-
-    if (parentSessionFile && existsSync(parentSessionFile) && forkSourceProtocolMessageId) {
-      const parentManager = SessionManager.open(parentSessionFile, spaceSessionsDir);
-      const forkedSessionFile = parentManager.createBranchedSession(forkSourceProtocolMessageId);
-      if (!forkedSessionFile) throw new Error(`Failed to create branched session file for ${input.sessionId}`);
-      const forkedManager = SessionManager.open(forkedSessionFile, spaceSessionsDir);
-      const forkedEntries = forkedManager.getEntries();
-      forkedManager.newSession({ id: input.sessionId, parentSession: parentSessionFile });
-      for (const entry of forkedEntries) {
-        if (entry.type === "message") forkedManager.appendMessage(entry.message as never);
-        else if (entry.type === "model_change") forkedManager.appendModelChange(entry.provider, entry.modelId);
-        else if (entry.type === "thinking_level_change") forkedManager.appendThinkingLevelChange(entry.thinkingLevel);
-        else if (entry.type === "compaction") forkedManager.appendCompaction(entry.summary, entry.firstKeptEntryId, entry.tokensBefore, entry.details, entry.fromHook);
-        else if (entry.type === "custom") forkedManager.appendCustomEntry(entry.customType, entry.data);
-        else if (entry.type === "custom_message") forkedManager.appendCustomMessageEntry(entry.customType, entry.content, entry.display, entry.details);
-        else if (entry.type === "session_info") forkedManager.appendSessionInfo(entry.name ?? "");
-      }
-      renameSync(forkedSessionFile, existingSessionFile);
-      sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
-    } else {
-      const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
-      tmpManager.newSession({ id: input.sessionId });
-      setSessionManagerFilePath(tmpManager, existingSessionFile);
-      sessionManager = tmpManager;
-    }
+    const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
+    tmpManager.newSession({ id: input.sessionId });
+    setSessionManagerFilePath(tmpManager, existingSessionFile);
+    sessionManager = tmpManager;
   }
 
   const resolvedModel = input.model

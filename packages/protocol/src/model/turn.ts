@@ -76,6 +76,8 @@ export type TurnIntermediateMessagesFile = {
 export type SessionTurnIndexItem = {
   id: string;
   sessionId: string;
+  sourceSessionId?: string;
+  sourceTurnId?: string;
   sequence: number;
   status: SessionTurnStatus;
   startedAt: string | null;
@@ -100,6 +102,8 @@ export type SessionTurnAuthorProfile = {
 export type SessionTurnRecord = {
   id: string;
   sessionId: string;
+  sourceSessionId?: string;
+  sourceTurnId?: string;
   userUuid: string | null;
   sequence: number;
   status: SessionTurnStatus;

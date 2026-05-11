@@ -274,20 +274,20 @@ export class SessionManager {
     return entry.id;
   }
 
-  createBranchedSession(leafId: string): string | undefined {
+  createBranchedSession(leafId: string, options?: { id?: string; filePath?: string; parentSession?: string }): string | undefined {
     const pathEntries = this.getBranch(leafId);
     if (pathEntries.length === 0) {
       throw new Error(`Entry ${leafId} not found`);
     }
-    const newSessionId = createSessionId();
-    const newSessionFile = join(this.sessionDir, `${newSessionId}.jsonl`);
+    const newSessionId = options?.id ?? createSessionId();
+    const newSessionFile = options?.filePath ?? join(this.sessionDir, `${newSessionId}.jsonl`);
     const header: SessionHeader = {
       type: "session",
       version: 3,
       id: newSessionId,
       timestamp: nowIso(),
       cwd: this.cwd,
-      parentSession: this.sessionFile,
+      parentSession: options?.parentSession ?? this.sessionFile,
     };
     mkdirSync(this.sessionDir, { recursive: true });
     const lines = `${[JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;

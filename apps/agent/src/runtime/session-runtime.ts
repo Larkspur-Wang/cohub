@@ -313,14 +313,16 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
           && isRetryableAssistantFailure(assistantMessage)
           && retryAttempt < AGENT_RETRY_MAX_RETRIES;
         if (!shouldDeferPersistence) {
-          options.sessionManager.appendMessage(event.message as never);
+          const entryId = options.sessionManager.appendMessage(event.message as never);
+          (event.message as unknown as Record<string, unknown>).sessionEntryId = entryId;
         }
         if (assistantMessage.stopReason !== "error") {
           retryAttempt = 0;
           finishRetry();
         }
       } else if (message.role === "user" || message.role === "toolResult") {
-        options.sessionManager.appendMessage(event.message as never);
+        const entryId = options.sessionManager.appendMessage(event.message as never);
+        (event.message as unknown as Record<string, unknown>).sessionEntryId = entryId;
       }
       return;
     }

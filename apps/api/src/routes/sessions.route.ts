@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
@@ -9,6 +10,7 @@ import {
   listSessionMessages,
   SandboxNotReadyError,
   enqueueSessionAbort,
+  enqueueSessionFork,
   updateSpaceSessionInfo,
   summarizeMessageForHistory,
   markMessageAsFull,
@@ -16,8 +18,66 @@ import {
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
 import { submitSessionPrompt } from "../session-prompts.js";
+import { createSessionFork } from "../session-forks.js";
 
 const router = new Hono();
+
+router.post("/:id/turns/:turnId/fork", async (c) => {
+  const user = useAuth(c);
+  const sessionId = c.req.param("id");
+  const turnId = c.req.param("turnId");
+  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
+  if (!turnId || !requireValidId(turnId)) return c.json({ message: "turn not found" }, 404);
+
+  const session = await getSpaceSessionById(sessionId);
+  if (!session) return c.json({ message: "session not found" }, 404);
+  if (!(await hasPermission(user, "session.edit", { spaceId: session.spaceId, sessionId: session.id }))) {
+    return c.json({ message: "not found" }, 404);
+  }
+
+  const sourceTurn = await getSessionTurnById(session.id, turnId);
+  if (!sourceTurn) return c.json({ message: "turn not found" }, 404);
+  const sourceTurnId = sourceTurn.sourceTurnId ?? sourceTurn.id;
+
+  const body = await c.req.json<{ title?: string | null }>().catch((): { title?: string | null } => ({}));
+  const agentMeta = sourceTurn.meta?.agent && typeof sourceTurn.meta.agent === "object" && !Array.isArray(sourceTurn.meta.agent)
+    ? sourceTurn.meta.agent as Record<string, unknown>
+    : null;
+  const anchorEntryId = typeof sourceTurn.meta?.agentSessionEntryId === "string"
+    ? sourceTurn.meta.agentSessionEntryId
+    : typeof agentMeta?.leafEntryId === "string"
+      ? agentMeta.leafEntryId
+      : null;
+  if (!anchorEntryId) return c.json({ message: "Cannot fork this turn because its session checkpoint is missing." }, 400);
+
+  try {
+    const { session: childSession, fork } = await createSessionFork({
+      spaceId: session.spaceId,
+      childSessionId: randomUUID(),
+      parentSessionId: session.id,
+      turnId: sourceTurnId,
+      sequence: sourceTurn.sequence,
+      title: body.title,
+      createdBy: user.uuid,
+    });
+    try {
+      await enqueueSessionFork({
+        spaceId: session.spaceId,
+        sessionId: childSession.id,
+        parentSessionId: session.id,
+        anchorTurnId: sourceTurnId,
+        anchorSequence: sourceTurn.sequence,
+        anchorEntryId,
+      });
+    } catch (enqueueError) {
+      console.error("[SessionFork] failed to enqueue agent fork", enqueueError);
+      return c.json({ message: enqueueError instanceof Error ? enqueueError.message : "failed to prepare fork session" }, 503);
+    }
+    return c.json({ session: childSession, fork });
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "failed to fork session" }, 400);
+  }
+});
 
 router.get("/:id", async (c) => {
   const user = getOptionalAuth(c);
@@ -346,7 +406,7 @@ router.post("/:id/messages", async (c) => {
       spaceId: space.id,
       sessionId: session.id,
       userId: user.uuid,
-      clientMessageId: body.clientMessageId?.trim() || crypto.randomUUID(),
+      clientMessageId: body.clientMessageId?.trim() || randomUUID(),
       content: body.content,
       source: "web_app",
       model: body.model ?? null,

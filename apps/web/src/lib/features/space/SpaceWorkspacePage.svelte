@@ -557,6 +557,7 @@ let shareCopied = $state(false);
 let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let shareModalError = $state("");
 let shareModalSaving = $state(false);
+let forkingTurnId = $state<string | null>(null);
 let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
 let checkpointDetail = $state<CheckpointRecord | null>(null);
 let spaceCheckpoints = $state<CheckpointRecord[]>([]);
@@ -2699,6 +2700,28 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
 }
+async function handleForkTurn(turn: SessionTurnRecord) {
+	if (!activeSessionId || forkingTurnId) return;
+	forkingTurnId = turn.id;
+	composerError = "";
+	try {
+		const response = await sdk
+			.space(spaceId)
+			.session(activeSessionId)
+			.turn(turn.sourceTurnId ?? turn.id)
+			.fork();
+		await sessionTurnsRepo
+			.clearSession(spaceId, response.session.id)
+			.catch(() => undefined);
+		await goto(buildSpaceSessionRoute(spaceId, response.session.id));
+	} catch (error) {
+		composerError =
+			error instanceof Error ? error.message : "Failed to fork session";
+	} finally {
+		forkingTurnId = null;
+	}
+}
+
 async function handleAbort() {
 	if (!activeSessionId || !activeSessionState?.session || !space || aborting)
 		return;
@@ -5724,10 +5747,12 @@ $effect(() => {
           timeline={timeline}
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
-          onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.id, message: input.message })}
-          onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
+          onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
+          onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
           onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
           onMarkdownRendered={handleTimelineMarkdownRendered}
+          onForkTurn={handleForkTurn}
+          forkingTurnId={forkingTurnId}
           loadingOlder={activeSessionState?.loadingOlder ?? false}
           onOpenFile={openInlineFile}
           modelsCatalog={modelsCatalog ?? undefined}

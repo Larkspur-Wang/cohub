@@ -1,8 +1,10 @@
 import type {
   SessionBindingRecord as ProtocolSessionBindingRecord,
   SessionRecord as ProtocolSessionRecord,
+  SessionForkRecord,
   SessionTurnIndexItem,
   SessionTurnRecord,
+  SessionTurnSegmentRecord,
 } from "@neta-art/cohub-protocol/model";
 import type {
   ChannelConfig,
@@ -43,7 +45,7 @@ export type UserRulesResponse = {
   path: string;
 };
 
-export type { ContentBlock, MessageRecord, SessionTurnRecord, SessionTurnIndexItem };
+export type { ContentBlock, MessageRecord, SessionTurnRecord, SessionTurnIndexItem, SessionForkRecord, SessionTurnSegmentRecord };
 
 export type SpaceFsEntry = {
   name: string;

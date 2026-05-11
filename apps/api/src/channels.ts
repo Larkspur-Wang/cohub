@@ -7,7 +7,7 @@ import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceMembers } from "./db/schema-v2.js";
 import { GATEWAY_OUTBOUND_STREAM, REALTIME_OUTBOUND_CHANNEL, getSpaceWsUsersKey, getSpaceWsUsersUpdatedAtKey, redisCommandClient, xaddWithMaxlen } from "./redis.js";
-import { forkSpaceSession, registerSpaceSession } from "./space-sessions.js";
+import { registerSpaceSession } from "./space-sessions.js";
 import {
   executeSessionInteraction,
   extractInboundText,
@@ -415,24 +415,6 @@ export async function getProviderMessageRefBySessionMessage(input: { spaceChanne
   return ref ?? null;
 }
 
-export async function resolveForkSourceForInboundEvent(input: { spaceChannelId: string; provider: string; conversationId: string; parentConversationId?: string | null; parentBindingKey?: string | null; parentMessageId?: string | null }) {
-  const parentConversationId = input.parentConversationId?.trim();
-  const parentMessageId = input.parentMessageId?.trim();
-  if (!parentConversationId || !parentMessageId) return null;
-  const parentBindingKey = input.parentBindingKey?.trim() || `${input.provider}:conversation:${parentConversationId}`;
-  const parentBinding = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: parentBindingKey });
-  if (!parentBinding) return null;
-  const anchorRef = await getProviderMessageRef({ provider: input.provider, externalConversationId: parentConversationId, externalMessageId: parentMessageId, direction: "inbound" });
-  if (anchorRef?.sessionMessageId && anchorRef.spaceSessionId === parentBinding.spaceSessionId) {
-    return { parentSessionId: parentBinding.spaceSessionId, fromMessageId: anchorRef.sessionMessageId };
-  }
-  const fallbackAnchorRef = await getProviderMessageRef({ provider: input.provider, externalConversationId: parentConversationId, externalMessageId: parentMessageId });
-  if (fallbackAnchorRef?.sessionMessageId && fallbackAnchorRef.spaceSessionId === parentBinding.spaceSessionId) {
-    return { parentSessionId: parentBinding.spaceSessionId, fromMessageId: fallbackAnchorRef.sessionMessageId };
-  }
-  return null;
-}
-
 export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
   return {
     conversation: event.conversation ?? null,
@@ -446,7 +428,6 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
       lastEventAt: new Date(event.timestamp).toISOString(),
       lastEventId: event.eventId,
     },
-    forkedFromExternal: event.conversation?.parentId && event.message?.parentMessageId ? { conversationId: event.conversation.parentId, messageId: event.message.parentMessageId } : null,
   } as Record<string, unknown>;
 }
 
@@ -487,19 +468,8 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
     return binding;
   }
 
-  const forkSource = await resolveForkSourceForInboundEvent({
-    spaceChannelId: input.spaceChannelId,
-    provider: input.provider,
-    conversationId: input.event.conversation?.id?.trim() || input.externalChatId,
-    parentConversationId: input.event.conversation?.parentId ?? null,
-    parentBindingKey: resolveInboundParentBindingKey(input.event),
-    parentMessageId: input.event.message?.parentMessageId ?? null,
-  });
-
   const sessionSource = buildSessionSourceChannel(input.event);
-  const session = forkSource
-    ? await forkSpaceSession({ spaceId: input.spaceId, parentSessionId: forkSource.parentSessionId, fromMessageId: forkSource.fromMessageId, newSessionId: randomUUID() })
-    : await registerSpaceSession({
+  const session = await registerSpaceSession({
         spaceId: input.spaceId,
         sessionId: randomUUID(),
         source: sessionSource,

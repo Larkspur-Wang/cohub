@@ -1,0 +1,191 @@
+import { and, asc, eq } from "drizzle-orm";
+import type { SessionForkRecord, SessionTurnSegmentRecord } from "@neta-art/cohub-protocol/model";
+import { db } from "./db/index.js";
+import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "./db/schema-v2.js";
+
+type SegmentRow = typeof sessionTurnSegments.$inferSelect;
+type ForkRow = typeof sessionForks.$inferSelect;
+
+const toIso = (value: Date | string | null | undefined) => {
+  if (!value) return new Date().toISOString();
+  return value instanceof Date ? value.toISOString() : value;
+};
+
+const toSegmentRecord = (row: SegmentRow): SessionTurnSegmentRecord => ({
+  id: row.id,
+  sessionId: row.sessionId,
+  ordinal: row.ordinal,
+  sourceSessionId: row.sourceSessionId,
+  fromSequence: row.fromSequence,
+  toSequence: row.toSequence ?? null,
+  createdAt: toIso(row.createdAt),
+});
+
+const toForkRecord = (row: ForkRow): SessionForkRecord => ({
+  id: row.id,
+  spaceId: row.spaceId,
+  parentSessionId: row.parentSessionId,
+  childSessionId: row.childSessionId,
+  rootSessionId: row.rootSessionId,
+  depth: row.depth,
+  anchorSourceSessionId: row.anchorSourceSessionId,
+  anchorTurnId: row.anchorTurnId,
+  anchorSequence: row.anchorSequence,
+  ancestorSessionIds: row.ancestorSessionIds,
+  sessionPath: row.sessionPath,
+  createdBy: row.createdBy ?? null,
+  createdAt: toIso(row.createdAt),
+});
+
+export const ensureSessionTurnSegments = async (sessionId: string) => {
+  const rows = await db.select().from(sessionTurnSegments).where(eq(sessionTurnSegments.sessionId, sessionId)).orderBy(asc(sessionTurnSegments.ordinal));
+  if (rows.length > 0) return rows;
+  await db.insert(sessionTurnSegments).values({
+    sessionId,
+    ordinal: 1,
+    sourceSessionId: sessionId,
+    fromSequence: 1,
+    toSequence: null,
+  }).onConflictDoNothing({ target: [sessionTurnSegments.sessionId, sessionTurnSegments.ordinal] });
+  return db.select().from(sessionTurnSegments).where(eq(sessionTurnSegments.sessionId, sessionId)).orderBy(asc(sessionTurnSegments.ordinal));
+};
+
+export const listSessionTurnSegments = async (sessionId: string) =>
+  (await ensureSessionTurnSegments(sessionId)).map(toSegmentRecord);
+
+export const getSessionForkByChild = async (childSessionId: string) => {
+  const [row] = await db.select().from(sessionForks).where(eq(sessionForks.childSessionId, childSessionId)).limit(1);
+  return row ? toForkRecord(row) : null;
+};
+
+export const listSessionForkTree = async (rootSessionId: string) => {
+  const rows = await db.select().from(sessionForks).where(eq(sessionForks.rootSessionId, rootSessionId)).orderBy(asc(sessionForks.depth), asc(sessionForks.createdAt));
+  return rows.map(toForkRecord);
+};
+
+export const findSegmentForTurn = (segments: SegmentRow[], input: { sourceSessionId: string; sequence: number }) =>
+  segments.find((segment) =>
+    segment.sourceSessionId === input.sourceSessionId &&
+    segment.fromSequence <= input.sequence &&
+    (segment.toSequence == null || input.sequence <= segment.toSequence)
+  ) ?? null;
+
+export const findSegmentForSequence = (segments: SegmentRow[], sequence: number) =>
+  segments.find((segment) => segment.fromSequence <= sequence && (segment.toSequence == null || sequence <= segment.toSequence)) ?? null;
+
+const clipSegments = (segments: SegmentRow[], anchorSequence: number) => {
+  const clipped: Array<Pick<SegmentRow, "sourceSessionId" | "fromSequence" | "toSequence">> = [];
+  for (const segment of segments) {
+    if (segment.fromSequence > anchorSequence) break;
+    const toSequence = segment.toSequence == null ? anchorSequence : Math.min(segment.toSequence, anchorSequence);
+    clipped.push({
+      sourceSessionId: segment.sourceSessionId,
+      fromSequence: segment.fromSequence,
+      toSequence,
+    });
+    if (toSequence >= anchorSequence) break;
+  }
+  return clipped;
+};
+
+export async function createSessionFork(input: {
+  spaceId: string;
+  parentSessionId: string;
+  childSessionId: string;
+  turnId: string;
+  sequence?: number;
+  title?: string | null;
+  createdBy?: string | null;
+}) {
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
+    const [anchorTurn] = await tx.select().from(sessionTurns).where(eq(sessionTurns.id, input.turnId)).limit(1);
+    if (!anchorTurn) throw new Error("Turn not found");
+    const [anchorSourceSession] = await tx.select({ id: spaceSessions.id }).from(spaceSessions).where(and(
+      eq(spaceSessions.id, anchorTurn.sessionId),
+      eq(spaceSessions.spaceId, input.spaceId),
+    )).limit(1);
+    if (!anchorSourceSession) throw new Error("Turn source session not found");
+    if (anchorTurn.status === "running") throw new Error("Cannot fork a running turn");
+    const anchorSequence = input.sequence ?? anchorTurn.sequence;
+    const [parent] = await tx.select().from(spaceSessions).where(and(eq(spaceSessions.id, input.parentSessionId), eq(spaceSessions.spaceId, input.spaceId))).limit(1);
+    if (!parent) throw new Error("Parent session not found");
+
+    const existingChild = await tx.select().from(spaceSessions).where(eq(spaceSessions.id, input.childSessionId)).limit(1);
+    if (existingChild[0]) {
+      const [existingFork] = await tx.select().from(sessionForks).where(eq(sessionForks.childSessionId, input.childSessionId)).limit(1);
+      if (existingFork?.parentSessionId === parent.id && existingFork.anchorTurnId === input.turnId && existingFork.anchorSequence === anchorSequence) {
+        return { session: existingChild[0], fork: existingFork };
+      }
+      throw new Error("Session id already exists");
+    }
+
+    let parentSegments = await tx.select().from(sessionTurnSegments).where(eq(sessionTurnSegments.sessionId, parent.id)).orderBy(asc(sessionTurnSegments.ordinal));
+    if (parentSegments.length === 0) {
+      await tx.insert(sessionTurnSegments).values({ sessionId: parent.id, ordinal: 1, sourceSessionId: parent.id, fromSequence: 1, toSequence: null }).onConflictDoNothing({ target: [sessionTurnSegments.sessionId, sessionTurnSegments.ordinal] });
+      parentSegments = await tx.select().from(sessionTurnSegments).where(eq(sessionTurnSegments.sessionId, parent.id)).orderBy(asc(sessionTurnSegments.ordinal));
+    }
+    const anchorSegment = findSegmentForTurn(parentSegments, { sourceSessionId: anchorTurn.sessionId, sequence: anchorSequence });
+    if (!anchorSegment || anchorTurn.sequence !== anchorSequence) throw new Error("Turn is not visible in this session");
+
+    const [parentFork] = await tx.select().from(sessionForks).where(eq(sessionForks.childSessionId, parent.id)).limit(1);
+    const rootSessionId = parentFork?.rootSessionId ?? parent.id;
+    const ancestorSessionIds = parentFork?.sessionPath ?? [parent.id];
+    const sessionPath = [...ancestorSessionIds, input.childSessionId];
+    const depth = parentFork ? parentFork.depth + 1 : 1;
+
+    const [child] = await tx.insert(spaceSessions).values({
+      id: input.childSessionId,
+      spaceId: input.spaceId,
+      title: input.title ?? parent.title ?? null,
+      source: parent.source,
+      status: "active",
+      externalSessionId: null,
+      meta: {
+        ...((parent.meta && typeof parent.meta === "object" && !Array.isArray(parent.meta)) ? parent.meta as Record<string, unknown> : {}),
+        fork: {
+          version: 1,
+          kind: "turn",
+          createdAt: now.toISOString(),
+          createdBy: input.createdBy ?? null,
+        },
+      },
+      lastMessageAt: now,
+      lastMessageId: null,
+      latestMessageText: anchorTurn.userText ?? parent.latestMessageText ?? null,
+    }).returning();
+    if (!child) throw new Error("Failed to create fork session");
+
+    const [fork] = await tx.insert(sessionForks).values({
+      spaceId: input.spaceId,
+      parentSessionId: parent.id,
+      childSessionId: child.id,
+      rootSessionId,
+      depth,
+      anchorSourceSessionId: anchorSegment.sourceSessionId,
+      anchorTurnId: anchorTurn.id,
+      anchorSequence,
+      ancestorSessionIds,
+      sessionPath,
+      createdBy: input.createdBy ?? null,
+    }).returning();
+    if (!fork) throw new Error("Failed to create fork record");
+
+    const clipped = clipSegments(parentSegments, anchorSequence);
+    if (clipped.length > 128) throw new Error("Fork chain is too deep");
+    const childSegments = [
+      ...clipped,
+      { sourceSessionId: child.id, fromSequence: anchorSequence + 1, toSequence: null },
+    ];
+    await tx.insert(sessionTurnSegments).values(childSegments.map((segment, index) => ({
+      sessionId: child.id,
+      ordinal: index + 1,
+      sourceSessionId: segment.sourceSessionId,
+      fromSequence: segment.fromSequence,
+      toSequence: segment.toSequence,
+    })));
+
+    return { session: child, fork };
+  });
+  return { session: result.session, fork: toForkRecord(result.fork) };
+}

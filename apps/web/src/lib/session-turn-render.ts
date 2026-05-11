@@ -28,6 +28,7 @@ function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 		meta: {
 			messageKind: "turn_user",
 			turnId: turn.id,
+			turn,
 		},
 	};
 }
@@ -65,6 +66,7 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 						? "assistant_interrupted"
 						: "assistant_final",
 			turnId: turn.id,
+			turn,
 			model: turn.model,
 			provider: turn.provider,
 			contextWindow: getTurnContextWindow(turn),

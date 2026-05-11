@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import { Check, Copy, UserRound } from "lucide-svelte";
+import { Check, Copy, GitFork, Loader2, UserRound } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 
@@ -17,6 +17,9 @@ type Props = {
 	onMarkdownRendered?: (message: ChatMessage) => void;
 	showToolCalls?: boolean;
 	onOpenFile?: (path: string) => void;
+	onForkTurn?: () => void;
+	forkDisabled?: boolean;
+	forking?: boolean;
 };
 
 const {
@@ -26,6 +29,9 @@ const {
 	onMarkdownRendered,
 	showToolCalls = true,
 	onOpenFile,
+	onForkTurn,
+	forkDisabled = false,
+	forking = false,
 }: Props = $props();
 let pendingMarkdownSegments = $state(0);
 let markdownStartedForSignature = $state("");
@@ -87,6 +93,31 @@ const assistantErrorMessage = $derived(
 );
 
 const isUserMessage = $derived(message.role === "user");
+
+const hasForkCheckpoint = $derived(
+	Boolean(
+		message.meta?.turn &&
+			(typeof message.meta.turn.meta?.agentSessionEntryId === "string" ||
+				(message.meta.turn.meta?.agent &&
+					typeof message.meta.turn.meta.agent === "object" &&
+					!Array.isArray(message.meta.turn.meta.agent) &&
+					typeof (message.meta.turn.meta.agent as Record<string, unknown>)
+						.leafEntryId === "string")),
+	),
+);
+
+const canFork = $derived(
+	Boolean(
+		onForkTurn &&
+			hasForkCheckpoint &&
+			message.role === "assistant" &&
+			message.meta?.messageKind &&
+			["assistant_final", "assistant_error", "assistant_interrupted"].includes(
+				message.meta.messageKind,
+			) &&
+			message.meta?.streaming !== true,
+	),
+);
 
 function fallbackUserName(uuid?: string | null): string {
 	if (!uuid) return "User";
@@ -305,6 +336,22 @@ function handleCopy() {
             <Copy class="w-3.5 h-3.5" />
           {/if}
         </button>
+
+        {#if canFork}
+          <button
+            type="button"
+            class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity disabled:cursor-default disabled:opacity-50"
+            onclick={(e) => { e.stopPropagation(); if (!forkDisabled) onForkTurn?.(); }}
+            title="Fork from here"
+            disabled={forkDisabled}
+          >
+            {#if forking}
+              <Loader2 class="w-3.5 h-3.5 animate-spin" />
+            {:else}
+              <GitFork class="w-3.5 h-3.5" />
+            {/if}
+          </button>
+        {/if}
 
         {#if message.role === 'user'}
           <!-- User identity -->

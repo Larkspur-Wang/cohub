@@ -46,7 +46,10 @@ import { refreshUserEnv } from "./runtime/env-cache.js";
 
 import {
   getAgentPlatformConfigPath,
+  getAgentSessionFilePath,
+  getAgentSpaceSessionsPath,
 } from "./runtime/paths.js";
+import { SessionManager } from "./runtime/local-session-manager.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
@@ -729,6 +732,16 @@ async function main() {
         const ownershipOk = await verifyInputOwnership(inputEntry);
         if (!ownershipOk) {
           throw new Error(`ownership mismatch for session=${inputEntry.sessionId}, expectedOwner=${inputEntry.expectedOwnerId}, instance=${env.AGENT_INSTANCE_ID}, expectedEpoch=${inputEntry.expectedEpoch}`);
+        }
+
+        if (inputEntry.action === "fork_session") {
+          const parentSessionFile = getAgentSessionFilePath(inputEntry.spaceId, inputEntry.parentSessionId);
+          const childSessionFile = getAgentSessionFilePath(inputEntry.spaceId, inputEntry.sessionId);
+          const parentManager = SessionManager.open(parentSessionFile, getAgentSpaceSessionsPath(inputEntry.spaceId));
+          const branchFile = parentManager.createBranchedSession(inputEntry.anchorEntryId, { id: inputEntry.sessionId, filePath: childSessionFile, parentSession: parentSessionFile });
+          if (!branchFile) throw new Error("Failed to create forked session file");
+          await ack();
+          return;
         }
 
         if (inputEntry.action === "prompt") {

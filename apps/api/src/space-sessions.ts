@@ -7,6 +7,7 @@ import { SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
+  sessionTurnSegments,
   sessionTurns,
   spaceMembers,
   spaceSessions,
@@ -376,6 +377,18 @@ export const getSessionMessageById = async (spaceSessionId: string, messageId: s
   return message ?? null;
 };
 
+export const ensureRootSessionTurnSegment = async (sessionId: string) => {
+  await db.insert(sessionTurnSegments).values({
+    sessionId,
+    ordinal: 1,
+    sourceSessionId: sessionId,
+    fromSequence: 1,
+    toSequence: null,
+  }).onConflictDoNothing({
+    target: [sessionTurnSegments.sessionId, sessionTurnSegments.ordinal],
+  });
+};
+
 export const createInitialSpaceSession = async (input: RegisterSessionInput) => {
   const [session] = await db.insert(spaceSessions).values({
     id: input.sessionId,
@@ -385,14 +398,11 @@ export const createInitialSpaceSession = async (input: RegisterSessionInput) => 
     status: "active",
     externalSessionId: input.externalSessionId ?? null,
     meta: input.meta ?? null,
-    parentSessionId: null,
-    forkedFromMessageId: null,
-    lineageRootSessionId: input.sessionId,
-    forkDepth: 0,
     lastMessageAt: new Date(),
     lastMessageId: null,
   }).returning();
   if (!session) throw new Error("Failed to create initial space session");
+  await ensureRootSessionTurnSegment(input.sessionId);
   return session;
 };
 
@@ -409,20 +419,20 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
       status: "active",
       externalSessionId: input.externalSessionId ?? null,
       meta: input.meta ?? null,
-      parentSessionId: null,
-      forkedFromMessageId: null,
-      lineageRootSessionId: input.sessionId,
-      forkDepth: 0,
       lastMessageAt: new Date(),
       lastMessageId: null,
     }).returning();
     if (!session) throw new Error("Failed to register space session");
+    await ensureRootSessionTurnSegment(input.sessionId);
     return session;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("duplicate key") || message.includes("already exists") || message.includes("unique")) {
       const [existing] = await db.select().from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).limit(1);
-      if (existing) return existing;
+      if (existing) {
+        await ensureRootSessionTurnSegment(existing.id);
+        return existing;
+      }
     }
     throw error;
   }
@@ -498,7 +508,7 @@ export const listSpaceSessions = async (
 export const getSpaceSessionBootstrap = async (spaceSessionId: string) => {
   const session = await getSpaceSessionById(spaceSessionId);
   if (!session) return null;
-  return { session, forkSourceProtocolMessageId: session.forkedFromMessageId };
+  return { session };
 };
 
 const getNextSessionSequence = async (sessionId: string) => {
@@ -671,62 +681,6 @@ export const listSessionMessages = async (spaceSessionId: string, options?: { cu
   return db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, spaceSessionId), gt(sessionMessages.sequence, cursor))).orderBy(asc(sessionMessages.sequence)).limit(limit);
 };
 
-export const forkSpaceSession = async (input: { spaceId: string; parentSessionId: string; fromMessageId: string; newSessionId?: string; title?: string | null }) => {
-  const parentSession = await getSpaceSessionById(input.parentSessionId);
-  if (!parentSession || parentSession.spaceId !== input.spaceId) throw new Error("Parent space session not found");
-  const [fromMessage] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.id, input.fromMessageId), eq(sessionMessages.sessionId, input.parentSessionId))).limit(1);
-  if (!fromMessage) throw new Error("Fork source message not found");
-  const newSessionId = input.newSessionId ?? randomUUID();
-  const lineageRootSessionId = parentSession.lineageRootSessionId ?? parentSession.id;
-
-  const [childSession] = await db.insert(spaceSessions).values({
-    id: newSessionId,
-    spaceId: input.spaceId,
-    title: input.title ?? parentSession.title ?? null,
-    status: "active",
-    externalSessionId: null,
-    meta: { forked: true, fromSessionId: parentSession.id, fromMessageId: fromMessage.id },
-    parentSessionId: parentSession.id,
-    forkedFromMessageId: fromMessage.id,
-    lineageRootSessionId,
-    forkDepth: (parentSession.forkDepth ?? 0) + 1,
-    lastMessageId: null,
-  }).returning();
-  if (!childSession) throw new Error("Failed to create forked session");
-
-  const sourceMessages = await db.select().from(sessionMessages).where(eq(sessionMessages.sessionId, parentSession.id)).orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
-  const messagesToCopy = sourceMessages.filter((message) => message.sequence <= fromMessage.sequence);
-  if (messagesToCopy.length > 0) {
-    await db.insert(sessionMessages).values(
-      messagesToCopy.map((message) => ({
-        sessionId: childSession.id,
-        role: message.role,
-        content: message.content,
-        text: message.text,
-        meta: message.meta,
-        idempotencyKey: null,
-        sequence: message.sequence,
-        provider: message.provider,
-        model: message.model,
-        stopReason: message.stopReason,
-        errorMessage: message.errorMessage,
-        usage: (message.usage as Usage | null | undefined) ?? null,
-      })),
-    );
-  }
-
-  const copiedMessages = await listSessionMessages(childSession.id);
-  const lastMessage = copiedMessages.at(-1) ?? null;
-  await db.update(spaceSessions).set({
-    lastMessageId: lastMessage?.id ?? null,
-    latestMessageText: lastMessage?.text ?? null,
-    lastMessageAt: lastMessage?.createdAt ?? null,
-    updatedAt: new Date(),
-  }).where(eq(spaceSessions.id, childSession.id));
-
-  return (await getSpaceSessionById(childSession.id)) ?? childSession;
-};
-
 export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
@@ -762,6 +716,28 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
       content: input.content,
       meta: input.meta ?? null,
       executionAuth: executionGrant,
+      timestamp: new Date().toISOString(),
+      expectedOwnerId: lease.ownerId,
+      expectedEpoch: lease.epoch,
+      ...traceCarrier,
+    }),
+  );
+};
+
+export const enqueueSessionFork = async (input: { spaceId: string; sessionId: string; parentSessionId: string; anchorTurnId: string; anchorSequence: number; anchorEntryId: string }) => {
+  const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
+  const traceCarrier = injectTrace();
+  await redisCommandClient.rpush(
+    getAgentInstanceInputQueueKey(lease.ownerId),
+    JSON.stringify({
+      action: "fork_session",
+      id: randomUUID(),
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      parentSessionId: input.parentSessionId,
+      anchorTurnId: input.anchorTurnId,
+      anchorSequence: input.anchorSequence,
+      anchorEntryId: input.anchorEntryId,
       timestamp: new Date().toISOString(),
       expectedOwnerId: lease.ownerId,
       expectedEpoch: lease.epoch,

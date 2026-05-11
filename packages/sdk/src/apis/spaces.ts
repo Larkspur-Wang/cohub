@@ -14,6 +14,7 @@ import {
 import type {
   CheckpointRecord,
   ContentBlock,
+  SessionForkRecord,
   SessionMessageResponse,
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
@@ -649,6 +650,19 @@ export class SessionClient {
         fetch,
       },
     );
+  }
+
+  turn(turnId: string) {
+    return {
+      fork: (input: { title?: string | null } = {}) => this.transport.request<{ session: SessionRecord; fork: SessionForkRecord }>(
+        `/api/sessions/${this.id}/turns/${turnId}/fork`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      ),
+    };
   }
 
   subscribe(handlers: SessionSubscriptionHandlers) {

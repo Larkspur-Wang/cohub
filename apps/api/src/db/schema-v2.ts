@@ -220,10 +220,6 @@ export const spaceSessions = v2.table(
     status: varchar("status", { length: 50 }).default("active"),
     externalSessionId: text("external_session_id"),
     meta: jsonb("meta"),
-    parentSessionId: uuid("parent_session_id"),
-    forkedFromMessageId: uuid("forked_from_message_id"),
-    lineageRootSessionId: uuid("lineage_root_session_id"),
-    forkDepth: integer("fork_depth").notNull().default(0),
     latestMessageText: text("latest_message_text"),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
     lastMessageId: uuid("last_message_id"),
@@ -232,13 +228,51 @@ export const spaceSessions = v2.table(
   },
   (table) => ({
     spaceIdx: index("v2_idx_space_sessions_space_id").on(table.spaceId),
-    parentIdx: index("v2_idx_space_sessions_parent_session_id").on(table.parentSessionId),
-    rootIdx: index("v2_idx_space_sessions_lineage_root_session_id").on(table.lineageRootSessionId),
-    forkedFromMessageIdx: index("v2_idx_space_sessions_forked_from_message_id").on(
-      table.forkedFromMessageId,
-    ),
     lastMessageIdx: index("v2_idx_space_sessions_last_message_id").on(table.lastMessageId),
     lastMessageAtIdx: index("v2_idx_space_sessions_last_message_at").on(table.lastMessageAt),
+  }),
+);
+
+export const sessionForks = v2.table(
+  "session_forks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    parentSessionId: uuid("parent_session_id").notNull(),
+    childSessionId: uuid("child_session_id").notNull(),
+    rootSessionId: uuid("root_session_id").notNull(),
+    depth: integer("depth").notNull(),
+    anchorSourceSessionId: uuid("anchor_source_session_id").notNull(),
+    anchorTurnId: uuid("anchor_turn_id").notNull(),
+    anchorSequence: integer("anchor_sequence").notNull(),
+    ancestorSessionIds: uuid("ancestor_session_ids").array().notNull(),
+    sessionPath: uuid("session_path").array().notNull(),
+    createdBy: varchar("created_by", { length: 255 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    childUniqueIdx: uniqueIndex("v2_uq_session_forks_child").on(table.childSessionId),
+    parentIdx: index("v2_idx_session_forks_parent").on(table.parentSessionId),
+    rootDepthIdx: index("v2_idx_session_forks_root_depth").on(table.rootSessionId, table.depth, table.createdAt),
+    anchorTurnIdx: index("v2_idx_session_forks_anchor_turn").on(table.anchorTurnId),
+  }),
+);
+
+export const sessionTurnSegments = v2.table(
+  "session_turn_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").notNull(),
+    ordinal: integer("ordinal").notNull(),
+    sourceSessionId: uuid("source_session_id").notNull(),
+    fromSequence: integer("from_sequence").notNull(),
+    toSequence: integer("to_sequence"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sessionOrdinalUniqueIdx: uniqueIndex("v2_uq_session_turn_segments_session_ordinal").on(table.sessionId, table.ordinal),
+    sessionIdx: index("v2_idx_session_turn_segments_session").on(table.sessionId, table.ordinal),
+    sourceIdx: index("v2_idx_session_turn_segments_source").on(table.sourceSessionId),
   }),
 );
 

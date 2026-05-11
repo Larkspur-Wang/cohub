@@ -22,6 +22,7 @@ export type ChatMessage = {
 	createdAt: string;
 	meta?: {
 		messageKind?: string | null;
+		turn?: SessionTurnRecord | null;
 		streaming?: boolean;
 		turnId?: string | null;
 		sessionId?: string | null;

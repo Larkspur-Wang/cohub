@@ -57,6 +57,13 @@
       "when": 1778196352503,
       "tag": "0007_split_turn_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778509815272,
+      "tag": "0008_tired_hardball",
+      "breakpoints": true
     }
   ]
 }

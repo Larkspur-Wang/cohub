@@ -176,7 +176,21 @@ const AbortInputSchema = z.object({
   expectedEpoch: z.coerce.number().int().positive(),
 }).passthrough();
 
-export const InputSchema = z.union([PromptInputSchema, AbortInputSchema]);
+const ForkSessionInputSchema = z.object({
+  id: z.string().optional(),
+  action: z.literal("fork_session"),
+  spaceId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  parentSessionId: z.string().uuid(),
+  anchorTurnId: z.string().uuid(),
+  anchorSequence: z.number().int().positive(),
+  anchorEntryId: z.string().min(1),
+  timestamp: z.string().optional(),
+  expectedOwnerId: z.string().min(1),
+  expectedEpoch: z.coerce.number().int().positive(),
+}).passthrough();
+
+export const InputSchema = z.union([PromptInputSchema, AbortInputSchema, ForkSessionInputSchema]);
 export type AgentInput = z.infer<typeof InputSchema>;
 
 const sendOutputSchema = z.union([

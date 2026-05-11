@@ -1,6 +1,32 @@
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
 
+export type SessionForkRecord = {
+  id: string;
+  spaceId: string;
+  parentSessionId: string;
+  childSessionId: string;
+  rootSessionId: string;
+  depth: number;
+  anchorSourceSessionId: string;
+  anchorTurnId: string;
+  anchorSequence: number;
+  ancestorSessionIds: string[];
+  sessionPath: string[];
+  createdBy: string | null;
+  createdAt: string;
+};
+
+export type SessionTurnSegmentRecord = {
+  id: string;
+  sessionId: string;
+  ordinal: number;
+  sourceSessionId: string;
+  fromSequence: number;
+  toSequence: number | null;
+  createdAt: string;
+};
+
 export type {
   MessageToolCallsFile,
   SessionTurnIntent,
@@ -93,10 +119,6 @@ export type SessionRecord = {
   status: string | null;
   externalSessionId: string | null;
   meta: Record<string, unknown> | null;
-  parentSessionId: string | null;
-  forkedFromMessageId: string | null;
-  lineageRootSessionId: string | null;
-  forkDepth: number;
   latestMessageText: string | null;
   lastMessageAt: string | null;
   lastMessageId: string | null;

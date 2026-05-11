@@ -35,6 +35,8 @@ type Props = {
 		message: StoredIntermediateMessage;
 	}) => Promise<MessageToolCallsFile | null>;
 	onOpenFile?: (path: string) => void;
+	onForkTurn?: (turn: SessionTurnRecord) => void;
+	forkingTurnId?: string | null;
 };
 
 let {
@@ -49,6 +51,8 @@ let {
 	onLoadIntermediate,
 	onLoadToolCalls,
 	onOpenFile,
+	onForkTurn,
+	forkingTurnId = null,
 }: Props = $props();
 
 // Track all observed elements for re-observation.
@@ -156,9 +160,19 @@ $effect(() => {
 						: undefined}
 				use:observeItem={originalIdx}
 			>
-					{#if item.kind === 'message'}
-						<ChatMessageBubble message={item.message} {modelsCatalog} {onMarkdownRenderStart} {onMarkdownRendered} {onOpenFile} />
-					{:else if item.kind === 'process' && item.turn}
+				{#if item.kind === 'message'}
+					{@const forkTurn = item.message.meta?.turn ?? null}
+					<ChatMessageBubble
+							message={item.message}
+							{modelsCatalog}
+							{onMarkdownRenderStart}
+							{onMarkdownRendered}
+							{onOpenFile}
+							onForkTurn={onForkTurn && forkTurn ? () => onForkTurn(forkTurn) : undefined}
+							forkDisabled={Boolean(forkingTurnId)}
+							forking={forkingTurnId === forkTurn?.id}
+					/>
+				{:else if item.kind === 'process' && item.turn}
 						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} {onOpenFile} />

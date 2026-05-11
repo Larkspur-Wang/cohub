@@ -396,9 +396,7 @@ export async function registerSpaceSession(input: RegisterSessionInput) {
   return response.json().catch(() => null) as Promise<{
     ok: true;
     session: { id: string };
-    bootstrap?: {
-      forkSourceProtocolMessageId: string | null;
-    } | null;
+    bootstrap?: Record<string, unknown> | null;
   } | null>;
 }
 
@@ -513,6 +511,7 @@ export async function persistUserMessage(input: {
         turnId: input.turnId ?? (typeof input.meta?.turnId === "string" ? input.meta.turnId : null),
         messageId: input.userMessageId,
         clientMessageId: typeof input.meta?.clientMessageId === "string" ? input.meta.clientMessageId : null,
+        agentSessionEntryId: typeof input.meta?.sessionEntryId === "string" ? input.meta.sessionEntryId : null,
       },
       provider: null,
       model: null,
@@ -606,6 +605,7 @@ export async function persistAssistantMessage(input: {
         thinking,
         thinkingSummary,
         toolCallRenderStates,
+        agentSessionEntryId: typeof assistant.sessionEntryId === "string" ? assistant.sessionEntryId : null,
       },
       usage:
         assistant.usage && typeof assistant.usage === "object"
