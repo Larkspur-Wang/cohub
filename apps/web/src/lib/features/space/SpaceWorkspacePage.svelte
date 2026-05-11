@@ -122,6 +122,7 @@ import {
 	failGeneration,
 	interruptGeneration,
 	replaceGenerationTurnId,
+	resetGeneration,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
 import { applyGenerationRealtimeEnvelope } from "$lib/stores/session-generation-realtime";
@@ -1971,6 +1972,30 @@ async function submitSessionRename() {
 		cancelSessionRename();
 	}
 }
+async function syncGenerationStateFromTail(
+	sessionId: string,
+	turns: SessionTurnRecord[],
+	requestStartedAt: number,
+) {
+	const runningTurn = turns.findLast((turn) => turn.status === "running");
+	if (runningTurn) {
+		sessionGenerationStore.resumePending(sessionId, {
+			spaceId,
+			turnId: runningTurn.id,
+			anchorUserMessageId: runningTurn.id,
+		});
+		await restoreSessionStreamSnapshot(sessionId);
+		return;
+	}
+	const current = sessionGenerationStore.get(sessionId);
+	if (
+		current &&
+		!TERMINAL_GENERATION_STATUSES.has(current.status) &&
+		(current.lastEventAt ?? 0) <= requestStartedAt
+	) {
+		resetGeneration(sessionId);
+	}
+}
 async function loadSessionState(sessionId: string, force = false) {
 	const existing = sessionStateById[sessionId];
 	if (loadingSessionIds[sessionId] && !force) return;
@@ -2018,23 +2043,18 @@ async function loadSessionState(sessionId: string, force = false) {
 		},
 	};
 	try {
+		const requestStartedAt = Date.now();
 		const response = await sdk
 			.space(spaceId)
 			.session(sessionId)
 			.turns.listPaginated({
 				limit: 30,
 			});
-		const runningTurn = response.turns.findLast(
-			(turn) => turn.status === "running",
+		await syncGenerationStateFromTail(
+			sessionId,
+			response.turns,
+			requestStartedAt,
 		);
-		if (runningTurn) {
-			sessionGenerationStore.resumePending(sessionId, {
-				spaceId,
-				turnId: runningTurn.id,
-				anchorUserMessageId: runningTurn.id,
-			});
-			await restoreSessionStreamSnapshot(sessionId);
-		}
 		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
 			session: response.session,
 			turns: response.turns,
@@ -2366,12 +2386,18 @@ async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
 	try {
+		const requestStartedAt = Date.now();
 		const response = await sdk
 			.space(spaceId)
 			.session(sessionId)
 			.turns.listPaginated({
 				limit: 30,
 			});
+		await syncGenerationStateFromTail(
+			sessionId,
+			response.turns,
+			requestStartedAt,
+		);
 		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
 			session: response.session,
 			turns: response.turns,
