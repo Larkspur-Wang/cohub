@@ -154,6 +154,66 @@ test("buildTurnTimelineItems renders streaming intermediate messages separately 
 	);
 });
 
+test("buildTurnTimelineItems keeps streaming preview visible when a same-turn partial assistant patch exists", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "running",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: [{ type: "text", text: "partial final patch" }],
+				assistantText: "partial final patch",
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: null,
+				startedAt: null,
+				completedAt: null,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:01.000Z",
+			},
+		],
+		streaming: {
+			sessionId: "s1",
+			turnId: "t1",
+			contentBlocks: [
+				{ type: "thinking", thinking: "thinking", _meta: { streamIndex: 0 } },
+				{ type: "text", text: "answer", _meta: { streamIndex: 1 } },
+			],
+			status: "streaming",
+		},
+	});
+
+	const assistantMessages = items.filter(
+		(item) => item.kind === "message" && item.message.role === "assistant",
+	);
+	assert.equal(assistantMessages.length, 1);
+	assert.deepEqual(
+		assistantMessages[0]?.kind === "message"
+			? assistantMessages[0].message.content.map((block) => block.type)
+			: [],
+		["thinking", "text"],
+	);
+	assert.equal(
+		assistantMessages[0]?.kind === "message"
+			? assistantMessages[0].message.meta?.messageKind
+			: null,
+		"assistant_streaming_preview",
+	);
+});
+
 test("buildTurnTimelineItems keeps streaming intermediate messages after final turn patch", () => {
 	const items = buildTurnTimelineItems({
 		sessionId: "s1",

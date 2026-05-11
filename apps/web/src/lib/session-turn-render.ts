@@ -125,7 +125,6 @@ export function buildTurnTimelineItems(input: {
 				input.streaming.status === "streaming"),
 	);
 	let streamingProcessInserted = false;
-	let streamingAssistantInserted = false;
 	for (const turn of input.turns) {
 		items.push({
 			id: `turn:${turn.id}:user`,
@@ -170,14 +169,19 @@ export function buildTurnTimelineItems(input: {
 		}
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant) {
-			if (streamingTurnId === turn.id) {
-				streamingAssistantInserted = true;
+			if (hasStreamingState && streamingTurnId === turn.id) {
+				// Keep the live streaming preview as the visual source of truth until
+				// generation is marked terminal. Finalized / reconciled turn patches can
+				// arrive before the full persisted turn is available, and temporarily
+				// swapping to those partial records makes blocks such as thinking vanish
+				// and then reappear on the next fetch.
+			} else {
+				items.push({
+					id: `turn:${turn.id}:assistant`,
+					kind: "message",
+					message: assistant,
+				});
 			}
-			items.push({
-				id: `turn:${turn.id}:assistant`,
-				kind: "message",
-				message: assistant,
-			});
 		}
 	}
 	const fallbackSequence = (input.turns.at(-1)?.sequence ?? 0) * 10 + 10;
@@ -237,10 +241,7 @@ export function buildTurnTimelineItems(input: {
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
 	const showPendingPlaceholder =
 		input.streaming?.status === "pending" && streamingBlocks.length === 0;
-	if (
-		!streamingAssistantInserted &&
-		(streamingBlocks.length > 0 || showPendingPlaceholder)
-	) {
+	if (streamingBlocks.length > 0 || showPendingPlaceholder) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.turnId ?? input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
