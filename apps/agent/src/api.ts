@@ -538,6 +538,8 @@ export async function persistUserMessage(input: {
   });
 }
 
+const EMPTY_ASSISTANT_MESSAGE_ERROR = "LLM returned an empty assistant message after streaming completed.";
+
 export async function persistAssistantMessage(input: {
   spaceId: string;
   spaceSessionId: string;
@@ -563,15 +565,17 @@ export async function persistAssistantMessage(input: {
   const stopReason = typeof assistant.stopReason === "string" ? assistant.stopReason : null;
   const errorMessage = typeof assistant.errorMessage === "string" ? assistant.errorMessage : null;
   const hasAssistantError = stopReason === "error" || stopReason === "aborted" || Boolean(errorMessage);
+  const isEmptySuccessfulAssistant = content.length === 0 && !hasAssistantError;
+  const effectiveStopReason = isEmptySuccessfulAssistant ? "error" : stopReason;
+  const effectiveErrorMessage = isEmptySuccessfulAssistant ? EMPTY_ASSISTANT_MESSAGE_ERROR : errorMessage;
 
-  if (content.length === 0 && !hasAssistantError) {
-    console.warn("[Persist] skipping empty assistant message", {
+  if (isEmptySuccessfulAssistant) {
+    console.warn("[Persist] empty assistant message converted to error", {
       spaceId: input.spaceId,
       spaceSessionId: input.spaceSessionId,
       userMessageId: input.userMessageId,
       stopReason,
     });
-    return;
   }
 
   const payload: PersistMessageInput = {
@@ -588,8 +592,8 @@ export async function persistAssistantMessage(input: {
       content,
       provider: typeof assistant.provider === "string" ? assistant.provider : null,
       model: typeof assistant.model === "string" ? assistant.model : null,
-      stopReason,
-      errorMessage,
+      stopReason: effectiveStopReason,
+      errorMessage: effectiveErrorMessage,
       meta: {
         ...((assistant.meta && typeof assistant.meta === "object" && !Array.isArray(assistant.meta))
           ? (assistant.meta as Record<string, unknown>)
@@ -598,6 +602,7 @@ export async function persistAssistantMessage(input: {
         spaceId: input.spaceId,
         sessionId: input.spaceSessionId,
         rawStopReason: stopReason,
+        ...(isEmptySuccessfulAssistant ? { emptyAssistantMessageConvertedToError: true } : {}),
         thinking,
         thinkingSummary,
         toolCallRenderStates,

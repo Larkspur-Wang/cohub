@@ -44,6 +44,21 @@ function isRetryableAssistantError(message: AssistantMessage | undefined): boole
   );
 }
 
+function hasAssistantContent(message: AssistantMessage): boolean {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return content.length > 0;
+}
+
+function isEmptySuccessfulAssistantMessage(message: AssistantMessage | undefined): boolean {
+  if (!message) return false;
+  if (message.stopReason === "error" || message.stopReason === "aborted") return false;
+  return !hasAssistantContent(message);
+}
+
+export function isRetryableAssistantFailure(message: AssistantMessage | undefined): boolean {
+  return isRetryableAssistantError(message) || isEmptySuccessfulAssistantMessage(message);
+}
+
 
 export type CreateCohubAgentSessionOptions = {
   cwd: string;
@@ -295,7 +310,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
         const assistantMessage = event.message as AssistantMessage;
         lastAssistantMessage = assistantMessage;
         const shouldDeferPersistence = AGENT_RETRY_ENABLED
-          && isRetryableAssistantError(assistantMessage)
+          && isRetryableAssistantFailure(assistantMessage)
           && retryAttempt < AGENT_RETRY_MAX_RETRIES;
         if (!shouldDeferPersistence) {
           options.sessionManager.appendMessage(event.message as never);
@@ -313,7 +328,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     if (event.type === "agent_end" && lastAssistantMessage) {
       const assistantMessage = lastAssistantMessage;
       lastAssistantMessage = undefined;
-      if (AGENT_RETRY_ENABLED && isRetryableAssistantError(assistantMessage) && retryAttempt < AGENT_RETRY_MAX_RETRIES) {
+      if (AGENT_RETRY_ENABLED && isRetryableAssistantFailure(assistantMessage) && retryAttempt < AGENT_RETRY_MAX_RETRIES) {
         retryAttempt += 1;
         retryScheduled = true;
         ensureRetryPromise();
@@ -353,7 +368,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     shouldDeferErrorPersistence(message) {
       const assistantMessage = message as unknown as AssistantMessage;
       return AGENT_RETRY_ENABLED
-        && isRetryableAssistantError(assistantMessage)
+        && isRetryableAssistantFailure(assistantMessage)
         && retryAttempt < AGENT_RETRY_MAX_RETRIES;
     },
     async prompt(text, inputOptions) {
