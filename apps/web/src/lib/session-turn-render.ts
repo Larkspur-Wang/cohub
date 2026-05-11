@@ -86,16 +86,18 @@ export function buildStreamingPreviewBlocks(
 	let appliedTruncatedPrefix = false;
 	return content.flatMap((block): ContentBlock[] => {
 		if (block.type === "text") {
-			const text = block.text.trim();
-			if (!text) return [];
+			const text = block.text;
+			if (!text.trim()) return [];
 			const nextText =
-				options?.truncatedStart && !appliedTruncatedPrefix ? `…${text}` : text;
+				options?.truncatedStart && !appliedTruncatedPrefix
+					? `…${text.trimStart()}`
+					: text;
 			appliedTruncatedPrefix = true;
 			return [{ ...block, text: nextText }];
 		}
 		if (block.type === "thinking") {
-			const thinking = block.thinking.trim();
-			return thinking ? [{ ...block, thinking }] : [];
+			const thinking = block.thinking;
+			return thinking.trim() ? [{ ...block, thinking }] : [];
 		}
 		return [block];
 	});

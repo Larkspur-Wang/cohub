@@ -122,9 +122,12 @@ async function highlightCodeTokens(tokens: Token[]) {
 	}
 }
 
-async function renderMarkdownHtml(source: string) {
+async function renderMarkdownHtml(
+	source: string,
+	options?: { highlight?: boolean },
+) {
 	const tokens = marked.lexer(source, { gfm: true });
-	await highlightCodeTokens(tokens);
+	if (options?.highlight !== false) await highlightCodeTokens(tokens);
 	return marked.parser(tokens);
 }
 
@@ -231,7 +234,7 @@ function renderPlainCodeBlock(source: string) {
 	const code = openingFence ? lines.slice(1).join("\n") : source;
 	const languageClass = language ? ` class="language-${language}"` : "";
 	return sanitizeMarkdownHtml(
-		`<pre><code${languageClass}>${escapeHtml(code)}</code></pre>`,
+		`<pre data-streaming-code="true"><code${languageClass}>${escapeHtml(code)}</code></pre>`,
 	);
 }
 
@@ -244,8 +247,16 @@ function escapeHtml(source: string) {
 		.replaceAll("'", "&#039;");
 }
 
-async function renderMarkdownBlock(source: string) {
-	const html = await renderMarkdownHtml(source);
+function renderStreamingTail(source: string) {
+	if (!source) return "";
+	return `<span class="markdown-streaming-tail">${escapeHtml(source)}</span>`;
+}
+
+async function renderMarkdownBlock(
+	source: string,
+	options?: { highlight?: boolean },
+) {
+	const html = await renderMarkdownHtml(source, options);
 	return sanitizeMarkdownHtml(html);
 }
 
@@ -258,25 +269,127 @@ export const renderMarkdown = async (source: string) => {
 	});
 };
 
-export const renderStreamingMarkdown = async (source: string) => {
-	const normalizedSource = source.trim();
-	if (!normalizedSource) return "";
+function hasUnclosedInlineMarkdown(source: string) {
+	const tail = source.slice(-320);
+	const inlineCodeTicks = (tail.match(/(?<!`)`(?!`)/g) ?? []).length;
+	if (inlineCodeTicks % 2 === 1) return true;
 
-	const blocks = splitMarkdownBlocks(normalizedSource);
+	const boldStars = (tail.match(/(?<!\*)\*\*(?!\*)/g) ?? []).length;
+	const boldUnderscores = (tail.match(/(?<!_)__(?!_)/g) ?? []).length;
+	if (boldStars % 2 === 1 || boldUnderscores % 2 === 1) return true;
+
+	const linkOpen = tail.lastIndexOf("[");
+	const linkClose = tail.lastIndexOf("]");
+	const parenOpen = tail.lastIndexOf("](");
+	const parenClose = tail.lastIndexOf(")");
+	return linkOpen > linkClose || parenOpen > parenClose;
+}
+
+function isUnsafeStreamingLine(line: string) {
+	const trimmed = line.trim();
+	if (!trimmed) return false;
+	if (/^#{1,6}\s/.test(trimmed)) return true;
+	if (/^([-+*]|\d+[.)])\s+/.test(trimmed)) return true;
+	if (/^>\s?/.test(trimmed)) return true;
+	if (/^\|.*\|?$/.test(trimmed)) return true;
+	if (/^[-:|\s]+$/.test(trimmed) && trimmed.includes("|")) return true;
+	return hasUnclosedInlineMarkdown(trimmed);
+}
+
+function findStreamingSafeIndex(source: string) {
+	const length = source.length;
+	if (length < 140) return 0;
+
+	const minTail = source.endsWith("\n")
+		? 48
+		: Math.min(220, Math.max(72, Math.floor(length * 0.12)));
+	const maxStableIndex = Math.max(0, length - minTail);
+	const searchStart = Math.max(0, maxStableIndex - 900);
+	const window = source.slice(searchStart, maxStableIndex);
+	const candidates: number[] = [];
+
+	for (const match of window.matchAll(/\n\s*\n/g)) {
+		candidates.push(searchStart + match.index + match[0].length);
+	}
+	for (const match of window.matchAll(/[。！？!?]\s+/g)) {
+		candidates.push(searchStart + match.index + match[0].length);
+	}
+	for (const match of window.matchAll(/[.。！？!?]\n/g)) {
+		candidates.push(searchStart + match.index + match[0].length);
+	}
+
+	const lines = source.slice(0, maxStableIndex).split(/\r?\n/);
+	let offset = 0;
+	for (const line of lines) {
+		offset += line.length + 1;
+		if (offset <= maxStableIndex && !isUnsafeStreamingLine(line)) {
+			candidates.push(offset);
+		}
+	}
+
+	candidates.sort((a, b) => b - a);
+	for (const candidate of candidates) {
+		const stable = source.slice(0, candidate);
+		const tail = source.slice(candidate);
+		if (!stable.trim()) continue;
+		if (tail.length > 420) continue;
+		if (hasUnclosedInlineMarkdown(stable.slice(-320))) continue;
+		return candidate;
+	}
+
+	return 0;
+}
+
+function splitStreamingStableMarkdown(source: string) {
+	const safeIndex = findStreamingSafeIndex(source);
+	return {
+		stable: source.slice(0, safeIndex),
+		tail: source.slice(safeIndex),
+	};
+}
+
+export const renderStreamingMarkdown = async (source: string) => {
+	const streamingSource = source.trimStart();
+	if (!streamingSource.trim()) return "";
+
+	const blocks = splitMarkdownBlocks(streamingSource);
 	if (blocks.length === 0) return "";
 
 	const renderedBlocks = await Promise.all(
 		blocks.map(async (block, index) => {
 			const isLast = index === blocks.length - 1;
-			if (block.kind === "fence" && !block.closedFence)
-				return renderPlainCodeBlock(block.text);
+			if (block.kind === "fence") return renderPlainCodeBlock(block.text);
 
-			const cacheKey = isLast
-				? `stream-tail:${block.text}`
-				: `block:${block.text}`;
-			return cacheMarkdownRender(cacheKey, async () =>
-				renderMarkdownBlock(block.text),
-			);
+			if (
+				isLast &&
+				/^\s*([`~]{3,})[\s\S]*\n\1\s*$/.test(block.text) &&
+				block.text.trim().length < 120
+			) {
+				return renderPlainCodeBlock(block.text);
+			}
+
+			const shouldRenderWholeLastBlock =
+				isLast &&
+				block.text.endsWith("\n") &&
+				block.text.trim().length < 120 &&
+				!hasUnclosedInlineMarkdown(block.text);
+			if (shouldRenderWholeLastBlock) {
+				return renderMarkdownBlock(block.text, { highlight: false });
+			}
+
+			if (!isLast) {
+				return cacheMarkdownRender(`stream-block:${block.text}`, async () =>
+					renderMarkdownBlock(block.text, { highlight: false }),
+				);
+			}
+
+			const { stable, tail } = splitStreamingStableMarkdown(block.text);
+			const stableHtml = stable.trim()
+				? await cacheMarkdownRender(`stream-stable:${stable}`, async () =>
+						renderMarkdownBlock(stable, { highlight: false }),
+					)
+				: "";
+			return [stableHtml, renderStreamingTail(tail)].filter(Boolean).join("\n");
 		}),
 	);
 
