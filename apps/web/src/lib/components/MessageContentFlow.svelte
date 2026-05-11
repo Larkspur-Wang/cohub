@@ -123,7 +123,7 @@ const segments = $derived.by(() => {
 
 {#if isUserMessage}
 	{#if userShellCommandBlocks.length > 0}
-		<div class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm text-inherit">
+		<div class="font-mono text-[14px] leading-[1.7] text-brand/90 tabular-nums">
 			{userShellCommandBlocks.map((block) => ["$", block.command].join("")).join('\n')}
 		</div>
 	{/if}
