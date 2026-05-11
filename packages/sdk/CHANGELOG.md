@@ -1,5 +1,16 @@
 # @neta-art/cohub
 
+## 1.7.0
+
+### Minor Changes
+
+- c53aaec: Introduce SessionGenerationStreamClient and normalized generation subscription, redesign session fork architecture with segment-based turns
+
+### Patch Changes
+
+- Updated dependencies [c53aaec]
+  - @neta-art/cohub-protocol@1.5.0
+
 ## 1.6.0
 
 ### Minor Changes
