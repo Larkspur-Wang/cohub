@@ -287,6 +287,10 @@ async function runInSessionOperation<T>(handle: SessionHandle, fn: () => Promise
   }
 }
 
+export const __test = {
+  runInSessionOperation,
+};
+
 function getShellCommandBlock(content: ContentBlock[]): Extract<ContentBlock, { type: "shell_command" }> | null {
   if (content.length !== 1) return null;
   const block = content[0];
@@ -836,27 +840,25 @@ async function main() {
                   executionToken,
                   metrics: turnMetrics,
                 }, async () => {
-                  await runInSessionOperation(handle, async () => {
-                    console.log(`[Agent] shell-command:start sessionId=${sessionId}`);
-                    await runDirectShellCommandTurn({
-                      handle,
-                      tools,
-                      spaceId: inputEntry.spaceId,
-                      sessionId,
-                      userMessageId,
-                      content,
-                      meta,
-                      command: shellCommand.command,
-                      rawText: shellCommand.rawText,
-                      turnId,
-                      turnSeq,
-                      actorUserId,
-                      executionToken,
-                      turnMetrics,
-                      ack,
-                    });
-                    console.log(`[Agent] shell-command:end sessionId=${sessionId}`);
+                  console.log(`[Agent] shell-command:start sessionId=${sessionId}`);
+                  await runDirectShellCommandTurn({
+                    handle,
+                    tools,
+                    spaceId: inputEntry.spaceId,
+                    sessionId,
+                    userMessageId,
+                    content,
+                    meta,
+                    command: shellCommand.command,
+                    rawText: shellCommand.rawText,
+                    turnId,
+                    turnSeq,
+                    actorUserId,
+                    executionToken,
+                    turnMetrics,
+                    ack,
                   });
+                  console.log(`[Agent] shell-command:end sessionId=${sessionId}`);
                 });
                 turnSpan.setAttribute("agent.llm_round_count", 0);
                 turnSpan.setAttribute("agent.tool_count", turnMetrics.toolCallCount);
