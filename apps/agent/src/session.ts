@@ -22,6 +22,7 @@ import {
   applyToolExecutionStart,
   applyToolExecutionUpdate,
   createAssistantStreamState,
+  mergeFinalAssistantContentWithStreamOrder,
   projectAssistantStreamState,
   type AssistantStreamState,
 } from "./stream/assistant-stream-state.js";
@@ -290,7 +291,7 @@ function resolvePersistedAssistantContent(handle: SessionHandle, message: Record
     return rawContent;
   }
   if (handle.streamState.content.length > 0) {
-    return handle.streamState.content;
+    return mergeFinalAssistantContentWithStreamOrder(rawContent, handle.streamState.content);
   }
   return rawContent;
 }
@@ -673,7 +674,7 @@ export async function loadOrCreateSessionHandle(input: {
 
   await ensureAgentSpaceSessionPath(input.spaceId);
 
-  const registration = await registerSpaceSession({
+  await registerSpaceSession({
     spaceId: input.spaceId,
     sessionId: input.sessionId,
     title: null,

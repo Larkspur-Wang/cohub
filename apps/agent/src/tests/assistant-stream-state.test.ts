@@ -14,6 +14,7 @@ import {
   applyToolExecutionStart,
   applyToolExecutionUpdate,
   createAssistantStreamState,
+  mergeFinalAssistantContentWithStreamOrder,
   projectAssistantStreamState,
 } from "../stream/assistant-stream-state.js";
 
@@ -175,6 +176,49 @@ import {
   assert.equal(content[1]?._meta?.streamIndex, 1);
   assert.equal(content[2]?._meta?.streamIndex, 1);
   assert.equal(content[3]?._meta?.streamIndex, 2);
+}
+
+{
+  const finalContent = mergeFinalAssistantContentWithStreamOrder(
+    [
+      { type: "thinking", thinking: "late reasoning" },
+      { type: "text", text: "final answer" },
+    ],
+    [
+      { type: "text", text: "final answer", _meta: { streamIndex: 0 } },
+      { type: "thinking", thinking: "late reasoning", _meta: { streamIndex: 1 } },
+    ],
+  );
+
+  assert.deepEqual(
+    finalContent.map((block) => block.type),
+    ["text", "thinking"],
+    "persisted final content should keep stream order when the provider final payload disagrees",
+  );
+  assert.equal(finalContent[0]?._meta?.streamIndex, undefined, "stream metadata should not leak into persisted content");
+}
+
+{
+  const finalContent = mergeFinalAssistantContentWithStreamOrder(
+    [
+      { type: "thinking", thinking: "plan" },
+      { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+      { type: "tool_result", tool_use_id: "t1", content: "hello", is_error: false },
+      { type: "text", text: "done" },
+    ],
+    [
+      { type: "thinking", thinking: "plan", _meta: { streamIndex: 0 } },
+      { type: "tool_use", id: "t1", name: "read", input: { path: "/tmp/a" }, _meta: { streamIndex: 1 } },
+      { type: "tool_result", tool_use_id: "t1", content: "hello", is_error: false, _meta: { streamIndex: 1 } },
+      { type: "text", text: "done", _meta: { streamIndex: 2 } },
+    ],
+  );
+
+  assert.deepEqual(
+    finalContent.map((block) => block.type),
+    ["thinking", "tool_use", "tool_result", "text"],
+    "persisted final content should normalize toolCall and preserve streamed tool order",
+  );
 }
 
 console.log("assistant-stream-state checks passed");

@@ -278,6 +278,105 @@ function withStreamIndexMeta(
   };
 }
 
+function getContentBlockStreamIndex(block: ContentBlock): number | null {
+  const value = block._meta?.streamIndex;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeToolCallContentBlock(block: Record<string, unknown>): ContentBlock | null {
+  if (typeof block.id !== "string" || typeof block.name !== "string") return null;
+  return {
+    type: "tool_use",
+    id: block.id,
+    name: block.name,
+    input:
+      block.input && typeof block.input === "object"
+        ? (block.input as Record<string, unknown>)
+        : block.arguments && typeof block.arguments === "object"
+          ? (block.arguments as Record<string, unknown>)
+          : {},
+    ...(block._meta && typeof block._meta === "object" ? { _meta: block._meta as Record<string, unknown> } : {}),
+  };
+}
+
+function normalizeFinalContentBlock(block: ContentBlock | Record<string, unknown>): ContentBlock | null {
+  if (!block || typeof block !== "object") return null;
+  if (block.type === "text" && typeof block.text === "string") return block as ContentBlock;
+  if (block.type === "thinking" && typeof block.thinking === "string") return block as ContentBlock;
+  if (block.type === "image") return block as ContentBlock;
+  if (block.type === "tool_use" && typeof block.id === "string") return block as ContentBlock;
+  if (block.type === "toolCall") return normalizeToolCallContentBlock(block as Record<string, unknown>);
+  if (block.type === "tool_result" && typeof block.tool_use_id === "string") return block as ContentBlock;
+  if (block.type === "shell_command") return block as ContentBlock;
+  return null;
+}
+
+function stripStreamMeta(block: ContentBlock): ContentBlock {
+  const { _meta, ...rest } = block as ContentBlock & { _meta?: Record<string, unknown> };
+  if (!_meta || Object.keys(_meta).every((key) => key === "streamIndex")) {
+    return rest as ContentBlock;
+  }
+  const { streamIndex: _streamIndex, ...meta } = _meta;
+  return Object.keys(meta).length > 0
+    ? ({ ...rest, _meta: meta } as ContentBlock)
+    : (rest as ContentBlock);
+}
+
+function finalBlockIdentity(block: ContentBlock): string | null {
+  if (block.type === "tool_use") return `tool_use:${block.id}`;
+  if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
+  const streamIndex = getContentBlockStreamIndex(block);
+  if (streamIndex != null) return `${block.type}:stream:${streamIndex}`;
+  return null;
+}
+
+function streamBlockIdentity(block: ContentBlock): string | null {
+  if (block.type === "tool_use") return `tool_use:${block.id}`;
+  if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
+  const streamIndex = getContentBlockStreamIndex(block);
+  if (streamIndex != null) return `${block.type}:stream:${streamIndex}`;
+  return null;
+}
+
+function contentBlocksCompatible(streamBlock: ContentBlock, finalBlock: ContentBlock): boolean {
+  if (streamBlock.type !== finalBlock.type) return false;
+  if (streamBlock.type === "tool_use" && finalBlock.type === "tool_use") return streamBlock.id === finalBlock.id;
+  if (streamBlock.type === "tool_result" && finalBlock.type === "tool_result") return streamBlock.tool_use_id === finalBlock.tool_use_id;
+  return true;
+}
+
+export function mergeFinalAssistantContentWithStreamOrder(
+  finalContent: unknown[],
+  streamContent: ContentBlock[],
+): ContentBlock[] {
+  const normalizedFinal = finalContent
+    .map((block) => normalizeFinalContentBlock(block as ContentBlock | Record<string, unknown>))
+    .filter((block): block is ContentBlock => Boolean(block));
+  if (streamContent.length === 0 || normalizedFinal.length === 0) {
+    return normalizedFinal.map(stripStreamMeta);
+  }
+
+  const usedFinal = new Set<ContentBlock>();
+  const ordered: ContentBlock[] = [];
+  for (const streamBlock of streamContent) {
+    const streamIdentity = streamBlockIdentity(streamBlock);
+    const exact = streamIdentity
+      ? normalizedFinal.find((block) => !usedFinal.has(block) && finalBlockIdentity(block) === streamIdentity)
+      : null;
+    const compatible = exact ?? normalizedFinal.find((block) => !usedFinal.has(block) && contentBlocksCompatible(streamBlock, block));
+    if (!compatible) continue;
+    ordered.push(stripStreamMeta(compatible));
+    usedFinal.add(compatible);
+  }
+
+  return [
+    ...ordered,
+    ...normalizedFinal
+      .filter((block) => !usedFinal.has(block))
+      .map(stripStreamMeta),
+  ];
+}
+
 export function projectAssistantStreamState(state: AssistantStreamState): ContentBlock[] {
   const orderedBlocks = [...state.blocks].sort((a, b) => a.contentIndex - b.contentIndex);
   const content: ContentBlock[] = [];
