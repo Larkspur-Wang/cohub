@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.7.1
+
+### Patch Changes
+
+- 4e62670: Make `session.subscribeGeneration(...)` keep independent stream reducer state per subscription, preventing cached session clients from sharing generation progress, patch, and intermediate-message state across repeated subscribers.
+
 ## 1.7.0
 
 ### Minor Changes
