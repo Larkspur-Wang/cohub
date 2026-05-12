@@ -4,6 +4,7 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { scheduleCacheCleanup } from "$lib/cache/cleanup";
 import CommandPalette from "$lib/components/CommandPalette.svelte";
+import HelpPanel from "$lib/components/HelpPanel.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
@@ -41,6 +42,7 @@ const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
 
+let showHelpPanel = $state(false);
 let authReady = $state(false);
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);
@@ -330,6 +332,30 @@ function beginLeftSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointercancel", stop);
 }
 
+$effect(() => {
+	function openHelpPanel() {
+		showHelpPanel = true;
+	}
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.defaultPrevented || e.isComposing) return;
+		if (e.key === "Escape" && showHelpPanel) {
+			e.preventDefault();
+			showHelpPanel = false;
+			return;
+		}
+		if (e.key === "?" && !e.altKey && !e.metaKey && !e.ctrlKey) {
+			e.preventDefault();
+			showHelpPanel = true;
+		}
+	}
+	window.addEventListener("cohub:open-help-panel", openHelpPanel);
+	window.addEventListener("keydown", handleKeydown, { capture: true });
+	return () => {
+		window.removeEventListener("cohub:open-help-panel", openHelpPanel);
+		window.removeEventListener("keydown", handleKeydown, { capture: true });
+	};
+});
+
 // Close drawer on Escape
 $effect(() => {
 	function handleKeydown(e: KeyboardEvent) {
@@ -482,6 +508,7 @@ onMount(() => {
   <!-- Global media lightbox -->
   <MediaLightbox />
   <CommandPalette />
+  <HelpPanel open={showHelpPanel} onClose={() => { showHelpPanel = false; }} />
 
 {/if}
 

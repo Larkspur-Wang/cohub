@@ -38,7 +38,6 @@ import {
 	FolderKanban,
 	GitCommitHorizontal,
 	Globe,
-	Keyboard,
 	Link,
 	ListTree,
 	Loader2,
@@ -265,7 +264,6 @@ let modelsCatalog = $state<Array<{
 let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
-let showKeyboardShortcuts = $state(false);
 let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
@@ -1598,7 +1596,6 @@ function prepareRouteSession(sessionId: string) {
 	programmaticScrollActive = false;
 	currentTurnSequence = null;
 	showTurnBottomSheet = false;
-	showKeyboardShortcuts = false;
 	ensureSessionModelLoaded(sessionId);
 	shouldAutoFollow = true;
 	if (!sessionStateById[sessionId]) {
@@ -4131,17 +4128,6 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	if (routeView !== "session" || !activeSessionState) return;
 	const key = event.key.toLowerCase();
 	if (key !== "g") clearPendingVimG();
-	if (key === "?" && !event.altKey && !event.metaKey && !event.ctrlKey) {
-		event.preventDefault();
-		showKeyboardShortcuts = true;
-		return;
-	}
-	if (showKeyboardShortcuts && event.key === "Escape") {
-		event.preventDefault();
-		showKeyboardShortcuts = false;
-		return;
-	}
-	if (showKeyboardShortcuts) return;
 	if (
 		event.shiftKey &&
 		!event.altKey &&
@@ -4381,7 +4367,6 @@ $effect(() => {
 	turnMarkerHeights = {};
 	lastTurnIndexRefreshKey = "";
 	showTurnBottomSheet = false;
-	showKeyboardShortcuts = false;
 	appliedRouteTurnKey = null;
 	fileTree = [];
 	pinnedMarks = [];
@@ -4508,7 +4493,6 @@ $effect(() => {
 $effect(() => {
 	if (routeView === "session" && activeSessionId) return;
 	showTurnBottomSheet = false;
-	showKeyboardShortcuts = false;
 });
 $effect(() => {
 	const sessionId = activeSessionId;
@@ -6705,42 +6689,6 @@ $effect(() => {
       {/if}
     </div>
   </Dialog>
-  <Dialog open={showKeyboardShortcuts && routeView === 'session'} onClose={() => { showKeyboardShortcuts = false; }} title="Keyboard shortcuts" maxWidth="560px">
-    <div class="p-4 sm:p-5">
-      <div class="mb-4 flex items-start gap-3 rounded-[8px] border border-brand/15 bg-brand/8 px-3 py-2.5">
-        <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-brand/12 text-brand">
-          <Keyboard class="h-4 w-4" />
-        </div>
-        <div class="min-w-0">
-          <div class="text-[13px] font-medium text-text-primary">Session command layer</div>
-          <div class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Use Vim-style navigation when the composer is blurred. Press <kbd class="shortcut-key">Esc</kbd> to close this panel.</div>
-        </div>
-      </div>
-
-      <div class="shortcut-section">
-        <div class="shortcut-section-title">Chat</div>
-        <div class="shortcut-grid">
-          <div class="shortcut-row"><span>New chat</span><kbd class="shortcut-key">⌘O</kbd><kbd class="shortcut-key">Ctrl O</kbd></div>
-          <div class="shortcut-row"><span>Focus composer</span><kbd class="shortcut-key">i</kbd></div>
-          <div class="shortcut-row"><span>Blur composer</span><kbd class="shortcut-key">Esc</kbd></div>
-          <div class="shortcut-row"><span>Send message</span><kbd class="shortcut-key">Enter</kbd></div>
-          <div class="shortcut-row"><span>Force send</span><kbd class="shortcut-key">⌘↵</kbd><kbd class="shortcut-key">Ctrl ↵</kbd></div>
-        </div>
-      </div>
-
-      <div class="shortcut-section mt-4">
-        <div class="shortcut-section-title">Navigate</div>
-        <div class="shortcut-grid">
-          <div class="shortcut-row"><span>Scroll down</span><kbd class="shortcut-key">j</kbd></div>
-          <div class="shortcut-row"><span>Scroll up</span><kbd class="shortcut-key">k</kbd></div>
-          <div class="shortcut-row"><span>Next turn</span><kbd class="shortcut-key">Shift J</kbd></div>
-          <div class="shortcut-row"><span>Previous turn</span><kbd class="shortcut-key">Shift K</kbd></div>
-          <div class="shortcut-row"><span>Top</span><kbd class="shortcut-key">g</kbd><kbd class="shortcut-key">g</kbd></div>
-          <div class="shortcut-row"><span>Bottom</span><kbd class="shortcut-key">G</kbd></div>
-        </div>
-      </div>
-    </div>
-  </Dialog>
   <ModelSelector
     open={showModelSelector}
     onClose={() => { showModelSelector = false; }}
@@ -6750,52 +6698,6 @@ $effect(() => {
   />
 </div>
 <style>
-  .shortcut-section-title {
-    margin-bottom: 0.5rem;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-placeholder);
-  }
-  .shortcut-grid {
-    overflow: hidden;
-    border: 1px solid var(--border-subtle);
-    border-radius: 9px;
-    background: color-mix(in oklab, var(--bg-surface) 92%, var(--bg-primary));
-  }
-  .shortcut-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 0.4rem;
-    min-height: 38px;
-    padding: 0.45rem 0.65rem;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-  .shortcut-row:last-child {
-    border-bottom: 0;
-  }
-  .shortcut-key {
-    display: inline-flex;
-    min-width: 1.65rem;
-    height: 1.45rem;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid color-mix(in oklab, var(--border-strong) 80%, var(--brand));
-    border-bottom-color: color-mix(in oklab, var(--border-strong) 72%, black);
-    border-radius: 5px;
-    background: color-mix(in oklab, var(--bg-primary) 94%, var(--brand));
-    padding: 0 0.42rem;
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-    font-size: 10px;
-    font-weight: 600;
-    line-height: 1;
-    color: var(--text-primary);
-    box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--border-strong) 80%, transparent);
-  }
   /* Heatmap */
   .heatmap-cell {
     width: 12px;
