@@ -1,4 +1,89 @@
-import type { GenerationDeclaration } from "@neta-art/cohub-protocol";
+export type GenerationContentSpec = {
+  type: "text" | "image" | "video" | "audio";
+  required?: boolean;
+  min?: number;
+  max?: number;
+  sources?: Array<"url" | "base64" | "space_file">;
+  merge?: "newline" | "space" | "concat";
+  path?: string;
+  skip_empty?: boolean;
+  meta?: Record<string, unknown>;
+  description?: string;
+};
+
+export type GenerationParameterSpec =
+  | {
+      type: "string";
+      optional?: boolean;
+      default?: string;
+      enum?: string[];
+      description?: string;
+      examples?: string[];
+    }
+  | {
+      type: "number";
+      optional?: boolean;
+      default?: number;
+      min?: number;
+      max?: number;
+      description?: string;
+      examples?: number[];
+    }
+  | {
+      type: "integer";
+      optional?: boolean;
+      default?: number;
+      min?: number;
+      max?: number;
+      description?: string;
+      examples?: number[];
+    }
+  | {
+      type: "boolean";
+      optional?: boolean;
+      default?: boolean;
+      description?: string;
+      examples?: boolean[];
+    };
+
+export type GenerationSource =
+  | { type: "url"; url: string }
+  | { type: "base64"; media_type: string; data: string }
+  | { type: "space_file"; space_id: string; path: string };
+
+export type GenerationContentBlock =
+  | { type: "text"; text: string; _meta?: Record<string, unknown> }
+  | { type: "image"; source: GenerationSource; _meta?: Record<string, unknown> }
+  | { type: "video"; source: GenerationSource; _meta?: Record<string, unknown> }
+  | { type: "audio"; source: GenerationSource; _meta?: Record<string, unknown> };
+
+export type CreateGenerationRequest = {
+  model: string;
+  content: GenerationContentBlock[];
+  parameters?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type GenerationDeclaration = {
+  schema: "cohub.generation.v1";
+  model: string;
+  title?: string;
+  description?: string;
+  adapter: {
+    type: string;
+    base_url: string;
+    api_key: string;
+  };
+  content: {
+    input: GenerationContentSpec[];
+    output: GenerationContentSpec[];
+  };
+  parameters?: Record<string, GenerationParameterSpec>;
+  examples?: Array<{
+    title?: string;
+    request: CreateGenerationRequest;
+  }>;
+};
 
 export const GENERATIONS_CACHE_REDIS_KEY_VERSION = "v1";
 export const PLATFORM_GENERATIONS_REDIS_KEY = `configs:generations:${GENERATIONS_CACHE_REDIS_KEY_VERSION}:platform`;
