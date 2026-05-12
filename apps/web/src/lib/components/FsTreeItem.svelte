@@ -171,6 +171,7 @@ $effect(() => {
   class:selected={isActive}
   data-space-file-path={node.path}
   class="tree-item"
+  class:menu-open={menuOpen}
   class:drop-target={isDragOver}
   role="button"
   tabindex="0"
@@ -318,6 +319,10 @@ $effect(() => {
     color: var(--text-secondary);
   }
 
+  .tree-item.menu-open {
+    z-index: 20;
+  }
+
   .tree-item.drop-target {
     background: var(--bg-hover-strong);
     outline: 1px dashed var(--brand, #58a6ff);
@@ -343,6 +348,10 @@ $effect(() => {
   .loading {
     font-size: 11px;
     color: var(--text-tertiary);
+  }
+
+  .tree-item:hover:not(.menu-open) {
+    z-index: 1;
   }
 
   .tree-item:hover,
@@ -396,7 +405,7 @@ $effect(() => {
     position: absolute;
     right: 0;
     top: calc(100% + 4px);
-    z-index: 100;
+    z-index: 30;
     min-width: 150px;
     padding: 4px;
     background: var(--bg-elevated);
