@@ -31,6 +31,7 @@ const {
 	onCreateDir,
 	onRename,
 	onDelete,
+	onDownload,
 	onUpload,
 	isPinned,
 	onTogglePin,
@@ -53,6 +54,7 @@ const {
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
+	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
@@ -250,6 +252,7 @@ $effect(() => {
           {onCreateDir}
           {onRename}
           {onDelete}
+          {onDownload}
           {onUpload}
           {isPinned}
           {onTogglePin}

@@ -1,5 +1,6 @@
 <script lang="ts">
 import {
+	Download,
 	File as FileIcon,
 	Folder,
 	FolderOpen,
@@ -28,6 +29,7 @@ const {
 	onCreateDir,
 	onRename,
 	onDelete,
+	onDownload,
 	onUpload,
 	isPinned,
 	onTogglePin,
@@ -45,6 +47,7 @@ const {
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
+	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
 	isPinned?: (node: SpaceFsNode) => boolean;
 	onTogglePin?: (node: SpaceFsNode) => void;
@@ -242,7 +245,20 @@ $effect(() => {
           {/if}
         </span>
       {:else}
-        <button type="button" class="action danger" title="Delete" onclick={stop(() => onDelete(node))}><Trash2 class="w-3.5 h-3.5" /></button>
+        <span class="relative">
+          <button type="button" class="action" title="More actions" onclick={stop(openMenu)}>
+            <MoreHorizontal class="w-3.5 h-3.5" />
+          </button>
+          {#if menuOpen}
+            <div class="dropdown" bind:this={menuEl}>
+              {#if onDownload}
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onDownload(node))}><Download class="w-3.5 h-3.5" /> Download</button>
+                <div class="dropdown-sep"></div>
+              {/if}
+              <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}><Trash2 class="w-3.5 h-3.5" /> Delete</button>
+            </div>
+          {/if}
+        </span>
       {/if}
     </span>
   {/if}
@@ -260,6 +276,7 @@ $effect(() => {
       {onCreateDir}
       {onRename}
       {onDelete}
+      {onDownload}
       {onUpload}
       {isPinned}
       {onTogglePin}
@@ -378,6 +395,7 @@ $effect(() => {
     width: 100%;
     display: flex;
     align-items: center;
+    gap: 8px;
     padding: 6px 10px;
     border: none;
     border-radius: 5px;

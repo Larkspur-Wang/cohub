@@ -3651,6 +3651,15 @@ async function handleRenameNode(node: SpaceFsNode) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
 	}
 }
+async function handleDownloadNode(node: SpaceFsNode) {
+	if (node.type !== "file") return;
+	try {
+		await downloadSpaceFile(spaceId, node.path, node.name);
+	} catch (error) {
+		fileTreeError =
+			error instanceof Error ? error.message : "Failed to download";
+	}
+}
 async function handleDeleteNode(node: SpaceFsNode) {
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
@@ -6349,6 +6358,7 @@ $effect(() => {
           onCreateDir={handleCreateDir}
           onRename={handleRenameNode}
           onDelete={handleDeleteNode}
+          onDownload={handleDownloadNode}
           onUpload={handleUploadFiles}
           isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
           onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
@@ -6397,6 +6407,7 @@ $effect(() => {
         onCreateDir={handleCreateDir}
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
+        onDownload={handleDownloadNode}
         onUpload={handleUploadFiles}
         isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
         onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
