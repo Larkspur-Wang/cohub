@@ -24,6 +24,7 @@ const DEBOUNCE_MS = 180;
 let open = $state(false);
 let query = $state("");
 let inputEl = $state<HTMLInputElement | null>(null);
+let resultsEl = $state<HTMLDivElement | null>(null);
 let activeIndex = $state(0);
 let localItems = $state<CommandPaletteItem[]>([]);
 let remoteItems = $state<import("@neta-art/cohub").GlobalSearchResult[]>([]);
@@ -60,9 +61,9 @@ const statusText = $derived.by(() => {
 });
 
 function typeMeta(type: CommandPaletteItem["type"]) {
-	if (type === "turn") return { label: "MSG", icon: MessageSquare };
-	if (type === "session") return { label: "SES", icon: TerminalSquare };
-	return { label: "SPC", icon: FolderKanban };
+	if (type === "turn") return { className: "message", icon: MessageSquare };
+	if (type === "session") return { className: "session", icon: TerminalSquare };
+	return { className: "space", icon: FolderKanban };
 }
 
 function contextFor(item: CommandPaletteItem) {
@@ -157,6 +158,14 @@ function moveActive(delta: number) {
 	);
 }
 
+async function scrollActiveIntoView() {
+	if (!open) return;
+	await tick();
+	resultsEl
+		?.querySelector<HTMLElement>(".command-result.active")
+		?.scrollIntoView({ block: "nearest" });
+}
+
 function handlePaletteKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") {
 		event.preventDefault();
@@ -186,6 +195,12 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {
+	if (open && event.key === "Escape") {
+		event.preventDefault();
+		closePalette();
+		return;
+	}
+
 	if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 		event.preventDefault();
 		open ? closePalette() : openPalette();
@@ -204,6 +219,12 @@ $effect(() => {
 $effect(() => {
 	if (activeIndex >= mergedItems.length)
 		activeIndex = Math.max(mergedItems.length - 1, 0);
+});
+
+$effect(() => {
+	activeIndex;
+	mergedItems.length;
+	void scrollActiveIntoView();
 });
 
 onMount(() => {
@@ -238,7 +259,7 @@ onMount(() => {
 				<div class="command-shortcut">⌘K</div>
 			</div>
 
-			<div class="command-results" role="listbox" aria-label="Search results">
+			<div bind:this={resultsEl} class="command-results" role="listbox" aria-label="Search results">
 				{#if mergedItems.length === 0}
 					<div class="command-empty">
 						<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
@@ -264,13 +285,12 @@ onMount(() => {
 							role="option"
 							aria-selected={index === activeIndex}
 						>
-							<div class="command-type-mark">
+							<div class={`command-type-mark ${meta.className}`} aria-label={item.type}>
 								<Icon class="h-3.5 w-3.5" />
 							</div>
 							<div class="min-w-0 flex-1 text-left">
 								<div class="flex min-w-0 items-center gap-2">
 									<span class="truncate text-[13px] font-medium text-text-primary">{item.title}</span>
-									<span class="command-badge">{meta.label}</span>
 								</div>
 								<div class="mt-0.5 truncate text-[12px] text-text-tertiary">{contextFor(item)}</div>
 							</div>
@@ -339,7 +359,6 @@ onMount(() => {
 	.command-input::placeholder { color: var(--text-placeholder); }
 
 	.command-shortcut,
-	.command-badge,
 	.command-enter,
 	.command-footer {
 		font-family: var(--font-mono);
@@ -390,25 +409,32 @@ onMount(() => {
 
 	.command-result.active::before { background: var(--brand-400); }
 	.command-result.active .command-enter { opacity: 1; }
+	.command-result.active .command-type-mark { border-color: color-mix(in oklch, currentColor 36%, transparent); }
 
 	.command-type-mark {
 		display: grid;
 		place-items: center;
 		width: 28px;
 		height: 28px;
+		border: 1px solid color-mix(in oklch, currentColor 18%, transparent);
 		border-radius: 7px;
-		background: var(--bg-primary);
+		background: color-mix(in oklch, currentColor 10%, var(--bg-primary) 90%);
 		color: var(--text-tertiary);
 	}
 
-	.command-badge {
-		flex: none;
-		border: 1px solid var(--border-subtle);
-		border-radius: 999px;
-		padding: 1px 5px;
-		color: var(--text-placeholder);
-		font-size: 9px;
-		line-height: 1.4;
+	.command-type-mark.space {
+		color: var(--brand-400);
+		background: color-mix(in oklch, var(--brand-400) 12%, var(--bg-primary) 88%);
+	}
+
+	.command-type-mark.session {
+		color: color-mix(in oklch, var(--text-secondary) 82%, var(--brand-400) 18%);
+		background: color-mix(in oklch, var(--text-secondary) 8%, var(--bg-primary) 92%);
+	}
+
+	.command-type-mark.message {
+		color: color-mix(in oklch, var(--text-tertiary) 72%, var(--brand-400) 28%);
+		background: color-mix(in oklch, var(--text-tertiary) 7%, var(--bg-primary) 93%);
 	}
 
 	.command-enter {

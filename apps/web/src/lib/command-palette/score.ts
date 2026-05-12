@@ -1,9 +1,9 @@
 import type { CommandPaletteItem, CommandPaletteItemType } from "./types";
 
 const TYPE_PRIORITY: Record<CommandPaletteItemType, number> = {
-	turn: 1,
-	session: 0.66,
-	space: 0.33,
+	space: 1,
+	session: 0.74,
+	turn: 0.66,
 };
 
 const FIELD_WEIGHT: Record<string, number> = {
