@@ -486,6 +486,8 @@ let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldAutoFollow = $state(true);
+let bottomFollowFrame: number | null = null;
+let bottomFollowActive = false;
 let composerHostEl = $state<HTMLDivElement | null>(null);
 let composerHeight = $state(0);
 let hasUnread = $derived.by(() => {
@@ -2608,7 +2610,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				shouldAutoFollow
 			) {
 				await tick();
-				scrollToBottomNow();
+				requestBottomFollow();
 			}
 			return;
 		}
@@ -2691,7 +2693,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			}
 			if (isActiveSession && shouldAutoFollow) {
 				await tick();
-				scrollToBottomNow();
+				requestBottomFollow();
 			}
 			return;
 		}
@@ -2952,6 +2954,45 @@ function scrollToBottomNow() {
 		autoScrollGuard = false;
 	});
 }
+function stopBottomFollow() {
+	bottomFollowActive = false;
+	if (bottomFollowFrame != null) {
+		cancelAnimationFrame(bottomFollowFrame);
+		bottomFollowFrame = null;
+	}
+}
+function requestBottomFollow(options?: { immediate?: boolean }) {
+	if (!listEl || !shouldAutoFollow) return;
+	if (options?.immediate) {
+		scrollToBottomNow();
+		return;
+	}
+	bottomFollowActive = true;
+	if (bottomFollowFrame == null) {
+		bottomFollowFrame = requestAnimationFrame(runBottomFollowFrame);
+	}
+}
+function runBottomFollowFrame() {
+	bottomFollowFrame = null;
+	if (!bottomFollowActive || !listEl || !shouldAutoFollow) {
+		bottomFollowActive = false;
+		return;
+	}
+	const maxScroll = Math.max(0, listEl.scrollHeight - listEl.clientHeight);
+	const distance = maxScroll - listEl.scrollTop;
+	if (Math.abs(distance) <= 1) {
+		setProgrammaticScrollTop(maxScroll);
+		bottomFollowActive = false;
+		return;
+	}
+	const velocity = Math.max(8, Math.min(96, Math.abs(distance) * 0.34));
+	const next = listEl.scrollTop + Math.sign(distance) * velocity;
+	setProgrammaticScrollTop(
+		distance > 0 ? Math.min(next, maxScroll) : Math.max(next, maxScroll),
+	);
+	if (activeSessionId) writeBottomScrollAnchor(activeSessionId);
+	bottomFollowFrame = requestAnimationFrame(runBottomFollowFrame);
+}
 async function forceScrollToBottom() {
 	await tick();
 	await new Promise<void>((resolve) => {
@@ -3007,6 +3048,7 @@ function setProgrammaticScrollTop(scrollTop: number) {
 }
 function beginUserScroll() {
 	if (!activeSessionId) return;
+	stopBottomFollow();
 	userScrollActive = true;
 	programmaticScrollActive = false;
 	programmaticScrollTarget = null;
@@ -3070,7 +3112,7 @@ function handleTimelineMarkdownRendered() {
 		activeSessionId &&
 		(restoringBottomSessionId === activeSessionId || shouldAutoFollow)
 	) {
-		requestAnimationFrame(() => scrollToBottomNow());
+		requestAnimationFrame(() => requestBottomFollow());
 	}
 	maybeCompleteAnchorRestore();
 }
@@ -3993,6 +4035,7 @@ onMount(() => {
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		if (turnMarkerMeasureFrame != null)
 			cancelAnimationFrame(turnMarkerMeasureFrame);
+		stopBottomFollow();
 		recoveryCoordinator.dispose();
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
@@ -4448,7 +4491,7 @@ $effect(() => {
 			(shouldAutoFollow || restoringBottomSessionId === activeSessionId) &&
 			!autoScrollGuard
 		) {
-			scrollToBottomNow();
+			requestBottomFollow();
 		}
 		prevHeight = currentHeight;
 		updateTimelineScrollMetrics();

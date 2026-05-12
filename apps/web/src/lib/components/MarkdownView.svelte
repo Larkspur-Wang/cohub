@@ -2,7 +2,9 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { onDestroy, untrack } from "svelte";
 import MarkdownSurface from "$lib/components/MarkdownSurface.svelte";
-import { renderMarkdown, renderStreamingMarkdown } from "$lib/markdown";
+import StreamingWords from "$lib/components/StreamingWords.svelte";
+import { renderMarkdown } from "$lib/markdown";
+import { StreamingMarkdownController } from "$lib/streaming-markdown-controller";
 
 type MarkdownTextBlock = Extract<ContentBlock, { type: "text" }>;
 type MarkdownVariant = "chat" | "document";
@@ -25,22 +27,11 @@ const {
 	onRendered,
 }: Props = $props();
 
-const STREAM_RENDER_INTERVAL = 96;
-const STREAM_TEXT_FRAME_MS = 24;
-const STREAM_MIN_STEP = 2;
-const STREAM_MAX_STEP = 36;
-const STREAM_CATCHUP_THRESHOLD = 900;
-const STREAM_FLUSH_GAP_MS = 180;
-
-let displayedSource = $state("");
-let renderedHtml = $state("");
+let stableHtml = $state("");
+let tailSource = $state("");
 let renderSeq = 0;
-let streamTimer: ReturnType<typeof setTimeout> | null = null;
-let streamRaf = 0;
-let textTimer: ReturnType<typeof setTimeout> | null = null;
-let lastStreamRenderAt = 0;
-let lastSourceLength = 0;
-let lastSourceChangeAt = 0;
+let controller: StreamingMarkdownController | null = null;
+let unsubscribeController: (() => void) | null = null;
 
 const source = $derived.by(() => {
 	const raw =
@@ -48,129 +39,66 @@ const source = $derived.by(() => {
 	return isStreaming ? raw : raw.trim();
 });
 
-function clearScheduledStreamRender() {
-	if (streamTimer) {
-		clearTimeout(streamTimer);
-		streamTimer = null;
-	}
-	if (streamRaf) {
-		cancelAnimationFrame(streamRaf);
-		streamRaf = 0;
-	}
-}
-
-function clearTextTimer() {
-	if (textTimer) {
-		clearTimeout(textTimer);
-		textTimer = null;
-	}
-}
-
-function markRendered(seq: number) {
-	requestAnimationFrame(() => {
-		if (seq === renderSeq) untrack(() => onRendered?.());
+function ensureController() {
+	if (controller) return controller;
+	controller = new StreamingMarkdownController();
+	unsubscribeController = controller.subscribe((snapshot) => {
+		stableHtml = snapshot.stableHtml;
+		tailSource = snapshot.tailSource;
+		requestAnimationFrame(() => untrack(() => onRendered?.()));
 	});
+	return controller;
 }
 
-function renderNow(markdownSource: string, streaming: boolean) {
+function destroyController() {
+	unsubscribeController?.();
+	unsubscribeController = null;
+	controller?.dispose();
+	controller = null;
+}
+
+function renderFullMarkdown(markdownSource: string) {
 	const seq = ++renderSeq;
 	untrack(() => onStart?.());
-	const renderer = streaming ? renderStreamingMarkdown : renderMarkdown;
-
-	void renderer(markdownSource)
+	void renderMarkdown(markdownSource)
 		.then((html) => {
 			if (seq !== renderSeq) return;
-			renderedHtml = html;
-			markRendered(seq);
+			stableHtml = html;
+			tailSource = "";
+			requestAnimationFrame(() => {
+				if (seq === renderSeq) untrack(() => onRendered?.());
+			});
 		})
 		.catch(() => {
-			if (seq === renderSeq) markRendered(seq);
+			if (seq !== renderSeq) return;
+			requestAnimationFrame(() => untrack(() => onRendered?.()));
 		});
-}
-
-function scheduleStreamingRender(markdownSource: string) {
-	clearScheduledStreamRender();
-	const now = performance.now();
-	const delay = Math.max(
-		0,
-		STREAM_RENDER_INTERVAL - (now - lastStreamRenderAt),
-	);
-
-	streamTimer = setTimeout(() => {
-		streamTimer = null;
-		streamRaf = requestAnimationFrame(() => {
-			streamRaf = 0;
-			lastStreamRenderAt = performance.now();
-			renderNow(markdownSource, true);
-		});
-	}, delay);
-}
-
-function visibleStepSize(remaining: number) {
-	if (remaining > STREAM_CATCHUP_THRESHOLD) return STREAM_MAX_STEP;
-	if (remaining > 360) return 22;
-	if (remaining > 140) return 12;
-	return STREAM_MIN_STEP + Math.min(8, Math.floor(remaining / 32));
-}
-
-function scheduleTextAdvance(targetSource: string) {
-	clearTextTimer();
-	if (displayedSource === targetSource) return;
-
-	const now = performance.now();
-	const shouldFlush = now - lastSourceChangeAt > STREAM_FLUSH_GAP_MS;
-	const remaining = targetSource.length - displayedSource.length;
-
-	if (
-		shouldFlush ||
-		remaining <= 0 ||
-		!targetSource.startsWith(displayedSource)
-	) {
-		displayedSource = targetSource;
-		return;
-	}
-
-	const step = Math.min(remaining, visibleStepSize(remaining));
-	displayedSource = targetSource.slice(0, displayedSource.length + step);
-	textTimer = setTimeout(
-		() => scheduleTextAdvance(targetSource),
-		STREAM_TEXT_FRAME_MS,
-	);
 }
 
 $effect(() => {
 	const markdownSource = source;
 	const streaming = isStreaming;
 
-	if (markdownSource.length !== lastSourceLength) {
-		lastSourceLength = markdownSource.length;
-		lastSourceChangeAt = performance.now();
-	}
-
 	if (streaming) {
-		scheduleTextAdvance(markdownSource);
-	} else {
-		clearTextTimer();
-		displayedSource = markdownSource;
+		untrack(() => onStart?.());
+		ensureController().setTarget(markdownSource);
+		return;
 	}
-});
 
-$effect(() => {
-	const markdownSource = displayedSource;
-	const streaming = isStreaming;
-
-	if (streaming) {
-		scheduleStreamingRender(markdownSource);
-	} else {
-		clearScheduledStreamRender();
-		renderNow(markdownSource, false);
-	}
+	destroyController();
+	renderFullMarkdown(markdownSource);
 });
 
 onDestroy(() => {
-	clearScheduledStreamRender();
-	clearTextTimer();
+	destroyController();
 });
 </script>
 
-<MarkdownSurface html={renderedHtml} {variant} />
+<div class="streaming-markdown-flow" class:is-streaming={isStreaming && tailSource.length > 0}>
+	<MarkdownSurface html={stableHtml} {variant} />
+	{#if isStreaming && tailSource.length > 0}
+		<div class="markdown-content streaming-tail-surface" data-variant={variant}>
+			<StreamingWords text={tailSource} active={isStreaming} />
+		</div>
+	{/if}
+</div>

@@ -340,13 +340,56 @@ function findStreamingSafeIndex(source: string) {
 	return 0;
 }
 
-function splitStreamingStableMarkdown(source: string) {
+export function splitStreamingStableMarkdown(source: string) {
 	const safeIndex = findStreamingSafeIndex(source);
 	return {
 		stable: source.slice(0, safeIndex),
 		tail: source.slice(safeIndex),
 	};
 }
+
+export const renderStreamingMarkdownStable = async (source: string) => {
+	const streamingSource = source.trimStart();
+	if (!streamingSource.trim()) {
+		return { stableSource: "", tailSource: "", stableHtml: "" };
+	}
+
+	const blocks = splitMarkdownBlocks(streamingSource);
+	if (blocks.length === 0) {
+		return { stableSource: "", tailSource: streamingSource, stableHtml: "" };
+	}
+
+	const stableSources: string[] = [];
+	let tailSource = "";
+
+	for (let index = 0; index < blocks.length; index += 1) {
+		const block = blocks[index];
+		const isLast = index === blocks.length - 1;
+		if (block.kind === "fence") {
+			if (block.closedFence || !isLast) stableSources.push(block.text);
+			else tailSource = block.text;
+			continue;
+		}
+
+		if (!isLast) {
+			stableSources.push(block.text);
+			continue;
+		}
+
+		const { stable, tail } = splitStreamingStableMarkdown(block.text);
+		if (stable.trim()) stableSources.push(stable);
+		tailSource = tail;
+	}
+
+	const stableSource = stableSources.join("\n\n");
+	const stableHtml = stableSource.trim()
+		? await cacheMarkdownRender(`stream-stable-v2:${stableSource}`, async () =>
+				renderMarkdownBlock(stableSource, { highlight: false }),
+			)
+		: "";
+
+	return { stableSource, tailSource, stableHtml };
+};
 
 export const renderStreamingMarkdown = async (source: string) => {
 	const streamingSource = source.trimStart();
