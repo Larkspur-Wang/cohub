@@ -99,7 +99,7 @@ const readParams = Type.Object({
   path: Type.String({ description: "Path to the file to read (relative or /workspace path)" }),
   offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
   limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
-  space: Type.String({ description: "Target space id" }),
+  space_id: Type.String({ description: "Target space id" }),
 });
 
 export function createCrossSpaceReadTool(getActorUserId: () => string | null | undefined): AgentTool {
@@ -110,8 +110,8 @@ export function createCrossSpaceReadTool(getActorUserId: () => string | null | u
     parameters: readParams,
     async execute(_id, rawParams): Promise<AgentToolResult<unknown>> {
       const params = rawParams as Static<typeof readParams>;
-      await ensureAccess(params.space, getActorUserId());
-      const scope = await createWorkspaceScope(params.space);
+      await ensureAccess(params.space_id, getActorUserId());
+      const scope = await createWorkspaceScope(params.space_id);
       const resolved = await safeLstatWorkspacePath(scope, params.path);
       if (resolved.info.isDirectory()) throw new Error(`Path is a directory: ${toWorkspaceDisplayPath(resolved.relativePath)}`);
       const mimeType = detectImageMimeType(resolved.absolutePath);
@@ -157,7 +157,7 @@ export function createCrossSpaceReadTool(getActorUserId: () => string | null | u
 const lsParams = Type.Object({
   path: Type.Optional(Type.String({ description: "Directory to list (default: /workspace)" })),
   limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
-  space: Type.String({ description: "Target space id" }),
+  space_id: Type.String({ description: "Target space id" }),
 });
 
 export function createCrossSpaceLsTool(getActorUserId: () => string | null | undefined): AgentTool {
@@ -168,8 +168,8 @@ export function createCrossSpaceLsTool(getActorUserId: () => string | null | und
     parameters: lsParams,
     async execute(_id, rawParams) {
       const params = rawParams as Static<typeof lsParams>;
-      await ensureAccess(params.space, getActorUserId());
-      const scope = await createWorkspaceScope(params.space);
+      await ensureAccess(params.space_id, getActorUserId());
+      const scope = await createWorkspaceScope(params.space_id);
       const resolved = await safeLstatWorkspacePath(scope, params.path || ".");
       if (!resolved.info.isDirectory()) throw new Error(`Not a directory: ${toWorkspaceDisplayPath(resolved.relativePath)}`);
       const entries = await readdir(resolved.realPath, { withFileTypes: true });
@@ -185,7 +185,7 @@ const findParams = Type.Object({
   path: Type.Optional(Type.String({ description: "Directory to search in (default: /workspace)" })),
   pattern: Type.String({ description: "Glob pattern to match files" }),
   limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
-  space: Type.String({ description: "Target space id" }),
+  space_id: Type.String({ description: "Target space id" }),
 });
 
 export function createCrossSpaceFindTool(getActorUserId: () => string | null | undefined): AgentTool {
@@ -196,8 +196,8 @@ export function createCrossSpaceFindTool(getActorUserId: () => string | null | u
     parameters: findParams,
     async execute(_id, rawParams) {
       const params = rawParams as Static<typeof findParams>;
-      await ensureAccess(params.space, getActorUserId());
-      const scope = await createWorkspaceScope(params.space);
+      await ensureAccess(params.space_id, getActorUserId());
+      const scope = await createWorkspaceScope(params.space_id);
       const resolved = await resolveExistingWorkspacePath(scope, params.path || ".");
       const info = await stat(resolved.realPath);
       if (!info.isDirectory()) throw new Error(`Not a directory: ${toWorkspaceDisplayPath(resolved.relativePath)}`);
@@ -226,7 +226,7 @@ const grepParams = Type.Object({
   literal: Type.Optional(Type.Boolean({ description: "Treat pattern as literal string" })),
   context: Type.Optional(Type.Number({ description: "Context lines" })),
   limit: Type.Optional(Type.Number({ description: "Maximum number of matches" })),
-  space: Type.String({ description: "Target space id" }),
+  space_id: Type.String({ description: "Target space id" }),
 });
 
 export function createCrossSpaceGrepTool(getActorUserId: () => string | null | undefined): AgentTool {
@@ -237,8 +237,8 @@ export function createCrossSpaceGrepTool(getActorUserId: () => string | null | u
     parameters: grepParams,
     async execute(_id, rawParams) {
       const params = rawParams as Static<typeof grepParams>;
-      await ensureAccess(params.space, getActorUserId());
-      const scope = await createWorkspaceScope(params.space);
+      await ensureAccess(params.space_id, getActorUserId());
+      const scope = await createWorkspaceScope(params.space_id);
       const resolved = await resolveExistingWorkspacePath(scope, params.path || ".");
       const searchPath = resolved.relativePath === "." ? "." : resolved.relativePath;
       const effectiveLimit = Math.max(1, params.limit ?? 100);
