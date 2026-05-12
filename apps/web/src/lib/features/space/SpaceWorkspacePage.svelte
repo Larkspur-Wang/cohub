@@ -4019,6 +4019,7 @@ function handleCreateNewSession() {
 			};
 			shouldAutoFollow = true;
 			await forceScrollToBottom();
+			focusComposerSoon();
 		})
 		.catch((error) => {
 			createSessionError =
@@ -4028,6 +4029,77 @@ function handleCreateNewSession() {
 			creatingSession = false;
 		});
 }
+function focusComposerSoon() {
+	requestAnimationFrame(() => {
+		window.dispatchEvent(new CustomEvent("cohub:composer-focus"));
+	});
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+	if (!(target instanceof HTMLElement)) return false;
+	return Boolean(
+		target.closest(
+			'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
+		),
+	);
+}
+
+function scrollTimelineByLines(direction: 1 | -1) {
+	if (!listEl) return;
+	beginUserScroll();
+	listEl.scrollBy({
+		top: direction * 120,
+		behavior: "smooth",
+	});
+}
+
+async function jumpRelativeTurn(direction: 1 | -1) {
+	if (!activeSessionId || activeTurnRailItems.length === 0) return;
+	const current = currentTurnSequence;
+	const sorted = activeTurnRailItems
+		.map((turn) => turn.sequence)
+		.sort((a, b) => a - b);
+	if (sorted.length === 0) return;
+	let target: number | undefined;
+	if (current == null) {
+		target = direction > 0 ? sorted[0] : sorted.at(-1);
+	} else if (direction > 0) {
+		target = sorted.find((sequence) => sequence > current) ?? sorted.at(-1);
+	} else {
+		target = sorted.findLast((sequence) => sequence < current) ?? sorted[0];
+	}
+	if (target == null || target === current) return;
+	await jumpToTurn(target);
+}
+
+function handleSessionVimKeydown(event: KeyboardEvent) {
+	if (event.defaultPrevented || event.isComposing) return;
+	if (routeView !== "session" || !activeSessionState) return;
+	if (isEditableShortcutTarget(event.target)) return;
+	const key = event.key.toLowerCase();
+	if (event.altKey || event.metaKey || event.ctrlKey) {
+		if ((event.metaKey || event.ctrlKey) && key === "j") {
+			event.preventDefault();
+			void jumpRelativeTurn(1);
+			return;
+		}
+		if ((event.metaKey || event.ctrlKey) && key === "k") {
+			event.preventDefault();
+			void jumpRelativeTurn(-1);
+		}
+		return;
+	}
+	if (key === "j") {
+		event.preventDefault();
+		scrollTimelineByLines(1);
+		return;
+	}
+	if (key === "k") {
+		event.preventDefault();
+		scrollTimelineByLines(-1);
+	}
+}
+
 function scheduleStatusRefresh() {
 	if (statusRefreshTimer) {
 		clearTimeout(statusRefreshTimer);
@@ -4045,6 +4117,7 @@ onMount(() => {
 	pageVisible = !document.hidden;
 	pageOnline = navigator.onLine;
 	loadSessionScrollAnchors();
+	window.addEventListener("keydown", handleSessionVimKeydown);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
@@ -4148,6 +4221,7 @@ onMount(() => {
 	document.addEventListener("click", handleResourceActionMenuClickOutside);
 	scheduleStatusRefresh();
 	return () => {
+		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
 		offSpacePinsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);

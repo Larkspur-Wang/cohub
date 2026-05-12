@@ -218,6 +218,12 @@ function insertSnippet(snippet: string) {
 	});
 }
 
+function focusComposer() {
+	requestAnimationFrame(() => {
+		textareaEl?.focus();
+	});
+}
+
 function handlePathDrop(event: DragEvent) {
 	isPathDragOver = false;
 	const path = event.dataTransfer?.getData("text/cohub-path");
@@ -241,17 +247,21 @@ function handlePaste(event: ClipboardEvent) {
 }
 
 onMount(() => {
+	focusComposer();
 	const handleComposerInsert = (event: Event) => {
 		const custom = event as CustomEvent<{ snippet?: string }>;
 		const snippet = custom.detail?.snippet;
 		if (!snippet) return;
 		insertSnippet(snippet);
 	};
+	const handleFocusComposer = () => focusComposer();
 	const handleViewportResize = () => resizeTextarea();
+	window.addEventListener("cohub:composer-focus", handleFocusComposer);
 	window.addEventListener("cohub:composer-insert", handleComposerInsert);
 	window.addEventListener("resize", handleViewportResize);
 	window.visualViewport?.addEventListener("resize", handleViewportResize);
 	return () => {
+		window.removeEventListener("cohub:composer-focus", handleFocusComposer);
 		window.removeEventListener("cohub:composer-insert", handleComposerInsert);
 		window.removeEventListener("resize", handleViewportResize);
 		window.visualViewport?.removeEventListener("resize", handleViewportResize);

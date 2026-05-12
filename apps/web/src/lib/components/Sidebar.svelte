@@ -728,6 +728,22 @@ async function handleLogout() {
 	}
 }
 
+function isApplePlatform() {
+	if (typeof navigator === "undefined") return false;
+	return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+}
+
+function handleGlobalNewChatKeydown(event: KeyboardEvent) {
+	if (event.isComposing) return;
+	const key = event.key.toLowerCase();
+	const isMacNewChat = isApplePlatform() && event.metaKey && key === "o";
+	const isNonMacNewChat = !isApplePlatform() && event.ctrlKey && key === "o";
+	if (isMacNewChat || isNonMacNewChat) {
+		event.preventDefault();
+		void handleCreateNewSession();
+	}
+}
+
 onMount(() => {
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
@@ -751,6 +767,7 @@ onMount(() => {
 			if (spaceId !== currentSpaceId) return;
 			pinnedMarks = marks;
 		});
+		window.addEventListener("keydown", handleGlobalNewChatKeydown);
 		void (async () => {
 			await loadSpaces();
 
@@ -804,6 +821,7 @@ onMount(() => {
 		offSpacePinsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
+			window.removeEventListener("keydown", handleGlobalNewChatKeydown);
 			window.removeEventListener(
 				"cohub:space-created",
 				handleSpaceCreated as EventListener,
@@ -946,7 +964,8 @@ $effect(() => {
           class="flex w-full items-center gap-2 rounded-[7px] border border-[#FF3E00]/20 bg-[#FF3E00]/10 px-2 py-1.5 text-brand transition-colors duration-100 hover:bg-[#FF3E00]/15 disabled:cursor-not-allowed disabled:opacity-50"
           onclick={() => { void handleCreateNewSession(); }}
           disabled={creatingSession}
-          title="New chat"
+          title="New chat (⌘O / Ctrl O)"
+          aria-label="New chat (⌘O / Ctrl O)"
         >
           {#if creatingSession}
             <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -954,6 +973,7 @@ $effect(() => {
           {:else}
             <Plus class="w-3.5 h-3.5 shrink-0" />
             <span class="text-[12px] font-medium">New Chat</span>
+            <span class="ml-auto hidden rounded-[4px] border border-brand/20 bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] text-brand/80 xl:inline">⌘O</span>
           {/if}
         </button>
         <button
