@@ -728,17 +728,11 @@ async function handleLogout() {
 	}
 }
 
-function isApplePlatform() {
-	if (typeof navigator === "undefined") return false;
-	return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-}
-
 function handleGlobalNewChatKeydown(event: KeyboardEvent) {
 	if (event.isComposing) return;
 	const key = event.key.toLowerCase();
-	const isMacNewChat = isApplePlatform() && event.metaKey && key === "o";
-	const isNonMacNewChat = !isApplePlatform() && event.ctrlKey && key === "o";
-	if (isMacNewChat || isNonMacNewChat) {
+	const isNewChatShortcut = (event.metaKey || event.ctrlKey) && key === "o";
+	if (isNewChatShortcut) {
 		event.preventDefault();
 		void handleCreateNewSession();
 	}

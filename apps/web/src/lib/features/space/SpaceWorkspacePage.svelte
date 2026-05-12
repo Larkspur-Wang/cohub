@@ -529,6 +529,9 @@ let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
 let preloadingSessionIds = new Set<string>();
 let turnMarkerMeasureFrame: number | null = null;
+let vimScrollFrame: number | null = null;
+let vimScrollVelocity = 0;
+let vimScrollStopTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTurnIndexRefreshKey = "";
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
@@ -4044,13 +4047,39 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 	);
 }
 
+function stopVimScroll() {
+	vimScrollVelocity = 0;
+	if (vimScrollStopTimer) {
+		clearTimeout(vimScrollStopTimer);
+		vimScrollStopTimer = null;
+	}
+	if (vimScrollFrame != null) {
+		cancelAnimationFrame(vimScrollFrame);
+		vimScrollFrame = null;
+	}
+}
+
+function runVimScrollFrame() {
+	if (!listEl || vimScrollVelocity === 0) {
+		stopVimScroll();
+		return;
+	}
+	listEl.scrollTop = Math.min(
+		Math.max(0, listEl.scrollHeight - listEl.clientHeight),
+		Math.max(0, listEl.scrollTop + vimScrollVelocity),
+	);
+	vimScrollFrame = requestAnimationFrame(runVimScrollFrame);
+}
+
 function scrollTimelineByLines(direction: 1 | -1) {
 	if (!listEl) return;
 	beginUserScroll();
-	listEl.scrollBy({
-		top: direction * 120,
-		behavior: "smooth",
-	});
+	vimScrollVelocity = direction * 7;
+	if (vimScrollFrame == null) {
+		vimScrollFrame = requestAnimationFrame(runVimScrollFrame);
+	}
+	if (vimScrollStopTimer) clearTimeout(vimScrollStopTimer);
+	vimScrollStopTimer = setTimeout(stopVimScroll, 90);
 }
 
 async function jumpRelativeTurn(direction: 1 | -1) {
@@ -4077,13 +4106,25 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	if (routeView !== "session" || !activeSessionState) return;
 	if (isEditableShortcutTarget(event.target)) return;
 	const key = event.key.toLowerCase();
-	if (event.altKey || event.metaKey || event.ctrlKey) {
-		if ((event.metaKey || event.ctrlKey) && key === "j") {
+	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+		if (
+			event.shiftKey &&
+			!event.altKey &&
+			!event.metaKey &&
+			!event.ctrlKey &&
+			key === "j"
+		) {
 			event.preventDefault();
 			void jumpRelativeTurn(1);
 			return;
 		}
-		if ((event.metaKey || event.ctrlKey) && key === "k") {
+		if (
+			event.shiftKey &&
+			!event.altKey &&
+			!event.metaKey &&
+			!event.ctrlKey &&
+			key === "k"
+		) {
 			event.preventDefault();
 			void jumpRelativeTurn(-1);
 		}
@@ -4229,6 +4270,7 @@ onMount(() => {
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		if (turnMarkerMeasureFrame != null)
 			cancelAnimationFrame(turnMarkerMeasureFrame);
+		stopVimScroll();
 		stopBottomFollow();
 		recoveryCoordinator.dispose();
 		clearAllPostSendRecovery();
