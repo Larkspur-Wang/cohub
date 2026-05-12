@@ -2,6 +2,7 @@
 import {
 	type CheckpointRecord,
 	type CronJobRecord,
+	type GenerationStreamEvent,
 	HttpError,
 	type PromptTemplateCatalogEntry,
 	type SessionRecord,
@@ -115,7 +116,6 @@ import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
-	applyRealtimeGenerationSnapshot,
 	buildStreamingStoredIntermediateMessages,
 	clearGenerationError,
 	completeGeneration,
@@ -125,7 +125,10 @@ import {
 	resetGeneration,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
-import { applyGenerationRealtimeEnvelope } from "$lib/stores/session-generation-realtime";
+import {
+	applyGenerationStreamEvent,
+	applyGenerationStreamSnapshot,
+} from "$lib/stores/session-generation-realtime";
 import {
 	fetchSessionListWithCache,
 	getCachedSessionListSnapshot,
@@ -2429,7 +2432,7 @@ async function restoreSessionStreamSnapshot(
 			) {
 				return false;
 			}
-			const result = applyRealtimeGenerationSnapshot(sessionId, {
+			const result = applyGenerationStreamSnapshot(sessionId, {
 				spaceId: snapshot.spaceId,
 				turnId: snapshot.turnId,
 				seq: snapshot.seq,
@@ -2736,36 +2739,11 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			typeof payload.sessionId === "string" ? payload.sessionId : null;
 		if (!targetSessionId) return;
 		if (typeof payload.spaceId === "string" && payload.spaceId !== spaceId) {
-			// Keep cross-space generation state warm for the current user, but avoid
-			// mutating this space view's turns/list state.
-			applyGenerationRealtimeEnvelope(targetSessionId, payload);
 			return;
 		}
 		const currentActiveSessionId = activeSessionId;
 		const isActiveSession = targetSessionId === currentActiveSessionId;
 		const state = sessionStateById[targetSessionId];
-		const generationEffect = applyGenerationRealtimeEnvelope(
-			targetSessionId,
-			payload,
-		);
-		if (generationEffect.handled) {
-			clearPostSendRecovery(targetSessionId);
-			if (generationEffect.shouldReconcile && isActiveSession) {
-				void reconcileSessionTail(targetSessionId);
-			}
-			if (generationEffect.shouldRefreshSessions) {
-				void refreshSessionsList(true);
-			}
-			if (
-				generationEffect.shouldScroll &&
-				isActiveSession &&
-				shouldAutoFollow
-			) {
-				await tick();
-				requestBottomFollow();
-			}
-			return;
-		}
 		if (!state) {
 			if (payload.type === "session.turn.finalized")
 				completeGeneration(targetSessionId);
@@ -2830,6 +2808,38 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		return;
 	} catch (error) {
 		console.error("[WS] handleWsEvent error:", error);
+	}
+}
+async function handleGenerationStreamEvent(
+	sessionId: string,
+	event: GenerationStreamEvent,
+) {
+	try {
+		const generationEffect = applyGenerationStreamEvent(sessionId, event);
+		if (!generationEffect.handled) return;
+		clearPostSendRecovery(sessionId);
+		if (generationEffect.shouldRestoreSnapshot) {
+			void restoreSessionStreamSnapshot(sessionId, {
+				turnId:
+					"state" in event && event.state.turnId ? event.state.turnId : null,
+			});
+		}
+		if (generationEffect.shouldReconcile && sessionId === activeSessionId) {
+			void reconcileSessionTail(sessionId);
+		}
+		if (generationEffect.shouldRefreshSessions) {
+			void refreshSessionsList(true);
+		}
+		if (
+			generationEffect.shouldScroll &&
+			sessionId === activeSessionId &&
+			shouldAutoFollow
+		) {
+			await tick();
+			requestBottomFollow();
+		}
+	} catch (error) {
+		console.error("[WS] handleGenerationStreamEvent error:", error);
 	}
 }
 async function handleForkTurn(turn: SessionTurnRecord) {
@@ -4270,6 +4280,19 @@ $effect(() => {
 		void handleWsEvent(event as ChannelEnvelope);
 	});
 	return wsEventCleanup;
+});
+$effect(() => {
+	const currentSpaceId = spaceId;
+	const sessionId = activeSessionId;
+	if (!pageMounted || !currentSpaceId || !sessionId) return;
+	return sdk
+		.space(currentSpaceId)
+		.session(sessionId)
+		.subscribeGeneration({
+			event: (event) => {
+				void handleGenerationStreamEvent(sessionId, event);
+			},
+		});
 });
 $effect(() => {
 	const currentSpaceId = spaceId;

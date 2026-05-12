@@ -1,10 +1,11 @@
+import type {
+	GenerationStreamEvent,
+	GenerationStreamStateEvent,
+} from "@neta-art/cohub";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import type { StreamingIntermediateMessage } from "./session-generation.svelte";
+import { sessionGenerationStore } from "./session-generation.svelte";
 import {
-	applyRealtimeGenerationPatch,
-	applyRealtimeGenerationProgress,
-	applyRealtimeGenerationSnapshot,
 	failGeneration,
 	interruptGeneration,
 } from "./session-generation-controller";
@@ -13,6 +14,7 @@ type HandledGenerationRealtimeEffect = {
 	handled: true;
 	shouldScroll: boolean;
 	shouldReconcile: boolean;
+	shouldRestoreSnapshot: boolean;
 	shouldRefreshSessions: boolean;
 };
 
@@ -22,260 +24,204 @@ export type GenerationRealtimeEffect =
 			handled: false;
 			shouldScroll: false;
 			shouldReconcile: false;
+			shouldRestoreSnapshot: false;
 			shouldRefreshSessions: false;
 	  };
 
-type ParsedSnapshotMessage = StreamingIntermediateMessage & {
-	messageId: string | null;
-	messageOrdinal: number | null;
-	content: ContentBlock[];
-	appendPath?: string | null;
+const ignoredEffect: GenerationRealtimeEffect = {
+	handled: false,
+	shouldScroll: false,
+	shouldReconcile: false,
+	shouldRestoreSnapshot: false,
+	shouldRefreshSessions: false,
 };
 
-function parseSnapshotMessage(value: unknown): ParsedSnapshotMessage | null {
-	if (!value || typeof value !== "object") return null;
-	const record = value as Record<string, unknown>;
-	if (!Array.isArray(record.content)) return null;
+function handledEffect(
+	input: Omit<HandledGenerationRealtimeEffect, "handled">,
+): GenerationRealtimeEffect {
 	return {
-		...record,
-		messageId: typeof record.messageId === "string" ? record.messageId : null,
-		messageOrdinal:
-			typeof record.messageOrdinal === "number" ? record.messageOrdinal : null,
-		content: record.content as ContentBlock[],
-		appendPath:
-			typeof record.appendPath === "string" ? record.appendPath : null,
-		id: typeof record.id === "string" ? record.id : undefined,
-		sessionId:
-			typeof record.sessionId === "string" ? record.sessionId : undefined,
-		role:
-			record.role === "user" ||
-			record.role === "assistant" ||
-			record.role === "system"
-				? record.role
-				: undefined,
-		text: typeof record.text === "string" ? record.text : null,
-		provider: typeof record.provider === "string" ? record.provider : null,
-		model: typeof record.model === "string" ? record.model : null,
-		stopReason:
-			typeof record.stopReason === "string" ? record.stopReason : null,
-		errorMessage:
-			typeof record.errorMessage === "string" ? record.errorMessage : null,
-		usage:
-			record.usage && typeof record.usage === "object"
-				? (record.usage as ParsedSnapshotMessage["usage"])
-				: null,
-		toolCallsObjectKey:
-			typeof record.toolCallsObjectKey === "string"
-				? record.toolCallsObjectKey
-				: null,
-		meta:
-			record.meta &&
-			typeof record.meta === "object" &&
-			!Array.isArray(record.meta)
-				? (record.meta as Record<string, unknown>)
-				: null,
-		createdAt:
-			typeof record.createdAt === "string" ? record.createdAt : undefined,
+		handled: true,
+		...input,
 	};
 }
 
-export function applyGenerationRealtimeEnvelope(
+function resolveStreamMessageId(input: {
+	sessionId: string;
+	turnId?: string | null;
+	anchorUserMessageId?: string | null;
+	messageId?: string | null;
+	messageOrdinal?: number | null;
+}) {
+	if (input.messageId?.trim()) return input.messageId.trim();
+	if (input.messageOrdinal == null) return null;
+	if (input.turnId?.trim()) {
+		return `turn:${input.turnId.trim()}:assistant:${input.messageOrdinal}`;
+	}
+	return `session:${input.sessionId}:assistant:${input.messageOrdinal}:${input.anchorUserMessageId ?? "unknown"}`;
+}
+
+function normalizeIntermediateMessages(
+	messages: GenerationStreamStateEvent["intermediateMessages"] | undefined,
+): StreamingIntermediateMessage[] {
+	return (messages ?? [])
+		.filter((message) => Array.isArray(message.content))
+		.map((message) => ({
+			...message,
+			messageId: message.messageId ?? null,
+			messageOrdinal: message.messageOrdinal ?? null,
+			content: message.content,
+		}));
+}
+
+function applyGenerationState(
 	sessionId: string,
-	payload: ChannelEnvelope,
+	event: GenerationStreamStateEvent,
+) {
+	sessionGenerationStore.applyProgress(sessionId, {
+		spaceId: event.state.spaceId,
+		contentBlocks: event.state.contentBlocks,
+		intermediateMessages: normalizeIntermediateMessages(
+			event.intermediateMessages,
+		),
+		streamMessageId: event.messageId,
+		messageOrdinal: event.messageOrdinal,
+		anchorUserMessageId: event.state.anchorUserMessageId,
+		truncatedStart: shouldMarkTruncatedStart(sessionId, event),
+		patchSeq: event.state.patchSeq,
+		turnId: event.state.turnId,
+	});
+}
+
+function shouldMarkTruncatedStart(
+	sessionId: string,
+	event: GenerationStreamStateEvent,
+) {
+	const current = sessionGenerationStore.get(sessionId);
+	if (!current || current.status !== "pending") return false;
+	if (event.source === "patch") {
+		return event.state.patchSeq > 0 && current.contentBlocks.length === 0;
+	}
+	if (event.source === "progress") {
+		return (
+			event.state.patchSeq === 0 &&
+			current.contentBlocks.length === 0 &&
+			event.state.contentBlocks.length > 0
+		);
+	}
+	return false;
+}
+
+export function applyGenerationStreamSnapshot(
+	sessionId: string,
+	input: {
+		spaceId?: string | null;
+		turnId?: string | null;
+		seq: number;
+		anchorUserMessageId?: string | null;
+		current: {
+			messageId?: string | null;
+			messageOrdinal?: number | null;
+			content: ContentBlock[];
+		};
+		intermediateMessages?: StreamingIntermediateMessage[];
+	},
+) {
+	const current = sessionGenerationStore.get(sessionId);
+	const resolvedTurnId = input.turnId ?? current?.turnId ?? null;
+	if (
+		current?.turnId &&
+		resolvedTurnId &&
+		current.turnId === resolvedTurnId &&
+		current.patchSeq > input.seq
+	) {
+		return { applied: false, reason: "stale_snapshot" as const };
+	}
+	sessionGenerationStore.applyProgress(sessionId, {
+		spaceId: input.spaceId ?? current?.spaceId ?? null,
+		contentBlocks: input.current.content,
+		intermediateMessages: input.intermediateMessages ?? [],
+		streamMessageId: resolveStreamMessageId({
+			sessionId,
+			turnId: resolvedTurnId,
+			anchorUserMessageId:
+				input.anchorUserMessageId ?? current?.anchorUserMessageId,
+			messageId: input.current.messageId,
+			messageOrdinal: input.current.messageOrdinal,
+		}),
+		messageOrdinal: input.current.messageOrdinal ?? null,
+		anchorUserMessageId:
+			input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
+		truncatedStart: false,
+		patchSeq: input.seq,
+		turnId: resolvedTurnId,
+	});
+	return { applied: true as const };
+}
+
+export function applyGenerationStreamEvent(
+	sessionId: string,
+	event: GenerationStreamEvent,
 ): GenerationRealtimeEffect {
-	if (payload.type === "session.turn.snapshot") {
-		const current = parseSnapshotMessage(payload.payload.current);
-		const intermediateMessages = Array.isArray(
-			payload.payload.intermediateMessages,
-		)
-			? payload.payload.intermediateMessages
-					.map(parseSnapshotMessage)
-					.filter((message): message is ParsedSnapshotMessage =>
-						Boolean(message),
-					)
-			: [];
-		const seq = payload.payload.seq;
-		if (!current || typeof seq !== "number") {
-			return {
-				handled: true,
-				shouldScroll: false,
-				shouldReconcile: true,
-				shouldRefreshSessions: false,
-			};
-		}
-		const result = applyRealtimeGenerationSnapshot(sessionId, {
-			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
-			turnId:
-				typeof payload.payload.turnId === "string"
-					? payload.payload.turnId
-					: null,
-			seq,
-			anchorUserMessageId:
-				typeof payload.payload.anchorUserMessageId === "string"
-					? payload.payload.anchorUserMessageId
-					: null,
-			current,
-			intermediateMessages,
-		});
-		return {
-			handled: true,
-			shouldScroll: result.applied,
-			shouldReconcile: false,
-			shouldRefreshSessions: false,
-		};
-	}
-
-	if (payload.type === "session.turn.patch") {
-		const seq = payload.payload.seq;
-		const baseSeq = payload.payload.baseSeq;
-		const ops = payload.payload.ops;
-		if (
-			typeof seq !== "number" ||
-			typeof baseSeq !== "number" ||
-			!Array.isArray(ops)
-		) {
-			return {
-				handled: true,
-				shouldScroll: false,
-				shouldReconcile: true,
-				shouldRefreshSessions: false,
-			};
-		}
-		const result = applyRealtimeGenerationPatch(sessionId, {
-			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
-			turnId:
-				typeof payload.payload.turnId === "string"
-					? payload.payload.turnId
-					: null,
-			seq,
-			baseSeq,
-			ops: ops as Parameters<typeof applyRealtimeGenerationPatch>[1]["ops"],
-			messageId:
-				typeof payload.payload.messageId === "string"
-					? payload.payload.messageId
-					: null,
-			messageOrdinal:
-				typeof payload.payload.messageOrdinal === "number"
-					? payload.payload.messageOrdinal
-					: null,
-			anchorUserMessageId:
-				typeof payload.payload.anchorUserMessageId === "string"
-					? payload.payload.anchorUserMessageId
-					: null,
-		});
-		return {
-			handled: true,
-			shouldScroll: result.applied,
-			shouldReconcile: !result.applied && result.reason === "version_mismatch",
-			shouldRefreshSessions: false,
-		};
-	}
-
-	if (payload.type === "session.turn.progress") {
-		const content = Array.isArray(payload.payload.content)
-			? (payload.payload.content as ContentBlock[])
-			: [];
-		if (content.length === 0) {
-			return {
-				handled: true,
-				shouldScroll: false,
-				shouldReconcile: false,
-				shouldRefreshSessions: false,
-			};
-		}
-		const anchorUserMessageId =
-			typeof payload.payload.anchorUserMessageId === "string"
-				? payload.payload.anchorUserMessageId
-				: null;
-		applyRealtimeGenerationProgress(sessionId, {
-			spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
-			turnId:
-				typeof payload.payload.turnId === "string"
-					? payload.payload.turnId
-					: null,
-			content,
-			anchorUserMessageId,
-			messageId:
-				typeof payload.payload.messageId === "string"
-					? payload.payload.messageId
-					: null,
-			messageOrdinal:
-				typeof payload.payload.messageOrdinal === "number"
-					? payload.payload.messageOrdinal
-					: null,
-		});
-		return {
-			handled: true,
+	if (event.type === "state") {
+		applyGenerationState(sessionId, event);
+		return handledEffect({
 			shouldScroll: true,
 			shouldReconcile: false,
+			shouldRestoreSnapshot: false,
 			shouldRefreshSessions: false,
-		};
+		});
 	}
 
-	if (payload.type === "session.message.persisted") {
-		const message = payload.payload.message as
-			| { role?: unknown; meta?: Record<string, unknown> | null }
-			| null
-			| undefined;
-		if (message?.role === "assistant") {
-			const kind = message.meta?.messageKind;
-			return {
-				handled: true,
-				shouldScroll: false,
-				shouldReconcile:
-					kind === "assistant_final" || kind === "assistant_error",
-				shouldRefreshSessions:
-					kind === "assistant_final" || kind === "assistant_error",
-			};
-		}
-		return {
-			handled: true,
-			shouldScroll: false,
-			shouldReconcile: false,
-			shouldRefreshSessions: false,
-		};
-	}
-
-	if (payload.type === "session.turn.finalized") {
-		const turn = payload.payload.turn as
-			| { status?: unknown }
-			| null
-			| undefined;
-		if (turn?.status === "interrupted") {
-			interruptGeneration(sessionId);
-			return {
-				handled: true,
+	if (event.type === "commit") {
+		if (event.commit.kind === "final" || event.commit.kind === "error") {
+			return handledEffect({
 				shouldScroll: false,
 				shouldReconcile: true,
+				shouldRestoreSnapshot: false,
 				shouldRefreshSessions: true,
-			};
+			});
 		}
-		return {
-			handled: false,
+		return handledEffect({
 			shouldScroll: false,
 			shouldReconcile: false,
+			shouldRestoreSnapshot: false,
 			shouldRefreshSessions: false,
-		};
+		});
 	}
 
-	if (payload.type === "session.turn.error") {
-		const error =
-			typeof payload.payload.error === "string" && payload.payload.error.trim()
-				? payload.payload.error.trim().slice(0, 1000)
-				: "Generation failed";
-		failGeneration(sessionId, error);
-		return {
-			handled: true,
+	if (event.type === "finalized") {
+		if (event.turn.status === "interrupted") {
+			interruptGeneration(sessionId);
+			return handledEffect({
+				shouldScroll: false,
+				shouldReconcile: true,
+				shouldRestoreSnapshot: false,
+				shouldRefreshSessions: true,
+			});
+		}
+		return ignoredEffect;
+	}
+
+	if (event.type === "error") {
+		failGeneration(sessionId, event.message);
+		return handledEffect({
 			shouldScroll: false,
 			shouldReconcile: false,
+			shouldRestoreSnapshot: false,
 			shouldRefreshSessions: false,
-		};
+		});
 	}
 
-	return {
-		handled: false,
-		shouldScroll: false,
-		shouldReconcile: false,
-		shouldRefreshSessions: false,
-	};
+	if (event.type === "out_of_sync") {
+		const shouldRestoreSnapshot =
+			event.reason === "version_mismatch" && event.source === "patch";
+		return handledEffect({
+			shouldScroll: false,
+			shouldReconcile: true,
+			shouldRestoreSnapshot,
+			shouldRefreshSessions: false,
+		});
+	}
+
+	return ignoredEffect;
 }

@@ -3,7 +3,6 @@ import type {
   MessageRecord,
   SessionTurnRecord,
 } from "@neta-art/cohub-protocol/model";
-import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
 import { ensureRealtimeConnected } from "./realtime.js";
 import {
   SessionPatchReducer,
@@ -322,11 +321,16 @@ export class SessionGenerationStreamClient {
       throw new Error("realtime transport is not configured for this client");
     }
     ensureRealtimeConnected(this.websocketClient);
+    const stream = new SessionGenerationStreamClient(
+      this.websocketClient,
+      this.spaceId,
+      this.sessionId,
+    );
     const unsubscribe = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId || event.sessionId !== this.sessionId) {
         return;
       }
-      this.handleEvent(event, handlers);
+      stream.handleEvent(event, handlers);
     });
     return () => unsubscribe();
   }
