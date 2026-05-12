@@ -4074,12 +4074,12 @@ function runVimScrollFrame() {
 function scrollTimelineByLines(direction: 1 | -1) {
 	if (!listEl) return;
 	beginUserScroll();
-	vimScrollVelocity = direction * 7;
+	vimScrollVelocity = direction * 10;
 	if (vimScrollFrame == null) {
 		vimScrollFrame = requestAnimationFrame(runVimScrollFrame);
 	}
 	if (vimScrollStopTimer) clearTimeout(vimScrollStopTimer);
-	vimScrollStopTimer = setTimeout(stopVimScroll, 90);
+	vimScrollStopTimer = setTimeout(stopVimScroll, 110);
 }
 
 async function jumpRelativeTurn(direction: 1 | -1) {
@@ -4104,32 +4104,20 @@ async function jumpRelativeTurn(direction: 1 | -1) {
 function handleSessionVimKeydown(event: KeyboardEvent) {
 	if (event.defaultPrevented || event.isComposing) return;
 	if (routeView !== "session" || !activeSessionState) return;
-	if (isEditableShortcutTarget(event.target)) return;
 	const key = event.key.toLowerCase();
-	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
-		if (
-			event.shiftKey &&
-			!event.altKey &&
-			!event.metaKey &&
-			!event.ctrlKey &&
-			key === "j"
-		) {
-			event.preventDefault();
-			void jumpRelativeTurn(1);
-			return;
-		}
-		if (
-			event.shiftKey &&
-			!event.altKey &&
-			!event.metaKey &&
-			!event.ctrlKey &&
-			key === "k"
-		) {
-			event.preventDefault();
-			void jumpRelativeTurn(-1);
-		}
+	if (
+		event.shiftKey &&
+		!event.altKey &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		(key === "j" || key === "k")
+	) {
+		event.preventDefault();
+		void jumpRelativeTurn(key === "j" ? 1 : -1);
 		return;
 	}
+	if (isEditableShortcutTarget(event.target)) return;
+	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
 	if (key === "j") {
 		event.preventDefault();
 		scrollTimelineByLines(1);

@@ -387,6 +387,13 @@ $effect(() => {
 							}
 						}}
 						onkeydown={(event) => {
+							if (event.key === 'Escape') {
+								event.preventDefault();
+								textareaEl?.blur();
+								showPromptSuggestions = false;
+								return;
+							}
+
 							if (showPromptSuggestions && filteredPromptTemplates.length > 0) {
 								if (event.key === 'ArrowDown') {
 									event.preventDefault();
