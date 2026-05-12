@@ -4171,6 +4171,11 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		return;
 	}
 	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+	if (key === "i") {
+		event.preventDefault();
+		focusComposerSoon();
+		return;
+	}
 	if (key === "j") {
 		event.preventDefault();
 		scrollTimelineByLines(1);
