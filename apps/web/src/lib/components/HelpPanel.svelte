@@ -1,5 +1,4 @@
 <script lang="ts">
-import { Keyboard } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 
 const {
@@ -11,60 +10,48 @@ const {
 } = $props();
 </script>
 
-<Dialog {open} {onClose} title="Help" maxWidth="580px">
-	<div class="p-4 sm:p-5">
-		<div class="mb-4 flex items-start gap-3 rounded-[8px] border border-brand/15 bg-brand/8 px-3 py-2.5">
-			<div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-brand/12 text-brand">
-				<Keyboard class="h-4 w-4" />
-			</div>
-			<div class="min-w-0">
-				<div class="text-[13px] font-medium text-text-primary">Cohub help</div>
-				<div class="mt-0.5 text-[12px] leading-5 text-text-tertiary">
-					Quick reference for shortcuts and workflow aids. Press <kbd class="shortcut-key">Esc</kbd> to close this panel.
-				</div>
+<Dialog {open} {onClose} title="Help" maxWidth="620px">
+	<div class="space-y-4 p-3.5 sm:p-4">
+		<div class="shortcut-section">
+			<div class="shortcut-section-title">Global</div>
+			<div class="shortcut-grid">
+				<div class="shortcut-item"><span>Search</span><span class="key-group"><kbd>⌘K</kbd><kbd>Ctrl K</kbd></span></div>
+				<div class="shortcut-item"><span>New chat</span><span class="key-group"><kbd>⌘O</kbd><kbd>Ctrl O</kbd></span></div>
+				<div class="shortcut-item"><span>Help</span><span class="key-group"><kbd>?</kbd></span></div>
 			</div>
 		</div>
 
 		<div class="shortcut-section">
-			<div class="shortcut-section-title">Global</div>
-			<div class="shortcut-grid">
-				<div class="shortcut-row"><span>Search everywhere</span><kbd class="shortcut-key">⌘K</kbd><kbd class="shortcut-key">Ctrl K</kbd></div>
-				<div class="shortcut-row"><span>New chat</span><kbd class="shortcut-key">⌘O</kbd><kbd class="shortcut-key">Ctrl O</kbd></div>
-				<div class="shortcut-row"><span>Open help</span><kbd class="shortcut-key">?</kbd></div>
-			</div>
-		</div>
-
-		<div class="shortcut-section mt-4">
 			<div class="shortcut-section-title">Session page</div>
 			<div class="shortcut-grid">
-				<div class="shortcut-row"><span>Focus composer</span><kbd class="shortcut-key">i</kbd></div>
-				<div class="shortcut-row"><span>Scroll down</span><kbd class="shortcut-key">j</kbd></div>
-				<div class="shortcut-row"><span>Scroll up</span><kbd class="shortcut-key">k</kbd></div>
-				<div class="shortcut-row"><span>Next turn</span><kbd class="shortcut-key">Shift J</kbd></div>
-				<div class="shortcut-row"><span>Previous turn</span><kbd class="shortcut-key">Shift K</kbd></div>
-				<div class="shortcut-row"><span>Top</span><kbd class="shortcut-key">g</kbd><kbd class="shortcut-key">g</kbd></div>
-				<div class="shortcut-row"><span>Bottom</span><kbd class="shortcut-key">G</kbd></div>
+				<div class="shortcut-item"><span>Focus composer</span><span class="key-group"><kbd>i</kbd></span></div>
+				<div class="shortcut-item"><span>Scroll down</span><span class="key-group"><kbd>j</kbd></span></div>
+				<div class="shortcut-item"><span>Scroll up</span><span class="key-group"><kbd>k</kbd></span></div>
+				<div class="shortcut-item"><span>Next turn</span><span class="key-group"><kbd>Shift J</kbd></span></div>
+				<div class="shortcut-item"><span>Previous turn</span><span class="key-group"><kbd>Shift K</kbd></span></div>
+				<div class="shortcut-item"><span>Top</span><span class="key-group"><kbd>g</kbd><kbd>g</kbd></span></div>
+				<div class="shortcut-item"><span>Bottom</span><span class="key-group"><kbd>G</kbd></span></div>
 			</div>
 		</div>
 
-		<div class="shortcut-section mt-4">
+		<div class="shortcut-section">
 			<div class="shortcut-section-title">Composer</div>
 			<div class="shortcut-grid">
-				<div class="shortcut-row"><span>Send message</span><kbd class="shortcut-key">Enter</kbd></div>
-				<div class="shortcut-row"><span>Force send</span><kbd class="shortcut-key">⌘↵</kbd><kbd class="shortcut-key">Ctrl ↵</kbd></div>
-				<div class="shortcut-row"><span>New line</span><kbd class="shortcut-key">Shift ↵</kbd></div>
-				<div class="shortcut-row"><span>Blur composer</span><kbd class="shortcut-key">Esc</kbd></div>
+				<div class="shortcut-item"><span>Send</span><span class="key-group"><kbd>Enter</kbd></span></div>
+				<div class="shortcut-item"><span>Force send</span><span class="key-group"><kbd>⌘↵</kbd><kbd>Ctrl ↵</kbd></span></div>
+				<div class="shortcut-item"><span>New line</span><span class="key-group"><kbd>Shift ↵</kbd></span></div>
+				<div class="shortcut-item"><span>Blur</span><span class="key-group"><kbd>Esc</kbd></span></div>
 			</div>
 		</div>
 
-		<div class="shortcut-section mt-4">
+		<div class="shortcut-section">
 			<div class="shortcut-section-title">Files</div>
 			<div class="shortcut-grid">
-				<div class="shortcut-row"><span>Save file</span><kbd class="shortcut-key">⌘S</kbd><kbd class="shortcut-key">Ctrl S</kbd></div>
+				<div class="shortcut-item"><span>Save file</span><span class="key-group"><kbd>⌘S</kbd><kbd>Ctrl S</kbd></span></div>
 			</div>
 		</div>
 
-		<div class="mt-4 rounded-[8px] border border-border-subtle bg-bg-surface px-3 py-2.5">
+		<div class="doc-placeholder">
 			<div class="text-[12px] font-medium text-text-secondary">Documentation</div>
 			<div class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Project guides and deeper workflow docs will appear here.</div>
 		</div>
@@ -73,49 +60,61 @@ const {
 
 <style>
 	.shortcut-section-title {
-		margin-bottom: 0.5rem;
-		font-size: 11px;
-		font-weight: 600;
+		margin-bottom: 0.45rem;
+		font-size: 10px;
+		font-weight: 650;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--text-placeholder);
 	}
 	.shortcut-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+		gap: 1px;
 		overflow: hidden;
 		border: 1px solid var(--border-subtle);
 		border-radius: 9px;
-		background: color-mix(in oklab, var(--bg-surface) 92%, var(--bg-primary));
+		background: var(--border-subtle);
 	}
-	.shortcut-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto;
+	.shortcut-item {
+		display: flex;
+		min-height: 34px;
 		align-items: center;
-		gap: 0.4rem;
-		min-height: 38px;
-		padding: 0.45rem 0.65rem;
-		border-bottom: 1px solid var(--border-subtle);
-		font-size: 13px;
+		justify-content: space-between;
+		gap: 0.55rem;
+		background: color-mix(in oklab, var(--bg-surface) 92%, var(--bg-primary));
+		padding: 0.42rem 0.55rem;
+		font-size: 12px;
 		color: var(--text-secondary);
 	}
-	.shortcut-row:last-child {
-		border-bottom: 0;
-	}
-	.shortcut-key {
+	.key-group {
 		display: inline-flex;
-		min-width: 1.65rem;
-		height: 1.45rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 0.25rem;
+	}
+	kbd {
+		display: inline-flex;
+		min-width: 1.45rem;
+		height: 1.35rem;
 		align-items: center;
 		justify-content: center;
 		border: 1px solid color-mix(in oklab, var(--border-strong) 80%, var(--brand));
 		border-bottom-color: color-mix(in oklab, var(--border-strong) 72%, black);
 		border-radius: 5px;
 		background: color-mix(in oklab, var(--bg-primary) 94%, var(--brand));
-		padding: 0 0.42rem;
+		padding: 0 0.36rem;
 		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 		font-size: 10px;
 		font-weight: 600;
 		line-height: 1;
 		color: var(--text-primary);
 		box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--border-strong) 80%, transparent);
+	}
+	.doc-placeholder {
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-surface);
+		padding: 0.65rem 0.75rem;
 	}
 </style>
