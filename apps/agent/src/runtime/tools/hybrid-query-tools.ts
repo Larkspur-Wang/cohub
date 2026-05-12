@@ -30,7 +30,7 @@ export function createHybridReadTool(sandboxTool: AgentTool, crossSpaceTool: Age
       path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
       offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
-      space: Type.Optional(Type.String({ description: "Optional target space id. Omit or use current space to query the sandbox; specify another space to query only its /workspace." })),
+      space: Type.Optional(Type.String({ description: "Target another space by id" })),
     }),
     execute: routeExecute(sandboxTool, crossSpaceTool),
   };
@@ -42,7 +42,7 @@ export function createHybridLsTool(sandboxTool: AgentTool, crossSpaceTool: Agent
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
-      space: Type.Optional(Type.String({ description: "Optional target space id. Omit or use current space to query the sandbox; specify another space to query only its /workspace." })),
+      space: Type.Optional(Type.String({ description: "Target another space by id" })),
     }),
     execute: routeExecute(sandboxTool, crossSpaceTool),
   };
@@ -55,7 +55,7 @@ export function createHybridFindTool(sandboxTool: AgentTool, crossSpaceTool: Age
       path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
       pattern: Type.String({ description: "Glob pattern to match files" }),
       limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
-      space: Type.Optional(Type.String({ description: "Optional target space id. Omit or use current space to query the sandbox; specify another space to query only its /workspace." })),
+      space: Type.Optional(Type.String({ description: "Target another space by id" })),
     }),
     execute: routeExecute(sandboxTool, crossSpaceTool),
   };
@@ -72,7 +72,7 @@ export function createHybridGrepTool(sandboxTool: AgentTool, crossSpaceTool: Age
       literal: Type.Optional(Type.Boolean({ description: "Treat pattern as literal string" })),
       context: Type.Optional(Type.Number({ description: "Context lines" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of matches" })),
-      space: Type.Optional(Type.String({ description: "Optional target space id. Omit or use current space to query the sandbox; specify another space to query only its /workspace." })),
+      space: Type.Optional(Type.String({ description: "Target another space by id" })),
     }),
     execute: routeExecute(sandboxTool, crossSpaceTool),
   };
