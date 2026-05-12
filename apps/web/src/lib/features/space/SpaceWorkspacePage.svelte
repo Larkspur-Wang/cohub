@@ -534,9 +534,13 @@ const sessionLoadInFlight = new Map<string, Promise<void>>();
 const turnWindowLoadInFlight = new Map<string, Promise<void>>();
 const syncSessionNewerInFlight = new Map<string, Promise<void>>();
 const turnHydrationInFlight = new Map<string, Promise<void>>();
+const postSendRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let reconnectSyncInFlight: Promise<void> | null = null;
 const streamSnapshotRecoveryInFlight = new Map<string, Promise<boolean>>();
 const reconcileSessionTailInFlight = new Map<string, Promise<void>>();
+const lastStreamSnapshotRecoveryByTurn = new Map<string, number>();
+const POST_SEND_RECOVERY_GRACE_MS = 2500;
+const STREAM_SNAPSHOT_RECOVERY_COOLDOWN_MS = 15000;
 let lastRecoveredConnectionId: string | null = null;
 let lastConnectionState:
 	| "idle"
@@ -1993,7 +1997,7 @@ async function syncGenerationStateFromTail(
 			turnId: runningTurn.id,
 			anchorUserMessageId: runningTurn.id,
 		});
-		await restoreSessionStreamSnapshot(sessionId);
+		await restoreSessionStreamSnapshot(sessionId, { turnId: runningTurn.id });
 		return;
 	}
 	const current = sessionGenerationStore.get(sessionId);
@@ -2393,9 +2397,23 @@ function handleFirstVisible(index: number) {
 		);
 	}
 }
-async function restoreSessionStreamSnapshot(sessionId: string) {
+async function restoreSessionStreamSnapshot(
+	sessionId: string,
+	options?: { turnId?: string | null; force?: boolean },
+) {
+	const turnId = options?.turnId ?? null;
+	const cooldownKey = turnId ? `${sessionId}:${turnId}` : sessionId;
+	const now = Date.now();
+	const lastRecoveryAt = lastStreamSnapshotRecoveryByTurn.get(cooldownKey) ?? 0;
+	if (
+		!options?.force &&
+		now - lastRecoveryAt < STREAM_SNAPSHOT_RECOVERY_COOLDOWN_MS
+	) {
+		return false;
+	}
 	const inFlight = streamSnapshotRecoveryInFlight.get(sessionId);
 	if (inFlight) return inFlight;
+	lastStreamSnapshotRecoveryByTurn.set(cooldownKey, now);
 	const run = (async () => {
 		try {
 			const { snapshot } = await sdk
@@ -2490,12 +2508,42 @@ async function reconcileSessionTail(sessionId: string) {
 		}
 	});
 }
+function clearPostSendRecovery(sessionId: string | null | undefined) {
+	if (!sessionId) return;
+	const timer = postSendRecoveryTimers.get(sessionId);
+	if (!timer) return;
+	clearTimeout(timer);
+	postSendRecoveryTimers.delete(sessionId);
+}
+function clearAllPostSendRecovery() {
+	for (const timer of postSendRecoveryTimers.values()) clearTimeout(timer);
+	postSendRecoveryTimers.clear();
+}
+function schedulePostSendRecoveryCheck(sessionId: string) {
+	clearPostSendRecovery(sessionId);
+	if (wsConnectionState === "open") return;
+	const timer = setTimeout(() => {
+		postSendRecoveryTimers.delete(sessionId);
+		if (
+			wsConnectionState === "open" ||
+			!sessionGenerationStore.isGenerating(sessionId)
+		) {
+			return;
+		}
+		void recoveryCoordinator
+			.reconcileAfterSendWhileOffline(sessionId)
+			.catch(() => undefined);
+		recoveryCoordinator.scheduleFallbackSync(sessionId);
+	}, POST_SEND_RECOVERY_GRACE_MS);
+	postSendRecoveryTimers.set(sessionId, timer);
+}
 const recoveryCoordinator = new SessionRecoveryCoordinator({
 	isTransportOpen: () => wsConnectionState === "open",
 	reconcileSessionTail: (sessionId) => reconcileSessionTail(sessionId),
 	refreshSessionsList: () => refreshSessionsList(true),
 	onRecovered: () => {
 		wsCanRecover = false;
+		clearPostSendRecovery(activeSessionId);
 	},
 	onExhausted: (sessionId) => {
 		console.warn("[SessionRecoveryCoordinator] Fallback sync exhausted", {
@@ -2701,6 +2749,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			payload,
 		);
 		if (generationEffect.handled) {
+			clearPostSendRecovery(targetSessionId);
 			if (generationEffect.shouldReconcile && isActiveSession) {
 				void reconcileSessionTail(targetSessionId);
 			}
@@ -2971,13 +3020,7 @@ async function handleSend() {
 			});
 		}
 		if (wsConnectionState !== "open") {
-			void recoveryCoordinator
-				.reconcileAfterSendWhileOffline(sessionId)
-				.then(() => {
-					completeGeneration(sessionId);
-				})
-				.catch(() => undefined);
-			recoveryCoordinator.scheduleFallbackSync(sessionId);
+			schedulePostSendRecoveryCheck(sessionId);
 		}
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
@@ -4095,6 +4138,7 @@ onMount(() => {
 			cancelAnimationFrame(turnMarkerMeasureFrame);
 		stopBottomFollow();
 		recoveryCoordinator.dispose();
+		clearAllPostSendRecovery();
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
 		wsConnectionCleanup();
@@ -4129,6 +4173,8 @@ $effect(() => {
 	turnWindowLoadInFlight.clear();
 	syncSessionNewerInFlight.clear();
 	turnHydrationInFlight.clear();
+	clearAllPostSendRecovery();
+	lastStreamSnapshotRecoveryByTurn.clear();
 	activeSessionId = null;
 	turnIndexBySessionId = {};
 	turnIndexLoadingBySessionId = {};
