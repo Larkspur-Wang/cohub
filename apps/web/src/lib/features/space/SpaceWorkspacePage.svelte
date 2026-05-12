@@ -530,7 +530,13 @@ let lastTurnIndexRefreshKey = "";
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
+const sessionLoadInFlight = new Map<string, Promise<void>>();
+const turnWindowLoadInFlight = new Map<string, Promise<void>>();
+const syncSessionNewerInFlight = new Map<string, Promise<void>>();
+const turnHydrationInFlight = new Map<string, Promise<void>>();
 let reconnectSyncInFlight: Promise<void> | null = null;
+const streamSnapshotRecoveryInFlight = new Map<string, Promise<boolean>>();
+const reconcileSessionTailInFlight = new Map<string, Promise<void>>();
 let lastRecoveredConnectionId: string | null = null;
 let lastConnectionState:
 	| "idle"
@@ -2001,105 +2007,115 @@ async function syncGenerationStateFromTail(
 }
 async function loadSessionState(sessionId: string, force = false) {
 	const existing = sessionStateById[sessionId];
-	if (loadingSessionIds[sessionId] && !force) return;
+	const inFlight = sessionLoadInFlight.get(sessionId);
+	if (inFlight && !force) return inFlight;
 	if (existing?.loaded && !force) return;
-	const cached = !force
-		? await sessionTurnsRepo.getCached(spaceId, sessionId)
-		: null;
-	if (cached && (cached.turns.length > 0 || cached.session)) {
+	const run = (async () => {
+		const cached = !force
+			? await sessionTurnsRepo.getCached(spaceId, sessionId)
+			: null;
+		if (cached && (cached.turns.length > 0 || cached.session)) {
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					session:
+						cached.session ??
+						existing?.session ??
+						spaceSessions.find((s) => s.id === sessionId),
+					turns: cached.turns,
+					loading: true,
+					loaded: true,
+					error: "",
+					hasMore: cached.hasMoreOlder,
+					hasMoreNewer: cached.hasMoreNewer,
+					loadingOlder: false,
+					oldestCursor: cached.oldestSequence ?? undefined,
+				},
+			};
+		}
+		loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
+		const currentSeed = sessionStateById[sessionId];
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				session:
-					cached.session ??
+					currentSeed?.session ??
 					existing?.session ??
 					spaceSessions.find((s) => s.id === sessionId),
-				turns: cached.turns,
+				turns: currentSeed?.turns ?? existing?.turns ?? [],
 				loading: true,
-				loaded: true,
-				error: "",
-				hasMore: cached.hasMoreOlder,
-				hasMoreNewer: cached.hasMoreNewer,
+				loaded: currentSeed?.loaded ?? existing?.loaded ?? false,
+				error: currentSeed?.error ?? existing?.error ?? "",
+				hasMore: currentSeed?.hasMore ?? existing?.hasMore ?? true,
+				hasMoreNewer:
+					currentSeed?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
 				loadingOlder: false,
-				oldestCursor: cached.oldestSequence ?? undefined,
+				oldestCursor: currentSeed?.oldestCursor ?? existing?.oldestCursor,
 			},
 		};
-	}
-	loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
-	const currentSeed = sessionStateById[sessionId];
-	sessionStateById = {
-		...sessionStateById,
-		[sessionId]: {
-			session:
-				currentSeed?.session ??
-				existing?.session ??
-				spaceSessions.find((s) => s.id === sessionId),
-			turns: currentSeed?.turns ?? existing?.turns ?? [],
-			loading: true,
-			loaded: currentSeed?.loaded ?? existing?.loaded ?? false,
-			error: currentSeed?.error ?? existing?.error ?? "",
-			hasMore: currentSeed?.hasMore ?? existing?.hasMore ?? true,
-			hasMoreNewer:
-				currentSeed?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
-			loadingOlder: false,
-			oldestCursor: currentSeed?.oldestCursor ?? existing?.oldestCursor,
-		},
-	};
-	try {
-		const requestStartedAt = Date.now();
-		const response = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.turns.listPaginated({
-				limit: 30,
+		try {
+			const requestStartedAt = Date.now();
+			const response = await sdk
+				.space(spaceId)
+				.session(sessionId)
+				.turns.listPaginated({
+					limit: 30,
+				});
+			await syncGenerationStateFromTail(
+				sessionId,
+				response.turns,
+				requestStartedAt,
+			);
+			const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
+				session: response.session,
+				turns: response.turns,
+				hasMore: response.hasMore,
 			});
-		await syncGenerationStateFromTail(
-			sessionId,
-			response.turns,
-			requestStartedAt,
-		);
-		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
-			session: response.session,
-			turns: response.turns,
-			hasMore: response.hasMore,
-		});
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				session: snapshot.session ?? response.session,
-				turns: snapshot.turns,
-				loading: false,
-				loaded: true,
-				error: "",
-				hasMore: snapshot.hasMoreOlder,
-				hasMoreNewer: snapshot.hasMoreNewer,
-				loadingOlder: false,
-				oldestCursor: snapshot.oldestSequence ?? undefined,
-			},
-		};
-	} catch (error) {
-		const fallback = sessionStateById[sessionId];
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				session:
-					fallback?.session ??
-					existing?.session ??
-					spaceSessions.find((s) => s.id === sessionId),
-				turns: fallback?.turns ?? existing?.turns ?? [],
-				loading: false,
-				loaded: Boolean(fallback?.loaded ?? existing?.loaded),
-				error:
-					error instanceof Error ? error.message : "Failed to load session",
-				hasMore: fallback?.hasMore ?? existing?.hasMore ?? true,
-				hasMoreNewer: fallback?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
-				loadingOlder: false,
-				oldestCursor: fallback?.oldestCursor ?? existing?.oldestCursor,
-			},
-		};
-	} finally {
-		loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
-	}
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					session: snapshot.session ?? response.session,
+					turns: snapshot.turns,
+					loading: false,
+					loaded: true,
+					error: "",
+					hasMore: snapshot.hasMoreOlder,
+					hasMoreNewer: snapshot.hasMoreNewer,
+					loadingOlder: false,
+					oldestCursor: snapshot.oldestSequence ?? undefined,
+				},
+			};
+		} catch (error) {
+			const fallback = sessionStateById[sessionId];
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					session:
+						fallback?.session ??
+						existing?.session ??
+						spaceSessions.find((s) => s.id === sessionId),
+					turns: fallback?.turns ?? existing?.turns ?? [],
+					loading: false,
+					loaded: Boolean(fallback?.loaded ?? existing?.loaded),
+					error:
+						error instanceof Error ? error.message : "Failed to load session",
+					hasMore: fallback?.hasMore ?? existing?.hasMore ?? true,
+					hasMoreNewer:
+						fallback?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
+					loadingOlder: false,
+					oldestCursor: fallback?.oldestCursor ?? existing?.oldestCursor,
+				},
+			};
+		} finally {
+			loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
+		}
+	})();
+	sessionLoadInFlight.set(sessionId, run);
+	return run.finally(() => {
+		if (sessionLoadInFlight.get(sessionId) === run) {
+			sessionLoadInFlight.delete(sessionId);
+		}
+	});
 }
 async function loadTurnIndex(sessionId: string, force = false) {
 	if (!force && Object.hasOwn(turnIndexBySessionId, sessionId)) return;
@@ -2194,45 +2210,59 @@ function scrollToTurnAnchor(sequence: number) {
 	return true;
 }
 async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
-	const state = sessionStateById[sessionId];
-	loadingTurnSequence = sequence;
-	try {
-		const response = await sdk.space(spaceId).session(sessionId).turns.window({
-			sequence,
-			before: 10,
-			after: 20,
-		});
-		const snapshot = await sessionTurnsRepo.mergeTurns(
-			spaceId,
-			sessionId,
-			response.turns,
-			{
-				session: response.session,
-				hasMoreOlder: response.hasMoreOlder,
-				hasMoreNewer:
-					"hasMoreNewer" in response ? response.hasMoreNewer : undefined,
-				source: "network",
-			},
-		);
-		const current = sessionStateById[sessionId] ?? state;
-		if (current) {
-			sessionStateById = {
-				...sessionStateById,
-				[sessionId]: {
-					...current,
-					session: snapshot.session ?? current.session,
-					turns: snapshot.turns,
-					hasMore: snapshot.hasMoreOlder,
-					hasMoreNewer: snapshot.hasMoreNewer,
-					oldestCursor: snapshot.oldestSequence ?? undefined,
-					loaded: true,
-					loading: false,
+	const key = `${sessionId}:${sequence}`;
+	const inFlight = turnWindowLoadInFlight.get(key);
+	if (inFlight) return inFlight;
+	const run = (async () => {
+		const state = sessionStateById[sessionId];
+		loadingTurnSequence = sequence;
+		try {
+			const response = await sdk
+				.space(spaceId)
+				.session(sessionId)
+				.turns.window({
+					sequence,
+					before: 10,
+					after: 20,
+				});
+			const snapshot = await sessionTurnsRepo.mergeTurns(
+				spaceId,
+				sessionId,
+				response.turns,
+				{
+					session: response.session,
+					hasMoreOlder: response.hasMoreOlder,
+					hasMoreNewer:
+						"hasMoreNewer" in response ? response.hasMoreNewer : undefined,
+					source: "network",
 				},
-			};
+			);
+			const current = sessionStateById[sessionId] ?? state;
+			if (current) {
+				sessionStateById = {
+					...sessionStateById,
+					[sessionId]: {
+						...current,
+						session: snapshot.session ?? current.session,
+						turns: snapshot.turns,
+						hasMore: snapshot.hasMoreOlder,
+						hasMoreNewer: snapshot.hasMoreNewer,
+						oldestCursor: snapshot.oldestSequence ?? undefined,
+						loaded: true,
+						loading: false,
+					},
+				};
+			}
+		} finally {
+			loadingTurnSequence = null;
 		}
-	} finally {
-		loadingTurnSequence = null;
-	}
+	})();
+	turnWindowLoadInFlight.set(key, run);
+	return run.finally(() => {
+		if (turnWindowLoadInFlight.get(key) === run) {
+			turnWindowLoadInFlight.delete(key);
+		}
+	});
 }
 async function jumpToTurn(sequence: number) {
 	if (!activeSessionId) return;
@@ -2249,41 +2279,51 @@ async function jumpToTurn(sequence: number) {
 	}
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
-	const state = sessionStateById[sessionId];
-	if (!state || state.turns.length === 0) return;
-	const newestSeq = state.turns.at(-1)?.sequence;
-	if (newestSeq == null) return;
-	try {
-		const response = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.turns.listPaginated({
-				cursor: newestSeq,
-				direction: "newer",
-				limit: 100,
-			});
-		if (response.turns.length > 0) {
-			const snapshot = await sessionTurnsRepo.mergeTurns(
-				spaceId,
-				sessionId,
-				response.turns,
-				{ session: response.session, source: "network" },
-			);
-			const current = sessionStateById[sessionId];
-			if (current) {
-				sessionStateById = {
-					...sessionStateById,
-					[sessionId]: {
-						...current,
-						session: snapshot.session ?? current.session,
-						turns: snapshot.turns,
-					},
-				};
+	const inFlight = syncSessionNewerInFlight.get(sessionId);
+	if (inFlight) return inFlight;
+	const run = (async () => {
+		const state = sessionStateById[sessionId];
+		if (!state || state.turns.length === 0) return;
+		const newestSeq = state.turns.at(-1)?.sequence;
+		if (newestSeq == null) return;
+		try {
+			const response = await sdk
+				.space(spaceId)
+				.session(sessionId)
+				.turns.listPaginated({
+					cursor: newestSeq,
+					direction: "newer",
+					limit: 100,
+				});
+			if (response.turns.length > 0) {
+				const snapshot = await sessionTurnsRepo.mergeTurns(
+					spaceId,
+					sessionId,
+					response.turns,
+					{ session: response.session, source: "network" },
+				);
+				const current = sessionStateById[sessionId];
+				if (current) {
+					sessionStateById = {
+						...sessionStateById,
+						[sessionId]: {
+							...current,
+							session: snapshot.session ?? current.session,
+							turns: snapshot.turns,
+						},
+					};
+				}
 			}
+		} catch (error) {
+			console.warn("[syncSessionNewer] Failed to sync newer turns:", error);
 		}
-	} catch (error) {
-		console.warn("[syncSessionNewer] Failed to sync newer turns:", error);
-	}
+	})();
+	syncSessionNewerInFlight.set(sessionId, run);
+	return run.finally(() => {
+		if (syncSessionNewerInFlight.get(sessionId) === run) {
+			syncSessionNewerInFlight.delete(sessionId);
+		}
+	});
 }
 async function loadOlderTurns(sessionId: string) {
 	const state = sessionStateById[sessionId];
@@ -2354,79 +2394,101 @@ function handleFirstVisible(index: number) {
 	}
 }
 async function restoreSessionStreamSnapshot(sessionId: string) {
-	try {
-		const { snapshot } = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.turns.streamSnapshot();
-		if (!snapshot) return false;
-		const current = sessionGenerationStore.get(sessionId);
-		if (
-			current?.turnId &&
-			snapshot.turnId &&
-			current.turnId !== snapshot.turnId
-		) {
+	const inFlight = streamSnapshotRecoveryInFlight.get(sessionId);
+	if (inFlight) return inFlight;
+	const run = (async () => {
+		try {
+			const { snapshot } = await sdk
+				.space(spaceId)
+				.session(sessionId)
+				.turns.streamSnapshot();
+			if (!snapshot) return false;
+			const current = sessionGenerationStore.get(sessionId);
+			if (
+				current?.turnId &&
+				snapshot.turnId &&
+				current.turnId !== snapshot.turnId
+			) {
+				return false;
+			}
+			const result = applyRealtimeGenerationSnapshot(sessionId, {
+				spaceId: snapshot.spaceId,
+				turnId: snapshot.turnId,
+				seq: snapshot.seq,
+				anchorUserMessageId: snapshot.anchorUserMessageId,
+				current: snapshot.current,
+				intermediateMessages: snapshot.intermediateMessages,
+			});
+			return result.applied;
+		} catch (error) {
+			console.warn(
+				"[restoreSessionStreamSnapshot] Failed to restore stream snapshot:",
+				error,
+			);
 			return false;
 		}
-		const result = applyRealtimeGenerationSnapshot(sessionId, {
-			spaceId: snapshot.spaceId,
-			turnId: snapshot.turnId,
-			seq: snapshot.seq,
-			anchorUserMessageId: snapshot.anchorUserMessageId,
-			current: snapshot.current,
-			intermediateMessages: snapshot.intermediateMessages,
-		});
-		return result.applied;
-	} catch (error) {
-		console.warn(
-			"[restoreSessionStreamSnapshot] Failed to restore stream snapshot:",
-			error,
-		);
-		return false;
-	}
+	})();
+	streamSnapshotRecoveryInFlight.set(sessionId, run);
+	return run.finally(() => {
+		if (streamSnapshotRecoveryInFlight.get(sessionId) === run) {
+			streamSnapshotRecoveryInFlight.delete(sessionId);
+		}
+	});
 }
 async function reconcileSessionTail(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
-	try {
-		const requestStartedAt = Date.now();
-		const response = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.turns.listPaginated({
-				limit: 30,
+	const inFlight = reconcileSessionTailInFlight.get(sessionId);
+	if (inFlight) return inFlight;
+	const run = (async () => {
+		try {
+			const requestStartedAt = Date.now();
+			const response = await sdk
+				.space(spaceId)
+				.session(sessionId)
+				.turns.listPaginated({
+					limit: 30,
+				});
+			await syncGenerationStateFromTail(
+				sessionId,
+				response.turns,
+				requestStartedAt,
+			);
+			const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
+				session: response.session,
+				turns: response.turns,
+				hasMore: response.hasMore,
 			});
-		await syncGenerationStateFromTail(
-			sessionId,
-			response.turns,
-			requestStartedAt,
-		);
-		const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
-			session: response.session,
-			turns: response.turns,
-			hasMore: response.hasMore,
-		});
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				...state,
-				session: snapshot.session ?? state.session,
-				turns: snapshot.turns,
-				hasMore: snapshot.hasMoreOlder,
-				hasMoreNewer: snapshot.hasMoreNewer,
-				loading: false,
-				loaded: true,
-				error: "",
-				loadingOlder: false,
-				oldestCursor: snapshot.oldestSequence ?? undefined,
-			},
-		};
-	} catch (error) {
-		console.warn(
-			"[reconcileSessionTail] Failed to reconcile session tail:",
-			error,
-		);
-	}
+			const currentState = sessionStateById[sessionId];
+			if (!currentState) return;
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...currentState,
+					session: snapshot.session ?? currentState.session,
+					turns: snapshot.turns,
+					hasMore: snapshot.hasMoreOlder,
+					hasMoreNewer: snapshot.hasMoreNewer,
+					loading: false,
+					loaded: true,
+					error: "",
+					loadingOlder: false,
+					oldestCursor: snapshot.oldestSequence ?? undefined,
+				},
+			};
+		} catch (error) {
+			console.warn(
+				"[reconcileSessionTail] Failed to reconcile session tail:",
+				error,
+			);
+		}
+	})();
+	reconcileSessionTailInFlight.set(sessionId, run);
+	return run.finally(() => {
+		if (reconcileSessionTailInFlight.get(sessionId) === run) {
+			reconcileSessionTailInFlight.delete(sessionId);
+		}
+	});
 }
 const recoveryCoordinator = new SessionRecoveryCoordinator({
 	isTransportOpen: () => wsConnectionState === "open",
@@ -2567,6 +2629,51 @@ function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
 	return null;
 }
 
+function hydrateTurnOnce(input: {
+	sessionId: string;
+	turnId: string;
+	reason: string;
+	onHydrated?: () => void;
+}) {
+	const key = `${input.sessionId}:${input.turnId}`;
+	const inFlight = turnHydrationInFlight.get(key);
+	if (inFlight) return inFlight;
+	const run = sdk
+		.space(spaceId)
+		.session(input.sessionId)
+		.turns.get(input.turnId)
+		.then(async (response) => {
+			const current = sessionStateById[input.sessionId];
+			if (!current) return;
+			const snapshot = await sessionTurnsRepo.mergeTurns(
+				spaceId,
+				input.sessionId,
+				[response.turn],
+				{
+					session: response.session ?? current.session ?? null,
+					source: "network",
+				},
+			);
+			sessionStateById = {
+				...sessionStateById,
+				[input.sessionId]: {
+					...current,
+					session: snapshot.session ?? current.session,
+					turns: snapshot.turns,
+				},
+			};
+			input.onHydrated?.();
+		})
+		.catch((error) =>
+			console.warn(`[${input.reason}] Failed to load full turn:`, error),
+		);
+	turnHydrationInFlight.set(key, run);
+	return run.finally(() => {
+		if (turnHydrationInFlight.get(key) === run) {
+			turnHydrationInFlight.delete(key);
+		}
+	});
+}
 async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
 		if (payload.type === "space.fs.changed") {
@@ -2594,11 +2701,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			payload,
 		);
 		if (generationEffect.handled) {
-			if (generationEffect.shouldRestoreSnapshot && isActiveSession) {
-				void restoreSessionStreamSnapshot(targetSessionId).then((restored) => {
-					if (!restored) void reconcileSessionTail(targetSessionId);
-				});
-			} else if (generationEffect.shouldReconcile && isActiveSession) {
+			if (generationEffect.shouldReconcile && isActiveSession) {
 				void reconcileSessionTail(targetSessionId);
 			}
 			if (generationEffect.shouldRefreshSessions) {
@@ -2659,37 +2762,15 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				};
 			}
 			if (!existingTurn || payload.type === "session.turn.finalized") {
-				void sdk
-					.space(spaceId)
-					.session(targetSessionId)
-					.turns.get(turnId)
-					.then(async (response) => {
-						const current = sessionStateById[targetSessionId];
-						if (!current) return;
-						const snapshot = await sessionTurnsRepo.mergeTurns(
-							spaceId,
-							targetSessionId,
-							[response.turn],
-							{
-								session: response.session ?? current.session ?? null,
-								source: "network",
-							},
-						);
-						sessionStateById = {
-							...sessionStateById,
-							[targetSessionId]: {
-								...current,
-								session: snapshot.session ?? current.session,
-								turns: snapshot.turns,
-							},
-						};
-						if (payload.type === "session.turn.finalized") {
-							completeGeneration(targetSessionId);
-						}
-					})
-					.catch((error) =>
-						console.warn("[turn.event] Failed to load full turn:", error),
-					);
+				void hydrateTurnOnce({
+					sessionId: targetSessionId,
+					turnId,
+					reason: "turn.event",
+					onHydrated:
+						payload.type === "session.turn.finalized"
+							? () => completeGeneration(targetSessionId)
+							: undefined,
+				});
 			}
 			if (isActiveSession && shouldAutoFollow) {
 				await tick();
@@ -2883,34 +2964,11 @@ async function handleSend() {
 					},
 				};
 			}
-			void sdk
-				.space(spaceId)
-				.session(sessionId)
-				.turns.get(sendResult.turnId)
-				.then(async (response) => {
-					const latest = sessionStateById[sessionId];
-					if (!latest) return;
-					const snapshot = await sessionTurnsRepo.mergeTurns(
-						spaceId,
-						sessionId,
-						[response.turn],
-						{
-							session: response.session ?? latest.session ?? null,
-							source: "network",
-						},
-					);
-					sessionStateById = {
-						...sessionStateById,
-						[sessionId]: {
-							...latest,
-							session: snapshot.session ?? latest.session,
-							turns: snapshot.turns,
-						},
-					};
-				})
-				.catch((error) =>
-					console.warn("[send] Failed to refresh created turn:", error),
-				);
+			void hydrateTurnOnce({
+				sessionId,
+				turnId: sendResult.turnId,
+				reason: "send",
+			});
 		}
 		if (wsConnectionState !== "open") {
 			void recoveryCoordinator
@@ -4067,6 +4125,10 @@ $effect(() => {
 	spaceSessions = [];
 	sessionStateById = {};
 	loadingSessionIds = {};
+	sessionLoadInFlight.clear();
+	turnWindowLoadInFlight.clear();
+	syncSessionNewerInFlight.clear();
+	turnHydrationInFlight.clear();
 	activeSessionId = null;
 	turnIndexBySessionId = {};
 	turnIndexLoadingBySessionId = {};

@@ -14,7 +14,6 @@ type HandledGenerationRealtimeEffect = {
 	shouldScroll: boolean;
 	shouldReconcile: boolean;
 	shouldRefreshSessions: boolean;
-	shouldRestoreSnapshot?: boolean;
 };
 
 export type GenerationRealtimeEffect =
@@ -169,8 +168,6 @@ export function applyGenerationRealtimeEnvelope(
 			shouldScroll: result.applied,
 			shouldReconcile: !result.applied && result.reason === "version_mismatch",
 			shouldRefreshSessions: false,
-			shouldRestoreSnapshot:
-				!result.applied && result.reason === "version_mismatch",
 		};
 	}
 
