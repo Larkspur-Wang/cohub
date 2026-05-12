@@ -14,6 +14,7 @@ import {
   getAgentInstanceProcessingQueueKey,
 } from "./ownership.js";
 import { buildPatchOpsForContentDelta, getAppendPathForStreamEvent } from "./stream/patch-delta.js";
+import { logger } from "./logger.js";
 
 const redis = new Redis(env.REDIS_URL);
 const subClient = redis.duplicate();
@@ -231,16 +232,26 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   }
 
   const activeSpan = trace.getActiveSpan();
-  activeSpan?.addEvent("agent.output.publish", {
-    "cohub.space_id": parsed.data.spaceId,
-    "cohub.session_id": parsed.data.sessionId ?? "",
-    "agent.output.type": parsed.data.type,
-    ...(parsed.data.type === "stream_update" ? { "agent.output.delta_block_count": parsed.data.content.length } : {}),
-  });
+  const event = parsed.data;
+  const outputAttributes: Record<string, string | number> = {
+    "cohub.space_id": event.spaceId,
+    "cohub.session_id": event.sessionId ?? "",
+    "agent.output.type": event.type,
+  };
+  if (event.type === "stream_update") {
+    outputAttributes["agent.output.delta_block_count"] = event.content.length;
+    if (event.sourceMessageId) outputAttributes["agent.input_message_id"] = event.sourceMessageId;
+    if (event.anchorUserMessageId ?? event.sourceMessageId) outputAttributes["agent.anchor_user_message_id"] = event.anchorUserMessageId ?? event.sourceMessageId ?? "";
+    if (event.turnId) outputAttributes["agent.turn_id"] = event.turnId;
+    if (event.messageId) outputAttributes["agent.output.message_id"] = event.messageId;
+    if (event.messageOrdinal != null) outputAttributes["agent.output.message_ordinal"] = event.messageOrdinal;
+    outputAttributes["agent.output.seq"] = event.seq;
+    outputAttributes["agent.output.base_seq"] = event.baseSeq;
+  }
+  activeSpan?.addEvent("agent.output.publish", outputAttributes);
 
   try {
     const traceCarrier = injectTrace();
-    const event = parsed.data;
     let envelope: RealtimeEnvelope;
 
     if (event.type === "stream_update") {
@@ -418,7 +429,7 @@ export async function listenForInput(
     rawParsed: Record<string, unknown>,
   ) => void | Promise<void>,
 ) {
-  console.log(`[Redis] Listening for input on ${LIST_KEY_IN}...`);
+  logger.info(`[Redis] Listening for input on ${LIST_KEY_IN}...`);
   while (true) {
     let rawMessage: string | null = null;
 

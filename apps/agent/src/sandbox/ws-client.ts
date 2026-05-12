@@ -12,6 +12,7 @@ import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
+import { logger } from "../logger.js";
 
 type PendingOperation = {
   requestId: string;
@@ -67,7 +68,7 @@ export class SandboxConnection {
     },
   ): Promise<RpcRequestMap[M]["result"]> {
     const requestId = options.requestId ?? randomUUID();
-    console.log(`[SandboxWS] rpc:request spaceId=${this.spaceId} identity=${this.identity} method=${method} requestId=${requestId.slice(0, 8)}`);
+    logger.debug(`[SandboxWS] rpc:request spaceId=${this.spaceId} identity=${this.identity} method=${method} requestId=${requestId.slice(0, 8)}`);
     return new Promise((resolve, reject) => {
       this.registration.pendingByRequestId.set(requestId, {
         requestId,
@@ -100,7 +101,7 @@ export class SandboxConnection {
       pending.accepted = true;
       pending.opId = message.opId;
       this.registration.requestIdByOpId.set(message.opId, message.requestId);
-      console.log(`[SandboxWS] rpc:accepted spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${message.requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
+      logger.debug(`[SandboxWS] rpc:accepted spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${message.requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
       return;
     }
 
@@ -114,7 +115,7 @@ export class SandboxConnection {
       const requestId = this.registration.requestIdByOpId.get(message.opId) ?? message.requestId;
       const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
-      console.log(`[SandboxWS] rpc:completed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
+      logger.debug(`[SandboxWS] rpc:completed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
       this.registration.pendingByRequestId.delete(requestId);
       this.registration.requestIdByOpId.delete(message.opId);
       pending.resolve(message.result as never);
@@ -262,7 +263,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
   }
 
   previous?.close(reason);
-  console.log(`[SandboxWS] disconnect spaceId=${spaceId} reason=${reason}`);
+  logger.info(`[SandboxWS] disconnect spaceId=${spaceId} reason=${reason}`);
   callHookSafely(spaceId, "onDisconnected", () => registration.hooks?.onDisconnected?.({ spaceId, reason }));
 }
 
@@ -320,7 +321,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
     };
 
     socket.on("open", () => {
-      console.log(`[SandboxWS] Connected ${registration.spaceId} to ${registration.wsUrl}`);
+      logger.info(`[SandboxWS] Connected ${registration.spaceId} to ${registration.wsUrl}`);
     });
 
     socket.on("message", (data: RawData) => {
@@ -339,12 +340,12 @@ async function connectOnce(registration: SandboxClientRegistration) {
           if (setup) {
             if (setup.ran) {
               if (setup.exitCode === 0 && !setup.error) {
-                console.log(`[SandboxWS] setup.sh completed ok spaceId=${registration.spaceId} duration=${setup.duration}`);
+                logger.debug(`[SandboxWS] setup.sh completed ok spaceId=${registration.spaceId} duration=${setup.duration}`);
               } else {
                 console.warn(`[SandboxWS] setup.sh failed spaceId=${registration.spaceId} exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
               }
             } else {
-              console.log(`[SandboxWS] setup.sh not found, skipped spaceId=${registration.spaceId}`);
+              logger.debug(`[SandboxWS] setup.sh not found, skipped spaceId=${registration.spaceId}`);
             }
           }
           callHookSafely(registration.spaceId, "onHeartbeat", () => registration.hooks?.onHeartbeat?.(message));
@@ -382,7 +383,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
                 : `setup=failed(exitCode=${heartbeat.metadata.setup.exitCode}, duration=${heartbeat.metadata.setup.duration})`
               : "setup=skipped"
             : "setup=unknown";
-          console.log(`[SandboxWS] attached spaceId=${registration.spaceId} identity=${message.identity} connectionId=${message.connectionId.slice(0, 8)} status=${heartbeat.status} ${setupSummary}`);
+          logger.info(`[SandboxWS] attached spaceId=${registration.spaceId} identity=${message.identity} connectionId=${message.connectionId.slice(0, 8)} status=${heartbeat.status} ${setupSummary}`);
           return;
         }
 
@@ -429,9 +430,9 @@ async function connectOnce(registration: SandboxClientRegistration) {
         return;
       }
       if (isActive) {
-        console.log(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reasonStr}`);
+        logger.debug(`[SandboxWS] closed spaceId=${registration.spaceId} reason=${reasonStr}`);
       } else {
-        console.log(`[SandboxWS] stale connection closed spaceId=${registration.spaceId} reason=${reasonStr}`);
+        logger.debug(`[SandboxWS] stale connection closed spaceId=${registration.spaceId} reason=${reasonStr}`);
       }
       finishResolve();
     });

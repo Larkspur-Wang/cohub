@@ -4,6 +4,7 @@ import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession, interruptSessionTurn } from "./api.js";
 import { sendOutput } from "./redis.js";
+import { logger } from "./logger.js";
 import { getAgentTracer } from "@cohub/tracing/agent";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
 import {
@@ -88,6 +89,7 @@ export type SessionHandle = {
     preferredDisplayMode: "full" | "compact" | "minimal";
     /** Snapshot of the content sent in the last stream_update, used for delta computation. */
     lastSent?: ContentBlock[];
+    dirty?: boolean;
     patchSeq?: number;
     pendingFlush?: boolean;
     pendingBoundary?: boolean;
@@ -170,6 +172,10 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   }
 
   const flush = async () => {
+    if (handle.streamState.dirty) {
+      ensureProjectedStreamContent(handle);
+    }
+
     const full = handle.streamState.content;
     const last = handle.streamState.lastSent ?? [];
     const delta = computeDelta(full, last);
@@ -191,14 +197,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     handle.streamState.patchSeq = seq;
 
     const span = trace.getActiveSpan();
-    span?.addEvent("agent.output.publish", {
-      "cohub.space_id": handle.spaceId,
-      "cohub.session_id": handle.sessionId,
-      "agent.input_message_id": sourceMessageId,
-      "agent.output.delta_block_count": delta.length,
-      ...(sourceMessageId ? { "agent.anchor_user_message_id": sourceMessageId } : {}),
-      ...getSessionTraceAttributes(handle),
-    });
 
     try {
       await sendOutput({
@@ -270,6 +268,12 @@ function buildStreamMessageId(handle: SessionHandle, ordinal: number) {
   return `session:${handle.sessionId}:assistant:${ordinal}:${handle.currentUserMessageId ?? "unknown"}`;
 }
 
+function ensureProjectedStreamContent(handle: SessionHandle) {
+  if (!handle.streamState.dirty) return;
+  handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
+  handle.streamState.dirty = false;
+}
+
 function resetStreamState(handle: SessionHandle) {
   handle.streamState = {
     assistantState: createAssistantStreamState(),
@@ -279,6 +283,7 @@ function resetStreamState(handle: SessionHandle) {
     patchSeq: 0,
     pendingFlush: false,
     pendingBoundary: false,
+    dirty: false,
     flushPromise: null,
     flushTimer: null,
   };
@@ -301,21 +306,47 @@ function getStreamIndex(block: ContentBlock): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function buildBlockIdentity(block: ContentBlock): string {
+function buildBlockIdentity(block: ContentBlock, fallbackIndex: number): string {
   if (block.type === "tool_use") return `tool_use:${block.id}`;
   if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
   const streamIndex = getStreamIndex(block);
-  if (streamIndex != null) return `stream:${streamIndex}`;
-  return `${block.type}:${JSON.stringify(block)}`;
+  return `${block.type}:${streamIndex ?? fallbackIndex}`;
+}
+
+function shallowRecordEqual(a: Record<string, unknown> | undefined, b: Record<string, unknown> | undefined) {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.hasOwn(b, key)) return false;
+    const av = a[key];
+    const bv = b[key];
+    if (av === bv) continue;
+    if (Array.isArray(av) || Array.isArray(bv)) return false;
+    if (av && bv && typeof av === "object" && typeof bv === "object") return false;
+    return false;
+  }
+  return true;
+}
+
+function contentEqual(a: unknown, b: unknown) {
+  if (a === b) return true;
+  if (typeof a === "string" || typeof b === "string") return a === b;
+  // Tool results are usually strings. Keep rare structured results correct via a fallback.
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Compute the minimal delta between the current full content and the last-sent snapshot. */
 function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[] {
   const delta: ContentBlock[] = [];
-  const lastByIdentity = new Map(last.map((block) => [buildBlockIdentity(block), block]));
+  const lastByIdentity = new Map(last.map((block, index) => [buildBlockIdentity(block, index), block]));
 
-  for (const block of full) {
-    const prev = lastByIdentity.get(buildBlockIdentity(block));
+  for (let index = 0; index < full.length; index += 1) {
+    const block = full[index];
+    if (!block) continue;
+    const prev = lastByIdentity.get(buildBlockIdentity(block, index));
 
     if (block.type === "text") {
       const prevText = prev?.type === "text" ? prev.text : null;
@@ -350,8 +381,8 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
       if (
         !prev ||
         prev.type !== "tool_use" ||
-        JSON.stringify(prev._meta) !== JSON.stringify(block._meta) ||
-        JSON.stringify(prev.input) !== JSON.stringify(block.input) ||
+        !shallowRecordEqual(prev._meta, block._meta) ||
+        !contentEqual(prev.input, block.input) ||
         prev.name !== block.name
       ) {
         delta.push(block);
@@ -360,7 +391,7 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
       if (
         !prev ||
         prev.type !== "tool_result" ||
-        JSON.stringify(prev.content) !== JSON.stringify(block.content) ||
+        !contentEqual(prev.content, block.content) ||
         prev.is_error !== block.is_error
       ) {
         delta.push(block);
@@ -432,7 +463,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           patchSeq: 0,
         };
       }
-      console.log(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
+      logger.debug(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.message_start", {
         "message.role": typeof message.role === "string" ? message.role : undefined,
       });
@@ -475,7 +506,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "agent_start") {
-      console.log(`[Session] agent:start sessionId=${handle.sessionId}`);
+      logger.debug(`[Session] agent:start sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.agent_start");
     }
 
@@ -484,7 +515,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         handle.streamState.assistantState,
         event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
       );
-      handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
+      handle.streamState.dirty = true;
       scheduleProviderRenderUpdate(handle, "message_update");
     }
 
@@ -530,7 +561,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "tool_execution_start") {
-      console.log(`[Session] tool:start tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)}`);
+      logger.debug(`[Session] tool:start tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)}`);
       addLifecycleEvent("session.tool_execution_start", {
         "tool.name": event.toolName,
         "agent.tool_call_id": event.toolCallId,
@@ -540,7 +571,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         toolCallId: event.toolCallId,
         summary: summarizeToolArgs(event.toolName, event.args),
       });
-      handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
+      handle.streamState.dirty = true;
       flushProviderRenderUpdate(handle, "tool_execution_start");
     }
 
@@ -551,13 +582,13 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           toolCallId: event.toolCallId,
           content: resultContent,
         });
-        handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
+        handle.streamState.dirty = true;
         scheduleProviderRenderUpdate(handle, "tool_execution_update");
       }
     }
 
     if (event.type === "tool_execution_end") {
-      console.log(`[Session] tool:end tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)} error=${event.isError}`);
+      logger.debug(`[Session] tool:end tool=${event.toolName} toolCallId=${event.toolCallId.slice(0, 8)} error=${event.isError}`);
       addLifecycleEvent("session.tool_execution_end", {
         "tool.name": event.toolName,
         "agent.tool_call_id": event.toolCallId,
@@ -569,13 +600,13 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         content: resultContent || JSON.stringify(event.result ?? null),
         isError: event.isError,
       });
-      handle.streamState.content = projectAssistantStreamState(handle.streamState.assistantState);
+      handle.streamState.dirty = true;
       flushProviderRenderUpdate(handle, "tool_execution_end");
     }
 
     if (event.type === "turn_end" && (handle.activeAssistantContext?.userMessageId || handle.currentUserMessageId)) {
       const toolCount = (event as unknown as { toolResults?: unknown[] }).toolResults?.length ?? 0;
-      console.log(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
+      logger.debug(`[Session] turn:end toolResults=${toolCount} sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.turn_end", {
         "agent.tool_count": toolCount,
       });
@@ -592,6 +623,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         return;
       }
 
+      ensureProjectedStreamContent(handle);
       const enrichedMessage = {
         ...rawMessage,
         content: resolvePersistedAssistantContent(handle, rawMessage),
@@ -633,7 +665,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
     }
 
     if (event.type === "agent_end") {
-      console.log(`[Session] agent:end sessionId=${handle.sessionId}`);
+      logger.debug(`[Session] agent:end sessionId=${handle.sessionId}`);
       addLifecycleEvent("session.agent_end");
       if (handle.session.isRetrying) {
         return;
@@ -677,7 +709,7 @@ export async function loadOrCreateSessionHandle(input: {
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
   const existing = input.sessionHandles.get(sessionKey);
   if (existing) {
-    console.log(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
+    logger.debug(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
     return existing;
   }
 
@@ -706,7 +738,7 @@ export async function loadOrCreateSessionHandle(input: {
 
   let sessionManager: SessionManager;
   if (await pathExists(existingSessionFile)) {
-    console.log(`[Session] restore sessionId=${input.sessionId} spaceId=${input.spaceId}`);
+    logger.debug(`[Session] restore sessionId=${input.sessionId} spaceId=${input.spaceId}`);
     sessionManager = await SessionManager.open(existingSessionFile, spaceSessionsDir);
   } else {
     const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
@@ -767,6 +799,7 @@ export async function loadOrCreateSessionHandle(input: {
       patchSeq: 0,
       pendingFlush: false,
       pendingBoundary: false,
+      dirty: false,
       flushPromise: null,
       flushTimer: null,
     },
@@ -774,6 +807,6 @@ export async function loadOrCreateSessionHandle(input: {
 
   subscribeSessionEvents(handle);
   input.sessionHandles.set(sessionKey, handle);
-  console.log(`[Session] ready sessionId=${input.sessionId} spaceId=${input.spaceId}`);
+  logger.debug(`[Session] ready sessionId=${input.sessionId} spaceId=${input.spaceId}`);
   return handle;
 }

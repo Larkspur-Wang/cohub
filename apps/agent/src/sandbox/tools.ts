@@ -49,6 +49,7 @@ import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, waitForSandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
 import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
+import { logger } from "../logger.js";
 
 function getCurrentTraceContext() {
   const ctx = getCurrentToolExecutionContext();
@@ -226,7 +227,7 @@ function createRemoteReadOperations(): ReadOperations {
       }, async () => {
         const connection = await getCurrentConnection();
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-        console.log(`[Tool:read] path=${path}`);
+        logger.debug(`[Tool:read] path=${path}`);
         // Use binary mode so sandbox detects MIME type and returns base64 for binary files.
         const result = await tracedRpc(connection, "fs.read", { path, binary: true });
         if (result.contentBase64) {
@@ -269,7 +270,7 @@ function createRemoteWriteOperations(): WriteOperations {
         ...getCurrentTraceContext(),
       }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-        console.log(`[Tool:write] path=${path} bytes=${content.length}`);
+        logger.debug(`[Tool:write] path=${path} bytes=${content.length}`);
         const connection = await getCurrentConnection();
         await tracedRpc(connection, "fs.write", { path, content });
       }));
@@ -335,7 +336,7 @@ function createRemoteBashOperations(): BashOperations {
                 ...(sessionExecutionAuth?.actorUserId ? { COHUB_USER_UUID: sessionExecutionAuth.actorUserId } : {}),
                 ...(sessionExecutionAuth?.executionToken ? { COHUB_EXECUTION_TOKEN: sessionExecutionAuth.executionToken } : {}),
               };
-              console.log(`[Tool:bash] exec cmd="${cmdSummary}" cwd=${sandboxCwd}`);
+              logger.debug(`[Tool:bash] exec summary="${cmdSummary}" cwd=${sandboxCwd}`);
 
               const cleanupAbort = () => {
                 signal?.removeEventListener("abort", onAbort);
@@ -383,7 +384,7 @@ function createRemoteBashOperations(): BashOperations {
 
                     if (event.type === "exit") {
                       cleanupAbort();
-                      console.log(`[Tool:bash] exit code=${event.exitCode} cmd="${cmdSummary}"`);
+                      logger.debug(`[Tool:bash] exit code=${event.exitCode} summary="${cmdSummary}"`);
                       finish(() => resolve({ exitCode: event.exitCode ?? null }));
                     }
                   },
@@ -430,7 +431,7 @@ function createRemoteLsOperations(): LsOperations {
         ...getCurrentTraceContext(),
       }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
-        console.log(`[Tool:ls] path=${path}`);
+        logger.debug(`[Tool:ls] path=${path}`);
         const connection = await getCurrentConnection();
         const result = await tracedRpc(connection, "fs.ls", { path });
         return result.entries.map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
@@ -462,7 +463,7 @@ function createRemoteFindOperations(): FindOperations {
         ...getCurrentTraceContext(),
       }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(cwd);
-        console.log(`[Tool:find] pattern=${pattern} path=${path}`);
+        logger.debug(`[Tool:find] pattern=${pattern} path=${path}`);
 
         // Agent owns tool semantics: match pi-coding-agent fd behavior.
         // In --full-path mode fd matches against the absolute candidate path,
@@ -522,7 +523,7 @@ function createRemoteGrepTool() {
     const toolCtx = getCurrentToolExecutionContext();
     incrementToolCallCount(toolCtx?.metrics);
     const toolCallId = _toolCallId || randomUUID();
-    console.log(`[Tool:grep] pattern=${grepInput.pattern} path=${grepInput.path}`);
+    logger.debug(`[Tool:grep] pattern=${grepInput.pattern} path=${grepInput.path}`);
 
     return runWithToolExecutionContext({
       spaceId: toolCtx?.spaceId ?? spaceId,

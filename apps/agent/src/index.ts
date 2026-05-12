@@ -51,6 +51,7 @@ import {
 } from "./runtime/paths.js";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
+import { logger } from "./logger.js";
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 
@@ -149,7 +150,7 @@ async function disposeSessionHandle(handle: SessionHandle, reason: string) {
 function scheduleSessionIdleEviction(handle: SessionHandle) {
   handle.lastActiveAt = Date.now();
   if (handle.idleTimer) clearTimeout(handle.idleTimer);
-  console.log(`[Session] idle:scheduled sessionId=${handle.sessionId} in=${SESSION_IDLE_EVICTION_MS}ms`);
+  logger.info(`[Session] idle:scheduled sessionId=${handle.sessionId} in=${SESSION_IDLE_EVICTION_MS}ms`);
   handle.idleTimer = setTimeout(() => {
     void disposeSessionHandle(handle, "idle eviction");
   }, SESSION_IDLE_EVICTION_MS);
@@ -345,11 +346,11 @@ async function enqueueStreamingSteerAndWait(input: {
     if (inFlightDrain) {
       await inFlightDrain;
     }
-    console.log(`[Agent] steer:fallback-to-prompt sessionId=${input.sessionId}`);
+    logger.debug(`[Agent] steer:fallback-to-prompt sessionId=${input.sessionId}`);
     await input.handle.session.prompt(input.text, {
       images: input.images,
     });
-    console.log(`[Agent] ack input sessionId=${input.sessionId}`);
+    logger.debug(`[Agent] ack input sessionId=${input.sessionId}`);
     await input.ack();
     input.handle.lastActiveAt = Date.now();
     scheduleSessionIdleEviction(input.handle);
@@ -369,9 +370,9 @@ async function enqueueStreamingSteerAndWait(input: {
   if (!input.handle.steerDrainPromise) {
     input.handle.steerDrainPromise = (async () => {
       try {
-        console.log(`[Agent] steer:drain:start sessionId=${input.handle.sessionId}`);
+        logger.debug(`[Agent] steer:drain:start sessionId=${input.handle.sessionId}`);
         await input.handle.session.waitForIdle();
-        console.log(`[Agent] steer:drain:end sessionId=${input.handle.sessionId}`);
+        logger.debug(`[Agent] steer:drain:end sessionId=${input.handle.sessionId}`);
         while (input.handle.pendingSteerCompletions.length > 0) {
           const completions = input.handle.pendingSteerCompletions.splice(
             0,
@@ -416,9 +417,9 @@ async function waitForCurrentStreamingInput(handle: SessionHandle) {
   }
   handle.steerDrainPromise = (async () => {
     try {
-      console.log(`[Agent] typed-input:drain:start sessionId=${handle.sessionId}`);
+      logger.debug(`[Agent] typed-input:drain:start sessionId=${handle.sessionId}`);
       await handle.session.waitForIdle();
-      console.log(`[Agent] typed-input:drain:end sessionId=${handle.sessionId}`);
+      logger.debug(`[Agent] typed-input:drain:end sessionId=${handle.sessionId}`);
     } finally {
       handle.steerDrainPromise = null;
       handle.lastActiveAt = Date.now();
@@ -685,12 +686,12 @@ async function getModelRegistryForUser(userId: string | null | undefined) {
 }
 
 async function main() {
-  console.log(`[Agent] Starting instance: ${env.AGENT_INSTANCE_ID}`);
-  console.log(`[Agent] Workspace root: ${env.WORKSPACE_ROOT}`);
-  console.log(`[Agent] Sessions root: ${env.SESSIONS_DIR}`);
-  console.log(`[Agent] Platform config root: ${env.PLATFORM_CONFIG_ROOT}`);
-  console.log(`[Agent] Platform config dir: ${getAgentPlatformConfigPath()}`);
-  console.log("[Agent] Build features:", {
+  logger.info(`[Agent] Starting instance: ${env.AGENT_INSTANCE_ID}`);
+  logger.info(`[Agent] Workspace root: ${env.WORKSPACE_ROOT}`);
+  logger.info(`[Agent] Sessions root: ${env.SESSIONS_DIR}`);
+  logger.info(`[Agent] Platform config root: ${env.PLATFORM_CONFIG_ROOT}`);
+  logger.info(`[Agent] Platform config dir: ${getAgentPlatformConfigPath()}`);
+  logger.info("[Agent] Build features:", {
     env: env.ENV,
     agentInstanceId: env.AGENT_INSTANCE_ID,
     localSandboxSpaceId: LOCAL_SANDBOX_SPACE_ID,
@@ -710,12 +711,17 @@ async function main() {
 
   const tools = createSandboxCodingTools();
 
-  console.log("[Agent] Listening for owner-routed input.");
+  logger.info("[Agent] Listening for owner-routed input.");
 
   const agentTracer = getAgentTracer();
 
   await listenForInput((inputEntry, _rawMessage, ack, reject, rawParsed) => {
-    console.log("[Agent] Received input from Redis:", inputEntry);
+    logger.debug("[Agent] Received input from Redis:", {
+      action: inputEntry.action,
+      spaceId: inputEntry.spaceId,
+      sessionId: inputEntry.sessionId ?? null,
+      contentBlocks: Array.isArray((inputEntry as { content?: unknown }).content) ? (inputEntry as { content: unknown[] }).content.length : undefined,
+    });
 
     // Extract trace context from the message (injected by API)
     const parentCtx = extractTrace(rawParsed);
@@ -813,7 +819,7 @@ async function main() {
               if (!(currentModel.provider === requestedProvider && currentModel.id === requestedModel)) {
                 const targetModel = handle.session.modelRegistry.find(requestedProvider, requestedModel);
                 if (targetModel) {
-                  console.log(
+                  logger.debug(
                     `[Agent] Switching model from ${currentModel.provider}/${currentModel.id} to ${requestedProvider}/${requestedModel}`,
                   );
                   await handle.session.setModel(targetModel);
@@ -856,7 +862,7 @@ async function main() {
                   executionToken,
                   metrics: turnMetrics,
                 }, async () => {
-                  console.log(`[Agent] shell-command:start sessionId=${sessionId}`);
+                  logger.debug(`[Agent] shell-command:start sessionId=${sessionId}`);
                   await runDirectShellCommandTurn({
                     handle,
                     tools,
@@ -874,7 +880,7 @@ async function main() {
                     turnMetrics,
                     ack,
                   });
-                  console.log(`[Agent] shell-command:end sessionId=${sessionId}`);
+                  logger.debug(`[Agent] shell-command:end sessionId=${sessionId}`);
                 });
                 turnSpan.setAttribute("agent.llm_round_count", 0);
                 turnSpan.setAttribute("agent.tool_count", turnMetrics.toolCallCount);
@@ -916,7 +922,7 @@ async function main() {
                 handle.currentLlmRound = 0;
               }
               if (handle.session.isStreaming) {
-                console.log(
+                logger.debug(
                   `[Agent] Session ${sessionId} is streaming, using steer for new message`,
                 );
                 await runWithToolExecutionContext({
@@ -929,7 +935,7 @@ async function main() {
                   executionToken,
                   metrics: turnMetrics,
                 }, async () => {
-                  console.log(`[Agent] steer:start sessionId=${sessionId}`);
+                  logger.debug(`[Agent] steer:start sessionId=${sessionId}`);
                   await enqueueStreamingSteerAndWait({
                     handle,
                     sessionId,
@@ -938,10 +944,10 @@ async function main() {
                     ack,
                     reject,
                   });
-                  console.log(`[Agent] steer:end sessionId=${sessionId}`);
+                  logger.debug(`[Agent] steer:end sessionId=${sessionId}`);
                 });
               } else {
-                console.log(
+                logger.debug(
                   `[Agent] Session ${sessionId} is idle, using prompt for new message`,
                 );
                 await runWithToolExecutionContext({
@@ -954,11 +960,11 @@ async function main() {
                   executionToken,
                   metrics: turnMetrics,
                 }, async () => {
-                  console.log(`[Agent] prompt:start sessionId=${sessionId}`);
+                  logger.debug(`[Agent] prompt:start sessionId=${sessionId}`);
                   await handle.session.prompt(text, {
                     images,
                   });
-                  console.log(`[Agent] prompt:end sessionId=${sessionId}`);
+                  logger.debug(`[Agent] prompt:end sessionId=${sessionId}`);
                 });
               }
 
@@ -969,7 +975,7 @@ async function main() {
             });
 
             if (mode === "prompt") {
-              console.log(`[Agent] ack input sessionId=${sessionId}`);
+              logger.debug(`[Agent] ack input sessionId=${sessionId}`);
               await ack();
               handle.lastActiveAt = Date.now();
               scheduleSessionIdleEviction(handle);
@@ -1072,12 +1078,12 @@ process.on("uncaughtExceptionMonitor", (error, origin) => {
 });
 
 process.on("SIGTERM", () => {
-  console.log("[Agent] SIGTERM received. Shutting down.");
+  logger.info("[Agent] SIGTERM received. Shutting down.");
   void shutdown(0);
 });
 
 process.on("SIGINT", () => {
-  console.log("[Agent] SIGINT received. Shutting down.");
+  logger.info("[Agent] SIGINT received. Shutting down.");
   void shutdown(0);
 });
 

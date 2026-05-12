@@ -44,7 +44,8 @@ type ToolResultState = {
 };
 
 export type AssistantStreamState = {
-  blocks: StreamBlock[];
+  blocksByIndex: Map<number, StreamBlock>;
+  orderedIndexes: number[];
   toolMetaById: Map<string, ToolMeta>;
   toolResultsById: Map<string, ToolResultState>;
 };
@@ -75,23 +76,24 @@ type AssistantMessageEvent =
 
 export function createAssistantStreamState(): AssistantStreamState {
   return {
-    blocks: [],
+    blocksByIndex: new Map(),
+    orderedIndexes: [],
     toolMetaById: new Map(),
     toolResultsById: new Map(),
   };
 }
 
 function upsertBlock(state: AssistantStreamState, block: StreamBlock): AssistantStreamState {
-  const existingIndex = state.blocks.findIndex((b) => b.contentIndex === block.contentIndex);
-  const blocks = [...state.blocks];
-  if (existingIndex === -1) blocks.push(block);
-  else blocks[existingIndex] = block;
-  blocks.sort((a, b) => a.contentIndex - b.contentIndex);
-  return { ...state, blocks };
+  if (!state.blocksByIndex.has(block.contentIndex)) {
+    state.orderedIndexes.push(block.contentIndex);
+    state.orderedIndexes.sort((a, b) => a - b);
+  }
+  state.blocksByIndex.set(block.contentIndex, block);
+  return state;
 }
 
 function getBlock(state: AssistantStreamState, contentIndex: number): StreamBlock | undefined {
-  return state.blocks.find((b) => b.contentIndex === contentIndex);
+  return state.blocksByIndex.get(contentIndex);
 }
 
 function getThinkingSignature(partial: unknown, contentIndex: number): string | undefined {
@@ -217,13 +219,12 @@ export function applyToolExecutionStart(
   state: AssistantStreamState,
   input: { toolCallId: string; summary: string },
 ): AssistantStreamState {
-  const toolMetaById = new Map(state.toolMetaById);
-  toolMetaById.set(input.toolCallId, {
-    ...(toolMetaById.get(input.toolCallId) ?? {}),
+  state.toolMetaById.set(input.toolCallId, {
+    ...(state.toolMetaById.get(input.toolCallId) ?? {}),
     toolStatus: "running",
     summary: input.summary,
   });
-  return { ...state, toolMetaById };
+  return state;
 }
 
 export function applyToolExecutionUpdate(
@@ -233,13 +234,12 @@ export function applyToolExecutionUpdate(
     content: string | ContentBlock[];
   },
 ): AssistantStreamState {
-  const toolMetaById = new Map(state.toolMetaById);
-  toolMetaById.set(input.toolCallId, {
-    ...(toolMetaById.get(input.toolCallId) ?? {}),
+  state.toolMetaById.set(input.toolCallId, {
+    ...(state.toolMetaById.get(input.toolCallId) ?? {}),
     toolStatus: "running",
     partialResult: input.content,
   });
-  return { ...state, toolMetaById };
+  return state;
 }
 
 export function applyToolExecutionEnd(
@@ -250,22 +250,20 @@ export function applyToolExecutionEnd(
     isError: boolean;
   },
 ): AssistantStreamState {
-  const toolMetaById = new Map(state.toolMetaById);
-  const { partialResult: _partialResult, ...previousMeta } = toolMetaById.get(input.toolCallId) ?? {};
-  toolMetaById.set(input.toolCallId, {
+  const { partialResult: _partialResult, ...previousMeta } = state.toolMetaById.get(input.toolCallId) ?? {};
+  state.toolMetaById.set(input.toolCallId, {
     ...previousMeta,
     toolStatus: input.isError ? "failed" : "done",
   });
 
-  const toolResultsById = new Map(state.toolResultsById);
-  toolResultsById.set(input.toolCallId, {
+  state.toolResultsById.set(input.toolCallId, {
     tool_use_id: input.toolCallId,
     content: input.content,
     is_error: input.isError,
     _meta: { toolStatus: input.isError ? "failed" : "done" },
   });
 
-  return { ...state, toolMetaById, toolResultsById };
+  return state;
 }
 
 function withStreamIndexMeta(
@@ -378,10 +376,11 @@ export function mergeFinalAssistantContentWithStreamOrder(
 }
 
 export function projectAssistantStreamState(state: AssistantStreamState): ContentBlock[] {
-  const orderedBlocks = [...state.blocks].sort((a, b) => a.contentIndex - b.contentIndex);
   const content: ContentBlock[] = [];
 
-  for (const block of orderedBlocks) {
+  for (const contentIndex of state.orderedIndexes) {
+    const block = state.blocksByIndex.get(contentIndex);
+    if (!block) continue;
     if (block.kind === "thinking") {
       content.push({
         type: "thinking",

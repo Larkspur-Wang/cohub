@@ -125,9 +125,8 @@ const diffContentBlocksToOps = (blockBasePath: string, prev: ContentBlock | unde
 };
 
 const resolveFullBlockFromSnapshot = (snapshotContent: ContentBlock[] | undefined, streamIndex: number, deltaBlock: ContentBlock): ContentBlock => {
-  if (!snapshotContent?.length) return structuredClone(deltaBlock);
-  const found = snapshotContent.find((b) => getStreamIndex(b, -1) === streamIndex && blockIdentityCompatible(b, deltaBlock));
-  return structuredClone(found ?? deltaBlock);
+  if (!snapshotContent?.length) return deltaBlock;
+  return snapshotContent.find((b) => getStreamIndex(b, -1) === streamIndex && blockIdentityCompatible(b, deltaBlock)) ?? deltaBlock;
 };
 
 const compactAppendPatchOps = (event: SessionStreamEvent, ops: RealtimePatchOperation[]) => {
