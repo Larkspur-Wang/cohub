@@ -24,6 +24,8 @@ const config = {
 			"@neta-art/cohub-protocol/ports": `${protocolDir}/ports/index.ts`,
 			"@neta-art/cohub-protocol/realtime": `${protocolDir}/realtime/index.ts`,
 			"@neta-art/cohub-protocol/task": `${protocolDir}/task/index.ts`,
+			"@neta-art/cohub-protocol/generation": `${protocolDir}/generation/index.ts`,
+			"@neta-art/cohub-protocol": `${protocolDir}/index.ts`,
 			// sdk subpaths
 			"@neta-art/cohub/http": `${sdkDir}/http.ts`,
 			"@neta-art/cohub/websocket": `${sdkDir}/websocket.ts`,
