@@ -33,6 +33,18 @@ import {
 } from "../runtime/paths.js";
 import { getCurrentSessionExecutionAuth } from "../runtime/session-execution-auth.js";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
+import {
+  createCrossSpaceFindTool,
+  createCrossSpaceGrepTool,
+  createCrossSpaceLsTool,
+  createCrossSpaceReadTool,
+} from "../runtime/tools/cross-space-query-tools.js";
+import {
+  createHybridFindTool,
+  createHybridGrepTool,
+  createHybridLsTool,
+  createHybridReadTool,
+} from "../runtime/tools/hybrid-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, waitForSandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
 import { recoverSpaceSandbox } from "../api.js";
@@ -760,16 +772,28 @@ async function tracedRpcAbortProcess(processId: string) {
   }
 }
 
+function getCurrentActorUserId() {
+  const ctx = getCurrentToolExecutionContext();
+  if (ctx?.actorUserId) return ctx.actorUserId;
+  if (ctx?.sessionId) return getCurrentSessionExecutionAuth(ctx.sessionId)?.actorUserId ?? null;
+  return null;
+}
+
 export function createSandboxCodingTools() {
   const toolCwd = SANDBOX_WORKSPACE_PATH;
 
+  const sandboxReadTool = createReadTool(toolCwd, { operations: createRemoteReadOperations() });
+  const sandboxLsTool = createLsTool(toolCwd, { operations: createRemoteLsOperations() });
+  const sandboxFindTool = createFindTool(toolCwd, { operations: createRemoteFindOperations() });
+  const sandboxGrepTool = createRemoteGrepTool();
+
   return [
-    createReadTool(toolCwd, { operations: createRemoteReadOperations() }),
+    createHybridReadTool(sandboxReadTool, createCrossSpaceReadTool(getCurrentActorUserId)),
     createBashTool(toolCwd, { operations: createRemoteBashOperations() }),
     createEditTool(toolCwd, { operations: createRemoteEditOperations() }),
     createWriteTool(toolCwd, { operations: createRemoteWriteOperations() }),
-    createLsTool(toolCwd, { operations: createRemoteLsOperations() }),
-    createFindTool(toolCwd, { operations: createRemoteFindOperations() }),
-    createRemoteGrepTool(),
+    createHybridLsTool(sandboxLsTool, createCrossSpaceLsTool(getCurrentActorUserId)),
+    createHybridFindTool(sandboxFindTool, createCrossSpaceFindTool(getCurrentActorUserId)),
+    createHybridGrepTool(sandboxGrepTool, createCrossSpaceGrepTool(getCurrentActorUserId)),
   ];
 }

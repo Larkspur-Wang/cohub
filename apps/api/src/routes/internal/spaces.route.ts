@@ -65,6 +65,45 @@ function sanitizeSandboxMeta(input: Record<string, unknown> | null | undefined) 
 
 const router = new Hono();
 
+function getBootstrapStatus(meta: unknown) {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const bootstrap = (meta as Record<string, unknown>).bootstrap;
+  if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) return null;
+  const status = (bootstrap as Record<string, unknown>).status;
+  return typeof status === "string" ? status : null;
+}
+
+// POST /internal/spaces/:id/query-access/check
+router.post("/:id/query-access/check", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) {
+    return c.json({ ok: true, exists: false, allowed: false, workspaceReady: false, bootstrapStatus: null });
+  }
+
+  const body = await c.req.json<{ userId?: string | null }>().catch(() => null);
+  const userId = body?.userId?.trim() || null;
+  const space = await getSpaceById(spaceId);
+  if (!space) {
+    return c.json({ ok: true, exists: false, allowed: false, workspaceReady: false, bootstrapStatus: null });
+  }
+
+  const bootstrapStatus = getBootstrapStatus(space.meta);
+  const allowed = userId && requireValidId(userId)
+    ? await hasPermission({ uuid: userId }, "file.view", { spaceId })
+    : false;
+
+  return c.json({
+    ok: true,
+    exists: true,
+    allowed,
+    workspaceReady: bootstrapStatus === null || bootstrapStatus === "ready",
+    bootstrapStatus,
+  });
+});
+
 // GET /internal/spaces/:id
 router.get("/:id", async (c) => {
   const forbidden = ensureInternalRequest(c);

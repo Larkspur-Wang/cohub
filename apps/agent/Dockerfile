@@ -45,6 +45,15 @@ ENV WORKSPACE_ROOT=/space-storage
 ENV SESSIONS_DIR=/sessions
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean \
+  && curl -fsSL https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-unknown-linux-gnu.tar.gz \
+    | tar xz --wildcards -C /usr/local/bin --strip-components=1 '*/fd' \
+  && curl -fsSL https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz \
+    | tar xz --wildcards -C /usr/local/bin --strip-components=1 '*/rg' \
+  && chmod +x /usr/local/bin/fd /usr/local/bin/rg
+
 COPY --from=builder /prod/agent ./
 RUN mkdir -p "$WORKSPACE_ROOT" "$SESSIONS_DIR" && chown -R node:node "$WORKSPACE_ROOT" "$SESSIONS_DIR" /app
 
