@@ -1,20 +1,15 @@
-import {
-	renderStreamingMarkdownLive,
-	renderStreamingMarkdownStable,
-} from "$lib/markdown";
+import { renderStreamingMarkdownBlocks } from "$lib/markdown";
 
 type StreamingMarkdownSnapshot = {
-	stableSource: string;
-	liveSource: string;
-	stableHtml: string;
-	liveHtml: string;
+	html: string;
+	source: string;
 };
 
 type StreamingMarkdownSubscriber = (
 	snapshot: StreamingMarkdownSnapshot,
 ) => void;
 
-const STREAM_COMMIT_INTERVAL_MS = 120;
+const STREAM_COMMIT_INTERVAL_MS = 80;
 const STREAM_FRAME_MS = 24;
 const STREAM_MIN_STEP = 2;
 const STREAM_MAX_STEP = 48;
@@ -44,7 +39,7 @@ function advanceByWord(source: string, from: number, maxStep: number) {
 }
 
 function createEmptySnapshot(): StreamingMarkdownSnapshot {
-	return { stableSource: "", liveSource: "", stableHtml: "", liveHtml: "" };
+	return { html: "", source: "" };
 }
 
 export class StreamingMarkdownController {
@@ -57,8 +52,6 @@ export class StreamingMarkdownController {
 	#commitRaf = 0;
 	#renderSeq = 0;
 	#lastCommitAt = 0;
-	#lastStableSource = "";
-	#lastStableHtml = "";
 	#disposed = false;
 
 	subscribe(subscriber: StreamingMarkdownSubscriber) {
@@ -74,8 +67,6 @@ export class StreamingMarkdownController {
 		this.#renderSeq += 1;
 		if (!nextSource.startsWith(this.#displayedSource)) {
 			this.#displayedSource = "";
-			this.#lastStableSource = "";
-			this.#lastStableHtml = "";
 			this.#publish(createEmptySnapshot());
 		}
 		this.#targetSource = nextSource;
@@ -168,47 +159,19 @@ export class StreamingMarkdownController {
 		const source = this.#displayedSource;
 		const seq = ++this.#renderSeq;
 		if (!source.trim()) {
-			this.#lastStableSource = "";
-			this.#lastStableHtml = "";
 			this.#publish(createEmptySnapshot());
 			return;
 		}
 
 		try {
-			const result = await renderStreamingMarkdownStable(source);
+			const html = await renderStreamingMarkdownBlocks(source);
 			if (
 				this.#disposed ||
 				seq !== this.#renderSeq ||
 				source !== this.#displayedSource
 			)
 				return;
-
-			const canPromoteStable =
-				result.stableSource.length >= this.#lastStableSource.length &&
-				result.stableSource.startsWith(this.#lastStableSource);
-			if (canPromoteStable && result.stableSource !== this.#lastStableSource) {
-				this.#lastStableSource = result.stableSource;
-				this.#lastStableHtml = result.stableHtml;
-			}
-
-			const liveSource = source.startsWith(this.#lastStableSource)
-				? source.slice(this.#lastStableSource.length)
-				: result.tailSource;
-			const liveHtml = liveSource.trim()
-				? await renderStreamingMarkdownLive(liveSource)
-				: "";
-			if (
-				this.#disposed ||
-				seq !== this.#renderSeq ||
-				source !== this.#displayedSource
-			)
-				return;
-			this.#publish({
-				stableSource: this.#lastStableSource,
-				liveSource,
-				stableHtml: this.#lastStableHtml,
-				liveHtml,
-			});
+			this.#publish({ html, source });
 		} catch {
 			if (
 				this.#disposed ||
@@ -216,13 +179,7 @@ export class StreamingMarkdownController {
 				source !== this.#displayedSource
 			)
 				return;
-			const liveSource = source.slice(this.#lastStableSource.length);
-			this.#publish({
-				stableSource: this.#lastStableSource,
-				liveSource,
-				stableHtml: this.#lastStableHtml,
-				liveHtml: "",
-			});
+			this.#publish({ html: "", source });
 		}
 	}
 }

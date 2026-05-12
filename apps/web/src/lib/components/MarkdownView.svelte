@@ -26,8 +26,7 @@ const {
 	onRendered,
 }: Props = $props();
 
-let stableHtml = $state("");
-let liveHtml = $state("");
+let renderedHtml = $state("");
 let renderSeq = 0;
 let controller: StreamingMarkdownController | null = null;
 let unsubscribeController: (() => void) | null = null;
@@ -42,8 +41,7 @@ function ensureController() {
 	if (controller) return controller;
 	controller = new StreamingMarkdownController();
 	unsubscribeController = controller.subscribe((snapshot) => {
-		stableHtml = snapshot.stableHtml;
-		liveHtml = snapshot.liveHtml;
+		renderedHtml = snapshot.html;
 		requestAnimationFrame(() => untrack(() => onRendered?.()));
 	});
 	return controller;
@@ -62,8 +60,7 @@ function renderFullMarkdown(markdownSource: string) {
 	void renderMarkdown(markdownSource)
 		.then((html) => {
 			if (seq !== renderSeq) return;
-			stableHtml = html;
-			liveHtml = "";
+			renderedHtml = html;
 			requestAnimationFrame(() => {
 				if (seq === renderSeq) untrack(() => onRendered?.());
 			});
@@ -93,9 +90,10 @@ onDestroy(() => {
 });
 </script>
 
-<div class="streaming-markdown-flow" class:is-streaming={isStreaming && liveHtml.length > 0}>
-	<MarkdownSurface html={stableHtml} {variant} />
-	{#if isStreaming && liveHtml.length > 0}
-		<MarkdownSurface html={liveHtml} {variant} streamingLive />
-	{/if}
+<div
+	class="streaming-markdown-flow"
+	class:is-streaming={isStreaming}
+	data-variant={variant}
+>
+	<MarkdownSurface html={renderedHtml} {variant} streamingLive={isStreaming} />
 </div>

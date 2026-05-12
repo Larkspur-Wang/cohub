@@ -286,20 +286,6 @@ function hasUnclosedInlineMarkdown(source: string) {
 	return linkOpen > linkClose || parenOpen > parenClose;
 }
 
-function isLowRiskStreamingSentence(source: string, candidate: number) {
-	const lineStart = Math.max(
-		source.lastIndexOf("\n", Math.max(0, candidate - 1)) + 1,
-		0,
-	);
-	const line = source.slice(lineStart, candidate).trim();
-	if (!line) return false;
-	if (/^(#{1,6}|[-+*]|\d+[.)]|>|\|)\s?/.test(line)) return false;
-	if (/^[-:|\s]+$/.test(line) && line.includes("|")) return false;
-	if (/^\s*([`~]{3,})/.test(line)) return false;
-	if (hasUnclosedInlineMarkdown(line)) return false;
-	return true;
-}
-
 function findStreamingSafeIndex(source: string) {
 	const length = source.length;
 	if (length < 140) return 0;
@@ -310,39 +296,24 @@ function findStreamingSafeIndex(source: string) {
 	const maxStableIndex = Math.max(0, length - minTail);
 	const searchStart = Math.max(0, maxStableIndex - 1200);
 	const window = source.slice(searchStart, maxStableIndex);
-	const candidates: Array<{ index: number; kind: "block" | "sentence" }> = [];
+	const candidates: number[] = [];
 
-	// Block boundaries are always preferred: they don't reclassify the live tail.
+	// With live Markdown repaired by remend, the current unfinished block can stay
+	// in the live renderer. Promoting only at block boundaries avoids splitting a
+	// single paragraph into stable/live <p> nodes, which otherwise causes already
+	// streamed prose to rewrap and drift downward as the boundary moves.
 	for (const match of window.matchAll(/\n\s*\n/g)) {
-		candidates.push({
-			index: searchStart + match.index + match[0].length,
-			kind: "block",
-		});
+		candidates.push(searchStart + match.index + match[0].length);
 	}
 
-	// Sentence boundaries make Markdown appear earlier for ordinary prose, but are
-	// limited to low-risk lines so headings/lists/tables don't pop mid-stream.
-	for (const match of window.matchAll(/[。！？!?]\s+|[.!?](?:\s+|\n)/g)) {
-		candidates.push({
-			index: searchStart + match.index + match[0].length,
-			kind: "sentence",
-		});
-	}
-
-	candidates.sort((a, b) => b.index - a.index);
+	candidates.sort((a, b) => b - a);
 	for (const candidate of candidates) {
-		const stable = source.slice(0, candidate.index);
-		const tail = source.slice(candidate.index);
+		const stable = source.slice(0, candidate);
+		const tail = source.slice(candidate);
 		if (!stable.trim()) continue;
-		if (tail.length > (candidate.kind === "block" ? 620 : 360)) continue;
-		if (candidate.kind === "sentence" && tail.length < 96) continue;
-		if (
-			candidate.kind === "sentence" &&
-			!isLowRiskStreamingSentence(source, candidate.index)
-		)
-			continue;
+		if (tail.length > 900) continue;
 		if (hasUnclosedInlineMarkdown(stable.slice(-480))) continue;
-		return candidate.index;
+		return candidate;
 	}
 
 	return 0;
@@ -380,6 +351,32 @@ export const renderStreamingMarkdownLive = async (source: string) => {
 			highlight: false,
 		}),
 	);
+};
+
+export const renderStreamingMarkdownBlocks = async (source: string) => {
+	const streamingSource = source.trimStart();
+	if (!streamingSource.trim()) return "";
+
+	const blocks = splitMarkdownBlocks(streamingSource);
+	if (blocks.length === 0) return "";
+
+	const renderedBlocks = await Promise.all(
+		blocks.map((block, index) => {
+			const isLast = index === blocks.length - 1;
+			const shouldRepair = isLast && !block.closedFence;
+			const cacheKey = shouldRepair
+				? `stream-live-block:${block.text}`
+				: `stream-complete-block:${block.text}`;
+			return cacheMarkdownRender(cacheKey, async () =>
+				renderMarkdownBlock(
+					shouldRepair ? repairStreamingMarkdown(block.text) : block.text,
+					{ highlight: false },
+				),
+			);
+		}),
+	);
+
+	return renderedBlocks.filter(Boolean).join("\n\n");
 };
 
 export const renderStreamingMarkdownStable = async (source: string) => {

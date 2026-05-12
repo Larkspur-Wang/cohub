@@ -352,9 +352,13 @@ body.drawer-open {
 	min-width: 0;
 }
 
-.markdown-content[data-variant="document"] {
+.streaming-markdown-flow[data-variant="document"] {
 	height: 100%;
 	overflow: auto;
+	min-height: 0;
+}
+
+.markdown-content[data-variant="document"] {
 	max-width: 860px;
 	margin: 0 auto;
 	padding: 24px 28px;
@@ -615,10 +619,6 @@ body.drawer-open {
 	display: none;
 }
 
-.streaming-markdown-flow > .markdown-content + .markdown-content {
-	margin-top: 0.15em;
-}
-
 .streaming-live-markdown > :last-child::after {
 	content: "";
 	display: inline-block;
@@ -635,12 +635,6 @@ body.drawer-open {
 .streaming-live-markdown pre:last-child::after,
 .streaming-live-markdown table:last-child::after {
 	display: none;
-}
-
-.streaming-tail-surface {
-	white-space: pre-wrap;
-	word-break: break-word;
-	overflow-wrap: anywhere;
 }
 
 .streaming-words {
