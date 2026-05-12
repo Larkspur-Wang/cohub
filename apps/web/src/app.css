@@ -649,10 +649,9 @@ body.drawer-open {
 
 .streaming-word {
 	display: inline-block;
-	transform: translate3d(0, 0.18em, 0);
 	opacity: 0;
 	animation: streaming-word-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-	will-change: transform, opacity;
+	will-change: opacity;
 }
 
 .streaming-space {
@@ -679,7 +678,6 @@ body.drawer-open {
 
 @keyframes streaming-word-enter {
 	to {
-		transform: translate3d(0, 0, 0);
 		opacity: 1;
 	}
 }
