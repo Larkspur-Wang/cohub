@@ -1,9 +1,11 @@
 <script lang="ts">
 import Dialog from "$lib/components/Dialog.svelte";
 
+type ShortcutCombo = string[];
+
 type ShortcutItem = {
 	label: string;
-	keys: string[];
+	keys: ShortcutCombo[];
 };
 
 type ShortcutSection = {
@@ -25,38 +27,64 @@ const sections: ShortcutSection[] = [
 		title: "Global",
 		description: "Available across Cohub.",
 		items: [
-			{ label: "Search everywhere", keys: ["⌘ K", "Ctrl K"] },
-			{ label: "New chat", keys: ["⌘ O", "Ctrl O"] },
-			{ label: "Open help", keys: ["?"] },
+			{
+				label: "Search everywhere",
+				keys: [
+					["⌘", "K"],
+					["Ctrl", "K"],
+				],
+			},
+			{
+				label: "New chat",
+				keys: [
+					["⌘", "O"],
+					["Ctrl", "O"],
+				],
+			},
+			{ label: "Open help", keys: [["?"]] },
 		],
 	},
 	{
 		title: "Session page",
 		description: "Vim-style reading and turn navigation.",
 		items: [
-			{ label: "Focus composer", keys: ["i"] },
-			{ label: "Scroll down", keys: ["j"] },
-			{ label: "Scroll up", keys: ["k"] },
-			{ label: "Next turn", keys: ["Shift J"] },
-			{ label: "Previous turn", keys: ["Shift K"] },
-			{ label: "Top", keys: ["g", "g"] },
-			{ label: "Bottom", keys: ["G"] },
+			{ label: "Focus composer", keys: [["i"]] },
+			{ label: "Scroll down", keys: [["j"]] },
+			{ label: "Scroll up", keys: [["k"]] },
+			{ label: "Next turn", keys: [["Shift", "J"]] },
+			{ label: "Previous turn", keys: [["Shift", "K"]] },
+			{ label: "Top", keys: [["g", "g"]] },
+			{ label: "Bottom", keys: [["G"]] },
 		],
 	},
 	{
 		title: "Composer",
 		description: "When the message input is focused.",
 		items: [
-			{ label: "Send", keys: ["Enter"] },
-			{ label: "Force send", keys: ["⌘ ↵", "Ctrl ↵"] },
-			{ label: "New line", keys: ["Shift ↵"] },
-			{ label: "Blur", keys: ["Esc"] },
+			{ label: "Send", keys: [["Enter"]] },
+			{
+				label: "Force send",
+				keys: [
+					["⌘", "↵"],
+					["Ctrl", "↵"],
+				],
+			},
+			{ label: "New line", keys: [["Shift", "↵"]] },
+			{ label: "Blur", keys: [["Esc"]] },
 		],
 	},
 	{
 		title: "Files",
 		description: "File preview and editor shortcuts.",
-		items: [{ label: "Save file", keys: ["⌘ S", "Ctrl S"] }],
+		items: [
+			{
+				label: "Save file",
+				keys: [
+					["⌘", "S"],
+					["Ctrl", "S"],
+				],
+			},
+		],
 	},
 ];
 </script>
@@ -74,9 +102,13 @@ const sections: ShortcutSection[] = [
 						{#each section.items as item (`${section.title}:${item.label}`)}
 							<div class="shortcut-chip">
 								<span class="shortcut-label">{item.label}</span>
-								<span class="key-group" aria-label={item.keys.join(" or ")}>
-									{#each item.keys as key, index (`${item.label}:${key}:${index}`)}
-										<kbd>{key}</kbd>
+								<span class="key-group" aria-label={item.keys.map((combo) => combo.join(" ")).join(" or ")}>
+									{#each item.keys as combo, comboIndex (`${section.title}:${item.label}:${comboIndex}`)}
+										<span class="key-combo">
+											{#each combo as key, keyIndex (`${section.title}:${item.label}:${comboIndex}:${keyIndex}`)}
+												<kbd>{key}</kbd>
+											{/each}
+										</span>
 									{/each}
 								</span>
 							</div>
@@ -145,7 +177,7 @@ const sections: ShortcutSection[] = [
 		max-width: 11rem;
 		font-size: 11px;
 		line-height: 1.35;
-		color: var(--text-placeholder);
+		color: color-mix(in oklab, var(--text-secondary) 55%, var(--text-tertiary));
 	}
 	.shortcut-flow {
 		display: grid;
@@ -168,39 +200,45 @@ const sections: ShortcutSection[] = [
 	.shortcut-label {
 		min-width: 0;
 		font-size: 12px;
-		font-weight: 560;
+		font-weight: 580;
 		line-height: 1.15;
-		color: var(--text-secondary);
+		color: var(--text-primary);
 	}
 	.key-group {
 		display: inline-flex;
 		flex-wrap: wrap;
 		justify-content: flex-end;
-		gap: 0.2rem;
+		gap: 0.38rem;
 		padding: 0.14rem 0.2rem;
-		border: 1px solid color-mix(in oklab, var(--brand) 18%, var(--border-subtle));
+		border: 1px solid color-mix(in oklab, var(--brand) 20%, var(--border-subtle));
 		border-radius: 8px;
 		background: color-mix(in oklab, var(--brand) 4%, var(--bg-secondary));
 	}
+	.key-combo {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.08rem;
+		white-space: nowrap;
+	}
 	kbd {
 		display: inline-flex;
-		min-width: 1.32rem;
+		min-width: 1.28rem;
 		height: 1.18rem;
 		align-items: center;
 		justify-content: center;
 		border: 0;
 		border-radius: 5px;
 		background: transparent;
-		padding: 0 0.14rem;
+		padding: 0 0.08rem;
 		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 		font-size: 10px;
 		font-weight: 800;
-		letter-spacing: 0.03em;
+		letter-spacing: 0.01em;
 		line-height: 1;
-		color: color-mix(in oklab, var(--brand) 78%, var(--text-primary));
+		color: color-mix(in oklab, var(--brand) 92%, var(--text-primary));
 	}
 	.shortcut-chip:hover .key-group {
-		border-color: color-mix(in oklab, var(--brand) 28%, var(--border-subtle));
+		border-color: color-mix(in oklab, var(--brand) 30%, var(--border-subtle));
 		background: color-mix(in oklab, var(--brand) 6%, var(--bg-secondary));
 	}
 	.doc-card {
@@ -217,13 +255,13 @@ const sections: ShortcutSection[] = [
 	.doc-title {
 		font-size: 12px;
 		font-weight: 650;
-		color: var(--text-secondary);
+		color: var(--text-primary);
 	}
 	.doc-copy {
 		margin-top: 0.08rem;
 		font-size: 11px;
 		line-height: 1.35;
-		color: var(--text-tertiary);
+		color: color-mix(in oklab, var(--text-secondary) 48%, var(--text-tertiary));
 	}
 	.doc-status {
 		border-radius: 999px;
