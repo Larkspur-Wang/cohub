@@ -2,7 +2,6 @@
 import Dialog from "$lib/components/Dialog.svelte";
 
 type ShortcutCombo = string[];
-
 type ShortcutItem = {
 	label: string;
 	keys: ShortcutCombo[];
@@ -177,7 +176,7 @@ const sections: ShortcutSection[] = [
 		max-width: 11rem;
 		font-size: 11px;
 		line-height: 1.35;
-		color: color-mix(in oklab, var(--text-secondary) 55%, var(--text-tertiary));
+		color: color-mix(in oklab, var(--text-secondary) 52%, var(--text-tertiary));
 	}
 	.shortcut-flow {
 		display: grid;
@@ -207,38 +206,43 @@ const sections: ShortcutSection[] = [
 	.key-group {
 		display: inline-flex;
 		flex-wrap: wrap;
+		align-items: center;
 		justify-content: flex-end;
-		gap: 0.38rem;
-		padding: 0.14rem 0.2rem;
-		border: 1px solid color-mix(in oklab, var(--brand) 20%, var(--border-subtle));
+		gap: 0.14rem;
+		padding: 0.12rem 0.16rem;
+		border: 1px solid color-mix(in oklab, var(--brand) 18%, var(--border-subtle));
 		border-radius: 8px;
 		background: color-mix(in oklab, var(--brand) 4%, var(--bg-secondary));
 	}
 	.key-combo {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.08rem;
+		gap: 0.02rem;
+		padding: 0.06rem 0.14rem;
+		border-radius: 999px;
+		background: color-mix(in oklab, var(--bg-primary) 78%, var(--brand) 22%);
+		border: 1px solid color-mix(in oklab, var(--brand) 14%, var(--border-subtle));
 		white-space: nowrap;
 	}
 	kbd {
 		display: inline-flex;
-		min-width: 1.28rem;
-		height: 1.18rem;
+		min-width: 1.18rem;
+		height: 1.08rem;
 		align-items: center;
 		justify-content: center;
 		border: 0;
 		border-radius: 5px;
 		background: transparent;
-		padding: 0 0.08rem;
+		padding: 0 0.06rem;
 		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 		font-size: 10px;
 		font-weight: 800;
-		letter-spacing: 0.01em;
+		letter-spacing: 0.005em;
 		line-height: 1;
-		color: color-mix(in oklab, var(--brand) 92%, var(--text-primary));
+		color: color-mix(in oklab, var(--brand) 88%, var(--text-primary));
 	}
 	.shortcut-chip:hover .key-group {
-		border-color: color-mix(in oklab, var(--brand) 30%, var(--border-subtle));
+		border-color: color-mix(in oklab, var(--brand) 28%, var(--border-subtle));
 		background: color-mix(in oklab, var(--brand) 6%, var(--bg-secondary));
 	}
 	.doc-card {
