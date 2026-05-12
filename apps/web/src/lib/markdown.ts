@@ -285,34 +285,63 @@ function hasUnclosedInlineMarkdown(source: string) {
 	return linkOpen > linkClose || parenOpen > parenClose;
 }
 
+function isLowRiskStreamingSentence(source: string, candidate: number) {
+	const lineStart = Math.max(
+		source.lastIndexOf("\n", Math.max(0, candidate - 1)) + 1,
+		0,
+	);
+	const line = source.slice(lineStart, candidate).trim();
+	if (!line) return false;
+	if (/^(#{1,6}|[-+*]|\d+[.)]|>|\|)\s?/.test(line)) return false;
+	if (/^[-:|\s]+$/.test(line) && line.includes("|")) return false;
+	if (/^\s*([`~]{3,})/.test(line)) return false;
+	if (hasUnclosedInlineMarkdown(line)) return false;
+	return true;
+}
+
 function findStreamingSafeIndex(source: string) {
 	const length = source.length;
 	if (length < 140) return 0;
 
 	const minTail = source.endsWith("\n")
-		? 64
-		: Math.min(320, Math.max(96, Math.floor(length * 0.16)));
+		? 56
+		: Math.min(260, Math.max(84, Math.floor(length * 0.13)));
 	const maxStableIndex = Math.max(0, length - minTail);
-	const searchStart = Math.max(0, maxStableIndex - 1400);
+	const searchStart = Math.max(0, maxStableIndex - 1200);
 	const window = source.slice(searchStart, maxStableIndex);
-	const candidates: number[] = [];
+	const candidates: Array<{ index: number; kind: "block" | "sentence" }> = [];
 
-	// Only promote completed paragraphs/blocks while streaming. Promoting at
-	// sentence or single-line boundaries makes the live plain-text tail suddenly
-	// reflow into Markdown (lists, headings, bold text), which reads as a visual
-	// jump. Paragraph boundaries are slower, but much more stable and refined.
+	// Block boundaries are always preferred: they don't reclassify the live tail.
 	for (const match of window.matchAll(/\n\s*\n/g)) {
-		candidates.push(searchStart + match.index + match[0].length);
+		candidates.push({
+			index: searchStart + match.index + match[0].length,
+			kind: "block",
+		});
 	}
 
-	candidates.sort((a, b) => b - a);
+	// Sentence boundaries make Markdown appear earlier for ordinary prose, but are
+	// limited to low-risk lines so headings/lists/tables don't pop mid-stream.
+	for (const match of window.matchAll(/[。！？!?]\s+|[.!?](?:\s+|\n)/g)) {
+		candidates.push({
+			index: searchStart + match.index + match[0].length,
+			kind: "sentence",
+		});
+	}
+
+	candidates.sort((a, b) => b.index - a.index);
 	for (const candidate of candidates) {
-		const stable = source.slice(0, candidate);
-		const tail = source.slice(candidate);
+		const stable = source.slice(0, candidate.index);
+		const tail = source.slice(candidate.index);
 		if (!stable.trim()) continue;
-		if (tail.length > 620) continue;
+		if (tail.length > (candidate.kind === "block" ? 620 : 360)) continue;
+		if (candidate.kind === "sentence" && tail.length < 96) continue;
+		if (
+			candidate.kind === "sentence" &&
+			!isLowRiskStreamingSentence(source, candidate.index)
+		)
+			continue;
 		if (hasUnclosedInlineMarkdown(stable.slice(-480))) continue;
-		return candidate;
+		return candidate.index;
 	}
 
 	return 0;

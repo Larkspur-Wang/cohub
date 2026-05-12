@@ -178,13 +178,21 @@ export class StreamingMarkdownController {
 				source !== this.#displayedSource
 			)
 				return;
-			if (result.stableSource !== this.#lastStableSource) {
+
+			const canPromoteStable =
+				result.stableSource.length >= this.#lastStableSource.length &&
+				result.stableSource.startsWith(this.#lastStableSource);
+			if (canPromoteStable && result.stableSource !== this.#lastStableSource) {
 				this.#lastStableSource = result.stableSource;
 				this.#lastStableHtml = result.stableHtml;
 			}
+
+			const tailSource = source.startsWith(this.#lastStableSource)
+				? source.slice(this.#lastStableSource.length)
+				: result.tailSource;
 			this.#publish({
 				stableSource: this.#lastStableSource,
-				tailSource: result.tailSource,
+				tailSource,
 				stableHtml: this.#lastStableHtml,
 			});
 		} catch {
