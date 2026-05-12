@@ -532,6 +532,7 @@ let turnMarkerMeasureFrame: number | null = null;
 let vimScrollFrame: number | null = null;
 let vimScrollVelocity = 0;
 let vimScrollStopTimer: ReturnType<typeof setTimeout> | null = null;
+let vimPendingGTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTurnIndexRefreshKey = "";
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
@@ -4082,6 +4083,27 @@ function scrollTimelineByLines(direction: 1 | -1) {
 	vimScrollStopTimer = setTimeout(stopVimScroll, 110);
 }
 
+function clearPendingVimG() {
+	if (!vimPendingGTimer) return;
+	clearTimeout(vimPendingGTimer);
+	vimPendingGTimer = null;
+}
+
+function scrollTimelineToTop() {
+	if (!listEl) return;
+	beginUserScroll();
+	shouldAutoFollow = false;
+	setProgrammaticScrollTop(0);
+	requestAnimationFrame(() => updateCurrentTurnSequence());
+}
+
+function scrollTimelineToBottom() {
+	if (!listEl) return;
+	shouldAutoFollow = true;
+	stopVimScroll();
+	scrollToBottomNow();
+}
+
 async function jumpRelativeTurn(direction: 1 | -1) {
 	if (!activeSessionId || activeTurnRailItems.length === 0) return;
 	const current = currentTurnSequence;
@@ -4105,6 +4127,19 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	if (event.defaultPrevented || event.isComposing) return;
 	if (routeView !== "session" || !activeSessionState) return;
 	const key = event.key.toLowerCase();
+	if (key !== "g") clearPendingVimG();
+	if (
+		event.shiftKey &&
+		!event.altKey &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		key === "g"
+	) {
+		event.preventDefault();
+		clearPendingVimG();
+		scrollTimelineToBottom();
+		return;
+	}
 	if (
 		event.shiftKey &&
 		!event.altKey &&
@@ -4117,6 +4152,24 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		return;
 	}
 	if (isEditableShortcutTarget(event.target)) return;
+	if (
+		!event.altKey &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		!event.shiftKey &&
+		key === "g"
+	) {
+		event.preventDefault();
+		if (vimPendingGTimer) {
+			clearPendingVimG();
+			scrollTimelineToTop();
+			return;
+		}
+		vimPendingGTimer = setTimeout(() => {
+			vimPendingGTimer = null;
+		}, 550);
+		return;
+	}
 	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
 	if (key === "j") {
 		event.preventDefault();
@@ -4259,6 +4312,7 @@ onMount(() => {
 		if (turnMarkerMeasureFrame != null)
 			cancelAnimationFrame(turnMarkerMeasureFrame);
 		stopVimScroll();
+		clearPendingVimG();
 		stopBottomFollow();
 		recoveryCoordinator.dispose();
 		clearAllPostSendRecovery();
