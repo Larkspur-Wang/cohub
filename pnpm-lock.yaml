@@ -181,6 +181,12 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      yaml:
+        specifier: ^2.8.3
+        version: 2.8.3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@biomejs/biome':
         specifier: 2.4.12
@@ -481,6 +487,9 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      yaml:
+        specifier: ^2.8.3
+        version: 2.8.3
     devDependencies:
       '@biomejs/biome':
         specifier: 2.4.12
@@ -537,6 +546,13 @@ importers:
         version: 6.0.3
 
   packages/config-runtime:
+    dependencies:
+      '@neta-art/cohub-protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      yaml:
+        specifier: ^2.8.3
+        version: 2.8.3
     devDependencies:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260421.1

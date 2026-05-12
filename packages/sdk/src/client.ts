@@ -1,6 +1,7 @@
 import { ChannelsApi } from "./apis/channels.js";
 import { CronJobsApi } from "./apis/cron-jobs.js";
 import { ExploreApi } from "./apis/explore.js";
+import { GenerationsApi } from "./apis/generations.js";
 import { ModelsApi } from "./apis/models.js";
 import { PromptsApi } from "./apis/prompts.js";
 import { SessionAccessApi } from "./apis/session-access.js";
@@ -17,6 +18,7 @@ export class CohubClient {
   readonly spaces: SpacesApi;
   readonly channels: ChannelsApi;
   readonly user: UserApi;
+  readonly generations: GenerationsApi;
   readonly models: ModelsApi;
   readonly prompts: PromptsApi;
   readonly sessionAccess: SessionAccessApi;
@@ -48,6 +50,7 @@ export class CohubClient {
       options.setStoredAuthToken,
       options.clearStoredAuthToken,
     );
+    this.generations = new GenerationsApi(this.transport);
     this.models = new ModelsApi(this.transport);
     this.prompts = new PromptsApi(this.transport);
     this.sessionAccess = new SessionAccessApi(this.transport);

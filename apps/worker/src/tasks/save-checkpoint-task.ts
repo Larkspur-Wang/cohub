@@ -9,6 +9,7 @@ import { decryptSecret } from "../crypto.js";
 import { buildAuthenticatedRemoteUrl, getSpaceWorkspaceDir, runGit, runGitWithOutput } from "../git.js";
 import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../config-publish.js";
 import { config } from "../config.js";
+import { getGenerationsDir, publishGenerationsCacheFromDir } from "../generations-cache.js";
 import { publishModelsCacheFromFile } from "../models-cache.js";
 
 const buildCommitMessage = (description?: string | null) => {
@@ -153,6 +154,19 @@ const saveCheckpointHandler = async (job: Job) => {
         error,
       );
     }
+    try {
+      await publishGenerationsCacheFromDir({
+        generationsDir: getGenerationsDir(publishedUserConfig.targetDir),
+        scope: "user",
+        userId: space.userUuid,
+        sourceCheckpointId: checkpoint.id,
+      });
+    } catch (error) {
+      console.warn(
+        `[save_checkpoint] failed to publish user generations cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
+        error,
+      );
+    }
   }
 
   let publishedPlatformConfig: {
@@ -178,6 +192,18 @@ const saveCheckpointHandler = async (job: Job) => {
     } catch (error) {
       console.warn(
         `[save_checkpoint] failed to publish platform models cache for checkpoint=${checkpoint.id}:`,
+        error,
+      );
+    }
+    try {
+      await publishGenerationsCacheFromDir({
+        generationsDir: getGenerationsDir(publishedPlatformConfig.targetDir),
+        scope: "platform",
+        sourceCheckpointId: checkpoint.id,
+      });
+    } catch (error) {
+      console.warn(
+        `[save_checkpoint] failed to publish platform generations cache for checkpoint=${checkpoint.id}:`,
         error,
       );
     }

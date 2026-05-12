@@ -1,0 +1,94 @@
+schema: cohub.generation.v1
+
+model: gpt-image-2
+title: GPT Image 2
+description: Image generation model with optional reference images. Good for photorealistic scenes, detailed images, and image editing with references.
+
+adapter:
+  type: openai.images
+  base_url: https://new-api.talesofai.com/v1
+  api_key: $env:GPT_IMAGE_API_KEY
+
+content:
+  input:
+    - type: text
+      required: true
+      min: 1
+      max: 16
+      merge: newline
+      description: Prompt text.
+
+    - type: image
+      required: false
+      max: 16
+      sources:
+        - url
+        - base64
+        - space_file
+      description: Optional reference images.
+
+  output:
+    - type: image
+      path: $.data[*].url
+      sources:
+        - url
+
+    - type: text
+      path: $.data[*].revised_prompt
+      skip_empty: true
+      meta:
+        role: revised_prompt
+
+parameters:
+  size:
+    type: string
+    optional: true
+    default: 1024x1024
+    description: Output image size.
+    examples:
+      - auto
+      - 1024x1024
+      - 1536x1024
+      - 1024x1536
+      - 2048x2048
+      - 2048x1152
+      - 3840x2160
+      - 2160x3840
+
+  quality:
+    type: string
+    optional: true
+    default: auto
+    enum:
+      - auto
+      - low
+      - medium
+      - high
+    description: Image quality.
+
+examples:
+  - title: Basic image
+    request:
+      model: gpt-image-2
+      content:
+        - type: text
+          text: a cyberpunk cat in neon rain
+      parameters:
+        size: 1024x1024
+        quality: auto
+
+  - title: With reference image
+    request:
+      model: gpt-image-2
+      content:
+        - type: text
+          text: same character, smiling, cinematic lighting
+        - type: image
+          source:
+            type: url
+            url: https://example.com/character.png
+          _meta:
+            role: reference
+      parameters:
+        size: 1024x1024
+        quality: high

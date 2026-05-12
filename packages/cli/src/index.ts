@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { registerAuth } from "./commands/auth.js";
 import { registerChannels } from "./commands/channels.js";
 import { registerCronJobs } from "./commands/cron-jobs.js";
+import { registerGenerations } from "./commands/generations.js";
 import { registerModels } from "./commands/models.js";
 import { registerPrompts } from "./commands/prompts.js";
 import { registerSessionAccess } from "./commands/session-access.js";
@@ -31,6 +32,7 @@ program
 registerAuth(program);
 registerSpaces(program);
 registerChannels(program);
+registerGenerations(program);
 registerModels(program);
 registerPrompts(program);
 registerTasks(program);

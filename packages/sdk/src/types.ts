@@ -13,6 +13,12 @@ import type {
   ContentBlock,
   Usage,
 } from "@neta-art/cohub-protocol/core";
+import type {
+  Generation,
+  ListGenerationDeclarationsResponse,
+  PublicGenerationDeclaration,
+  CreateGenerationRequest,
+} from "@neta-art/cohub-protocol";
 import type { MessageRecord } from "@neta-art/cohub-protocol/model";
 
 export type {
@@ -45,7 +51,18 @@ export type UserRulesResponse = {
   path: string;
 };
 
-export type { ContentBlock, MessageRecord, SessionTurnRecord, SessionTurnIndexItem, SessionForkRecord, SessionTurnSegmentRecord };
+export type {
+  ContentBlock,
+  MessageRecord,
+  SessionTurnRecord,
+  SessionTurnIndexItem,
+  SessionForkRecord,
+  SessionTurnSegmentRecord,
+  Generation,
+  ListGenerationDeclarationsResponse,
+  PublicGenerationDeclaration,
+  CreateGenerationRequest,
+};
 
 export type SpaceFsEntry = {
   name: string;
