@@ -88,7 +88,7 @@ const sections: ShortcutSection[] = [
 ];
 </script>
 
-<Dialog {open} {onClose} title="Help" maxWidth="700px">
+<Dialog {open} {onClose} title="Help" maxWidth="680px">
 	<div class="help-sheet">
 		<div class="shortcut-stack">
 			{#each sections as section (section.title)}
@@ -97,9 +97,9 @@ const sections: ShortcutSection[] = [
 						<h3 id={`help-section-${section.title}`}>{section.title}</h3>
 						<p>{section.description}</p>
 					</div>
-					<div class="shortcut-flow">
+					<div class="shortcut-list">
 						{#each section.items as item (`${section.title}:${item.label}`)}
-							<div class="shortcut-chip">
+							<div class="shortcut-row">
 								<span class="shortcut-label">{item.label}</span>
 								<span class="key-group" aria-label={item.keys.map((combo) => combo.join(" ")).join(" or ")}>
 									{#each item.keys as combo, comboIndex (`${section.title}:${item.label}:${comboIndex}`)}
@@ -135,7 +135,7 @@ const sections: ShortcutSection[] = [
 
 <style>
 	.help-sheet {
-		padding: 0.54rem 0.6rem 0.68rem;
+		padding: 0.5rem 0.58rem 0.62rem;
 		background: var(--bg-primary);
 	}
 	.shortcut-stack {
@@ -144,11 +144,11 @@ const sections: ShortcutSection[] = [
 	}
 	.shortcut-section {
 		display: grid;
-		grid-template-columns: minmax(7rem, 0.24fr) minmax(0, 1fr);
-		gap: 0.72rem;
+		grid-template-columns: minmax(7.2rem, 0.28fr) minmax(0, 1fr);
+		gap: 0.7rem;
 		align-items: start;
 		border-top: 1px solid color-mix(in oklab, var(--border-subtle) 84%, transparent);
-		padding: 0.52rem 0;
+		padding: 0.5rem 0;
 	}
 	.shortcut-section:first-child {
 		border-top: 0;
@@ -160,90 +160,89 @@ const sections: ShortcutSection[] = [
 	.section-meta {
 		display: grid;
 		gap: 0.12rem;
-		padding-top: 0.08rem;
+		padding-top: 0.12rem;
 	}
 	.section-meta h3 {
 		margin: 0;
 		font-size: 11px;
-		font-weight: 750;
+		font-weight: 760;
 		letter-spacing: 0.09em;
-		line-height: 1.25;
+		line-height: 1.2;
 		text-transform: uppercase;
 		color: var(--text-primary);
 	}
 	.section-meta p {
 		margin: 0;
-		max-width: 11rem;
+		max-width: 10.8rem;
 		font-size: 11px;
 		line-height: 1.35;
-		color: color-mix(in oklab, var(--text-secondary) 52%, var(--text-tertiary));
+		color: color-mix(in oklab, var(--text-secondary) 46%, var(--text-tertiary));
 	}
-	.shortcut-flow {
+	.shortcut-list {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-		gap: 0.16rem 0.42rem;
+		grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+		gap: 0.24rem 0.5rem;
 	}
-	.shortcut-chip {
+	.shortcut-row {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
-		gap: 0.5rem;
-		min-height: 1.42rem;
-		padding: 0.03rem 0;
-		border-radius: 8px;
-		transition: background-color 120ms ease;
+		gap: 0.42rem;
+		min-height: 1.46rem;
+		padding: 0.08rem 0.14rem;
+		border-radius: 7px;
+		background: color-mix(in oklab, var(--bg-secondary) 58%, transparent);
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border-subtle) 52%, transparent);
+		transition:
+			background-color 120ms ease,
+			box-shadow 120ms ease;
 	}
-	.shortcut-chip:hover {
-		background: color-mix(in oklab, var(--brand) 4%, transparent);
+	.shortcut-row:hover {
+		background: color-mix(in oklab, var(--brand) 5%, var(--bg-secondary));
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--brand) 18%, var(--border-subtle));
 	}
 	.shortcut-label {
 		min-width: 0;
 		font-size: 12px;
-		font-weight: 580;
+		font-weight: 620;
 		line-height: 1.15;
 		color: var(--text-primary);
 	}
 	.key-group {
 		display: inline-flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 0.14rem;
-		padding: 0.12rem 0.16rem;
-		border: 1px solid color-mix(in oklab, var(--brand) 18%, var(--border-subtle));
-		border-radius: 8px;
-		background: color-mix(in oklab, var(--brand) 4%, var(--bg-secondary));
+		gap: 0.16rem;
+		min-width: 0;
 	}
 	.key-combo {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.02rem;
-		padding: 0.06rem 0.14rem;
-		border-radius: 999px;
-		background: color-mix(in oklab, var(--bg-primary) 78%, var(--brand) 22%);
-		border: 1px solid color-mix(in oklab, var(--brand) 14%, var(--border-subtle));
+		gap: 0.01rem;
+		height: 1.18rem;
+		padding: 0 0.18rem;
+		border: 1px solid color-mix(in oklab, var(--brand) 26%, var(--border-subtle));
+		border-radius: 5px;
+		background: color-mix(in oklab, var(--brand) 9%, var(--bg-primary));
+		box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--brand) 13%, transparent);
 		white-space: nowrap;
 	}
 	kbd {
 		display: inline-flex;
-		min-width: 1.18rem;
-		height: 1.08rem;
 		align-items: center;
 		justify-content: center;
+		min-width: 0.72rem;
+		height: 1rem;
 		border: 0;
-		border-radius: 5px;
 		background: transparent;
-		padding: 0 0.06rem;
+		padding: 0 0.015rem;
 		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 		font-size: 10px;
-		font-weight: 800;
-		letter-spacing: 0.005em;
+		font-weight: 820;
+		letter-spacing: -0.01em;
 		line-height: 1;
-		color: color-mix(in oklab, var(--brand) 88%, var(--text-primary));
-	}
-	.shortcut-chip:hover .key-group {
-		border-color: color-mix(in oklab, var(--brand) 28%, var(--border-subtle));
-		background: color-mix(in oklab, var(--brand) 6%, var(--bg-secondary));
+		color: color-mix(in oklab, var(--brand) 92%, var(--text-primary));
 	}
 	.doc-card {
 		display: flex;
@@ -251,7 +250,10 @@ const sections: ShortcutSection[] = [
 		justify-content: space-between;
 		gap: 0.9rem;
 		max-width: 100%;
-		padding: 0.04rem 0 0.02rem;
+		padding: 0.1rem 0.14rem;
+		border-radius: 7px;
+		background: color-mix(in oklab, var(--bg-secondary) 58%, transparent);
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border-subtle) 52%, transparent);
 	}
 	.doc-copy-wrap {
 		min-width: 0;
@@ -288,16 +290,16 @@ const sections: ShortcutSection[] = [
 		.section-meta p {
 			max-width: none;
 		}
-		.shortcut-flow {
+		.shortcut-list {
 			grid-template-columns: 1fr;
 			gap: 0.2rem;
 		}
-		.shortcut-chip {
+		.shortcut-row {
 			grid-template-columns: minmax(0, 1fr);
 			gap: 0.28rem;
 		}
 		.key-group {
-			justify-self: start;
+			justify-content: flex-start;
 		}
 	}
 </style>
