@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,7 +9,7 @@ process.env.WORKSPACE_ROOT ??= "/tmp";
 process.env.SESSIONS_DIR ??= "/tmp";
 process.env.ENV ??= "dev";
 
-const root = mkdtempSync(join(tmpdir(), "cohub-system-prompt-"));
+const root = await mkdtemp(join(tmpdir(), "cohub-system-prompt-"));
 process.env.PLATFORM_CONFIG_ROOT = join(root, "configs");
 
 const userId = "11111111-1111-4111-8111-111111111111";
@@ -17,16 +17,16 @@ const workspace = join(root, "workspace");
 const userConfig = join(process.env.PLATFORM_CONFIG_ROOT, "users", userId);
 const platformAgent = join(process.env.PLATFORM_CONFIG_ROOT, "platform", ".cohub");
 
-mkdirSync(workspace, { recursive: true });
-mkdirSync(userConfig, { recursive: true });
-mkdirSync(platformAgent, { recursive: true });
-writeFileSync(join(platformAgent, "SYSTEM.md"), "You are a Cohub test assistant.");
-writeFileSync(join(userConfig, "AGENTS.md"), "Always prefer concise answers.");
-writeFileSync(join(workspace, "AGENTS.md"), "Project rule: run typecheck.");
+await mkdir(workspace, { recursive: true });
+await mkdir(userConfig, { recursive: true });
+await mkdir(platformAgent, { recursive: true });
+await writeFile(join(platformAgent, "SYSTEM.md"), "You are a Cohub test assistant.");
+await writeFile(join(userConfig, "AGENTS.md"), "Always prefer concise answers.");
+await writeFile(join(workspace, "AGENTS.md"), "Project rule: run typecheck.");
 
 const { buildCohubSystemPrompt } = await import("../runtime/system-prompt-builder.js");
 
-const prompt = buildCohubSystemPrompt({
+const prompt = await buildCohubSystemPrompt({
   cwd: workspace,
   userId,
   selectedTools: [],
@@ -42,7 +42,7 @@ assert.ok(
   "user context should be rendered before project context",
 );
 
-const promptWithoutUser = buildCohubSystemPrompt({
+const promptWithoutUser = await buildCohubSystemPrompt({
   cwd: workspace,
   selectedTools: [],
 });

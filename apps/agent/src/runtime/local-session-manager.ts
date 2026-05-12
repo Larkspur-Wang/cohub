@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
@@ -96,9 +96,18 @@ function createSessionId() {
   return randomUUID();
 }
 
-function parseEntries(path: string): FileEntry[] {
-  if (!existsSync(path)) return [];
-  const lines = readFileSync(path, "utf-8").split(/\r?\n/).filter(Boolean);
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function parseEntries(path: string): Promise<FileEntry[]> {
+  if (!(await pathExists(path))) return [];
+  const lines = (await readFile(path, "utf-8")).split(/\r?\n/).filter(Boolean);
   const entries: FileEntry[] = [];
   for (const line of lines) {
     entries.push(JSON.parse(line) as FileEntry);
@@ -112,18 +121,22 @@ export class SessionManager {
   private byId = new Map<string, SessionEntry>();
   private leafId: string | null = null;
   public sessionFile?: string;
+  private fileReady = false;
+  private writeChain: Promise<void> = Promise.resolve();
+  private writeError: unknown = null;
 
   private constructor(
     private readonly cwd: string,
     private readonly sessionDir: string,
     sessionFile?: string,
+    parsed: FileEntry[] = [],
   ) {
     this.sessionFile = sessionFile;
-    if (sessionFile && existsSync(sessionFile)) {
-      const parsed = parseEntries(sessionFile);
+    if (parsed.length > 0) {
       this.header = (parsed.find((entry) => entry.type === "session") as SessionHeader | undefined) ?? null;
       this.entries = parsed.filter((entry) => entry.type !== "session") as SessionEntry[];
       this.rebuildIndex();
+      this.fileReady = Boolean(sessionFile && this.header);
     }
   }
 
@@ -131,16 +144,24 @@ export class SessionManager {
     return new SessionManager(cwd, sessionDir);
   }
 
-  static open(path: string, sessionDir: string): SessionManager {
-    const parsed = parseEntries(path);
+  static async open(path: string, sessionDir: string): Promise<SessionManager> {
+    const parsed = await parseEntries(path);
     const header = parsed.find((entry) => entry.type === "session") as SessionHeader | undefined;
     const cwd = header?.cwd ?? process.cwd();
-    return new SessionManager(cwd, sessionDir, path);
+    return new SessionManager(cwd, sessionDir, path, parsed);
   }
 
   setSessionFile(path: string) {
     this.sessionFile = path;
+    this.fileReady = false;
     this.rewriteFile();
+  }
+
+  async flush(): Promise<void> {
+    await this.writeChain;
+    if (this.writeError) {
+      throw this.writeError;
+    }
   }
 
   getEntries(): SessionEntry[] {
@@ -159,6 +180,7 @@ export class SessionManager {
     this.entries = [];
     this.byId.clear();
     this.leafId = null;
+    this.fileReady = false;
     this.rewriteFile();
   }
 
@@ -274,7 +296,8 @@ export class SessionManager {
     return entry.id;
   }
 
-  createBranchedSession(leafId: string, options?: { id?: string; filePath?: string; parentSession?: string }): string | undefined {
+  async createBranchedSession(leafId: string, options?: { id?: string; filePath?: string; parentSession?: string }): Promise<string | undefined> {
+    await this.flush();
     const pathEntries = this.getBranch(leafId);
     if (pathEntries.length === 0) {
       throw new Error(`Entry ${leafId} not found`);
@@ -289,9 +312,9 @@ export class SessionManager {
       cwd: this.cwd,
       parentSession: options?.parentSession ?? this.sessionFile,
     };
-    mkdirSync(this.sessionDir, { recursive: true });
+    await mkdir(this.sessionDir, { recursive: true });
     const lines = `${[JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
-    writeFileSync(newSessionFile, lines, "utf-8");
+    await writeFile(newSessionFile, lines, "utf-8");
     return newSessionFile;
   }
 
@@ -302,21 +325,43 @@ export class SessionManager {
     this.appendToFile(entry);
   }
 
+  private enqueueWrite(label: string, task: () => Promise<void>) {
+    if (this.writeError) return;
+
+    this.writeChain = this.writeChain
+      .then(async () => {
+        if (this.writeError) return;
+        await task();
+      })
+      .catch((error) => {
+        this.writeError = error;
+        console.error(`[SessionManager] Failed to write session file (${label}) ${this.sessionFile ?? "<unset>"}:`, error);
+      });
+  }
+
   private appendToFile(entry: SessionEntry) {
     if (!this.sessionFile) return;
-    mkdirSync(this.sessionDir, { recursive: true });
-    if (!existsSync(this.sessionFile)) {
+    if (!this.fileReady) {
       this.rewriteFile();
       return;
     }
-    appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+
+    this.enqueueWrite(`append:${entry.id}`, async () => {
+      if (!this.sessionFile) return;
+      await mkdir(this.sessionDir, { recursive: true });
+      await appendFile(this.sessionFile, `${JSON.stringify(entry)}\n`, "utf-8");
+    });
   }
 
   private rewriteFile() {
     if (!this.sessionFile || !this.header) return;
-    mkdirSync(this.sessionDir, { recursive: true });
-    const lines = [JSON.stringify(this.header), ...this.entries.map((entry) => JSON.stringify(entry))].join("\n");
-    writeFileSync(this.sessionFile, `${lines}${lines ? "\n" : ""}`, "utf-8");
+    this.enqueueWrite("rewrite", async () => {
+      if (!this.sessionFile || !this.header) return;
+      await mkdir(this.sessionDir, { recursive: true });
+      const lines = [JSON.stringify(this.header), ...this.entries.map((entry) => JSON.stringify(entry))].join("\n");
+      await writeFile(this.sessionFile, `${lines}${lines ? "\n" : ""}`, "utf-8");
+      this.fileReady = true;
+    });
   }
 
   private rebuildIndex() {

@@ -254,7 +254,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     options.sessionManager.appendThinkingLevelChange(model.reasoning ? "medium" : "off");
   }
 
-  const systemPrompt = buildCohubSystemPrompt({
+  const systemPrompt = await buildCohubSystemPrompt({
     cwd: options.cwd,
     userId: options.userId,
     selectedTools: options.tools.map((tool) => tool.name),
@@ -400,7 +400,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       options.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
     },
     async reload() {
-      const nextPrompt = buildCohubSystemPrompt({
+      const nextPrompt = await buildCohubSystemPrompt({
         cwd: options.cwd,
         userId: options.userId,
         selectedTools: options.tools.map((tool) => tool.name),

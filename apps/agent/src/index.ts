@@ -122,6 +122,9 @@ async function disposeSessionHandle(handle: SessionHandle, reason: string) {
 
   console.warn(`[Agent] Disposing session ${handle.sessionId}: ${reason}`);
   try {
+    await handle.sessionManager.flush().catch((error) => {
+      console.error(`[Agent] Failed to flush session ${handle.sessionId}:`, error);
+    });
     await handle.persistenceChain.catch(() => undefined);
     clearCurrentSessionExecutionAuth(handle.sessionId);
     handle.session.dispose();
@@ -737,8 +740,8 @@ async function main() {
         if (inputEntry.action === "fork_session") {
           const parentSessionFile = getAgentSessionFilePath(inputEntry.spaceId, inputEntry.parentSessionId);
           const childSessionFile = getAgentSessionFilePath(inputEntry.spaceId, inputEntry.sessionId);
-          const parentManager = SessionManager.open(parentSessionFile, getAgentSpaceSessionsPath(inputEntry.spaceId));
-          const branchFile = parentManager.createBranchedSession(inputEntry.anchorEntryId, { id: inputEntry.sessionId, filePath: childSessionFile, parentSession: parentSessionFile });
+          const parentManager = await SessionManager.open(parentSessionFile, getAgentSpaceSessionsPath(inputEntry.spaceId));
+          const branchFile = await parentManager.createBranchedSession(inputEntry.anchorEntryId, { id: inputEntry.sessionId, filePath: childSessionFile, parentSession: parentSessionFile });
           if (!branchFile) throw new Error("Failed to create forked session file");
           await ack();
           return;

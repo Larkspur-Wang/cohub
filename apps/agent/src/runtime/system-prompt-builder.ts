@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   getAgentPlatformAgentPath,
@@ -40,10 +40,18 @@ export type BuildCohubSystemPromptOptions = {
   promptGuidelines?: string[];
 };
 
-function readTextIfExists(path: string): string | undefined {
-  if (!existsSync(path)) return undefined;
+async function pathExists(path: string): Promise<boolean> {
   try {
-    const content = readFileSync(path, "utf-8").trim();
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readTextIfExists(path: string): Promise<string | undefined> {
+  try {
+    const content = (await readFile(path, "utf-8")).trim();
     return content || undefined;
   } catch {
     return undefined;
@@ -65,17 +73,17 @@ function extractFrontmatter(markdown: string): { attributes: Record<string, stri
   return { attributes, body: markdown.slice(match[0].length) };
 }
 
-function loadFirstExisting(paths: string[]): string | undefined {
+async function loadFirstExisting(paths: string[]): Promise<string | undefined> {
   for (const path of paths) {
-    const content = readTextIfExists(path);
+    const content = await readTextIfExists(path);
     if (content) return content;
   }
   return undefined;
 }
 
-function loadContextFilesFromRoot(root: string, sandboxRoot: string): LoadedContextFile[] {
+async function loadContextFilesFromRoot(root: string, sandboxRoot: string): Promise<LoadedContextFile[]> {
   const files: LoadedContextFile[] = [];
-  const agentsContent = readTextIfExists(join(root, "AGENTS.md"));
+  const agentsContent = await readTextIfExists(join(root, "AGENTS.md"));
   if (agentsContent) {
     files.push({
       sandboxPath: `${sandboxRoot}/AGENTS.md`,
@@ -83,7 +91,7 @@ function loadContextFilesFromRoot(root: string, sandboxRoot: string): LoadedCont
     });
   }
 
-  const claudeContent = readTextIfExists(join(root, "CLAUDE.md"));
+  const claudeContent = await readTextIfExists(join(root, "CLAUDE.md"));
   if (claudeContent) {
     files.push({
       sandboxPath: `${sandboxRoot}/CLAUDE.md`,
@@ -94,17 +102,17 @@ function loadContextFilesFromRoot(root: string, sandboxRoot: string): LoadedCont
   return files;
 }
 
-function loadSkillsFromDir(input: {
+async function loadSkillsFromDir(input: {
   agentDir: string;
   sandboxDir: string;
-}): LoadedSkill[] {
-  if (!existsSync(input.agentDir)) return [];
+}): Promise<LoadedSkill[]> {
+  if (!(await pathExists(input.agentDir))) return [];
 
   const results: LoadedSkill[] = [];
-  const walk = (dir: string) => {
+  const walk = async (dir: string): Promise<void> => {
     let entries: string[] = [];
     try {
-      entries = readdirSync(dir);
+      entries = await readdir(dir);
     } catch {
       return;
     }
@@ -112,9 +120,9 @@ function loadSkillsFromDir(input: {
     for (const name of entries) {
       if (name.startsWith(".")) continue;
       const full = join(dir, name);
-      let stats: ReturnType<typeof statSync>;
+      let stats: Awaited<ReturnType<typeof stat>>;
       try {
-        stats = statSync(full);
+        stats = await stat(full);
       } catch {
         continue;
       }
@@ -122,50 +130,48 @@ function loadSkillsFromDir(input: {
       if (!stats.isDirectory()) continue;
 
       const skillFile = join(full, "SKILL.md");
-      if (existsSync(skillFile)) {
-        try {
-          const content = readFileSync(skillFile, "utf-8");
-          const { attributes } = extractFrontmatter(content);
-          const relativePath = skillFile.slice(input.agentDir.length + 1).replaceAll("\\", "/");
-          const relativeDir = full.slice(input.agentDir.length + 1).replaceAll("\\", "/");
-          results.push({
-            name: attributes.name?.trim() || basename(full),
-            description: attributes.description?.trim() || "",
-            filePath: skillFile,
-            sandboxFilePath: `${input.sandboxDir}/${relativePath}`,
-            baseDir: full,
-            sandboxBaseDir: `${input.sandboxDir}/${relativeDir}`,
-            content,
-          });
-        } catch {
-          // ignore unreadable skill files
-        }
+      const content = await readTextIfExists(skillFile);
+      if (content) {
+        const { attributes } = extractFrontmatter(content);
+        const relativePath = skillFile.slice(input.agentDir.length + 1).replaceAll("\\", "/");
+        const relativeDir = full.slice(input.agentDir.length + 1).replaceAll("\\", "/");
+        results.push({
+          name: attributes.name?.trim() || basename(full),
+          description: attributes.description?.trim() || "",
+          filePath: skillFile,
+          sandboxFilePath: `${input.sandboxDir}/${relativePath}`,
+          baseDir: full,
+          sandboxBaseDir: `${input.sandboxDir}/${relativeDir}`,
+          content,
+        });
         continue;
       }
 
-      walk(full);
+      await walk(full);
     }
   };
 
-  walk(input.agentDir);
+  await walk(input.agentDir);
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function loadMergedSkills(cwd: string, userId?: string | null): LoadedSkill[] {
-  const platformSkills = loadSkillsFromDir({
-    agentDir: getAgentPlatformSkillsPath(),
-    sandboxDir: SANDBOX_PLATFORM_SKILLS_PATH,
-  });
-  const userSkills = userId
-    ? loadSkillsFromDir({
-        agentDir: getAgentUserSkillsPath(userId),
-        sandboxDir: SANDBOX_USER_SKILLS_PATH,
-      })
-    : [];
-  const workspaceSkills = loadSkillsFromDir({
-    agentDir: getAgentWorkspaceSkillsPath(cwd),
-    sandboxDir: SANDBOX_WORKSPACE_SKILLS_PATH,
-  });
+async function loadMergedSkills(cwd: string, userId?: string | null): Promise<LoadedSkill[]> {
+  const [platformSkills, userSkills, workspaceSkills] = await Promise.all([
+    loadSkillsFromDir({
+      agentDir: getAgentPlatformSkillsPath(),
+      sandboxDir: SANDBOX_PLATFORM_SKILLS_PATH,
+    }),
+    userId
+      ? loadSkillsFromDir({
+          agentDir: getAgentUserSkillsPath(userId),
+          sandboxDir: SANDBOX_USER_SKILLS_PATH,
+        })
+      : Promise.resolve([]),
+    loadSkillsFromDir({
+      agentDir: getAgentWorkspaceSkillsPath(cwd),
+      sandboxDir: SANDBOX_WORKSPACE_SKILLS_PATH,
+    }),
+  ]);
 
   const merged = new Map<string, LoadedSkill>();
   for (const skill of platformSkills) merged.set(skill.name, skill);
@@ -192,7 +198,7 @@ function formatSkillsForPrompt(skills: LoadedSkill[]): string {
   return out;
 }
 
-export function buildCohubSystemPrompt(options: BuildCohubSystemPromptOptions): string {
+export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOptions): Promise<string> {
   const {
     cwd,
     userId,
@@ -203,21 +209,23 @@ export function buildCohubSystemPrompt(options: BuildCohubSystemPromptOptions): 
 
   const workspaceAgentDir = getAgentWorkspaceAgentsPath(cwd);
   const userAgentDir = userId ? getAgentUserAgentsPath(userId) : null;
-  const systemPrompt = loadFirstExisting([
+  const systemPrompt = await loadFirstExisting([
     join(workspaceAgentDir, "SYSTEM.md"),
     ...(userAgentDir ? [join(userAgentDir, "SYSTEM.md")] : []),
     join(getAgentPlatformAgentPath(), "SYSTEM.md"),
   ]) ?? FALLBACK_SYSTEM_PROMPT;
 
-  const appendSystemPrompts = [
+  const appendSystemPrompts = (await Promise.all([
     readTextIfExists(join(getAgentPlatformAgentPath(), "APPEND_SYSTEM.md")),
     ...(userAgentDir ? [readTextIfExists(join(userAgentDir, "APPEND_SYSTEM.md"))] : []),
     readTextIfExists(join(workspaceAgentDir, "APPEND_SYSTEM.md")),
-  ].filter((value): value is string => Boolean(value));
+  ])).filter((value): value is string => Boolean(value));
 
-  const userContextFiles = userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : [];
-  const projectContextFiles = loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH);
-  const skills = selectedTools.includes("read") ? loadMergedSkills(cwd, userId) : [];
+  const [userContextFiles, projectContextFiles, skills] = await Promise.all([
+    userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : Promise.resolve([]),
+    loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH),
+    selectedTools.includes("read") ? loadMergedSkills(cwd, userId) : Promise.resolve([]),
+  ]);
 
   const sections: string[] = [systemPrompt, ...appendSystemPrompts];
 
