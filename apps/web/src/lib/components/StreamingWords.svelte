@@ -11,9 +11,10 @@ type StreamToken = {
 type Props = {
 	text: string;
 	active?: boolean;
+	tone?: "default" | "muted";
 };
 
-const { text, active = true }: Props = $props();
+const { text, active = true, tone = "default" }: Props = $props();
 
 const wordSegmenter =
 	typeof Intl !== "undefined" && "Segmenter" in Intl
@@ -87,7 +88,7 @@ $effect(() => {
 });
 </script>
 
-<span class="streaming-words" aria-live="off">
+<span class="streaming-words" class:streaming-words-muted={tone === 'muted'} aria-live="off">
 	{#each tokens as token (token.key)}
 		{#if token.kind === 'linebreak'}
 			<br />

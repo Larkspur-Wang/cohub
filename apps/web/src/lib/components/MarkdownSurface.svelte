@@ -7,9 +7,10 @@ type MarkdownVariant = "chat" | "document";
 type Props = {
 	html: string;
 	variant?: MarkdownVariant;
+	streamingLive?: boolean;
 };
 
-const { html, variant = "chat" }: Props = $props();
+const { html, variant = "chat", streamingLive = false }: Props = $props();
 
 let markdownEl = $state<HTMLElement | null>(null);
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -130,6 +131,11 @@ onDestroy(() => {
 });
 </script>
 
-<div bind:this={markdownEl} class="markdown-content" data-variant={variant}>
+<div
+	bind:this={markdownEl}
+	class="markdown-content"
+	class:streaming-live-markdown={streamingLive}
+	data-variant={variant}
+>
 	{@html html}
 </div>

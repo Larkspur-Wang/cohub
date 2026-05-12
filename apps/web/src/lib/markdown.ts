@@ -1,5 +1,6 @@
 import DOMPurify from "isomorphic-dompurify";
 import { marked, type Token, type Tokens } from "marked";
+import remend from "remend";
 import {
 	type BundledLanguage,
 	type BundledTheme,
@@ -362,6 +363,24 @@ function countMarkdownBlockMarkers(source: string) {
 	const fenceCount = (source.match(/^\s*([`~]{3,})/gm) ?? []).length;
 	return headingCount + listCount + quoteCount + fenceCount;
 }
+
+function repairStreamingMarkdown(source: string) {
+	return remend(source, {
+		images: false,
+		katex: false,
+		inlineKatex: false,
+	});
+}
+
+export const renderStreamingMarkdownLive = async (source: string) => {
+	const streamingSource = source.trimStart();
+	if (!streamingSource.trim()) return "";
+	return cacheMarkdownRender(`stream-live:${streamingSource}`, async () =>
+		renderMarkdownBlock(repairStreamingMarkdown(streamingSource), {
+			highlight: false,
+		}),
+	);
+};
 
 export const renderStreamingMarkdownStable = async (source: string) => {
 	const streamingSource = source.trimStart();

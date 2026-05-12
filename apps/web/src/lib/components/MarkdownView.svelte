@@ -2,7 +2,6 @@
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { onDestroy, untrack } from "svelte";
 import MarkdownSurface from "$lib/components/MarkdownSurface.svelte";
-import StreamingWords from "$lib/components/StreamingWords.svelte";
 import { renderMarkdown } from "$lib/markdown";
 import { StreamingMarkdownController } from "$lib/streaming-markdown-controller";
 
@@ -28,7 +27,7 @@ const {
 }: Props = $props();
 
 let stableHtml = $state("");
-let tailSource = $state("");
+let liveHtml = $state("");
 let renderSeq = 0;
 let controller: StreamingMarkdownController | null = null;
 let unsubscribeController: (() => void) | null = null;
@@ -44,7 +43,7 @@ function ensureController() {
 	controller = new StreamingMarkdownController();
 	unsubscribeController = controller.subscribe((snapshot) => {
 		stableHtml = snapshot.stableHtml;
-		tailSource = snapshot.tailSource;
+		liveHtml = snapshot.liveHtml;
 		requestAnimationFrame(() => untrack(() => onRendered?.()));
 	});
 	return controller;
@@ -64,7 +63,7 @@ function renderFullMarkdown(markdownSource: string) {
 		.then((html) => {
 			if (seq !== renderSeq) return;
 			stableHtml = html;
-			tailSource = "";
+			liveHtml = "";
 			requestAnimationFrame(() => {
 				if (seq === renderSeq) untrack(() => onRendered?.());
 			});
@@ -94,11 +93,9 @@ onDestroy(() => {
 });
 </script>
 
-<div class="streaming-markdown-flow" class:is-streaming={isStreaming && tailSource.length > 0}>
+<div class="streaming-markdown-flow" class:is-streaming={isStreaming && liveHtml.length > 0}>
 	<MarkdownSurface html={stableHtml} {variant} />
-	{#if isStreaming && tailSource.length > 0}
-		<div class="markdown-content streaming-tail-surface" data-variant={variant}>
-			<StreamingWords text={tailSource} active={isStreaming} />
-		</div>
+	{#if isStreaming && liveHtml.length > 0}
+		<MarkdownSurface html={liveHtml} {variant} streamingLive />
 	{/if}
 </div>

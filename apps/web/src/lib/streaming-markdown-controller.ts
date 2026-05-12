@@ -1,9 +1,13 @@
-import { renderStreamingMarkdownStable } from "$lib/markdown";
+import {
+	renderStreamingMarkdownLive,
+	renderStreamingMarkdownStable,
+} from "$lib/markdown";
 
 type StreamingMarkdownSnapshot = {
 	stableSource: string;
-	tailSource: string;
+	liveSource: string;
 	stableHtml: string;
+	liveHtml: string;
 };
 
 type StreamingMarkdownSubscriber = (
@@ -40,7 +44,7 @@ function advanceByWord(source: string, from: number, maxStep: number) {
 }
 
 function createEmptySnapshot(): StreamingMarkdownSnapshot {
-	return { stableSource: "", tailSource: "", stableHtml: "" };
+	return { stableSource: "", liveSource: "", stableHtml: "", liveHtml: "" };
 }
 
 export class StreamingMarkdownController {
@@ -187,15 +191,12 @@ export class StreamingMarkdownController {
 				this.#lastStableHtml = result.stableHtml;
 			}
 
-			const tailSource = source.startsWith(this.#lastStableSource)
+			const liveSource = source.startsWith(this.#lastStableSource)
 				? source.slice(this.#lastStableSource.length)
 				: result.tailSource;
-			this.#publish({
-				stableSource: this.#lastStableSource,
-				tailSource,
-				stableHtml: this.#lastStableHtml,
-			});
-		} catch {
+			const liveHtml = liveSource.trim()
+				? await renderStreamingMarkdownLive(liveSource)
+				: "";
 			if (
 				this.#disposed ||
 				seq !== this.#renderSeq ||
@@ -204,8 +205,23 @@ export class StreamingMarkdownController {
 				return;
 			this.#publish({
 				stableSource: this.#lastStableSource,
-				tailSource: source.slice(this.#lastStableSource.length),
+				liveSource,
 				stableHtml: this.#lastStableHtml,
+				liveHtml,
+			});
+		} catch {
+			if (
+				this.#disposed ||
+				seq !== this.#renderSeq ||
+				source !== this.#displayedSource
+			)
+				return;
+			const liveSource = source.slice(this.#lastStableSource.length);
+			this.#publish({
+				stableSource: this.#lastStableSource,
+				liveSource,
+				stableHtml: this.#lastStableHtml,
+				liveHtml: "",
 			});
 		}
 	}

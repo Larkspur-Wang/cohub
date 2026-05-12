@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import StreamingWords from "$lib/components/StreamingWords.svelte";
 
 type Props = {
 	blocks: Extract<ContentBlock, { type: "thinking" }>[];
@@ -34,7 +35,11 @@ const display = $derived.by(() => {
 {#if content}
 	<div>
 		<div class="text-[13px] leading-snug text-text-disabled break-words font-sans whitespace-pre-wrap">
-			{display}
+			{#if isStreaming}
+				<StreamingWords text={display} active={isStreaming} tone="muted" />
+			{:else}
+				{display}
+			{/if}
 		</div>
 		{#if !isStreaming && needsTruncation}
 			<button
