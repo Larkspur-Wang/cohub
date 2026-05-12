@@ -92,7 +92,7 @@ const sections: ShortcutSection[] = [
 						<p>Guides and workflow docs.</p>
 					</div>
 					<div class="doc-card">
-						<div>
+						<div class="doc-copy-wrap">
 							<div class="doc-title">Project documentation</div>
 							<div class="doc-copy">Deeper guides will appear here.</div>
 						</div>
@@ -106,14 +106,8 @@ const sections: ShortcutSection[] = [
 
 <style>
 	.help-sheet {
-		padding: 0.9rem 1rem 1rem;
-		background:
-			linear-gradient(
-				180deg,
-				color-mix(in oklab, var(--brand) 4%, transparent),
-				transparent 8rem
-			),
-			var(--bg-primary);
+		padding: 0.85rem 0.75rem 0.95rem;
+		background: var(--bg-primary);
 	}
 	.help-grid {
 		display: grid;
@@ -129,7 +123,7 @@ const sections: ShortcutSection[] = [
 		gap: 0.85rem;
 		align-items: start;
 		border-top: 1px solid color-mix(in oklab, var(--border-subtle) 72%, transparent);
-		padding: 0.78rem 0;
+		padding: 0.72rem 0;
 	}
 	.shortcut-section:first-child {
 		border-top: 0;
@@ -157,24 +151,21 @@ const sections: ShortcutSection[] = [
 	.shortcut-flow {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.42rem;
+		gap: 0.38rem 0.68rem;
 	}
 	.shortcut-chip {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.6rem;
-		min-height: 2rem;
-		border: 1px solid color-mix(in oklab, var(--border-subtle) 78%, transparent);
-		border-radius: 999px;
-		background: color-mix(in oklab, var(--bg-surface) 90%, var(--bg-primary));
-		padding: 0.24rem 0.34rem 0.24rem 0.72rem;
+		gap: 0.42rem;
+		min-height: 1.75rem;
+		border-radius: 6px;
+		padding: 0.16rem 0;
 		transition:
-			border-color 120ms ease,
-			background-color 120ms ease;
+			background-color 120ms ease,
+			color 120ms ease;
 	}
 	.shortcut-chip:hover {
-		border-color: color-mix(in oklab, var(--border-strong) 78%, var(--brand));
-		background: color-mix(in oklab, var(--bg-hover) 88%, var(--brand));
+		background: transparent;
 	}
 	.shortcut-label {
 		white-space: nowrap;
@@ -187,28 +178,24 @@ const sections: ShortcutSection[] = [
 		display: inline-flex;
 		flex-wrap: wrap;
 		justify-content: flex-end;
-		gap: 0.24rem;
+		gap: 0.18rem;
 	}
 	kbd {
 		display: inline-flex;
-		min-width: 1.5rem;
-		height: 1.36rem;
+		min-width: 1.42rem;
+		height: 1.24rem;
 		align-items: center;
 		justify-content: center;
-		border: 1px solid color-mix(in oklab, var(--brand) 24%, var(--border-strong));
-		border-bottom-color: color-mix(in oklab, var(--border-strong) 74%, black);
-		border-radius: 999px;
-		background: color-mix(in oklab, var(--bg-primary) 86%, var(--brand));
-		padding: 0 0.44rem;
+		border: 1px solid color-mix(in oklab, var(--brand) 38%, var(--border-subtle));
+		border-radius: 5px;
+		background: color-mix(in oklab, var(--brand) 13%, var(--bg-primary));
+		padding: 0 0.34rem;
 		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 		font-size: 10px;
 		font-weight: 750;
-		letter-spacing: 0.02em;
+		letter-spacing: 0.025em;
 		line-height: 1;
-		color: var(--text-primary);
-		box-shadow:
-			inset 0 -1px 0 color-mix(in oklab, var(--border-strong) 72%, transparent),
-			0 1px 0 color-mix(in oklab, var(--bg-primary) 80%, transparent);
+		color: color-mix(in oklab, var(--brand) 74%, var(--text-primary));
 	}
 	.doc-card {
 		display: flex;
@@ -216,10 +203,10 @@ const sections: ShortcutSection[] = [
 		justify-content: space-between;
 		gap: 1rem;
 		max-width: 100%;
-		border: 1px dashed color-mix(in oklab, var(--border-subtle) 78%, var(--brand));
-		border-radius: 10px;
-		background: color-mix(in oklab, var(--bg-surface) 92%, var(--brand));
-		padding: 0.62rem 0.72rem;
+		padding: 0;
+	}
+	.doc-copy-wrap {
+		min-width: 0;
 	}
 	.doc-title {
 		font-size: 12px;
@@ -234,8 +221,8 @@ const sections: ShortcutSection[] = [
 	}
 	.doc-status {
 		border-radius: 999px;
-		background: color-mix(in oklab, var(--brand) 9%, var(--bg-primary));
-		padding: 0.2rem 0.5rem;
+		background: color-mix(in oklab, var(--brand) 10%, var(--bg-primary));
+		padding: 0.18rem 0.48rem;
 		font-size: 10px;
 		font-weight: 700;
 		letter-spacing: 0.06em;

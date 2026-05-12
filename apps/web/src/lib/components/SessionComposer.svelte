@@ -302,8 +302,7 @@ $effect(() => {
 			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
 			onsubmit={(event) => {
 				event.preventDefault();
-				if (showAbort) onabort?.();
-				else onsubmit();
+				if (!submitDisabled && hasDraft) onsubmit();
 			}}
 			ondragenter={handleDragEnter}
 			ondragover={handleDragOver}
@@ -514,11 +513,14 @@ $effect(() => {
 								{/if}
 							</button>
 							<button
-								type="submit"
+								type={showAbort ? "button" : "submit"}
 								disabled={showAbort ? disabled || aborting : submitDisabled}
 								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white transition-all hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled ${showAbort ? 'bg-text-primary hover:bg-text-secondary' : 'bg-brand hover:bg-brand-hover'}`}
 								title={showAbort ? "Stop generation" : "Send"}
 								aria-label={showAbort ? "Stop generation" : "Send"}
+								onclick={() => {
+									if (showAbort) onabort?.();
+								}}
 							>
 								{#if showAbort}
 									<Square class="h-3.5 w-3.5 fill-current" />
