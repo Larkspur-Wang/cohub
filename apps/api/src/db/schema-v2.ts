@@ -119,6 +119,8 @@ export const spaces = v2.table(
     userUuidIdx: index("v2_idx_spaces_user_uuid").on(table.userUuid),
     baseCheckpointIdx: index("v2_idx_spaces_base_checkpoint_id").on(table.baseCheckpointId),
     headCheckpointIdx: index("v2_idx_spaces_head_checkpoint_id").on(table.headCheckpointId),
+    nameSearchIdx: index("v2_idx_spaces_name_trgm").using("gin", table.name.op("gin_trgm_ops")),
+    descriptionSearchIdx: index("v2_idx_spaces_description_trgm").using("gin", table.description.op("gin_trgm_ops")),
     userSpaceNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_name").on(table.userUuid, table.name),
     storageRepoNameUniqueIdx: uniqueIndex("v2_uq_spaces_storage_repo_name").on(
       table.storageRepoName,
@@ -230,6 +232,12 @@ export const spaceSessions = v2.table(
     spaceIdx: index("v2_idx_space_sessions_space_id").on(table.spaceId),
     lastMessageIdx: index("v2_idx_space_sessions_last_message_id").on(table.lastMessageId),
     lastMessageAtIdx: index("v2_idx_space_sessions_last_message_at").on(table.lastMessageAt),
+    titleSearchIdx: index("v2_idx_space_sessions_title_trgm").using("gin", table.title.op("gin_trgm_ops")),
+    spaceLastMessageIdx: index("v2_idx_space_sessions_space_last_message_id").on(
+      table.spaceId,
+      table.lastMessageAt.desc().nullsLast(),
+      table.id.desc(),
+    ),
   }),
 );
 
@@ -386,6 +394,7 @@ export const sessionTurns = v2.table(
     userUuidIdx: index("v2_idx_session_turns_user_uuid").on(table.userUuid),
     statusIdx: index("v2_idx_session_turns_status").on(table.status),
     createdAtIdx: index("v2_idx_session_turns_created_at").on(table.createdAt),
+    userTextSearchIdx: index("v2_idx_session_turns_user_text_trgm").using("gin", table.userText.op("gin_trgm_ops")),
   }),
 );
 
@@ -502,6 +511,7 @@ export const spaceMembers = v2.table(
     ),
     spaceIdx: index("v2_idx_space_members_space").on(table.spaceId),
     userIdx: index("v2_idx_space_members_user").on(table.userId),
+    userSpaceIdx: index("v2_idx_space_members_user_space").on(table.userId, table.spaceId),
     spaceRoleIdx: index("v2_idx_space_members_space_role").on(table.spaceId, table.role),
   }),
 );

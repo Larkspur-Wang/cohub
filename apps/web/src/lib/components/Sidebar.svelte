@@ -28,6 +28,7 @@ import {
 	Pin,
 	PinOff,
 	Plus,
+	Search,
 	Settings,
 	Trash2,
 	User,
@@ -40,6 +41,7 @@ import { page } from "$app/state";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
+import { getCacheUserKey } from "$lib/cache/keys";
 import Dialog from "$lib/components/Dialog.svelte";
 import { sdk } from "$lib/sdk";
 import {
@@ -506,6 +508,11 @@ function returnFromSettings() {
 	void handleNavigate(settingsReturnTo);
 }
 
+function openCommandPalette() {
+	onClose?.();
+	window.dispatchEvent(new CustomEvent("cohub:open-command-palette"));
+}
+
 async function handleNavigateToSpace(spaceId: string) {
 	showSpaceModal = false;
 	onClose?.();
@@ -701,6 +708,12 @@ function getCheckpointTitle(checkpoint: CheckpointRecord): string {
 
 async function handleLogout() {
 	onClose?.();
+	const commandPaletteRecentKey = `cohub:command-palette:recent:${encodeURIComponent(getCacheUserKey())}`;
+	try {
+		localStorage.removeItem(commandPaletteRecentKey);
+	} catch {
+		// Ignore storage cleanup failures during logout.
+	}
 	clearAllCachedSpaceLists();
 	clearAllCachedSpacePins();
 	await clearAllIndexedDbCache().catch((error) => {
@@ -883,13 +896,23 @@ $effect(() => {
 
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Brand Header -->
-  <div class="h-[48px] flex items-center px-3 border-b border-border-subtle shrink-0">
-    <a href="/" class="flex items-center gap-2 group" aria-label="Cohub">
-      <div class="w-7 h-7 bg-[#FF3E00] rounded-[6px] flex items-center justify-center font-bold text-[11px] text-white group-hover:bg-brand-hover transition-colors">
+  <div class="h-[48px] flex items-center justify-between gap-2 px-3 border-b border-border-subtle shrink-0">
+    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
+      <div class="w-7 h-7 bg-[#FF3E00] rounded-[6px] flex items-center justify-center font-bold text-[11px] text-white group-hover:bg-brand-hover transition-colors shrink-0">
         C
       </div>
-      <span class="font-semibold text-[13px] text-text-primary tracking-tight">Cohub</span>
+      <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
     </a>
+    <button
+      type="button"
+      class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-primary px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:border-brand/35 hover:bg-bg-hover hover:text-text-primary"
+      onclick={openCommandPalette}
+      title="Search everywhere (⌘K / Ctrl K)"
+      aria-label="Search everywhere"
+    >
+      <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
+      <span class="hidden xl:inline font-mono tracking-[0.02em]">⌘K</span>
+    </button>
   </div>
 
   {#if mode === "space"}

@@ -3,6 +3,7 @@ import "../app.css";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { scheduleCacheCleanup } from "$lib/cache/cleanup";
+import CommandPalette from "$lib/components/CommandPalette.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
@@ -480,6 +481,7 @@ onMount(() => {
 
   <!-- Global media lightbox -->
   <MediaLightbox />
+  <CommandPalette />
 
 {/if}
 

@@ -310,6 +310,34 @@ export type SpaceChannelBindingInput = {
   config?: ChannelConfig | null;
 };
 
+export type GlobalSearchResult = {
+  type: "turn" | "session" | "space";
+  id: string;
+  spaceId: string;
+  sessionId: string | null;
+  turnId: string | null;
+  sequence: number | null;
+  title: string;
+  excerpt: string | null;
+  spaceName: string | null;
+  sessionTitle: string | null;
+  matchedField: "userText" | "title" | "name" | "description";
+  href: string;
+  score: number;
+  textScore: number;
+  recencyScore: number;
+  typePriorityScore: number;
+  updatedAt: string | null;
+  source: "remote";
+};
+
+export type GlobalSearchResponse = {
+  items: GlobalSearchResult[];
+  query: string;
+  source: "remote";
+  degraded?: boolean;
+};
+
 export type SpaceSessionsResponse = {
   sessions: SessionRecord[];
   pageInfo?: {
