@@ -290,6 +290,7 @@ $effect(() => {
 
 <style>
   .tree-item {
+    position: relative;
     width: 100%;
     min-width: 0;
     display: flex;
@@ -344,17 +345,30 @@ $effect(() => {
     color: var(--text-tertiary);
   }
 
+  .tree-item:hover,
+  .tree-item:focus-within,
+  .tree-item.selected {
+    padding-right: 112px;
+  }
+
   .actions {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
     gap: 2px;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 120ms ease;
   }
 
   .tree-item:hover .actions,
+  .tree-item:focus-within .actions,
   .tree-item.selected .actions {
     opacity: 1;
+    pointer-events: auto;
   }
 
   .action {

@@ -1097,7 +1097,7 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-20 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 							onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
@@ -1231,7 +1231,7 @@ $effect(() => {
             {:else}
               <a
                 href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
-                class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-20 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
 				draggable={!isMobile}
