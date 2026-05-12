@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;--> statement-breakpoint
 CREATE INDEX "v2_idx_session_turns_user_text_trgm" ON "v2"."session_turns" USING gin ("user_text" gin_trgm_ops);--> statement-breakpoint
 CREATE INDEX "v2_idx_space_members_user_space" ON "v2"."space_members" USING btree ("user_id","space_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_space_sessions_title_trgm" ON "v2"."space_sessions" USING gin ("title" gin_trgm_ops);--> statement-breakpoint
