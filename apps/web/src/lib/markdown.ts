@@ -285,46 +285,24 @@ function hasUnclosedInlineMarkdown(source: string) {
 	return linkOpen > linkClose || parenOpen > parenClose;
 }
 
-function isUnsafeStreamingLine(line: string) {
-	const trimmed = line.trim();
-	if (!trimmed) return false;
-	if (/^#{1,6}\s/.test(trimmed)) return true;
-	if (/^([-+*]|\d+[.)])\s+/.test(trimmed)) return true;
-	if (/^>\s?/.test(trimmed)) return true;
-	if (/^\|.*\|?$/.test(trimmed)) return true;
-	if (/^[-:|\s]+$/.test(trimmed) && trimmed.includes("|")) return true;
-	return hasUnclosedInlineMarkdown(trimmed);
-}
-
 function findStreamingSafeIndex(source: string) {
 	const length = source.length;
 	if (length < 140) return 0;
 
 	const minTail = source.endsWith("\n")
-		? 48
-		: Math.min(220, Math.max(72, Math.floor(length * 0.12)));
+		? 64
+		: Math.min(320, Math.max(96, Math.floor(length * 0.16)));
 	const maxStableIndex = Math.max(0, length - minTail);
-	const searchStart = Math.max(0, maxStableIndex - 900);
+	const searchStart = Math.max(0, maxStableIndex - 1400);
 	const window = source.slice(searchStart, maxStableIndex);
 	const candidates: number[] = [];
 
+	// Only promote completed paragraphs/blocks while streaming. Promoting at
+	// sentence or single-line boundaries makes the live plain-text tail suddenly
+	// reflow into Markdown (lists, headings, bold text), which reads as a visual
+	// jump. Paragraph boundaries are slower, but much more stable and refined.
 	for (const match of window.matchAll(/\n\s*\n/g)) {
 		candidates.push(searchStart + match.index + match[0].length);
-	}
-	for (const match of window.matchAll(/[。！？!?]\s+/g)) {
-		candidates.push(searchStart + match.index + match[0].length);
-	}
-	for (const match of window.matchAll(/[.。！？!?]\n/g)) {
-		candidates.push(searchStart + match.index + match[0].length);
-	}
-
-	const lines = source.slice(0, maxStableIndex).split(/\r?\n/);
-	let offset = 0;
-	for (const line of lines) {
-		offset += line.length + 1;
-		if (offset <= maxStableIndex && !isUnsafeStreamingLine(line)) {
-			candidates.push(offset);
-		}
 	}
 
 	candidates.sort((a, b) => b - a);
@@ -332,8 +310,8 @@ function findStreamingSafeIndex(source: string) {
 		const stable = source.slice(0, candidate);
 		const tail = source.slice(candidate);
 		if (!stable.trim()) continue;
-		if (tail.length > 420) continue;
-		if (hasUnclosedInlineMarkdown(stable.slice(-320))) continue;
+		if (tail.length > 620) continue;
+		if (hasUnclosedInlineMarkdown(stable.slice(-480))) continue;
 		return candidate;
 	}
 
@@ -346,6 +324,14 @@ export function splitStreamingStableMarkdown(source: string) {
 		stable: source.slice(0, safeIndex),
 		tail: source.slice(safeIndex),
 	};
+}
+
+function countMarkdownBlockMarkers(source: string) {
+	const headingCount = (source.match(/^#{1,6}\s/gm) ?? []).length;
+	const listCount = (source.match(/^\s*(?:[-+*]|\d+[.)])\s+/gm) ?? []).length;
+	const quoteCount = (source.match(/^>\s?/gm) ?? []).length;
+	const fenceCount = (source.match(/^\s*([`~]{3,})/gm) ?? []).length;
+	return headingCount + listCount + quoteCount + fenceCount;
 }
 
 export const renderStreamingMarkdownStable = async (source: string) => {
@@ -382,9 +368,13 @@ export const renderStreamingMarkdownStable = async (source: string) => {
 	}
 
 	const stableSource = stableSources.join("\n\n");
+	const hasMeaningfulTail = tailSource.trim().length > 0;
 	const stableHtml = stableSource.trim()
 		? await cacheMarkdownRender(`stream-stable-v2:${stableSource}`, async () =>
-				renderMarkdownBlock(stableSource, { highlight: false }),
+				renderMarkdownBlock(stableSource, {
+					highlight:
+						!hasMeaningfulTail || countMarkdownBlockMarkers(stableSource) <= 1,
+				}),
 			)
 		: "";
 
