@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
@@ -653,6 +653,15 @@ export function subscribeSessionEvents(handle: SessionHandle) {
   });
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadOrCreateSessionHandle(input: {
   spaceId: string;
   sessionId: string;
@@ -696,9 +705,9 @@ export async function loadOrCreateSessionHandle(input: {
   const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
 
   let sessionManager: SessionManager;
-  if (existsSync(existingSessionFile)) {
+  if (await pathExists(existingSessionFile)) {
     console.log(`[Session] restore sessionId=${input.sessionId} spaceId=${input.spaceId}`);
-    sessionManager = SessionManager.open(existingSessionFile, spaceSessionsDir);
+    sessionManager = await SessionManager.open(existingSessionFile, spaceSessionsDir);
   } else {
     const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
     tmpManager.newSession({ id: input.sessionId });
