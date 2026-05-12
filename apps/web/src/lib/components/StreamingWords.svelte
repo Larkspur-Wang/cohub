@@ -20,8 +20,9 @@ const wordSegmenter =
 		? new Intl.Segmenter(undefined, { granularity: "word" })
 		: null;
 
-let seenKeys = $state.raw(new Set<string>());
+let seenKeys = new Set<string>();
 let previousText = "";
+let tokens = $state<StreamToken[]>([]);
 
 function splitSegment(
 	segment: string,
@@ -70,16 +71,14 @@ function tokenize(source: string) {
 	});
 }
 
-const tokens = $derived(tokenize(text));
-
 $effect(() => {
 	const currentText = text;
-	const currentTokens = tokens;
 	if (!currentText.startsWith(previousText)) {
 		seenKeys = new Set();
 	}
+	tokens = tokenize(currentText);
 	const nextSeen = new Set(seenKeys);
-	for (const token of currentTokens) {
+	for (const token of tokens) {
 		if (token.kind === "word") nextSeen.add(token.key);
 	}
 	seenKeys = nextSeen;
