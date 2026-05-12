@@ -76,9 +76,10 @@ $effect(() => {
 	if (!currentText.startsWith(previousText)) {
 		seenKeys = new Set();
 	}
-	tokens = tokenize(currentText);
+	const nextTokens = tokenize(currentText);
+	tokens = nextTokens;
 	const nextSeen = new Set(seenKeys);
-	for (const token of tokens) {
+	for (const token of nextTokens) {
 		if (token.kind === "word") nextSeen.add(token.key);
 	}
 	seenKeys = nextSeen;
