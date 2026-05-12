@@ -197,6 +197,7 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 function handleGlobalKeydown(event: KeyboardEvent) {
 	if (open && event.key === "Escape") {
 		event.preventDefault();
+		event.stopPropagation();
 		closePalette();
 		return;
 	}
@@ -228,10 +229,12 @@ $effect(() => {
 });
 
 onMount(() => {
-	window.addEventListener("keydown", handleGlobalKeydown);
+	window.addEventListener("keydown", handleGlobalKeydown, { capture: true });
 	window.addEventListener("cohub:open-command-palette", handleOpenPaletteEvent);
 	return () => {
-		window.removeEventListener("keydown", handleGlobalKeydown);
+		window.removeEventListener("keydown", handleGlobalKeydown, {
+			capture: true,
+		});
 		window.removeEventListener(
 			"cohub:open-command-palette",
 			handleOpenPaletteEvent,

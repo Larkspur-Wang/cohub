@@ -132,7 +132,7 @@ router.get("/", async (c) => {
             ELSE similarity(coalesce(s.description, ''), ${q}) * 0.58
           END * 0.68
         ) AS text_score,
-        0.33::double precision AS type_priority_score
+        1.00::double precision AS type_priority_score
       FROM visible_spaces s
       WHERE
         s.name ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
@@ -160,7 +160,7 @@ router.get("/", async (c) => {
           WHEN coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
           ELSE similarity(coalesce(sess.title, ''), ${q}) * 0.70
         END * 0.94 AS text_score,
-        0.66::double precision AS type_priority_score
+        0.74::double precision AS type_priority_score
       FROM v2.space_sessions sess
       JOIN visible_spaces sp ON sp.id = sess.space_id
       WHERE
@@ -187,7 +187,7 @@ router.get("/", async (c) => {
           WHEN coalesce(t.user_text, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
           ELSE similarity(coalesce(t.user_text, ''), ${q}) * 0.70
         END AS text_score,
-        1.00::double precision AS type_priority_score
+        0.66::double precision AS type_priority_score
       FROM v2.session_turns t
       JOIN v2.space_sessions sess ON sess.id = t.session_id
       JOIN visible_spaces sp ON sp.id = sess.space_id
