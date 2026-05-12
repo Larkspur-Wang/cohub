@@ -71,14 +71,6 @@ content:
     - type: image
       max: 16
       sources: [url, base64, space_file]
-  output:
-    - type: image
-      path: $.data[*].url
-    - type: text
-      path: $.data[*].revised_prompt
-      skip_empty: true
-      meta:
-        role: revised_prompt
 
 parameters:
   size:

@@ -5,8 +5,6 @@ export type GenerationContentSpec = {
   max?: number;
   sources?: Array<"url" | "base64" | "space_file">;
   merge?: "newline" | "space" | "concat";
-  path?: string;
-  skip_empty?: boolean;
   meta?: Record<string, unknown>;
   description?: string;
 };
@@ -76,7 +74,6 @@ export type GenerationDeclaration = {
   };
   content: {
     input: GenerationContentSpec[];
-    output: GenerationContentSpec[];
   };
   parameters?: Record<string, GenerationParameterSpec>;
   examples?: Array<{
@@ -130,8 +127,7 @@ export function isGenerationDeclaration(value: unknown): value is GenerationDecl
     && typeof adapter.base_url === "string"
     && typeof adapter.api_key === "string"
     && isRecord(content)
-    && Array.isArray(content.input)
-    && Array.isArray(content.output);
+    && Array.isArray(content.input);
 }
 
 export function isGenerationsConfig(value: unknown): value is GenerationsConfig {

@@ -27,18 +27,6 @@ content:
         - space_file
       description: Optional reference images.
 
-  output:
-    - type: image
-      path: $.data[*].url
-      sources:
-        - url
-
-    - type: text
-      path: $.data[*].revised_prompt
-      skip_empty: true
-      meta:
-        role: revised_prompt
-
 parameters:
   size:
     type: string

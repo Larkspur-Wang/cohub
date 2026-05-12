@@ -45,8 +45,6 @@ export type GenerationContentSpec = {
   max?: number;
   sources?: Array<"url" | "base64" | "space_file">;
   merge?: "newline" | "space" | "concat";
-  path?: string;
-  skip_empty?: boolean;
   meta?: Record<string, unknown>;
   description?: string;
 };
@@ -98,7 +96,6 @@ export type GenerationDeclaration = {
   };
   content: {
     input: GenerationContentSpec[];
-    output: GenerationContentSpec[];
   };
   parameters?: Record<string, GenerationParameterSpec>;
   examples?: Array<{

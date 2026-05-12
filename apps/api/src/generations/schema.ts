@@ -31,8 +31,6 @@ const generationContentSpecSchema = z.object({
   max: z.number().int().nonnegative().optional(),
   sources: z.array(z.enum(["url", "base64", "space_file"])).optional(),
   merge: z.enum(["newline", "space", "concat"]).optional(),
-  path: z.string().optional(),
-  skip_empty: z.boolean().optional(),
   meta: metaSchema.optional(),
   description: z.string().optional(),
 });
@@ -86,7 +84,6 @@ export const generationDeclarationSchema = z.object({
   }),
   content: z.object({
     input: z.array(generationContentSpecSchema),
-    output: z.array(generationContentSpecSchema),
   }),
   parameters: z.record(z.string(), generationParameterSpecSchema).optional(),
   examples: z.array(z.object({
