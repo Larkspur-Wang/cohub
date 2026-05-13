@@ -30,6 +30,25 @@ let navigationMode: "mouse" | "keyboard" = $state("mouse");
 let containerEl = $state<HTMLElement | null>(null);
 let searchInputEl = $state<HTMLInputElement | null>(null);
 
+function getVisibleSearchInput() {
+	if (searchInputEl && searchInputEl.getClientRects().length > 0) {
+		return searchInputEl;
+	}
+	return (
+		Array.from(
+			document.querySelectorAll<HTMLInputElement>(
+				'[data-model-selector-search="true"]',
+			),
+		).find((input) => input.getClientRects().length > 0) ?? null
+	);
+}
+
+function focusSearchInputSoon() {
+	requestAnimationFrame(() => {
+		getVisibleSearchInput()?.focus();
+	});
+}
+
 function getDisplayName(item: ModelItem): string {
 	const name = item.model.name;
 	return typeof name === "string" && name.trim() ? name : item.id;
@@ -85,9 +104,7 @@ $effect(() => {
 				window.matchMedia("(pointer: coarse)").matches ||
 				navigator.maxTouchPoints > 0);
 		if (!isMobile) {
-			requestAnimationFrame(() => {
-				searchInputEl?.focus();
-			});
+			focusSearchInputSoon();
 		}
 	}
 });
@@ -177,6 +194,7 @@ function subsequenceScore(query: string, text: string): number {
 	<div class="px-3 pt-3 pb-2 border-b border-border-subtle">
 		<input
 			bind:this={searchInputEl}
+			data-model-selector-search="true"
 			type="text"
 			placeholder="Search models..."
 			bind:value={searchQuery}
