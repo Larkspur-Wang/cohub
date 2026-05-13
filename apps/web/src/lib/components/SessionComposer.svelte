@@ -25,6 +25,8 @@ import {
 	buildSpaceMentionMarkdown,
 	parseCohubSpaceUrls,
 	replaceCohubSpaceUrls,
+	type SpaceMentionTextToken,
+	tokenizeSpaceMentionText,
 } from "$lib/mentions/space";
 import {
 	mergeSpaceMentionSuggestions,
@@ -80,6 +82,7 @@ let {
 }: Props = $props();
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
+let mentionMirrorEl = $state<HTMLDivElement | null>(null);
 let fileInputEl = $state<HTMLInputElement | null>(null);
 let isDragOver = $state(false);
 let dragCounter = 0;
@@ -88,12 +91,14 @@ let showPromptSuggestions = $state(false);
 let selectedPromptIndex = $state(0);
 let showSpaceMentions = $state(false);
 let selectedSpaceMentionIndex = $state(0);
+let selectedSpaceMentionId = $state<string | null>(null);
 let localSpaceMentionItems = $state<SpaceMentionSuggestion[]>([]);
 let remoteSpaceMentionItems = $state<SpaceMentionSuggestion[]>([]);
 let spaceMentionLocalDone = $state(true);
 let spaceMentionRemoteDone = $state(true);
 let spaceMentionRemoteError = $state<string | null>(null);
 let spaceMentionSearchToken = 0;
+let activeSpaceMentionSearchKey: string | null = null;
 let spaceMentionLocalController: AbortController | null = null;
 let spaceMentionRemoteController: AbortController | null = null;
 let spaceMentionDebounceTimer: number | null = null;
@@ -178,6 +183,12 @@ const spaceMentionStatus = $derived.by(() => {
 		return `Local ${localSpaceMentionItems.length} · syncing server…`;
 	return `${spaceMentionItems.length} space${spaceMentionItems.length === 1 ? "" : "s"}`;
 });
+const composerMentionTokens = $derived.by<SpaceMentionTextToken[]>(() =>
+	tokenizeSpaceMentionText(value),
+);
+const composerHasRenderableMentions = $derived(
+	composerMentionTokens.some((token) => token.type === "spaceMention"),
+);
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
 function isMobile(): boolean {
@@ -216,6 +227,13 @@ function resizeTextarea() {
 		? max
 		: Math.min(textareaEl.scrollHeight, max);
 	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
+	syncMentionMirrorScroll();
+}
+
+function syncMentionMirrorScroll() {
+	if (!textareaEl || !mentionMirrorEl) return;
+	mentionMirrorEl.scrollTop = textareaEl.scrollTop;
+	mentionMirrorEl.scrollLeft = textareaEl.scrollLeft;
 }
 
 function toggleComposerExpanded() {
@@ -253,25 +271,56 @@ function detectSpaceMentionTrigger() {
 	return { start: atIndex, end: cursor, query: token };
 }
 
-function resetSpaceMentionSearch() {
+function abortSpaceMentionSearch() {
+	spaceMentionSearchToken += 1;
 	spaceMentionLocalController?.abort();
 	spaceMentionRemoteController?.abort();
-	if (spaceMentionDebounceTimer != null)
+	spaceMentionLocalController = null;
+	spaceMentionRemoteController = null;
+	if (spaceMentionDebounceTimer != null) {
 		window.clearTimeout(spaceMentionDebounceTimer);
+		spaceMentionDebounceTimer = null;
+	}
+}
+
+function resetSpaceMentionSearch() {
+	abortSpaceMentionSearch();
+	activeSpaceMentionSearchKey = null;
 	localSpaceMentionItems = [];
 	remoteSpaceMentionItems = [];
 	spaceMentionLocalDone = true;
 	spaceMentionRemoteDone = true;
 	spaceMentionRemoteError = null;
 	selectedSpaceMentionIndex = 0;
+	selectedSpaceMentionId = null;
 }
 
-function scheduleSpaceMentionSearch(trigger: { query: string } | null) {
-	resetSpaceMentionSearch();
-	if (!trigger) return;
+function selectSpaceMentionIndex(index: number) {
+	selectedSpaceMentionIndex = index;
+	selectedSpaceMentionId = spaceMentionItems[index]?.spaceId ?? null;
+}
+
+function scheduleSpaceMentionSearch(
+	trigger: {
+		start: number;
+		query: string;
+	} | null,
+) {
+	if (!trigger) {
+		resetSpaceMentionSearch();
+		return;
+	}
+
 	const q = trigger.query.trim();
-	const token = ++spaceMentionSearchToken;
+	const searchKey = `${trigger.start}:${currentSpaceId ?? ""}:${q}`;
+	if (searchKey === activeSpaceMentionSearchKey) return;
+
+	abortSpaceMentionSearch();
+	activeSpaceMentionSearchKey = searchKey;
 	spaceMentionLocalDone = false;
+	spaceMentionRemoteDone = q.length < 2;
+	spaceMentionRemoteError = null;
+	const token = spaceMentionSearchToken;
 	spaceMentionLocalController = new AbortController();
 	void searchLocalSpaceMentions(q, {
 		signal: spaceMentionLocalController.signal,
@@ -288,9 +337,10 @@ function scheduleSpaceMentionSearch(trigger: { query: string } | null) {
 		.finally(() => {
 			if (token === spaceMentionSearchToken) spaceMentionLocalDone = true;
 		});
-
-	if (q.length < 2) return;
-	spaceMentionRemoteDone = false;
+	if (q.length < 2) {
+		remoteSpaceMentionItems = [];
+		return;
+	}
 	spaceMentionRemoteController = new AbortController();
 	spaceMentionDebounceTimer = window.setTimeout(() => {
 		void searchRemoteSpaceMentions(q, {
@@ -322,6 +372,7 @@ function applySpaceMention(item: SpaceMentionSuggestion) {
 	showSpaceMentions = false;
 	spaceMentionTrigger = null;
 	selectedSpaceMentionIndex = 0;
+	selectedSpaceMentionId = null;
 	requestAnimationFrame(() => {
 		const pos = trigger.start + snippet.length;
 		textareaEl?.focus();
@@ -523,18 +574,36 @@ $effect(() => {
 });
 
 $effect(() => {
-	value;
 	const trigger = detectSpaceMentionTrigger();
 	spaceMentionTrigger = trigger;
-	showSpaceMentions = Boolean(trigger && !slashCommandActive);
-	scheduleSpaceMentionSearch(trigger && !slashCommandActive ? trigger : null);
+	const activeTrigger = trigger && !slashCommandActive ? trigger : null;
+	showSpaceMentions = Boolean(activeTrigger);
+	scheduleSpaceMentionSearch(activeTrigger);
 });
 
 $effect(() => {
+	if (spaceMentionItems.length === 0) {
+		selectedSpaceMentionIndex = 0;
+		selectedSpaceMentionId = null;
+		return;
+	}
+
+	if (selectedSpaceMentionId) {
+		const index = spaceMentionItems.findIndex(
+			(item) => item.spaceId === selectedSpaceMentionId,
+		);
+		if (index !== -1) {
+			selectedSpaceMentionIndex = index;
+			return;
+		}
+	}
+
 	selectedSpaceMentionIndex = Math.min(
 		selectedSpaceMentionIndex,
-		Math.max(spaceMentionItems.length - 1, 0),
+		spaceMentionItems.length - 1,
 	);
+	selectedSpaceMentionId =
+		spaceMentionItems[selectedSpaceMentionIndex]?.spaceId ?? null;
 });
 </script>
 
@@ -612,14 +681,31 @@ $effect(() => {
 						}}
 					/>
 
-					<textarea
-						bind:this={textareaEl}
-						bind:value
-						rows="1"
-						placeholder={placeholder}
-						class="block min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-[14px] leading-6 text-text-primary outline-none placeholder:text-text-placeholder"
-						oninput={() => resizeTextarea()}
-						ondragover={handlePathDragOver}
+					<div class="composer-input-shell relative min-h-[44px]">
+						{#if composerHasRenderableMentions}
+							<div
+								bind:this={mentionMirrorEl}
+								class="composer-mention-mirror pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-[14px] leading-6 text-text-primary"
+								aria-hidden="true"
+							>
+								{#each composerMentionTokens as token}
+									{#if token.type === 'spaceMention'}<span
+										class="composer-space-mention"
+										data-space-id={token.spaceId}
+									>@{token.label}</span>{:else}{token.text}{/if}
+								{/each}
+							</div>
+						{/if}
+
+						<textarea
+							bind:this={textareaEl}
+							bind:value
+							rows="1"
+							placeholder={placeholder}
+							class={`relative z-[1] block min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-[14px] leading-6 outline-none placeholder:text-text-placeholder ${composerHasRenderableMentions ? 'text-transparent caret-text-primary selection:bg-brand/22' : 'text-text-primary'}`}
+							oninput={() => resizeTextarea()}
+							onscroll={syncMentionMirrorScroll}
+							ondragover={handlePathDragOver}
 						ondragleave={handlePathDragLeave}
 						ondrop={handlePathDrop}
 						onpaste={handlePaste}
@@ -648,22 +734,22 @@ $effect(() => {
 								const isEmacsPrevious = event.ctrlKey && !event.metaKey && !event.altKey && key === 'p';
 								if (spaceMentionItems.length > 0 && (event.key === 'ArrowDown' || isEmacsNext)) {
 									event.preventDefault();
-									selectedSpaceMentionIndex = Math.min(selectedSpaceMentionIndex + 1, spaceMentionItems.length - 1);
+									selectSpaceMentionIndex(Math.min(selectedSpaceMentionIndex + 1, spaceMentionItems.length - 1));
 									return;
 								}
 								if (spaceMentionItems.length > 0 && (event.key === 'ArrowUp' || isEmacsPrevious)) {
 									event.preventDefault();
-									selectedSpaceMentionIndex = Math.max(selectedSpaceMentionIndex - 1, 0);
+									selectSpaceMentionIndex(Math.max(selectedSpaceMentionIndex - 1, 0));
 									return;
 								}
 								if (spaceMentionItems.length > 0 && event.key === 'Home') {
 									event.preventDefault();
-									selectedSpaceMentionIndex = 0;
+									selectSpaceMentionIndex(0);
 									return;
 								}
 								if (spaceMentionItems.length > 0 && event.key === 'End') {
 									event.preventDefault();
-									selectedSpaceMentionIndex = spaceMentionItems.length - 1;
+									selectSpaceMentionIndex(spaceMentionItems.length - 1);
 									return;
 								}
 								if (spaceMentionItems.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
@@ -750,7 +836,8 @@ $effect(() => {
 								}
 							}
 						}}
-					></textarea>
+						></textarea>
+					</div>
 
 					<SlashCommandMenu
 						open={showPromptSuggestions}
@@ -772,7 +859,7 @@ $effect(() => {
 						loading={spaceMentionLoading}
 						status={spaceMentionStatus}
 						onhighlight={(index) => {
-							selectedSpaceMentionIndex = index;
+							selectSpaceMentionIndex(index);
 						}}
 						onselect={applySpaceMention}
 					/>
@@ -844,3 +931,50 @@ $effect(() => {
 		</form>
 	</div>
 </div>
+
+<style>
+	.composer-input-shell textarea,
+	.composer-mention-mirror {
+		font: inherit;
+		font-size: 14px;
+		line-height: 1.5rem;
+		letter-spacing: inherit;
+		tab-size: 4;
+	}
+
+	.composer-mention-mirror {
+		min-height: 44px;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+	}
+
+	.composer-space-mention {
+		display: inline;
+		box-decoration-break: clone;
+		-webkit-box-decoration-break: clone;
+		border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent);
+		border-radius: 999px;
+		background:
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--brand) 13%, transparent),
+				color-mix(in srgb, var(--brand) 8%, transparent)
+			),
+			var(--bg-content);
+		color: var(--brand);
+		font-weight: 520;
+		padding: 0.03rem 0.42rem 0.08rem;
+		text-shadow: 0 0 0 color-mix(in srgb, var(--brand) 44%, transparent);
+		white-space: pre-wrap;
+	}
+
+	:global([data-theme="light"]) .composer-space-mention {
+		background:
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--brand) 10%, white),
+				color-mix(in srgb, var(--brand) 5%, white)
+			),
+			var(--bg-content);
+	}
+</style>

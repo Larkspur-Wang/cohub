@@ -27,6 +27,17 @@ export type SpaceMentionSuggestion = {
 	recencyScore: number;
 };
 
+export type SpaceMentionTextToken =
+	| { type: "text"; text: string }
+	| {
+			type: "spaceMention";
+			label: string;
+			spaceId: string;
+			raw: string;
+			uri: string;
+			href: string;
+	  };
+
 const SPACE_URI_PREFIX = "cohub://spaces/";
 const SPACE_MENTION_PATTERN = /@\[([^\]\n]+)\]\(cohub:\/\/spaces\/([^)\s]+)\)/g;
 const SPACE_URL_PATTERN =
@@ -74,20 +85,54 @@ export function parseSpaceMentionUri(uri: string): { spaceId: string } | null {
 export function extractSpaceMentionsFromText(text: string): SpaceMention[] {
 	const mentions: SpaceMention[] = [];
 	const seen = new Set<string>();
-	for (const match of text.matchAll(SPACE_MENTION_PATTERN)) {
-		const label = match[1]?.trim();
-		const spaceId = safeDecode(match[2] ?? "").trim();
-		if (!label || !spaceId || seen.has(spaceId)) continue;
-		seen.add(spaceId);
+	for (const token of tokenizeSpaceMentionText(text)) {
+		if (token.type !== "spaceMention" || seen.has(token.spaceId)) continue;
+		seen.add(token.spaceId);
 		mentions.push({
 			type: "space",
-			spaceId,
-			label,
-			uri: buildSpaceMentionUri(spaceId),
-			href: buildSpaceMentionHref(spaceId),
+			spaceId: token.spaceId,
+			label: token.label,
+			uri: token.uri,
+			href: token.href,
 		});
 	}
 	return mentions;
+}
+
+export function tokenizeSpaceMentionText(
+	text: string,
+): SpaceMentionTextToken[] {
+	if (!text) return [];
+	const tokens: SpaceMentionTextToken[] = [];
+	let cursor = 0;
+	for (const match of text.matchAll(SPACE_MENTION_PATTERN)) {
+		const raw = match[0] ?? "";
+		const index = match.index ?? 0;
+		if (index > cursor) {
+			tokens.push({ type: "text", text: text.slice(cursor, index) });
+		}
+
+		const label = match[1]?.trim();
+		const spaceId = safeDecode(match[2] ?? "").trim();
+		if (!raw || !label || !spaceId) {
+			tokens.push({ type: "text", text: raw });
+		} else {
+			tokens.push({
+				type: "spaceMention",
+				label,
+				spaceId,
+				raw,
+				uri: buildSpaceMentionUri(spaceId),
+				href: buildSpaceMentionHref(spaceId),
+			});
+		}
+		cursor = index + raw.length;
+	}
+
+	if (cursor < text.length) {
+		tokens.push({ type: "text", text: text.slice(cursor) });
+	}
+	return tokens;
 }
 
 export function parseCohubSpaceUrls(
