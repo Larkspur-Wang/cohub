@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
 
@@ -37,14 +36,13 @@ async function readPromptContent(words: string[]): Promise<string> {
 }
 
 async function sendPrompt(command: Command, words: string[], opts: PromptOptions): Promise<void> {
-  const token = resolveToken() ?? missingAuth();
-  const content = await readPromptContent(words);
+    const content = await readPromptContent(words);
   const scheduleFlags = [opts.delayMs, opts.at, opts.cron].filter((value) => value !== undefined);
   if (scheduleFlags.length > 1) return error("Conflicting schedule", "Use only one of --delay-ms, --at, or --cron");
   if (opts.cron && !opts.timezone) return error("Missing timezone", "--timezone is required with --cron");
 
   const spaceId = requireSpace(command);
-  const client = createClient(token);
+  const client = createClient();
   try {
     const schedule = opts.delayMs
       ? { mode: "delay" as const, delayMs: Number.parseInt(opts.delayMs, 10) }
@@ -96,8 +94,7 @@ export function registerSpaces(program: Command): void {
     .description("List all spaces")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         const items = await client.spaces.list();
         if (opts.json) return outJson(items);
@@ -117,8 +114,7 @@ export function registerSpaces(program: Command): void {
     .description("Show space details")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         const space = await client.spaces.get(id);
         if (opts.json) return outJson(space);
@@ -142,8 +138,7 @@ export function registerSpaces(program: Command): void {
     .option("-d, --description <desc>", "Space description")
     .option("--json", "Output as JSON")
     .action(async (opts: { name?: string; description?: string; json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.spaces.create({
           name: opts.name,
@@ -166,8 +161,7 @@ export function registerSpaces(program: Command): void {
     .command("rename <id> <name>")
     .description("Rename a space")
     .action(async (id: string, name: string) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(id).rename(name);
         ok(`Space renamed to "${name}"`);
@@ -213,9 +207,8 @@ export function registerSpaces(program: Command): void {
     .description("Space usage statistics (default: 30 days)")
     .option("--json", "Output as JSON")
     .action(async (days: string | undefined, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const usage = await client.space(spaceId).usage.get(Number.parseInt(days ?? "30", 10));
         if (opts.json) return outJson(usage);
@@ -247,9 +240,8 @@ function registerFiles(spacesCmd: Command): void {
     .description("List directory tree")
     .option("--json", "Output as JSON")
     .action(async (path: string | undefined, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const tree = await client.space(spaceId).files.list(path ?? "");
         if (opts.json) return outJson(tree);
@@ -272,9 +264,8 @@ function registerFiles(spacesCmd: Command): void {
     .command("cat <path>")
     .description("Read file content")
     .action(async (path: string) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const file = await client.space(spaceId).files.read(path);
         console.log(file.content);
@@ -289,8 +280,6 @@ function registerFiles(spacesCmd: Command): void {
     .option("-c, --content <text>", "File content")
     .option("-e, --encoding <enc>", "Encoding (utf-8 or base64)", "utf-8")
     .action(async (path: string, opts: { content?: string; encoding?: string }) => {
-      const token = resolveToken() ?? missingAuth();
-
       let content = opts.content ?? "";
       if (!content && !process.stdin.isTTY) {
         const chunks: Buffer[] = [];
@@ -300,7 +289,7 @@ function registerFiles(spacesCmd: Command): void {
       if (!content) return error("No content provided", "Use -c or pipe via stdin");
 
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).files.write({
           path,
@@ -317,9 +306,8 @@ function registerFiles(spacesCmd: Command): void {
     .command("mkdir <path>")
     .description("Create a directory")
     .action(async (path: string) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(spaceId).files.createDir(path);
         ok(`Directory created: ${path}`);
@@ -333,9 +321,8 @@ function registerFiles(spacesCmd: Command): void {
     .description("Delete a file or directory")
     .option("-r, --recursive", "Delete recursively")
     .action(async (path: string, opts: { recursive?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(spaceId).files.delete(path, opts.recursive ?? false);
         ok(`Deleted: ${path}`);
@@ -348,9 +335,8 @@ function registerFiles(spacesCmd: Command): void {
     .command("mv <from> <to>")
     .description("Move or rename")
     .action(async (from: string, to: string) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(spaceId).files.move({ fromPath: from, toPath: to });
         ok(`Moved: ${from} → ${to}`);
@@ -374,9 +360,8 @@ function registerSessions(spacesCmd: Command): void {
     .description("List sessions")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).sessions.list();
         if (opts.json) return outJson(result);
@@ -400,9 +385,8 @@ function registerSessions(spacesCmd: Command): void {
     .description("Create a session")
     .option("--json", "Output as JSON")
     .action(async (title: string | undefined, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).sessions.create({ title });
         if (opts.json) return outJson(result);
@@ -421,9 +405,8 @@ function registerSessions(spacesCmd: Command): void {
     .description("Session details")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).session(id).get();
         if (opts.json) return outJson(result);
@@ -443,9 +426,8 @@ function registerSessions(spacesCmd: Command): void {
     .command("rename <id> <name>")
     .description("Rename a session")
     .action(async (id: string, name: string) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(spaceId).session(id).rename(name);
         ok(`Session renamed to "${name}"`);
@@ -460,9 +442,8 @@ function registerSessions(spacesCmd: Command): void {
     .description("Stream realtime session events")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       const session = client.space(spaceId).session(id);
 
       process.stdout.write("  Listening for events...\n\n");
@@ -523,9 +504,8 @@ function registerTurns(sessionsCmd: Command): void {
     .option("--limit <n>", "Page size", "30")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, opts: { cursor?: string; direction?: string; limit?: string; json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(sessionsCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.listPaginated({
           cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
@@ -553,9 +533,8 @@ function registerTurns(sessionsCmd: Command): void {
     .description("Show turn details")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, turnId: string, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(sessionsCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.get(turnId);
         if (opts.json) return outJson(result);
@@ -582,9 +561,8 @@ function registerTurns(sessionsCmd: Command): void {
     .option("--limit <n>", "Page size", "100")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, opts: { cursor?: string; limit?: string; json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(sessionsCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.index({
           cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
@@ -614,10 +592,9 @@ function registerTurns(sessionsCmd: Command): void {
     .option("--after <n>", "Turns after anchor", "20")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, opts: { sequence?: string; turn?: string; before?: string; after?: string; json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(sessionsCmd);
       if (!opts.sequence && !opts.turn) return error("Missing anchor", "Use --sequence <n> or --turn <id>");
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.window({
           sequence: opts.sequence === undefined ? undefined : Number.parseInt(opts.sequence, 10),
@@ -651,8 +628,7 @@ function registerSessionAccess(sessionsCmd: Command): void {
     .description("Get session access policy")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         const policy = await client.sessionAccess.get(id);
         if (opts.json) return outJson(policy);
@@ -671,8 +647,7 @@ function registerSessionAccess(sessionsCmd: Command): void {
     .option("--anonymous <role>", "Anonymous role (host|builder|guest|null)")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { anonymous?: string; json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         const policy = await client.sessionAccess.set(id, {
           anonymous_user: (opts.anonymous ?? null) as never,
@@ -692,8 +667,7 @@ function registerSessionAccess(sessionsCmd: Command): void {
     .command("remove <id>")
     .description("Remove session access override")
     .action(async (id: string) => {
-      const token = resolveToken() ?? missingAuth();
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.sessionAccess.remove(id);
         ok(`Session access override removed: ${id}`);
@@ -717,9 +691,8 @@ function registerMembers(spacesCmd: Command): void {
     .description("List space members")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).members.list();
         if (opts.json) return outJson(result);
@@ -741,9 +714,8 @@ function registerMembers(spacesCmd: Command): void {
     .command("update <userId> <role>")
     .description("Change member role (host | builder | guest)")
     .action(async (userId: string, role: string) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(spaceId).members.update(userId, role as never);
         ok(`${userId} → ${role}`);
@@ -756,9 +728,8 @@ function registerMembers(spacesCmd: Command): void {
     .command("remove <userId>")
     .description("Remove a member")
     .action(async (userId: string) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.space(spaceId).members.remove(userId);
         ok(`${userId} removed`);
@@ -781,9 +752,8 @@ function registerAccess(spacesCmd: Command): void {
     .description("Get access policy")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const policy = await client.space(spaceId).access.get();
         if (opts.json) return outJson(policy);
@@ -803,9 +773,8 @@ function registerAccess(spacesCmd: Command): void {
     .option("--anonymous <role>", "Role for anonymous users (host|builder|guest|null)")
     .option("--json", "Output as JSON")
     .action(async (opts: { signedIn?: string; anonymous?: string; json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const policy = await client.space(spaceId).access.set({
           signed_in_user: (opts.signedIn ?? null) as never,
@@ -837,9 +806,8 @@ function registerCheckpoints(spacesCmd: Command): void {
     .description("List checkpoints")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.list();
         if (opts.json) return outJson(result);
@@ -863,9 +831,8 @@ function registerCheckpoints(spacesCmd: Command): void {
     .description("Checkpoint details")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.get(id);
         if (opts.json) return outJson(result);
@@ -886,9 +853,8 @@ function registerCheckpoints(spacesCmd: Command): void {
     .description("Create a checkpoint")
     .option("--json", "Output as JSON")
     .action(async (description: string | undefined, opts: { json?: boolean }) => {
-      const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.create(description ?? null);
         if (opts.json) return outJson(result);
@@ -897,8 +863,4 @@ function registerCheckpoints(spacesCmd: Command): void {
         handleHttp(e);
       }
     });
-}
-
-function missingAuth(): never {
-  return error("Not authenticated", "Run 'cohub auth login <token>'");
 }

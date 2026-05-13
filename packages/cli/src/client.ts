@@ -1,7 +1,9 @@
 import { CohubHttpClient } from "@neta-art/cohub";
+import { clearDeviceCode, resolveAccessToken } from "./auth.js";
 
-export function createClient(token: string): CohubHttpClient {
+export function createClient(): CohubHttpClient {
   return new CohubHttpClient({
-    getAccessToken: () => token,
+    getAccessToken: resolveAccessToken,
+    onUnauthorized: clearDeviceCode,
   });
 }

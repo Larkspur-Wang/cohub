@@ -1,6 +1,5 @@
 import type { GlobalSearchResult } from "@neta-art/cohub";
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, error, handleHttp, type Row } from "../output.js";
 
@@ -52,10 +51,7 @@ Examples:
   cohub search "design review" --json
 `)
     .action(async (query: string, opts: { limit?: string; json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.search.query({ q: query, limit: clampLimit(opts.limit) });
         if (opts.json) return outJson(result);

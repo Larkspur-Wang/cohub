@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, error, handleHttp, type Row } from "../output.js";
 
@@ -22,10 +21,7 @@ Examples:
     .option("--model-type <type>", "Model type: llm | multimodal", "llm")
     .option("--json", "Output as JSON")
     .action(async (opts: { modelType?: string; json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         if (opts.modelType === "multimodal") {
           const response = await client.models.listMultimodal();

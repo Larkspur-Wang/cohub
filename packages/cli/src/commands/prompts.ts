@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, error, handleHttp } from "../output.js";
 
@@ -13,10 +12,7 @@ export function registerPrompts(program: Command): void {
     .option("--space <id>", "Filter by space")
     .option("--json", "Output as JSON")
     .action(async (opts: { space?: string; json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.prompts.list({ spaceId: opts.space });
         if (opts.json) return outJson(result);

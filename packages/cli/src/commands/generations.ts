@@ -1,7 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp, type Row } from "../output.js";
 
@@ -146,14 +145,12 @@ Examples:
       output?: string;
       json?: boolean;
     }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
       try {
         const content: GenerationContentBlock[] = [{ type: "text", text: prompt }];
         content.push(...await Promise.all(opts.image.map((value) => contentFromPathOrUrl("image", value))));
         content.push(...await Promise.all(opts.video.map((value) => contentFromPathOrUrl("video", value))));
         content.push(...await Promise.all(opts.audio.map((value) => contentFromPathOrUrl("audio", value))));
-        const generation = await createClient(token).generations.create({
+        const generation = await createClient().generations.create({
           model: opts.model,
           content,
           parameters: parseParams(opts.param, opts.parameters),

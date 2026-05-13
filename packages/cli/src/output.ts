@@ -62,6 +62,10 @@ export function error(msg: string, detail?: string): never {
 // -- HTTP error handler ------------------------------------------------------
 
 export function handleHttp(e: unknown): never {
+  if (e instanceof Error && e.name === "AuthRequiredError") {
+    return error("Not authenticated", "Run `cohub auth login`.");
+  }
+
   const status = (e as { status?: number }).status;
   const body = (e as { body?: unknown }).body;
   const msg = e instanceof Error ? e.message : String(e);

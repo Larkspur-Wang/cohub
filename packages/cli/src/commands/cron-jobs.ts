@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
 
@@ -12,10 +11,7 @@ export function registerCronJobs(program: Command): void {
     .description("List cron jobs")
     .option("--json", "Output as JSON")
     .action(async (spaceId: string | undefined, opts: { json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.cronJobs.list(spaceId);
         if (opts.json) return outJson(result);
@@ -37,10 +33,7 @@ export function registerCronJobs(program: Command): void {
     .command("delete <id>")
     .description("Delete a cron job")
     .action(async (id: string) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.cronJobs.delete(id);
         ok(`Cron job deleted: ${id}`);
@@ -53,11 +46,8 @@ export function registerCronJobs(program: Command): void {
     .command("toggle <id> <on|off>")
     .description("Enable or disable a cron job")
     .action(async (id: string, state: string) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
       const enabled = state === "on";
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.cronJobs.toggle(id, enabled);
         ok(`Cron job ${enabled ? "enabled" : "disabled"}: ${id}`);
@@ -71,10 +61,7 @@ export function registerCronJobs(program: Command): void {
     .description("List cron job runs")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.cronJobs.runs(id);
         if (opts.json) return outJson(result);

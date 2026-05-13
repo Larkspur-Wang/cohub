@@ -33,7 +33,7 @@ program
   .addHelpText("after", `
 
 Common commands:
-  cohub auth login <token>
+  cohub auth login
   cohub spaces ls
   cohub -s <space-id> prompt "Fix the failing tests"
   cohub search "release notes"
@@ -44,7 +44,7 @@ Common commands:
   cohub generate "A calm lake at sunrise" --model <model> --output lake.png
 
 Environment:
-  COHUB_EXECUTION_TOKEN  Use this token instead of the stored login token
+  COHUB_EXECUTION_TOKEN  Use this token instead of the stored Logto session
   ENV=dev                Use the development Cohub environment
 `);
 

@@ -1,38 +1,208 @@
 # @neta-art/cohub-cli
 
-CLI for [Cohub](https://cohub.run) — spaces, sessions, and agent collaboration.
+CLI for [Cohub](https://cohub.run) — work with Spaces, Chats, files, Saves, Tasks, scheduled prompts, search, and multimodal generation from your terminal.
 
 ## Installation
 
 ```bash
 npm install -g @neta-art/cohub-cli
-```
-
-## Usage
-
-```bash
 cohub --help
 ```
 
+## Sign in
+
+For normal use outside Cohub Sandbox, sign in once:
+
+```bash
+cohub auth login
+cohub auth whoami
+```
+
+The CLI will keep you signed in and refresh your session automatically.
+
+Inside Cohub Sandbox or CI, `COHUB_EXECUTION_TOKEN` can be used as an ephemeral auth override.
+
 ## Environment
 
-The CLI connects to production by default:
-
-- API: `https://api.cohub.run`
-- WebSocket: `wss://gateway.cohub.run/ws`
+The CLI uses production by default.
 
 Use the development environment with `ENV=dev`:
 
 ```bash
+ENV=dev cohub auth login
 ENV=dev cohub spaces ls
 ```
 
-Development uses:
+## Usage
 
-- API: `https://api-dev.cohub.run`
-- WebSocket: `wss://gateway-dev.cohub.run/ws`
+Use `--json` when reading output for decisions, extracting IDs, or chaining commands.
 
-Auth tokens are stored per environment:
+For command details:
 
-- prod: `~/.config/cohub/token`
-- dev: `~/.config/cohub/token.dev`
+```bash
+cohub -h
+cohub spaces -h
+cohub spaces prompt -h
+```
+
+## Terminology
+
+| Product UI | CLI / API |
+|---|---|
+| Chat | Session |
+| Save | Checkpoint |
+| Tasks | Task runs |
+| Scheduled prompt | `spaces prompt` schedule |
+| Recurring scheduled prompt | Cron job |
+
+## Spaces
+
+```bash
+cohub spaces ls --json
+cohub spaces get <spaceId> --json
+cohub spaces create --name "<name>" --description "<description>" --json
+cohub spaces rename <spaceId> "<new name>"
+```
+
+Many space-scoped commands need a target Space:
+
+```bash
+cohub -s <spaceId> spaces prompt "message" --json
+```
+
+## Chats and prompts
+
+Use `spaces prompt` for immediate sends, delayed sends, one-time schedules, recurring schedules, new Chats, and existing Chats.
+
+```bash
+# Send now
+cohub -s <spaceId> spaces prompt "message" --json
+
+# Send long content from stdin
+cat prompt.md | cohub -s <spaceId> spaces prompt --json
+
+# Send to an existing Chat
+cohub -s <spaceId> spaces prompt --session <sessionId> "message" --json
+
+# Create a new Chat and send
+cohub -s <spaceId> spaces prompt --title "<chat title>" "message" --json
+
+# Schedule once
+cohub -s <spaceId> spaces prompt --at "2026-05-12T09:00:00+08:00" "message" --json
+
+# Schedule recurring
+cohub -s <spaceId> spaces prompt \
+  --cron "0 9 * * 1-5" \
+  --timezone "Asia/Shanghai" \
+  --title "Daily reminder" \
+  "message" \
+  --json
+```
+
+Scheduling rules:
+
+- Use only one of `--delay-ms`, `--at`, or `--cron`.
+- `--cron` requires `--timezone`.
+
+## Chats / Sessions
+
+```bash
+cohub -s <spaceId> spaces sessions ls --json
+cohub -s <spaceId> spaces sessions create "<title>" --json
+cohub -s <spaceId> spaces sessions get <sessionId> --json
+cohub -s <spaceId> spaces sessions rename <sessionId> "<new title>"
+```
+
+Use `spaces prompt --session <sessionId>` to send to a Chat.
+
+## Search
+
+Search Spaces, Chats, and prior turns:
+
+```bash
+cohub search "query"
+cohub search "query" --limit 20 --json
+```
+
+## Models and multimodal generation
+
+```bash
+cohub models ls --json
+cohub models ls --model-type multimodal --json
+
+cohub generate "a calm lake at sunrise" \
+  --model <model> \
+  --output output.png \
+  --json
+
+cohub generate "restyle this image" \
+  --model <model> \
+  --image ./input.png \
+  --param size=1024x1024 \
+  --json
+```
+
+Supported inputs:
+
+```bash
+--image <path-or-url>
+--video <path-or-url>
+--audio <path-or-url>
+```
+
+Pass generation parameters with `--param key=value` or `--parameters '<json>'`.
+
+## Files
+
+```bash
+cohub -s <spaceId> spaces files ls [path] --json
+cohub -s <spaceId> spaces files cat <path>
+cohub -s <spaceId> spaces files write <path> -c "<content>"
+cohub -s <spaceId> spaces files upload <files...> --dir <dir>
+cohub -s <spaceId> spaces files mv <from> <to>
+cohub -s <spaceId> spaces files rm <path>
+```
+
+Confirm before deleting files or directories.
+
+## Saves
+
+```bash
+cohub -s <spaceId> spaces checkpoints ls --json
+cohub -s <spaceId> spaces checkpoints get <checkpointId> --json
+cohub -s <spaceId> spaces checkpoints create "<description>" --json
+```
+
+## Tasks
+
+```bash
+cohub tasks ls --space <spaceId> --json
+cohub tasks get <taskRunId> --json
+```
+
+Create scheduled sends with `spaces prompt` scheduling flags, not task commands.
+
+## Recurring scheduled prompts
+
+Create recurring scheduled prompts with `spaces prompt --cron ... --timezone ...`.
+
+Manage them with `cron-jobs`:
+
+```bash
+cohub cron-jobs ls <spaceId> --json
+cohub cron-jobs runs <cronJobId> --json
+cohub cron-jobs toggle <cronJobId> on
+cohub cron-jobs toggle <cronJobId> off
+cohub cron-jobs delete <cronJobId>
+```
+
+Confirm before enabling, disabling, or deleting recurring scheduled prompts.
+
+## Safety
+
+Confirm before:
+
+- deleting files or directories
+- creating scheduled or recurring prompts with side effects
+- enabling, disabling, or deleting recurring scheduled prompts
+- changing access policies, member roles, or membership

@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
 
@@ -12,10 +11,7 @@ export function registerChannels(program: Command): void {
     .description("List channels")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const items = await client.channels.list();
         if (opts.json) return outJson(items);
@@ -39,9 +35,6 @@ export function registerChannels(program: Command): void {
     .option("--credentials <json>", "Credentials as JSON string")
     .option("--json", "Output as JSON")
     .action(async (opts: { provider: string; name: string; credentials?: string; json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
       let credentials: Record<string, unknown> = {};
       if (opts.credentials) {
         try {
@@ -51,7 +44,7 @@ export function registerChannels(program: Command): void {
         }
       }
 
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.channels.create({
           provider: opts.provider,
@@ -69,10 +62,7 @@ export function registerChannels(program: Command): void {
     .command("delete <id>")
     .description("Delete a channel")
     .action(async (id: string) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         await client.channels.delete(id);
         ok(`Channel deleted: ${id}`);

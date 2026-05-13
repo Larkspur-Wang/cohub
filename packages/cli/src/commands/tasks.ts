@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, error, handleHttp } from "../output.js";
 
@@ -14,10 +13,7 @@ export function registerTasks(program: Command): void {
     .option("--space <id>", "Filter by space")
     .option("--json", "Output as JSON")
     .action(async (opts: { cronJob?: string; space?: string; json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const filters: { cronJobId?: string; spaceId?: string } = {};
         if (opts.cronJob) filters.cronJobId = opts.cronJob;
@@ -42,10 +38,7 @@ export function registerTasks(program: Command): void {
     .description("Task run details")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated");
-
-      const client = createClient(token);
+      const client = createClient();
       try {
         const result = await client.tasks.get(id);
         if (opts.json) return outJson(result);
