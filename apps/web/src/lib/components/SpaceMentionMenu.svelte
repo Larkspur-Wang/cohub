@@ -57,12 +57,16 @@ function highlightParts(text: string): Array<{ text: string; match: boolean }> {
 	].filter((part) => part.text.length > 0);
 }
 
+function hasOwnerProfile(item: SpaceMentionSuggestion) {
+	return Boolean(item.ownerProfile?.userUuid);
+}
+
 function ownerLabel(item: SpaceMentionSuggestion) {
-	return item.ownerProfile?.displayName ?? "Unknown creator";
+	return item.ownerProfile?.displayName ?? "Creator unavailable";
 }
 
 function secondaryText(item: SpaceMentionSuggestion) {
-	return item.description || `by ${ownerLabel(item)}`;
+	return item.description;
 }
 
 function scrollSelectedIntoView(container: HTMLDivElement | null) {
@@ -130,8 +134,12 @@ $effect(() => {
 											<span class="shrink-0 text-[10px] uppercase tracking-[0.12em] text-text-placeholder">space</span>
 										</span>
 										<span class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-text-tertiary">
-											<span class="shrink-0">by {ownerLabel(item)}</span>
-											{#if secondaryText(item) !== `by ${ownerLabel(item)}`}
+											{#if hasOwnerProfile(item)}
+												<span class="shrink-0">by {ownerLabel(item)}</span>
+											{:else}
+												<span class="shrink-0 text-text-placeholder">Creator unavailable</span>
+											{/if}
+											{#if secondaryText(item)}
 												<span class="text-text-placeholder">·</span><span class="truncate">{secondaryText(item)}</span>
 											{/if}
 										</span>
@@ -164,7 +172,7 @@ $effect(() => {
 							<span class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border border-border-subtle bg-bg-primary text-[11px] font-semibold text-text-tertiary">
 								{#if item.ownerProfile?.avatarUrl}<img src={item.ownerProfile.avatarUrl} alt="" class="h-full w-full object-cover" />{:else}{initials(ownerLabel(item))}{/if}
 							</span>
-							<span class="min-w-0 flex-1"><span class="block truncate text-[13px] font-medium text-text-primary">{item.name}</span><span class="mt-0.5 block truncate text-[11px] text-text-tertiary">by {ownerLabel(item)}</span></span>
+							<span class="min-w-0 flex-1"><span class="block truncate text-[13px] font-medium text-text-primary">{item.name}</span><span class="mt-0.5 block truncate text-[11px] text-text-tertiary">{hasOwnerProfile(item) ? `by ${ownerLabel(item)}` : 'Creator unavailable'}</span></span>
 						</button>
 					{/each}
 				{/if}

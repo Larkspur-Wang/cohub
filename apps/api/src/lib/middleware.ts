@@ -18,6 +18,7 @@ export type RequestPrincipal =
   | { type: "execution"; execution: ExecutionAuthPrincipal };
 
 import { config } from "../config.js";
+import { getProfilesByUuids } from "../user-profiles.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
 import { spaceSandboxes } from "../db/schema-v2.js";
 import { db } from "../db/index.js";
@@ -149,10 +150,12 @@ export const buildSpaceListItems = async (spaceList: typeof spaces.$inferSelect[
     .where(inArray(spaceSandboxes.spaceId, spaceList.map((s) => s.id)));
 
   const statusBySpaceId = new Map(sandboxRows.map((r) => [r.spaceId, r.status]));
+  const profileByUserUuid = await getProfilesByUuids(spaceList.map((space) => space.userUuid));
 
   return spaceList.map((space) => ({
     ...space,
     sandboxStatus: statusBySpaceId.get(space.id) ?? null,
+    ownerProfile: profileByUserUuid.get(space.userUuid) ?? null,
   }));
 };
 

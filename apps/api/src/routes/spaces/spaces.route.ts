@@ -32,6 +32,7 @@ import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from ".
 import { checkpoints } from "../../db/schema-v2.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/agent-sandbox-protocol";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
@@ -466,6 +467,8 @@ router.get("/:id", async (c) => {
   if (await hasPermission(user, "space.view", { spaceId })) {
     const sandbox = await getSpaceSandboxBySpaceId(space.id);
     const sanitizedMeta = sanitizeSpaceMeta(space.meta);
+    const profileMap = await getProfilesByUuids([space.userUuid]);
+    const ownerProfile = profileMap.get(space.userUuid) ?? fallbackPublicUserProfile(space.userUuid);
 
     // Only include git info when the requester is the space creator
     let gitInfo: { giteaHost: string; giteaUsername: string } | undefined;
@@ -484,6 +487,7 @@ router.get("/:id", async (c) => {
       meta: sanitizedMeta,
       sandboxStatus: sandbox?.status ?? null,
       sandbox: attachSandboxPublicEndpoints(sandbox),
+      ownerProfile,
       gitInfo: gitInfo ?? null,
     });
   }
