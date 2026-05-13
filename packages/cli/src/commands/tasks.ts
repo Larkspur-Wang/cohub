@@ -4,7 +4,7 @@ import { createClient } from "../client.js";
 import { table, json as outJson, error, handleHttp } from "../output.js";
 
 export function registerTasks(program: Command): void {
-  const cmd = program.command("tasks").description("Task management");
+  const cmd = program.command("tasks", { hidden: true }).description("Task runs");
 
   cmd
     .command("ls")

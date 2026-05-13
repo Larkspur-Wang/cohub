@@ -13,6 +13,79 @@ function requireSpace(program: Command): string {
   return error("Missing required option", "Add -s, --space <id> to target a space");
 }
 
+type PromptOptions = {
+  session?: string;
+  title?: string;
+  model?: string;
+  provider?: string;
+  delayMs?: string;
+  at?: string;
+  cron?: string;
+  timezone?: string;
+  json?: boolean;
+};
+
+async function readPromptContent(words: string[]): Promise<string> {
+  let content = words.join(" ");
+  if (!content && !process.stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    content = Buffer.concat(chunks).toString().trim();
+  }
+  if (!content) return error("No content", "Pass as argument or pipe via stdin");
+  return content;
+}
+
+async function sendPrompt(command: Command, words: string[], opts: PromptOptions): Promise<void> {
+  const token = resolveToken() ?? missingAuth();
+  const content = await readPromptContent(words);
+  const scheduleFlags = [opts.delayMs, opts.at, opts.cron].filter((value) => value !== undefined);
+  if (scheduleFlags.length > 1) return error("Conflicting schedule", "Use only one of --delay-ms, --at, or --cron");
+  if (opts.cron && !opts.timezone) return error("Missing timezone", "--timezone is required with --cron");
+
+  const spaceId = requireSpace(command);
+  const client = createClient(token);
+  try {
+    const schedule = opts.delayMs
+      ? { mode: "delay" as const, delayMs: Number.parseInt(opts.delayMs, 10) }
+      : opts.at
+        ? { mode: "at" as const, sendAt: opts.at }
+        : opts.cron
+          ? { mode: "repeat" as const, cronExpression: opts.cron, timezone: opts.timezone as string }
+          : undefined;
+    const result = await client.space(spaceId).prompt({
+      sessionId: opts.session,
+      title: opts.title,
+      content: [{ type: "text", text: content }],
+      model: opts.model,
+      provider: opts.provider,
+      schedule,
+    });
+    if (opts.json) return outJson(result);
+    if (result.mode === "immediate") return ok(`Prompt sent — sessionId: ${result.sessionId}, turnId: ${result.turnId}`);
+    if (result.mode === "repeat") return ok(`Prompt scheduled — cronJobId: ${result.cronJobId}, nextRunAt: ${result.nextRunAt}`);
+    return ok(`Prompt scheduled — taskRunId: ${result.taskRunId}, scheduledAt: ${result.scheduledAt}`);
+  } catch (e: unknown) {
+    handleHttp(e);
+  }
+}
+
+export function registerPrompt(program: Command): void {
+  program
+    .command("prompt [content...]")
+    .description("Send or schedule a prompt in a space")
+    .option("--session <id>", "Target session ID")
+    .option("--title <title>", "Title for a newly created session or schedule")
+    .option("-m, --model <model>", "Model name")
+    .option("-p, --provider <provider>", "Provider name")
+    .option("--delay-ms <ms>", "Delay sending by milliseconds")
+    .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
+    .option("--cron <expression>", "Repeat using a 5-field cron expression")
+    .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
+    .option("--json", "Output as JSON")
+    .action((words: string[], opts: PromptOptions) => sendPrompt(program, words, opts));
+}
+
 export function registerSpaces(program: Command): void {
   const spacesCmd = program.command("spaces").description("Space management");
 
@@ -105,7 +178,8 @@ export function registerSpaces(program: Command): void {
 
   // ── spaces prompt ──
   spacesCmd
-    .command("prompt [content...]")
+    .command("prompt [content...]", { hidden: true })
+    .alias("send")
     .description("Send or schedule a prompt in the target space")
     .option("--session <id>", "Target session ID")
     .option("--title <title>", "Title for a newly created session or schedule")
@@ -116,55 +190,7 @@ export function registerSpaces(program: Command): void {
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
     .option("--json", "Output as JSON")
-    .action(async (words: string[], opts: {
-      session?: string;
-      title?: string;
-      model?: string;
-      provider?: string;
-      delayMs?: string;
-      at?: string;
-      cron?: string;
-      timezone?: string;
-      json?: boolean;
-    }) => {
-      const token = resolveToken() ?? missingAuth();
-      let content = words.join(" ");
-      if (!content && !process.stdin.isTTY) {
-        const chunks: Buffer[] = [];
-        for await (const chunk of process.stdin) chunks.push(chunk);
-        content = Buffer.concat(chunks).toString().trim();
-      }
-      if (!content) return error("No content", "Pass as argument or pipe via stdin");
-      const scheduleFlags = [opts.delayMs, opts.at, opts.cron].filter((value) => value !== undefined);
-      if (scheduleFlags.length > 1) return error("Conflicting schedule", "Use only one of --delay-ms, --at, or --cron");
-      if (opts.cron && !opts.timezone) return error("Missing timezone", "--timezone is required with --cron");
-
-      const spaceId = requireSpace(spacesCmd);
-      const client = createClient(token);
-      try {
-        const schedule = opts.delayMs
-          ? { mode: "delay" as const, delayMs: Number.parseInt(opts.delayMs, 10) }
-          : opts.at
-            ? { mode: "at" as const, sendAt: opts.at }
-            : opts.cron
-              ? { mode: "repeat" as const, cronExpression: opts.cron, timezone: opts.timezone as string }
-              : undefined;
-        const result = await client.space(spaceId).prompt({
-          sessionId: opts.session,
-          title: opts.title,
-          content: [{ type: "text", text: content }],
-          model: opts.model,
-          provider: opts.provider,
-          schedule,
-        });
-        if (opts.json) return outJson(result);
-        if (result.mode === "immediate") return ok(`Prompt sent — sessionId: ${result.sessionId}, turnId: ${result.turnId}`);
-        if (result.mode === "repeat") return ok(`Prompt scheduled — cronJobId: ${result.cronJobId}, nextRunAt: ${result.nextRunAt}`);
-        return ok(`Prompt scheduled — taskRunId: ${result.taskRunId}, scheduledAt: ${result.scheduledAt}`);
-      } catch (e: unknown) {
-        handleHttp(e);
-      }
-    });
+    .action((words: string[], opts: PromptOptions) => sendPrompt(spacesCmd, words, opts));
 
   // ── spaces files ──
   registerFiles(spacesCmd);
@@ -332,14 +358,6 @@ function registerFiles(spacesCmd: Command): void {
         handleHttp(e);
       }
     });
-
-  filesCmd
-    .command("upload <files...>")
-    .description("Upload files to a directory")
-    .option("--dir <dir>", "Target directory", "")
-    .action(async (_files: string[]) => {
-      error("Upload requires browser File API", "Use the web interface for now");
-    });
 }
 
 // ── Session operations ──
@@ -347,7 +365,7 @@ function registerFiles(spacesCmd: Command): void {
 function registerSessions(spacesCmd: Command): void {
   const sessionsCmd = spacesCmd
     .command("sessions")
-    .description("Session operations")
+    .description("Browse sessions and turns")
     .hook("preAction", () => { requireSpace(spacesCmd); });
 
   sessionsCmd
@@ -436,9 +454,6 @@ function registerSessions(spacesCmd: Command): void {
       }
     });
 
-  // ── sessions messages ──
-  registerMessages(sessionsCmd);
-
   // ── sessions tail ──
   sessionsCmd
     .command("tail <id>")
@@ -486,72 +501,202 @@ function registerSessions(spacesCmd: Command): void {
         process.exit(1);
       });
     });
+
+  // ── sessions turns ──
+  registerTurns(sessionsCmd);
+
+  // ── sessions access ──
+  registerSessionAccess(sessionsCmd);
 }
 
-// ── Message operations ──
+// ── Turn operations ──
 
-function registerMessages(sessionsCmd: Command): void {
-  const msgsCmd = sessionsCmd.command("messages").description("Message operations");
+function registerTurns(sessionsCmd: Command): void {
+  const turnsCmd = sessionsCmd.command("turns").description("Inspect session turns");
 
-  msgsCmd
+  turnsCmd
     .command("ls <sessionId>")
     .alias("list")
-    .description("List session messages")
+    .description("List recent turns")
+    .option("--cursor <sequence>", "Turn sequence cursor")
+    .option("--direction <older|newer>", "Page direction", "older")
+    .option("--limit <n>", "Page size", "30")
     .option("--json", "Output as JSON")
-    .option("--limit <n>", "Page size", "50")
-    .action(async (sessionId: string, opts: { json?: boolean; limit?: string }) => {
+    .action(async (sessionId: string, opts: { cursor?: string; direction?: string; limit?: string; json?: boolean }) => {
       const token = resolveToken() ?? missingAuth();
       const spaceId = requireSpace(sessionsCmd);
       const client = createClient(token);
       try {
-        const result = await client.space(spaceId).session(sessionId).messages.listPaginated({
-          limit: Number.parseInt(opts.limit ?? "50", 10),
+        const result = await client.space(spaceId).session(sessionId).turns.listPaginated({
+          cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
+          direction: opts.direction as "older" | "newer",
+          limit: Number.parseInt(opts.limit ?? "30", 10),
         });
         if (opts.json) return outJson(result);
-        if (result.messages.length === 0) {
-          console.log("  (empty)");
-          return;
-        }
-        table(result.messages, [
+        if (result.turns.length === 0) return console.log("  No turns found");
+        table(result.turns, [
+          { key: "sequence", label: "Seq" },
           { key: "id", label: "ID" },
-          { key: "role", label: "Role" },
-          { key: "createdAt", label: "Created" },
+          { key: "status", label: "Status" },
+          { key: "userText", label: "User" },
+          { key: "assistantText", label: "Assistant" },
+          { key: "updatedAt", label: "Updated" },
         ]);
-        if (result.hasMore) {
-          console.log(`\n  (more — use --cursor ${result.nextCursor} for next page)`);
-        }
+        if (result.hasMore) console.log(`\n  More turns available — next cursor: ${result.nextCursor}`);
       } catch (e: unknown) {
         handleHttp(e);
       }
     });
 
-  msgsCmd
-    .command("send <sessionId> [content...]")
-    .description("Send a message to a session")
-    .option("-m, --model <model>", "Model name")
-    .option("-p, --provider <provider>", "Provider name")
+  turnsCmd
+    .command("get <sessionId> <turnId>")
+    .description("Show turn details")
     .option("--json", "Output as JSON")
-    .action(async (sessionId: string, words: string[], opts: { model?: string; provider?: string; json?: boolean }) => {
+    .action(async (sessionId: string, turnId: string, opts: { json?: boolean }) => {
       const token = resolveToken() ?? missingAuth();
-
-      let content = words.join(" ");
-      if (!content && !process.stdin.isTTY) {
-        const chunks: Buffer[] = [];
-        for await (const chunk of process.stdin) chunks.push(chunk);
-        content = Buffer.concat(chunks).toString().trim();
-      }
-      if (!content) return error("No content", "Pass as argument or pipe via stdin");
-
       const spaceId = requireSpace(sessionsCmd);
       const client = createClient(token);
       try {
-        const result = await client.space(spaceId).session(sessionId).messages.send({
-          content: [{ type: "text", text: content }],
-          model: opts.model,
-          provider: opts.provider,
+        const result = await client.space(spaceId).session(sessionId).turns.get(turnId);
+        if (opts.json) return outJson(result);
+        table([result.turn], [
+          { key: "sequence", label: "Seq" },
+          { key: "id", label: "ID" },
+          { key: "status", label: "Status" },
+          { key: "provider", label: "Provider" },
+          { key: "model", label: "Model" },
+          { key: "stopReason", label: "Stop" },
+          { key: "errorMessage", label: "Error" },
+        ]);
+        if (result.turn.userText) console.log(`\nUser:\n${result.turn.userText}`);
+        if (result.turn.assistantText) console.log(`\nAssistant:\n${result.turn.assistantText}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  turnsCmd
+    .command("index <sessionId>", { hidden: true })
+    .description("List lightweight turn index")
+    .option("--cursor <sequence>", "Turn sequence cursor")
+    .option("--limit <n>", "Page size", "100")
+    .option("--json", "Output as JSON")
+    .action(async (sessionId: string, opts: { cursor?: string; limit?: string; json?: boolean }) => {
+      const token = resolveToken() ?? missingAuth();
+      const spaceId = requireSpace(sessionsCmd);
+      const client = createClient(token);
+      try {
+        const result = await client.space(spaceId).session(sessionId).turns.index({
+          cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
+          limit: Number.parseInt(opts.limit ?? "100", 10),
         });
         if (opts.json) return outJson(result);
-        ok(`Message sent — userMessageId: ${result.userMessageId}`);
+        if (result.turns.length === 0) return console.log("  No turns found");
+        table(result.turns, [
+          { key: "sequence", label: "Seq" },
+          { key: "id", label: "ID" },
+          { key: "status", label: "Status" },
+          { key: "userPreview", label: "User" },
+          { key: "assistantPreview", label: "Assistant" },
+        ]);
+        if (result.hasMore) console.log(`\n  More turns available — next cursor: ${result.nextCursor}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  turnsCmd
+    .command("window <sessionId>", { hidden: true })
+    .description("Load turns around a sequence or turn ID")
+    .option("--sequence <n>", "Anchor turn sequence")
+    .option("--turn <id>", "Anchor turn ID")
+    .option("--before <n>", "Turns before anchor", "10")
+    .option("--after <n>", "Turns after anchor", "20")
+    .option("--json", "Output as JSON")
+    .action(async (sessionId: string, opts: { sequence?: string; turn?: string; before?: string; after?: string; json?: boolean }) => {
+      const token = resolveToken() ?? missingAuth();
+      const spaceId = requireSpace(sessionsCmd);
+      if (!opts.sequence && !opts.turn) return error("Missing anchor", "Use --sequence <n> or --turn <id>");
+      const client = createClient(token);
+      try {
+        const result = await client.space(spaceId).session(sessionId).turns.window({
+          sequence: opts.sequence === undefined ? undefined : Number.parseInt(opts.sequence, 10),
+          turnId: opts.turn,
+          before: Number.parseInt(opts.before ?? "10", 10),
+          after: Number.parseInt(opts.after ?? "20", 10),
+        });
+        if (opts.json) return outJson(result);
+        if (result.turns.length === 0) return console.log("  No turns found");
+        table(result.turns, [
+          { key: "sequence", label: "Seq" },
+          { key: "id", label: "ID" },
+          { key: "status", label: "Status" },
+          { key: "userText", label: "User" },
+          { key: "assistantText", label: "Assistant" },
+        ]);
+        console.log(`\n  Window — older: ${result.hasMoreOlder ? "yes" : "no"}, newer: ${result.hasMoreNewer ? "yes" : "no"}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+}
+
+// ── Session access operations ──
+
+function registerSessionAccess(sessionsCmd: Command): void {
+  const accessCmd = sessionsCmd.command("access").description("Session access control");
+
+  accessCmd
+    .command("get <id>")
+    .description("Get session access policy")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const token = resolveToken() ?? missingAuth();
+      const client = createClient(token);
+      try {
+        const policy = await client.sessionAccess.get(id);
+        if (opts.json) return outJson(policy);
+        table([policy], [
+          { key: "signed_in_user", label: "Signed-in" },
+          { key: "anonymous_user", label: "Anonymous" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  accessCmd
+    .command("set <id>")
+    .description("Set session anonymous access")
+    .option("--anonymous <role>", "Anonymous role (host|builder|guest|null)")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { anonymous?: string; json?: boolean }) => {
+      const token = resolveToken() ?? missingAuth();
+      const client = createClient(token);
+      try {
+        const policy = await client.sessionAccess.set(id, {
+          anonymous_user: (opts.anonymous ?? null) as never,
+        });
+        if (opts.json) return outJson(policy);
+        ok("Session access updated");
+        table([policy], [
+          { key: "signed_in_user", label: "Signed-in" },
+          { key: "anonymous_user", label: "Anonymous" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  accessCmd
+    .command("remove <id>")
+    .description("Remove session access override")
+    .action(async (id: string) => {
+      const token = resolveToken() ?? missingAuth();
+      const client = createClient(token);
+      try {
+        await client.sessionAccess.remove(id);
+        ok(`Session access override removed: ${id}`);
       } catch (e: unknown) {
         handleHttp(e);
       }

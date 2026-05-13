@@ -6,10 +6,9 @@ import { registerChannels } from "./commands/channels.js";
 import { registerCronJobs } from "./commands/cron-jobs.js";
 import { registerGenerations } from "./commands/generations.js";
 import { registerModels } from "./commands/models.js";
-import { registerPrompts } from "./commands/prompts.js";
-import { registerSessionAccess } from "./commands/session-access.js";
-import { registerSpaces } from "./commands/spaces.js";
+import { registerPrompt, registerSpaces } from "./commands/spaces.js";
 import { registerTasks } from "./commands/tasks.js";
+import { ensureCliSelfUpdated } from "./self-update.js";
 
 const VERSION = (() => {
   try {
@@ -23,20 +22,43 @@ const VERSION = (() => {
 const program = new Command("cohub");
 
 program
-  .version(VERSION)
-  .description("CLI for Cohub — spaces, sessions, and agent collaboration.")
-  .option("-s, --space <id>", "Target space ID")
-  .option("--json", "Output as JSON")
-  .helpOption("-h, --help", "Show help");
+  .name("cohub")
+  .summary("Work with Cohub from your terminal")
+  .description("Send prompts, inspect sessions, manage space files, and run multimodal generation.")
+  .version(VERSION, "-v, --version", "Show version")
+  .option("-s, --space <id>", "Target space ID for prompt, files, sessions, and space-scoped commands")
+  .option("--json", "Print machine-readable JSON when supported")
+  .helpOption("-h, --help", "Show help")
+  .addHelpText("after", `
+
+Common commands:
+  cohub auth login <token>
+  cohub spaces ls
+  cohub -s <space-id> prompt "Fix the failing tests"
+  cohub -s <space-id> spaces sessions turns ls <session-id>
+  cohub -s <space-id> spaces files ls
+  cohub generate "A calm lake at sunrise" --model <model> --output lake.png
+
+Environment:
+  COHUB_EXECUTION_TOKEN  Use this token instead of the stored login token
+  ENV=dev                Use the development Cohub environment
+`);
 
 registerAuth(program);
+registerPrompt(program);
 registerSpaces(program);
 registerChannels(program);
 registerGenerations(program);
 registerModels(program);
-registerPrompts(program);
 registerTasks(program);
 registerCronJobs(program);
-registerSessionAccess(program);
+
+try {
+  await ensureCliSelfUpdated();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`cohub self-update failed: ${message}\n`);
+  process.exit(1);
+}
 
 program.parse();

@@ -4,7 +4,7 @@ import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
 
 export function registerChannels(program: Command): void {
-  const cmd = program.command("channels").description("Channel management");
+  const cmd = program.command("channels", { hidden: true }).description("Channel integrations");
 
   cmd
     .command("ls")

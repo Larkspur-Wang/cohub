@@ -4,7 +4,7 @@ import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
 
 export function registerCronJobs(program: Command): void {
-  const cmd = program.command("cron-jobs").description("Cron job management");
+  const cmd = program.command("cron-jobs", { hidden: true }).description("Scheduled prompt jobs");
 
   cmd
     .command("ls [spaceId]")

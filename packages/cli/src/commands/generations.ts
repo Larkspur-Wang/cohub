@@ -1,9 +1,9 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
 import { resolveToken } from "../auth.js";
 import { createClient } from "../client.js";
-import { table, json as outJson, error, handleHttp, type Row } from "../output.js";
+import { table, json as outJson, ok, error, handleHttp, type Row } from "../output.js";
 
 type GenerationContentBlock =
   | { type: "text"; text: string; _meta?: Record<string, unknown> }
@@ -62,25 +62,40 @@ async function contentFromPathOrUrl(type: "image" | "video" | "audio", value: st
   return { type, source: { type: "base64", media_type, data: data.toString("base64") } } as GenerationContentBlock;
 }
 
-async function saveOutputs(output: GenerationContentBlock[], outputPath: string): Promise<void> {
-  const files = output.filter((block) => block.type !== "text") as Array<Extract<GenerationContentBlock, { type: "image" | "video" | "audio" }>>;
-  if (files.length === 0) return;
-  const info = await stat(outputPath).catch(() => null);
-  const isDir = info?.isDirectory() ?? (!extname(outputPath) && files.length > 1);
-  if (files.length > 1 && !isDir) throw new Error("--output must be a directory when generation returns multiple files");
-  if (isDir) await mkdir(outputPath, { recursive: true });
+async function saveOutputs(output: GenerationContentBlock[], outputPath: string): Promise<string[]> {
+  const outputs = output.filter((block) => block.type === "text" || block.type === "image" || block.type === "video" || block.type === "audio");
+  if (outputs.length === 0) return [];
 
-  for (const [i, block] of files.entries()) {
+  const info = await stat(outputPath).catch(() => null);
+  const isDir = info?.isDirectory() ?? (!extname(outputPath) && outputs.length > 1);
+  if (outputs.length > 1 && !isDir) throw new Error("--output must be a directory when generation returns multiple outputs");
+  if (isDir) await mkdir(outputPath, { recursive: true });
+  else await mkdir(dirname(outputPath), { recursive: true });
+
+  const savedPaths: string[] = [];
+  for (const [i, block] of outputs.entries()) {
+    if (block.type === "text") {
+      const target = isDir ? join(outputPath, `generation-${i + 1}.txt`) : outputPath;
+      await writeFile(target, block.text, "utf-8");
+      savedPaths.push(target);
+      continue;
+    }
+
     const source = block.source;
     const target = isDir ? join(outputPath, outputName(block.type, source.type === "url" ? source.url : undefined, i)) : outputPath;
     if (source.type === "url") {
       const response = await fetch(source.url);
       if (!response.ok) throw new Error(`Failed to download ${source.url}: HTTP ${response.status}`);
       await writeFile(target, Buffer.from(await response.arrayBuffer()));
+      savedPaths.push(target);
     } else if (source.type === "base64") {
       await writeFile(target, Buffer.from(source.data, "base64"));
+      savedPaths.push(target);
+    } else {
+      throw new Error(`Cannot save space file output locally: ${source.space_id}:${source.path}`);
     }
   }
+  return savedPaths;
 }
 
 function outputName(type: string, url: string | undefined, index: number): string {
@@ -137,15 +152,16 @@ export function registerGenerations(program: Command): void {
           parameters: parseParams(opts.param, opts.parameters),
           metadata: opts.metadata ? JSON.parse(opts.metadata) as Record<string, unknown> : undefined,
         });
-        if (opts.output && generation.output) await saveOutputs(generation.output, opts.output);
-        if (opts.json) return outJson(generation);
+        const savedPaths = opts.output && generation.output ? await saveOutputs(generation.output, opts.output) : [];
+        if (opts.json) return outJson(savedPaths.length > 0 ? { ...generation, savedPaths } : generation);
         printGeneration(generation.output ?? []);
+        if (savedPaths.length > 0) ok(`Saved to ${savedPaths.join(", ")}`);
       } catch (e: unknown) {
         handleHttp(e);
       }
     });
 
-  const cmd = program.command("generations").description("Generation model declarations");
+  const cmd = program.command("generations", { hidden: true }).description("Generation model declarations");
   cmd
     .command("ls")
     .alias("list")
