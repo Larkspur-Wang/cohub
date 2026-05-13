@@ -55,8 +55,12 @@ registerModels(program);
 registerTasks(program);
 registerCronJobs(program);
 
+const isVersionRequest = (argv: string[]) => argv.some((arg) => arg === "-v" || arg === "--version");
+
 try {
-  await ensureCliSelfUpdated();
+  if (!isVersionRequest(process.argv.slice(2))) {
+    await ensureCliSelfUpdated();
+  }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`cohub self-update failed: ${message}\n`);
