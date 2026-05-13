@@ -1,5 +1,9 @@
 import type { GlobalSearchResult, SpaceRecord } from "@neta-art/cohub";
-import { idbGetAllByIndex, type SpaceRecordCacheRecord } from "$lib/cache/db";
+import {
+	idbGetAllByIndex,
+	type SessionListCacheRecord,
+	type SpaceRecordCacheRecord,
+} from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { recencyScore, textMatchScore } from "$lib/command-palette/score";
 import { sdk } from "$lib/sdk";
@@ -45,12 +49,14 @@ function spaceName(space: Pick<SpaceRecord, "name" | "title" | "id">) {
 function localSpaceToSuggestion(
 	space: SpaceRecord,
 	query: string,
+	activityAt?: string | null,
 ): SpaceMentionSuggestion | null {
+	const updatedAt = activityAt ?? space.updatedAt ?? space.createdAt ?? null;
 	const scored = scoreSpace({
 		name: space.name ?? space.title,
 		description: space.description,
 		query,
-		updatedAt: space.updatedAt ?? space.createdAt ?? null,
+		updatedAt,
 	});
 	if (query.trim() && scored.textScore <= 0) return null;
 	return {
@@ -62,7 +68,7 @@ function localSpaceToSuggestion(
 		ownerProfile: space.ownerProfile ?? null,
 		href: buildSpaceMentionHref(space.id),
 		uri: buildSpaceMentionUri(space.id),
-		updatedAt: space.updatedAt ?? space.createdAt ?? null,
+		updatedAt,
 		source: "local",
 		...scored,
 	};
@@ -96,11 +102,55 @@ function sortSuggestions(items: SpaceMentionSuggestion[]) {
 		if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
 		const textDelta = b.textScore - a.textScore;
 		if (Math.abs(textDelta) > 0.0001) return textDelta;
-		return (
-			new Date(b.updatedAt ?? 0).getTime() -
-			new Date(a.updatedAt ?? 0).getTime()
-		);
+		return timeValue(b.updatedAt) - timeValue(a.updatedAt);
 	});
+}
+
+function timeValue(value: string | null | undefined) {
+	const time = new Date(value ?? 0).getTime();
+	return Number.isFinite(time) ? time : 0;
+}
+
+function sessionActivityAt(
+	session: Pick<SpaceRecord, "updatedAt" | "createdAt"> & {
+		lastMessageAt?: string | null;
+	},
+) {
+	return (
+		session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? null
+	);
+}
+
+function newerTime(
+	current: string | null | undefined,
+	candidate: string | null | undefined,
+): string | null {
+	return timeValue(candidate) > timeValue(current)
+		? (candidate ?? null)
+		: (current ?? null);
+}
+
+async function getLocalSessionActivityBySpace(
+	userKey: string,
+	options?: { signal?: AbortSignal },
+) {
+	const activityBySpace = new Map<string, string | null>();
+	const sessionLists = await idbGetAllByIndex<SessionListCacheRecord>(
+		"session_lists",
+		"by_updated_at",
+		IDBKeyRange.lowerBound(0),
+	);
+	shouldAbort(options?.signal);
+	for (const record of sessionLists) {
+		if (record.userKey !== userKey) continue;
+		let activityAt = record.watermark;
+		for (const session of record.sessions) {
+			activityAt = newerTime(activityAt, sessionActivityAt(session));
+		}
+		const current = activityBySpace.get(record.spaceId);
+		activityBySpace.set(record.spaceId, newerTime(current, activityAt) ?? null);
+	}
+	return activityBySpace;
 }
 
 function shouldAbort(signal?: AbortSignal) {
@@ -151,14 +201,12 @@ export async function searchLocalSpaceMentions(
 	},
 ): Promise<SpaceMentionSuggestion[]> {
 	const normalized = query.trim();
-	const items: SpaceMentionSuggestion[] = [];
+	const spaces: SpaceRecord[] = [];
 	const seen = new Set<string>();
 	const add = (space: SpaceRecord) => {
 		if (space.id === options?.currentSpaceId || seen.has(space.id)) return;
-		const item = localSpaceToSuggestion(space, normalized);
-		if (!item) return;
 		seen.add(space.id);
-		items.push(item);
+		spaces.push(space);
 	};
 
 	for (const space of getCachedSpaceList() ?? []) add(space);
@@ -175,6 +223,23 @@ export async function searchLocalSpaceMentions(
 		if (record.userKey !== userKey) continue;
 		add(record.space);
 	}
+
+	const activityBySpace = normalized
+		? null
+		: await getLocalSessionActivityBySpace(userKey, {
+				signal: options?.signal,
+			});
+	shouldAbort(options?.signal);
+
+	const items = spaces
+		.map((space) =>
+			localSpaceToSuggestion(
+				space,
+				normalized,
+				activityBySpace?.get(space.id) ?? null,
+			),
+		)
+		.filter((item): item is SpaceMentionSuggestion => Boolean(item));
 
 	return sortSuggestions(items).slice(0, options?.limit ?? LOCAL_LIMIT);
 }

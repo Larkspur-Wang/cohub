@@ -30,6 +30,34 @@ function timeValue(value: string | null | undefined) {
 	return Number.isFinite(time) ? time : 0;
 }
 
+function sessionActivityAt(session: SessionRecord) {
+	return (
+		session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? null
+	);
+}
+
+function newerTime(
+	current: string | null | undefined,
+	candidate: string | null | undefined,
+): string | null {
+	return timeValue(candidate) > timeValue(current)
+		? (candidate ?? null)
+		: (current ?? null);
+}
+
+function getSessionActivityBySpace(records: SessionListCacheRecord[]) {
+	const activityBySpace = new Map<string, string | null>();
+	for (const record of records) {
+		let activityAt = record.watermark;
+		for (const session of record.sessions) {
+			activityAt = newerTime(activityAt, sessionActivityAt(session));
+		}
+		const current = activityBySpace.get(record.spaceId);
+		activityBySpace.set(record.spaceId, newerTime(current, activityAt));
+	}
+	return activityBySpace;
+}
+
 function defaultScore(rank: number, updatedAt: string | null | undefined) {
 	const fresh = recencyScore(updatedAt);
 	return {
@@ -43,8 +71,9 @@ function spaceToDefaultItem(
 	space: SpaceRecord,
 	rank: number,
 	currentSpaceId?: string | null,
+	activityAt?: string | null,
 ): CommandPaletteItem {
-	const updatedAt = space.updatedAt ?? null;
+	const updatedAt = activityAt ?? space.updatedAt ?? null;
 	const score = defaultScore(rank, updatedAt);
 	return {
 		type: "space",
@@ -139,6 +168,22 @@ async function yieldToUi() {
 	await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 }
 
+function isSpaceOnlyDefault(plan: CommandPaletteSearchPlan) {
+	return plan.resourceTypes?.length === 1 && plan.resourceTypes[0] === "space";
+}
+
+function prioritizeNewSpace(
+	items: CommandPaletteItem[],
+	shouldPrioritize: boolean,
+) {
+	if (!shouldPrioritize) return items;
+	const index = items.findIndex(
+		(item) => item.type === "command" && item.id === "new-space",
+	);
+	if (index <= 0) return items;
+	return [items[index], ...items.slice(0, index), ...items.slice(index + 1)];
+}
+
 export async function getCommandPaletteDefaultItems(
 	plan: CommandPaletteSearchPlan & {
 		currentSpaceId?: string | null;
@@ -163,43 +208,60 @@ export async function getCommandPaletteDefaultItems(
 	}
 
 	const items: CommandPaletteItem[] = [];
-
-	if (allowsResourceType(plan, "space")) {
-		shouldAbort(plan.signal);
-		const recentSpaceIds = getRecentSpaces(userKey).map(
-			(entry) => entry.spaceId,
-		);
-		const orderedSpaceIds = [
-			...(plan.currentSpaceId ? [plan.currentSpaceId] : []),
-			...recentSpaceIds,
-			...[...spacesById.values()]
-				.sort((a, b) => timeValue(b.updatedAt) - timeValue(a.updatedAt))
-				.map((space) => space.id),
-		];
-		const seen = new Set<string>();
-		let rank = 0;
-		for (const spaceId of orderedSpaceIds) {
-			if (seen.has(spaceId)) continue;
-			seen.add(spaceId);
-			const space = spacesById.get(spaceId);
-			if (!space) continue;
-			items.push(spaceToDefaultItem(space, rank, plan.currentSpaceId));
-			rank += 1;
-		}
-	}
-
-	if (allowsResourceType(plan, "session") || allowsResourceType(plan, "turn")) {
-		await yieldToUi();
-		shouldAbort(plan.signal);
-		const sessionLists = await idbGetAllByIndex<SessionListCacheRecord>(
+	let userSessionLists: SessionListCacheRecord[] | null = null;
+	const getUserSessionLists = async () => {
+		if (userSessionLists) return userSessionLists;
+		const records = await idbGetAllByIndex<SessionListCacheRecord>(
 			"session_lists",
 			"by_updated_at",
 			IDBKeyRange.lowerBound(0),
 		);
 		shouldAbort(plan.signal);
+		userSessionLists = records.filter((record) => record.userKey === userKey);
+		return userSessionLists;
+	};
+
+	if (allowsResourceType(plan, "space")) {
+		shouldAbort(plan.signal);
+		const recentRankBySpace = new Map(
+			getRecentSpaces(userKey).map((entry, index) => [entry.spaceId, index]),
+		);
+		const activityBySpace = getSessionActivityBySpace(
+			await getUserSessionLists(),
+		);
+		const orderedSpaces = [...spacesById.values()].sort((a, b) => {
+			const activityDelta =
+				timeValue(activityBySpace.get(b.id) ?? b.updatedAt) -
+				timeValue(activityBySpace.get(a.id) ?? a.updatedAt);
+			if (activityDelta !== 0) return activityDelta;
+			if (a.id === plan.currentSpaceId && b.id !== plan.currentSpaceId)
+				return -1;
+			if (b.id === plan.currentSpaceId && a.id !== plan.currentSpaceId)
+				return 1;
+			const recentDelta =
+				(recentRankBySpace.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+				(recentRankBySpace.get(b.id) ?? Number.MAX_SAFE_INTEGER);
+			if (recentDelta !== 0) return recentDelta;
+			return timeValue(b.updatedAt) - timeValue(a.updatedAt);
+		});
+		orderedSpaces.forEach((space, rank) => {
+			items.push(
+				spaceToDefaultItem(
+					space,
+					rank,
+					plan.currentSpaceId,
+					activityBySpace.get(space.id) ?? null,
+				),
+			);
+		});
+	}
+
+	if (allowsResourceType(plan, "session") || allowsResourceType(plan, "turn")) {
+		await yieldToUi();
+		shouldAbort(plan.signal);
+		const sessionLists = await getUserSessionLists();
 		const sessionsById = new Map<string, SessionRecord>();
 		for (const record of sessionLists) {
-			if (record.userKey !== userKey) continue;
 			for (const session of record.sessions)
 				sessionsById.set(session.id, session);
 		}
@@ -259,14 +321,20 @@ export async function getCommandPaletteDefaultItems(
 		}
 	}
 
-	items.push(...getDefaultCommandItems(plan));
+	const showNewSpaceFirst = isSpaceOnlyDefault(plan);
+	items.push(
+		...getDefaultCommandItems(
+			showNewSpaceFirst ? { ...plan, resourceTypes: ["command"] } : plan,
+		),
+	);
 
 	const byKey = new Map<string, CommandPaletteItem>();
 	for (const item of items) {
 		const key = commandItemKey(item);
 		if (!byKey.has(key)) byKey.set(key, item);
 	}
-	return [...byKey.values()]
-		.sort((a, b) => b.score - a.score)
-		.slice(0, DEFAULT_LIMIT);
+	return prioritizeNewSpace(
+		[...byKey.values()].sort((a, b) => b.score - a.score),
+		showNewSpaceFirst,
+	).slice(0, DEFAULT_LIMIT);
 }
