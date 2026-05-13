@@ -1,0 +1,174 @@
+<script lang="ts">
+import { CornerDownLeft, Loader2, SearchSlash } from "lucide-svelte";
+import type { SpaceMentionSuggestion } from "$lib/mentions/space";
+
+type Props = {
+	open?: boolean;
+	items?: SpaceMentionSuggestion[];
+	query?: string;
+	selectedIndex?: number;
+	loading?: boolean;
+	status?: string;
+	onselect?: (item: SpaceMentionSuggestion) => void;
+	onhighlight?: (index: number) => void;
+};
+
+let {
+	open = false,
+	items = [],
+	query = "",
+	selectedIndex = 0,
+	loading = false,
+	status = "Mention another space",
+	onselect,
+	onhighlight,
+}: Props = $props();
+
+let desktopListEl = $state<HTMLDivElement | null>(null);
+let mobileListEl = $state<HTMLDivElement | null>(null);
+
+const normalizedQuery = $derived(query.trim().toLowerCase());
+const selectedItem = $derived(items[selectedIndex]);
+
+function itemId(index: number) {
+	return `space-mention-option-${index}`;
+}
+
+function initials(name: string) {
+	return (
+		name
+			.split(/\s+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase())
+			.join("") || "?"
+	);
+}
+
+function highlightParts(text: string): Array<{ text: string; match: boolean }> {
+	if (!normalizedQuery) return [{ text, match: false }];
+	const lower = text.toLowerCase();
+	const index = lower.indexOf(normalizedQuery);
+	if (index === -1) return [{ text, match: false }];
+	return [
+		{ text: text.slice(0, index), match: false },
+		{ text: text.slice(index, index + normalizedQuery.length), match: true },
+		{ text: text.slice(index + normalizedQuery.length), match: false },
+	].filter((part) => part.text.length > 0);
+}
+
+function ownerLabel(item: SpaceMentionSuggestion) {
+	return item.ownerProfile?.displayName ?? "Unknown creator";
+}
+
+function secondaryText(item: SpaceMentionSuggestion) {
+	return item.description || `by ${ownerLabel(item)}`;
+}
+
+function scrollSelectedIntoView(container: HTMLDivElement | null) {
+	if (!container || !open) return;
+	container
+		.querySelector<HTMLElement>(`#${itemId(selectedIndex)}`)
+		?.scrollIntoView({ block: "nearest" });
+}
+
+$effect(() => {
+	selectedIndex;
+	items.length;
+	open;
+	requestAnimationFrame(() => {
+		scrollSelectedIntoView(desktopListEl);
+		scrollSelectedIntoView(mobileListEl);
+	});
+});
+</script>
+
+{#if open}
+	<div class="pointer-events-none absolute inset-x-0 bottom-[calc(100%+0.75rem)] z-40 hidden md:block" role="presentation">
+		<div class="pointer-events-auto mx-1 w-[min(580px,calc(100vw-3rem))] overflow-hidden rounded-[18px] border border-border-subtle/90 bg-bg-content shadow-[0_18px_60px_rgba(15,23,42,0.18)] outline-none transition-all duration-150 ease-out motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1" role="listbox" aria-label="Space mentions" aria-activedescendant={selectedItem ? itemId(selectedIndex) : undefined} tabindex="-1">
+			<div class="flex items-center justify-between gap-3 border-b border-border-subtle/70 px-3 py-2.5">
+				<div class="min-w-0">
+					<div class="text-[12px] font-medium leading-4 text-text-primary">Spaces</div>
+					<div class="mt-0.5 truncate text-[11px] leading-4 text-text-tertiary">{status}</div>
+				</div>
+				<div class="flex shrink-0 items-center gap-1.5 rounded-full border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-tertiary">
+					{#if loading}
+						<Loader2 class="h-3 w-3 animate-spin text-brand" />
+					{:else}
+						<span>Tab</span><span class="text-text-placeholder">or</span><CornerDownLeft class="h-3 w-3" />
+					{/if}
+				</div>
+			</div>
+
+			<div bind:this={desktopListEl} class="max-h-[320px] overflow-y-auto py-1.5" data-drawer-swipe-ignore>
+				{#if loading && items.length === 0}
+					<div class="flex items-center gap-2 px-3 py-3 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin text-brand" /><span>Searching spaces…</span></div>
+				{:else if items.length === 0}
+					<div class="px-4 py-7 text-center">
+						<div class="mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-border-subtle bg-bg-primary text-text-tertiary"><SearchSlash class="h-4 w-4" /></div>
+						<div class="mt-3 text-[12px] font-medium text-text-primary">No space found</div>
+						<div class="mt-1 text-[11px] text-text-tertiary">Try a public space name or paste a Cohub space link.</div>
+					</div>
+				{:else}
+					<div class="px-2">
+						<div class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-text-placeholder">Mention</div>
+						<div class="space-y-0.5">
+							{#each items as item, index (item.spaceId)}
+								{@const active = index === selectedIndex}
+								<button id={itemId(index)} type="button" role="option" aria-selected={active} class={`group relative flex w-full items-center gap-3 rounded-[11px] px-2.5 py-2 text-left transition-colors duration-100 ${active ? 'bg-brand/7 text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`} onpointerenter={() => onhighlight?.(index)} onpointerdown={(event) => event.preventDefault()} onclick={() => onselect?.(item)}>
+									<span class={`absolute left-0 top-2 bottom-2 w-0.5 rounded-full transition-opacity ${active ? 'bg-brand opacity-100' : 'opacity-0'}`}></span>
+									<span class="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border border-border-subtle bg-bg-primary text-[11px] font-semibold text-text-tertiary">
+										{#if item.ownerProfile?.avatarUrl}
+											<img src={item.ownerProfile.avatarUrl} alt="" class="h-full w-full object-cover" />
+										{:else}
+											{initials(ownerLabel(item))}
+										{/if}
+									</span>
+									<span class="min-w-0 flex-1">
+										<span class="flex min-w-0 items-baseline gap-2">
+											<span class="truncate text-[13px] font-medium leading-5">{#each highlightParts(item.name) as part}<span class={part.match ? 'text-brand' : ''}>{part.text}</span>{/each}</span>
+											<span class="shrink-0 text-[10px] uppercase tracking-[0.12em] text-text-placeholder">space</span>
+										</span>
+										<span class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-text-tertiary">
+											<span class="shrink-0">by {ownerLabel(item)}</span>
+											{#if secondaryText(item) !== `by ${ownerLabel(item)}`}
+												<span class="text-text-placeholder">·</span><span class="truncate">{secondaryText(item)}</span>
+											{/if}
+										</span>
+									</span>
+									<span class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border-subtle text-text-tertiary transition-opacity ${active ? 'opacity-100' : 'opacity-0'}`}><CornerDownLeft class="h-3 w-3" /></span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+
+	<div class="absolute inset-x-0 bottom-[calc(100%+0.5rem)] z-40 md:hidden">
+		<div class="mx-1 overflow-hidden rounded-[22px] border border-border-subtle bg-bg-content shadow-[0_18px_50px_rgba(15,23,42,0.24)] transition-all duration-150 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1">
+			<div class="border-b border-border-subtle px-4 py-3">
+				<div class="flex items-center justify-between gap-3">
+					<div class="min-w-0"><div class="text-[12px] font-medium text-text-primary">Spaces</div><div class="mt-0.5 truncate text-[11px] text-text-tertiary">{status}</div></div>
+					{#if loading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-brand" />{/if}
+				</div>
+			</div>
+			<div bind:this={mobileListEl} class="max-h-[min(45vh,360px)] overflow-y-auto py-1" data-drawer-swipe-ignore>
+				{#if items.length === 0}
+					<div class="px-4 py-6 text-center"><div class="text-[12px] font-medium text-text-primary">No space found</div><div class="mt-1 text-[11px] text-text-tertiary">Keep typing or paste a space link.</div></div>
+				{:else}
+					{#each items as item, index (item.spaceId)}
+						{@const active = index === selectedIndex}
+						<button id={itemId(index)} type="button" class={`flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-bg-hover ${active ? 'bg-brand/7' : ''}`} onpointerdown={(event) => event.preventDefault()} onclick={() => onselect?.(item)}>
+							<span class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border border-border-subtle bg-bg-primary text-[11px] font-semibold text-text-tertiary">
+								{#if item.ownerProfile?.avatarUrl}<img src={item.ownerProfile.avatarUrl} alt="" class="h-full w-full object-cover" />{:else}{initials(ownerLabel(item))}{/if}
+							</span>
+							<span class="min-w-0 flex-1"><span class="block truncate text-[13px] font-medium text-text-primary">{item.name}</span><span class="mt-0.5 block truncate text-[11px] text-text-tertiary">by {ownerLabel(item)}</span></span>
+						</button>
+					{/each}
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

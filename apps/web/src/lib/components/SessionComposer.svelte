@@ -14,11 +14,24 @@ import { onMount } from "svelte";
 import SlashCommandMenu, {
 	type SlashCommandMenuItem,
 } from "$lib/components/SlashCommandMenu.svelte";
+import SpaceMentionMenu from "$lib/components/SpaceMentionMenu.svelte";
 import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
 	isSupportedComposerAttachmentFile,
 } from "$lib/composer-attachments";
+import type { SpaceMentionSuggestion } from "$lib/mentions/space";
+import {
+	buildSpaceMentionMarkdown,
+	parseCohubSpaceUrls,
+	replaceCohubSpaceUrls,
+} from "$lib/mentions/space";
+import {
+	mergeSpaceMentionSuggestions,
+	resolveSpaceMentionLabels,
+	searchLocalSpaceMentions,
+	searchRemoteSpaceMentions,
+} from "$lib/mentions/space-search";
 
 type SelectedModel = {
 	provider: string;
@@ -38,6 +51,7 @@ type Props = {
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
 	promptTemplatesLoaded?: boolean;
+	currentSpaceId?: string | null;
 	onsubmit: () => void;
 	onabort?: () => void;
 	onpickattachment?: (files: FileList | File[] | null) => void;
@@ -57,6 +71,7 @@ let {
 	currentModel = null,
 	promptTemplates = [],
 	promptTemplatesLoaded = true,
+	currentSpaceId = null,
 	onsubmit,
 	onabort,
 	onpickattachment,
@@ -71,6 +86,23 @@ let dragCounter = 0;
 let isPathDragOver = $state(false);
 let showPromptSuggestions = $state(false);
 let selectedPromptIndex = $state(0);
+let showSpaceMentions = $state(false);
+let selectedSpaceMentionIndex = $state(0);
+let localSpaceMentionItems = $state<SpaceMentionSuggestion[]>([]);
+let remoteSpaceMentionItems = $state<SpaceMentionSuggestion[]>([]);
+let spaceMentionLocalDone = $state(true);
+let spaceMentionRemoteDone = $state(true);
+let spaceMentionRemoteError = $state<string | null>(null);
+let spaceMentionSearchToken = 0;
+let spaceMentionLocalController: AbortController | null = null;
+let spaceMentionRemoteController: AbortController | null = null;
+let spaceMentionDebounceTimer: number | null = null;
+let pastedSpaceResolveController: AbortController | null = null;
+let spaceMentionTrigger = $state<{
+	start: number;
+	end: number;
+	query: string;
+} | null>(null);
 let isComposerExpanded = $state(false);
 
 const hasDraft = $derived(Boolean(value.trim() || attachments.length > 0));
@@ -123,6 +155,27 @@ const slashCommandActive = $derived.by(() => {
 const slashCommandLoading = $derived(
 	slashCommandActive && !promptTemplatesLoaded,
 );
+
+const spaceMentionItems = $derived(
+	mergeSpaceMentionSuggestions({
+		local: localSpaceMentionItems,
+		remote: remoteSpaceMentionItems,
+		currentSpaceId,
+		limit: 30,
+	}),
+);
+const spaceMentionLoading = $derived(
+	!spaceMentionLocalDone || !spaceMentionRemoteDone,
+);
+const spaceMentionStatus = $derived.by(() => {
+	const query = spaceMentionTrigger?.query.trim() ?? "";
+	if (!query) return "Mention another space";
+	if (spaceMentionRemoteError)
+		return `Local results only · ${spaceMentionRemoteError}`;
+	if (!spaceMentionRemoteDone)
+		return `Local ${localSpaceMentionItems.length} · syncing server…`;
+	return `${spaceMentionItems.length} space${spaceMentionItems.length === 1 ? "" : "s"}`;
+});
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
 function isMobile(): boolean {
@@ -186,6 +239,95 @@ function applyPromptTemplate(item: SlashCommandMenuItem) {
 	});
 }
 
+function detectSpaceMentionTrigger() {
+	if (!textareaEl) return null;
+	const cursor = textareaEl.selectionStart;
+	if (cursor !== textareaEl.selectionEnd) return null;
+	const prefix = value.slice(0, cursor);
+	const match = /(^|\s)@([^@\s[\]()]{0,80})$/.exec(prefix);
+	if (!match) return null;
+	const token = match[2] ?? "";
+	const atIndex = cursor - token.length - 1;
+	return { start: atIndex, end: cursor, query: token };
+}
+
+function resetSpaceMentionSearch() {
+	spaceMentionLocalController?.abort();
+	spaceMentionRemoteController?.abort();
+	if (spaceMentionDebounceTimer != null)
+		window.clearTimeout(spaceMentionDebounceTimer);
+	localSpaceMentionItems = [];
+	remoteSpaceMentionItems = [];
+	spaceMentionLocalDone = true;
+	spaceMentionRemoteDone = true;
+	spaceMentionRemoteError = null;
+	selectedSpaceMentionIndex = 0;
+}
+
+function scheduleSpaceMentionSearch(trigger: { query: string } | null) {
+	resetSpaceMentionSearch();
+	if (!trigger) return;
+	const q = trigger.query.trim();
+	const token = ++spaceMentionSearchToken;
+	spaceMentionLocalDone = false;
+	spaceMentionLocalController = new AbortController();
+	void searchLocalSpaceMentions(q, {
+		signal: spaceMentionLocalController.signal,
+		currentSpaceId,
+	})
+		.then((items) => {
+			if (token !== spaceMentionSearchToken) return;
+			localSpaceMentionItems = items;
+		})
+		.catch((error) => {
+			if (error?.name !== "AbortError")
+				console.warn("[space-mentions] local search failed", error);
+		})
+		.finally(() => {
+			if (token === spaceMentionSearchToken) spaceMentionLocalDone = true;
+		});
+
+	if (q.length < 2) return;
+	spaceMentionRemoteDone = false;
+	spaceMentionRemoteController = new AbortController();
+	spaceMentionDebounceTimer = window.setTimeout(() => {
+		void searchRemoteSpaceMentions(q, {
+			signal: spaceMentionRemoteController?.signal,
+			currentSpaceId,
+		})
+			.then((items) => {
+				if (token !== spaceMentionSearchToken) return;
+				remoteSpaceMentionItems = items;
+				spaceMentionRemoteError = null;
+			})
+			.catch((error) => {
+				if (token !== spaceMentionSearchToken || error?.name === "AbortError")
+					return;
+				spaceMentionRemoteError =
+					error instanceof Error ? error.message : "server unavailable";
+			})
+			.finally(() => {
+				if (token === spaceMentionSearchToken) spaceMentionRemoteDone = true;
+			});
+	}, 180);
+}
+
+function applySpaceMention(item: SpaceMentionSuggestion) {
+	const trigger = spaceMentionTrigger;
+	if (!trigger) return;
+	const snippet = `${buildSpaceMentionMarkdown({ spaceId: item.spaceId, label: item.name })} `;
+	value = value.slice(0, trigger.start) + snippet + value.slice(trigger.end);
+	showSpaceMentions = false;
+	spaceMentionTrigger = null;
+	selectedSpaceMentionIndex = 0;
+	requestAnimationFrame(() => {
+		const pos = trigger.start + snippet.length;
+		textareaEl?.focus();
+		textareaEl?.setSelectionRange(pos, pos);
+		resizeTextarea();
+	});
+}
+
 function hasAttachmentFiles(dataTransfer: DataTransfer | null) {
 	if (!dataTransfer) return false;
 	return Array.from(dataTransfer.items ?? []).some((item) => {
@@ -239,8 +381,9 @@ function handlePathDragLeave() {
 
 function insertSnippet(snippet: string) {
 	if (!textareaEl) {
+		const start = value.length;
 		value = `${value}${snippet}`;
-		return;
+		return { start, end: value.length };
 	}
 	const start = textareaEl.selectionStart;
 	const end = textareaEl.selectionEnd;
@@ -251,6 +394,7 @@ function insertSnippet(snippet: string) {
 		textareaEl?.focus();
 		resizeTextarea();
 	});
+	return { start, end: start + snippet.length };
 }
 
 function focusComposer() {
@@ -268,6 +412,51 @@ function handlePathDrop(event: DragEvent) {
 }
 
 function handlePaste(event: ClipboardEvent) {
+	const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
+	const pastedSpaceLinks = clipboardText
+		? parseCohubSpaceUrls(clipboardText)
+		: [];
+	if (pastedSpaceLinks.length > 0) {
+		event.preventDefault();
+		const known = new Map<string, SpaceMentionSuggestion>();
+		for (const item of spaceMentionItems) known.set(item.spaceId, item);
+		const converted = replaceCohubSpaceUrls(
+			clipboardText,
+			(spaceId) => known.get(spaceId)?.name,
+		);
+		const inserted = insertSnippet(converted);
+		const unresolved = pastedSpaceLinks
+			.map((item) => item.spaceId)
+			.filter((spaceId) => !known.has(spaceId));
+		if (unresolved.length > 0) {
+			pastedSpaceResolveController?.abort();
+			pastedSpaceResolveController = new AbortController();
+			void resolveSpaceMentionLabels(unresolved, {
+				signal: pastedSpaceResolveController.signal,
+			})
+				.then((labels) => {
+					if (labels.size === 0) return;
+					const currentSegment = value.slice(inserted.start, inserted.end);
+					const resolvedSegment = replaceCohubSpaceUrls(
+						clipboardText,
+						(spaceId) => labels.get(spaceId) ?? known.get(spaceId)?.name,
+					);
+					if (currentSegment !== converted) return;
+					value =
+						value.slice(0, inserted.start) +
+						resolvedSegment +
+						value.slice(inserted.end);
+					inserted.end = inserted.start + resolvedSegment.length;
+					requestAnimationFrame(resizeTextarea);
+				})
+				.catch((error) => {
+					if (error?.name !== "AbortError")
+						console.warn("[space-mentions] pasted link resolve failed", error);
+				});
+		}
+		return;
+	}
+
 	const files = Array.from(event.clipboardData?.items ?? [])
 		.filter((item) => item.kind === "file")
 		.map((item) => item.getAsFile())
@@ -300,6 +489,11 @@ onMount(() => {
 		window.removeEventListener("cohub:composer-insert", handleComposerInsert);
 		window.removeEventListener("resize", handleViewportResize);
 		window.visualViewport?.removeEventListener("resize", handleViewportResize);
+		spaceMentionLocalController?.abort();
+		spaceMentionRemoteController?.abort();
+		pastedSpaceResolveController?.abort();
+		if (spaceMentionDebounceTimer != null)
+			window.clearTimeout(spaceMentionDebounceTimer);
 	};
 });
 
@@ -313,6 +507,7 @@ $effect(() => {
 $effect(() => {
 	const shouldShow =
 		slashCommandActive &&
+		!showSpaceMentions &&
 		(filteredPromptTemplates.length > 0 || slashCommandLoading);
 	showPromptSuggestions = shouldShow;
 	if (!shouldShow) {
@@ -322,6 +517,21 @@ $effect(() => {
 	selectedPromptIndex = Math.min(
 		selectedPromptIndex,
 		Math.max(filteredPromptTemplates.length - 1, 0),
+	);
+});
+
+$effect(() => {
+	value;
+	const trigger = detectSpaceMentionTrigger();
+	spaceMentionTrigger = trigger;
+	showSpaceMentions = Boolean(trigger && !slashCommandActive);
+	scheduleSpaceMentionSearch(trigger && !slashCommandActive ? trigger : null);
+});
+
+$effect(() => {
+	selectedSpaceMentionIndex = Math.min(
+		selectedSpaceMentionIndex,
+		Math.max(spaceMentionItems.length - 1, 0),
 	);
 });
 </script>
@@ -411,17 +621,59 @@ $effect(() => {
 						ondragleave={handlePathDragLeave}
 						ondrop={handlePathDrop}
 						onpaste={handlePaste}
-						onblur={() => {
+							onblur={() => {
 							setTimeout(() => {
 								showPromptSuggestions = false;
+								showSpaceMentions = false;
 							}, 120);
 						}}
 						onfocus={() => {
+							if (spaceMentionTrigger && !slashCommandActive) showSpaceMentions = true;
 							if (slashCommandActive && (filteredPromptTemplates.length > 0 || slashCommandLoading)) {
 								showPromptSuggestions = true;
 							}
 						}}
 						onkeydown={(event) => {
+							if (event.key === 'Escape' && showSpaceMentions) {
+								event.preventDefault();
+								showSpaceMentions = false;
+								return;
+							}
+
+							if (showSpaceMentions) {
+								const key = event.key.toLowerCase();
+								const isEmacsNext = event.ctrlKey && !event.metaKey && !event.altKey && key === 'n';
+								const isEmacsPrevious = event.ctrlKey && !event.metaKey && !event.altKey && key === 'p';
+								if (spaceMentionItems.length > 0 && (event.key === 'ArrowDown' || isEmacsNext)) {
+									event.preventDefault();
+									selectedSpaceMentionIndex = Math.min(selectedSpaceMentionIndex + 1, spaceMentionItems.length - 1);
+									return;
+								}
+								if (spaceMentionItems.length > 0 && (event.key === 'ArrowUp' || isEmacsPrevious)) {
+									event.preventDefault();
+									selectedSpaceMentionIndex = Math.max(selectedSpaceMentionIndex - 1, 0);
+									return;
+								}
+								if (spaceMentionItems.length > 0 && event.key === 'Home') {
+									event.preventDefault();
+									selectedSpaceMentionIndex = 0;
+									return;
+								}
+								if (spaceMentionItems.length > 0 && event.key === 'End') {
+									event.preventDefault();
+									selectedSpaceMentionIndex = spaceMentionItems.length - 1;
+									return;
+								}
+								if (spaceMentionItems.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
+									if (!(event.key === 'Enter' && event.shiftKey)) {
+										event.preventDefault();
+										const selected = spaceMentionItems[selectedSpaceMentionIndex];
+										if (selected) applySpaceMention(selected);
+										return;
+									}
+								}
+							}
+
 							if (event.key === 'Escape' && showPromptSuggestions) {
 								event.preventDefault();
 								showPromptSuggestions = false;
@@ -508,6 +760,19 @@ $effect(() => {
 							selectedPromptIndex = index;
 						}}
 						onselect={applyPromptTemplate}
+					/>
+
+					<SpaceMentionMenu
+						open={showSpaceMentions}
+						items={spaceMentionItems}
+						query={spaceMentionTrigger?.query ?? ""}
+						selectedIndex={selectedSpaceMentionIndex}
+						loading={spaceMentionLoading}
+						status={spaceMentionStatus}
+						onhighlight={(index) => {
+							selectedSpaceMentionIndex = index;
+						}}
+						onselect={applySpaceMention}
 					/>
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">

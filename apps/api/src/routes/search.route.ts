@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 import { useAuth } from "../lib/middleware.js";
 
 const router = new Hono();
@@ -21,6 +22,7 @@ type SearchResultRow = {
   title: string;
   excerpt: string | null;
   spaceName: string | null;
+  ownerUserUuid: string | null;
   sessionTitle: string | null;
   matchedField: SearchMatchedField;
   updatedAt: Date | string | null;
@@ -59,7 +61,10 @@ function hrefFor(row: SearchResultRow) {
   return `/spaces/${row.spaceId}/sessions/${row.sessionId}?turn=${row.sequence}`;
 }
 
-function mapRow(row: SearchResultRow) {
+function mapRow(row: SearchResultRow, profiles?: Awaited<ReturnType<typeof getProfilesByUuids>>) {
+  const ownerProfile = row.ownerUserUuid
+    ? (profiles?.get(row.ownerUserUuid) ?? fallbackPublicUserProfile(row.ownerUserUuid))
+    : null;
   return {
     type: row.type,
     id: row.id,
@@ -70,6 +75,7 @@ function mapRow(row: SearchResultRow) {
     title: row.title,
     excerpt: row.excerpt,
     spaceName: row.spaceName,
+    ownerProfile: row.type === "space" ? ownerProfile : null,
     sessionTitle: row.sessionTitle,
     matchedField: row.matchedField,
     href: hrefFor(row),
@@ -99,7 +105,29 @@ router.get("/", async (c) => {
       FROM v2.spaces s
       LEFT JOIN v2.space_members sm
         ON sm.space_id = s.id AND sm.user_id = ${user.uuid}
-      WHERE s.user_uuid = ${user.uuid} OR sm.user_id IS NOT NULL
+      LEFT JOIN v2.access_policies ap
+        ON ap.resource_type = 'space' AND ap.resource_id = s.id
+      WHERE
+        s.user_uuid = ${user.uuid}
+        OR sm.user_id IS NOT NULL
+        OR ap.signed_in_user_role IS NOT NULL
+        OR ap.anonymous_user_role IS NOT NULL
+    ),
+    visible_sessions AS (
+      SELECT sess.*, sp.name AS space_name, sp.user_uuid AS owner_user_uuid
+      FROM v2.space_sessions sess
+      JOIN visible_spaces sp ON sp.id = sess.space_id
+      LEFT JOIN v2.space_members sm
+        ON sm.space_id = sess.space_id AND sm.user_id = ${user.uuid}
+      LEFT JOIN v2.access_policies space_ap
+        ON space_ap.resource_type = 'space' AND space_ap.resource_id = sess.space_id
+      LEFT JOIN v2.access_policies session_ap
+        ON session_ap.resource_type = 'session' AND session_ap.resource_id = sess.id
+      WHERE
+        sp.user_uuid = ${user.uuid}
+        OR sm.user_id IS NOT NULL
+        OR coalesce(session_ap.signed_in_user_role, space_ap.signed_in_user_role) IS NOT NULL
+        OR coalesce(session_ap.anonymous_user_role, space_ap.anonymous_user_role) IS NOT NULL
     ),
     space_results AS (
       SELECT
@@ -115,6 +143,7 @@ router.get("/", async (c) => {
           ELSE left(regexp_replace(s.description, '\\s+', ' ', 'g'), 220)
         END AS excerpt,
         s.name AS space_name,
+        s.user_uuid AS owner_user_uuid,
         NULL::text AS session_title,
         'name'::text AS matched_field,
         coalesce(s.updated_at, s.created_at) AS updated_at,
@@ -150,7 +179,8 @@ router.get("/", async (c) => {
         NULL::int AS sequence,
         coalesce(nullif(sess.title, ''), 'Untitled session') AS title,
         NULL::text AS excerpt,
-        sp.name AS space_name,
+        sess.space_name AS space_name,
+        sess.owner_user_uuid AS owner_user_uuid,
         sess.title AS session_title,
         'title'::text AS matched_field,
         coalesce(sess.last_message_at, sess.updated_at, sess.created_at) AS updated_at,
@@ -161,8 +191,7 @@ router.get("/", async (c) => {
           ELSE similarity(coalesce(sess.title, ''), ${q}) * 0.70
         END * 0.94 AS text_score,
         0.74::double precision AS type_priority_score
-      FROM v2.space_sessions sess
-      JOIN visible_spaces sp ON sp.id = sess.space_id
+      FROM visible_sessions sess
       WHERE
         coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
         OR similarity(coalesce(sess.title, ''), ${q}) > 0.2
@@ -177,7 +206,8 @@ router.get("/", async (c) => {
         t.sequence AS sequence,
         left(regexp_replace(coalesce(t.user_text, ''), '\\s+', ' ', 'g'), 140) AS title,
         left(regexp_replace(coalesce(t.user_text, ''), '\\s+', ' ', 'g'), 260) AS excerpt,
-        sp.name AS space_name,
+        sess.space_name AS space_name,
+        sess.owner_user_uuid AS owner_user_uuid,
         sess.title AS session_title,
         'userText'::text AS matched_field,
         coalesce(t.updated_at, t.created_at) AS updated_at,
@@ -189,8 +219,7 @@ router.get("/", async (c) => {
         END AS text_score,
         0.66::double precision AS type_priority_score
       FROM v2.session_turns t
-      JOIN v2.space_sessions sess ON sess.id = t.session_id
-      JOIN visible_spaces sp ON sp.id = sess.space_id
+      JOIN visible_sessions sess ON sess.id = t.session_id
       WHERE
         t.user_text IS NOT NULL
         AND (
@@ -221,6 +250,7 @@ router.get("/", async (c) => {
       title,
       excerpt,
       space_name AS "spaceName",
+      owner_user_uuid AS "ownerUserUuid",
       session_title AS "sessionTitle",
       matched_field AS "matchedField",
       updated_at AS "updatedAt",
@@ -233,7 +263,21 @@ router.get("/", async (c) => {
     LIMIT ${limit}
   `);
 
-    return c.json({ items: rows.map(mapRow), query: q, source: "remote" });
+    let profileMap = new Map<string, ReturnType<typeof fallbackPublicUserProfile>>();
+    try {
+      profileMap = await getProfilesByUuids(
+        rows
+          .filter((row) => row.type === "space" && row.ownerUserUuid)
+          .map((row) => row.ownerUserUuid as string),
+      );
+    } catch (error) {
+      console.warn("[search] profile enrichment failed", {
+        userUuid: user.uuid,
+        ownerCount: new Set(rows.map((row) => row.ownerUserUuid).filter(Boolean)).size,
+        error,
+      });
+    }
+    return c.json({ items: rows.map((row) => mapRow(row, profileMap)), query: q, source: "remote" });
   } catch (error) {
     console.warn("[search] global search failed", {
       userUuid: user.uuid,

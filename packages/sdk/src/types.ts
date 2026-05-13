@@ -184,6 +184,7 @@ export type SpaceRecord = {
     status: string;
   }[];
   accessLevel?: "minimal";
+  ownerProfile?: Pick<UserProfile, "userUuid" | "displayName" | "avatarUrl"> | null;
   gitInfo?: SpaceGitInfo | null;
 };
 
@@ -337,6 +338,7 @@ export type GlobalSearchResult = {
   title: string;
   excerpt: string | null;
   spaceName: string | null;
+  ownerProfile?: Pick<UserProfile, "userUuid" | "displayName" | "avatarUrl"> | null;
   sessionTitle: string | null;
   matchedField: "userText" | "title" | "name" | "description";
   href: string;

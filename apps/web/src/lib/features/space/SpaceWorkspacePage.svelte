@@ -94,6 +94,7 @@ import {
 	MAX_COMPOSER_ATTACHMENTS,
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
+import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
@@ -1492,7 +1493,9 @@ function mergeFsNodeLists(
 	previousNodes: SpaceFsNode[] = [],
 ): SpaceFsNode[] {
 	if (previousNodes.length === 0) return nodes;
-	const previousByPath = new Map(previousNodes.map((node) => [node.path, node]));
+	const previousByPath = new Map(
+		previousNodes.map((node) => [node.path, node]),
+	);
 	return nodes.map((node) => {
 		const previous = previousByPath.get(node.path);
 		if (!previous || previous.type !== node.type) return node;
@@ -2950,8 +2953,17 @@ async function handleSend() {
 			},
 		} satisfies ContentBlock;
 	});
+	const mentions = extractSpaceMentionsFromText(text);
 	const content: ContentBlock[] = [
-		...(text ? [{ type: "text", text } satisfies ContentBlock] : []),
+		...(text
+			? [
+					{
+						type: "text",
+						text,
+						_meta: mentions.length > 0 ? { mentions } : undefined,
+					} satisfies ContentBlock,
+				]
+			: []),
 		...attachmentBlocks,
 	];
 	const sessionId = activeSessionState.session.id;
@@ -6244,6 +6256,7 @@ $effect(() => {
             streamError={composerNotice}
             attachments={attachments}
             currentModel={activeSessionModel}
+            currentSpaceId={spaceId}
             promptTemplates={promptTemplates}
             promptTemplatesLoaded={promptTemplatesLoaded}
             onpickattachment={handlePickAttachments}
