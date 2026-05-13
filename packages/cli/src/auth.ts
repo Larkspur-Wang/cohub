@@ -1,4 +1,4 @@
-import { resolveApiBaseUrl, resolveCohubEnvironment, type CohubEnvironment } from "@neta-art/cohub";
+import { resolveCohubEnvironment, type CohubEnvironment } from "@neta-art/cohub";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const CONFIG_DIR = join(homedir(), ".config", "cohub");
 const EXPIRY_SKEW_MS = 5 * 60 * 1000;
 const DEFAULT_SCOPE = "openid profile email offline_access";
+const DEFAULT_RESOURCE = "https://api.talesofai";
 
 export type AuthSource = "execution-token" | "logto" | null;
 
@@ -70,7 +71,7 @@ const authConfig = (env = currentEnv()): AuthConfig => {
   return {
     issuer: normalizeUrl(process.env[`${prefix}_AUTH_ISSUER`] ?? process.env.COHUB_AUTH_ISSUER ?? defaultIssuer),
     clientId: process.env[`${prefix}_AUTH_CLIENT_ID`] ?? process.env.COHUB_AUTH_CLIENT_ID ?? defaultClientId,
-    resource: process.env[`${prefix}_AUTH_RESOURCE`] ?? process.env.COHUB_AUTH_RESOURCE ?? resolveApiBaseUrl({ env }),
+    resource: process.env[`${prefix}_AUTH_RESOURCE`] ?? process.env.COHUB_AUTH_RESOURCE ?? DEFAULT_RESOURCE,
     scope: process.env[`${prefix}_AUTH_SCOPE`] ?? process.env.COHUB_AUTH_SCOPE ?? DEFAULT_SCOPE,
   };
 };
@@ -260,6 +261,7 @@ export async function verifyDeviceCode(): Promise<AuthSession> {
     client_id: config.clientId,
     grant_type: "urn:ietf:params:oauth:grant-type:device_code",
     device_code: deviceCode.deviceCode,
+    resource: config.resource,
   }));
   if (!response.ok) throw new Error(formatAuthError(data, response.status));
 

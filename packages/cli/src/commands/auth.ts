@@ -18,7 +18,8 @@ export function registerAuth(program: Command): void {
     .option("--request-code", "Request a device code without polling")
     .option("--verify-code", "Exchange a previously requested device code")
     .option("--json", "Output as JSON")
-    .action(async (opts: LoginOptions) => {
+    .action(async (opts: LoginOptions, command: Command) => {
+      const asJson = Boolean(opts.json || command.parent?.optsWithGlobals<{ json?: boolean }>().json);
       if (opts.requestCode && opts.verifyCode) {
         return error("Conflicting options", "Use only one of --request-code or --verify-code");
       }
@@ -26,14 +27,14 @@ export function registerAuth(program: Command): void {
       try {
         if (opts.requestCode) {
           const code = await requestDeviceCode();
-          if (opts.json) return outJson(code);
+          if (asJson) return outJson(code);
           printDeviceCode(code);
           return;
         }
 
         if (opts.verifyCode) {
           await verifyDeviceCode();
-          return showSignedIn(opts.json);
+          return showSignedIn(asJson);
         }
 
         const sp = spinner();
@@ -43,7 +44,7 @@ export function registerAuth(program: Command): void {
           printDeviceCode(code);
           process.stderr.write("  Waiting for authorization...\n");
         });
-        return showSignedIn(opts.json);
+        return showSignedIn(asJson);
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -53,7 +54,10 @@ export function registerAuth(program: Command): void {
     .command("whoami")
     .description("Show current user info")
     .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }) => showSignedIn(opts.json));
+    .action(async (opts: { json?: boolean }, command: Command) => {
+      const asJson = Boolean(opts.json || command.parent?.optsWithGlobals<{ json?: boolean }>().json);
+      return showSignedIn(asJson);
+    });
 
   auth
     .command("refresh")
