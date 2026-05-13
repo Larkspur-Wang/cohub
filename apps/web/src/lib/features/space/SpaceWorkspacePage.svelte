@@ -609,45 +609,89 @@ let taskRunDetailLoading = $state(false);
 let taskRunDetailError = $state("");
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
+type TokenUsageDays = 7 | 30 | 90;
+type DailyUsagePoint = {
+	date: string;
+	label: string;
+	totalTokens: number;
+	inputTokens: number;
+	outputTokens: number;
+	cacheTokens: number;
+	costTotal: number;
+	requestCount: number;
+};
+const TOKEN_USAGE_DAY_OPTIONS: TokenUsageDays[] = [7, 30, 90];
 let tokenUsage = $state<TokenUsageData | null>(null);
+let tokenUsageDays = $state<TokenUsageDays>(7);
+let tokenUsageLoading = $state(false);
+let tokenUsageError = $state("");
 
-// ─── Heatmap helpers ───
-type HeatmapCell = { date: string; tokens: number; dayOfWeek: number };
-function buildHeatmapWeeks(
+function getUsageDateKey(date: Date): string {
+	return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+function formatUsageDateLabel(date: Date, days: number): string {
+	if (days <= 7) {
+		return date.toLocaleDateString(undefined, { weekday: "short" });
+	}
+	return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function buildDailyUsageSeries(
 	hourlyStats: TokenUsageData["hourly"],
 	days: number,
-): HeatmapCell[][] {
-	const dateTotals = new Map<string, number>();
-	for (const stat of hourlyStats) {
-		const d = new Date(stat.bucketStartAt);
-		const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-		dateTotals.set(key, (dateTotals.get(key) ?? 0) + (stat.totalTokens ?? 0));
-	}
+): DailyUsagePoint[] {
 	const today = new Date();
 	today.setUTCHours(0, 0, 0, 0);
-	const grid: HeatmapCell[] = [];
+	const dailyMap = new Map<string, DailyUsagePoint>();
 	for (let i = days - 1; i >= 0; i--) {
-		const d = new Date(today.getTime() - i * 86400000);
-		const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-		grid.push({
+		const date = new Date(today.getTime() - i * 86400000);
+		const key = getUsageDateKey(date);
+		dailyMap.set(key, {
 			date: key,
-			tokens: dateTotals.get(key) ?? 0,
-			dayOfWeek: d.getUTCDay(),
+			label: formatUsageDateLabel(date, days),
+			totalTokens: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheTokens: 0,
+			costTotal: 0,
+			requestCount: 0,
 		});
 	}
-	const weeks: HeatmapCell[][] = [];
-	for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
-	return weeks;
+	for (const stat of hourlyStats) {
+		const date = new Date(stat.bucketStartAt);
+		const key = getUsageDateKey(date);
+		const point = dailyMap.get(key);
+		if (!point) continue;
+		point.totalTokens += stat.totalTokens ?? 0;
+		point.inputTokens += stat.inputTokens ?? 0;
+		point.outputTokens += stat.outputTokens ?? 0;
+		point.cacheTokens +=
+			(stat.cacheReadTokens ?? 0) + (stat.cacheWriteTokens ?? 0);
+		point.costTotal = Number(
+			(point.costTotal + (stat.costTotal ?? 0)).toFixed(4),
+		);
+		point.requestCount += stat.requestCount ?? 0;
+	}
+	return Array.from(dailyMap.values());
 }
-function heatmapIntensity(tokens: number, maxTokens: number): number {
-	if (maxTokens === 0 || tokens === 0) return 0;
-	return Math.min(
-		4,
-		Math.round((Math.log1p(tokens) / Math.log1p(maxTokens)) * 4),
-	);
+function getUsageLinePoints(
+	series: DailyUsagePoint[],
+	width: number,
+	height: number,
+): string {
+	if (series.length === 0) return "";
+	const maxCost = Math.max(...series.map((point) => point.costTotal), 0);
+	const step = series.length > 1 ? width / (series.length - 1) : 0;
+	return series
+		.map((point, index) => {
+			const x = series.length > 1 ? index * step : width / 2;
+			const ratio = maxCost > 0 ? point.costTotal / maxCost : 0;
+			const y = height - ratio * (height - 12) - 6;
+			return `${x.toFixed(1)},${y.toFixed(1)}`;
+		})
+		.join(" ");
 }
-function heatmapLevelClass(level: number): string {
-	return `heatmap-${level}`;
+function getUsageBreakdownPercent(value: number, total: number): number {
+	return total > 0 ? Math.round((value / total) * 100) : 0;
 }
 function formatTokenCount(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -657,7 +701,7 @@ function formatTokenCount(n: number): string {
 function formatCost(n: number): string {
 	const formatted =
 		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
-	return `$${formatted}`;
+	return `${formatted}`;
 }
 
 function getSessionTitle(session: SessionRecord): string {
@@ -691,13 +735,23 @@ function hasSessionPermission(sessionId: string): boolean {
 			access.signed_in_user === "builder")
 	);
 }
-async function loadTokenUsage() {
+async function loadTokenUsage(days: TokenUsageDays = tokenUsageDays) {
+	tokenUsageLoading = true;
+	tokenUsageError = "";
 	try {
-		const result = await sdk.space(spaceId).usage.get(30);
+		const result = await sdk.space(spaceId).usage.get(days);
 		tokenUsage = result;
-	} catch {
-		// Non-blocking
+	} catch (error) {
+		tokenUsageError =
+			error instanceof Error ? error.message : "Failed to load usage data";
+	} finally {
+		tokenUsageLoading = false;
 	}
+}
+function selectTokenUsageDays(days: TokenUsageDays) {
+	if (tokenUsageDays === days && tokenUsage) return;
+	tokenUsageDays = days;
+	void loadTokenUsage(days);
 }
 async function removeSessionAccess(sessionId: string) {
 	try {
@@ -4486,7 +4540,7 @@ $effect(() => {
 				void loadPreviewEndpoints();
 				void loadFileTree(true);
 				void loadSpaceCheckpoints();
-				if (routeView === "space") void loadTokenUsage();
+				if (routeView === "space") void loadTokenUsage(7);
 				if (routeView === "session" && routeSessionId) {
 					prepareRouteSession(routeSessionId);
 					await sessionLoad;
@@ -6019,78 +6073,141 @@ $effect(() => {
               </div>
             {/if}
           </section>
-          <!-- Token Usage Heatmap -->
+          <!-- Token Usage -->
           <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-            <div class="flex items-center justify-between gap-3 mb-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="flex items-center gap-2">
                 <Activity class="w-4 h-4 text-text-tertiary" />
                 <div>
                   <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Usage</div>
-                  <div class="mt-0.5 text-[15px] font-medium text-text-primary">Token consumption</div>
+                  <div class="mt-0.5 text-[15px] font-medium text-text-primary">Token consumption & cost</div>
                 </div>
               </div>
-              {#if tokenUsage}
-                <div class="text-right">
-                  <div class="text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.totalTokens)}</div>
-                  <div class="text-[11px] text-text-tertiary">tokens</div>
+              <div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-primary p-0.5">
+                {#each TOKEN_USAGE_DAY_OPTIONS as days}
+                  <button
+                    type="button"
+                    class="rounded-[4px] px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {tokenUsageDays === days ? 'bg-brand text-brand-contrast-fg' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+                    onclick={() => selectTokenUsageDays(days)}
+                    disabled={tokenUsageLoading && tokenUsageDays === days}
+                  >
+                    {days}d
+                  </button>
+                {/each}
+              </div>
+            </div>
+            {#if tokenUsageError}
+              <div class="mt-4 rounded-[6px] border border-error-soft/20 bg-error-bg px-3 py-2 text-[12px] text-error-soft">
+                Failed to load usage: {tokenUsageError}
+              </div>
+            {:else if tokenUsage}
+              {@const usageSeries = buildDailyUsageSeries(tokenUsage.hourly, tokenUsage.days)}
+              {@const maxDailyTokens = Math.max(...usageSeries.map((point) => point.totalTokens), 0)}
+              {@const maxDailyCost = Math.max(...usageSeries.map((point) => point.costTotal), 0)}
+              {@const avgTokensPerRequest = tokenUsage.summary.requestCount > 0 ? tokenUsage.summary.totalTokens / tokenUsage.summary.requestCount : 0}
+              {@const cacheTokens = tokenUsage.summary.cacheReadTokens + tokenUsage.summary.cacheWriteTokens}
+              {@const inputPercent = getUsageBreakdownPercent(tokenUsage.summary.inputTokens, tokenUsage.summary.totalTokens)}
+              {@const outputPercent = getUsageBreakdownPercent(tokenUsage.summary.outputTokens, tokenUsage.summary.totalTokens)}
+              {@const cachePercent = getUsageBreakdownPercent(cacheTokens, tokenUsage.summary.totalTokens)}
+              <div class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border-subtle bg-border-subtle sm:grid-cols-4">
+                <div class="bg-bg-primary px-3 py-3">
+                  <div class="text-[11px] text-text-tertiary">Total tokens</div>
+                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.totalTokens)}</div>
+                </div>
+                <div class="bg-bg-primary px-3 py-3">
+                  <div class="text-[11px] text-text-tertiary">Cost</div>
+                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{formatCost(tokenUsage.summary.costTotal)}</div>
+                </div>
+                <div class="bg-bg-primary px-3 py-3">
+                  <div class="text-[11px] text-text-tertiary">Requests</div>
+                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{tokenUsage.summary.requestCount}</div>
+                </div>
+                <div class="bg-bg-primary px-3 py-3">
+                  <div class="text-[11px] text-text-tertiary">Avg / request</div>
+                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(avgTokensPerRequest)}</div>
+                </div>
+              </div>
+              {#if tokenUsage.summary.totalTokens > 0}
+                <div class="mt-4">
+                  <div class="h-1.5 overflow-hidden rounded-full bg-bg-hover">
+                    <div class="flex h-full">
+                      <div class="bg-brand" style="width: {inputPercent}%;"></div>
+                      <div class="bg-text-tertiary" style="width: {outputPercent}%;"></div>
+                      <div class="bg-border-primary" style="width: {cachePercent}%;"></div>
+                    </div>
+                  </div>
+                  <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-tertiary">
+                    <span><span class="text-text-primary">Input</span> {inputPercent}%</span>
+                    <span><span class="text-text-primary">Output</span> {outputPercent}%</span>
+                    <span><span class="text-text-primary">Cache</span> {cachePercent}%</span>
+                    {#if tokenUsage.summary.errorCount > 0}
+                      <span class="text-error-soft">{tokenUsage.summary.errorCount} errors</span>
+                    {/if}
+                  </div>
                 </div>
               {/if}
-            </div>
-            {#if tokenUsage && tokenUsage.hourly.length > 0}
-              {@const heatmapWeeks = buildHeatmapWeeks(tokenUsage.hourly, tokenUsage.days)}
-              {@const allCells = heatmapWeeks.flat()}
-              {@const maxTokens = Math.max(...allCells.map(d => d.tokens), 1)}
-              <!-- Heatmap grid -->
-              <div class="flex gap-[3px] overflow-x-auto pb-2">
-                {#each heatmapWeeks as week (week)}
-                  <div class="flex flex-col gap-[3px]">
-                    {#each week as cell (cell.date)}
-                      {@const level = heatmapIntensity(cell.tokens, maxTokens)}
-                      <div
-                        class="heatmap-cell {heatmapLevelClass(level)}"
-                        title="{cell.date}: {formatTokenCount(cell.tokens)} tokens"
-                      ></div>
-                    {/each}
-                    {#each Array(7 - week.length) as _}
-                      <div class="heatmap-cell heatmap-0"></div>
-                    {/each}
+              {#if tokenUsage.hourly.length > 0 && maxDailyTokens > 0}
+                <div class="mt-5 rounded-[8px] border border-border-subtle bg-bg-primary px-3 py-3">
+                  <div class="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
+                    <div>
+                      Peak <span class="text-text-secondary tabular-nums">{formatTokenCount(maxDailyTokens)}</span> tokens
+                    </div>
+                    <div class="flex items-center gap-3">
+                      <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-[2px] bg-brand"></span>Tokens</span>
+                      <span class="inline-flex items-center gap-1.5"><span class="h-px w-4 bg-text-tertiary"></span>Cost</span>
+                    </div>
+                  </div>
+                  <div class="relative h-[150px] overflow-hidden rounded-[6px] border border-border-subtle bg-bg-surface px-2 pt-3 pb-8">
+                    <div class="pointer-events-none absolute inset-x-2 top-3 bottom-8 grid grid-rows-3">
+                      <div class="border-b border-border-subtle/70"></div>
+                      <div class="border-b border-border-subtle/70"></div>
+                      <div></div>
+                    </div>
+                    <svg class="pointer-events-none absolute left-2 right-2 top-3 bottom-8 z-10 h-[calc(100%-44px)] w-[calc(100%-16px)] overflow-visible" viewBox="0 0 100 72" preserveAspectRatio="none" aria-hidden="true">
+                      <polyline
+                        points={getUsageLinePoints(usageSeries, 100, 72)}
+                        fill="none"
+                        stroke="var(--text-tertiary)"
+                        stroke-width="1.4"
+                        vector-effect="non-scaling-stroke"
+                      />
+                    </svg>
+                    <div class="absolute inset-x-2 top-3 bottom-8 grid items-end gap-1" style="grid-template-columns: repeat({usageSeries.length}, minmax(6px, 1fr));">
+                      {#each usageSeries as point}
+                        {@const barHeight = maxDailyTokens > 0 ? Math.max(3, (point.totalTokens / maxDailyTokens) * 100) : 0}
+                        <div class="group relative flex h-full items-end" title="{point.date}: {formatTokenCount(point.totalTokens)} tokens · {formatCost(point.costTotal)} · {point.requestCount} requests">
+                          <div class="w-full rounded-t-[3px] bg-brand/75 transition-colors group-hover:bg-brand" style="height: {barHeight}%;"></div>
+                        </div>
+                      {/each}
+                    </div>
+                    <div class="absolute inset-x-2 bottom-2 grid gap-1 text-[10px] text-text-placeholder" style="grid-template-columns: repeat({usageSeries.length}, minmax(6px, 1fr));">
+                      {#each usageSeries as point, index}
+                        <div class="truncate text-center {tokenUsage.days <= 7 || index % 5 === 0 || index === usageSeries.length - 1 ? '' : 'opacity-0'}">{point.label}</div>
+                      {/each}
+                    </div>
+                  </div>
+                  {#if maxDailyCost > 0}
+                    <div class="mt-2 text-[11px] text-text-tertiary">
+                      Peak cost <span class="text-text-secondary tabular-nums">{formatCost(maxDailyCost)}</span> / day
+                    </div>
+                  {/if}
+                </div>
+              {:else}
+                <div class="mt-5 flex items-center justify-center rounded-[8px] border border-border-subtle bg-bg-primary py-8 text-[13px] text-text-tertiary">
+                  No usage in the last {tokenUsage.days} days.
+                </div>
+              {/if}
+            {:else}
+              <div class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border-subtle bg-border-subtle sm:grid-cols-4">
+                {#each Array(4) as _}
+                  <div class="bg-bg-primary px-3 py-3">
+                    <div class="h-3 w-16 rounded bg-bg-hover"></div>
+                    <div class="mt-2 h-5 w-20 rounded bg-bg-hover"></div>
                   </div>
                 {/each}
               </div>
-              <!-- Legend -->
-              <div class="flex items-center justify-between mt-3 text-[11px] text-text-tertiary">
-                <span>Less</span>
-                <div class="flex gap-[3px]">
-                  <div class="heatmap-cell heatmap-0"></div>
-                  <div class="heatmap-cell heatmap-1"></div>
-                  <div class="heatmap-cell heatmap-2"></div>
-                  <div class="heatmap-cell heatmap-3"></div>
-                  <div class="heatmap-cell heatmap-4"></div>
-                </div>
-                <span>More</span>
-              </div>
-              <!-- Summary stats -->
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-border-subtle">
-                <div class="text-center">
-                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{tokenUsage.summary.requestCount}</div>
-                  <div class="text-[11px] text-text-tertiary mt-0.5">Requests</div>
-                </div>
-                <div class="text-center">
-                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.inputTokens)}</div>
-                  <div class="text-[11px] text-text-tertiary mt-0.5">Input</div>
-                </div>
-                <div class="text-center">
-                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.outputTokens)}</div>
-                  <div class="text-[11px] text-text-tertiary mt-0.5">Output</div>
-                </div>
-                <div class="text-center">
-                  <div class="text-[16px] font-semibold text-text-primary tabular-nums">{formatCost(tokenUsage.summary.costTotal)}</div>
-                  <div class="text-[11px] text-text-tertiary mt-0.5">Cost</div>
-                </div>
-              </div>
-            {:else}
-              <div class="flex items-center justify-center py-8 text-[13px] text-text-tertiary">
-                {#if tokenUsage}No usage data for the last {tokenUsage.days} days.{:else}Loading usage data…{/if}
+              <div class="mt-5 flex h-[150px] items-center justify-center rounded-[8px] border border-border-subtle bg-bg-primary text-[13px] text-text-tertiary">
+                Loading usage data…
               </div>
             {/if}
           </section>
@@ -6767,18 +6884,6 @@ $effect(() => {
   />
 </div>
 <style>
-  /* Heatmap */
-  .heatmap-cell {
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    transition: background-color 120ms ease;
-  }
-  .heatmap-0 { background: var(--heatmap-0); }
-  .heatmap-1 { background: var(--heatmap-1); }
-  .heatmap-2 { background: var(--heatmap-2); }
-  .heatmap-3 { background: var(--heatmap-3); }
-  .heatmap-4 { background: var(--heatmap-4); }
   @keyframes cohub-scroll-to-bottom-in {
     from {
       opacity: 0;
