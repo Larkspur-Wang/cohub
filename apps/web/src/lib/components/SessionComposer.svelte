@@ -189,6 +189,10 @@ const composerMentionTokens = $derived.by<SpaceMentionTextToken[]>(() =>
 const composerHasRenderableMentions = $derived(
 	composerMentionTokens.some((token) => token.type === "spaceMention"),
 );
+let isTextareaFocused = $state(false);
+const shouldRenderComposerMentionMirror = $derived(
+	composerHasRenderableMentions && !isTextareaFocused,
+);
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
 function isMobile(): boolean {
@@ -682,7 +686,7 @@ $effect(() => {
 					/>
 
 					<div class="composer-input-shell relative min-h-[44px]">
-						{#if composerHasRenderableMentions}
+						{#if shouldRenderComposerMentionMirror}
 							<div
 								bind:this={mentionMirrorEl}
 								class="composer-mention-mirror pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-[14px] leading-6 text-text-primary"
@@ -702,7 +706,10 @@ $effect(() => {
 							bind:value
 							rows="1"
 							placeholder={placeholder}
-							class={`relative z-[1] block min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-[14px] leading-6 outline-none placeholder:text-text-placeholder ${composerHasRenderableMentions ? 'text-transparent caret-text-primary selection:bg-brand/22' : 'text-text-primary'}`}
+							class={`relative z-[1] block min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-[14px] leading-6 outline-none placeholder:text-text-placeholder ${shouldRenderComposerMentionMirror ? 'text-transparent caret-text-primary selection:bg-brand/22' : 'text-text-primary'}`}
+							onpointerdown={() => {
+								isTextareaFocused = true;
+							}}
 							oninput={() => resizeTextarea()}
 							onscroll={syncMentionMirrorScroll}
 							ondragover={handlePathDragOver}
@@ -710,12 +717,14 @@ $effect(() => {
 						ondrop={handlePathDrop}
 						onpaste={handlePaste}
 							onblur={() => {
+							isTextareaFocused = false;
 							setTimeout(() => {
 								showPromptSuggestions = false;
 								showSpaceMentions = false;
 							}, 120);
 						}}
 						onfocus={() => {
+							isTextareaFocused = true;
 							if (spaceMentionTrigger && !slashCommandActive) showSpaceMentions = true;
 							if (slashCommandActive && (filteredPromptTemplates.length > 0 || slashCommandLoading)) {
 								showPromptSuggestions = true;
