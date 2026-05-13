@@ -191,25 +191,30 @@ router.get("/", async (c) => {
         s.name AS space_name,
         s.user_uuid AS owner_user_uuid,
         NULL::text AS session_title,
-        'name'::text AS matched_field,
+        CASE
+          WHEN scores.name_text_score >= scores.description_text_score THEN 'name'::text
+          ELSE 'description'::text
+        END AS matched_field,
         coalesce(s.updated_at, s.created_at) AS updated_at,
-        GREATEST(
+        GREATEST(scores.name_text_score, scores.description_text_score) AS text_score,
+        1.00::double precision AS type_priority_score,
+        s.membership_priority_score AS membership_priority_score
+      FROM visible_spaces s
+      CROSS JOIN LATERAL (
+        SELECT
           CASE
             WHEN lower(s.name) = lower(${q}) THEN 1.00
             WHEN lower(s.name) LIKE lower(${escapedQ}) || '%' ESCAPE '\\' THEN 0.92
             WHEN s.name ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
             ELSE similarity(s.name, ${q}) * 0.70
-          END * 0.90,
+          END * 0.90 AS name_text_score,
           CASE
             WHEN lower(coalesce(s.description, '')) = lower(${q}) THEN 1.00
             WHEN lower(coalesce(s.description, '')) LIKE lower(${escapedQ}) || '%' ESCAPE '\\' THEN 0.88
             WHEN coalesce(s.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.68
             ELSE similarity(coalesce(s.description, ''), ${q}) * 0.58
-          END * 0.68
-        ) AS text_score,
-        1.00::double precision AS type_priority_score,
-        s.membership_priority_score AS membership_priority_score
-      FROM visible_spaces s
+          END * 0.68 AS description_text_score
+      ) scores
       WHERE
         ${includeSpaces}
         AND (
