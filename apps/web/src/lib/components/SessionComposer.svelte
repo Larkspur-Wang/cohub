@@ -351,7 +351,7 @@ $effect(() => {
 			{/if}
 
 			<div class="flex items-end gap-2">
-				<div class="min-w-0 flex-1 rounded-[22px] bg-transparent px-3 py-1.5 ring-1 ring-transparent transition-colors focus-within:bg-transparent focus-within:ring-transparent">
+				<div class="relative min-w-0 flex-1 rounded-[22px] bg-transparent px-3 py-1.5 ring-1 ring-transparent transition-colors focus-within:bg-transparent focus-within:ring-transparent">
 					<input
 						bind:this={fileInputEl}
 						type="file"
@@ -381,7 +381,7 @@ $effect(() => {
 							}, 120);
 						}}
 						onfocus={() => {
-							if (!isMobile() && filteredPromptTemplates.length > 0 && value.trimStart().startsWith('/')) {
+							if (filteredPromptTemplates.length > 0 && value.trimStart().startsWith('/')) {
 								showPromptSuggestions = true;
 							}
 						}}
@@ -394,12 +394,16 @@ $effect(() => {
 							}
 
 							if (showPromptSuggestions && filteredPromptTemplates.length > 0) {
-								if (event.key === 'ArrowDown') {
+								const key = event.key.toLowerCase();
+								const isEmacsNext = event.ctrlKey && !event.metaKey && !event.altKey && key === 'n';
+								const isEmacsPrevious = event.ctrlKey && !event.metaKey && !event.altKey && key === 'p';
+
+								if (event.key === 'ArrowDown' || isEmacsNext) {
 									event.preventDefault();
 									selectedPromptIndex = Math.min(selectedPromptIndex + 1, filteredPromptTemplates.length - 1);
 									return;
 								}
-								if (event.key === 'ArrowUp') {
+								if (event.key === 'ArrowUp' || isEmacsPrevious) {
 									event.preventDefault();
 									selectedPromptIndex = Math.max(selectedPromptIndex - 1, 0);
 									return;
@@ -450,7 +454,7 @@ $effect(() => {
 									<button
 										type="button"
 										class={`flex w-full items-start gap-3 px-3 py-2 text-left transition-colors ${index === selectedPromptIndex ? 'bg-accent' : 'hover:bg-bg-hover'}`}
-										onmousedown={(event) => event.preventDefault()}
+										onpointerdown={(event) => event.preventDefault()}
 										onclick={() => applyPromptTemplate(item)}
 									>
 										<div class="min-w-0 flex-1">
@@ -464,6 +468,38 @@ $effect(() => {
 										</div>
 									</button>
 								{/each}
+							</div>
+						</div>
+
+						<div class="absolute inset-x-0 bottom-[calc(100%+0.5rem)] z-30 md:hidden">
+							<div class="mx-1 overflow-hidden rounded-[22px] border border-border-subtle bg-bg-content shadow-[0_18px_50px_rgba(15,23,42,0.22)]">
+								<div class="border-b border-border-subtle px-4 py-3">
+									<div class="text-[12px] font-medium text-text-primary">Prompt templates</div>
+									<div class="mt-0.5 text-[11px] text-text-tertiary">Tap to insert, then add arguments</div>
+								</div>
+								<div class="max-h-[min(45vh,360px)] overflow-y-auto py-1">
+									{#each filteredPromptTemplates as item (item.name)}
+										<button
+											type="button"
+											class="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-bg-hover"
+											onpointerdown={(event) => event.preventDefault()}
+											onclick={() => applyPromptTemplate(item)}
+										>
+											<div class="min-w-0 flex-1">
+												<div class="flex min-w-0 items-center gap-2 text-[13px] text-text-primary">
+													<span class="shrink-0 font-medium text-brand">/{item.name}</span>
+													{#if item.argumentHint}
+														<span class="truncate text-[12px] text-text-tertiary">{item.argumentHint}</span>
+													{/if}
+												</div>
+												<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{item.description}</div>
+											</div>
+											{#if item.category || item.scope}
+												<span class="shrink-0 rounded-full border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{item.category ?? item.scope}</span>
+											{/if}
+										</button>
+									{/each}
+								</div>
 							</div>
 						</div>
 					{/if}
