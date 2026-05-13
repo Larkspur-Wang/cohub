@@ -1,28 +1,22 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  createCachedPromptTemplatesConfig,
+  getUserPromptsRedisKey,
+  mergePromptTemplatesConfigs,
+  parseCachedPromptTemplatesConfig,
+  PLATFORM_PROMPTS_REDIS_KEY,
+  PROMPTS_CACHE_TTL_SEC,
+  type CachedPromptTemplatesConfig,
+  type PromptTemplate,
+  type PromptTemplateCatalogEntry,
+  type PromptTemplatesConfig,
+  type PromptTemplateScope,
+} from "@cohub/config-runtime/prompts";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
 
-const PROMPTS_CACHE_TTL_SEC = 5 * 60;
-const PROMPTS_CACHE_KEY_PREFIX = "configs:prompts:v1";
-
-type PromptTemplate = {
-  name: string;
-  description: string;
-  argumentHint?: string;
-  category?: string;
-  content: string;
-  filePath: string;
-  scope: "platform" | "user" | "project";
-};
-
-export type PromptTemplateCatalogEntry = {
-  name: string;
-  description: string;
-  argumentHint?: string;
-  category?: string;
-  scope: "platform" | "user" | "project";
-};
+export type { PromptTemplateCatalogEntry } from "@cohub/config-runtime/prompts";
 
 export type ExpandedPromptTemplate = {
   renderedText: string;
@@ -36,22 +30,25 @@ export type LoadPromptTemplatesOptions = {
   spaceId?: string | null;
 };
 
-const inflightByCacheKey = new Map<string, Promise<PromptTemplate[]>>();
+const PROMPTS_DIR = ".agents/prompts";
+const PROJECT_PROMPTS_CACHE_KEY_PREFIX = "configs:prompts:v1:project";
+
+const inflightByCacheKey = new Map<string, Promise<PromptTemplatesConfig | null>>();
 
 function getPlatformPromptsDir() {
-  return join(config.platformConfigRoot, "platform", ".pi", "agent", "prompts");
+  return join(config.platformConfigRoot, "platform", PROMPTS_DIR);
 }
 
 function getUserPromptsDir(userId: string) {
-  return join(config.platformConfigRoot, "users", userId, ".pi", "agent", "prompts");
+  return join(config.platformConfigRoot, "users", userId, PROMPTS_DIR);
 }
 
 function getProjectPromptsDir(spaceId: string) {
-  return resolve(config.spaceStorageRoot, spaceId, "workspace", ".pi", "agent", "prompts");
+  return resolve(config.spaceStorageRoot, spaceId, "workspace", PROMPTS_DIR);
 }
 
-function getCacheKey(options: LoadPromptTemplatesOptions) {
-  return `${PROMPTS_CACHE_KEY_PREFIX}:user:${options.userId ?? "-"}:space:${options.spaceId ?? "-"}`;
+function getProjectPromptsRedisKey(spaceId: string) {
+  return `${PROJECT_PROMPTS_CACHE_KEY_PREFIX}:${spaceId}`;
 }
 
 function parseFrontmatter(markdown: string): {
@@ -74,6 +71,125 @@ function parseFrontmatter(markdown: string): {
     attributes,
     body: markdown.slice(match[0].length),
   };
+}
+
+function parseTemplateFromText(raw: string, filePath: string, scope: PromptTemplateScope): PromptTemplate {
+  const { attributes, body } = parseFrontmatter(raw);
+  const fileName = filePath.split(/[/\\]/).at(-1) ?? "";
+  const name = fileName.replace(/\.md$/i, "");
+
+  let description = attributes.description?.trim() ?? "";
+  if (!description) {
+    const firstLine = body.split("\n").find((line) => line.trim());
+    description = firstLine?.trim().slice(0, 80) ?? name;
+  }
+
+  return {
+    name,
+    description,
+    argumentHint: attributes["argument-hint"]?.trim() || undefined,
+    category: attributes.category?.trim() || undefined,
+    content: body,
+    filePath,
+    scope,
+  };
+}
+
+async function readPromptsConfigFromDir(dir: string, scope: PromptTemplateScope): Promise<{ rawText: string; content: PromptTemplatesConfig }> {
+  const entries = await readdir(dir);
+  const templates: PromptTemplate[] = [];
+  const rawParts: string[] = [];
+
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith(".md")) continue;
+    const path = join(dir, entry);
+    const rawText = await readFile(path, "utf-8");
+    rawParts.push(`${entry}\n${rawText}`);
+    templates.push(parseTemplateFromText(rawText, path, scope));
+  }
+
+  templates.sort((a, b) => a.name.localeCompare(b.name));
+  return { rawText: rawParts.join("\n---\n"), content: { templates } };
+}
+
+async function loadPromptsFromDir(input: {
+  dir: string;
+  redisKey: string;
+  scope: PromptTemplateScope;
+  allowMissing: boolean;
+}): Promise<CachedPromptTemplatesConfig> {
+  try {
+    const { rawText, content } = await readPromptsConfigFromDir(input.dir, input.scope);
+    const cached = createCachedPromptTemplatesConfig({ rawText, content });
+    await redisCommandClient.set(input.redisKey, JSON.stringify(cached), "EX", PROMPTS_CACHE_TTL_SEC).catch(() => undefined);
+    return cached;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : undefined;
+    if (code !== "ENOENT" || !input.allowMissing) throw error;
+    const cached = createCachedPromptTemplatesConfig({ content: null });
+    await redisCommandClient.set(input.redisKey, JSON.stringify(cached), "EX", PROMPTS_CACHE_TTL_SEC).catch(() => undefined);
+    return cached;
+  }
+}
+
+async function loadCachedPrompts(input: {
+  redisKey: string;
+  dir: string;
+  scope: PromptTemplateScope;
+  allowMissing: boolean;
+}): Promise<PromptTemplatesConfig | null> {
+  const inflight = inflightByCacheKey.get(input.redisKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const cached = await redisCommandClient.get(input.redisKey).catch(() => null);
+    if (cached) {
+      const parsed = parseCachedPromptTemplatesConfig(cached);
+      if (parsed) return parsed.content;
+    }
+    return (await loadPromptsFromDir(input)).content;
+  })();
+
+  inflightByCacheKey.set(input.redisKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inflightByCacheKey.delete(input.redisKey);
+  }
+}
+
+async function fetchPromptTemplates(options: LoadPromptTemplatesOptions): Promise<PromptTemplate[]> {
+  const platformPrompts = await loadCachedPrompts({
+    redisKey: PLATFORM_PROMPTS_REDIS_KEY,
+    dir: getPlatformPromptsDir(),
+    scope: "platform",
+    allowMissing: false,
+  });
+  if (!platformPrompts) throw new Error("Platform prompt templates directory not found");
+
+  const configs: Array<PromptTemplatesConfig | null> = [platformPrompts];
+
+  if (options.userId) {
+    configs.push(await loadCachedPrompts({
+      redisKey: getUserPromptsRedisKey(options.userId),
+      dir: getUserPromptsDir(options.userId),
+      scope: "user",
+      allowMissing: true,
+    }));
+  }
+
+  if (options.spaceId && config.spaceStorageRoot) {
+    configs.push(await loadCachedPrompts({
+      redisKey: getProjectPromptsRedisKey(options.spaceId),
+      dir: getProjectPromptsDir(options.spaceId),
+      scope: "project",
+      allowMissing: true,
+    }));
+  }
+
+  return mergePromptTemplatesConfigs(...configs).templates;
 }
 
 function parseCommandArgs(argsString: string): string[] {
@@ -135,100 +251,6 @@ function substituteArgs(content: string, args: string[]): string {
   result = result.replace(/\$ARGUMENTS/g, allArgs);
   result = result.replace(/\$@/g, allArgs);
   return result;
-}
-
-function loadTemplateFromFile(filePath: string, scope: PromptTemplate["scope"]): PromptTemplate | null {
-  try {
-    const raw = readFileSync(filePath, "utf-8");
-    const { attributes, body } = parseFrontmatter(raw);
-    const fileName = filePath.split(/[/\\]/).at(-1) ?? "";
-    const name = fileName.replace(/\.md$/i, "");
-
-    let description = attributes.description?.trim() ?? "";
-    if (!description) {
-      const firstLine = body.split("\n").find((line) => line.trim());
-      description = firstLine?.trim().slice(0, 80) ?? name;
-    }
-
-    return {
-      name,
-      description,
-      argumentHint: attributes["argument-hint"]?.trim() || undefined,
-      category: attributes.category?.trim() || undefined,
-      content: body,
-      filePath,
-      scope,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function loadTemplatesFromDir(dirPath: string, scope: PromptTemplate["scope"]): PromptTemplate[] {
-  if (!dirPath || !existsSync(dirPath)) return [];
-
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(dirPath);
-  } catch {
-    return [];
-  }
-
-  return entries
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => loadTemplateFromFile(join(dirPath, name), scope))
-    .filter((item): item is PromptTemplate => item !== null)
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function mergePromptTemplates(options: LoadPromptTemplatesOptions): PromptTemplate[] {
-  const merged = new Map<string, PromptTemplate>();
-
-  for (const template of loadTemplatesFromDir(getPlatformPromptsDir(), "platform")) {
-    merged.set(template.name, template);
-  }
-
-  if (options.userId) {
-    for (const template of loadTemplatesFromDir(getUserPromptsDir(options.userId), "user")) {
-      merged.set(template.name, template);
-    }
-  }
-
-  if (options.spaceId && config.spaceStorageRoot) {
-    for (const template of loadTemplatesFromDir(getProjectPromptsDir(options.spaceId), "project")) {
-      merged.set(template.name, template);
-    }
-  }
-
-  return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function fetchPromptTemplates(options: LoadPromptTemplatesOptions): Promise<PromptTemplate[]> {
-  const cacheKey = getCacheKey(options);
-  const inflight = inflightByCacheKey.get(cacheKey);
-  if (inflight) return inflight;
-
-  const promise = (async () => {
-    const cached = await redisCommandClient.get(cacheKey);
-    if (cached) {
-      try {
-        return JSON.parse(cached) as PromptTemplate[];
-      } catch {
-        // ignore cache parse errors
-      }
-    }
-
-    const templates = mergePromptTemplates(options);
-    await redisCommandClient.set(cacheKey, JSON.stringify(templates), "EX", PROMPTS_CACHE_TTL_SEC);
-    return templates;
-  })();
-
-  inflightByCacheKey.set(cacheKey, promise);
-  try {
-    return await promise;
-  } finally {
-    inflightByCacheKey.delete(cacheKey);
-  }
 }
 
 export async function listPromptTemplates(options: LoadPromptTemplatesOptions = {}): Promise<PromptTemplateCatalogEntry[]> {

@@ -19,6 +19,10 @@
     "./generations": {
       "types": "./dist/generations.d.ts",
       "default": "./dist/generations.js"
+    },
+    "./prompts": {
+      "types": "./dist/prompts.d.ts",
+      "default": "./dist/prompts.js"
     }
   },
   "types": "./dist/index.d.ts",

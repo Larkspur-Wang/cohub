@@ -11,6 +11,7 @@ import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../c
 import { config } from "../config.js";
 import { getGenerationsDir, publishGenerationsCacheFromDir } from "../generations-cache.js";
 import { publishModelsCacheFromFile } from "../models-cache.js";
+import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
 
 const buildCommitMessage = (description?: string | null) => {
   const trimmed = description?.trim();
@@ -167,6 +168,19 @@ const saveCheckpointHandler = async (job: Job) => {
         error,
       );
     }
+    try {
+      await publishPromptsCacheFromDir({
+        promptsDir: getPromptsDir(publishedUserConfig.targetDir),
+        scope: "user",
+        userId: space.userUuid,
+        sourceCheckpointId: checkpoint.id,
+      });
+    } catch (error) {
+      console.warn(
+        `[save_checkpoint] failed to publish user prompts cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
+        error,
+      );
+    }
   }
 
   let publishedPlatformConfig: {
@@ -204,6 +218,18 @@ const saveCheckpointHandler = async (job: Job) => {
     } catch (error) {
       console.warn(
         `[save_checkpoint] failed to publish platform generations cache for checkpoint=${checkpoint.id}:`,
+        error,
+      );
+    }
+    try {
+      await publishPromptsCacheFromDir({
+        promptsDir: getPromptsDir(publishedPlatformConfig.targetDir),
+        scope: "platform",
+        sourceCheckpointId: checkpoint.id,
+      });
+    } catch (error) {
+      console.warn(
+        `[save_checkpoint] failed to publish platform prompts cache for checkpoint=${checkpoint.id}:`,
         error,
       );
     }
