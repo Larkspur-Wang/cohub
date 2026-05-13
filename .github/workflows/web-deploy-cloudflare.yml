@@ -29,6 +29,7 @@ env:
 
 jobs:
   deploy:
+    if: ${{ github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '@') && !github.event.release.prerelease && !github.event.release.draft) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,8 +50,14 @@ jobs:
       - name: Determine environment
         id: env
         run: |
-          # Release 触发 → prod
+          # Release 触发 → prod（仅服务 release，如 v1.23.0）
           if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid production service release tag: $TAG"
+              echo "Expected a stable semver tag like v1.23.0."
+              exit 1
+            fi
             echo "env=prod" >> $GITHUB_OUTPUT
             echo "config=wrangler.prod.toml" >> $GITHUB_OUTPUT
           # 手动触发 → 根据用户选择
