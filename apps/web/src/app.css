@@ -948,6 +948,10 @@ body.drawer-open {
 	color: var(--brand);
 }
 
+.streaming-live-markdown .markdown-code-copy {
+	display: none;
+}
+
 @media (hover: none) {
 	.markdown-code-copy {
 		opacity: 1;

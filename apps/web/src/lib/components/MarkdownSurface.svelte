@@ -23,7 +23,8 @@ const CHECK_ICON =
 
 $effect(() => {
 	const _html = html;
-	if (!markdownEl) return;
+	const _streamingLive = streamingLive;
+	if (!markdownEl || _streamingLive) return;
 	enhanceCodeBlocks();
 });
 
