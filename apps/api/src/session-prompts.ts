@@ -97,10 +97,11 @@ function normalizeDirectShellCommandContent(content: ContentBlock[]): ContentBlo
   if (content.length !== 1) return content;
   const first = content[0];
   if (first?.type !== "text") return content;
-  if (!first.text.startsWith("!")) return content;
-  const command = first.text.slice(1);
+  const rawText = first.text.trimStart();
+  if (!rawText.startsWith("!")) return content;
+  const command = rawText.slice(1);
   if (!command.trim()) throw new Error("shell command is empty");
-  return [{ type: "shell_command", command, rawText: first.text } satisfies ContentBlock];
+  return [{ type: "shell_command", command, rawText } satisfies ContentBlock];
 }
 
 export const expandPromptContent = async (input: {
@@ -131,9 +132,9 @@ export const expandPromptContent = async (input: {
           args: expanded.args,
         };
       }
-    } else if (originalText.startsWith("!")) {
-      content = normalizeDirectShellCommandContent(content);
     }
+
+    content = normalizeDirectShellCommandContent(content);
   }
 
   return { content, promptTemplate };
