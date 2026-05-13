@@ -13,6 +13,8 @@
       "@cohub/tracing": ["../../packages/tracing/src/index.ts"],
       "@cohub/tracing/db": ["../../packages/tracing/src/db.ts"],
       "@cohub/config-runtime/models": ["../../packages/config-runtime/src/models.ts"],
+      "@cohub/config-runtime/generations": ["../../packages/config-runtime/src/generations.ts"],
+      "@cohub/config-runtime/prompts": ["../../packages/config-runtime/src/prompts.ts"],
       "@cohub/tracing/provider": ["../../packages/tracing/src/provider.ts"],
       "@cohub/tracing/propagator": ["../../packages/tracing/src/propagator.ts"],
       "@cohub/tracing/agent": ["../../packages/tracing/src/spans/agent.ts"]

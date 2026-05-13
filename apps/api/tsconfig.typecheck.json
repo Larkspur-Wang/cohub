@@ -16,6 +16,7 @@
       "@cohub/tracing/db": ["../../packages/tracing/src/db.ts"],
       "@cohub/config-runtime": ["../../packages/config-runtime/src/index.ts"],
       "@cohub/config-runtime/models": ["../../packages/config-runtime/src/models.ts"],
+      "@cohub/config-runtime/prompts": ["../../packages/config-runtime/src/prompts.ts"],
       "@cohub/tracing/propagator": ["../../packages/tracing/src/propagator.ts"]
     }
   }
