@@ -328,8 +328,10 @@ export type SpaceChannelBindingInput = {
   config?: ChannelConfig | null;
 };
 
+export type GlobalSearchType = "turn" | "session" | "space";
+
 export type GlobalSearchResult = {
-  type: "turn" | "session" | "space";
+  type: GlobalSearchType;
   id: string;
   spaceId: string;
   sessionId: string | null;
@@ -346,6 +348,7 @@ export type GlobalSearchResult = {
   textScore: number;
   recencyScore: number;
   typePriorityScore: number;
+  membershipPriorityScore?: number;
   updatedAt: string | null;
   source: "remote";
 };

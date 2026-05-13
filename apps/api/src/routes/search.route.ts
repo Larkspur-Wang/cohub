@@ -9,7 +9,12 @@ const MIN_QUERY_LENGTH = 2;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
 
-type SearchResourceType = "turn" | "session" | "space";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const SEARCH_RESOURCE_TYPES = ["turn", "session", "space"] as const;
+const SEARCH_RESOURCE_TYPE_SET = new Set<string>(SEARCH_RESOURCE_TYPES);
+
+type SearchResourceType = (typeof SEARCH_RESOURCE_TYPES)[number];
 type SearchMatchedField = "userText" | "title" | "name" | "description";
 
 type SearchResultRow = {
@@ -29,6 +34,7 @@ type SearchResultRow = {
   textScore: number;
   recencyScore: number;
   typePriorityScore: number;
+  membershipPriorityScore: number;
   score: number;
 };
 
@@ -48,6 +54,27 @@ function escapeLikePattern(value: string) {
 
 function hasInformativeQuery(value: string) {
   return /[\p{L}\p{N}]/u.test(value);
+}
+
+function parseSearchTypes(typeValues: string[] | undefined, typesValue: string | undefined) {
+  const rawTypes = [...(typeValues ?? []), typesValue ?? ""]
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalidTypes = rawTypes.filter((type) => !SEARCH_RESOURCE_TYPE_SET.has(type));
+  if (invalidTypes.length > 0) return { error: `invalid search type: ${invalidTypes[0]}` } as const;
+  return {
+    types: new Set<SearchResourceType>(
+      rawTypes.length > 0 ? (rawTypes as SearchResourceType[]) : SEARCH_RESOURCE_TYPES,
+    ),
+  } as const;
+}
+
+function parseSpaceId(value: string | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) return { spaceId: null } as const;
+  if (!UUID_PATTERN.test(normalized)) return { error: "invalid spaceId" } as const;
+  return { spaceId: normalized } as const;
 }
 
 function toIso(value: Date | string | null) {
@@ -93,6 +120,14 @@ router.get("/", async (c) => {
   const q = normalizeQuery(c.req.query("q"));
   const escapedQ = escapeLikePattern(q);
   const limit = clampLimit(c.req.query("limit"));
+  const parsedTypes = parseSearchTypes(c.req.queries("type"), c.req.query("types"));
+  if ("error" in parsedTypes) return c.json({ message: parsedTypes.error }, 400);
+  const includeTurns = parsedTypes.types.has("turn");
+  const includeSessions = parsedTypes.types.has("session");
+  const includeSpaces = parsedTypes.types.has("space");
+  const parsedSpaceId = parseSpaceId(c.req.query("spaceId"));
+  if ("error" in parsedSpaceId) return c.json({ message: parsedSpaceId.error }, 400);
+  const spaceId = parsedSpaceId.spaceId;
 
   if (q.length < MIN_QUERY_LENGTH || !hasInformativeQuery(q)) {
     return c.json({ items: [], query: q, source: "remote" });
@@ -101,20 +136,31 @@ router.get("/", async (c) => {
   try {
     const rows = await db.execute<SearchResultRow>(sql`
     WITH visible_spaces AS (
-      SELECT DISTINCT s.*
+      SELECT
+        s.*,
+        CASE
+          WHEN s.user_uuid = ${user.uuid} OR sm.user_id IS NOT NULL THEN 1.0::double precision
+          ELSE 0.0::double precision
+        END AS membership_priority_score
       FROM v2.spaces s
       LEFT JOIN v2.space_members sm
         ON sm.space_id = s.id AND sm.user_id = ${user.uuid}
-      LEFT JOIN v2.access_policies ap
-        ON ap.resource_type = 'space' AND ap.resource_id = s.id
       WHERE
-        s.user_uuid = ${user.uuid}
-        OR sm.user_id IS NOT NULL
-        OR ap.signed_in_user_role IS NOT NULL
-        OR ap.anonymous_user_role IS NOT NULL
+        (
+          s.user_uuid = ${user.uuid}
+          OR sm.user_id IS NOT NULL
+          OR EXISTS (
+            SELECT 1
+            FROM v2.access_policies ap
+            WHERE ap.resource_type = 'space'
+              AND ap.resource_id = s.id
+              AND (ap.signed_in_user_role IS NOT NULL OR ap.anonymous_user_role IS NOT NULL)
+          )
+        )
+        AND (${spaceId}::uuid IS NULL OR s.id = ${spaceId}::uuid)
     ),
     visible_sessions AS (
-      SELECT sess.*, sp.name AS space_name, sp.user_uuid AS owner_user_uuid
+      SELECT sess.*, sp.name AS space_name, sp.user_uuid AS owner_user_uuid, sp.membership_priority_score
       FROM v2.space_sessions sess
       JOIN visible_spaces sp ON sp.id = sess.space_id
       LEFT JOIN v2.space_members sm
@@ -161,13 +207,17 @@ router.get("/", async (c) => {
             ELSE similarity(coalesce(s.description, ''), ${q}) * 0.58
           END * 0.68
         ) AS text_score,
-        1.00::double precision AS type_priority_score
+        1.00::double precision AS type_priority_score,
+        s.membership_priority_score AS membership_priority_score
       FROM visible_spaces s
       WHERE
-        s.name ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-        OR coalesce(s.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-        OR similarity(s.name, ${q}) > 0.2
-        OR similarity(coalesce(s.description, ''), ${q}) > 0.2
+        ${includeSpaces}
+        AND (
+          s.name ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR coalesce(s.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR similarity(s.name, ${q}) > 0.2
+          OR similarity(coalesce(s.description, ''), ${q}) > 0.2
+        )
     ),
     session_results AS (
       SELECT
@@ -190,11 +240,15 @@ router.get("/", async (c) => {
           WHEN coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
           ELSE similarity(coalesce(sess.title, ''), ${q}) * 0.70
         END * 0.94 AS text_score,
-        0.74::double precision AS type_priority_score
+        0.74::double precision AS type_priority_score,
+        sess.membership_priority_score AS membership_priority_score
       FROM visible_sessions sess
       WHERE
-        coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-        OR similarity(coalesce(sess.title, ''), ${q}) > 0.2
+        ${includeSessions}
+        AND (
+          coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR similarity(coalesce(sess.title, ''), ${q}) > 0.2
+        )
     ),
     turn_results AS (
       SELECT
@@ -217,11 +271,13 @@ router.get("/", async (c) => {
           WHEN coalesce(t.user_text, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
           ELSE similarity(coalesce(t.user_text, ''), ${q}) * 0.70
         END AS text_score,
-        0.66::double precision AS type_priority_score
+        0.66::double precision AS type_priority_score,
+        sess.membership_priority_score AS membership_priority_score
       FROM v2.session_turns t
       JOIN visible_sessions sess ON sess.id = t.session_id
       WHERE
-        t.user_text IS NOT NULL
+        ${includeTurns}
+        AND t.user_text IS NOT NULL
         AND (
           t.user_text ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
           OR similarity(t.user_text, ${q}) > 0.2
@@ -257,9 +313,10 @@ router.get("/", async (c) => {
       text_score AS "textScore",
       recency_score AS "recencyScore",
       type_priority_score AS "typePriorityScore",
-      (text_score * 0.76 + recency_score * 0.18 + type_priority_score * 0.06) AS score
+      membership_priority_score AS "membershipPriorityScore",
+      (text_score * 0.68 + recency_score * 0.16 + type_priority_score * 0.05 + membership_priority_score * 0.11) AS score
     FROM scored
-    ORDER BY score DESC, text_score DESC, type_priority_score DESC, updated_at DESC
+    ORDER BY score DESC, membership_priority_score DESC, text_score DESC, type_priority_score DESC, updated_at DESC
     LIMIT ${limit}
   `);
 
