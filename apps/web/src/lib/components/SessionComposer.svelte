@@ -11,6 +11,9 @@ import {
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
+import SlashCommandMenu, {
+	type SlashCommandMenuItem,
+} from "$lib/components/SlashCommandMenu.svelte";
 import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
@@ -34,6 +37,7 @@ type Props = {
 	attachments?: ComposerAttachment[];
 	currentModel?: SelectedModel | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
+	promptTemplatesLoaded?: boolean;
 	onsubmit: () => void;
 	onabort?: () => void;
 	onpickattachment?: (files: FileList | File[] | null) => void;
@@ -52,6 +56,7 @@ let {
 	attachments = [],
 	currentModel = null,
 	promptTemplates = [],
+	promptTemplatesLoaded = true,
 	onsubmit,
 	onabort,
 	onpickattachment,
@@ -74,20 +79,50 @@ const submitDisabled = $derived(
 	disabled || sending || (!hasDraft && !showAbort),
 );
 
-const filteredPromptTemplates = $derived.by(() => {
+const filteredPromptTemplates = $derived.by<SlashCommandMenuItem[]>(() => {
 	const trimmed = value.trimStart();
 	if (!trimmed.startsWith("/")) return [];
 	if (trimmed.includes("\n")) return [];
 	const firstToken = trimmed.split(/\s+/, 1)[0] ?? "";
 	const query = firstToken.slice(1).toLowerCase();
-	return promptTemplates.filter((item) => {
-		if (!query) return true;
-		return (
-			item.name.toLowerCase().includes(query) ||
-			item.description.toLowerCase().includes(query)
+	const scored: SlashCommandMenuItem[] = [];
+	for (const item of promptTemplates) {
+		const name = item.name.toLowerCase();
+		const description = item.description.toLowerCase();
+		const category = item.category?.toLowerCase() ?? "";
+		let matchScore = 0;
+		if (!query) matchScore = 10;
+		else if (name.startsWith(query)) matchScore = 100;
+		else if (name.includes(query)) matchScore = 80;
+		else if (category.includes(query)) matchScore = 64;
+		else if (description.includes(query)) matchScore = 48;
+		else continue;
+		scored.push({ ...item, matchScore });
+	}
+
+	return scored.sort((a, b) => {
+		const scoreDelta = (b.matchScore ?? 0) - (a.matchScore ?? 0);
+		if (scoreDelta !== 0) return scoreDelta;
+		const categoryDelta = (a.category ?? a.scope).localeCompare(
+			b.category ?? b.scope,
 		);
+		if (categoryDelta !== 0) return categoryDelta;
+		return a.name.localeCompare(b.name);
 	});
 });
+
+const slashCommandQuery = $derived.by(() => {
+	const trimmed = value.trimStart();
+	if (!trimmed.startsWith("/") || trimmed.includes("\n")) return "";
+	return (trimmed.split(/\s+/, 1)[0] ?? "").slice(1);
+});
+const slashCommandActive = $derived.by(() => {
+	const trimmed = value.trimStart();
+	return trimmed.startsWith("/") && !trimmed.includes("\n");
+});
+const slashCommandLoading = $derived(
+	slashCommandActive && !promptTemplatesLoaded,
+);
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
 function isMobile(): boolean {
@@ -136,7 +171,7 @@ function toggleComposerExpanded() {
 	});
 }
 
-function applyPromptTemplate(item: PromptTemplateCatalogEntry) {
+function applyPromptTemplate(item: SlashCommandMenuItem) {
 	const trimmedStart = value.trimStart();
 	const leadingWhitespace = value.slice(0, value.length - trimmedStart.length);
 	const firstSpace = trimmedStart.indexOf(" ");
@@ -277,7 +312,8 @@ $effect(() => {
 
 $effect(() => {
 	const shouldShow =
-		filteredPromptTemplates.length > 0 && value.trimStart().startsWith("/");
+		slashCommandActive &&
+		(filteredPromptTemplates.length > 0 || slashCommandLoading);
 	showPromptSuggestions = shouldShow;
 	if (!shouldShow) {
 		selectedPromptIndex = 0;
@@ -285,7 +321,7 @@ $effect(() => {
 	}
 	selectedPromptIndex = Math.min(
 		selectedPromptIndex,
-		filteredPromptTemplates.length - 1,
+		Math.max(filteredPromptTemplates.length - 1, 0),
 	);
 });
 </script>
@@ -381,34 +417,43 @@ $effect(() => {
 							}, 120);
 						}}
 						onfocus={() => {
-							if (filteredPromptTemplates.length > 0 && value.trimStart().startsWith('/')) {
+							if (slashCommandActive && (filteredPromptTemplates.length > 0 || slashCommandLoading)) {
 								showPromptSuggestions = true;
 							}
 						}}
 						onkeydown={(event) => {
-							if (event.key === 'Escape') {
+							if (event.key === 'Escape' && showPromptSuggestions) {
 								event.preventDefault();
-								textareaEl?.blur();
 								showPromptSuggestions = false;
 								return;
 							}
 
-							if (showPromptSuggestions && filteredPromptTemplates.length > 0) {
+							if (showPromptSuggestions && (filteredPromptTemplates.length > 0 || slashCommandLoading)) {
 								const key = event.key.toLowerCase();
 								const isEmacsNext = event.ctrlKey && !event.metaKey && !event.altKey && key === 'n';
 								const isEmacsPrevious = event.ctrlKey && !event.metaKey && !event.altKey && key === 'p';
 
-								if (event.key === 'ArrowDown' || isEmacsNext) {
+								if (filteredPromptTemplates.length > 0 && (event.key === 'ArrowDown' || isEmacsNext)) {
 									event.preventDefault();
 									selectedPromptIndex = Math.min(selectedPromptIndex + 1, filteredPromptTemplates.length - 1);
 									return;
 								}
-								if (event.key === 'ArrowUp' || isEmacsPrevious) {
+								if (filteredPromptTemplates.length > 0 && (event.key === 'ArrowUp' || isEmacsPrevious)) {
 									event.preventDefault();
 									selectedPromptIndex = Math.max(selectedPromptIndex - 1, 0);
 									return;
 								}
-								if (event.key === 'Tab' || event.key === 'Enter') {
+								if (filteredPromptTemplates.length > 0 && event.key === 'Home') {
+									event.preventDefault();
+									selectedPromptIndex = 0;
+									return;
+								}
+								if (filteredPromptTemplates.length > 0 && event.key === 'End') {
+									event.preventDefault();
+									selectedPromptIndex = filteredPromptTemplates.length - 1;
+									return;
+								}
+								if (filteredPromptTemplates.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
 									if (!(event.key === 'Enter' && event.shiftKey)) {
 										event.preventDefault();
 										const selected = filteredPromptTemplates[selectedPromptIndex];
@@ -420,6 +465,12 @@ $effect(() => {
 									showPromptSuggestions = false;
 									return;
 								}
+							}
+
+							if (event.key === 'Escape') {
+								event.preventDefault();
+								textareaEl?.blur();
+								return;
 							}
 
 							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing) {
@@ -447,62 +498,17 @@ $effect(() => {
 						}}
 					></textarea>
 
-					{#if showPromptSuggestions && filteredPromptTemplates.length > 0}
-						<div class="mt-2 hidden overflow-hidden rounded-2xl border border-border-subtle bg-bg-content shadow-[0_12px_30px_rgba(15,23,42,0.12)] md:block">
-							<div class="max-h-56 overflow-y-auto py-1">
-								{#each filteredPromptTemplates as item, index (item.name)}
-									<button
-										type="button"
-										class={`flex w-full items-start gap-3 px-3 py-2 text-left transition-colors ${index === selectedPromptIndex ? 'bg-accent' : 'hover:bg-bg-hover'}`}
-										onpointerdown={(event) => event.preventDefault()}
-										onclick={() => applyPromptTemplate(item)}
-									>
-										<div class="min-w-0 flex-1">
-											<div class="flex items-center gap-2 text-[12px] text-text-primary">
-												<span class="font-medium">/{item.name}</span>
-												{#if item.argumentHint}
-													<span class="text-text-tertiary">{item.argumentHint}</span>
-												{/if}
-											</div>
-											<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{item.description}</div>
-										</div>
-									</button>
-								{/each}
-							</div>
-						</div>
-
-						<div class="absolute inset-x-0 bottom-[calc(100%+0.5rem)] z-30 md:hidden">
-							<div class="mx-1 overflow-hidden rounded-[22px] border border-border-subtle bg-bg-content shadow-[0_18px_50px_rgba(15,23,42,0.22)]">
-								<div class="border-b border-border-subtle px-4 py-3">
-									<div class="text-[12px] font-medium text-text-primary">Prompt templates</div>
-									<div class="mt-0.5 text-[11px] text-text-tertiary">Tap to insert, then add arguments</div>
-								</div>
-								<div class="max-h-[min(45vh,360px)] overflow-y-auto py-1">
-									{#each filteredPromptTemplates as item (item.name)}
-										<button
-											type="button"
-											class="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-bg-hover"
-											onpointerdown={(event) => event.preventDefault()}
-											onclick={() => applyPromptTemplate(item)}
-										>
-											<div class="min-w-0 flex-1">
-												<div class="flex min-w-0 items-center gap-2 text-[13px] text-text-primary">
-													<span class="shrink-0 font-medium text-brand">/{item.name}</span>
-													{#if item.argumentHint}
-														<span class="truncate text-[12px] text-text-tertiary">{item.argumentHint}</span>
-													{/if}
-												</div>
-												<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{item.description}</div>
-											</div>
-											{#if item.category || item.scope}
-												<span class="shrink-0 rounded-full border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{item.category ?? item.scope}</span>
-											{/if}
-										</button>
-									{/each}
-								</div>
-							</div>
-						</div>
-					{/if}
+					<SlashCommandMenu
+						open={showPromptSuggestions}
+						items={filteredPromptTemplates}
+						query={slashCommandQuery}
+						selectedIndex={selectedPromptIndex}
+						loading={slashCommandLoading}
+						onhighlight={(index) => {
+							selectedPromptIndex = index;
+						}}
+						onselect={applyPromptTemplate}
+					/>
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1">

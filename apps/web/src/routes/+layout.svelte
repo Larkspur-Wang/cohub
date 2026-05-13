@@ -58,6 +58,15 @@ let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
 let vConsole: InstanceType<typeof import("vconsole").default> | null = null;
 
+function isEditableShortcutTarget(target: EventTarget | null) {
+	if (!(target instanceof HTMLElement)) return false;
+	return Boolean(
+		target.closest(
+			'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
+		),
+	);
+}
+
 function shouldEnableVConsole() {
 	if (import.meta.env.DEV) return true;
 
@@ -344,6 +353,7 @@ $effect(() => {
 			return;
 		}
 		if (e.key === "?" && !e.altKey && !e.metaKey && !e.ctrlKey) {
+			if (isEditableShortcutTarget(e.target)) return;
 			e.preventDefault();
 			showHelpPanel = true;
 		}

@@ -6201,6 +6201,7 @@ $effect(() => {
             attachments={attachments}
             currentModel={activeSessionModel}
             promptTemplates={promptTemplates}
+            promptTemplatesLoaded={promptTemplatesLoaded}
             onpickattachment={handlePickAttachments}
             onremoveattachment={handleRemoveAttachment}
             onsubmit={handleSend}
