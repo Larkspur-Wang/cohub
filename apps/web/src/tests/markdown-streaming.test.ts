@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderStreamingMarkdown } from "../lib/markdown";
+import { renderMarkdown, renderStreamingMarkdown } from "../lib/markdown";
+
+test("renderMarkdown keeps nested fences inside markdown code blocks", async () => {
+	const html = await renderMarkdown(`\`\`\`markdown
+---
+description: Print the current time using bash
+argument-hint: ""
+category: general
+---
+Please run a bash command to output the current date and time.
+
+Use:
+
+\`\`\`bash
+date
+\`\`\`
+
+Then return the command output directly.
+\`\`\``);
+
+	assert.match(html, /<pre/);
+	assert.match(html, /language-markdown|shiki/);
+	assert.match(html, /```bash/);
+	assert.match(html, /Then return the command output directly\./);
+	assert.doesNotMatch(
+		html,
+		/<p>Then return the command output directly\.<\/p>/,
+	);
+});
 
 test("renderStreamingMarkdown keeps incomplete emphasis in a plain tail", async () => {
 	const html = await renderStreamingMarkdown(

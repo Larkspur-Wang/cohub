@@ -123,11 +123,77 @@ async function highlightCodeTokens(tokens: Token[]) {
 	}
 }
 
+function normalizeNestedMarkdownCodeFences(source: string) {
+	const lines = source.split(/(\r?\n)/);
+	const output: string[] = [];
+	let index = 0;
+
+	while (index < lines.length) {
+		const line = lines[index] ?? "";
+		const lineBreak = lines[index + 1] ?? "";
+		const opening = line.match(/^(\s*)([`~]{3,})([^`~]*)$/);
+		const language = opening?.[3]?.trim().split(/\s+/)[0]?.toLowerCase();
+		if (!opening || !["markdown", "md", "mdx"].includes(language ?? "")) {
+			output.push(line, lineBreak);
+			index += 2;
+			continue;
+		}
+
+		const marker = opening[2][0];
+		const fenceLength = opening[2].length;
+		const fencePattern = new RegExp(`^(${marker}{${fenceLength},})(.*)$`);
+		const contentStart = index + 2;
+		let cursor = contentStart;
+		let nestedFenceDepth = 0;
+		let closingIndex = -1;
+		let maxFenceLength = fenceLength;
+
+		while (cursor < lines.length) {
+			const currentLine = lines[cursor] ?? "";
+			const currentFence = currentLine.trim().match(fencePattern);
+			if (currentFence) {
+				maxFenceLength = Math.max(maxFenceLength, currentFence[1].length);
+				const info = currentFence[2].trim();
+				if (nestedFenceDepth > 0) {
+					if (info) nestedFenceDepth += 1;
+					else nestedFenceDepth -= 1;
+				} else if (info) {
+					nestedFenceDepth = 1;
+				} else {
+					closingIndex = cursor;
+					break;
+				}
+			}
+			cursor += 2;
+		}
+
+		if (closingIndex === -1) {
+			output.push(line, lineBreak);
+			index += 2;
+			continue;
+		}
+
+		const normalizedFence = marker.repeat(maxFenceLength + 1);
+		output.push(
+			`${opening[1]}${normalizedFence}${opening[3]}`,
+			lineBreak,
+			...lines.slice(contentStart, closingIndex),
+			`${opening[1]}${normalizedFence}`,
+			lines[closingIndex + 1] ?? "",
+		);
+		index = closingIndex + 2;
+	}
+
+	return output.join("");
+}
+
 async function renderMarkdownHtml(
 	source: string,
 	options?: { highlight?: boolean },
 ) {
-	const tokens = marked.lexer(source, { gfm: true });
+	const tokens = marked.lexer(normalizeNestedMarkdownCodeFences(source), {
+		gfm: true,
+	});
 	if (options?.highlight !== false) await highlightCodeTokens(tokens);
 	return marked.parser(tokens);
 }
