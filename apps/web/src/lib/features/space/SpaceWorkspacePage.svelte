@@ -1472,7 +1472,7 @@ function getParentDirPath(path: string): string {
 	return normalizedPath.slice(0, normalizedPath.lastIndexOf("/"));
 }
 function updateRootFsEntries(entries: SpaceFsEntry[]) {
-	fileTree = makeFsNodes(entries);
+	fileTree = makeFsNodes(entries, fileTree);
 }
 async function patchFsDirectory(
 	dirPath: string,
@@ -1486,8 +1486,30 @@ async function patchFsDirectory(
 	fileTree = replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries));
 	return nextEntries;
 }
-function makeFsNodes(entries: SpaceFsEntry[]): SpaceFsNode[] {
-	return entries.map(makeFsNode);
+function mergeFsNodeLists(
+	nodes: SpaceFsNode[],
+	previousNodes: SpaceFsNode[] = [],
+): SpaceFsNode[] {
+	if (previousNodes.length === 0) return nodes;
+	const previousByPath = new Map(previousNodes.map((node) => [node.path, node]));
+	return nodes.map((node) => {
+		const previous = previousByPath.get(node.path);
+		if (!previous || previous.type !== node.type) return node;
+		if (node.type !== "dir") return node;
+		return {
+			...node,
+			children: previous.children,
+			isOpen: previous.isOpen,
+			isLoaded: previous.isLoaded,
+			isLoading: false,
+		};
+	});
+}
+function makeFsNodes(
+	entries: SpaceFsEntry[],
+	previousNodes: SpaceFsNode[] = [],
+): SpaceFsNode[] {
+	return mergeFsNodeLists(entries.map(makeFsNode), previousNodes);
 }
 function replaceNodeChildren(
 	nodes: SpaceFsNode[],
@@ -1498,7 +1520,7 @@ function replaceNodeChildren(
 		if (node.path === nodePath)
 			return {
 				...node,
-				children,
+				children: mergeFsNodeLists(children, node.children),
 				isLoaded: true,
 				isLoading: false,
 				isOpen: true,
@@ -3409,7 +3431,7 @@ async function loadFileTree(force = false) {
 	if (!force) {
 		const cached = await getCachedSpaceFsDir(spaceId, "");
 		if (cached && cached.length > 0) {
-			fileTree = makeFsNodes(cached);
+			fileTree = makeFsNodes(cached, fileTree);
 		}
 	}
 	if (fileTreeLoading && !force) return;
@@ -3435,7 +3457,7 @@ async function loadFileTree(force = false) {
 			{ force },
 		);
 		if (requestToken !== fileTreeRequestToken) return;
-		fileTree = makeFsNodes(entries);
+		fileTree = makeFsNodes(entries, fileTree);
 	} catch (error) {
 		if (requestToken !== fileTreeRequestToken) return;
 		fileTreeError =
@@ -3769,25 +3791,36 @@ async function downloadInlineFile() {
 async function saveInlineFile() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
 	const savingPath = inlineFile.path;
+	const nextContent = inlineFile.draft;
 	markFileSavePending(savingPath);
 	inlineFile.saving = true;
 	inlineFile.error = null;
 	try {
 		await sdk.space(spaceId).files.write({
 			path: savingPath,
-			content: inlineFile.draft,
+			content: nextContent,
 			encoding: "utf-8",
 		});
 		inlineFile = {
 			...inlineFile,
 			response: {
 				...inlineFile.response,
-				content: inlineFile.draft,
-				size: new Blob([inlineFile.draft]).size,
+				content: nextContent,
+				size: new Blob([nextContent]).size,
 			} as SpaceFsFileResponse,
 			error: null,
 		};
-		await loadFileTree(true);
+		await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
+			entries.map((entry) =>
+				entry.path === savingPath
+					? {
+							...entry,
+							size: new Blob([nextContent]).size,
+							mtimeMs: Date.now(),
+						}
+					: entry,
+			),
+		);
 	} catch (error) {
 		inlineFile.error =
 			error instanceof Error ? error.message : "Failed to save file";
