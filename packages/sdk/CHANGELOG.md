@@ -1,5 +1,20 @@
 # @neta-art/cohub
 
+## 1.9.0
+
+### Minor Changes
+
+- 31f5713: Release updated protocol, SDK, and CLI packages.
+
+  - Rename generation model listing response types to match the `/api/models?modelType=multimodal` API shape.
+  - Add SDK helpers for multimodal models and search access.
+  - Improve CLI auth flow, search commands, command help, and self-update behavior.
+
+### Patch Changes
+
+- Updated dependencies [31f5713]
+  - @neta-art/cohub-protocol@2.0.0
+
 ## 1.8.0
 
 ### Minor Changes
