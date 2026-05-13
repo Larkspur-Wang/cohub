@@ -150,7 +150,9 @@ const slashCommandQuery = $derived.by(() => {
 });
 const slashCommandActive = $derived.by(() => {
 	const trimmed = value.trimStart();
-	return trimmed.startsWith("/") && !trimmed.includes("\n");
+	return (
+		trimmed.startsWith("/") && !trimmed.includes("\n") && !/\s/.test(trimmed)
+	);
 });
 const slashCommandLoading = $derived(
 	slashCommandActive && !promptTemplatesLoaded,
