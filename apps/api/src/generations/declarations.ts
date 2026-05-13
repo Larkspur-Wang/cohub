@@ -116,9 +116,9 @@ export async function loadGenerationDeclaration(userId: string, model: string): 
   return declarations.find((declaration) => declaration.model === model) ?? null;
 }
 
-export async function loadPublicGenerationDeclarations(userId: string): Promise<{ declarations: PublicGenerationDeclaration[] }> {
+export async function loadPublicGenerationModels(userId: string): Promise<{ models: PublicGenerationDeclaration[] }> {
   return {
-    declarations: (await loadGenerationDeclarations(userId)).map(toPublicGenerationDeclaration),
+    models: (await loadGenerationDeclarations(userId)).map(toPublicGenerationDeclaration),
   };
 }
 

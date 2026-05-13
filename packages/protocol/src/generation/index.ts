@@ -106,6 +106,6 @@ export type GenerationDeclaration = {
 
 export type PublicGenerationDeclaration = Omit<GenerationDeclaration, "adapter">;
 
-export type ListGenerationDeclarationsResponse = {
-  declarations: PublicGenerationDeclaration[];
+export type ListGenerationModelsResponse = {
+  models: PublicGenerationDeclaration[];
 };

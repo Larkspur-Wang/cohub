@@ -24,7 +24,7 @@ const program = new Command("cohub");
 program
   .name("cohub")
   .summary("Work with Cohub from your terminal")
-  .description("Send prompts, inspect sessions, manage space files, and run multimodal generation.")
+  .description("Send prompts, inspect sessions, manage space files, and generate multimodal outputs.")
   .version(VERSION, "-v, --version", "Show version")
   .option("-s, --space <id>", "Target space ID for prompt, files, sessions, and space-scoped commands")
   .option("--json", "Print machine-readable JSON when supported")
@@ -37,7 +37,9 @@ Common commands:
   cohub -s <space-id> prompt "Fix the failing tests"
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
-  cohub generate "A calm lake at sunrise" --model <model> --output lake.png
+  cohub models ls
+  cohub models ls --model-type multimodal
+  cohub generate "A calm lake at sunrise" --model <multimodal-model> --output lake.png
 
 Environment:
   COHUB_EXECUTION_TOKEN  Use this token instead of the stored login token

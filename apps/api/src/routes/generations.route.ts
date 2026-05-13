@@ -2,18 +2,13 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import type { Generation } from "@neta-art/cohub-protocol";
 import { useAuth } from "../lib/middleware.js";
-import { loadGenerationDeclaration, loadPublicGenerationDeclarations } from "../generations/declarations.js";
+import { loadGenerationDeclaration } from "../generations/declarations.js";
 import { createGenerationRequestSchema } from "../generations/schema.js";
 import { GenerationHttpError } from "../generations/errors.js";
 import { GenerationValidationError, resolveGenerationParameters, validateGenerationContent } from "../generations/validation.js";
 import { getGenerationAdapter } from "../generations/adapters/index.js";
 
 const router = new Hono();
-
-router.get("/declarations", async (c) => {
-  const user = useAuth(c);
-  return c.json(await loadPublicGenerationDeclarations(user.uuid));
-});
 
 router.post("/", async (c) => {
   const user = useAuth(c);

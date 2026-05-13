@@ -14,11 +14,13 @@ import {
   type ModelCatalogEntry,
   type ModelsConfig,
 } from "@cohub/config-runtime/models";
+import { loadPublicGenerationModels } from "../generations/declarations.js";
 import { config } from "../config.js";
 import { useAuth } from "../lib/middleware.js";
 import { redisCommandClient } from "../redis.js";
 
 const PLATFORM_MODELS_PATH = join(config.platformConfigRoot, "platform", ".cohub", "models.json");
+const MULTIMODAL_MODEL_TYPE = "multimodal";
 const getUserModelsPath = (userId: string) => join(config.platformConfigRoot, "users", userId, ".cohub", "models.json");
 
 const inflightByKey = new Map<string, Promise<ModelsConfig | null>>();
@@ -111,6 +113,11 @@ const router = new Hono();
 router.get("/", async (c) => {
   try {
     const user = useAuth(c);
+    const modelType = c.req.query("modelType");
+    if (modelType === MULTIMODAL_MODEL_TYPE) {
+      return c.json(await loadPublicGenerationModels(user.uuid));
+    }
+
     const catalog = await fetchModelsCatalog(user.uuid);
     const grouped: Record<string, ModelCatalogEntry[]> = {};
     for (const entry of catalog) {

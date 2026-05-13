@@ -15,7 +15,7 @@ import type {
 } from "@neta-art/cohub-protocol/core";
 import type {
   Generation,
-  ListGenerationDeclarationsResponse,
+  ListGenerationModelsResponse,
   PublicGenerationDeclaration,
   CreateGenerationRequest,
 } from "@neta-art/cohub-protocol";
@@ -59,7 +59,7 @@ export type {
   SessionForkRecord,
   SessionTurnSegmentRecord,
   Generation,
-  ListGenerationDeclarationsResponse,
+  ListGenerationModelsResponse,
   PublicGenerationDeclaration,
   CreateGenerationRequest,
 };

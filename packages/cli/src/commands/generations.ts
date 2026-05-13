@@ -117,17 +117,24 @@ function printGeneration(output: GenerationContentBlock[]): void {
 export function registerGenerations(program: Command): void {
   program
     .command("generate")
-    .description("Generate multimodal content")
+    .description("Generate multimodal outputs")
     .argument("<prompt>", "Prompt text")
-    .requiredOption("--model <model>", "Generation model")
-    .option("--image <path-or-url>", "Image input", collect, [])
-    .option("--video <path-or-url>", "Video input", collect, [])
-    .option("--audio <path-or-url>", "Audio input", collect, [])
-    .option("--param <key=value>", "Generation parameter", collect, [])
-    .option("--parameters <json>", "Generation parameters JSON")
-    .option("--metadata <json>", "Metadata JSON")
-    .option("--output <path>", "Save generated file output")
+    .requiredOption("--model <model>", "Multimodal model ID from `cohub models ls --model-type multimodal`")
+    .option("--image <path-or-url>", "Image input file path or URL; repeatable", collect, [])
+    .option("--video <path-or-url>", "Video input file path or URL; repeatable", collect, [])
+    .option("--audio <path-or-url>", "Audio input file path or URL; repeatable", collect, [])
+    .option("--param <key=value>", "Generation parameter; repeatable, values may be JSON/number/boolean", collect, [])
+    .option("--parameters <json>", "Generation parameters as a JSON object")
+    .option("--metadata <json>", "Metadata as a JSON object")
+    .option("--output <path>", "Save generated output to a file or directory")
     .option("--json", "Output as JSON")
+    .addHelpText("after", `
+
+Examples:
+  cohub models ls --model-type multimodal
+  cohub generate "A calm lake at sunrise" --model <model> --output lake.png
+  cohub generate "Restyle this image" --model <model> --image input.png --param size=1024x1024
+`)
     .action(async (prompt: string, opts: {
       model: string;
       image: string[];
@@ -161,27 +168,6 @@ export function registerGenerations(program: Command): void {
       }
     });
 
-  const cmd = program.command("generations", { hidden: true }).description("Generation model declarations");
-  cmd
-    .command("ls")
-    .alias("list")
-    .description("List generation declarations")
-    .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }) => {
-      const token = resolveToken();
-      if (!token) return error("Not authenticated", "Run 'cohub auth login <token>'");
-      try {
-        const response = await createClient(token).generations.listDeclarations();
-        if (opts.json) return outJson(response);
-        table(response.declarations as unknown as Row[], [
-          { key: "model", label: "Model" },
-          { key: "title", label: "Title" },
-          { key: "description", label: "Description" },
-        ]);
-      } catch (e: unknown) {
-        handleHttp(e);
-      }
-    });
 }
 
 function collect(value: string, previous: string[]): string[] {
