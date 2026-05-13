@@ -1,13 +1,15 @@
 import type { CommandPaletteItem, CommandPaletteItemType } from "./types";
 
 const TYPE_PRIORITY: Record<CommandPaletteItemType, number> = {
-	space: 1,
+	command: 1,
+	space: 0.88,
 	session: 0.74,
 	turn: 0.66,
 };
 
 const FIELD_WEIGHT: Record<string, number> = {
 	userText: 1,
+	command: 0.98,
 	title: 0.94,
 	name: 0.9,
 	description: 0.68,

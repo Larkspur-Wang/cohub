@@ -10,6 +10,7 @@ function keyFor(
 ) {
 	if (item.type === "turn") return `turn:${item.turnId ?? item.id}`;
 	if (item.type === "session") return `session:${item.sessionId ?? item.id}`;
+	if (item.type === "command") return `command:${item.id}`;
 	return `space:${item.spaceId}`;
 }
 

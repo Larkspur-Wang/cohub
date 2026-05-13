@@ -8,6 +8,8 @@ import {
 } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
+import { commandItemKey } from "./merge-results";
+import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
 import { scoreCommandItem, sortCommandItems, textMatchScore } from "./score";
 import type { CommandPaletteItem } from "./types";
 
@@ -157,18 +159,30 @@ async function yieldToUi() {
 
 export async function searchLocalCommandItems(
 	query: string,
-	options?: { signal?: AbortSignal },
+	options?: {
+		signal?: AbortSignal;
+		resourceTypes?: CommandPaletteSearchPlan["resourceTypes"];
+	},
 ): Promise<CommandPaletteItem[]> {
 	const normalized = query.trim();
 	if (normalized.length < 2) return [];
+	const plan: CommandPaletteSearchPlan = {
+		query: normalized,
+		resourceTypes: options?.resourceTypes,
+	};
+	const includeSpaces = allowsResourceType(plan, "space");
+	const includeSessions = allowsResourceType(plan, "session");
+	const includeTurns = allowsResourceType(plan, "turn");
 	const userKey = getCacheUserKey();
 	const spacesById = new Map<string, SpaceRecord>();
 	const items: CommandPaletteItem[] = [];
 
 	for (const space of getCachedSpaceList() ?? []) {
 		spacesById.set(space.id, space);
-		const item = spaceToItem(space, normalized);
-		if (item) items.push(item);
+		if (includeSpaces) {
+			const item = spaceToItem(space, normalized);
+			if (item) items.push(item);
+		}
 	}
 
 	const spaceRecords = await idbGetAllByIndex<SpaceRecordCacheRecord>(
@@ -180,8 +194,10 @@ export async function searchLocalCommandItems(
 	for (const record of spaceRecords) {
 		if (record.userKey !== userKey) continue;
 		spacesById.set(record.spaceId, record.space);
-		const item = spaceToItem(record.space, normalized);
-		if (item) items.push(item);
+		if (includeSpaces) {
+			const item = spaceToItem(record.space, normalized);
+			if (item) items.push(item);
+		}
 	}
 
 	const sessionLists = await idbGetAllByIndex<SessionListCacheRecord>(
@@ -197,14 +213,26 @@ export async function searchLocalCommandItems(
 		const spaceName = spacesById.get(record.spaceId)?.name ?? null;
 		for (const session of record.sessions) {
 			sessionsById.set(session.id, session);
-			const item = sessionToItem({ session, spaceName, query: normalized });
-			if (item) items.push(item);
+			if (includeSessions) {
+				const item = sessionToItem({ session, spaceName, query: normalized });
+				if (item) items.push(item);
+			}
 		}
 		processed += 1;
 		if (processed % 10 === 0) {
 			shouldAbort(options?.signal);
 			await yieldToUi();
 		}
+	}
+
+	if (!includeTurns) {
+		const byKey = new Map<string, CommandPaletteItem>();
+		for (const item of items) {
+			const key = commandItemKey(item);
+			const existing = byKey.get(key);
+			if (!existing || item.score > existing.score) byKey.set(key, item);
+		}
+		return sortCommandItems([...byKey.values()]).slice(0, LOCAL_LIMIT);
 	}
 
 	const turnRecords = await idbGetAllByIndex<SessionTurnsCacheRecord>(
@@ -238,7 +266,7 @@ export async function searchLocalCommandItems(
 
 	const byKey = new Map<string, CommandPaletteItem>();
 	for (const item of items) {
-		const key = `${item.type}:${item.turnId ?? item.sessionId ?? item.spaceId}`;
+		const key = commandItemKey(item);
 		const existing = byKey.get(key);
 		if (!existing || item.score > existing.score) byKey.set(key, item);
 	}

@@ -4,75 +4,120 @@ import {
 	FolderKanban,
 	Loader2,
 	MessageSquare,
+	Plus,
 	Search,
 	TerminalSquare,
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
+import { page } from "$app/state";
+import { searchCommandItems } from "$lib/command-palette/commands";
+import { getCommandPaletteDefaultItems } from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
 import { mergeCommandResults } from "$lib/command-palette/merge-results";
+import { parseCommandPaletteQuery } from "$lib/command-palette/query";
 import {
 	getRecentCommandItems,
 	openCommandItem,
 } from "$lib/command-palette/recent";
 import { searchRemoteCommandItems } from "$lib/command-palette/remote-search";
+import {
+	getRemoteResourceTypes,
+	typeLabelFor,
+} from "$lib/command-palette/scope";
 import type { CommandPaletteItem } from "$lib/command-palette/types";
 
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
+const DEFAULT_PLACEHOLDER =
+	"Search turns, sessions, spaces… Try type:space or t:";
+
+type OpenCommandPaletteDetail = {
+	query?: string;
+	placeholder?: string;
+	title?: string;
+};
 
 let open = $state(false);
 let query = $state("");
+let title = $state("Command search");
+let placeholder = $state(DEFAULT_PLACEHOLDER);
 let inputEl = $state<HTMLInputElement | null>(null);
 let resultsEl = $state<HTMLDivElement | null>(null);
 let activeIndex = $state(0);
 let localItems = $state<CommandPaletteItem[]>([]);
 let remoteItems = $state<import("@neta-art/cohub").GlobalSearchResult[]>([]);
+let defaultItems = $state<CommandPaletteItem[]>([]);
 let localDone = $state(true);
 let remoteDone = $state(true);
+let defaultDone = $state(true);
 let remoteError = $state<string | null>(null);
 let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
 
-const trimmedQuery = $derived(query.trim());
-const recentItems = $derived(getRecentCommandItems());
-const mergedItems = $derived(
-	trimmedQuery.length < MIN_QUERY_LENGTH
-		? recentItems
-		: mergeCommandResults({
-				local: localItems,
-				remote: remoteItems,
-				limit: RESULT_LIMIT,
-			}),
-);
-const isSearching = $derived(!localDone || !remoteDone);
-const statusText = $derived.by(() => {
+const currentSpaceId = $derived.by(() => {
+	const match = page.url.pathname.match(/^\/spaces\/([^/]+)/);
+	const id = match?.[1] ?? null;
+	return id === "new" ? null : id;
+});
+const parsedQuery = $derived(parseCommandPaletteQuery(query));
+const searchPlan = $derived({
+	query: parsedQuery.query,
+	resourceTypes: parsedQuery.resourceTypes,
+});
+const trimmedQuery = $derived(searchPlan.query.trim());
+const typeLabel = $derived(typeLabelFor(searchPlan.resourceTypes));
+const recentItems = $derived.by(() => {
+	const items = getRecentCommandItems();
+	if (!searchPlan.resourceTypes) return items;
+	return items.filter((item) => searchPlan.resourceTypes?.includes(item.type));
+});
+const mergedItems = $derived.by(() => {
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
-		return recentItems.length > 0
-			? "Recent targets · type 2+ characters to search"
-			: "Search spaces, sessions, and user messages";
+		return defaultItems.length > 0 ? defaultItems : recentItems;
 	}
-	if (remoteError) return `Local results only · ${remoteError}`;
-	if (!remoteDone) return `Local ${localItems.length} · syncing server…`;
-	if (!localDone) return "Searching indexed cache…";
-	return `${mergedItems.length} result${mergedItems.length === 1 ? "" : "s"} · indexed cache + server`;
+	return mergeCommandResults({
+		local: [...localItems, ...searchCommandItems(searchPlan)],
+		remote: remoteItems,
+		limit: RESULT_LIMIT,
+	});
+});
+const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
+const statusText = $derived.by(() => {
+	const label = typeLabel ?? "Turns, Sessions, Spaces, and Commands";
+	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
+		return mergedItems.length > 0
+			? `${label} · type to filter`
+			: `Search ${label.toLowerCase()}`;
+	}
+	if (remoteError) return `${label} · local results only · ${remoteError}`;
+	if (!remoteDone)
+		return `${label} · local ${localItems.length} · syncing server…`;
+	if (!localDone) return `${label} · searching indexed cache…`;
+	return `${label} · ${mergedItems.length} result${mergedItems.length === 1 ? "" : "s"} · indexed cache + server`;
 });
 
 function typeMeta(type: CommandPaletteItem["type"]) {
-	if (type === "turn") return { className: "message", icon: MessageSquare };
+	if (type === "turn") return { className: "turn", icon: MessageSquare };
 	if (type === "session") return { className: "session", icon: TerminalSquare };
+	if (type === "command") return { className: "command", icon: Plus };
 	return { className: "space", icon: FolderKanban };
 }
 
 function contextFor(item: CommandPaletteItem) {
+	if (item.type === "command") return item.excerpt ?? "Command";
 	if (item.type === "space") return item.excerpt ?? "Space";
 	if (item.type === "session") return item.spaceName ?? "Session";
 	return `${item.spaceName ?? "Space"}${item.sessionTitle ? ` / ${item.sessionTitle}` : ""} · Turn #${item.sequence ?? "?"}`;
 }
 
-function openPalette() {
+function openPalette(detail?: OpenCommandPaletteDetail) {
+	title = detail?.title ?? "Command search";
+	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
+	query = detail?.query ?? "";
+	activeIndex = 0;
 	open = true;
 	void tick().then(() => inputEl?.focus());
 }
@@ -80,7 +125,10 @@ function openPalette() {
 function closePalette() {
 	open = false;
 	query = "";
+	title = "Command search";
+	placeholder = DEFAULT_PLACEHOLDER;
 	activeIndex = 0;
+	searchToken += 1;
 	localController?.abort();
 	remoteController?.abort();
 }
@@ -91,23 +139,48 @@ function resetSearch() {
 	if (debounceTimer != null) window.clearTimeout(debounceTimer);
 	localItems = [];
 	remoteItems = [];
+	defaultItems = [];
 	localDone = true;
 	remoteDone = true;
+	defaultDone = true;
 	remoteError = null;
 	activeIndex = 0;
 }
 
-function scheduleSearch(value: string) {
-	const q = value.trim();
+function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
+	const q = plan.query.trim();
 	resetSearch();
-	if (q.length < MIN_QUERY_LENGTH) return;
+	const token = ++searchToken;
+	if (q.length < MIN_QUERY_LENGTH) {
+		defaultDone = false;
+		localController = new AbortController();
+		void getCommandPaletteDefaultItems({
+			...plan,
+			currentSpaceId: spaceId,
+			signal: localController.signal,
+		})
+			.then((items) => {
+				if (token !== searchToken) return;
+				defaultItems = items;
+			})
+			.catch((error) => {
+				console.warn("[command-palette] default items failed", error);
+			})
+			.finally(() => {
+				if (token === searchToken) defaultDone = true;
+			});
+		return;
+	}
+
 	localDone = false;
 	remoteDone = false;
-	const token = ++searchToken;
 	localController = new AbortController();
 	remoteController = new AbortController();
 
-	void searchLocalCommandItems(q, { signal: localController.signal })
+	void searchLocalCommandItems(q, {
+		signal: localController.signal,
+		resourceTypes: plan.resourceTypes,
+	})
 		.then((items) => {
 			if (token !== searchToken) return;
 			localItems = items;
@@ -120,10 +193,17 @@ function scheduleSearch(value: string) {
 			if (token === searchToken) localDone = true;
 		});
 
+	const remoteResourceTypes = getRemoteResourceTypes(plan);
+	if (remoteResourceTypes && remoteResourceTypes.length === 0) {
+		remoteDone = true;
+		return;
+	}
+
 	debounceTimer = window.setTimeout(() => {
 		void searchRemoteCommandItems(q, {
 			signal: remoteController?.signal,
 			limit: RESULT_LIMIT,
+			types: remoteResourceTypes,
 		})
 			.then((items) => {
 				if (token !== searchToken) return;
@@ -208,13 +288,13 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 	}
 }
 
-function handleOpenPaletteEvent() {
-	openPalette();
+function handleOpenPaletteEvent(event: Event) {
+	openPalette((event as CustomEvent<OpenCommandPaletteDetail>).detail);
 }
 
 $effect(() => {
-	const q = query;
-	scheduleSearch(q);
+	if (!open) return;
+	scheduleSearch(searchPlan, currentSpaceId);
 });
 
 $effect(() => {
@@ -248,14 +328,14 @@ onMount(() => {
 
 {#if open}
 	<div class="command-palette-root" role="presentation" onmousedown={(event) => { if (event.target === event.currentTarget) closePalette(); }}>
-		<div class="command-palette" role="dialog" aria-modal="true" aria-label="Command search" tabindex="-1" onkeydown={handlePaletteKeydown}>
+		<div class="command-palette" role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onkeydown={handlePaletteKeydown}>
 			<div class="command-input-row">
 				<Search class="h-4 w-4 text-text-tertiary" />
 				<input
 					bind:this={inputEl}
 					bind:value={query}
 					class="command-input"
-					placeholder="Search messages, sessions, spaces…"
+					{placeholder}
 					autocomplete="off"
 					spellcheck="false"
 				/>
@@ -268,15 +348,15 @@ onMount(() => {
 						<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 						<div>
 							<div class="text-[13px] font-medium text-text-secondary">
-								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching command history"}
+								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
 							</div>
 							<div class="mt-1 text-[12px] text-text-tertiary">
-								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Type a space name, session title, or user message." : "Try a different phrase from a user message or session title."}
+								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try type:space, type:turn, type:session, or new space." : "Try a different phrase or type filter."}
 							</div>
 						</div>
 					</div>
 				{:else}
-					{#each mergedItems as item, index (`${item.type}:${item.turnId ?? item.sessionId ?? item.spaceId}`)}
+					{#each mergedItems as item, index (`${item.type}:${item.id || item.turnId || item.sessionId || item.spaceId}`)}
 						{@const meta = typeMeta(item.type)}
 						{@const Icon = meta.icon}
 						<button
@@ -406,10 +486,7 @@ onMount(() => {
 		background: transparent;
 	}
 
-	.command-result.active {
-		background: color-mix(in oklch, var(--brand-bg) 56%, var(--bg-hover) 44%);
-	}
-
+	.command-result.active { background: color-mix(in oklch, var(--brand-bg) 56%, var(--bg-hover) 44%); }
 	.command-result.active::before { background: var(--brand); }
 	.command-result.active .command-enter { opacity: 1; }
 	.command-result.active .command-type-mark { border-color: color-mix(in oklch, currentColor 36%, transparent); }
@@ -435,9 +512,14 @@ onMount(() => {
 		background: color-mix(in oklch, var(--text-secondary) 8%, var(--bg-primary) 92%);
 	}
 
-	.command-type-mark.message {
+	.command-type-mark.turn {
 		color: color-mix(in oklch, var(--text-tertiary) 72%, var(--brand) 28%);
 		background: color-mix(in oklch, var(--text-tertiary) 7%, var(--bg-primary) 93%);
+	}
+
+	.command-type-mark.command {
+		color: var(--brand);
+		background: color-mix(in oklch, var(--brand) 10%, var(--bg-primary) 90%);
 	}
 
 	.command-enter {

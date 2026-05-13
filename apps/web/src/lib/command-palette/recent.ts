@@ -47,10 +47,10 @@ export function getRecentCommandItems(): CommandPaletteItem[] {
 export function rememberCommandItem(item: CommandPaletteItem) {
 	if (typeof localStorage === "undefined") return;
 	try {
-		const key = `${item.type}:${item.turnId ?? item.sessionId ?? item.spaceId}`;
+		const key = `${item.type}:${item.id || item.turnId || item.sessionId || item.spaceId}`;
 		const current = safeParse(localStorage.getItem(storageKey())).filter(
 			(existing) =>
-				`${existing.type}:${existing.turnId ?? existing.sessionId ?? existing.spaceId}` !==
+				`${existing.type}:${existing.id || existing.turnId || existing.sessionId || existing.spaceId}` !==
 				key,
 		);
 		const next: StoredRecent[] = [

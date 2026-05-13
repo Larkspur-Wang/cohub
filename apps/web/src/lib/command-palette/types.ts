@@ -1,14 +1,35 @@
-import type { GlobalSearchResult } from "@neta-art/cohub";
+import type { GlobalSearchType } from "@neta-art/cohub";
 
-export type CommandPaletteItemType = "turn" | "session" | "space";
+export type CommandPaletteItemType = GlobalSearchType | "command";
+export type CommandPaletteResourceType = CommandPaletteItemType;
+export type RemoteCommandPaletteResourceType = GlobalSearchType;
 export type CommandPaletteItemSource =
 	| "local"
 	| "remote"
 	| "local+remote"
-	| "recent";
+	| "recent"
+	| "default";
 
-export type CommandPaletteItem = Omit<GlobalSearchResult, "source"> & {
+export type CommandPaletteItem = {
 	type: CommandPaletteItemType;
+	id: string;
+	spaceId: string;
+	sessionId: string | null;
+	turnId: string | null;
+	sequence: number | null;
+	title: string;
+	excerpt: string | null;
+	spaceName: string | null;
+	ownerProfile?: unknown;
+	sessionTitle: string | null;
+	matchedField: "userText" | "title" | "name" | "description" | "command";
+	href: string;
+	score: number;
+	textScore: number;
+	recencyScore: number;
+	typePriorityScore: number;
+	membershipPriorityScore?: number;
+	updatedAt: string | null;
 	source: CommandPaletteItemSource;
 	localScore?: number;
 	remoteScore?: number;
