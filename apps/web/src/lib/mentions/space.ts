@@ -135,6 +135,15 @@ export function tokenizeSpaceMentionText(
 	return tokens;
 }
 
+export function formatSpaceMentionTextForDisplay(text: string): string {
+	return tokenizeSpaceMentionText(text)
+		.map((token) => {
+			if (token.type === "spaceMention") return `@${token.label}`;
+			return token.text;
+		})
+		.join("");
+}
+
 export function parseCohubSpaceUrls(
 	value: string,
 	maxMatches = 20,

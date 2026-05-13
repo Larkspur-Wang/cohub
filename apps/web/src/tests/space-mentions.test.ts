@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	buildSpaceMentionUri,
 	extractSpaceMentionsFromText,
+	formatSpaceMentionTextForDisplay,
 	tokenizeSpaceMentionText,
 } from "../lib/mentions/space";
 
@@ -24,6 +25,15 @@ test("tokenizeSpaceMentionText renders space mentions as semantic tokens", () =>
 		},
 		{ type: "text", text: " next." },
 	]);
+});
+
+test("formatSpaceMentionTextForDisplay renders mention markdown as friendly text", () => {
+	const uri = buildSpaceMentionUri(spaceId);
+
+	assert.equal(
+		formatSpaceMentionTextForDisplay(`Review @[Core API](${uri}) next.`),
+		"Review @Core API next.",
+	);
 });
 
 test("extractSpaceMentionsFromText keeps one mention per space", () => {

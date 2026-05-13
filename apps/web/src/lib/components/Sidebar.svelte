@@ -44,6 +44,7 @@ import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
 import Dialog from "$lib/components/Dialog.svelte";
+import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceCheckpointNewRoute,
@@ -697,13 +698,17 @@ function sessionIsStreaming(session: SessionRecord): boolean {
 	return isStreaming(session);
 }
 
+function normalizeSessionDisplayText(value: string | null | undefined) {
+	return formatSpaceMentionTextForDisplay(value ?? "")
+		.replace(/\s+/g, " ")
+		.replace(/^[:\-\s]+/, "")
+		.trim();
+}
+
 function getSessionTitle(session: SessionRecord, _index: number) {
 	const candidates = [session.title, session.latestMessageText];
 	for (const candidate of candidates) {
-		const normalized = candidate
-			?.replace(/\s+/g, " ")
-			.replace(/^[:\-\s]+/, "")
-			.trim();
+		const normalized = normalizeSessionDisplayText(candidate);
 		if (normalized) return normalized.slice(0, 36);
 	}
 	return "New chat";
