@@ -3,6 +3,12 @@ export const buildSpaceDetailRoute = (spaceId: string) => `/spaces/${spaceId}`;
 export const buildSpaceSessionRoute = (spaceId: string, sessionId: string) =>
 	`/spaces/${spaceId}/sessions/${sessionId}`;
 
+export const buildSpaceSessionTurnRoute = (
+	spaceId: string,
+	sessionId: string,
+	sequence: number,
+) => `${buildSpaceSessionRoute(spaceId, sessionId)}?turn=${sequence}`;
+
 export const buildSpaceCheckpointRoute = (spaceId: string, checkpointId: string) =>
 	`/spaces/${spaceId}/checkpoints/${checkpointId}`;
 

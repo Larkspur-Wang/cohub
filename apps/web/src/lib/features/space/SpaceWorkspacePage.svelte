@@ -110,6 +110,7 @@ import {
 	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
 	buildSpaceSessionRoute,
+	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -2310,6 +2311,16 @@ async function jumpToTurn(sequence: number) {
 		composerError =
 			error instanceof Error ? error.message : "Failed to jump to turn";
 	}
+}
+async function jumpToTurnAndUpdateUrl(sequence: number) {
+	if (!activeSessionId) return;
+	appliedRouteTurnKey = `${activeSessionId}:${sequence}`;
+	void goto(buildSpaceSessionTurnRoute(spaceId, activeSessionId, sequence), {
+		replaceState: true,
+		keepFocus: true,
+		noScroll: true,
+	});
+	await jumpToTurn(sequence);
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
 	const inFlight = syncSessionNewerInFlight.get(sessionId);
@@ -6163,7 +6174,7 @@ $effect(() => {
           loadingOlder={activeSessionState.loadingOlder}
           currentSequence={currentTurnSequence}
           loadingSequence={loadingTurnSequence}
-          onJump={(sequence) => { void jumpToTurn(sequence); }}
+          onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
           onScrollTo={(scrollTop) => { setProgrammaticScrollTop(scrollTop); }}
           onScrollCommit={() => { snapScrollToNearestTurn(); }}
           onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
@@ -6221,7 +6232,7 @@ $effect(() => {
           turns={activeTurnRailItems}
           currentSequence={currentTurnSequence}
           onClose={() => { showTurnBottomSheet = false; }}
-          onJump={(sequence) => { void jumpToTurn(sequence); }}
+          onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
         />
         <div bind:this={composerHostEl}>
           <SessionComposer
