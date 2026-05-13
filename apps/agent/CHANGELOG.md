@@ -1,5 +1,12 @@
 # @cohub/agent
 
+## 1.1.4
+
+### Patch Changes
+
+- Updated dependencies [31f5713]
+  - @neta-art/cohub-protocol@2.0.0
+
 ## 1.1.3
 
 ### Patch Changes
