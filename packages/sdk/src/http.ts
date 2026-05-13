@@ -3,6 +3,7 @@ import { CronJobsApi } from "./apis/cron-jobs.js";
 import { GenerationsApi } from "./apis/generations.js";
 import { ModelsApi } from "./apis/models.js";
 import { PromptsApi } from "./apis/prompts.js";
+import { SearchApi } from "./apis/search.js";
 import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
@@ -19,6 +20,7 @@ export class CohubHttpClient {
   readonly models: ModelsApi;
   readonly prompts: PromptsApi;
   readonly sessionAccess: SessionAccessApi;
+  readonly search: SearchApi;
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
   readonly invite: PublicInviteApi;
@@ -40,6 +42,7 @@ export class CohubHttpClient {
     this.models = new ModelsApi(this.transport);
     this.prompts = new PromptsApi(this.transport);
     this.sessionAccess = new SessionAccessApi(this.transport);
+    this.search = new SearchApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
