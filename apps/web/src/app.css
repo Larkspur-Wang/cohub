@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "@fontsource/geist";
 @import "@fontsource/geist-mono";
+@import "./styles/theme.css";
 @plugin "@tailwindcss/typography";
 
 /* ============================================================
@@ -9,244 +10,6 @@
    All components use semantic CSS variables via @theme tokens.
    Colors in OKLCH for perceptual uniformity.
    ============================================================ */
-
-/* --- Dark Theme (default) --- */
-:root,
-[data-theme="dark"] {
-	color-scheme: dark;
-	/* Neutral scale — cool-tinted for tech feel (hue ~250)
-	   Rebalanced for dark mode: text needs higher lightness to be readable
-	   on dark backgrounds; surfaces need wider spacing between steps. */
-	--neutral-0: oklch(98% 0.003 250);
-	--neutral-5: oklch(93% 0.004 250);
-	--neutral-10: oklch(84% 0.006 250);
-	--neutral-20: oklch(74% 0.008 250);
-	--neutral-30: oklch(64% 0.01 250);
-	--neutral-40: oklch(54% 0.012 250);
-	--neutral-50: oklch(46% 0.01 250);
-	--neutral-60: oklch(38% 0.008 250);
-	--neutral-70: oklch(32% 0.007 250);
-	--neutral-80: oklch(27% 0.006 250);
-	--neutral-90: oklch(22% 0.005 250);
-	--neutral-95: oklch(18% 0.004 250);
-	--neutral-100: oklch(14% 0.003 250);
-
-	/* Brand: #FF3E00 → oklch(60% 0.2 30) */
-	--brand-50: oklch(95% 0.02 30);
-	--brand-100: oklch(85% 0.06 30);
-	--brand-200: oklch(75% 0.12 30);
-	--brand-300: oklch(65% 0.16 30);
-	--brand-400: oklch(60% 0.2 30); /* base brand */
-	--brand-500: oklch(55% 0.22 30);
-	--brand-600: oklch(45% 0.2 30);
-	--brand-700: oklch(35% 0.16 30);
-	--brand-800: oklch(28% 0.1 30);
-	--brand-900: oklch(22% 0.06 30);
-	--brand-bg: var(--brand-900); /* selected-state background */
-
-	/* Semantic colors — desaturated slightly for dark mode, 400=indicator dot */
-	--success-400: oklch(78% 0.12 160);
-	--success-500: oklch(70% 0.13 160);
-	--success-700: oklch(48% 0.1 160);
-	--success-900: oklch(24% 0.05 160);
-
-	--warning-400: oklch(82% 0.12 80);
-	--warning-500: oklch(74% 0.13 80);
-	--warning-700: oklch(52% 0.1 80);
-	--warning-900: oklch(26% 0.05 80);
-
-	--error-400: oklch(68% 0.18 25);
-	--error-500: oklch(62% 0.2 25);
-	--error-700: oklch(42% 0.14 25);
-	--error-900: oklch(22% 0.06 25);
-
-	--info-400: oklch(72% 0.1 230);
-	--info-500: oklch(64% 0.12 230);
-	--info-700: oklch(44% 0.1 230);
-	--info-900: oklch(22% 0.05 230);
-
-	/* Backgrounds — wider gaps between layers for clear visual hierarchy */
-	--bg-primary: var(--neutral-95); /* 18% — deepest layer */
-	--bg-content: var(--neutral-90); /* 22% — main content area */
-	--bg-surface: var(--neutral-80); /* 27% — cards, panels */
-	--bg-surface-hover: var(--neutral-70); /* 32% — hover on surface */
-	--bg-elevated: var(--neutral-60); /* 38% — overlays, dropdowns */
-	--bg-input: var(--neutral-90);
-	--bg-code: var(--neutral-100); /* 14% — code blocks */
-	--bg-header-alt: var(--neutral-80);
-
-	/* Text — all calibrated against bg-primary (18%) for WCAG compliance */
-	--text-primary: var(--neutral-0); /* 98% → ~21:1 ✅ */
-	--text-secondary: var(--neutral-10); /* 84% → ~11:1 ✅ */
-	--text-tertiary: var(--neutral-20); /* 74% → ~6.5:1 ✅ */
-	--text-placeholder: var(--neutral-30); /* 64% → ~4.8:1 ✅ (meets AA 4.5:1) */
-	--text-disabled: var(
-		--neutral-40
-	); /* 54% → ~3.4:1 ✅ (meets AA large text 3:1) */
-
-	/* Borders */
-	--border-primary: var(--neutral-60); /* 38% — visible borders */
-	--border-subtle: var(--neutral-70); /* 32% — subtle dividers */
-
-	/* Interactive states — brighter than surface to signal affordance */
-	--bg-hover: oklch(28% 0.007 250 / 1); /* > bg-surface (27%) */
-	--bg-hover-strong: oklch(34% 0.008 250 / 1); /* distinct from hover */
-	--bg-active: oklch(38% 0.01 250 / 1); /* active/selected state */
-
-	/* Scrollbar */
-	--scrollbar-thumb: var(--neutral-50);
-	--scrollbar-thumb-hover: var(--neutral-30);
-
-	/* Selection */
-	--selection-bg: oklch(38% 0.06 250);
-}
-
-/* --- Light Theme --- */
-[data-theme="light"] {
-	color-scheme: light;
-	/* Neutral scale — warm-tinted */
-	--neutral-0: oklch(8% 0.003 250);
-	--neutral-5: oklch(18% 0.005 250);
-	--neutral-10: oklch(35% 0.008 250);
-	--neutral-20: oklch(50% 0.01 250);
-	--neutral-30: oklch(65% 0.012 250);
-	--neutral-40: oklch(78% 0.01 250);
-	--neutral-50: oklch(85% 0.008 250);
-	--neutral-60: oklch(90% 0.006 250);
-	--neutral-70: oklch(93% 0.004 250);
-	--neutral-80: oklch(96% 0.003 250);
-	--neutral-90: oklch(98% 0.002 250);
-	--neutral-95: oklch(99% 0.001 250);
-	--neutral-100: oklch(100% 0 0);
-
-	/* Brand — slightly darker for light bg contrast */
-	--brand-50: oklch(95% 0.02 30);
-	--brand-100: oklch(88% 0.05 30);
-	--brand-200: oklch(78% 0.1 30);
-	--brand-300: oklch(68% 0.14 30);
-	--brand-400: oklch(58% 0.18 30);
-	--brand-500: oklch(52% 0.2 30);
-	--brand-600: oklch(45% 0.18 30);
-	--brand-700: oklch(38% 0.15 30);
-	--brand-800: oklch(30% 0.1 30);
-	--brand-900: oklch(25% 0.1 30);
-	--brand-bg: oklch(94% 0.03 30); /* selected-state background */
-
-	/* Semantic colors — adjusted for light bg */
-	--success-400: oklch(45% 0.12 160);
-	--success-500: oklch(38% 0.14 160);
-	--success-700: oklch(30% 0.1 160);
-	--success-900: oklch(90% 0.04 160);
-
-	--warning-400: oklch(50% 0.12 80);
-	--warning-500: oklch(42% 0.14 80);
-	--warning-700: oklch(32% 0.1 80);
-	--warning-900: oklch(92% 0.04 80);
-
-	--error-400: oklch(45% 0.16 25);
-	--error-500: oklch(38% 0.18 25);
-	--error-700: oklch(28% 0.12 25);
-	--error-900: oklch(90% 0.04 25);
-
-	--info-400: oklch(45% 0.12 230);
-	--info-500: oklch(38% 0.14 230);
-	--info-700: oklch(28% 0.1 230);
-	--info-900: oklch(90% 0.04 230);
-
-	/* Backgrounds */
-	--bg-primary: var(--neutral-100);
-	--bg-content: var(--neutral-95);
-	--bg-surface: var(--neutral-90);
-	--bg-surface-hover: var(--neutral-80);
-	--bg-elevated: var(--neutral-100);
-	--bg-input: var(--neutral-100);
-	--bg-code: var(--neutral-90);
-	--bg-header-alt: var(--neutral-90);
-
-	/* Text */
-	--text-primary: var(--neutral-0);
-	--text-secondary: var(--neutral-10);
-	--text-tertiary: var(--neutral-20);
-	--text-placeholder: var(--neutral-30);
-	--text-disabled: var(--neutral-40);
-
-	/* Borders */
-	--border-primary: var(--neutral-50);
-	--border-subtle: var(--neutral-60);
-
-	/* Interactive states */
-	--bg-hover: oklch(96% 0.003 250 / 1);
-	--bg-hover-strong: oklch(92% 0.005 250 / 1);
-	--bg-active: oklch(88% 0.008 250 / 1);
-
-	/* Scrollbar */
-	--scrollbar-thumb: var(--neutral-40);
-	--scrollbar-thumb-hover: var(--neutral-20);
-
-	/* Selection */
-	--selection-bg: oklch(85% 0.04 250);
-}
-
-/* ============================================================
-   Tailwind v4 @theme — semantic design tokens
-   ============================================================ */
-@theme {
-	/* Fonts */
-	--font-sans: "Geist", system-ui, -apple-system, sans-serif;
-	--font-mono: "Geist Mono", "Fira Code", ui-monospace, monospace;
-
-	/* Backgrounds */
-	--color-bg-primary: var(--bg-primary);
-	--color-bg-content: var(--bg-content);
-	--color-bg-surface: var(--bg-surface);
-	--color-bg-surface-hover: var(--bg-surface-hover);
-	--color-bg-elevated: var(--bg-elevated);
-	--color-bg-input: var(--bg-input);
-	--color-bg-code: var(--bg-code);
-	--color-bg-header-alt: var(--bg-header-alt);
-	--color-bg-hover: var(--bg-hover);
-	--color-bg-hover-strong: var(--bg-hover-strong);
-	--color-bg-active: var(--bg-active);
-
-	/* Text */
-	--color-text-primary: var(--text-primary);
-	--color-text-secondary: var(--text-secondary);
-	--color-text-tertiary: var(--text-tertiary);
-	--color-text-placeholder: var(--text-placeholder);
-	--color-text-disabled: var(--text-disabled);
-
-	/* Borders */
-	--color-border-primary: var(--border-primary);
-	--color-border-subtle: var(--border-subtle);
-
-	/* Brand */
-	--color-brand: var(--brand-400);
-	--color-brand-hover: var(--brand-500);
-	--color-brand-soft: var(--brand-700);
-	--color-brand-bg: var(--brand-bg);
-
-	/* Semantic */
-	--color-success: var(--success-500);
-	--color-success-soft: var(--success-700);
-	--color-success-bg: var(--success-900);
-	--color-warning: var(--warning-500);
-	--color-warning-soft: var(--warning-700);
-	--color-warning-bg: var(--warning-900);
-	--color-error: var(--error-500);
-	--color-error-soft: var(--error-700);
-	--color-error-bg: var(--error-900);
-	--color-info: var(--info-500);
-	--color-info-soft: var(--info-700);
-	--color-info-bg: var(--info-900);
-
-	/* Status */
-	--color-status-running: var(--success-400);
-	--color-status-starting: var(--warning-400);
-	--color-status-error: var(--error-400);
-	--color-status-hibernated: var(--neutral-40);
-	--color-status-hibernating: var(--info-400);
-	--color-status-unknown: var(--text-placeholder);
-}
 
 /* ============================================================
    Global Styles
@@ -626,8 +389,8 @@ body.drawer-open {
 	height: 1em;
 	margin-left: 0.08em;
 	border-radius: 999px;
-	background: color-mix(in srgb, var(--brand-400) 72%, var(--text-tertiary));
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-400) 18%, transparent);
+	background: color-mix(in srgb, var(--brand) 72%, var(--text-tertiary));
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
 	vertical-align: -0.12em;
 	animation: markdown-stream-caret 1.05s ease-in-out infinite;
 }
@@ -664,8 +427,8 @@ body.drawer-open {
 	height: 1em;
 	margin-left: 0.08em;
 	border-radius: 999px;
-	background: color-mix(in srgb, var(--brand-400) 72%, var(--text-tertiary));
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-400) 18%, transparent);
+	background: color-mix(in srgb, var(--brand) 72%, var(--text-tertiary));
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
 	vertical-align: -0.12em;
 	animation: markdown-stream-caret 1.05s ease-in-out infinite;
 }

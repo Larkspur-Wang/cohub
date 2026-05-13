@@ -27,8 +27,8 @@ const providerIcons: Record<string, typeof MessageSquare> = {
 };
 
 const providerDotColor: Record<string, string> = {
-	discord: "bg-indigo-400",
-	feishu: "bg-cyan-400",
+	discord: "bg-provider-discord",
+	feishu: "bg-provider-feishu",
 	web: "bg-status-running",
 };
 
@@ -83,7 +83,7 @@ async function handleDelete(id: string) {
         </div>
         <a
           href="/settings/channels/new"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-brand-muted border border-brand-border text-brand font-medium hover:bg-brand-muted-hover transition-colors"
         >
           <Plus class="w-3.5 h-3.5" />
           Add Channel

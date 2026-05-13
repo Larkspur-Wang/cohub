@@ -32,7 +32,7 @@ let activeDraftingLeafPath = $state<string | null>(null);
 
 const statusDotMap = {
 	done: "bg-status-running",
-	running: "bg-brand shadow-[0_0_0_3px_rgba(255,62,0,0.10)]",
+	running: "bg-brand shadow-[0_0_0_3px_var(--brand-muted)]",
 	failed: "bg-status-error",
 } as const;
 
@@ -380,8 +380,8 @@ onMount(() => {
 		overflow: hidden;
 		white-space: nowrap;
 		contain: content;
-		mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 100%);
-		-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 100%);
+		mask-image: linear-gradient(90deg, transparent 0, black 18px, black 100%);
+		-webkit-mask-image: linear-gradient(90deg, transparent 0, black 18px, black 100%);
 	}
 
 	.tool-drafting-text {
@@ -400,7 +400,7 @@ onMount(() => {
 	.tool-glyph {
 		font-size: 12px;
 		line-height: 1;
-		color: rgb(255 62 0 / 0.85);
+		color: color-mix(in srgb, var(--brand) 85%, transparent);
 		transform: translateY(-0.5px);
 	}
 
@@ -413,7 +413,7 @@ onMount(() => {
 	.tool-output-tail {
 		min-width: 0;
 		overflow: hidden;
-		color: rgb(255 62 0 / 0.68);
+		color: color-mix(in srgb, var(--brand) 68%, transparent);
 		text-align: left;
 		text-overflow: clip;
 		direction: rtl;
@@ -422,7 +422,7 @@ onMount(() => {
 
 	.tool-cursor {
 		margin-left: 0.15rem;
-		color: rgb(255 62 0 / 0.82);
+		color: color-mix(in srgb, var(--brand) 82%, transparent);
 		animation: cohub-tool-cursor 1.05s steps(2, jump-none) infinite;
 	}
 

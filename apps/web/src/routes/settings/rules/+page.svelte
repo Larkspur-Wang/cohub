@@ -148,7 +148,7 @@ onMount(() => {
             <button
               type="button"
               onclick={openConfigSpace}
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand text-[12px] font-medium hover:bg-[#FF3E00]/15 transition-colors"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-brand-muted border border-brand-border text-brand text-[12px] font-medium hover:bg-brand-muted-hover transition-colors"
             >
               <ArrowUpRight class="w-3.5 h-3.5" />
               Open config Space
@@ -157,7 +157,7 @@ onMount(() => {
             <button
               type="button"
               onclick={createConfigSpace}
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-brand text-[12px] font-medium hover:bg-[#FF3E00]/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-brand-muted border border-brand-border text-brand text-[12px] font-medium hover:bg-brand-muted-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isLoading || isCreating}
             >
               {#if isCreating}
@@ -171,8 +171,8 @@ onMount(() => {
         </div>
       </div>
 
-      <div class="mt-5 rounded-md border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2.5">
-        <ShieldAlert class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+      <div class="mt-5 rounded-md border border-warning-bg bg-warning-bg p-3 flex gap-2.5">
+        <ShieldAlert class="w-4 h-4 text-warning shrink-0 mt-0.5" />
         <p class="text-[12px] leading-5 text-text-tertiary">
           Do not put tokens, passwords, private keys, or sensitive personal data in User Rules. Published rules are sent to the model as part of the system context.
         </p>

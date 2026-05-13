@@ -1,18 +1,18 @@
 <script lang="ts">
 const {
-  filePath,
-  fileContent,
-  markdownHtml,
-  isMarkdown,
-  loading,
-  error,
+	filePath,
+	fileContent,
+	markdownHtml,
+	isMarkdown,
+	loading,
+	error,
 }: {
-  filePath: string;
-  fileContent: string;
-  markdownHtml: string;
-  isMarkdown: boolean;
-  loading: boolean;
-  error: string | null;
+	filePath: string;
+	fileContent: string;
+	markdownHtml: string;
+	isMarkdown: boolean;
+	loading: boolean;
+	error: string | null;
 } = $props();
 </script>
 
@@ -40,9 +40,9 @@ const {
 <style>
   .viewer {
     height: 100%;
-    border-left: 1px solid var(--border);
-    border-right: 1px solid var(--border);
-    background: var(--panel);
+    border-left: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -54,12 +54,12 @@ const {
     align-items: center;
     gap: 8px;
     padding: 0 12px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-subtle);
     font-size: 13px;
   }
 
   .label {
-    color: var(--text-soft);
+    color: var(--text-tertiary);
   }
 
   .viewer-body {
@@ -71,8 +71,8 @@ const {
   pre {
     margin: 0;
     padding: 14px;
-    background: #10141d;
-    border: 1px solid var(--border);
+    background: var(--bg-code);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     font-size: 13px;
     line-height: 1.5;
@@ -92,19 +92,19 @@ const {
   }
 
   .markdown :global(code) {
-    background: #10141d;
-    border: 1px solid var(--border);
+    background: var(--bg-code);
+    border: 1px solid var(--border-subtle);
     border-radius: 4px;
     padding: 0 4px;
   }
 
   .hint {
-    color: var(--text-soft);
+    color: var(--text-tertiary);
     font-size: 13px;
   }
 
   .error {
-    color: var(--danger);
+    color: var(--error);
     font-size: 13px;
   }
 </style>

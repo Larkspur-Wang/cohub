@@ -1,0 +1,95 @@
+@import "./themes/dark.css";
+@import "./themes/light.css";
+
+/* ============================================================
+   Tailwind v4 @theme — semantic design tokens
+   ============================================================ */
+@theme {
+	/* Fonts */
+	--font-sans: "Geist", system-ui, -apple-system, sans-serif;
+	--font-mono: "Geist Mono", "Fira Code", ui-monospace, monospace;
+
+	/* Backgrounds */
+	--color-bg-primary: var(--bg-primary);
+	--color-bg-content: var(--bg-content);
+	--color-bg-surface: var(--bg-surface);
+	--color-bg-surface-hover: var(--bg-surface-hover);
+	--color-bg-elevated: var(--bg-elevated);
+	--color-bg-input: var(--bg-input);
+	--color-bg-code: var(--bg-code);
+	--color-bg-header-alt: var(--bg-header-alt);
+	--color-bg-hover: var(--bg-hover);
+	--color-bg-hover-strong: var(--bg-hover-strong);
+	--color-bg-active: var(--bg-active);
+
+	/* Text */
+	--color-text-primary: var(--text-primary);
+	--color-text-secondary: var(--text-secondary);
+	--color-text-tertiary: var(--text-tertiary);
+	--color-text-placeholder: var(--text-placeholder);
+	--color-text-disabled: var(--text-disabled);
+
+	/* Borders */
+	--color-border-primary: var(--border-primary);
+	--color-border-subtle: var(--border-subtle);
+
+	/* Brand */
+	--color-brand: var(--brand);
+	--color-brand-hover: var(--brand-hover);
+	--color-brand-soft: var(--brand-soft);
+	--color-brand-bg: var(--brand-bg);
+	--color-brand-contrast-fg: var(--brand-contrast-fg);
+	--color-brand-muted-fg: var(--brand-muted-fg);
+	--color-brand-muted: var(--brand-muted);
+	--color-brand-muted-hover: var(--brand-muted-hover);
+	--color-brand-border: var(--brand-border);
+
+	/* Overlays */
+	--color-overlay-scrim: var(--overlay-scrim);
+	--color-overlay-scrim-strong: var(--overlay-scrim-strong);
+	--color-overlay-control: var(--overlay-control-bg);
+	--color-overlay-control-hover: var(--overlay-control-bg-hover);
+	--color-overlay-control-text: var(--overlay-control-text);
+
+	/* Providers */
+	--color-provider-discord: var(--provider-discord);
+	--color-provider-discord-bg: var(--provider-discord-bg);
+	--color-provider-discord-bg-hover: var(--provider-discord-bg-hover);
+	--color-provider-discord-border: var(--provider-discord-border);
+	--color-provider-discord-border-hover: var(--provider-discord-border-hover);
+	--color-provider-feishu: var(--provider-feishu);
+	--color-provider-feishu-bg: var(--provider-feishu-bg);
+	--color-provider-feishu-bg-hover: var(--provider-feishu-bg-hover);
+	--color-provider-feishu-border: var(--provider-feishu-border);
+	--color-provider-feishu-border-hover: var(--provider-feishu-border-hover);
+
+	/* Semantic */
+	--color-success: var(--success-500);
+	--color-success-soft: var(--success-700);
+	--color-success-bg: var(--success-900);
+	--color-warning: var(--warning-500);
+	--color-warning-soft: var(--warning-700);
+	--color-warning-bg: var(--warning-900);
+	--color-error: var(--error-500);
+	--color-error-fg: var(--error-fg);
+	--color-error-soft: var(--error-700);
+	--color-error-bg: var(--error-900);
+	--color-info: var(--info-500);
+	--color-info-soft: var(--info-700);
+	--color-info-bg: var(--info-900);
+
+	/* Data visualizations */
+	--color-heatmap-0: var(--heatmap-0);
+	--color-heatmap-1: var(--heatmap-1);
+	--color-heatmap-2: var(--heatmap-2);
+	--color-heatmap-3: var(--heatmap-3);
+	--color-heatmap-4: var(--heatmap-4);
+
+	/* Status */
+	--color-status-running: var(--success-400);
+	--color-status-starting: var(--warning-400);
+	--color-status-error: var(--error-400);
+	--color-status-hibernated: var(--neutral-40);
+	--color-status-hibernating: var(--info-400);
+	--color-status-unknown: var(--text-placeholder);
+}

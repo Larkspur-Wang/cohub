@@ -147,7 +147,7 @@ onDestroy(() => {
 				</div>
 			{/if}
 			<iframe
-				class="h-full w-full border-0 bg-white"
+				class="h-full w-full border-0 bg-overlay-control-text"
 				src={iframeSrc}
 				title={`Port ${port} preview`}
 				sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
@@ -210,8 +210,8 @@ onDestroy(() => {
 		color: var(--text-primary);
 	}
 	.preview-action-btn.primary {
-		border-color: var(--brand, #ff3e00);
-		background: var(--brand, #ff3e00);
-		color: white;
+		border-color: var(--brand);
+		background: var(--brand);
+		color: var(--brand-contrast-fg);
 	}
 </style>

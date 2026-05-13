@@ -126,7 +126,7 @@ onMount(() => {
             <button
               type="submit"
               disabled={isSubmitting}
-              class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50"
+              class="px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:opacity-50"
             >
               {isSubmitting ? "Saving..." : "Add Key"}
             </button>

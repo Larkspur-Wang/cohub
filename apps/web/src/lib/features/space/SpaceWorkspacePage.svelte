@@ -5163,7 +5163,7 @@ $effect(() => {
               </button>
               <button
                 type="submit"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-white text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
                 disabled={checkpointCreateSubmitting}
               >
                 {#if checkpointCreateSubmitting}
@@ -5329,7 +5329,7 @@ $effect(() => {
               </button>
               <button
                 type="submit"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-white text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
                 disabled={cronjobNewSubmitting}
               >
                 {#if cronjobNewSubmitting}
@@ -5956,7 +5956,7 @@ $effect(() => {
                 </button>
                 <button
                   type="button"
-                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-[#FF3E00]/20 bg-[#FF3E00]/10 text-brand hover:bg-[#FF3E00]/15' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-brand-border bg-brand-muted text-brand hover:bg-brand-muted-hover' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
                   onclick={() => handleCreateNewSession()}
                   disabled={!canCreateSession}
                 >
@@ -6204,7 +6204,7 @@ $effect(() => {
                 <button
                   type="button"
                   aria-label="Jump to new messages"
-                  class="flex h-7 items-center justify-center rounded-full bg-brand px-2.5 text-[11px] font-semibold leading-none text-white transition-colors duration-150 hover:bg-brand-hover active:scale-95"
+                  class="flex h-7 items-center justify-center rounded-full bg-brand px-2.5 text-[11px] font-semibold leading-none text-brand-contrast-fg transition-colors duration-150 hover:bg-brand-hover active:scale-95"
                   onclick={() => {
                     shouldAutoFollow = true;
                     void forceScrollToBottom();
@@ -6774,18 +6774,11 @@ $effect(() => {
     border-radius: 2px;
     transition: background-color 120ms ease;
   }
-  .heatmap-0 { background: var(--bg-elevated, rgba(0,0,0,0.03)); }
-  .heatmap-1 { background: oklch(0.55 0.22 25 / 0.35); }
-  .heatmap-2 { background: oklch(0.55 0.22 25 / 0.55); }
-  .heatmap-3 { background: oklch(0.55 0.22 25 / 0.75); }
-  .heatmap-4 { background: oklch(0.55 0.22 25 / 0.95); }
-  @media (prefers-color-scheme: dark) {
-    .heatmap-0 { background: var(--bg-elevated, rgba(255,255,255,0.05)); }
-    .heatmap-1 { background: oklch(0.65 0.2 25 / 0.35); }
-    .heatmap-2 { background: oklch(0.65 0.2 25 / 0.55); }
-    .heatmap-3 { background: oklch(0.65 0.2 25 / 0.75); }
-    .heatmap-4 { background: oklch(0.65 0.2 25 / 0.95); }
-  }
+  .heatmap-0 { background: var(--heatmap-0); }
+  .heatmap-1 { background: var(--heatmap-1); }
+  .heatmap-2 { background: var(--heatmap-2); }
+  .heatmap-3 { background: var(--heatmap-3); }
+  .heatmap-4 { background: var(--heatmap-4); }
   @keyframes cohub-scroll-to-bottom-in {
     from {
       opacity: 0;
@@ -6887,9 +6880,9 @@ $effect(() => {
   }
   .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .action-btn.primary {
-    background: var(--brand, #FF3E00);
-    border-color: var(--brand, #FF3E00);
-    color: #fff;
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--brand-contrast-fg);
   }
   .action-btn.primary:hover { opacity: 0.9; }
   .menu-item {

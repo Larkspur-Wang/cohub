@@ -55,7 +55,7 @@ const submit = () => {
 <style>
   .chat-panel {
     height: 100%;
-    background: var(--panel);
+    background: var(--bg-surface);
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -67,14 +67,14 @@ const submit = () => {
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-subtle);
     font-size: 13px;
   }
 
   .badge {
     font-size: 11px;
-    color: var(--text-soft);
-    border: 1px solid var(--border);
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-subtle);
     border-radius: 999px;
     padding: 2px 8px;
   }
@@ -96,19 +96,19 @@ const submit = () => {
   }
 
   .bubble.system {
-    background: var(--panel-soft);
-    color: var(--text-soft);
+    background: var(--bg-hover);
+    color: var(--text-tertiary);
   }
 
   .bubble.user {
-    background: var(--accent-soft);
-    color: #d9e1ff;
+    background: var(--brand-bg);
+    color: var(--brand-contrast-fg);
     align-self: flex-end;
     max-width: 90%;
   }
 
   .chat-footer {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-subtle);
     padding: 10px;
     display: flex;
     gap: 8px;
@@ -116,17 +116,17 @@ const submit = () => {
 
   input {
     flex: 1;
-    background: #121722;
-    border: 1px solid var(--border);
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    color: var(--text);
+    color: var(--text-primary);
     padding: 8px 10px;
     outline: none;
   }
 
   button {
-    background: var(--accent);
-    color: white;
+    background: var(--brand);
+    color: var(--brand-contrast-fg);
     border: 0;
     border-radius: 8px;
     padding: 0 12px;

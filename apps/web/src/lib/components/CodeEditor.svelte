@@ -214,14 +214,14 @@ onMount(() => {
 					},
 					".cm-gutters": {
 						backgroundColor: "transparent",
-						borderRight: "1px solid var(--border-subtle, #30363d)",
+						borderRight: "1px solid var(--border-subtle)",
 					},
 					".cm-activeLineGutter": {
 						backgroundColor: "transparent",
 					},
 					".cm-content": {
 						padding: "12px 0",
-						caretColor: "var(--brand, #f97583)",
+						caretColor: "var(--brand)",
 					},
 					".cm-line": {
 						padding: "0 8px",

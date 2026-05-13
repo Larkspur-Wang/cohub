@@ -421,7 +421,7 @@ $effect(() => {
 					<div class="flex items-center gap-2"><User class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Profile</div><div class="text-[15px] font-medium text-text-primary">Public space details</div></div></div>
 					<input bind:value={pictureUrl} placeholder="Picture URL" class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 					<textarea bind:value={description} rows="4" placeholder="Description" class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none resize-y"></textarea>
-					<div class="flex justify-end"><button type="button" onclick={saveProfile} disabled={saving} class="px-3 py-2 rounded-[5px] bg-brand text-white text-[12px] font-medium disabled:opacity-50">Save profile</button></div>
+					<div class="flex justify-end"><button type="button" onclick={saveProfile} disabled={saving} class="px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium disabled:opacity-50">Save profile</button></div>
 				</section>
 
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
@@ -440,7 +440,7 @@ $effect(() => {
 						<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addMember(); } }} class="min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 						<div class="flex gap-2">
 							<select bind:value={addingMemberRole} class="rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
-							<button type="button" onclick={() => { void addMember(); }} disabled={savingMember || !addingMemberUuid.trim()} class="inline-flex min-w-16 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50">{#if savingMember}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if} Add</button>
+							<button type="button" onclick={() => { void addMember(); }} disabled={savingMember || !addingMemberUuid.trim()} class="inline-flex min-w-16 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if savingMember}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if} Add</button>
 						</div>
 					</div>
 					{#if addingMemberError}<div class="rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-all">{addingMemberError}</div>{/if}
@@ -506,7 +506,7 @@ $effect(() => {
 				</section>
 
 				{#if showInvitePanel}
-					<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onclick={() => { showInvitePanel = false; }} onkeydown={(event) => { if (event.key === 'Escape') showInvitePanel = false; }}>
+					<div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-scrim p-4" role="presentation" onclick={() => { showInvitePanel = false; }} onkeydown={(event) => { if (event.key === 'Escape') showInvitePanel = false; }}>
 						<div class="w-full max-w-sm rounded-[10px] border border-border-subtle bg-bg-surface p-5 shadow-xl" role="dialog" aria-modal="true" tabindex="-1" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
 							<div class="mb-4 flex items-center justify-between gap-3">
 								<div><h3 class="text-[15px] font-medium text-text-primary">Create invite link</h3><p class="mt-1 text-[12px] text-text-tertiary">Pre-bind a role and share a single-use or reusable access link.</p></div>
@@ -520,7 +520,7 @@ $effect(() => {
 							</div>
 							<div class="mt-5 flex justify-end gap-2">
 								<button type="button" onclick={() => { showInvitePanel = false; }} class="rounded-[5px] border border-border-subtle bg-bg-hover px-4 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-secondary">Cancel</button>
-								<button type="button" onclick={() => { void createInvite(); }} disabled={creatingInvite} class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand px-4 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50">{#if creatingInvite}<Loader2 class="w-3.5 h-3.5 animate-spin" /> Creating…{:else}<Link class="w-3.5 h-3.5" /> Create link{/if}</button>
+								<button type="button" onclick={() => { void createInvite(); }} disabled={creatingInvite} class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand px-4 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if creatingInvite}<Loader2 class="w-3.5 h-3.5 animate-spin" /> Creating…{:else}<Link class="w-3.5 h-3.5" /> Create link{/if}</button>
 							</div>
 						</div>
 					</div>
@@ -528,13 +528,13 @@ $effect(() => {
 
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
 					<div class="flex items-center gap-2"><Terminal class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Env</div><div class="text-[15px] font-medium text-text-primary">Environment variables</div></div></div>
-					<div class="flex gap-2"><input bind:value={envName} placeholder="NAME" class="w-40 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" /><input bind:value={envValue} placeholder="value" class="flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" /><button type="button" onclick={addEnv} class="px-3 py-1.5 rounded bg-brand text-white text-[12px]">Add</button></div>
+					<div class="flex gap-2"><input bind:value={envName} placeholder="NAME" class="w-40 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" /><input bind:value={envValue} placeholder="value" class="flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" /><button type="button" onclick={addEnv} class="px-3 py-1.5 rounded bg-brand text-brand-contrast-fg text-[12px]">Add</button></div>
 					<div class="space-y-1">{#each env as item (item.name)}<div class="flex items-center gap-2 rounded-[5px] bg-bg-primary px-3 py-2"><code class="w-40 text-[11px] text-text-primary">{item.name}</code><code class="flex-1 truncate text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code><button type="button" onclick={() => toggleEnvReveal(item.name)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{revealedEnvNames.has(item.name) ? 'Hide' : 'Reveal'}</button><button type="button" onclick={() => removeEnv(item.name)} class="text-[11px] text-text-placeholder hover:text-error-soft">Remove</button></div>{/each}</div>
 				</section>
 
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
 					<div class="flex items-center gap-2"><Network class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Channels</div><div class="text-[15px] font-medium text-text-primary">Bound channels</div></div></div>
-					<div class="flex gap-2"><select bind:value={selectedChannelId} class="flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px]"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} class="px-3 py-1.5 rounded bg-brand text-white text-[12px]">Bind</button></div>
+					<div class="flex gap-2"><select bind:value={selectedChannelId} class="flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px]"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} class="px-3 py-1.5 rounded bg-brand text-brand-contrast-fg text-[12px]">Bind</button></div>
 					<div class="space-y-1">{#each channels as binding (binding.id)}<div class="flex items-center justify-between rounded-[5px] bg-bg-primary px-3 py-2"><span class="text-[12px] text-text-secondary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span><button type="button" onclick={() => unbindChannel(binding.channelId)} class="text-[11px] text-text-placeholder hover:text-error-soft">Unbind</button></div>{/each}</div>
 				</section>
 

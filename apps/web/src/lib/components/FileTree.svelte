@@ -33,7 +33,7 @@ const {
   .empty {
     margin: 0;
     padding: 10px 14px;
-    color: var(--text-soft);
+    color: var(--text-tertiary);
     font-size: 13px;
   }
 </style>

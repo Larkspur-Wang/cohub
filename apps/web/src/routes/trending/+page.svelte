@@ -189,7 +189,7 @@ const hasData = $derived(
 						<!-- Rank — #1 gets brand badge, #2-3 get brand number, rest muted -->
 						<div class="row-span-2 flex min-h-12 items-start justify-center py-2.5 sm:row-span-1 sm:min-h-0 sm:items-center sm:py-3">
 							{#if row.rank === 1}
-								<span class="flex items-center justify-center w-6 h-6 rounded-[4px] bg-brand text-[11px] font-bold text-white">1</span>
+								<span class="flex items-center justify-center w-6 h-6 rounded-[4px] bg-brand text-[11px] font-bold text-brand-contrast-fg">1</span>
 							{:else if row.rank === 2}
 								<span class="text-[13px] font-semibold text-brand">2</span>
 							{:else if row.rank === 3}
@@ -310,12 +310,7 @@ const hasData = $derived(
 	}
 
 	.row-data {
-		border-bottom: 1px solid oklch(32% 0.007 250 / 0.4);
-	}
-
-	/* light theme row divider */
-	:global([data-theme="light"]) .row-data {
-		border-bottom: 1px solid oklch(93% 0.004 250 / 0.6);
+		border-bottom: 1px solid var(--divider-muted);
 	}
 
 	@media (min-width: 640px) {

@@ -66,7 +66,7 @@ const isActive = $derived(selectedPath === node.path);
     width: 100%;
     border: 0;
     background: transparent;
-    color: var(--text);
+    color: var(--text-primary);
     text-align: left;
     display: flex;
     gap: 6px;
@@ -76,17 +76,17 @@ const isActive = $derived(selectedPath === node.path);
   }
 
   .tree-item:hover {
-    background: var(--panel-soft);
+    background: var(--bg-hover);
   }
 
   .tree-item.active {
-    background: var(--accent-soft);
-    color: #d9e1ff;
+    background: var(--brand-bg);
+    color: var(--brand-contrast-fg);
   }
 
   .icon {
     width: 10px;
-    color: var(--text-soft);
+    color: var(--text-tertiary);
   }
 
   .name {
@@ -98,7 +98,7 @@ const isActive = $derived(selectedPath === node.path);
 
   .loading {
     margin-left: auto;
-    color: var(--text-soft);
+    color: var(--text-tertiary);
     font-size: 12px;
   }
 </style>

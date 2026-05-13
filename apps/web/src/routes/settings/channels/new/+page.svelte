@@ -152,11 +152,11 @@ async function handleSubmit(e: Event) {
         <button
           type="button"
           onclick={() => selectProvider("discord")}
-          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-indigo-400/40 hover:bg-indigo-500/5 transition-all group"
+          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-discord-border-hover hover:bg-provider-discord-bg-hover transition-all group"
         >
           <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-[7px] bg-[#5865F2]/10 border border-[#5865F2]/20 flex items-center justify-center shrink-0">
-              <MessageSquare class="w-5 h-5 text-[#5865F2]" />
+            <div class="w-10 h-10 rounded-[7px] bg-provider-discord-bg border border-provider-discord-border flex items-center justify-center shrink-0">
+              <MessageSquare class="w-5 h-5 text-provider-discord" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">Discord</div>
@@ -172,11 +172,11 @@ async function handleSubmit(e: Event) {
         <button
           type="button"
           onclick={() => selectProvider("feishu")}
-          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-cyan-400/40 hover:bg-cyan-500/5 transition-all group"
+          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-feishu-border-hover hover:bg-provider-feishu-bg-hover transition-all group"
         >
           <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-[7px] bg-cyan-400/10 border border-cyan-400/20 flex items-center justify-center shrink-0">
-              <Webhook class="w-5 h-5 text-cyan-400" />
+            <div class="w-10 h-10 rounded-[7px] bg-provider-feishu-bg border border-provider-feishu-border flex items-center justify-center shrink-0">
+              <Webhook class="w-5 h-5 text-provider-feishu" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">Feishu / Lark</div>
@@ -272,7 +272,7 @@ async function handleSubmit(e: Event) {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                class="px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {#if isSubmitting}
                   <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
@@ -318,7 +318,7 @@ async function handleSubmit(e: Event) {
                   </li>
                   <li>Publish the app and get it approved by your org admin</li>
                 </ol>
-                <div class="mt-2 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                <div class="mt-2 p-2 rounded bg-warning-bg border border-warning-bg text-warning">
                   <strong>Note:</strong> If using international Lark, select "Lark" brand below.
                 </div>
               </div>
@@ -384,7 +384,7 @@ async function handleSubmit(e: Event) {
                   title="Copy format hint"
                 >
                   {#if copiedField === "appId"}
-                    <Check class="w-4 h-4 text-green-400" />
+                    <Check class="w-4 h-4 text-success" />
                   {:else}
                     <Copy class="w-4 h-4" />
                   {/if}
@@ -419,7 +419,7 @@ async function handleSubmit(e: Event) {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                class="px-4 py-[6px] rounded-[5px] bg-[#FF3E00] hover:bg-brand-hover text-[12px] text-white font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                class="px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {#if isSubmitting}
                   <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />

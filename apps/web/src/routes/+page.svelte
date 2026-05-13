@@ -61,7 +61,7 @@ onMount(async () => {
       </div>
     {:else}
       <!-- Brand -->
-      <div class="w-14 h-14 bg-[#FF3E00] rounded-[10px] flex items-center justify-center font-bold text-2xl text-white mb-5">
+      <div class="w-14 h-14 bg-brand rounded-[10px] flex items-center justify-center font-bold text-2xl text-brand-contrast-fg mb-5">
         C
       </div>
 
@@ -78,7 +78,7 @@ onMount(async () => {
           <button
             type="button"
             onclick={handleSignIn}
-            class="inline-flex items-center gap-2 px-5 py-2 rounded-[6px] bg-[#FF3E00] text-[13px] text-white font-medium hover:bg-[#FF3E00]/90 transition-colors shadow-sm"
+            class="inline-flex items-center gap-2 px-5 py-2 rounded-[6px] bg-brand text-[13px] text-brand-contrast-fg font-medium hover:bg-brand/90 transition-colors shadow-sm"
           >
             <LogIn class="w-[14px] h-[14px]" />
             Sign In
@@ -86,7 +86,7 @@ onMount(async () => {
         {/if}
         <a
           href="/spaces/new"
-          class="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-brand-muted border border-brand-border text-[13px] text-brand font-medium hover:bg-brand-muted-hover transition-colors"
         >
           <Terminal class="w-[14px] h-[14px]" />
           Create a Space

@@ -113,7 +113,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 
 {#if mediaLightbox.open && mediaLightbox.current}
 	<div
-		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85"
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay-scrim-strong"
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeyDown}
 		ontouchstart={onTouchStart}
@@ -128,7 +128,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 			<!-- Download button -->
 			<button
 				type="button"
-				class="flex items-center justify-center w-9 h-9 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors disabled:opacity-50"
+				class="flex items-center justify-center w-9 h-9 rounded-full bg-overlay-control text-overlay-control-text hover:bg-overlay-control-hover transition-colors disabled:opacity-50"
 				onclick={handleDownload}
 				disabled={downloading}
 				title="Download"
@@ -145,7 +145,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 			<!-- Close button -->
 			<button
 				type="button"
-				class="flex items-center justify-center w-9 h-9 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+				class="flex items-center justify-center w-9 h-9 rounded-full bg-overlay-control text-overlay-control-text hover:bg-overlay-control-hover transition-colors"
 				onclick={() => mediaLightbox.close()}
 			>
 				<X class="w-5 h-5" />
@@ -156,14 +156,14 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 		{#if mediaLightbox.items.length > 1}
 			<button
 				type="button"
-				class="absolute left-3 z-10 hidden items-center justify-center w-9 h-9 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors sm:flex sm:top-1/2 sm:-translate-y-1/2 sm:left-4"
+				class="absolute left-3 z-10 hidden items-center justify-center w-9 h-9 rounded-full bg-overlay-control text-overlay-control-text hover:bg-overlay-control-hover transition-colors sm:flex sm:top-1/2 sm:-translate-y-1/2 sm:left-4"
 				onclick={() => mediaLightbox.prev()}
 			>
 				<ChevronLeft class="w-5 h-5" />
 			</button>
 			<button
 				type="button"
-				class="absolute right-3 z-10 hidden items-center justify-center w-9 h-9 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors sm:flex sm:top-1/2 sm:-translate-y-1/2 sm:right-4"
+				class="absolute right-3 z-10 hidden items-center justify-center w-9 h-9 rounded-full bg-overlay-control text-overlay-control-text hover:bg-overlay-control-hover transition-colors sm:flex sm:top-1/2 sm:-translate-y-1/2 sm:right-4"
 				onclick={() => mediaLightbox.next()}
 			>
 				<ChevronRight class="w-5 h-5" />
@@ -197,7 +197,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 
 		<!-- Download error hint -->
 		{#if downloadError}
-			<div class="absolute bottom-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-error-500/90 text-white text-[13px] whitespace-nowrap">
+			<div class="absolute bottom-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-error text-error-fg text-[13px] whitespace-nowrap">
 				{downloadError}
 			</div>
 		{/if}
@@ -207,7 +207,7 @@ async function fetchUrlAsBlob(url: string): Promise<Blob> {
 			<div class="absolute bottom-6 flex items-center gap-1.5 {downloadError ? 'bottom-24' : ''}">
 				{#each mediaLightbox.items as _, i}
 					<span
-						class="block w-1.5 h-1.5 rounded-full transition-colors {i === mediaLightbox.index ? 'bg-white' : 'bg-white/40'}"
+						class="block w-1.5 h-1.5 rounded-full transition-colors {i === mediaLightbox.index ? 'bg-overlay-control-text' : 'bg-overlay-control-hover'}"
 					></span>
 				{/each}
 			</div>

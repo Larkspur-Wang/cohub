@@ -392,7 +392,7 @@ async function handleSubmit(event: SubmitEvent) {
           <button type="button" class="px-3 py-1.5 rounded-[5px] border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary transition-colors" onclick={() => goto("/")}>Cancel</button>
           <button
             type="submit"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-[#FF3E00]/10 border border-[#FF3E00]/20 text-[13px] text-brand font-medium hover:bg-[#FF3E00]/15 transition-colors disabled:opacity-60"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-brand-muted border border-brand-border text-[13px] text-brand font-medium hover:bg-brand-muted-hover transition-colors disabled:opacity-60"
             disabled={isSubmitting || !name.trim()}
           >
             {#if isSubmitting}

@@ -177,7 +177,7 @@ onMount(() => {
           {/if}
 
           <div class="mt-5 flex items-center justify-between gap-3">
-            <button type="button" onclick={saveProfile} disabled={saving || !displayName.trim()} class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50">
+            <button type="button" onclick={saveProfile} disabled={saving || !displayName.trim()} class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">
               {#if saving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else if saved}<Check class="w-3.5 h-3.5" />{/if}
               {saved ? "Saved" : "Save"}
             </button>

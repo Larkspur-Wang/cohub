@@ -195,7 +195,7 @@ async function handleAccept() {
 					{#if actionStatus === "idle"}
 						<button
 							type="button"
-							class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand/90 active:bg-brand/80 transition-colors"
+							class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-brand text-brand-contrast-fg text-sm font-medium hover:bg-brand/90 active:bg-brand/80 transition-colors"
 							onclick={() => void handleAccept()}
 						>
 							<ArrowRight class="w-4 h-4" />
@@ -206,7 +206,7 @@ async function handleAccept() {
 						<button
 							type="button"
 							disabled
-							class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-brand/50 text-white text-sm font-medium cursor-wait"
+							class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-brand/50 text-brand-contrast-fg text-sm font-medium cursor-wait"
 						>
 							<Loader2 class="w-4 h-4 animate-spin" />
 							Joining...
@@ -226,7 +226,7 @@ async function handleAccept() {
 							<p class="text-sm text-error-soft text-center mb-3">{actionError}</p>
 							<button
 								type="button"
-								class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand/90 active:bg-brand/80 transition-colors"
+								class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-brand text-brand-contrast-fg text-sm font-medium hover:bg-brand/90 active:bg-brand/80 transition-colors"
 								onclick={() => { actionStatus = "idle"; actionError = ""; }}
 							>
 								Try again

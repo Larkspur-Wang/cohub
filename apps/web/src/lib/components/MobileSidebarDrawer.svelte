@@ -81,7 +81,7 @@ $effect(() => {
 >
   <!-- Backdrop -->
   <div
-    class="absolute inset-0 bg-black"
+    class="absolute inset-0 bg-overlay-scrim"
     style="pointer-events: auto; {backdropStyle}"
     aria-hidden="true"
     onclick={closeDrawer}

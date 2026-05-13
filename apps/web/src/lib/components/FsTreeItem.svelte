@@ -325,7 +325,7 @@ $effect(() => {
 
   .tree-item.drop-target {
     background: var(--bg-hover-strong);
-    outline: 1px dashed var(--brand, #58a6ff);
+    outline: 1px dashed var(--brand);
     outline-offset: -1px;
   }
 

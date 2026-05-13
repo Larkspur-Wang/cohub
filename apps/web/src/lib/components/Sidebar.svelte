@@ -917,7 +917,7 @@ $effect(() => {
   <!-- Brand Header -->
   <div class="h-[48px] flex items-center justify-between gap-2 px-3 border-b border-border-subtle shrink-0">
     <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
-      <div class="w-7 h-7 bg-[#FF3E00] rounded-[6px] flex items-center justify-center font-bold text-[11px] text-white group-hover:bg-brand-hover transition-colors shrink-0">
+      <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
         C
       </div>
       <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
@@ -962,7 +962,7 @@ $effect(() => {
       <div class="px-2 py-1.5 shrink-0 space-y-[2px]">
         <button
           type="button"
-          class="flex w-full items-center gap-2 rounded-[7px] border border-[#FF3E00]/20 bg-[#FF3E00]/10 px-2 py-1.5 text-brand transition-colors duration-100 hover:bg-[#FF3E00]/15 disabled:cursor-not-allowed disabled:opacity-50"
+          class="flex w-full items-center gap-2 rounded-[7px] border border-brand-border bg-brand-muted px-2 py-1.5 text-brand transition-colors duration-100 hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50"
           onclick={() => { void handleCreateNewSession(); }}
           disabled={creatingSession}
           title="New chat (⌘O / Ctrl O)"
@@ -1616,9 +1616,9 @@ $effect(() => {
           <img src={authStore.profile.avatarUrl} alt="avatar" class="w-full h-full object-cover" />
         {:else}
           <svg viewBox="0 0 32 32" class="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="32" height="32" rx="16" fill="#e5e7eb" />
-            <circle cx="16" cy="12" r="5" fill="#9ca3af" />
-            <ellipse cx="16" cy="26" rx="9" ry="7" fill="#9ca3af" />
+            <rect width="32" height="32" rx="16" fill="var(--avatar-placeholder-bg)" />
+            <circle cx="16" cy="12" r="5" fill="var(--avatar-placeholder-fg)" />
+            <ellipse cx="16" cy="26" rx="9" ry="7" fill="var(--avatar-placeholder-fg)" />
           </svg>
         {/if}
       </div>

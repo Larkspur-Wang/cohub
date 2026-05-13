@@ -332,7 +332,7 @@ onMount(() => {
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		border: 1px solid color-mix(in oklch, var(--border-primary) 72%, var(--brand-400) 8%);
+		border: 1px solid color-mix(in oklch, var(--border-primary) 72%, var(--brand) 8%);
 		border-radius: 14px;
 		background: color-mix(in oklch, var(--bg-surface) 94%, var(--brand-900) 6%);
 		box-shadow: 0 24px 80px color-mix(in oklch, var(--neutral-100) 74%, transparent), 0 0 0 1px color-mix(in oklch, var(--neutral-0) 4%, transparent) inset;
@@ -410,7 +410,7 @@ onMount(() => {
 		background: color-mix(in oklch, var(--brand-bg) 56%, var(--bg-hover) 44%);
 	}
 
-	.command-result.active::before { background: var(--brand-400); }
+	.command-result.active::before { background: var(--brand); }
 	.command-result.active .command-enter { opacity: 1; }
 	.command-result.active .command-type-mark { border-color: color-mix(in oklch, currentColor 36%, transparent); }
 
@@ -426,23 +426,23 @@ onMount(() => {
 	}
 
 	.command-type-mark.space {
-		color: var(--brand-400);
-		background: color-mix(in oklch, var(--brand-400) 12%, var(--bg-primary) 88%);
+		color: var(--brand);
+		background: color-mix(in oklch, var(--brand) 12%, var(--bg-primary) 88%);
 	}
 
 	.command-type-mark.session {
-		color: color-mix(in oklch, var(--text-secondary) 82%, var(--brand-400) 18%);
+		color: color-mix(in oklch, var(--text-secondary) 82%, var(--brand) 18%);
 		background: color-mix(in oklch, var(--text-secondary) 8%, var(--bg-primary) 92%);
 	}
 
 	.command-type-mark.message {
-		color: color-mix(in oklch, var(--text-tertiary) 72%, var(--brand-400) 28%);
+		color: color-mix(in oklch, var(--text-tertiary) 72%, var(--brand) 28%);
 		background: color-mix(in oklch, var(--text-tertiary) 7%, var(--bg-primary) 93%);
 	}
 
 	.command-enter {
 		opacity: 0;
-		color: var(--brand-400);
+		color: var(--brand);
 		font-size: 13px;
 	}
 

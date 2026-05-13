@@ -824,7 +824,7 @@ $effect(() => {
 							<button
 								type={showAbort ? "button" : "submit"}
 								disabled={showAbort ? disabled || aborting : submitDisabled}
-								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white transition-all hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled ${showAbort ? 'bg-text-primary hover:bg-text-secondary' : 'bg-brand hover:bg-brand-hover'}`}
+								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled ${showAbort ? 'bg-text-primary text-bg-primary hover:bg-text-secondary' : 'bg-brand text-brand-contrast-fg hover:bg-brand-hover'}`}
 								title={showAbort ? "Stop generation" : "Send"}
 								aria-label={showAbort ? "Stop generation" : "Send"}
 								onclick={() => {
