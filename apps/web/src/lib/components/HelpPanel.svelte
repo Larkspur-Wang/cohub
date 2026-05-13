@@ -47,6 +47,13 @@ const sections: ShortcutSection[] = [
 		title: "Session page",
 		description: "Vim-style reading and turn navigation.",
 		items: [
+			{
+				label: "Open model selector",
+				keys: [
+					["⌘", "Shift", "M"],
+					["Ctrl", "Shift", "M"],
+				],
+			},
 			{ label: "Focus composer", keys: [["i"]] },
 			{ label: "Scroll down", keys: [["j"]] },
 			{ label: "Scroll up", keys: [["k"]] },
@@ -54,6 +61,16 @@ const sections: ShortcutSection[] = [
 			{ label: "Previous turn", keys: [["Shift", "K"]] },
 			{ label: "Top", keys: [["g", "g"]] },
 			{ label: "Bottom", keys: [["G"]] },
+		],
+	},
+	{
+		title: "Model selector",
+		description: "When choosing a model.",
+		items: [
+			{ label: "Next model", keys: [["↓"], ["Ctrl", "N"]] },
+			{ label: "Previous model", keys: [["↑"], ["Ctrl", "P"]] },
+			{ label: "Select", keys: [["Enter"]] },
+			{ label: "Close", keys: [["Esc"]] },
 		],
 	},
 	{

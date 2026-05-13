@@ -4127,6 +4127,17 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	if (event.defaultPrevented || event.isComposing) return;
 	if (routeView !== "session" || !activeSessionState) return;
 	const key = event.key.toLowerCase();
+	if (
+		(event.metaKey || event.ctrlKey) &&
+		event.shiftKey &&
+		!event.altKey &&
+		key === "m"
+	) {
+		event.preventDefault();
+		showModelSelector = true;
+		void loadModelsCatalog();
+		return;
+	}
 	if (key !== "g") clearPendingVimG();
 	if (
 		event.shiftKey &&

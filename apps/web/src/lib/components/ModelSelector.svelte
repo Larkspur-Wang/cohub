@@ -92,25 +92,35 @@ $effect(() => {
 	}
 });
 
+function moveSelection(delta: number) {
+	if (filteredModels.length === 0) {
+		selectedIndex = 0;
+		return;
+	}
+	navigationMode = "keyboard";
+	selectedIndex = Math.min(
+		Math.max(selectedIndex + delta, 0),
+		filteredModels.length - 1,
+	);
+	scrollSelectedIntoView();
+}
+
 function handleKeyDown(e: KeyboardEvent) {
 	if (!open) return;
+	const key = e.key.toLowerCase();
 	if (e.key === "Escape") {
 		e.preventDefault();
 		onClose();
 		return;
 	}
-	if (e.key === "ArrowDown") {
+	if (e.key === "ArrowDown" || (e.ctrlKey && key === "n")) {
 		e.preventDefault();
-		navigationMode = "keyboard";
-		selectedIndex = Math.min(selectedIndex + 1, filteredModels.length - 1);
-		scrollSelectedIntoView();
+		moveSelection(1);
 		return;
 	}
-	if (e.key === "ArrowUp") {
+	if (e.key === "ArrowUp" || (e.ctrlKey && key === "p")) {
 		e.preventDefault();
-		navigationMode = "keyboard";
-		selectedIndex = Math.max(selectedIndex - 1, 0);
-		scrollSelectedIntoView();
+		moveSelection(-1);
 		return;
 	}
 	if (e.key === "Enter" && filteredModels[selectedIndex]) {
