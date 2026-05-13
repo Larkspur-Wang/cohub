@@ -221,7 +221,7 @@ export async function searchRemoteSpaceMentions(
 	const fetcher: typeof fetch = (input, init) =>
 		fetch(input, { ...init, signal: options?.signal });
 	const result = await sdk.search.query(
-		{ q, limit: options?.limit ?? REMOTE_LIMIT },
+		{ q, limit: options?.limit ?? REMOTE_LIMIT, types: ["space"] },
 		fetcher,
 	);
 	return result.items
