@@ -1,5 +1,11 @@
 # @neta-art/cohub-protocol
 
+## 1.6.0
+
+### Minor Changes
+
+- Add multimodal generation protocol types, SDK APIs, and CLI commands.
+
 ## 1.5.0
 
 ### Minor Changes

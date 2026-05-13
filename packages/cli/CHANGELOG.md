@@ -1,5 +1,16 @@
 # @neta-art/cohub-cli
 
+## 1.2.0
+
+### Minor Changes
+
+- Add multimodal generation protocol types, SDK APIs, and CLI commands.
+
+### Patch Changes
+
+- Updated dependencies
+  - @neta-art/cohub@1.8.0
+
 ## 1.1.4
 
 ### Patch Changes
