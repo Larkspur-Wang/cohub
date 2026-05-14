@@ -7,11 +7,13 @@
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:system": "tsx watch src/entrances/system-worker.ts",
     "build": "tsc -p tsconfig.build.json",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "typecheck": "tsgo -p tsconfig.typecheck.json --noEmit",
     "start": "node dist/index.js",
+    "start:system": "node dist/entrances/system-worker.js",
     "test:trigger-echo": "tsx src/test-helpers.ts trigger-echo",
     "test:trigger": "tsx src/test-helpers.ts trigger",
     "test:list-scheduled": "tsx src/test-helpers.ts list-scheduled"

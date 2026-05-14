@@ -268,6 +268,10 @@ function registerFiles(spacesCmd: Command): void {
       const client = createClient();
       try {
         const file = await client.space(spaceId).files.read(path);
+        if (!("content" in file)) return error("File is being prepared. Please retry shortly.");
+        if (file.delivery === "url" && file.url) {
+          console.log(`[CDN] ${file.url}`);
+        }
         console.log(file.content);
       } catch (e: unknown) {
         handleHttp(e);

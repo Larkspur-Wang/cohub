@@ -1,7 +1,7 @@
 import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
-import type { HttpTransport, Fetch } from "../transport.js";
+import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
 import {
   SessionPatchReducer,
   type SessionPatchApplyInput,
@@ -38,6 +38,7 @@ import type {
   SpaceFsCreateUploadInput,
   SpaceFsCreateUploadResponse,
   SpaceFsFileResponse,
+  SpaceFsPreparingFile,
   SpaceFsReadFilesResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
@@ -209,7 +210,7 @@ export class SpaceFilesApi {
 
   read(path: string, customFetch?: Fetch) {
     const params = new URLSearchParams({ path });
-    return this.transport.request<SpaceFsFileResponse>(
+    return this.transport.request<SpaceFsFileResponse | SpaceFsPreparingFile>(
       `/api/spaces/${this.spaceId}/fs/file?${params.toString()}`,
       { fetch: customFetch },
     );
@@ -236,26 +237,33 @@ export class SpaceFilesApi {
     return `/api/spaces/${this.spaceId}/fs/download?${params.toString()}`;
   }
 
-  async download(path: string, customFetch?: Fetch) {
-    const params = new URLSearchParams({ path });
-    const raw = await this.transport.raw(
-      `/api/spaces/${this.spaceId}/fs/download?${params.toString()}`,
-      { fetch: customFetch },
-    );
-    const blob = await raw.blob();
-    const filename =
-      getFilenameFromContentDisposition(
-        raw.response.headers.get("content-disposition"),
-      ) ??
-      path.split("/").pop() ??
-      "download";
-    const mimeType =
-      raw.response.headers.get("content-type") ??
-      blob.type ??
-      "application/octet-stream";
+	async download(path: string, customFetch?: Fetch) {
+		const params = new URLSearchParams({ path });
+		const raw = await this.transport.raw(
+			`/api/spaces/${this.spaceId}/fs/download?${params.toString()}`,
+			{ fetch: customFetch },
+		);
+		if (raw.response.status === 202) {
+			throw new HttpError(
+				"File is being prepared. Please retry shortly.",
+				202,
+				await raw.json().catch(() => null),
+			);
+		}
+		const blob = await raw.blob();
+		const filename =
+			getFilenameFromContentDisposition(
+				raw.response.headers.get("content-disposition"),
+			) ??
+			path.split("/").pop() ??
+			"download";
+		const mimeType =
+			raw.response.headers.get("content-type") ??
+			blob.type ??
+			"application/octet-stream";
 
-    return { blob, filename, mimeType };
-  }
+		return { blob, filename, mimeType };
+	}
 
   write(input: SpaceFsWriteFileInput) {
     return this.transport.request<{ ok: true; path: string; size: number; mtimeMs: number }>(

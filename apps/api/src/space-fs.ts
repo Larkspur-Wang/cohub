@@ -2,6 +2,17 @@
 import type { Stats } from "node:fs";
 import { chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  buildPreparingFile,
+  buildUrlFileResponse,
+  ensureFsCdnManifest,
+  enqueueFsCdnWarmForMeta,
+  getFreshFsCdnManifests,
+  shouldUseFsCdnForMeta,
+  waitForFsCdnManifests,
+  type FsCdnFileMeta,
+} from "./space-fs-cdn-cache.js";
+import { FS_CDN_READ_MANY_WAIT_TIMEOUT_MS, FS_CDN_READ_WAIT_TIMEOUT_MS } from "./space-fs-cdn-constants.js";
 import { config } from "./config.js";
 import type {
   SpaceFsEntry,
@@ -9,6 +20,7 @@ import type {
   SpaceFsMoveInput,
   SpaceFsReadFilesError,
   SpaceFsReadFilesResponse,
+  SpaceFsPreparingFile,
   SpaceFsTreeResponse,
   SpaceFsUploadResponse,
   SpaceFsWriteFileInput,
@@ -83,7 +95,7 @@ const mimeByExt: Record<string, string> = {
   ".ogg": "audio/ogg",
 };
 
-function getMimeType(path: string) {
+export function getMimeType(path: string) {
   const lower = basename(path).toLowerCase();
   if (lower === "dockerfile") return "text/x-dockerfile";
   if (lower === "makefile") return "text/x-makefile";
@@ -115,7 +127,7 @@ function getSpaceBaseDir(spaceId: string) {
   return resolve(config.spaceStorageRoot, spaceId);
 }
 
-function getSpaceRoot(spaceId: string) {
+export function getSpaceRoot(spaceId: string) {
   return resolve(getSpaceBaseDir(spaceId), "workspace");
 }
 
@@ -216,7 +228,7 @@ export async function listSpaceDirectory(spaceId: string, path = ""): Promise<Sp
   return { path: relativePath, entries };
 }
 
-async function readSpaceFileMetadata(spaceId: string, path: string) {
+async function readSpaceFileMetadata(spaceId: string, path: string, options?: { enforcePreviewLimit?: boolean }) {
   const { target, relativePath } = await resolveTarget(spaceId, path);
   let stats: Stats;
   try {
@@ -226,7 +238,9 @@ async function readSpaceFileMetadata(spaceId: string, path: string) {
   }
   if (stats.isSymbolicLink()) throw new SpaceFsError(400, "symlink_not_supported", "Symlink preview is not supported.");
   if (!stats.isFile()) throw new SpaceFsError(400, "not_a_file", "The selected path is not a file.");
-  if (stats.size > MAX_FILE_BYTES) throw new SpaceFsError(413, "file_too_large", "This file is larger than 10MB and cannot be opened in the web viewer.");
+  if (options?.enforcePreviewLimit !== false && stats.size > MAX_FILE_BYTES) {
+    throw new SpaceFsError(413, "file_too_large", "This file is larger than 10MB and cannot be opened in the web viewer.");
+  }
   return { target, relativePath, stats };
 }
 
@@ -252,11 +266,18 @@ function toReadFilesError(path: string, error: unknown): SpaceFsReadFilesError {
   return { path, code: "space_fs_error", message, status: 500 };
 }
 
-export async function readSpaceFile(spaceId: string, path: string): Promise<SpaceFsFileResponse> {
-  const { target, relativePath, stats } = await readSpaceFileMetadata(spaceId, path);
+function toFsCdnMeta(spaceId: string, target: string, relativePath: string, stats: Stats, mimeType: string | null): FsCdnFileMeta {
+  return {
+    spaceId,
+    path: relativePath,
+    name: basename(target),
+    size: stats.size,
+    mimeType,
+    mtimeMs: stats.mtimeMs,
+  };
+}
 
-  const buffer = await readFile(target);
-  const mimeType = getMimeType(target);
+function toInlineFileResponse(target: string, relativePath: string, stats: Stats, buffer: Buffer, mimeType: string | null): SpaceFsFileResponse {
   const kind = isTextMime(mimeType) ? "text" : "binary";
   return {
     path: relativePath,
@@ -267,7 +288,25 @@ export async function readSpaceFile(spaceId: string, path: string): Promise<Spac
     kind,
     encoding: kind === "text" ? "utf-8" : "base64",
     content: kind === "text" ? buffer.toString("utf8") : buffer.toString("base64"),
+    delivery: "inline",
   };
+}
+
+export async function readSpaceFile(spaceId: string, path: string): Promise<SpaceFsFileResponse | SpaceFsPreparingFile> {
+  const { target, relativePath, stats } = await readSpaceFileMetadata(spaceId, path, { enforcePreviewLimit: false });
+  const mimeType = getMimeType(target);
+  const cdnMeta = toFsCdnMeta(spaceId, target, relativePath, stats, mimeType);
+  if (shouldUseFsCdnForMeta(cdnMeta)) {
+    const manifest = await ensureFsCdnManifest(cdnMeta, "read_miss", FS_CDN_READ_WAIT_TIMEOUT_MS);
+    if (manifest) return buildUrlFileResponse(cdnMeta, manifest);
+    return buildPreparingFile(cdnMeta);
+  }
+
+  if (stats.size > MAX_FILE_BYTES) {
+    throw new SpaceFsError(413, "file_too_large", "This file is larger than 10MB and cannot be opened in the web viewer.");
+  }
+  const buffer = await readFile(target);
+  return toInlineFileResponse(target, relativePath, stats, buffer, mimeType);
 }
 
 export async function readSpaceFiles(spaceId: string, paths: string[]): Promise<SpaceFsReadFilesResponse> {
@@ -284,40 +323,74 @@ export async function readSpaceFiles(spaceId: string, paths: string[]): Promise<
 
   const metadataResults = await mapWithConcurrency(paths, MAX_BATCH_READ_CONCURRENCY, async (path) => {
     try {
-      return { ok: true as const, path, metadata: await readSpaceFileMetadata(spaceId, path) };
+      return { ok: true as const, path, metadata: await readSpaceFileMetadata(spaceId, path, { enforcePreviewLimit: false }) };
     } catch (error) {
       return { ok: false as const, path, error: toReadFilesError(path, error) };
     }
   });
 
-  const totalBytes = metadataResults.reduce((sum, result) => sum + (result.ok ? result.metadata.stats.size : 0), 0);
-  if (totalBytes > MAX_BATCH_READ_TOTAL_BYTES) {
-    throw new SpaceFsError(413, "batch_too_large", "Total file size exceeds 20MB.");
+  const readableResults = metadataResults.filter((result) => result.ok);
+  const cdnItems: Array<{ target: string; relativePath: string; stats: Stats; meta: FsCdnFileMeta }> = [];
+  const inlineItems: Array<{ target: string; relativePath: string; stats: Stats; mimeType: string | null }> = [];
+
+  for (const result of readableResults) {
+    const { target, relativePath, stats } = result.metadata;
+    const mimeType = getMimeType(target);
+    const meta = toFsCdnMeta(spaceId, target, relativePath, stats, mimeType);
+    if (shouldUseFsCdnForMeta(meta)) {
+      cdnItems.push({ target, relativePath, stats, meta });
+    } else {
+      inlineItems.push({ target, relativePath, stats, mimeType });
+    }
   }
 
-  const readableResults = metadataResults.filter((result) => result.ok);
-  const files = await mapWithConcurrency(readableResults, MAX_BATCH_READ_CONCURRENCY, async (result) => {
-    const { target, relativePath, stats } = result.metadata;
-    const buffer = await readFile(target);
-    const mimeType = getMimeType(target);
-    const kind = isTextMime(mimeType) ? "text" : "binary";
-    return {
-      path: relativePath,
-      name: basename(target),
-      size: stats.size,
-      mimeType,
-      mtimeMs: stats.mtimeMs,
-      kind,
-      encoding: kind === "text" ? "utf-8" : "base64",
-      content: kind === "text" ? buffer.toString("utf8") : buffer.toString("base64"),
-    } satisfies SpaceFsFileResponse;
-  });
+  const inlineTotalBytes = inlineItems.reduce((sum, item) => sum + item.stats.size, 0);
+  if (inlineTotalBytes > MAX_BATCH_READ_TOTAL_BYTES) {
+    throw new SpaceFsError(413, "batch_too_large", "Total inline file size exceeds 20MB.");
+  }
+
+  const files: SpaceFsFileResponse[] = [];
+  const preparing: SpaceFsPreparingFile[] = [];
   const errors = metadataResults.filter((result) => !result.ok).map((result) => result.error);
 
-  return { files, errors };
+  const initialManifests = await getFreshFsCdnManifests(cdnItems.map((item) => item.meta));
+  const missingCdnItems = cdnItems.filter((item) => {
+    const manifest = initialManifests.get(item.meta.path);
+    if (manifest) {
+      files.push(buildUrlFileResponse(item.meta, manifest));
+      return false;
+    }
+    return true;
+  });
+
+  await Promise.allSettled(
+    missingCdnItems.map(async (item) => {
+      try {
+        await enqueueFsCdnWarmForMeta(item.meta, "read_many_miss");
+      } catch (error) {
+        errors.push(toReadFilesError(item.meta.path, error));
+      }
+    }),
+  );
+
+  const enqueuedCdnItems = missingCdnItems.filter((item) => !errors.some((error) => error.path === item.meta.path));
+  const waited = await waitForFsCdnManifests(enqueuedCdnItems.map((item) => item.meta), FS_CDN_READ_MANY_WAIT_TIMEOUT_MS);
+  for (const item of enqueuedCdnItems) {
+    const manifest = waited.ready.get(item.meta.path);
+    if (manifest) files.push(buildUrlFileResponse(item.meta, manifest));
+  }
+  for (const item of waited.pending) preparing.push(buildPreparingFile(item));
+
+  const inlineFiles = await mapWithConcurrency(inlineItems, MAX_BATCH_READ_CONCURRENCY, async (item) => {
+    const buffer = await readFile(item.target);
+    return toInlineFileResponse(item.target, item.relativePath, item.stats, buffer, item.mimeType);
+  });
+  files.push(...inlineFiles);
+
+  return { files, preparing, errors };
 }
 
-export async function streamSpaceFile(spaceId: string, path: string): Promise<{ path: string; name: string; size: number; mimeType: string | null; target: string; }> {
+export async function streamSpaceFile(spaceId: string, path: string): Promise<{ path: string; name: string; size: number; mimeType: string | null; mtimeMs: number; target: string; }> {
   const { target, relativePath } = await resolveTarget(spaceId, path);
   let stats: Stats;
   try {
@@ -326,7 +399,7 @@ export async function streamSpaceFile(spaceId: string, path: string): Promise<{ 
     throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
   }
   if (!stats.isFile() || stats.isSymbolicLink()) throw new SpaceFsError(400, "not_a_file", "The selected path is not a file.");
-  return { path: relativePath, name: basename(target), size: stats.size, mimeType: getMimeType(target), target };
+  return { path: relativePath, name: basename(target), size: stats.size, mimeType: getMimeType(target), mtimeMs: stats.mtimeMs, target };
 }
 
 export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInput) {

@@ -3,6 +3,8 @@
 # ========== 基础 ==========
 NAMESPACE: "cohub-dev"
 APP_NAME: "cohub-worker-dev"
+USER_APP_NAME: "cohub-user-worker-dev"
+SYSTEM_APP_NAME: "cohub-system-worker-dev"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-worker"
@@ -11,11 +13,18 @@ IMAGE_PULL_POLICY: "Always"
 IMAGE_PULL_SECRET: "gitea-registry"
 
 # ========== 副本与资源 ==========
-REPLICAS: "1"
-REQUEST_CPU: "100m"
-REQUEST_MEMORY: "128Mi"
-LIMIT_CPU: "500m"
-LIMIT_MEMORY: "512Mi"
+USER_REPLICAS: "1"
+USER_REQUEST_CPU: "100m"
+USER_REQUEST_MEMORY: "128Mi"
+USER_LIMIT_CPU: "500m"
+USER_LIMIT_MEMORY: "512Mi"
+
+SYSTEM_REPLICAS: "1"
+SYSTEM_REQUEST_CPU: "100m"
+SYSTEM_REQUEST_MEMORY: "128Mi"
+SYSTEM_LIMIT_CPU: "500m"
+SYSTEM_LIMIT_MEMORY: "512Mi"
+FS_CDN_WORKER_CONCURRENCY: "4"
 
 # ========== Worker 配置 ==========
 INTERNAL_API_BASE_URL: "http://cohub-api-dev:8787"

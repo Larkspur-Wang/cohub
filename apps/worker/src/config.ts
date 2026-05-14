@@ -13,6 +13,7 @@ export interface WorkerConfig {
   turnObjectS3Endpoint?: string;
   turnObjectS3Region: string;
   turnObjectS3Bucket?: string;
+  turnObjectCdnBaseUrl: string;
   turnObjectS3AccessKeyId?: string;
   turnObjectS3SecretAccessKey?: string;
   env: "dev" | "prod";
@@ -47,6 +48,7 @@ export const config: WorkerConfig = {
   turnObjectS3Endpoint: process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
   turnObjectS3Region: process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
   turnObjectS3Bucket: process.env.TURN_OBJECT_S3_BUCKET ?? "cohub-sessions",
+  turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
   env,

@@ -325,6 +325,8 @@ const inlineFileIsText = $derived(
 );
 const inlineFileDataUrl = $derived.by(() => {
 	if (!inlineFile || inlineFile.response?.kind !== "binary") return null;
+	if (inlineFile.response.delivery === "url")
+		return inlineFile.response.url ?? null;
 	const mime = inlineFile.response.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${inlineFile.response.content}`;
 });
@@ -455,6 +457,7 @@ const openFileIsVideo = $derived(
 const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
 const openFileDataUrl = $derived.by(() => {
 	if (!openFile || openFile.kind !== "binary") return null;
+	if (openFile.delivery === "url") return openFile.url ?? null;
 	const mime = openFile.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${openFile.content}`;
 });
@@ -3626,6 +3629,12 @@ async function openFileFromUrl(path: string) {
 	openFileTooLarge = false;
 	try {
 		const file = await sdk.space(spaceId).files.read(path);
+		if (!("content" in file)) {
+			openFile = null;
+			openFileDraft = "";
+			openFileError = "File is being prepared. Please retry shortly.";
+			return;
+		}
 		fileEdit = shouldOpenFileInEditMode(file);
 		openFile = file;
 		openFileDraft = file.kind === "text" ? file.content : "";
@@ -3809,6 +3818,18 @@ async function openInlineFile(path: string) {
 	};
 	try {
 		const file = await sdk.space(spaceId).files.read(path);
+		if (!("content" in file)) {
+			inlineFile = {
+				response: null,
+				draft: "",
+				path,
+				loading: false,
+				saving: false,
+				error: "File is being prepared. Please retry shortly.",
+				tooLarge: false,
+			};
+			return;
+		}
 		inlineFileEdit = shouldOpenFileInEditMode(file);
 		inlineFile = {
 			response: file,

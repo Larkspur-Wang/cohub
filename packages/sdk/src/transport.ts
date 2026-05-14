@@ -21,6 +21,7 @@ export type RawHttpResponse = {
   blob(): Promise<Blob>;
   arrayBuffer(): Promise<ArrayBuffer>;
   text(): Promise<string>;
+  json(): Promise<unknown>;
 };
 
 export type CohubClientOptions = {
@@ -114,6 +115,7 @@ export class HttpTransport {
       blob: () => response.blob(),
       arrayBuffer: () => response.arrayBuffer(),
       text: () => response.text(),
+      json: () => response.json(),
     };
   }
 

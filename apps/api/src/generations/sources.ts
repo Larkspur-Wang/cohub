@@ -16,6 +16,10 @@ export async function resolveSourceAsUrlOrDataUri(source: GenerationSource, user
       }
       try {
         const file = await readSpaceFile(source.space_id, source.path);
+        if (!("content" in file)) {
+          throw new GenerationHttpError(202, "space_file_preparing", "Space file is being prepared. Please retry shortly.");
+        }
+        if (file.delivery === "url" && file.url) return file.url;
         const mediaType = file.mimeType ?? "application/octet-stream";
         const data = file.encoding === "base64" ? file.content : Buffer.from(file.content, "utf8").toString("base64");
         return `data:${mediaType};base64,${data}`;

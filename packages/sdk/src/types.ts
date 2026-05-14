@@ -85,6 +85,8 @@ export type SpaceFsFileResponse = {
   kind: SpaceFsFileKind;
   encoding: SpaceFsEncoding;
   content: string;
+  delivery?: "inline" | "url";
+  url?: string;
 };
 export type SpaceFsReadFilesInput = {
   paths: string[];
@@ -95,8 +97,17 @@ export type SpaceFsReadFilesError = {
   message: string;
   status: number;
 };
+export type SpaceFsPreparingFile = {
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  mtimeMs: number;
+  retryAfterMs: number;
+};
 export type SpaceFsReadFilesResponse = {
   files: SpaceFsFileResponse[];
+  preparing?: SpaceFsPreparingFile[];
   errors: SpaceFsReadFilesError[];
 };
 export type SpaceFsWriteFileInput = {

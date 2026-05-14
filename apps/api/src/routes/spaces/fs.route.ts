@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
+import { ensureFsCdnManifest, shouldUseFsCdnForMeta } from "../../space-fs-cdn-cache.js";
+import { FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS } from "../../space-fs-cdn-constants.js";
 import { getOptionalAuth, useAuth, requireValidId } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 import {
@@ -83,7 +85,9 @@ router.get("/file", async (c) => {
 
   const path = c.req.query("path") ?? "";
   try {
-    return c.json(await readSpaceFile(spaceId, path));
+    const result = await readSpaceFile(spaceId, path);
+    if (!("content" in result)) return c.json(result, 202);
+    return c.json(result);
   } catch (error) {
     const { status, body } = spaceFsJsonError(error);
     return c.json(body, status as never);
@@ -120,9 +124,10 @@ router.put("/file", async (c) => {
   }
   try {
     const result = await writeSpaceFile(spaceId, body);
+    const changes = [{ path: result.path, kind: "modify" as const, nodeType: "file" as const, size: result.size, mtimeMs: result.mtimeMs }];
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
-      changes: [{ path: result.path, kind: "modify", nodeType: "file", size: result.size, mtimeMs: result.mtimeMs }],
+      changes,
     }).catch(console.error);
     return c.json(result);
   } catch (error) {
@@ -203,6 +208,19 @@ router.get("/download", async (c) => {
   const path = c.req.query("path") ?? "";
   try {
     const info = await streamSpaceFile(spaceId, path);
+    const meta = {
+      spaceId,
+      path: info.path,
+      name: info.name,
+      size: info.size,
+      mimeType: info.mimeType,
+      mtimeMs: info.mtimeMs,
+    };
+    if (shouldUseFsCdnForMeta(meta)) {
+      const manifest = await ensureFsCdnManifest(meta, "download_miss", FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS);
+      if (!manifest) return c.json({ message: "File is being prepared. Please retry shortly.", retryAfterMs: 2000 }, 202);
+      return c.redirect(manifest.url, 302);
+    }
     const buffer = await readFile(info.target);
     return c.body(new Uint8Array(buffer), 200, {
       "content-type": info.mimeType ?? "application/octet-stream",
@@ -354,15 +372,16 @@ router.post("/upload", async (c) => {
   try {
     const result = await uploadSpaceFiles(spaceId, files, dir);
     if (result.uploaded.length > 0) {
+      const changes = result.uploaded.map((file) => ({
+        path: file.path,
+        kind: "create" as const,
+        nodeType: "file" as const,
+        size: file.size,
+        mtimeMs: file.mtimeMs,
+      }));
       await dispatchSpaceFsChanged(spaceId, {
         source: "api-fs",
-        changes: result.uploaded.map((file) => ({
-          path: file.path,
-          kind: "create" as const,
-          nodeType: "file" as const,
-          size: file.size,
-          mtimeMs: file.mtimeMs,
-        })),
+        changes,
       }).catch(console.error);
     }
     return c.json(result);

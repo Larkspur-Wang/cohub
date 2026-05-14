@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __USER_APP_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app.kubernetes.io/name: __USER_APP_NAME__
+    app.kubernetes.io/component: worker
+    cohub.dev/worker-kind: user
+spec:
+  replicas: __USER_REPLICAS__
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: __USER_APP_NAME__
+      cohub.dev/worker-kind: user
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: __USER_APP_NAME__
+        app.kubernetes.io/component: worker
+        cohub.dev/worker-kind: user
+    spec:
+      serviceAccountName: __APP_NAME__
+__IMAGE_PULL_SECRETS_BLOCK__
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: user-worker
+          image: __IMAGE_REPOSITORY__:__IMAGE_TAG__
+          imagePullPolicy: __IMAGE_PULL_POLICY__
+          command: ["node", "dist/entrances/user-worker.js"]
+          envFrom:
+            - configMapRef:
+                name: __APP_NAME__-config
+            - secretRef:
+                name: __SECRET_NAME__
+          volumeMounts:
+            - name: space-storage
+              mountPath: /space-storage
+              subPath: __SPACE_STORAGE_SUBPATH__
+            - name: space-storage
+              mountPath: /configs
+              subPath: __CONFIGS_SUBPATH__
+          resources:
+            requests:
+              cpu: "__USER_REQUEST_CPU__"
+              memory: "__USER_REQUEST_MEMORY__"
+            limits:
+              cpu: "__USER_LIMIT_CPU__"
+              memory: "__USER_LIMIT_MEMORY__"
+      volumes:
+        - name: space-storage
+          persistentVolumeClaim:
+            claimName: __SPACE_STORAGE_PVC__

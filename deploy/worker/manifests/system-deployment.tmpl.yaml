@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __SYSTEM_APP_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app.kubernetes.io/name: __SYSTEM_APP_NAME__
+    app.kubernetes.io/component: worker
+    cohub.dev/worker-kind: system
+spec:
+  replicas: __SYSTEM_REPLICAS__
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: __SYSTEM_APP_NAME__
+      cohub.dev/worker-kind: system
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: __SYSTEM_APP_NAME__
+        app.kubernetes.io/component: worker
+        cohub.dev/worker-kind: system
+    spec:
+      serviceAccountName: __APP_NAME__
+__IMAGE_PULL_SECRETS_BLOCK__
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: system-worker
+          image: __IMAGE_REPOSITORY__:__IMAGE_TAG__
+          imagePullPolicy: __IMAGE_PULL_POLICY__
+          command: ["node", "dist/entrances/system-worker.js"]
+          envFrom:
+            - configMapRef:
+                name: __APP_NAME__-config
+            - secretRef:
+                name: __SECRET_NAME__
+          env:
+            - name: FS_CDN_WORKER_CONCURRENCY
+              value: "__FS_CDN_WORKER_CONCURRENCY__"
+          volumeMounts:
+            - name: space-storage
+              mountPath: /space-storage
+              subPath: __SPACE_STORAGE_SUBPATH__
+          resources:
+            requests:
+              cpu: "__SYSTEM_REQUEST_CPU__"
+              memory: "__SYSTEM_REQUEST_MEMORY__"
+            limits:
+              cpu: "__SYSTEM_LIMIT_CPU__"
+              memory: "__SYSTEM_LIMIT_MEMORY__"
+      volumes:
+        - name: space-storage
+          persistentVolumeClaim:
+            claimName: __SPACE_STORAGE_PVC__
