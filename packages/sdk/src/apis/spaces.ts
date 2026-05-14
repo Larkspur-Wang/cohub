@@ -38,6 +38,7 @@ import type {
   SpaceFsCreateUploadInput,
   SpaceFsCreateUploadResponse,
   SpaceFsFileResponse,
+  SpaceFsReadFilesResponse,
   SpaceFsMoveInput,
   SpaceFsTreeResponse,
   SpaceFsUploadResponse,
@@ -211,6 +212,18 @@ export class SpaceFilesApi {
     return this.transport.request<SpaceFsFileResponse>(
       `/api/spaces/${this.spaceId}/fs/file?${params.toString()}`,
       { fetch: customFetch },
+    );
+  }
+
+  readMany(paths: string[], customFetch?: Fetch) {
+    return this.transport.request<SpaceFsReadFilesResponse>(
+      `/api/spaces/${this.spaceId}/fs/files`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths }),
+        fetch: customFetch,
+      },
     );
   }
 

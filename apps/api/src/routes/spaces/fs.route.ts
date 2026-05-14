@@ -9,6 +9,7 @@ import {
   listSpaceDirectory,
   moveSpaceNode,
   readSpaceFile,
+  readSpaceFiles,
   spaceFsJsonError,
   streamSpaceFile,
   uploadSpaceFiles,
@@ -86,6 +87,22 @@ router.get("/file", async (c) => {
   } catch (error) {
     const { status, body } = spaceFsJsonError(error);
     return c.json(body, status as never);
+  }
+});
+
+router.post("/files", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  const body = await c.req.json<{ paths: string[] }>().catch(() => null);
+  if (!Array.isArray(body?.paths)) return c.json({ message: "paths are required" }, 400);
+  try {
+    return c.json(await readSpaceFiles(spaceId, body.paths));
+  } catch (error) {
+    const { status, body: errBody } = spaceFsJsonError(error);
+    return c.json(errBody, status as never);
   }
 });
 

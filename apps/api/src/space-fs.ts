@@ -7,12 +7,17 @@ import type {
   SpaceFsEntry,
   SpaceFsFileResponse,
   SpaceFsMoveInput,
+  SpaceFsReadFilesError,
+  SpaceFsReadFilesResponse,
   SpaceFsTreeResponse,
   SpaceFsUploadResponse,
   SpaceFsWriteFileInput,
 } from "@neta-art/cohub-protocol/fs";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_BATCH_READ_FILES = 50;
+const MAX_BATCH_READ_TOTAL_BYTES = 20 * 1024 * 1024;
+const MAX_BATCH_READ_CONCURRENCY = 8;
 const MAX_DIR_ENTRIES = 1000;
 const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
 const MAX_UPLOAD_COUNT = 20;
@@ -211,7 +216,7 @@ export async function listSpaceDirectory(spaceId: string, path = ""): Promise<Sp
   return { path: relativePath, entries };
 }
 
-export async function readSpaceFile(spaceId: string, path: string): Promise<SpaceFsFileResponse> {
+async function readSpaceFileMetadata(spaceId: string, path: string) {
   const { target, relativePath } = await resolveTarget(spaceId, path);
   let stats: Stats;
   try {
@@ -222,6 +227,33 @@ export async function readSpaceFile(spaceId: string, path: string): Promise<Spac
   if (stats.isSymbolicLink()) throw new SpaceFsError(400, "symlink_not_supported", "Symlink preview is not supported.");
   if (!stats.isFile()) throw new SpaceFsError(400, "not_a_file", "The selected path is not a file.");
   if (stats.size > MAX_FILE_BYTES) throw new SpaceFsError(413, "file_too_large", "This file is larger than 10MB and cannot be opened in the web viewer.");
+  return { target, relativePath, stats };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function toReadFilesError(path: string, error: unknown): SpaceFsReadFilesError {
+  if (error instanceof SpaceFsError) {
+    return { path, code: error.code, message: error.message, status: error.status };
+  }
+  const message = error instanceof Error ? error.message : "Failed to read file.";
+  return { path, code: "space_fs_error", message, status: 500 };
+}
+
+export async function readSpaceFile(spaceId: string, path: string): Promise<SpaceFsFileResponse> {
+  const { target, relativePath, stats } = await readSpaceFileMetadata(spaceId, path);
 
   const buffer = await readFile(target);
   const mimeType = getMimeType(target);
@@ -236,6 +268,53 @@ export async function readSpaceFile(spaceId: string, path: string): Promise<Spac
     encoding: kind === "text" ? "utf-8" : "base64",
     content: kind === "text" ? buffer.toString("utf8") : buffer.toString("base64"),
   };
+}
+
+export async function readSpaceFiles(spaceId: string, paths: string[]): Promise<SpaceFsReadFilesResponse> {
+  if (paths.length === 0) throw new SpaceFsError(400, "paths_required", "paths are required.");
+  if (paths.length > MAX_BATCH_READ_FILES) {
+    throw new SpaceFsError(413, "too_many_files", `Cannot read more than ${MAX_BATCH_READ_FILES} files at once.`);
+  }
+  const seenPaths = new Set<string>();
+  for (const path of paths) {
+    if (typeof path !== "string" || !path) throw new SpaceFsError(400, "path_invalid", "Every path must be a non-empty string.");
+    if (seenPaths.has(path)) throw new SpaceFsError(400, "duplicate_path", "Duplicate paths are not allowed.");
+    seenPaths.add(path);
+  }
+
+  const metadataResults = await mapWithConcurrency(paths, MAX_BATCH_READ_CONCURRENCY, async (path) => {
+    try {
+      return { ok: true as const, path, metadata: await readSpaceFileMetadata(spaceId, path) };
+    } catch (error) {
+      return { ok: false as const, path, error: toReadFilesError(path, error) };
+    }
+  });
+
+  const totalBytes = metadataResults.reduce((sum, result) => sum + (result.ok ? result.metadata.stats.size : 0), 0);
+  if (totalBytes > MAX_BATCH_READ_TOTAL_BYTES) {
+    throw new SpaceFsError(413, "batch_too_large", "Total file size exceeds 20MB.");
+  }
+
+  const readableResults = metadataResults.filter((result) => result.ok);
+  const files = await mapWithConcurrency(readableResults, MAX_BATCH_READ_CONCURRENCY, async (result) => {
+    const { target, relativePath, stats } = result.metadata;
+    const buffer = await readFile(target);
+    const mimeType = getMimeType(target);
+    const kind = isTextMime(mimeType) ? "text" : "binary";
+    return {
+      path: relativePath,
+      name: basename(target),
+      size: stats.size,
+      mimeType,
+      mtimeMs: stats.mtimeMs,
+      kind,
+      encoding: kind === "text" ? "utf-8" : "base64",
+      content: kind === "text" ? buffer.toString("utf8") : buffer.toString("base64"),
+    } satisfies SpaceFsFileResponse;
+  });
+  const errors = metadataResults.filter((result) => !result.ok).map((result) => result.error);
+
+  return { files, errors };
 }
 
 export async function streamSpaceFile(spaceId: string, path: string): Promise<{ path: string; name: string; size: number; mimeType: string | null; target: string; }> {

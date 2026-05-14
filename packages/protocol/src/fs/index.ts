@@ -42,6 +42,22 @@ export type SpaceFsFileResponse = {
   content: string;
 };
 
+export type SpaceFsReadFilesInput = {
+  paths: string[];
+};
+
+export type SpaceFsReadFilesError = {
+  path: string;
+  code: string;
+  message: string;
+  status: number;
+};
+
+export type SpaceFsReadFilesResponse = {
+  files: SpaceFsFileResponse[];
+  errors: SpaceFsReadFilesError[];
+};
+
 export type SpaceFsWriteFileInput = {
   path: string;
   content: string;

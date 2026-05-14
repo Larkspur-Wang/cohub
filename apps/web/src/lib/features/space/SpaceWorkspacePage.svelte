@@ -4236,7 +4236,6 @@ async function jumpRelativeTurn(direction: 1 | -1) {
 function handleSessionVimKeydown(event: KeyboardEvent) {
 	if (event.defaultPrevented || event.isComposing) return;
 	if (routeView !== "session" || !activeSessionState) return;
-	if (isEditableShortcutTarget(event.target)) return;
 	const key = event.key.toLowerCase();
 	if (
 		(event.metaKey || event.ctrlKey) &&
@@ -4249,6 +4248,7 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		void loadModelsCatalog();
 		return;
 	}
+	if (isEditableShortcutTarget(event.target)) return;
 	if (key !== "g") clearPendingVimG();
 	if (
 		event.shiftKey &&
