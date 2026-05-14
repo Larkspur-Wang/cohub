@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Image } from "lucide-svelte";
+import { onMount } from "svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 
 type ModelItem = {
@@ -123,30 +124,41 @@ function moveSelection(delta: number) {
 }
 
 function handleKeyDown(e: KeyboardEvent) {
-	if (!open) return;
+	if (!open || e.defaultPrevented || e.isComposing) return;
 	const key = e.key.toLowerCase();
 	if (e.key === "Escape") {
 		e.preventDefault();
+		e.stopPropagation();
 		onClose();
 		return;
 	}
 	if (e.key === "ArrowDown" || (e.ctrlKey && key === "n")) {
 		e.preventDefault();
+		e.stopPropagation();
 		moveSelection(1);
 		return;
 	}
 	if (e.key === "ArrowUp" || (e.ctrlKey && key === "p")) {
 		e.preventDefault();
+		e.stopPropagation();
 		moveSelection(-1);
 		return;
 	}
 	if (e.key === "Enter" && filteredModels[selectedIndex]) {
 		e.preventDefault();
+		e.stopPropagation();
 		const selected = filteredModels[selectedIndex];
 		onSelect({ provider: selected.provider, id: selected.id });
 		return;
 	}
 }
+
+onMount(() => {
+	window.addEventListener("keydown", handleKeyDown, { capture: true });
+	return () => {
+		window.removeEventListener("keydown", handleKeyDown, { capture: true });
+	};
+});
 
 function scrollSelectedIntoView() {
 	requestAnimationFrame(() => {
@@ -186,8 +198,6 @@ function subsequenceScore(query: string, text: string): number {
 	return query.length / (query.length + gaps);
 }
 </script>
-
-<svelte:window onkeydown={handleKeyDown} />
 
 <Dialog {open} {onClose} title="Select Model" maxWidth="420px">
 	<!-- Search -->
