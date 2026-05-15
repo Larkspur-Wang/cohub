@@ -212,11 +212,28 @@ const hasUsage = $derived.by(() => {
 	);
 });
 
+const displayInputTokens = $derived.by(() => {
+	const u = message.meta?.usage;
+	if (!u) return 0;
+	return (u.input ?? 0) + (u.cacheRead ?? 0);
+});
+
+const cachedInputTokens = $derived.by(
+	() => message.meta?.usage?.cacheRead ?? 0,
+);
+
 const tokenDisplay = $derived.by(() => {
 	const u = message.meta?.usage;
 	if (!u) return "";
 	const parts = [];
-	if (u.input) parts.push(`↑${formatTokenCount(u.input)}`);
+	if (displayInputTokens > 0) {
+		const inputLabel = `↑${formatTokenCount(displayInputTokens)}`;
+		parts.push(
+			cachedInputTokens > 0
+				? `${inputLabel} (${formatTokenCount(cachedInputTokens)} cached)`
+				: inputLabel,
+		);
+	}
 	if (u.output) parts.push(`↓${formatTokenCount(u.output)}`);
 	if (parts.length > 0) return parts.join(" ");
 	if (u.totalTokens) return `${formatTokenCount(u.totalTokens)} tokens`;
@@ -230,9 +247,14 @@ const tokenDetailText = $derived.by(() => {
 	const u = message.meta?.usage;
 	if (!u) return "";
 	const parts = [];
-	if (u.input) parts.push(`↑ Input: ${formatTokenCount(u.input)}`);
-	if (u.output) parts.push(`↓ Output: ${formatTokenCount(u.output)}`);
-	if (u.cacheRead) parts.push(`Cache read: ${formatTokenCount(u.cacheRead)}`);
+	if (displayInputTokens > 0) {
+		parts.push(
+			cachedInputTokens > 0
+				? `Input: ${formatTokenCount(displayInputTokens)} (${formatTokenCount(cachedInputTokens)} cached)`
+				: `Input: ${formatTokenCount(displayInputTokens)}`,
+		);
+	}
+	if (u.output) parts.push(`Output: ${formatTokenCount(u.output)}`);
 	if (u.cacheWrite)
 		parts.push(`Cache write: ${formatTokenCount(u.cacheWrite)}`);
 	if (u.totalTokens) parts.push(`Total: ${formatTokenCount(u.totalTokens)}`);
@@ -250,9 +272,11 @@ const modelContextWindow = $derived.by(() => {
 });
 
 const inputContextPercent = $derived.by(() => {
-	const input = message.meta?.usage?.input;
-	if (!input || !modelContextWindow) return null;
-	return Math.max(0, Math.min(100, (input / modelContextWindow) * 100));
+	if (!displayInputTokens || !modelContextWindow) return null;
+	return Math.max(
+		0,
+		Math.min(100, (displayInputTokens / modelContextWindow) * 100),
+	);
 });
 
 function getTokenDisplayClass(percent: number | null) {
