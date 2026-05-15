@@ -15,6 +15,7 @@ import {
 } from "./runtime/paths.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { refreshUserEnv } from "./runtime/env-cache.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
@@ -35,6 +36,22 @@ export type PendingUserMessage = {
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 };
+
+function getAgentMessageMeta(message: AgentMessage): Record<string, unknown> | null {
+  const meta = (message as unknown as { meta?: unknown }).meta;
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta as Record<string, unknown> : null;
+}
+
+export function hasSessionUserMessage(handle: SessionHandle, userMessageId: string) {
+  const messages = handle.sessionManager.buildSessionContext().messages;
+  return messages.some((message) => getAgentMessageMeta(message)?.messageId === userMessageId);
+}
+
+export function ensurePendingUserMessage(handle: SessionHandle, pending: PendingUserMessage) {
+  if (hasSessionUserMessage(handle, pending.userMessageId)) return false;
+  handle.pendingUserMessages.push(pending);
+  return true;
+}
 
 type AssistantMessageContext = {
   turnId: string | null;
@@ -274,7 +291,7 @@ function ensureProjectedStreamContent(handle: SessionHandle) {
   handle.streamState.dirty = false;
 }
 
-function resetStreamState(handle: SessionHandle) {
+export function resetStreamState(handle: SessionHandle) {
   handle.streamState = {
     assistantState: createAssistantStreamState(),
     content: [],

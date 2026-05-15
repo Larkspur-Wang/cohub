@@ -17,6 +17,16 @@ const defaultAgentInstanceId = process.env.HOSTNAME?.trim() || `agent-${process.
 export const EnvSchema = z.object({
   AGENT_INSTANCE_ID: z.string().min(1).default(defaultAgentInstanceId),
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
+  BULLMQ_REDIS_URL: redisUrlSchema.default(process.env.REDIS_URL ?? "redis://localhost:6379"),
+  DATABASE_URL: z.string().min(1),
+  AGENT_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  AGENT_JOB_LOCK_DURATION_MS: z.coerce.number().int().positive().default(120_000),
+  AGENT_JOB_LOCK_RENEW_TIME_MS: z.coerce.number().int().positive().default(45_000),
+  AGENT_JOB_STALLED_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  AGENT_JOB_MAX_STALLED_COUNT: z.coerce.number().int().min(0).default(1),
+  AGENT_SESSION_LOCK_TTL_MS: z.coerce.number().int().positive().default(120_000),
+  AGENT_SESSION_LOCK_RENEW_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS: z.coerce.number().int().positive().default(35 * 60_000),
   WORKSPACE_ROOT: z
     .string()
     .min(1)

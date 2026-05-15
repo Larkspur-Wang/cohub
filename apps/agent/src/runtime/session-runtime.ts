@@ -19,6 +19,7 @@ export type CohubAgentSession = {
   isRetrying: boolean;
   shouldDeferErrorPersistence(message: Record<string, unknown>): boolean;
   prompt(text: string, options?: { images?: ImageContent[] }): Promise<void>;
+  promptMessages(messages: AgentMessage[]): Promise<void>;
   steer(text: string, images?: ImageContent[]): Promise<void>;
   enqueueSteer(text: string, images?: ImageContent[]): void;
   waitForIdle(): Promise<void>;
@@ -375,6 +376,14 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async prompt(text, inputOptions) {
       await agent.prompt(text, inputOptions?.images);
+      await agent.waitForIdle();
+      if (retryPromise) {
+        await retryPromise;
+        await agent.waitForIdle();
+      }
+    },
+    async promptMessages(messages) {
+      await agent.prompt(messages);
       await agent.waitForIdle();
       if (retryPromise) {
         await retryPromise;

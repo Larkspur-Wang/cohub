@@ -20,7 +20,11 @@ export function mergeTurnsById(
 
 function isTerminal(status: SessionTurnRecord["status"]) {
 	return (
-		status === "completed" || status === "failed" || status === "interrupted"
+		status === "completed" ||
+		status === "failed" ||
+		status === "interrupted" ||
+		status === "merged" ||
+		status === "cancelled"
 	);
 }
 

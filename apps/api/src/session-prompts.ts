@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import { createExecutionGrant } from "./execution-grants.js";
 import { enqueueSpacePrompt, SandboxNotReadyError } from "./space-sessions.js";
 import { createSessionTurn, failSessionTurn } from "./session-turns.js";
 import { expandPromptTemplate } from "./prompt-templates.js";
@@ -158,6 +159,13 @@ export const submitSessionPrompt = async (
 
   const isDirectShellCommand = content.length === 1 && content[0]?.type === "shell_command";
   const inputIntent = isDirectShellCommand ? "shell_command" : "steer";
+  const executionGrant = await createExecutionGrant({
+    actorUserId: userId,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    source: input.source,
+  });
+
   const turnMeta = {
     source: input.source,
     userId,
@@ -168,6 +176,7 @@ export const submitSessionPrompt = async (
     provider: input.provider ?? null,
     promptTemplate,
     context: input.context ?? null,
+    executionAuth: executionGrant,
   };
 
   const turn = await createSessionTurn({
@@ -186,12 +195,14 @@ export const submitSessionPrompt = async (
     userId,
     clientMessageId,
     turnId,
+    userMessageId,
     intent: inputIntent,
     llm: isDirectShellCommand ? false : undefined,
     model: input.model ?? null,
     provider: input.provider ?? null,
     promptTemplate,
     context: input.context ?? null,
+    executionAuth: executionGrant,
   };
 
   try {
@@ -199,6 +210,7 @@ export const submitSessionPrompt = async (
     await enqueueSpacePrompt({
       spaceId: input.spaceId,
       sessionId: input.sessionId,
+      turnId,
       userMessageId,
       content,
       meta,

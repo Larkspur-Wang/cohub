@@ -8,6 +8,8 @@ import type {
   RpcRequestMap,
   SandboxHeartbeat,
 } from "@cohub/agent-sandbox-protocol";
+import type { SpaceFsChange } from "@neta-art/cohub-protocol/fs";
+import type { SpacePortChange } from "@neta-art/cohub-protocol/ports";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
@@ -387,22 +389,23 @@ async function connectOnce(registration: SandboxClientRegistration) {
           return;
         }
 
-        if (message.type === "fs.changed") {
+        const typedMessage = message as AgentSandboxMessage | { type: "fs.changed"; payload: { resync: boolean; changes: SpaceFsChange[]; seq: number } } | { type: "ports.changed"; payload: { resync: boolean; ports: SpacePortChange[]; seq: number } };
+        if (typedMessage.type === "fs.changed") {
           void sendSpaceFsChanged(registration.spaceId, {
-            source: message.payload.resync && message.payload.changes.length === 0 ? "sandbox-watch-started" : "sandbox-inotify",
-            seq: message.payload.seq,
-            resync: message.payload.resync,
-            changes: message.payload.changes,
+            source: typedMessage.payload.resync && typedMessage.payload.changes.length === 0 ? "sandbox-watch-started" : "sandbox-inotify",
+            seq: typedMessage.payload.seq,
+            resync: typedMessage.payload.resync,
+            changes: typedMessage.payload.changes,
           });
           return;
         }
 
-        if (message.type === "ports.changed") {
+        if (typedMessage.type === "ports.changed") {
           void sendSpacePortsChanged(registration.spaceId, {
-            source: message.payload.resync && message.payload.ports.length === 0 ? "sandbox-port-watch-started" : "sandbox-port-watch",
-            seq: message.payload.seq,
-            resync: message.payload.resync,
-            ports: message.payload.ports,
+            source: typedMessage.payload.resync && typedMessage.payload.ports.length === 0 ? "sandbox-port-watch-started" : "sandbox-port-watch",
+            seq: typedMessage.payload.seq,
+            resync: typedMessage.payload.resync,
+            ports: typedMessage.payload.ports,
           });
           return;
         }

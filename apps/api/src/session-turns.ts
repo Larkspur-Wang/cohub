@@ -260,7 +260,7 @@ export const createSessionTurn = async (input: {
       sessionId: input.sessionId,
       userUuid: input.userUuid,
       sequence,
-      status: "running",
+      status: "queued",
       intent: input.intent ?? "steer",
       userContent: input.userContent,
       userText,
@@ -480,7 +480,7 @@ export const failSessionTurn = async (input: { sessionId: string; turnId: string
     summary: { finishReason: "failed", text: input.errorMessage },
     completedAt: new Date(),
     updatedAt: new Date(),
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running"))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
 
@@ -519,14 +519,14 @@ export const finalizeSessionTurnFromMessage = async (input: {
       : {}),
     summary: {
       text: input.assistantText,
-      finishReason: input.status === "interrupted" ? "interrupted" : input.status === "failed" ? "failed" : "completed",
+      finishReason: input.status === "interrupted" ? "interrupted" : input.status === "merged" ? "merged" : input.status === "cancelled" ? "cancelled" : input.status === "failed" ? "failed" : "completed",
       ...(input.status === "interrupted" && input.stopReason === "aborted" ? { reason: "abort" } : {}),
     },
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
     completedAt: new Date(),
     updatedAt: new Date(),
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running"))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
 
@@ -538,7 +538,7 @@ const finalizeInterruptedTurn = async (input: {
   summary: Record<string, unknown>;
 }) => {
   const [existing] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
-  if (!existing || existing.status !== "running") return existing ? toTurnRecord(existing) : null;
+  if (!existing || !["running", "abort_requested"].includes(existing.status)) return existing ? toTurnRecord(existing) : null;
   const rows = await db.select().from(sessionMessages).where(and(
     eq(sessionMessages.sessionId, input.sessionId),
     eq(sessionMessages.role, "assistant"),
@@ -564,7 +564,7 @@ const finalizeInterruptedTurn = async (input: {
     intermediateSummary: intermediate?.summary ?? null,
     completedAt: new Date(),
     updatedAt: new Date(),
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running"))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
 

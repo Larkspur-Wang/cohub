@@ -190,7 +190,11 @@ export function applyGenerationStreamEvent(
 	}
 
 	if (event.type === "finalized") {
-		if (event.turn.status === "interrupted") {
+		if (
+			event.turn.status === "interrupted" ||
+			event.turn.status === "merged" ||
+			event.turn.status === "cancelled"
+		) {
 			interruptGeneration(sessionId);
 			return handledEffect({
 				shouldScroll: false,

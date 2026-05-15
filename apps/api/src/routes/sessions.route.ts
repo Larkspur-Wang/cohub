@@ -223,7 +223,7 @@ router.get("/:id/turns/stream-snapshot", async (c) => {
   const snapshot = await getSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id });
   if (snapshot?.turnId) {
     const turn = await getSessionTurnById(session.id, snapshot.turnId);
-    if (!turn || turn.status !== "running") {
+    if (!turn || (turn.status !== "running" && turn.status !== "abort_requested")) {
       await clearSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id });
       return c.json({ snapshot: null });
     }

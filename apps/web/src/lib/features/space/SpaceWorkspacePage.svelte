@@ -1444,7 +1444,9 @@ function markVisibleLatestTurnViewed(
 	const state = sessionStateById[sessionId];
 	if (!state?.session) return;
 	const latestTurn =
-		state.turns.findLast((turn) => turn.status !== "running") ?? null;
+		state.turns.findLast(
+			(turn) => turn.status !== "running" && turn.status !== "abort_requested",
+		) ?? null;
 	if (!latestTurn) return;
 	const latestVisibleTurnSequence = nodes.reduce((latest, node) => {
 		const rect = node.getBoundingClientRect();
@@ -2080,7 +2082,9 @@ async function syncGenerationStateFromTail(
 	turns: SessionTurnRecord[],
 	requestStartedAt: number,
 ) {
-	const runningTurn = turns.findLast((turn) => turn.status === "running");
+	const runningTurn = turns.findLast(
+		(turn) => turn.status === "running" || turn.status === "abort_requested",
+	);
 	if (runningTurn) {
 		sessionGenerationStore.resumePending(sessionId, {
 			spaceId,
@@ -2663,8 +2667,10 @@ async function reconnectSync() {
 		if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
 			const activeState = sessionStateById[activeSessionId];
 			const latestTurn =
-				activeState?.turns.findLast((turn) => turn.status !== "running") ??
-				activeState?.turns.at(-1);
+				activeState?.turns.findLast(
+					(turn) =>
+						turn.status !== "running" && turn.status !== "abort_requested",
+				) ?? activeState?.turns.at(-1);
 			if (latestTurn && shouldAutoFollow) {
 				unreadTracker.markViewed(
 					activeSessionId,

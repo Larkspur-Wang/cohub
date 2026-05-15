@@ -1,15 +1,24 @@
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
 
-export type SessionTurnStatus = "running" | "completed" | "failed" | "interrupted";
+export type SessionTurnStatus =
+  | "queued"
+  | "running"
+  | "abort_requested"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "merged"
+  | "cancelled";
 export type SessionTurnIntent = "steer" | "followup";
 
 export type SessionTurnSummary = {
   text?: string | null;
-  finishReason?: "completed" | "failed" | "interrupted";
-  reason?: "steer" | "abort" | string;
+  finishReason?: "completed" | "failed" | "interrupted" | "merged" | "cancelled";
+  reason?: "steer" | "abort" | "merge" | string;
   continuedByTurnId?: string | null;
   interruptedByTurnId?: string | null;
+  mergedIntoTurnId?: string | null;
 };
 
 export type SessionTurnIntermediateIndex = {

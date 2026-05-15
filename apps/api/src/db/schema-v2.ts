@@ -364,7 +364,7 @@ export const sessionTurns = v2.table(
     sessionId: uuid("session_id").notNull(),
     userUuid: varchar("user_uuid", { length: 255 }),
     sequence: integer("sequence").notNull(),
-    status: varchar("status", { length: 20 }).$type<SessionTurnStatus>().notNull().default("running"),
+    status: varchar("status", { length: 20 }).$type<SessionTurnStatus>().notNull().default("queued"),
     intent: varchar("intent", { length: 20 }).$type<SessionTurnIntent>().notNull().default("steer"),
     userContent: jsonb("user_content").notNull().$type<ContentBlock[]>(),
     userText: text("user_text"),

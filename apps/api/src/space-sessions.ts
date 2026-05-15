@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
 import { injectTrace } from "@cohub/tracing/propagator";
@@ -15,16 +14,16 @@ import {
   tokenUsageStatsHourly,
 } from "./db/schema-v2.js";
 import {
-  getAgentInstanceInputQueueKey,
   getSpaceWsUsersKey,
   getSpaceWsUsersUpdatedAtKey,
   redisCommandClient,
 } from "./redis.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
-import { resolveOrClaimSessionOwner } from "./agent-ownership.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
 import { finalizeSessionTurnFromMessage } from "./session-turns.js";
 import { createExecutionGrant } from "./execution-grants.js";
+import { enqueueAgentTurnJob, enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
+import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
@@ -696,100 +695,117 @@ export const listSessionMessages = async (spaceSessionId: string, options?: { cu
   return db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, spaceSessionId), gt(sessionMessages.sequence, cursor))).orderBy(asc(sessionMessages.sequence)).limit(limit);
 };
 
-export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
+export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; turnId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
   await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
     console.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
   });
 
-  const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
   const actorUserId = typeof input.meta?.userId === "string" && input.meta.userId.trim()
     ? input.meta.userId.trim()
     : null;
   const source = typeof input.meta?.source === "string" && input.meta.source.trim()
     ? input.meta.source.trim()
     : "prompt";
-  const executionGrant = await createExecutionGrant({
-    actorUserId,
-    spaceId: input.spaceId,
-    sessionId: input.sessionId,
-    source,
-  });
+  const executionGrant = input.meta && typeof input.meta === "object" && !Array.isArray(input.meta) &&
+    typeof (input.meta as Record<string, unknown>).executionAuth === "object" &&
+    (input.meta as Record<string, unknown>).executionAuth !== null &&
+    !Array.isArray((input.meta as Record<string, unknown>).executionAuth)
+    ? (input.meta as Record<string, unknown>).executionAuth as { token: string; expiresAt: number }
+    : await createExecutionGrant({
+        actorUserId,
+        spaceId: input.spaceId,
+        sessionId: input.sessionId,
+        source,
+      });
 
-  // Inject trace context so the Agent can continue the same trace
-  const traceCarrier = injectTrace();
+  const [activeTurn] = await db.select({ id: sessionTurns.id })
+    .from(sessionTurns)
+    .where(and(
+      eq(sessionTurns.sessionId, input.sessionId),
+      inArray(sessionTurns.status, ["running", "abort_requested"]),
+    ))
+    .orderBy(desc(sessionTurns.sequence))
+    .limit(1);
 
-  await redisCommandClient.rpush(
-    getAgentInstanceInputQueueKey(lease.ownerId),
-    JSON.stringify({
-      action: "prompt",
-      id: randomUUID(),
+  if (activeTurn) {
+    await db.update(sessionTurns).set({
+      status: "abort_requested",
+      meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({
+        abortRequestedAt: new Date().toISOString(),
+        continuedByTurnId: input.turnId,
+      })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(sessionTurns.id, activeTurn.id),
+      eq(sessionTurns.sessionId, input.sessionId),
+      inArray(sessionTurns.status, ["running", "abort_requested"]),
+    ));
+
+    await requestAgentTurnAbort({
       spaceId: input.spaceId,
       sessionId: input.sessionId,
-      userMessageId: input.userMessageId ?? null,
-      content: input.content,
-      meta: input.meta ?? null,
-      executionAuth: executionGrant,
-      timestamp: new Date().toISOString(),
-      expectedOwnerId: lease.ownerId,
-      expectedEpoch: lease.epoch,
-      ...traceCarrier,
-    }),
-  );
+      turnId: activeTurn.id,
+      reason: "interrupt",
+      continuedByTurnId: input.turnId,
+      actorUserId,
+    }).catch((error) => {
+      console.warn(`[AgentTurn] failed to publish abort for turn=${activeTurn.id}:`, error);
+    });
+  }
+
+  const traceCarrier = injectTrace();
+  await enqueueAgentTurnJob({
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    turnIds: [input.turnId],
+    executionAuth: executionGrant,
+    trace: traceCarrier,
+  });
 };
 
 export const enqueueSessionFork = async (input: { spaceId: string; sessionId: string; parentSessionId: string; anchorTurnId: string; anchorSequence: number; anchorEntryId: string }) => {
-  const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
   const traceCarrier = injectTrace();
-  await redisCommandClient.rpush(
-    getAgentInstanceInputQueueKey(lease.ownerId),
-    JSON.stringify({
-      action: "fork_session",
-      id: randomUUID(),
-      spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      parentSessionId: input.parentSessionId,
-      anchorTurnId: input.anchorTurnId,
-      anchorSequence: input.anchorSequence,
-      anchorEntryId: input.anchorEntryId,
-      timestamp: new Date().toISOString(),
-      expectedOwnerId: lease.ownerId,
-      expectedEpoch: lease.epoch,
-      ...traceCarrier,
-    }),
-  );
+  await enqueueAgentSessionForkJob({
+    ...input,
+    trace: traceCarrier,
+  });
 };
 
 export const enqueueSessionAbort = async (input: { spaceId: string; sessionId: string; actorUserId?: string | null; turnId?: string | null }) => {
-  const lease = await resolveOrClaimSessionOwner(input.spaceId, input.sessionId);
-  const traceCarrier = injectTrace();
   const explicitTurnId = input.turnId?.trim() || null;
   const turnId = explicitTurnId ?? ((await db.select({ id: sessionTurns.id })
     .from(sessionTurns)
-    .where(and(eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "running")))
+    .where(and(
+      eq(sessionTurns.sessionId, input.sessionId),
+      inArray(sessionTurns.status, ["running", "abort_requested"]),
+    ))
     .orderBy(desc(sessionTurns.sequence))
     .limit(1))[0]?.id ?? null);
 
-  await redisCommandClient.rpush(
-    getAgentInstanceInputQueueKey(lease.ownerId),
-    JSON.stringify({
-      action: "abort",
-      id: randomUUID(),
-      spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      turnId,
-      meta: {
-        source: "web",
-        userId: input.actorUserId ?? null,
-        actorUserId: input.actorUserId ?? null,
-      },
-      timestamp: new Date().toISOString(),
-      expectedOwnerId: lease.ownerId,
-      expectedEpoch: lease.epoch,
-      ...traceCarrier,
-    }),
-  );
+  if (!turnId) return;
+
+  await db.update(sessionTurns).set({
+    status: "abort_requested",
+    meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({
+      abortRequestedAt: new Date().toISOString(),
+      abortActorUserId: input.actorUserId ?? null,
+    })}::jsonb`,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(sessionTurns.id, turnId),
+    eq(sessionTurns.sessionId, input.sessionId),
+    inArray(sessionTurns.status, ["running", "abort_requested"]),
+  ));
+
+  await requestAgentTurnAbort({
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    turnId,
+    reason: "abort",
+    actorUserId: input.actorUserId ?? null,
+  });
 };
 
 export const waitForSpaceReady = async (spaceId: string, timeoutMs = 30000) => {
