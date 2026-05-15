@@ -73,12 +73,16 @@ function getExecutionBatch(turn: TurnRow): ExecutionBatchMeta | null {
   };
 }
 
+function toPgUuidArrayParam(ids: string[]) {
+  return `{${ids.join(",")}}`;
+}
+
 async function selectTurnsByIds(ids: string[]) {
   if (ids.length === 0) return [];
   const rows = await db.execute(sql`
     select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
     from v2.session_turns
-    where id = any(${ids}::uuid[])
+    where id = any(${toPgUuidArrayParam(ids)}::uuid[])
     order by sequence asc
   `);
   return rows.map((row) => normalizeTurn(row as Record<string, unknown>));
@@ -91,7 +95,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     const requestedRows = await tx.execute(sql`
       select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
       from v2.session_turns
-      where id = any(${job.turnIds}::uuid[])
+      where id = any(${toPgUuidArrayParam(job.turnIds)}::uuid[])
       order by sequence asc
     `);
     const requested = requestedRows.map((row) => normalizeTurn(row as Record<string, unknown>));
