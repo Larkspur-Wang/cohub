@@ -4,6 +4,8 @@ import {
 	buildSpaceMentionUri,
 	extractSpaceMentionsFromText,
 	formatSpaceMentionTextForDisplay,
+	parseCohubSpaceUrls,
+	replaceCohubSpaceUrls,
 	tokenizeSpaceMentionText,
 } from "../lib/mentions/space";
 
@@ -27,12 +29,29 @@ test("tokenizeSpaceMentionText renders space mentions as semantic tokens", () =>
 	]);
 });
 
+test("tokenizeSpaceMentionText ignores mentions embedded in URLs", () => {
+	const uri = buildSpaceMentionUri(spaceId);
+	const text = `https://sessions.cohub.run/dev/fs-cache@[Core API](${uri})`;
+
+	assert.deepEqual(tokenizeSpaceMentionText(text), [{ type: "text", text }]);
+});
+
 test("formatSpaceMentionTextForDisplay renders mention markdown as friendly text", () => {
 	const uri = buildSpaceMentionUri(spaceId);
 
 	assert.equal(
 		formatSpaceMentionTextForDisplay(`Review @[Core API](${uri}) next.`),
 		"Review @Core API next.",
+	);
+});
+
+test("replaceCohubSpaceUrls keeps asset URLs with embedded space path intact", () => {
+	const text = `https://sessions.cohub.run/dev/fs-cache/spaces/${spaceId}/files/06295bac606fe091/image.png`;
+
+	assert.deepEqual(parseCohubSpaceUrls(text), []);
+	assert.equal(
+		replaceCohubSpaceUrls(text, () => "Core API"),
+		text,
 	);
 });
 
