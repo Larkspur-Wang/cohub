@@ -1,3 +1,4 @@
+import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { sdk } from "$lib/sdk";
 
@@ -7,18 +8,91 @@ export function buildSpaceFileDownloadUrl(spaceId: string, path: string) {
 	return `${baseUrl}${directUrl}`;
 }
 
-export async function downloadSpaceFile(
-	spaceId: string,
-	path: string,
-	filename?: string,
-) {
-	const file = await sdk.space(spaceId).files.download(path);
-	const objectUrl = URL.createObjectURL(file.blob);
+function triggerBlobDownload(blob: Blob, filename: string) {
+	const objectUrl = URL.createObjectURL(blob);
 	const link = document.createElement("a");
 	link.href = objectUrl;
-	link.download = filename ?? file.filename;
+	link.download = filename;
 	document.body.appendChild(link);
 	link.click();
 	link.remove();
 	setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+}
+
+function base64ToBlob(content: string, mimeType: string) {
+	const binary = atob(content);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) {
+		bytes[index] = binary.charCodeAt(index);
+	}
+	return new Blob([bytes], { type: mimeType });
+}
+
+async function downloadUrlFile(url: string, filename: string) {
+	const response = await fetch(url, { credentials: "omit" });
+	if (!response.ok) {
+		throw new Error(`Failed to download file (${response.status})`);
+	}
+	triggerBlobDownload(await response.blob(), filename);
+}
+
+async function downloadFileResponse(
+	file: SpaceFsFileResponse,
+	filename?: string,
+): Promise<boolean> {
+	const resolvedFilename = filename ?? file.name ?? "download";
+
+	if (file.delivery === "url" && file.url) {
+		await downloadUrlFile(file.url, resolvedFilename);
+		return true;
+	}
+
+	if (file.kind === "text") {
+		triggerBlobDownload(
+			new Blob([file.content], {
+				type: file.mimeType ?? "text/plain;charset=utf-8",
+			}),
+			resolvedFilename,
+		);
+		return true;
+	}
+
+	if (file.content) {
+		triggerBlobDownload(
+			base64ToBlob(file.content, file.mimeType ?? "application/octet-stream"),
+			resolvedFilename,
+		);
+		return true;
+	}
+
+	return false;
+}
+
+export async function downloadSpaceFile(
+	spaceId: string,
+	path: string,
+	filename?: string,
+	knownFile?: SpaceFsFileResponse | null,
+) {
+	try {
+		if (knownFile && (await downloadFileResponse(knownFile, filename))) return;
+	} catch (error) {
+		console.debug(
+			"Falling back from known space file response download",
+			error,
+		);
+	}
+
+	try {
+		const file = await sdk.space(spaceId).files.read(path);
+		if ("content" in file && (await downloadFileResponse(file, filename)))
+			return;
+	} catch (error) {
+		// Keep the legacy download endpoint as a fallback for files that cannot be
+		// represented by the preview/read API, e.g. oversized non-CDN artifacts.
+		console.debug("Falling back to space file download endpoint", error);
+	}
+
+	const file = await sdk.space(spaceId).files.download(path);
+	triggerBlobDownload(file.blob, filename ?? file.filename);
 }

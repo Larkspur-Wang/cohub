@@ -3886,11 +3886,21 @@ function closeInlinePort() {
 }
 async function downloadOpenFile() {
 	if (!routeFilePath) return;
-	await downloadSpaceFile(spaceId, routeFilePath, openFileDownloadName);
+	await downloadSpaceFile(
+		spaceId,
+		routeFilePath,
+		openFileDownloadName,
+		openFile,
+	);
 }
 async function downloadInlineFile() {
 	if (!inlineFile) return;
-	await downloadSpaceFile(spaceId, inlineFile.path, inlineFileDownloadName);
+	await downloadSpaceFile(
+		spaceId,
+		inlineFile.path,
+		inlineFileDownloadName,
+		inlineFile.response,
+	);
 }
 async function saveInlineFile() {
 	if (!inlineFile || inlineFile.response?.kind !== "text") return;
