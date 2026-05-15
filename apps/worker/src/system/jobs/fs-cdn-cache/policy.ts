@@ -72,7 +72,7 @@ export function buildFsCdnJobId(input: {
   size: number;
   mtimeMs: number;
 }) {
-  return `fs-cdn:${input.env}:${input.spaceId}:${fsCdnPathHash(input.path)}:${input.size}:${Math.trunc(input.mtimeMs)}`;
+  return `fs-cdn|${input.env}|${input.spaceId}|${fsCdnPathHash(input.path)}|${input.size}|${Math.trunc(input.mtimeMs)}`;
 }
 
 export function buildFsCdnFailKey(input: {
