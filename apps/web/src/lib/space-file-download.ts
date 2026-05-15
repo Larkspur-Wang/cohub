@@ -28,11 +28,27 @@ function base64ToBlob(content: string, mimeType: string) {
 	return new Blob([bytes], { type: mimeType });
 }
 
+function buildAttachmentDisposition(filename: string) {
+	return `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+function withDownloadDisposition(url: string, filename: string) {
+	try {
+		const parsed = new URL(url, window.location.href);
+		parsed.searchParams.set(
+			"response-content-disposition",
+			buildAttachmentDisposition(filename),
+		);
+		return parsed.toString();
+	} catch {
+		return url;
+	}
+}
+
 function triggerUrlDownload(url: string, filename: string) {
 	const link = document.createElement("a");
-	link.href = url;
+	link.href = withDownloadDisposition(url, filename);
 	link.download = filename;
-	link.target = "_blank";
 	link.rel = "noopener noreferrer";
 	link.referrerPolicy = "no-referrer";
 	document.body.appendChild(link);
