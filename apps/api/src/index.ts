@@ -76,17 +76,30 @@ app.use(async (c, next) => {
 
 app.route("/", router);
 
+const serializeErrorForLog = (error: unknown): unknown => {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      cause: serializeErrorForLog(error.cause),
+    };
+  }
+  if (error === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(error));
+  } catch {
+    return String(error);
+  }
+};
+
 app.onError((error, c) => {
   if (error instanceof UnauthorizedError) {
     return c.json({ message: error.message }, 401);
   }
   const path = c.req.path;
   const method = c.req.method;
-  console.error(`[API Error] ${method} ${path}:`, {
-    message: error.message,
-    stack: error.stack,
-    name: error.name,
-  });
+  console.error(`[API Error] ${method} ${path}:`, serializeErrorForLog(error));
   return c.json({ message: error.message || "internal server error" }, 500);
 });
 
