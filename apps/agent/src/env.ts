@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_WORKER_CONCURRENCY } from "@cohub/bullmq-ops";
 import { z } from "zod";
 
 const redisUrlSchema = z
@@ -19,7 +20,7 @@ export const EnvSchema = z.object({
   REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
   BULLMQ_REDIS_URL: redisUrlSchema.default(process.env.REDIS_URL ?? "redis://localhost:6379"),
   DATABASE_URL: z.string().min(1),
-  AGENT_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  AGENT_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_AGENT_WORKER_CONCURRENCY),
   AGENT_JOB_LOCK_DURATION_MS: z.coerce.number().int().positive().default(120_000),
   AGENT_JOB_LOCK_RENEW_TIME_MS: z.coerce.number().int().positive().default(45_000),
   AGENT_JOB_STALLED_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),

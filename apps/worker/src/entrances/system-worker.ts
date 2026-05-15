@@ -3,6 +3,7 @@ import "../tracing.js";
 
 import { Worker, type Processor } from "bullmq";
 import {
+  resolveQueueConcurrencyPerWorkerByName,
   attachWorkerEventLogger,
   closeWorkerGracefully,
   createBullmqRedisConnection,
@@ -52,7 +53,7 @@ const processor: Processor = async (job) => {
 
 const systemWorker = new Worker(FS_CDN_QUEUE_NAME, processor, {
   connection,
-  concurrency: Number(process.env.FS_CDN_WORKER_CONCURRENCY ?? 4),
+  concurrency: resolveQueueConcurrencyPerWorkerByName(FS_CDN_QUEUE_NAME),
   telemetry: createQueueTelemetry("cohub-system-worker"),
 });
 

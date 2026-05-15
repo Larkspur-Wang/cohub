@@ -6,17 +6,81 @@ export const COHUB_TASKS_QUEUE = "cohub-tasks";
 export const COHUB_AGENT_TURNS_QUEUE = "cohub-agent-turns";
 export const COHUB_SYSTEM_FS_QUEUE = "cohub-system-fs";
 
+export const DEFAULT_TASK_WORKER_CONCURRENCY = 5;
+export const DEFAULT_FS_CDN_WORKER_CONCURRENCY = 4;
+export const DEFAULT_AGENT_WORKER_CONCURRENCY = 2;
+
 export const queueDefinitions = [
-  { name: COHUB_TASKS_QUEUE, owner: "worker", criticality: "critical" },
-  { name: COHUB_AGENT_TURNS_QUEUE, owner: "agent", criticality: "critical" },
-  { name: COHUB_SYSTEM_FS_QUEUE, owner: "system-worker", criticality: "normal" },
+  {
+    name: COHUB_TASKS_QUEUE,
+    owner: "worker",
+    criticality: "critical",
+    concurrencyEnv: "TASK_WORKER_CONCURRENCY",
+    defaultConcurrencyPerWorker: DEFAULT_TASK_WORKER_CONCURRENCY,
+  },
+  {
+    name: COHUB_AGENT_TURNS_QUEUE,
+    owner: "agent",
+    criticality: "critical",
+    concurrencyEnv: "AGENT_WORKER_CONCURRENCY",
+    defaultConcurrencyPerWorker: DEFAULT_AGENT_WORKER_CONCURRENCY,
+  },
+  {
+    name: COHUB_SYSTEM_FS_QUEUE,
+    owner: "system-worker",
+    criticality: "normal",
+    concurrencyEnv: "FS_CDN_WORKER_CONCURRENCY",
+    defaultConcurrencyPerWorker: DEFAULT_FS_CDN_WORKER_CONCURRENCY,
+  },
 ] as const;
 
 export type CohubQueueName = typeof queueDefinitions[number]["name"];
 export type QueueDefinition = typeof queueDefinitions[number];
 
+export type QueueParallelism = {
+  workers: number;
+  configuredConcurrencyPerWorker: number;
+  estimatedMaxConcurrency: number;
+  source: QueueDefinition["concurrencyEnv"];
+};
+
 export const getQueueDefinition = (name: string): QueueDefinition | undefined =>
   queueDefinitions.find((definition) => definition.name === name);
+
+const parsePositiveInteger = (value: string | undefined): number | null => {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+export const resolveQueueConcurrencyPerWorker = (
+  definition: QueueDefinition,
+  env: Record<string, string | undefined> = process.env,
+) => parsePositiveInteger(env[definition.concurrencyEnv]) ?? definition.defaultConcurrencyPerWorker;
+
+export const resolveQueueConcurrencyPerWorkerByName = (
+  queueName: string,
+  env?: Record<string, string | undefined>,
+) => {
+  const definition = getQueueDefinition(queueName);
+  if (!definition) throw new Error(`Unknown BullMQ queue: ${queueName}`);
+  return resolveQueueConcurrencyPerWorker(definition, env);
+};
+
+export const getQueueParallelism = (
+  definition: QueueDefinition,
+  workers: number,
+  env?: Record<string, string | undefined>,
+): QueueParallelism => {
+  const configuredConcurrencyPerWorker = resolveQueueConcurrencyPerWorker(definition, env);
+  return {
+    workers,
+    configuredConcurrencyPerWorker,
+    estimatedMaxConcurrency: workers * configuredConcurrencyPerWorker,
+    source: definition.concurrencyEnv,
+  };
+};
 
 export const defaultJobRetention = {
   removeOnComplete: { age: 24 * 3600, count: 10_000 },
@@ -169,6 +233,7 @@ export type QueueSnapshot = {
   isPaused: boolean;
   workers: number;
   oldestWaitingJobAgeMs: number | null;
+  parallelism: QueueParallelism | null;
 };
 
 export const getQueueSnapshot = async (queue: Queue): Promise<QueueSnapshot> => {
@@ -180,12 +245,14 @@ export const getQueueSnapshot = async (queue: Queue): Promise<QueueSnapshot> => 
   ]);
 
   const oldestWaitingJob = waitingJobs[0];
+  const definition = getQueueDefinition(queue.name);
   return {
     name: queue.name,
     counts,
     isPaused,
     workers,
     oldestWaitingJobAgeMs: oldestWaitingJob ? Date.now() - oldestWaitingJob.timestamp : null,
+    parallelism: definition ? getQueueParallelism(definition, workers) : null,
   };
 };
 

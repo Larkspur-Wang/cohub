@@ -3,6 +3,7 @@ import "./tracing.js";
 
 import { Worker, type Processor } from "bullmq";
 import {
+  resolveQueueConcurrencyPerWorkerByName,
   attachWorkerEventLogger,
   closeWorkerGracefully,
   COHUB_TASKS_QUEUE,
@@ -54,7 +55,7 @@ const processor: Processor = async (job) => {
 
 const taskWorker = new Worker(COHUB_TASKS_QUEUE, processor, {
   connection,
-  concurrency: Number(process.env.TASK_WORKER_CONCURRENCY ?? 5),
+  concurrency: resolveQueueConcurrencyPerWorkerByName(COHUB_TASKS_QUEUE),
   telemetry: createQueueTelemetry("cohub-worker"),
 });
 

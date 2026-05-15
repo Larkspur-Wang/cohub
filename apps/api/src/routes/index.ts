@@ -16,6 +16,7 @@ import inviteRouter from "./invite.route.js";
 import exploreRouter from "./explore.route.js";
 import searchRouter from "./search.route.js";
 import generationsRouter from "./generations.route.js";
+import queuesRouter from "./queues.route.js";
 
 const router = new Hono();
 
@@ -35,6 +36,7 @@ router.route("/api/invite", inviteRouter);
 router.route("/api/explore", exploreRouter);
 router.route("/api/search", searchRouter);
 router.route("/api/generations", generationsRouter);
+router.route("/api/queues", queuesRouter);
 router.route("/internal", internalRouter);
 
 export default router;
