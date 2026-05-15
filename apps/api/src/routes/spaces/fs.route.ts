@@ -219,9 +219,7 @@ router.get("/download", async (c) => {
     if (shouldUseFsCdnForMeta(meta)) {
       const manifest = await ensureFsCdnManifest(meta, "download_miss", FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS);
       if (!manifest) return c.json({ message: "File is being prepared. Please retry shortly.", retryAfterMs: 2000 }, 202);
-      const downloadUrl = new URL(manifest.url);
-      downloadUrl.searchParams.set("response-content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(info.name)}`);
-      return c.redirect(downloadUrl.toString(), 302);
+      return c.redirect(manifest.url, 302);
     }
     const buffer = await readFile(info.target);
     return c.body(new Uint8Array(buffer), 200, {
