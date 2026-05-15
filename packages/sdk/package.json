@@ -22,39 +22,34 @@
     "websocket"
   ],
   "publishConfig": {
-    "access": "public",
-    "directory": "dist"
+    "access": "public"
   },
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "import": "./index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./http": {
-      "types": "./http.d.ts",
-      "import": "./http.js"
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
     },
     "./websocket": {
-      "types": "./websocket.d.ts",
-      "import": "./websocket.js"
+      "types": "./dist/websocket.d.ts",
+      "import": "./dist/websocket.js"
     }
   },
-  "types": "./index.d.ts",
+  "types": "./dist/index.d.ts",
   "files": [
-    "*.js",
-    "*.d.ts",
-    "chunks",
+    "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "tsdown && tsx scripts/write-publish-package.ts",
+    "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {},
   "devDependencies": {
-    "@cohub/protocol": "workspace:*",
     "tsdown": "^0.22.0",
-    "tsx": "4.21.0",
     "typescript": "^6.0.3"
   }
 }

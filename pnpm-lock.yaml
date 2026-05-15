@@ -374,7 +374,7 @@ importers:
         version: 3.0.13
       '@neta-art/cohub':
         specifier: workspace:*
-        version: file:packages/sdk/dist
+        version: link:../../packages/sdk
       '@uiw/codemirror-theme-github':
         specifier: ^4.25.9
         version: 4.25.9(@codemirror/language@6.12.3)(@codemirror/state@6.6.0)(@codemirror/view@6.41.1)
@@ -576,7 +576,7 @@ importers:
     dependencies:
       '@neta-art/cohub':
         specifier: workspace:*
-        version: file:packages/sdk/dist
+        version: link:../sdk
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -626,19 +626,12 @@ importers:
 
   packages/sdk:
     devDependencies:
-      '@cohub/protocol':
-        specifier: workspace:*
-        version: link:../protocol
       tsdown:
         specifier: ^0.22.0
         version: 0.22.0(@typescript/native-preview@7.0.0-dev.20260421.1)(tsx@4.21.0)(typescript@6.0.3)
-      tsx:
-        specifier: 4.21.0
-        version: 4.21.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-    publishDirectory: dist
 
   packages/tracing:
     dependencies:
@@ -2671,9 +2664,6 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
-
-  '@neta-art/cohub@file:packages/sdk/dist':
-    resolution: {directory: packages/sdk/dist, type: directory}
 
   '@nodable/entities@2.1.0':
     resolution: {integrity: sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA==}
@@ -8652,8 +8642,6 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.1
     optional: true
-
-  '@neta-art/cohub@file:packages/sdk/dist': {}
 
   '@nodable/entities@2.1.0': {}
 

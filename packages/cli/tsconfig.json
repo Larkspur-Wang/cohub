@@ -13,6 +13,7 @@
       "@cohub/protocol/gateway": ["../protocol/src/gateway/index.ts"],
       "@cohub/protocol/task": ["../protocol/src/task/index.ts"],
       "@cohub/protocol/fs": ["../protocol/src/fs/index.ts"],
+      "@cohub/protocol/ports": ["../protocol/src/ports/index.ts"],
       "@neta-art/cohub": ["../sdk/src/index.ts"],
       "@neta-art/cohub/http": ["../sdk/src/http.ts"],
       "@neta-art/cohub/websocket": ["../sdk/src/websocket.ts"]

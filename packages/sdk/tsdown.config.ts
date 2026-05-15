@@ -24,5 +24,4 @@ export default defineConfig({
   outputOptions: {
     chunkFileNames: "chunks/[name].js",
   },
-  copy: ["README.md"],
 });
