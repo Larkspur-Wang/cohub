@@ -27,7 +27,7 @@ async function requeueTurnJob(data: AgentTurnJobData, reason: string, job?: Job<
   const firstTurnId = data.turnIds[0];
   if (!firstTurnId) return { skipped: reason };
   await enqueueAgentTurnJob(data, {
-    jobId: `agent-turn-retry:${firstTurnId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    jobId: `agent-turn-retry-${firstTurnId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     delay: RETRY_DELAY_MS,
   });
   return { skipped: reason, retryInMs: RETRY_DELAY_MS, jobId: job?.id ?? null };

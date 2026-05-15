@@ -40,7 +40,7 @@ export async function enqueueAgentTurnJob(
   const firstTurnId = data.turnIds[0];
   if (!firstTurnId) throw new Error("turnIds is required");
   return agentTurnQueue.add(AGENT_TURN_JOB_NAME, data, {
-    jobId: `agent-turn:${firstTurnId}`,
+    jobId: `agent-turn-${firstTurnId}`,
     attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
     removeOnComplete: { age: 24 * 3600, count: 10_000 },
@@ -54,7 +54,7 @@ export async function enqueueAgentSessionForkJob(
   options: JobsOptions = {},
 ) {
   return agentTurnQueue.add(AGENT_SESSION_FORK_JOB_NAME, data, {
-    jobId: `agent-session-fork:${data.sessionId}:${data.anchorEntryId}`,
+    jobId: `agent-session-fork-${data.sessionId}-${data.anchorEntryId}`,
     attempts: 3,
     backoff: { type: "fixed", delay: 1000 },
     removeOnComplete: { age: 24 * 3600, count: 10_000 },

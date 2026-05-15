@@ -85,7 +85,7 @@ export const createCronJob = async (params: {
           pattern: params.schedule.pattern,
           tz: params.schedule.timezone ?? "Asia/Shanghai",
         },
-        jobId: `cron:${cronJob.id}`,
+        jobId: `cron-${cronJob.id}`,
         removeOnComplete: { age: 7 * 24 * 3600 },
         removeOnFail: { age: 30 * 24 * 3600 },
         attempts: 3,
@@ -168,7 +168,7 @@ export const enableCronJob = async (cronJobId: string, bullJobKey: string, jobDa
     taskPayload,
     {
       repeat: { pattern: jobData.cronExpression, tz: jobData.timezone },
-      jobId: `cron:${cronJobId}`,
+      jobId: `cron-${cronJobId}`,
       removeOnComplete: { age: 7 * 24 * 3600 },
       removeOnFail: { age: 30 * 24 * 3600 },
       attempts: 3,
