@@ -28,12 +28,16 @@ function base64ToBlob(content: string, mimeType: string) {
 	return new Blob([bytes], { type: mimeType });
 }
 
-async function downloadUrlFile(url: string, filename: string) {
-	const response = await fetch(url, { credentials: "omit" });
-	if (!response.ok) {
-		throw new Error(`Failed to download file (${response.status})`);
-	}
-	triggerBlobDownload(await response.blob(), filename);
+function triggerUrlDownload(url: string, filename: string) {
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = filename;
+	link.target = "_blank";
+	link.rel = "noopener noreferrer";
+	link.referrerPolicy = "no-referrer";
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
 }
 
 async function downloadFileResponse(
@@ -43,7 +47,7 @@ async function downloadFileResponse(
 	const resolvedFilename = filename ?? file.name ?? "download";
 
 	if (file.delivery === "url" && file.url) {
-		await downloadUrlFile(file.url, resolvedFilename);
+		triggerUrlDownload(file.url, resolvedFilename);
 		return true;
 	}
 
@@ -93,6 +97,8 @@ export async function downloadSpaceFile(
 		console.debug("Falling back to space file download endpoint", error);
 	}
 
-	const file = await sdk.space(spaceId).files.download(path);
-	triggerBlobDownload(file.blob, filename ?? file.filename);
+	triggerUrlDownload(
+		buildSpaceFileDownloadUrl(spaceId, path),
+		filename ?? "download",
+	);
 }
