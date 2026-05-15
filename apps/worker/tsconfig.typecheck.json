@@ -11,6 +11,7 @@
       "@neta-art/cohub-protocol/fs": ["../../packages/protocol/src/fs/index.ts"],
       "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/src/index.ts"],
       "@cohub/tracing": ["../../packages/tracing/src/index.ts"],
+      "@cohub/bullmq-ops": ["../../packages/bullmq-ops/src/index.ts"],
       "@cohub/tracing/db": ["../../packages/tracing/src/db.ts"],
       "@cohub/config-runtime/models": ["../../packages/config-runtime/src/models.ts"],
       "@cohub/config-runtime/generations": ["../../packages/config-runtime/src/generations.ts"],
