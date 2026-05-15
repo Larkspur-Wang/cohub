@@ -23,7 +23,9 @@
 
 ## Agent 关键环境变量
 
+- `DATABASE_URL`
 - `REDIS_URL`
+- `BULLMQ_REDIS_URL`
 - `WORKSPACE_ROOT`
 - `SESSIONS_DIR`
 - `ENV`

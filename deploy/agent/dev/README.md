@@ -12,6 +12,8 @@ dev/
 
 ```bash
 cd deploy/agent/dev
+cp secrets.template.yaml secrets.yaml
+vim secrets.yaml
 ./deploy.sh
 ```
 

@@ -55,8 +55,9 @@ require_value "sessionsSubpath" "$SESSIONS_SUBPATH"
 require_value "configsSubpath" "$CONFIGS_SUBPATH"
 require_value "sessionsNamespace" "$SESSIONS_NAMESPACE"
 
-if [ ! -f "../prod/secrets.template.yaml" ] && [ ! -f "secrets.yaml" ]; then
-  echo -e "${RED}✗ 缺少 secrets.yaml（可参考 prod/secrets.template.yaml）${NC}"
+if [ ! -f "secrets.yaml" ]; then
+  echo -e "${RED}✗ 缺少 secrets.yaml，请先参考 secrets.template.yaml 生成${NC}"
+  exit 1
 fi
 
 mkdir -p rendered
@@ -102,13 +103,10 @@ awk '/{{RESOURCES}}/ {
 
 rm -f rendered/*.bak
 
+kubectl apply -f secrets.yaml
 kubectl apply -f rendered/configmap.yaml
 kubectl apply -f rendered/service.yaml
 kubectl apply -f rendered/deployment.yaml
-
-if [ -f "secrets.yaml" ]; then
-  kubectl apply -f secrets.yaml
-fi
 
 echo -e "${BLUE}Agent dev deployment rendered and applied.${NC}"
 echo -e "${GREEN}✅ Deploy finished${NC}"
