@@ -45,7 +45,7 @@ COPY packages/protocol ./packages/protocol
 COPY packages/gateway-contract ./packages/gateway-contract
 COPY packages/tracing ./packages/tracing
 COPY apps/gateway/src ./apps/gateway/src
-COPY apps/gateway/tsconfig.json ./apps/gateway/tsconfig.json
+COPY apps/gateway/tsconfig.json apps/gateway/tsconfig.build.json ./apps/gateway/
 
 RUN pnpm --filter @cohub/gateway... build
 RUN pnpm --filter @cohub/gateway --prod deploy /prod/gateway

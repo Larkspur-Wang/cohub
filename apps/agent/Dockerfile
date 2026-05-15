@@ -34,7 +34,7 @@ COPY packages/tracing ./packages/tracing
 COPY packages/bullmq-ops ./packages/bullmq-ops
 COPY packages/config-runtime ./packages/config-runtime
 COPY apps/agent/src ./apps/agent/src
-COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
+COPY apps/agent/tsconfig.json apps/agent/tsconfig.build.json ./apps/agent/
 
 RUN pnpm --filter @cohub/agent... build
 RUN pnpm --filter @cohub/agent --prod deploy /prod/agent
