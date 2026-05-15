@@ -1,4 +1,6 @@
-export const FS_CDN_QUEUE_NAME = "cohub-system-fs";
+import { COHUB_SYSTEM_FS_QUEUE } from "@cohub/bullmq-ops";
+
+export const FS_CDN_QUEUE_NAME = COHUB_SYSTEM_FS_QUEUE;
 export const FS_CDN_WARM_FILE_JOB = "cdn_cache.warm_file";
 
 export const FS_CDN_LARGE_FILE_THRESHOLD_BYTES = 2 * 1024 * 1024;

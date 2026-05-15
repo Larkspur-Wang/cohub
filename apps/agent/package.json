@@ -17,10 +17,12 @@
   },
   "dependencies": {
     "@cohub/agent-sandbox-protocol": "workspace:*",
-    "@neta-art/cohub-protocol": "workspace:*",
+    "@cohub/bullmq-ops": "workspace:*",
+    "@cohub/config-runtime": "workspace:*",
     "@cohub/tracing": "workspace:*",
     "@mariozechner/pi-agent-core": "0.70.0",
     "@mariozechner/pi-ai": "0.70.0",
+    "@neta-art/cohub-protocol": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.203.0",
     "@opentelemetry/instrumentation": "^0.215.0",
@@ -36,8 +38,7 @@
     "ioredis": "^5.10.1",
     "postgres": "^3.4.9",
     "ws": "^8.20.0",
-    "zod": "^4.3.6",
-    "@cohub/config-runtime": "workspace:*"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

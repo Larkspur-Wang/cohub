@@ -2,8 +2,13 @@ import "dotenv/config";
 import "../tracing.js";
 
 import { Worker, type Processor } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
-import { Redis } from "ioredis";
+import {
+  attachWorkerEventLogger,
+  closeWorkerGracefully,
+  createBullmqRedisConnection,
+  createQueueTelemetry,
+  getRedisHost,
+} from "@cohub/bullmq-ops";
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
@@ -14,10 +19,7 @@ import "../system/jobs/index.js";
 
 assertRequiredConfig();
 
-const connection = new Redis(config.bullmqRedisUrl, {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-});
+const connection = createBullmqRedisConnection(config.bullmqRedisUrl);
 
 const tracer = getTracer("cohub-system-worker");
 
@@ -51,28 +53,13 @@ const processor: Processor = async (job) => {
 const systemWorker = new Worker(FS_CDN_QUEUE_NAME, processor, {
   connection,
   concurrency: Number(process.env.FS_CDN_WORKER_CONCURRENCY ?? 4),
-  telemetry: new BullMQOtel("cohub-system-worker"),
+  telemetry: createQueueTelemetry("cohub-system-worker"),
 });
 
-systemWorker.on("completed", (job) => {
-  console.log(`[SystemWorker] ✅ Job ${job.id} (${job.name}) completed`);
+attachWorkerEventLogger(systemWorker, {
+  serviceName: "SystemWorker",
+  queueName: FS_CDN_QUEUE_NAME,
 });
-
-systemWorker.on("failed", (job, err) => {
-  console.error(`[SystemWorker] ❌ Job ${job?.id} (${job?.name}) failed:`, err.message);
-});
-
-systemWorker.on("error", (err) => {
-  console.error("[SystemWorker] Worker error:", err);
-});
-
-const getRedisHost = (value: string) => {
-  try {
-    return new URL(value).host;
-  } catch {
-    return "(invalid URL)";
-  }
-};
 
 console.log("[SystemWorker] Starting system worker...");
 console.log("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
@@ -82,10 +69,12 @@ console.log("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
 const shutdown = async (signal: string) => {
   console.log(`[SystemWorker] Received ${signal}, shutting down...`);
-  const closePromise = systemWorker.close();
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 30_000));
-  await Promise.race([closePromise, timeout]);
-  await systemWorker.close(true);
+  await closeWorkerGracefully(systemWorker, {
+    serviceName: "SystemWorker",
+    timeoutMs: Number(process.env.FS_CDN_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),
+    pauseBeforeClose: true,
+  });
+  await connection.quit().catch(() => undefined);
   process.exit(0);
 };
 

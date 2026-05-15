@@ -2,8 +2,14 @@ import "dotenv/config";
 import "./tracing.js";
 
 import { Worker, type Processor } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
-import { Redis } from "ioredis";
+import {
+  attachWorkerEventLogger,
+  closeWorkerGracefully,
+  COHUB_TASKS_QUEUE,
+  createBullmqRedisConnection,
+  createQueueTelemetry,
+  getRedisHost,
+} from "@cohub/bullmq-ops";
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
 import { config, assertRequiredConfig } from "./config.js";
@@ -14,11 +20,7 @@ import "./tasks/index.js";
 
 assertRequiredConfig();
 
-// BullMQ requires: maxRetriesPerRequest: null, enableReadyCheck: false
-const connection = new Redis(config.bullmqRedisUrl, {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-});
+const connection = createBullmqRedisConnection(config.bullmqRedisUrl);
 
 const tracer = getTracer("cohub-worker");
 
@@ -50,35 +52,19 @@ const processor: Processor = async (job) => {
   });
 };
 
-const taskWorker = new Worker("cohub-tasks", processor, {
+const taskWorker = new Worker(COHUB_TASKS_QUEUE, processor, {
   connection,
-  concurrency: 5,
-  telemetry: new BullMQOtel("cohub-worker"),
+  concurrency: Number(process.env.TASK_WORKER_CONCURRENCY ?? 5),
+  telemetry: createQueueTelemetry("cohub-worker"),
 });
 
-taskWorker.on("completed", (job, result) => {
-  console.log(`[Worker] ✅ Job ${job.id} (${job.name}) completed:`, JSON.stringify(result));
-});
-
-taskWorker.on("failed", (job, err) => {
-  console.error(`[Worker] ❌ Job ${job?.id} (${job?.name}) failed:`, err.message);
-});
-
-taskWorker.on("error", (err) => {
-  console.error("[Worker] Worker error:", err);
+attachWorkerEventLogger(taskWorker, {
+  serviceName: "Worker",
+  queueName: COHUB_TASKS_QUEUE,
+  logCompletedResult: true,
 });
 
 console.log("[Worker] Starting task worker...");
-
-// 仅打印 host，不泄露任何凭证信息
-const getRedisHost = (value: string) => {
-  try {
-    const url = new URL(value);
-    return url.host;
-  } catch {
-    return "(invalid URL)";
-  }
-};
 console.log("[Worker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
 console.log("[Worker] App Redis:", getRedisHost(config.redisUrl));
 console.log("[Worker] API:", config.internalApiBaseUrl);
@@ -87,12 +73,12 @@ console.log("[Worker] Registered tasks:", getRegisteredTasks());
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   console.log(`[Worker] Received ${signal}, shutting down...`);
-  // Wait up to 30s for in-flight jobs to finish, then force close
-  const closePromise = taskWorker.close();
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 30_000));
-  await Promise.race([closePromise, timeout]);
-  // Force close if graceful close didn't complete
-  await taskWorker.close(true);
+  await closeWorkerGracefully(taskWorker, {
+    serviceName: "Worker",
+    timeoutMs: Number(process.env.TASK_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),
+    pauseBeforeClose: true,
+  });
+  await connection.quit().catch(() => undefined);
   process.exit(0);
 };
 

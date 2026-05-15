@@ -1,15 +1,12 @@
+import { COHUB_TASKS_QUEUE, createBullmqRedisConnection } from "@cohub/bullmq-ops";
 import { Queue, type JobsOptions } from "bullmq";
-import { Redis } from "ioredis";
 import type { TaskPayload } from "@neta-art/cohub-protocol/task";
 
 const redisUrl = process.env.BULLMQ_REDIS_URL ?? "redis://localhost:6379/3";
 
 const createQueue = () => {
-  const connection = new Redis(redisUrl, {
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-  });
-  return new Queue("cohub-tasks", { connection });
+  const connection = createBullmqRedisConnection(redisUrl);
+  return new Queue(COHUB_TASKS_QUEUE, { connection });
 };
 
 /**

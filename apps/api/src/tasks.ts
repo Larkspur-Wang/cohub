@@ -1,18 +1,16 @@
-import { Queue, type JobsOptions } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
+import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/bullmq-ops";
+import type { JobsOptions } from "bullmq";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { cronJobs, taskRuns } from "./db/schema-v2.js";
 import type { TaskPayload, TaskScheduleConfig } from "@neta-art/cohub-protocol/task";
 
-const QUEUE_NAME = "cohub-tasks";
+const QUEUE_NAME = COHUB_TASKS_QUEUE;
 
-const connection = { url: config.bullmqRedisUrl };
-
-export const taskQueue = new Queue(QUEUE_NAME, {
-  connection,
-  telemetry: new BullMQOtel("cohub-api"),
+export const taskQueue = createBullmqQueue(QUEUE_NAME, {
+  redisUrl: config.bullmqRedisUrl,
+  telemetryServiceName: "cohub-api",
 });
 
 export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space", "import_space_upload"]);

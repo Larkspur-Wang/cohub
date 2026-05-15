@@ -16,6 +16,9 @@ COPY packages/agent-sandbox-protocol/tsconfig.build.json ./packages/agent-sandbo
 COPY packages/tracing/package.json ./packages/tracing/package.json
 COPY packages/tracing/tsconfig.json ./packages/tracing/tsconfig.json
 COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
+COPY packages/bullmq-ops/package.json ./packages/bullmq-ops/package.json
+COPY packages/bullmq-ops/tsconfig.json ./packages/bullmq-ops/tsconfig.json
+COPY packages/bullmq-ops/tsconfig.build.json ./packages/bullmq-ops/tsconfig.build.json
 COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
 COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
 COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
@@ -28,6 +31,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY packages/protocol ./packages/protocol
 COPY packages/agent-sandbox-protocol ./packages/agent-sandbox-protocol
 COPY packages/tracing ./packages/tracing
+COPY packages/bullmq-ops ./packages/bullmq-ops
 COPY packages/config-runtime ./packages/config-runtime
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
@@ -35,6 +39,7 @@ COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
 RUN pnpm --filter @neta-art/cohub-protocol build
 RUN pnpm --filter @cohub/agent-sandbox-protocol build
 RUN pnpm --filter @cohub/tracing build
+RUN pnpm --filter @cohub/bullmq-ops build
 RUN pnpm --filter @cohub/config-runtime build
 RUN pnpm --filter @cohub/agent build
 RUN pnpm --filter @cohub/agent --prod deploy /prod/agent

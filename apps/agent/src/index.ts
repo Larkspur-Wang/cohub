@@ -1,8 +1,12 @@
 import "./tracing.js";
 
 import { Worker, type Job, type Processor } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
-import { Redis } from "ioredis";
+import {
+  attachWorkerEventLogger,
+  closeWorkerGracefully,
+  createBullmqRedisConnection,
+  createQueueTelemetry,
+} from "@cohub/bullmq-ops";
 import { env } from "./env.js";
 import { AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData } from "./queue.js";
 import { processAgentTurnJob, disposeAllSessionHandles } from "./processor.js";
@@ -18,10 +22,7 @@ export const __test = {
   runInSessionOperation: async <T>(_handle: unknown, fn: () => Promise<T>) => fn(),
 };
 
-const connection = new Redis(env.BULLMQ_REDIS_URL, {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-});
+const connection = createBullmqRedisConnection(env.BULLMQ_REDIS_URL);
 
 const processor: Processor<AgentJobData> = async (job) => {
   if (job.name === AGENT_SESSION_FORK_JOB_NAME) {
@@ -40,19 +41,13 @@ const worker = new Worker<AgentJobData>(AGENT_TURN_QUEUE_NAME, processor, {
   lockRenewTime: env.AGENT_JOB_LOCK_RENEW_TIME_MS,
   stalledInterval: env.AGENT_JOB_STALLED_INTERVAL_MS,
   maxStalledCount: env.AGENT_JOB_MAX_STALLED_COUNT,
-  telemetry: new BullMQOtel("cohub-agent"),
+  telemetry: createQueueTelemetry("cohub-agent"),
 });
 
-worker.on("completed", (job, result) => {
-  console.log(`[AgentWorker] ✅ Job ${job.id} completed:`, JSON.stringify(result));
-});
-
-worker.on("failed", (job, error) => {
-  console.error(`[AgentWorker] ❌ Job ${job?.id} failed:`, error.message);
-});
-
-worker.on("error", (error) => {
-  console.error("[AgentWorker] Worker error:", error);
+attachWorkerEventLogger(worker, {
+  serviceName: "AgentWorker",
+  queueName: AGENT_TURN_QUEUE_NAME,
+  logCompletedResult: true,
 });
 
 await subscribeAbortEvents((event) => {
@@ -69,11 +64,11 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[AgentWorker] Received ${signal}, draining...`);
-  await worker.pause(true).catch(() => undefined);
-  const closePromise = worker.close();
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, env.AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS));
-  await Promise.race([closePromise, timeout]);
-  await worker.close(true).catch(() => undefined);
+  await closeWorkerGracefully(worker, {
+    serviceName: "AgentWorker",
+    timeoutMs: env.AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS,
+    pauseBeforeClose: true,
+  });
   await disposeAllSessionHandles();
   closeSandboxPool();
   await closeAbortSubscriber().catch(() => undefined);

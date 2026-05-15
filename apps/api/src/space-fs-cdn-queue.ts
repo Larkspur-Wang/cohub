@@ -1,5 +1,4 @@
-import { Queue } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
+import { createBullmqQueue } from "@cohub/bullmq-ops";
 import { config } from "./config.js";
 import {
   FS_CDN_QUEUE_NAME,
@@ -8,11 +7,9 @@ import {
 } from "./space-fs-cdn-constants.js";
 import { buildFsCdnJobId } from "./space-fs-cdn-policy.js";
 
-const connection = { url: config.bullmqRedisUrl };
-
-export const fsCdnQueue = new Queue(FS_CDN_QUEUE_NAME, {
-  connection,
-  telemetry: new BullMQOtel("cohub-api-fs-cdn"),
+export const fsCdnQueue = createBullmqQueue(FS_CDN_QUEUE_NAME, {
+  redisUrl: config.bullmqRedisUrl,
+  telemetryServiceName: "cohub-api-fs-cdn",
 });
 
 export async function enqueueFsCdnWarmFile(payload: FsCdnWarmFileJob) {

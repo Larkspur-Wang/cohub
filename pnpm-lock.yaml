@@ -33,6 +33,9 @@ importers:
       '@cohub/agent-sandbox-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-sandbox-protocol
+      '@cohub/bullmq-ops':
+        specifier: workspace:*
+        version: link:../../packages/bullmq-ops
       '@cohub/config-runtime':
         specifier: workspace:*
         version: link:../../packages/config-runtime
@@ -124,6 +127,9 @@ importers:
       '@cohub/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@cohub/bullmq-ops':
+        specifier: workspace:*
+        version: link:../../packages/bullmq-ops
       '@cohub/config-runtime':
         specifier: workspace:*
         version: link:../../packages/config-runtime
@@ -445,6 +451,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1038.0
         version: 3.1038.0
+      '@cohub/bullmq-ops':
+        specifier: workspace:*
+        version: link:../../packages/bullmq-ops
       '@cohub/config-runtime':
         specifier: workspace:*
         version: link:../../packages/config-runtime
@@ -537,6 +546,28 @@ importers:
       '@types/node':
         specifier: 25.6.0
         version: 25.6.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/bullmq-ops:
+    dependencies:
+      bullmq:
+        specifier: ^5.75.2
+        version: 5.75.2
+      bullmq-otel:
+        specifier: ^1.3.0
+        version: 1.3.0
+      ioredis:
+        specifier: ^5.10.1
+        version: 5.10.1
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      '@typescript/native-preview':
+        specifier: 7.0.0-dev.20260421.1
+        version: 7.0.0-dev.20260421.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

@@ -1,8 +1,8 @@
-import { Queue, type JobsOptions } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
+import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue } from "@cohub/bullmq-ops";
+import type { JobsOptions } from "bullmq";
 import { env } from "./env.js";
 
-export const AGENT_TURN_QUEUE_NAME = "cohub-agent-turns";
+export const AGENT_TURN_QUEUE_NAME = COHUB_AGENT_TURNS_QUEUE;
 export const AGENT_TURN_JOB_NAME = "agent_turns";
 export const AGENT_SESSION_FORK_JOB_NAME = "agent_session_fork";
 
@@ -26,9 +26,9 @@ export type AgentSessionForkJobData = {
 
 export type AgentJobData = AgentTurnJobData | AgentSessionForkJobData;
 
-export const agentTurnQueue = new Queue<AgentJobData>(AGENT_TURN_QUEUE_NAME, {
-  connection: { url: env.BULLMQ_REDIS_URL },
-  telemetry: new BullMQOtel("cohub-agent"),
+export const agentTurnQueue = createBullmqQueue<AgentJobData>(AGENT_TURN_QUEUE_NAME, {
+  redisUrl: env.BULLMQ_REDIS_URL,
+  telemetryServiceName: "cohub-agent",
 });
 
 export async function enqueueAgentTurnJob(data: AgentTurnJobData, options: JobsOptions = {}) {
