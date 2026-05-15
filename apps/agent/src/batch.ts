@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import { db } from "./db.js";
+import { env } from "./env.js";
 import type { AgentTurnJobData } from "./queue.js";
 
 type TurnRow = {
@@ -12,6 +13,7 @@ type TurnRow = {
   userContent: ContentBlock[];
   userText: string | null;
   meta: unknown;
+  updatedAt: Date | null;
 };
 
 type ExecutionBatchMeta = {
@@ -31,13 +33,26 @@ export type ClaimedTurnBatch = {
 
 export type ClaimResult =
   | { kind: "claimed"; batch: ClaimedTurnBatch }
-  | { kind: "busy"; activeTurnId: string }
+  | { kind: "busy"; activeTurnId: string; activeUpdatedAt: Date | null; activeStatus: string }
   | { kind: "noop" };
 
 const TERMINAL = new Set(["completed", "failed", "interrupted", "merged", "cancelled"]);
+const ACTIVE = new Set(["running", "abort_requested"]);
+const STALE_ACTIVE_TURN_MS = env.AGENT_STALE_ACTIVE_TURN_MS;
+
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function asDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
 }
 
 function normalizeTurn(row: Record<string, unknown>): TurnRow {
@@ -50,6 +65,7 @@ function normalizeTurn(row: Record<string, unknown>): TurnRow {
     userContent: row.user_content as ContentBlock[],
     userText: typeof row.user_text === "string" ? row.user_text : null,
     meta: row.meta ?? null,
+    updatedAt: asDate(row.updated_at),
   };
 }
 
@@ -81,10 +97,32 @@ function toPgUuidArrayParam(ids: string[]) {
   return `{${ids.join(",")}}`;
 }
 
+function isActiveStatus(status: string) {
+  return ACTIVE.has(status);
+}
+
+function isStaleActiveTurn(turn: TurnRow) {
+  const updatedAt = turn.updatedAt?.getTime();
+  return updatedAt != null && Number.isFinite(updatedAt) && Date.now() - updatedAt > STALE_ACTIVE_TURN_MS;
+}
+
+async function markStaleTurnInterrupted(tx: Transaction, turn: TurnRow) {
+  await tx.execute(sql`
+    update v2.session_turns
+    set status = 'interrupted',
+        stop_reason = 'stale_active_recovered',
+        summary = ${JSON.stringify({ finishReason: "interrupted", reason: "stale_active_recovered" })}::jsonb,
+        meta = coalesce(meta, '{}'::jsonb) || ${JSON.stringify({ staleActiveRecoveredAt: new Date().toISOString(), previousStatus: turn.status })}::jsonb,
+        completed_at = now(),
+        updated_at = now()
+    where id = ${turn.id} and status in ('running', 'abort_requested')
+  `);
+}
+
 async function selectTurnsByIds(ids: string[]) {
   if (ids.length === 0) return [];
   const rows = await db.execute(sql`
-    select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
+    select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
     from v2.session_turns
     where id = any(${toPgUuidArrayParam(ids)}::uuid[])
     order by sequence asc
@@ -97,7 +135,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     await tx.execute(sql`select id from v2.space_sessions where id = ${job.sessionId} for update`);
 
     const requestedRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
+      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
       from v2.session_turns
       where id = any(${toPgUuidArrayParam(job.turnIds)}::uuid[])
       order by sequence asc
@@ -113,13 +151,17 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
         .find((value): value is string => typeof value === "string" && value.trim().length > 0);
       if (ownerId) {
         const ownerRows = await tx.execute(sql`
-          select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
+          select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
           from v2.session_turns
           where id = ${ownerId}
           limit 1
         `);
         const owner = ownerRows[0] ? normalizeTurn(ownerRows[0] as Record<string, unknown>) : null;
-        if (owner && (owner.status === "running" || owner.status === "abort_requested")) {
+        if (owner && isActiveStatus(owner.status)) {
+          if (isStaleActiveTurn(owner)) {
+            await markStaleTurnInterrupted(tx, owner);
+            return { kind: "noop" as const };
+          }
           const batch = getExecutionBatch(owner);
           if (batch?.turnIds.some((turnId) => job.turnIds.includes(turnId))) {
             const rows = await selectTurnsByIds(batch.turnIds);
@@ -139,7 +181,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     }
 
     const activeRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
+      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
       from v2.session_turns
       where session_id = ${job.sessionId} and status in ('running', 'abort_requested')
       order by sequence asc
@@ -147,24 +189,28 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     `);
     const active = activeRows[0] ? normalizeTurn(activeRows[0] as Record<string, unknown>) : null;
     if (active) {
-      const batch = getExecutionBatch(active);
-      if (batch?.turnIds.some((turnId) => job.turnIds.includes(turnId))) {
-        const rows = await selectTurnsByIds(batch.turnIds);
-        return {
-          kind: "claimed" as const,
-          batch: {
-            ownerTurn: active,
-            turns: rows,
-            mergedTurns: rows.filter((turn) => turn.id !== active.id),
-            executionBatch: batch,
-          },
-        };
+      if (isStaleActiveTurn(active)) {
+        await markStaleTurnInterrupted(tx, active);
+      } else {
+        const batch = getExecutionBatch(active);
+        if (batch?.turnIds.some((turnId) => job.turnIds.includes(turnId))) {
+          const rows = await selectTurnsByIds(batch.turnIds);
+          return {
+            kind: "claimed" as const,
+            batch: {
+              ownerTurn: active,
+              turns: rows,
+              mergedTurns: rows.filter((turn) => turn.id !== active.id),
+              executionBatch: batch,
+            },
+          };
+        }
+        return { kind: "busy" as const, activeTurnId: active.id, activeUpdatedAt: active.updatedAt, activeStatus: active.status };
       }
-      return { kind: "busy" as const, activeTurnId: active.id };
     }
 
     const queuedRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta
+      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
       from v2.session_turns
       where session_id = ${job.sessionId} and status = 'queued' and sequence <= ${requestedMaxSequence}
       order by sequence asc
@@ -207,7 +253,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
       where id = ${owner.id}
     `);
 
-    const updatedOwner = { ...owner, status: "running", meta: ownerMeta };
+    const updatedOwner = { ...owner, status: "running", meta: ownerMeta, updatedAt: new Date() };
     return {
       kind: "claimed" as const,
       batch: {

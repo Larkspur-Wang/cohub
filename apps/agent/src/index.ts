@@ -48,6 +48,12 @@ attachWorkerEventLogger(worker, {
   serviceName: "AgentWorker",
   queueName: AGENT_TURN_QUEUE_NAME,
   logCompletedResult: true,
+  shouldLogCompleted: (_job, result) => {
+    const skipped = result && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>).skipped
+      : null;
+    return skipped !== "session_busy";
+  },
 });
 
 await subscribeAbortEvents((event) => {

@@ -77,6 +77,7 @@ export type WorkerLoggerOptions = {
   serviceName: string;
   queueName: string;
   logCompletedResult?: boolean;
+  shouldLogCompleted?: (job: { id?: string; name?: string; attemptsMade?: number } | undefined, result: unknown) => boolean;
 };
 
 const formatJob = (job: { id?: string; name?: string; attemptsMade?: number } | undefined) =>
@@ -91,6 +92,7 @@ export const attachWorkerEventLogger = (worker: Worker, options: WorkerLoggerOpt
   });
 
   worker.on("completed", (job, result) => {
+    if (options.shouldLogCompleted && !options.shouldLogCompleted(job, result)) return;
     const suffix = options.logCompletedResult ? ` result=${safeJson(redactSensitiveData(result))}` : "";
     console.log(`${prefix} bullmq.job.completed ${queue} ${formatJob(job)}${suffix}`);
   });

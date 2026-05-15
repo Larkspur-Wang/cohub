@@ -26,6 +26,9 @@ export const EnvSchema = z.object({
   AGENT_JOB_MAX_STALLED_COUNT: z.coerce.number().int().min(0).default(1),
   AGENT_SESSION_LOCK_TTL_MS: z.coerce.number().int().positive().default(120_000),
   AGENT_SESSION_LOCK_RENEW_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  AGENT_STALE_ACTIVE_TURN_MS: z.coerce.number().int().positive().default(30 * 60_000),
+  AGENT_BUSY_RETRY_BASE_DELAY_MS: z.coerce.number().int().positive().default(1_000),
+  AGENT_BUSY_RETRY_MAX_DELAY_MS: z.coerce.number().int().positive().default(30_000),
   AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS: z.coerce.number().int().positive().default(35 * 60_000),
   WORKSPACE_ROOT: z
     .string()
