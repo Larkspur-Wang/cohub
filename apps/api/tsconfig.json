@@ -3,10 +3,60 @@
   "compilerOptions": {
     "noEmit": true,
     "paths": {
-      "@cohub/auth": ["../../packages/auth/dist/index.d.ts"],
-      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
-      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]
+      "@cohub/protocol": [
+        "../../packages/protocol/src/index.ts"
+      ],
+      "@cohub/protocol/core": [
+        "../../packages/protocol/src/core/index.ts"
+      ],
+      "@cohub/protocol/model": [
+        "../../packages/protocol/src/model/session.ts"
+      ],
+      "@cohub/protocol/realtime": [
+        "../../packages/protocol/src/realtime/index.ts"
+      ],
+      "@cohub/protocol/gateway": [
+        "../../packages/protocol/src/gateway/index.ts"
+      ],
+      "@cohub/protocol/task": [
+        "../../packages/protocol/src/task/index.ts"
+      ],
+      "@cohub/protocol/fs": [
+        "../../packages/protocol/src/fs/index.ts"
+      ],
+      "@cohub/protocol/ports": [
+        "../../packages/protocol/src/ports/index.ts"
+      ],
+      "@cohub/auth": [
+        "../../packages/auth/src/index.ts"
+      ],
+      "@cohub/agent-sandbox-protocol": [
+        "../../packages/agent-sandbox-protocol/src/index.ts"
+      ],
+      "@cohub/tracing": [
+        "../../packages/tracing/src/index.ts"
+      ],
+      "@cohub/bullmq-ops": [
+        "../../packages/bullmq-ops/src/index.ts"
+      ],
+      "@cohub/tracing/db": [
+        "../../packages/tracing/src/db.ts"
+      ],
+      "@cohub/config-runtime": [
+        "../../packages/config-runtime/src/index.ts"
+      ],
+      "@cohub/config-runtime/models": [
+        "../../packages/config-runtime/src/models.ts"
+      ],
+      "@cohub/config-runtime/prompts": [
+        "../../packages/config-runtime/src/prompts.ts"
+      ],
+      "@cohub/tracing/propagator": [
+        "../../packages/tracing/src/propagator.ts"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

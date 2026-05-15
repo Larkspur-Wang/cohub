@@ -3,8 +3,8 @@
  * 字符串前缀增长走 append，其余走子路径或整块 replace；SDK 应用任意子路径 append/replace。
  */
 import assert from "node:assert/strict";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { SessionStreamEvent } from "@cohub/protocol/realtime";
 import { buildPatchOpsForContentDelta } from "../apps/agent/src/stream/patch-delta.js";
 import { createSessionPatchReducer } from "../packages/sdk/src/session-patch-reducer.js";
 

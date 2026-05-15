@@ -47,11 +47,7 @@ COPY packages/tracing ./packages/tracing
 COPY apps/gateway/src ./apps/gateway/src
 COPY apps/gateway/tsconfig.json ./apps/gateway/tsconfig.json
 
-RUN pnpm --filter @cohub/auth build
-RUN pnpm --filter @neta-art/cohub-protocol build
-RUN pnpm --filter @cohub/gateway-contract build
-RUN pnpm --filter @cohub/tracing build
-RUN pnpm --filter @cohub/gateway build
+RUN pnpm --filter @cohub/gateway... build
 RUN pnpm --filter @cohub/gateway --prod deploy /prod/gateway
 
 # ============================================

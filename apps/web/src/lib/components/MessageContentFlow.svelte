@@ -1,6 +1,6 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { MessageToolCallsFile } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { MessageToolCallsFile } from "@cohub/protocol/model";
 import { page } from "$app/state";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import AttachmentBlocks from "$lib/components/TextAttachmentBlocks.svelte";

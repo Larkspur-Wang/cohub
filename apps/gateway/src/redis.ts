@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import type { ChannelConfig } from "@neta-art/cohub-protocol/gateway";
+import type { ChannelConfig } from "@cohub/protocol/gateway";
 
 export type RedisStreamEntry = [string, string[]];
 

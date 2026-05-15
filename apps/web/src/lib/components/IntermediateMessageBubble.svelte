@@ -2,7 +2,7 @@
 import type {
 	MessageToolCallsFile,
 	StoredIntermediateMessage,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import type { ChatMessage } from "$lib/session-tree";
 

@@ -7,8 +7,8 @@ import {
   type RealtimeCompactFrame,
   type RealtimePatchOperation,
   type WsClientEvent,
-} from "@neta-art/cohub-protocol/realtime";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+} from "@cohub/protocol/realtime";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type { CohubEnvironment } from "./environment.js";
 import { resolveWebsocketUrl } from "./environment.js";
 

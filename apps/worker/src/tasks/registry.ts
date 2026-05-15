@@ -1,5 +1,5 @@
 import type { Job } from "bullmq";
-import type { TaskPayload } from "@neta-art/cohub-protocol/task";
+import type { TaskPayload } from "@cohub/protocol/task";
 import { eq } from "drizzle-orm";
 import { db } from "../db.js";
 import { taskRuns } from "../db-schema.js";

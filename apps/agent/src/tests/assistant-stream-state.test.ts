@@ -7,7 +7,7 @@ process.env.SESSIONS_DIR ??= "/tmp";
 process.env.PLATFORM_CONFIG_ROOT ??= "/tmp";
 process.env.ENV ??= "dev";
 
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import {
   applyAssistantMessageEvent,
   applyToolExecutionEnd,

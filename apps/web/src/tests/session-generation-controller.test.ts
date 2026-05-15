@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { mergeStreamingDeltaBlocks } from "../lib/session-streaming";
 
 type MiniGenerationState = {

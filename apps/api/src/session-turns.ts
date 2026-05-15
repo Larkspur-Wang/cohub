@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
-import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type {
   MessageToolCallsFile,
   SessionTurnIndexItem,
@@ -9,7 +9,7 @@ import type {
   StoredIntermediateMessage,
   StoredToolCall,
   TurnIntermediateMessagesFile,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { db } from "./db/index.js";
 import { sessionMessages, sessionTurnSegments, sessionTurns } from "./db/schema-v2.js";
 import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";

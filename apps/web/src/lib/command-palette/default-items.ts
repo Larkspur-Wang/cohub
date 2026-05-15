@@ -1,5 +1,5 @@
+import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { SessionRecord, SpaceRecord } from "@neta-art/cohub";
-import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import {
 	idbGetAllByIndex,
 	type SessionListCacheRecord,

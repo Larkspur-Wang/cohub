@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import type {
   PersistMessageInput,
   RegisterSessionInput,
-} from "@neta-art/cohub-protocol/model";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+} from "@cohub/protocol/model";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { env } from "./env.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

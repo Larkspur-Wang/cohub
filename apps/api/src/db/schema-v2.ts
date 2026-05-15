@@ -11,15 +11,15 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { TaskPayload } from "@neta-art/cohub-protocol/task";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { TaskPayload } from "@cohub/protocol/task";
 import type {
   SessionTurnIntent,
   SessionTurnIntermediateIndex,
   SessionTurnIntermediateSummary,
   SessionTurnStatus,
   SessionTurnSummary,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 
 export type SpaceRole = "host" | "builder" | "guest";
 export type AccessPolicyRole = "builder" | "guest" | null;
@@ -374,8 +374,8 @@ export const sessionTurns = v2.table(
     model: varchar("model", { length: 255 }),
     stopReason: varchar("stop_reason", { length: 50 }),
     errorMessage: text("error_message"),
-    finalUsage: jsonb("final_usage").$type<import("@neta-art/cohub-protocol").Usage | null>(),
-    totalUsage: jsonb("total_usage").$type<import("@neta-art/cohub-protocol").Usage | null>(),
+    finalUsage: jsonb("final_usage").$type<import("@cohub/protocol").Usage | null>(),
+    totalUsage: jsonb("total_usage").$type<import("@cohub/protocol").Usage | null>(),
     summary: jsonb("summary").$type<SessionTurnSummary | null>(),
     intermediateIndex: jsonb("intermediate_index").$type<SessionTurnIntermediateIndex | null>(),
     intermediateSummary: jsonb("intermediate_summary").$type<SessionTurnIntermediateSummary | null>(),
@@ -412,7 +412,7 @@ export const sessionMessages = v2.table(
     errorMessage: text("error_message"),
     sequence: integer("sequence").notNull(),
     idempotencyKey: varchar("idempotency_key", { length: 255 }),
-    usage: jsonb("usage").$type<import("@neta-art/cohub-protocol").Usage | null>(),
+    usage: jsonb("usage").$type<import("@cohub/protocol").Usage | null>(),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

@@ -1,7 +1,7 @@
 import { access, stat } from "node:fs/promises";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession, interruptSessionTurn } from "./api.js";
 import { sendOutput } from "./redis.js";
 import { logger } from "./logger.js";

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { createExecutionGrant } from "./execution-grants.js";
 import { enqueueSpacePrompt, SandboxNotReadyError } from "./space-sessions.js";
 import { createSessionTurn, failSessionTurn } from "./session-turns.js";

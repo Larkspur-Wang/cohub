@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import type { Generation } from "@neta-art/cohub-protocol";
+import type { Generation } from "@cohub/protocol";
 import { useAuth } from "../lib/middleware.js";
 import { loadGenerationDeclaration } from "../generations/declarations.js";
 import { createGenerationRequestSchema } from "../generations/schema.js";

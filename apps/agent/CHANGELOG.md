@@ -5,28 +5,28 @@
 ### Patch Changes
 
 - Updated dependencies [31f5713]
-  - @neta-art/cohub-protocol@2.0.0
+  - @cohub/protocol@2.0.0
 
 ## 1.1.3
 
 ### Patch Changes
 
 - Updated dependencies
-  - @neta-art/cohub-protocol@1.6.0
+  - @cohub/protocol@1.6.0
 
 ## 1.1.2
 
 ### Patch Changes
 
 - Updated dependencies [c53aaec]
-  - @neta-art/cohub-protocol@1.5.0
+  - @cohub/protocol@1.5.0
 
 ## 1.1.1
 
 ### Patch Changes
 
 - Updated dependencies [341bfc0]
-  - @neta-art/cohub-protocol@1.4.0
+  - @cohub/protocol@1.4.0
 
 ## 1.1.0
 
@@ -39,25 +39,25 @@
 ### Patch Changes
 
 - Updated dependencies [c688cc5]
-  - @neta-art/cohub-protocol@1.3.0
+  - @cohub/protocol@1.3.0
 
 ## 1.0.3
 
 ### Patch Changes
 
 - Updated dependencies [a2cb8ff]
-  - @neta-art/cohub-protocol@1.2.2
+  - @cohub/protocol@1.2.2
 
 ## 1.0.2
 
 ### Patch Changes
 
 - Updated dependencies [66b4ef8]
-  - @neta-art/cohub-protocol@1.2.1
+  - @cohub/protocol@1.2.1
 
 ## 1.0.1
 
 ### Patch Changes
 
 - Updated dependencies [0797485]
-  - @neta-art/cohub-protocol@1.2.0
+  - @cohub/protocol@1.2.0

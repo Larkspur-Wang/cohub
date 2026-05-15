@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { createProviderMessageRef } from "./channels.js";
 import { submitSessionPrompt, type ChannelPromptContext } from "./session-prompts.js";
 

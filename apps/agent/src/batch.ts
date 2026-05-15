@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { db } from "./db.js";
 import { env } from "./env.js";
 import type { AgentTurnJobData } from "./queue.js";

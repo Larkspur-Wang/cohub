@@ -1,4 +1,4 @@
-import type { GenerationContentBlock } from "@neta-art/cohub-protocol";
+import type { GenerationContentBlock } from "@cohub/protocol";
 import { resolveDeclarationApiKey } from "../declarations.js";
 import { GenerationProviderError } from "../errors.js";
 import { resolveSourceAsUrlOrDataUri } from "../sources.js";

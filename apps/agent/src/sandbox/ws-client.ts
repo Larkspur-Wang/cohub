@@ -8,8 +8,8 @@ import type {
   RpcRequestMap,
   SandboxHeartbeat,
 } from "@cohub/agent-sandbox-protocol";
-import type { SpaceFsChange } from "@neta-art/cohub-protocol/fs";
-import type { SpacePortChange } from "@neta-art/cohub-protocol/ports";
+import type { SpaceFsChange } from "@cohub/protocol/fs";
+import type { SpacePortChange } from "@cohub/protocol/ports";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
 import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";

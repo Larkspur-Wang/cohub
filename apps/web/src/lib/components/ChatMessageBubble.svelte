@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { Check, Copy, GitFork, Loader2, UserRound } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import type { ChatMessage } from "$lib/session-tree";

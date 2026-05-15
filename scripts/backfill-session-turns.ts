@@ -6,8 +6,8 @@ import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, isNull, lt, not, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
-import type { SessionTurnStatus, SessionTurnSummary } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
+import type { SessionTurnStatus, SessionTurnSummary } from "@cohub/protocol/model";
 import * as schema from "../apps/api/src/db/schema-v2.js";
 
 const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/cohub";

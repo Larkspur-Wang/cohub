@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { Transform, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import type { SpaceFsUploadProgress } from "@neta-art/cohub-protocol/fs";
+import type { SpaceFsUploadProgress } from "@cohub/protocol/fs";
 import { config } from "../config.js";
 import { getSpaceWorkspaceDir, ensureSpaceWorkspaceReady } from "../git.js";
 import { publishSpaceFsChanged } from "../space-events.js";

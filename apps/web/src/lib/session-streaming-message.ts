@@ -1,5 +1,5 @@
-import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
-import type { StoredIntermediateMessage } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
+import type { StoredIntermediateMessage } from "@cohub/protocol/model";
 
 function blockText(block: ContentBlock): string {
 	if (block.type === "text") return block.text;

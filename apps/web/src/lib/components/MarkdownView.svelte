@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { onDestroy, untrack } from "svelte";
 import MarkdownSurface from "$lib/components/MarkdownSurface.svelte";
 import { renderMarkdown } from "$lib/markdown";

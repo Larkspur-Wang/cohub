@@ -1,15 +1,47 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
     "paths": {
-      "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"],
-      "@cohub/auth": ["../../packages/auth/dist/index.d.ts"],
-      "@cohub/gateway-contract": ["../../packages/gateway-contract/dist/index.d.ts"],
-      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
-      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]
+      "@cohub/protocol": [
+        "../../packages/protocol/src/index.ts"
+      ],
+      "@cohub/protocol/core": [
+        "../../packages/protocol/src/core/index.ts"
+      ],
+      "@cohub/protocol/model": [
+        "../../packages/protocol/src/model/session.ts"
+      ],
+      "@cohub/protocol/realtime": [
+        "../../packages/protocol/src/realtime/index.ts"
+      ],
+      "@cohub/protocol/gateway": [
+        "../../packages/protocol/src/gateway/index.ts"
+      ],
+      "@cohub/protocol/task": [
+        "../../packages/protocol/src/task/index.ts"
+      ],
+      "@cohub/protocol/fs": [
+        "../../packages/protocol/src/fs/index.ts"
+      ],
+      "@cohub/auth": [
+        "../../packages/auth/src/index.ts"
+      ],
+      "@cohub/gateway-contract": [
+        "../../packages/gateway-contract/src/index.ts"
+      ],
+      "@cohub/agent-sandbox-protocol": [
+        "../../packages/agent-sandbox-protocol/src/index.ts"
+      ],
+      "@cohub/tracing": [
+        "../../packages/tracing/src/index.ts"
+      ],
+      "@cohub/tracing/propagator": [
+        "../../packages/tracing/src/propagator.ts"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

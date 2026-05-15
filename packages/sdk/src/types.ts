@@ -5,26 +5,26 @@ import type {
   SessionTurnIndexItem,
   SessionTurnRecord,
   SessionTurnSegmentRecord,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import type {
   ChannelConfig,
-} from "@neta-art/cohub-protocol/gateway";
+} from "@cohub/protocol/gateway";
 import type {
   ContentBlock,
   Usage,
-} from "@neta-art/cohub-protocol/core";
+} from "@cohub/protocol/core";
 import type {
   Generation,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
   CreateGenerationRequest,
-} from "@neta-art/cohub-protocol";
-import type { MessageRecord } from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol";
+import type { MessageRecord } from "@cohub/protocol/model";
 
 export type {
   ChannelConfig,
   DiscordChannelConfig,
-} from "@neta-art/cohub-protocol/gateway";
+} from "@cohub/protocol/gateway";
 
 export type ApiError = {
   message: string;

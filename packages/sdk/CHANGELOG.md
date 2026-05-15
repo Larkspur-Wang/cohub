@@ -13,7 +13,7 @@
 ### Patch Changes
 
 - Updated dependencies [31f5713]
-  - @neta-art/cohub-protocol@2.0.0
+  - @cohub/protocol@2.0.0
 
 ## 1.8.0
 
@@ -24,7 +24,7 @@
 ### Patch Changes
 
 - Updated dependencies
-  - @neta-art/cohub-protocol@1.6.0
+  - @cohub/protocol@1.6.0
 
 ## 1.7.1
 
@@ -41,7 +41,7 @@
 ### Patch Changes
 
 - Updated dependencies [c53aaec]
-  - @neta-art/cohub-protocol@1.5.0
+  - @cohub/protocol@1.5.0
 
 ## 1.6.0
 
@@ -53,7 +53,7 @@
 ### Patch Changes
 
 - Updated dependencies [341bfc0]
-  - @neta-art/cohub-protocol@1.4.0
+  - @cohub/protocol@1.4.0
 
 ## 1.5.1
 
@@ -77,14 +77,14 @@
 ### Patch Changes
 
 - Updated dependencies [c688cc5]
-  - @neta-art/cohub-protocol@1.3.0
+  - @cohub/protocol@1.3.0
 
 ## 1.4.0
 
 ### Minor Changes
 
 - d5b8d41: - `SessionPatchReducer`：支持对 `/message/content/blocks/{n}/...` 下任意 JSON 子路径的 `append`（字符串前缀追加）与 `replace`（深度赋值），不再仅识别 `text` / `thinking` 等固定路径。
-  - 开发用 `tsconfig`：为 `@neta-art/cohub-protocol/ports` 增加 `paths` 映射，修复 typecheck 无法解析该子路径的问题；`tsconfig.build.json` 同步增加 `ports` 的 dist 映射以便构建。
+  - 开发用 `tsconfig`：为 `@cohub/protocol/ports` 增加 `paths` 映射，修复 typecheck 无法解析该子路径的问题；`tsconfig.build.json` 同步增加 `ports` 的 dist 映射以便构建。
 
 ## 1.3.1
 
@@ -92,7 +92,7 @@
 
 - Release current package updates.
 - Updated dependencies
-  - @neta-art/cohub-protocol@1.2.3
+  - @cohub/protocol@1.2.3
 
 ## 1.3.0
 
@@ -108,7 +108,7 @@
 
 - a2cb8ff: 现在在刷新会话页面时会自动接续未完成的 stream
 - Updated dependencies [a2cb8ff]
-  - @neta-art/cohub-protocol@1.2.2
+  - @cohub/protocol@1.2.2
 
 ## 1.2.1
 
@@ -116,7 +116,7 @@
 
 - 66b4ef8: Add lightweight WebSocket compact frames for session patch streaming, with SDK negotiation and decoding support.
 - Updated dependencies [66b4ef8]
-  - @neta-art/cohub-protocol@1.2.1
+  - @cohub/protocol@1.2.1
 
 ## 1.2.0
 
@@ -127,4 +127,4 @@
 ### Patch Changes
 
 - Updated dependencies [0797485]
-  - @neta-art/cohub-protocol@1.2.0
+  - @cohub/protocol@1.2.0

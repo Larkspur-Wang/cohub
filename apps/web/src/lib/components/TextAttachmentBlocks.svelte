@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { ArrowUpRight } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";

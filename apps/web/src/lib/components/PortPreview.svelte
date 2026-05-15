@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SpacePortStatus } from "@neta-art/cohub-protocol/ports";
+import type { SpacePortStatus } from "@cohub/protocol/ports";
 import {
 	Check,
 	ExternalLink,

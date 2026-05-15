@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { StoredIntermediateMessage } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { StoredIntermediateMessage } from "@cohub/protocol/model";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { redisCommandClient } from "./redis.js";
 import { db } from "./db/index.js";

@@ -1,8 +1,8 @@
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	GenerationStreamEvent,
 	GenerationStreamStateEvent,
 } from "@neta-art/cohub";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
 import type { StreamingIntermediateMessage } from "./session-generation.svelte";
 import { sessionGenerationStore } from "./session-generation.svelte";
 import {

@@ -1,4 +1,4 @@
-import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
+import type { SessionTurnRecord } from "@cohub/protocol/model";
 
 export function mergeTurnsById(
 	existing: SessionTurnRecord[],

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import type { SpaceFsChangedPayload } from "@neta-art/cohub-protocol/fs";
+import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import { ensureInternalRequest, requireValidId } from "../../lib/middleware.js";
 import { dispatchRealtimeEventToUsers, getReadableUserIdsForSpace } from "../../channels.js";
 import { enqueueFsCdnWarmForChanges } from "../../space-fs-cdn-prewarm.js";

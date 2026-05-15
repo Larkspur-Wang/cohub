@@ -1,4 +1,4 @@
-import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import { authStore } from "$lib/stores/auth.svelte";
 
 export type SessionGenerationStatus =

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WebsocketClient } from "../src/websocket.js";
-import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
+import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 
 function createPatchEnvelope(input: {
 	seq: number;

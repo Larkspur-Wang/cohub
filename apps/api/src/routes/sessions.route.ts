@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";

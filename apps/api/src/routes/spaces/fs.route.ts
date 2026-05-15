@@ -31,7 +31,7 @@ import {
   saveSpaceUploadManifest,
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
-import type { SpaceFsCreateUploadInput, SpaceFsCompleteUploadInput } from "@neta-art/cohub-protocol/fs";
+import type { SpaceFsCreateUploadInput, SpaceFsCompleteUploadInput } from "@cohub/protocol/fs";
 
 const router = new Hono();
 

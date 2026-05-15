@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import StreamingWords from "$lib/components/StreamingWords.svelte";
 
 type Props = {

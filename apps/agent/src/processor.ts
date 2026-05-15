@@ -1,5 +1,5 @@
 import type { Job } from "bullmq";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { wrapAgentTurn } from "@cohub/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/tracing/propagator";

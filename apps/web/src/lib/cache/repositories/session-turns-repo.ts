@@ -1,5 +1,5 @@
+import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { SessionRecord } from "@neta-art/cohub";
-import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import {
 	publishCacheMessage,
 	subscribeCacheMessages,

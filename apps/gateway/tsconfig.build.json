@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@cohub/protocol": ["../../packages/protocol/dist/index.d.ts"],
+      "@cohub/protocol/core": ["../../packages/protocol/dist/core/index.d.ts"],
+      "@cohub/protocol/model": ["../../packages/protocol/dist/model/session.d.ts"],
+      "@cohub/protocol/realtime": ["../../packages/protocol/dist/realtime/index.d.ts"],
+      "@cohub/protocol/gateway": ["../../packages/protocol/dist/gateway/index.d.ts"],
+      "@cohub/protocol/task": ["../../packages/protocol/dist/task/index.d.ts"],
+      "@cohub/protocol/fs": ["../../packages/protocol/dist/fs/index.d.ts"],
+      "@cohub/auth": ["../../packages/auth/dist/index.d.ts"],
+      "@cohub/gateway-contract": ["../../packages/gateway-contract/dist/index.d.ts"],
+      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
+      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

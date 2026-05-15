@@ -1,10 +1,10 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	MessageToolCallsFile,
 	StoredIntermediateMessage,
 	StoredToolCall,
 	TurnIntermediateMessagesFile,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { sdk } from "$lib/sdk";
 
 async function fetchJson<T>(url: string): Promise<T> {

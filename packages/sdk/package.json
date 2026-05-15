@@ -22,35 +22,39 @@
     "websocket"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "directory": "dist"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./index.d.ts",
+      "import": "./index.js"
     },
     "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.js"
+      "types": "./http.d.ts",
+      "import": "./http.js"
     },
     "./websocket": {
-      "types": "./dist/websocket.d.ts",
-      "import": "./dist/websocket.js"
+      "types": "./websocket.d.ts",
+      "import": "./websocket.js"
     }
   },
-  "types": "./dist/index.d.ts",
+  "types": "./index.d.ts",
   "files": [
-    "dist",
+    "*.js",
+    "*.d.ts",
+    "chunks",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsdown && tsx scripts/write-publish-package.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@neta-art/cohub-protocol": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@cohub/protocol": "workspace:*",
+    "tsdown": "^0.22.0",
+    "tsx": "4.21.0",
     "typescript": "^6.0.3"
   }
 }

@@ -1,4 +1,4 @@
-import type { StoredIntermediateMessage } from "@neta-art/cohub-protocol/model";
+import type { StoredIntermediateMessage } from "@cohub/protocol/model";
 import { createStreamingIntermediateMessage } from "$lib/session-streaming-message";
 import {
 	type StreamingIntermediateMessage,

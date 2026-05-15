@@ -36,12 +36,7 @@ COPY packages/config-runtime ./packages/config-runtime
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json ./apps/agent/tsconfig.json
 
-RUN pnpm --filter @neta-art/cohub-protocol build
-RUN pnpm --filter @cohub/agent-sandbox-protocol build
-RUN pnpm --filter @cohub/tracing build
-RUN pnpm --filter @cohub/bullmq-ops build
-RUN pnpm --filter @cohub/config-runtime build
-RUN pnpm --filter @cohub/agent build
+RUN pnpm --filter @cohub/agent... build
 RUN pnpm --filter @cohub/agent --prod deploy /prod/agent
 
 FROM node:24-slim AS runtime

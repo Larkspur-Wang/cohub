@@ -1,26 +1,55 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"],
-    "strict": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
-    "noUncheckedIndexedAccess": true,
-    "resolveJsonModule": true,
+    "noEmit": true,
+    "rootDir": "../..",
     "outDir": "./dist",
-    "rootDir": "./src",
     "paths": {
-      "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"],
-      "@cohub/agent-sandbox-protocol": ["../../packages/agent-sandbox-protocol/dist/index.d.ts"],
-      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
-      "@cohub/bullmq-ops": ["../../packages/bullmq-ops/dist/index.d.ts"],
-      "@cohub/config-runtime/models": ["../../packages/config-runtime/dist/models.d.ts"],
-      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"],
-      "@cohub/tracing/agent": ["../../packages/tracing/dist/spans/agent.d.ts"]
+      "@cohub/protocol": [
+        "../../packages/protocol/src/index.ts"
+      ],
+      "@cohub/protocol/core": [
+        "../../packages/protocol/src/core/index.ts"
+      ],
+      "@cohub/protocol/model": [
+        "../../packages/protocol/src/model/session.ts"
+      ],
+      "@cohub/protocol/realtime": [
+        "../../packages/protocol/src/realtime/index.ts"
+      ],
+      "@cohub/protocol/gateway": [
+        "../../packages/protocol/src/gateway/index.ts"
+      ],
+      "@cohub/protocol/task": [
+        "../../packages/protocol/src/task/index.ts"
+      ],
+      "@cohub/protocol/fs": [
+        "../../packages/protocol/src/fs/index.ts"
+      ],
+      "@cohub/protocol/ports": [
+        "../../packages/protocol/src/ports/index.ts"
+      ],
+      "@cohub/agent-sandbox-protocol": [
+        "../../packages/agent-sandbox-protocol/src/index.ts"
+      ],
+      "@cohub/tracing": [
+        "../../packages/tracing/src/index.ts"
+      ],
+      "@cohub/bullmq-ops": [
+        "../../packages/bullmq-ops/src/index.ts"
+      ],
+      "@cohub/config-runtime/models": [
+        "../../packages/config-runtime/src/models.ts"
+      ],
+      "@cohub/tracing/propagator": [
+        "../../packages/tracing/src/propagator.ts"
+      ],
+      "@cohub/tracing/agent": [
+        "../../packages/tracing/src/spans/agent.ts"
+      ]
     }
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }

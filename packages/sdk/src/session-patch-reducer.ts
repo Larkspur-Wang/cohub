@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { RealtimePatchOperation, SessionTurnPatchEvent } from "@neta-art/cohub-protocol/realtime";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { RealtimePatchOperation, SessionTurnPatchEvent } from "@cohub/protocol/realtime";
 
 export type SessionPatchStatus =
   | "idle"

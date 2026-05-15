@@ -7,14 +7,14 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
   RealtimeCompactFrame,
   RealtimeEnvelope,
   RealtimePatchOperation,
   RealtimeServerEvent,
   WsClientEvent,
-} from "@neta-art/cohub-protocol/realtime";
+} from "@cohub/protocol/realtime";
 
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import {
@@ -22,7 +22,7 @@ import {
   realtimeEnvelopeSchema,
   WS_COMPACT_STREAM_CAPABILITY,
   wsClientEventSchema,
-} from "@neta-art/cohub-protocol/realtime";
+} from "@cohub/protocol/realtime";
 import { authenticateRealtimeToken, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { gatewayConfig } from "./config.js";

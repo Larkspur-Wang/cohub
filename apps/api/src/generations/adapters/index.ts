@@ -1,4 +1,4 @@
-import type { CreateGenerationRequest, GenerationContentBlock, GenerationDeclaration } from "@neta-art/cohub-protocol";
+import type { CreateGenerationRequest, GenerationContentBlock, GenerationDeclaration } from "@cohub/protocol";
 import type { AuthUser } from "../../lib/middleware.js";
 import { openAiImagesAdapter } from "./openai-images.js";
 

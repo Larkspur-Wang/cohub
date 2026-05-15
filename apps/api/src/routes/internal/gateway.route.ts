@@ -1,6 +1,6 @@
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/tracing/propagator";
-import { gatewayInboundEventSchema } from "@neta-art/cohub-protocol/gateway";
+import { gatewayInboundEventSchema } from "@cohub/protocol/gateway";
 import { Hono } from "hono";
 import { handleInboundEvent } from "../../channels.js";
 import { ensureInternalRequest } from "../../lib/middleware.js";

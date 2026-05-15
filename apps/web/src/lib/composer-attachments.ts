@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 
 export const MAX_COMPOSER_ATTACHMENTS = 14;
 export const MAX_COMPOSER_TEXT_ATTACHMENT_BYTES = 200 * 1024;

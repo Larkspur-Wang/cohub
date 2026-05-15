@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "biome lint src/",
     "lint:fix": "biome lint --write src/",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260421.1",

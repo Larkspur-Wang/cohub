@@ -1,6 +1,6 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { RealtimePatchOperation, SessionStreamEvent } from "@neta-art/cohub-protocol/realtime";
-import { getSessionTurnPatchStreamKey } from "@neta-art/cohub-protocol/realtime";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { RealtimePatchOperation, SessionStreamEvent } from "@cohub/protocol/realtime";
+import { getSessionTurnPatchStreamKey } from "@cohub/protocol/realtime";
 
 const getStreamIndex = (block: ContentBlock, fallback: number) => {
   const value = block._meta?.streamIndex;

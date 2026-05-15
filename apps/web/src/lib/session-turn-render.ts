@@ -1,9 +1,9 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	SessionTurnIntermediateSummary,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { getStreamingRenderKey } from "./session-streaming";
 import type { ChatMessage, TimelineItem } from "./session-tree";
 

@@ -1,4 +1,4 @@
-import type { SpaceFsChange } from "@neta-art/cohub-protocol/fs";
+import type { SpaceFsChange } from "@cohub/protocol/fs";
 import { getMimeType } from "./space-fs.js";
 import { enqueueFsCdnWarmForMeta, shouldUseFsCdnForMeta } from "./space-fs-cdn-cache.js";
 

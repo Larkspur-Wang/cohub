@@ -54,8 +54,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build auth package
-        run: pnpm --filter @cohub/auth build
+      - name: Build dependency closure
+        run: pnpm --filter @cohub/gateway... build
 
       - name: Lint
         run: pnpm --filter @cohub/gateway lint

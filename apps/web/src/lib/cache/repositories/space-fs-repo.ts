@@ -1,8 +1,5 @@
+import type { SpaceFsChange, SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { SpaceFsEntry } from "@neta-art/cohub";
-import type {
-	SpaceFsChange,
-	SpaceFsChangedPayload,
-} from "@neta-art/cohub-protocol/fs";
 import {
 	publishCacheMessage,
 	subscribeCacheMessages,

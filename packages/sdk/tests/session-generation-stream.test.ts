@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ChannelEnvelope } from "@neta-art/cohub-protocol/realtime";
+import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import { SessionGenerationStreamClient } from "../src/session-generation-stream.js";
 import { WebsocketClient } from "../src/websocket.js";
 

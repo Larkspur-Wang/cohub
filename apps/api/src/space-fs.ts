@@ -24,7 +24,7 @@ import type {
   SpaceFsTreeResponse,
   SpaceFsUploadResponse,
   SpaceFsWriteFileInput,
-} from "@neta-art/cohub-protocol/fs";
+} from "@cohub/protocol/fs";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_BATCH_READ_FILES = 50;

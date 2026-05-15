@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
 import {

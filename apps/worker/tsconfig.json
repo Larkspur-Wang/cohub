@@ -3,11 +3,60 @@
   "compilerOptions": {
     "noEmit": true,
     "paths": {
-      "@cohub/tracing": ["../../packages/tracing/src/index.ts"],
-      "@cohub/tracing/provider": ["../../packages/tracing/src/provider.ts"],
-      "@cohub/tracing/propagator": ["../../packages/tracing/src/propagator.ts"],
-      "@cohub/tracing/agent": ["../../packages/tracing/src/spans/agent.ts"]
+      "@cohub/protocol": [
+        "../../packages/protocol/src/index.ts"
+      ],
+      "@cohub/protocol/core": [
+        "../../packages/protocol/src/core/index.ts"
+      ],
+      "@cohub/protocol/model": [
+        "../../packages/protocol/src/model/session.ts"
+      ],
+      "@cohub/protocol/realtime": [
+        "../../packages/protocol/src/realtime/index.ts"
+      ],
+      "@cohub/protocol/gateway": [
+        "../../packages/protocol/src/gateway/index.ts"
+      ],
+      "@cohub/protocol/task": [
+        "../../packages/protocol/src/task/index.ts"
+      ],
+      "@cohub/protocol/fs": [
+        "../../packages/protocol/src/fs/index.ts"
+      ],
+      "@cohub/agent-sandbox-protocol": [
+        "../../packages/agent-sandbox-protocol/src/index.ts"
+      ],
+      "@cohub/tracing": [
+        "../../packages/tracing/src/index.ts"
+      ],
+      "@cohub/bullmq-ops": [
+        "../../packages/bullmq-ops/src/index.ts"
+      ],
+      "@cohub/tracing/db": [
+        "../../packages/tracing/src/db.ts"
+      ],
+      "@cohub/config-runtime/models": [
+        "../../packages/config-runtime/src/models.ts"
+      ],
+      "@cohub/config-runtime/generations": [
+        "../../packages/config-runtime/src/generations.ts"
+      ],
+      "@cohub/config-runtime/prompts": [
+        "../../packages/config-runtime/src/prompts.ts"
+      ],
+      "@cohub/tracing/provider": [
+        "../../packages/tracing/src/provider.ts"
+      ],
+      "@cohub/tracing/propagator": [
+        "../../packages/tracing/src/propagator.ts"
+      ],
+      "@cohub/tracing/agent": [
+        "../../packages/tracing/src/spans/agent.ts"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

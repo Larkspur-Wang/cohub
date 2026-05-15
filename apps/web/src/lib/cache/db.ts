@@ -1,5 +1,5 @@
+import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { SessionRecord, SpaceFsEntry, SpaceRecord } from "@neta-art/cohub";
-import type { SessionTurnRecord } from "@neta-art/cohub-protocol/model";
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";

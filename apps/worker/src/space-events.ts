@@ -1,4 +1,4 @@
-import type { SpaceFsChangedPayload } from "@neta-art/cohub-protocol/fs";
+import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import { config } from "./config.js";
 
 export async function publishSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {

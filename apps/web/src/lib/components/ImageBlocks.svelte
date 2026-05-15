@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;

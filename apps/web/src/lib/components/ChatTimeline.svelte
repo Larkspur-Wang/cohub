@@ -3,7 +3,7 @@ import type {
 	MessageToolCallsFile,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { Loader2 } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";

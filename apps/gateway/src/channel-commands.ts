@@ -1,4 +1,4 @@
-import { GATEWAY_CHANNEL_COMMAND_SPECS, type GatewayChannelCommand } from "@neta-art/cohub-protocol/gateway";
+import { GATEWAY_CHANNEL_COMMAND_SPECS, type GatewayChannelCommand } from "@cohub/protocol/gateway";
 
 type ChannelCommandSpec = typeof GATEWAY_CHANNEL_COMMAND_SPECS[number];
 

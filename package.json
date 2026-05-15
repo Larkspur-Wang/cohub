@@ -31,7 +31,7 @@
     "test:all": "pnpm test:e2e && pnpm test:stress && pnpm test:concurrency",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm --filter @neta-art/cohub-protocol build && pnpm --filter @neta-art/cohub build && pnpm --filter @neta-art/cohub-cli build && changeset publish"
+    "release": "pnpm --filter @neta-art/cohub-cli... build && changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",

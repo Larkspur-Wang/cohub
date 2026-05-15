@@ -4,7 +4,7 @@ import type {
 	SessionTurnIntermediateSummary,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
 import IntermediateMessageBubble from "$lib/components/IntermediateMessageBubble.svelte";
 

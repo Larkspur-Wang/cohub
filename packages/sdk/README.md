@@ -5,17 +5,20 @@ Cohub SDK for interacting with spaces, sessions, checkpoints, and realtime agent
 ## Install
 
 ```bash
-npm install @neta-art/cohub @neta-art/cohub-protocol
+npm install @neta-art/cohub
 ```
 
 ## Quick start
 
 ```ts
 import { createCohubClient } from "@neta-art/cohub";
+import type { ContentBlock } from "@neta-art/cohub";
 
 const client = createCohubClient({
   getAccessToken: async () => localStorage.getItem("token"),
 });
+
+const content: ContentBlock[] = [{ type: "text", text: "Hello" }];
 ```
 
 The SDK connects to production by default:
@@ -78,112 +81,10 @@ const stop = session.subscribe({
   progress(event) {
     console.log("progress", event.payload);
   },
-  final(event) {
-    console.log("final", event.payload);
-  },
-  error(event) {
-    console.error("error", event.payload);
-  },
-  persisted(event) {
-    console.log("persisted", event.payload);
+  finalized(event) {
+    console.log("done", event.payload);
   },
 });
 
-// later
 stop();
 ```
-
-You can also listen with business-oriented event names:
-
-```ts
-session.on("turn.patch", (event) => {
-  // Streaming state-machine patch: { turnId, seq, baseSeq, ops }.
-  // Consecutive append ops may be compacted to { v }.
-  console.log(event.payload.ops);
-});
-
-session.subscribe({
-  patchState: (result) => {
-    if (result.applied) {
-      console.log(result.state.contentBlocks);
-    }
-  },
-});
-
-session.on("turn.final", (event) => {
-  // Fired when an assistant_final message.persisted event arrives.
-  console.log(event.payload.message);
-});
-
-space.on("message.persisted", (event) => {
-  console.log(event.payload);
-});
-```
-
-For product UIs, prefer the normalized generation stream. It folds
-`session.turn.snapshot`, `session.turn.patch`, legacy `session.turn.progress`,
-persisted assistant messages, finalized turns, and turn errors into stable
-semantic events.
-
-```ts
-const stop = session.subscribeGeneration({
-  state(event) {
-    console.log(event.source, event.state.contentBlocks);
-  },
-  commit(event) {
-    if (event.commit.kind === "final") {
-      console.log("assistant final", event.commit.message);
-    }
-  },
-  outOfSync() {
-    // Fetch `session.turns.streamSnapshot()` or reconcile persisted turns.
-  },
-});
-```
-
-Supported business event names:
-
-- `turn.patch`
-- `turn.progress` (legacy compatibility)
-- `turn.final`
-- `turn.error`
-- `message.persisted`
-
-## HTTP-only usage
-
-If you only want HTTP transport, use the dedicated entry:
-
-```ts
-import { createHttpClient } from "@neta-art/cohub/http";
-
-const http = createHttpClient({
-  getAccessToken: async () => localStorage.getItem("token"),
-});
-
-const spaces = await http.spaces.list();
-```
-
-Note: realtime methods like `space.subscribe(...)` or `session.subscribe(...)` require the main client with websocket configuration.
-
-## Low-level websocket usage
-
-If you need direct realtime transport access, use the websocket entry:
-
-```ts
-import { createWebsocketClient } from "@neta-art/cohub/websocket";
-
-const ws = createWebsocketClient({
-  getAccessToken: async () => localStorage.getItem("token"),
-});
-
-await ws.connect();
-```
-
-## Design principles
-
-This SDK is intentionally built around Cohub's co-creation model:
-
-- work with `space(...)` and `session(...)` as the primary creative surface
-- send messages through `session.messages.send(...)`
-- subscribe through `space.subscribe(...)` and `session.subscribe(...)`
-- keep HTTP and realtime transports separate but coordinated

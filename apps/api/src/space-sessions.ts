@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
-import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
+import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import { injectTrace } from "@cohub/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
 import { db } from "./db/index.js";

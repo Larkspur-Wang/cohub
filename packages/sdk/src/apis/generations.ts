@@ -1,7 +1,7 @@
 import type {
   CreateGenerationRequest,
   Generation,
-} from "@neta-art/cohub-protocol";
+} from "@cohub/protocol";
 import type { HttpTransport } from "../transport.js";
 
 export class GenerationsApi {

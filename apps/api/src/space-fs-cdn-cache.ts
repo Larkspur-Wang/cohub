@@ -14,7 +14,7 @@ import {
   buildFsCdnManifestKey,
   shouldUseFsCdnCache,
 } from "./space-fs-cdn-policy.js";
-import type { SpaceFsFileResponse, SpaceFsPreparingFile } from "@neta-art/cohub-protocol/fs";
+import type { SpaceFsFileResponse, SpaceFsPreparingFile } from "@cohub/protocol/fs";
 
 export type FsCdnFileMeta = {
   spaceId: string;

@@ -77,7 +77,7 @@
 - **好处**：前端不再维护一套重复的 API client，类型安全和错误处理全部交给 SDK
 
 ### Protocol 分层重构
-- 协议包从扁平结构拆分为子路径：`@neta-art/cohub-protocol/core` / `/gateway` / `/realtime` / `/fs` / `/task`
+- 协议包从扁平结构拆分为子路径：`@cohub/protocol/core` / `/gateway` / `/realtime` / `/fs` / `/task`
 - `session-ingestion.ts` → `model/session.ts`，`gateway.ts` → `gateway/index.ts`，`tasks.ts` → `task/index.ts`
 - `websocket.ts` 移入 `realtime/` 子目录
 - 移除 `permissions.ts` / `responses.ts` / `space-sandbox.ts`（职责下沉到具体应用层）
@@ -103,7 +103,7 @@
 - 已有 v2 表时跳过 drizzle migrate（防止重复建表报错）
 - Worker save-checkpoint task 在 commit 前正确设置 git user identity
 - Gateway Dockerfile 补上 gateway-contract 构建步骤
-- CI pnpm filter 包名修正为 `@neta-art/cohub-protocol`
+- CI pnpm filter 包名修正为 `@cohub/protocol`
 - Inline panel 左边框始终可见，右侧 sidebar resize 样式统一
 - 复制反馈 + segmented toggle 可见性 + inline panel resize 联动修复
 - Agent tsconfig typecheck 补上 protocol subpath entries

@@ -11,7 +11,7 @@ import {
   PLATFORM_GENERATIONS_REDIS_KEY,
   type GenerationsConfig,
 } from "@cohub/config-runtime/generations";
-import type { GenerationDeclaration, PublicGenerationDeclaration } from "@neta-art/cohub-protocol";
+import type { GenerationDeclaration, PublicGenerationDeclaration } from "@cohub/protocol";
 import { config } from "../config.js";
 import { redisCommandClient } from "../redis.js";
 

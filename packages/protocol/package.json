@@ -1,29 +1,10 @@
 {
-  "name": "@neta-art/cohub-protocol",
+  "name": "@cohub/protocol",
   "version": "2.0.0",
-  "description": "Shared protocol definitions for the Cohub agent collaboration platform.",
+  "description": "Internal shared protocol definitions for Cohub.",
   "license": "UNLICENSED",
-  "private": false,
+  "private": true,
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/talesofai/cohub.git",
-    "directory": "packages/protocol"
-  },
-  "homepage": "https://github.com/talesofai/cohub",
-  "keywords": [
-    "cohub",
-    "protocol",
-    "agent",
-    "spaces",
-    "checkpoints",
-    "collaboration",
-    "realtime",
-    "sdk"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -64,18 +45,16 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist",
-    "README.md"
+    "dist"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsgo --noEmit"
-  },
-  "devDependencies": {
-    "@typescript/native-preview": "7.0.0-dev.20260421.1",
-    "typescript": "^6.0.3"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
   }
 }

@@ -1,9 +1,9 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
   DiscordChannelConfig,
   FeishuChannelConfig,
   GatewaySessionOutput,
-} from "@neta-art/cohub-protocol/gateway";
+} from "@cohub/protocol/gateway";
 import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 
 export const splitPlannedMessage = (value: string, limit = 1900) => {

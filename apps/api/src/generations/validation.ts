@@ -1,4 +1,4 @@
-import type { GenerationContentBlock, GenerationContentSpec, GenerationDeclaration } from "@neta-art/cohub-protocol";
+import type { GenerationContentBlock, GenerationContentSpec, GenerationDeclaration } from "@cohub/protocol";
 
 export class GenerationValidationError extends Error {
   constructor(message: string) {

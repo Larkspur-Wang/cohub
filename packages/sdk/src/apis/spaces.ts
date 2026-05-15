@@ -1,4 +1,4 @@
-import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
+import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";

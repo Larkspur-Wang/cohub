@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { MessageToolCallsFile } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { MessageToolCallsFile } from "@cohub/protocol/model";
 import type { ToolState } from "$lib/session-tree";
 
 export type ToolCallStatus = "running" | "done" | "failed";

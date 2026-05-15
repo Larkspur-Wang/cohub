@@ -1,5 +1,5 @@
 import type { V1Service } from "@kubernetes/client-node";
-import { SANDBOX_PUBLIC_PORTS, type SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
+import { SANDBOX_PUBLIC_PORTS, type SpacePublicEndpoints } from "@cohub/protocol/ports";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi, k8sCustomObjectsApi } from "./k8s.js";
 

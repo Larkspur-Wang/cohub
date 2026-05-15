@@ -1,9 +1,9 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	MessageToolCallsFile,
 	SessionTurnIntermediateSummary,
 	SessionTurnRecord,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 
 export type ChatMessage = {
 	id: string;
@@ -60,7 +60,7 @@ export type TimelineItem =
 			kind: "process";
 			turn: SessionTurnRecord;
 			summary?: SessionTurnIntermediateSummary;
-			intermediateMessages?: import("@neta-art/cohub-protocol/model").StoredIntermediateMessage[];
+			intermediateMessages?: import("@cohub/protocol/model").StoredIntermediateMessage[];
 			streaming?: boolean;
 	  };
 

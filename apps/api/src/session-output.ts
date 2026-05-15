@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { MessageRecord, SessionTurnRecord } from "@neta-art/cohub-protocol/model";
-import type { GatewaySessionOutput } from "@neta-art/cohub-protocol/gateway";
-import type { RealtimeMessageRecord, RealtimeTurnRecord } from "@neta-art/cohub-protocol/realtime";
+import type { MessageRecord, SessionTurnRecord } from "@cohub/protocol/model";
+import type { GatewaySessionOutput } from "@cohub/protocol/gateway";
+import type { RealtimeMessageRecord, RealtimeTurnRecord } from "@cohub/protocol/realtime";
 import {
   dispatchOutboundMessage,
   dispatchRealtimeEventToUsers,

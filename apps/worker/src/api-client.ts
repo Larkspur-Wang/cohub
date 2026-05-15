@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { PersistMessageInput, RegisterSessionInput } from "@neta-art/cohub-protocol/model";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { PersistMessageInput, RegisterSessionInput } from "@cohub/protocol/model";
 import { config } from "./config.js";
 
 export class InternalApiError extends Error {

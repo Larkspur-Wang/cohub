@@ -1,4 +1,4 @@
-import { SANDBOX_PUBLIC_PORTS } from "@neta-art/cohub-protocol/ports";
+import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { config } from "../config.js";
 
 type SandboxPodTemplateVariables = {

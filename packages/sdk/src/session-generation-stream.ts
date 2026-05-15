@@ -1,8 +1,8 @@
-import type { ContentBlock, Usage } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type {
   MessageRecord,
   SessionTurnRecord,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { ensureRealtimeConnected } from "./realtime.js";
 import {
   SessionPatchReducer,

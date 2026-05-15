@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
-import type { TaskPayload } from "@neta-art/cohub-protocol/task";
+import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { checkpoints, spaces, userGitAccounts } from "../db-schema.js";

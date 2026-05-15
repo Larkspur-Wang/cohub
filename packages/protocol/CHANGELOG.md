@@ -1,4 +1,4 @@
-# @neta-art/cohub-protocol
+# @cohub/protocol
 
 ## 2.0.0
 

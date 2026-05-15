@@ -45,11 +45,7 @@ COPY packages/config-runtime ./packages/config-runtime
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
 
-RUN pnpm --filter @neta-art/cohub-protocol build
-RUN pnpm --filter @cohub/tracing build
-RUN pnpm --filter @cohub/bullmq-ops build
-RUN pnpm --filter @cohub/config-runtime build
-RUN pnpm --filter @cohub/worker build
+RUN pnpm --filter @cohub/worker... build
 RUN pnpm --filter @cohub/worker --prod deploy /prod/worker
 
 # ============================================

@@ -12,8 +12,8 @@ import {
   PLATFORM_MODELS_REDIS_KEY,
   type ModelsConfig,
 } from "@cohub/config-runtime/models";
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
-import type { GatewayChannelCommand, GatewayChannelCommandName, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
+import type { ContentBlock } from "@cohub/protocol/core";
+import type { GatewayChannelCommand, GatewayChannelCommandName, GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { sessionMessages, spaces } from "./db/schema-v2.js";

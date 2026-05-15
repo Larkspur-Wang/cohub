@@ -4,7 +4,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@neta-art/cohub-protocol": ["../../packages/protocol/dist/index.d.ts"],
+      "@cohub/protocol": ["../../packages/protocol/dist/index.d.ts"],
       "@cohub/bullmq-ops": ["../../packages/bullmq-ops/dist/index.d.ts"],
       "@cohub/config-runtime/models": ["../../packages/config-runtime/dist/models.d.ts"]
     }

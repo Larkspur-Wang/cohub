@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { Job } from "bullmq";
-import type { TaskPayload } from "@neta-art/cohub-protocol/task";
+import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { checkpoints, spaces } from "../db-schema.js";

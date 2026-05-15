@@ -2,10 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./src",
+    "rootDir": "../..",
     "paths": {
-      "@neta-art/cohub-protocol": ["../protocol/src/index.ts"],
-      "@neta-art/cohub-protocol/gateway": ["../protocol/src/gateway/index.ts"]
+      "@cohub/protocol": ["../protocol/src/index.ts"],
+      "@cohub/protocol/gateway": ["../protocol/src/gateway/index.ts"]
     }
   },
   "include": ["src"]

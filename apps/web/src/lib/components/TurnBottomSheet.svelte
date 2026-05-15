@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SessionTurnIndexItem } from "@neta-art/cohub-protocol/model";
+import type { SessionTurnIndexItem } from "@cohub/protocol/model";
 
 type Props = {
 	open: boolean;

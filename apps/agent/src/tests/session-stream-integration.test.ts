@@ -9,7 +9,7 @@ process.env.PLATFORM_CONFIG_ROOT ??= "/tmp";
 process.env.ENV ??= "dev";
 process.env.AGENT_INSTANCE_ID ??= "test-agent";
 
-import type { ContentBlock } from "@neta-art/cohub-protocol/core";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type { AssistantMessage, AssistantMessageEvent } from "@mariozechner/pi-ai";
 const { subscribeSessionEvents } = await import("../session.js");
 const { closeRedisConnections } = await import("../redis.js");

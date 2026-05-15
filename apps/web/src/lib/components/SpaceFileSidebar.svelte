@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SpacePublicEndpoints } from "@neta-art/cohub-protocol/ports";
+import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import {
 	AlertCircle,
 	ChevronDown,

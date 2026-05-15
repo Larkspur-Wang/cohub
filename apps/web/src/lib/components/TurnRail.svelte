@@ -2,7 +2,7 @@
 import type {
 	SessionTurnIndexItem,
 	SessionTurnRecord,
-} from "@neta-art/cohub-protocol/model";
+} from "@cohub/protocol/model";
 import { Loader2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 

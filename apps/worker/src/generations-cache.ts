@@ -10,7 +10,7 @@ import {
   type CachedGenerationsConfig,
   type GenerationsConfig,
 } from "@cohub/config-runtime/generations";
-import type { GenerationDeclaration } from "@neta-art/cohub-protocol";
+import type { GenerationDeclaration } from "@cohub/protocol";
 import { redisCommandClient } from "./redis.js";
 
 const DECLARATION_EXTENSIONS = new Set([".yaml", ".yml", ".json"]);

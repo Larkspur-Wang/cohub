@@ -5,14 +5,14 @@
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@neta-art/cohub-protocol": ["../protocol/src/index.ts"],
-      "@neta-art/cohub-protocol/core": ["../protocol/src/core/index.ts"],
-      "@neta-art/cohub-protocol/model": ["../protocol/src/model/session.ts"],
-      "@neta-art/cohub-protocol/realtime": ["../protocol/src/realtime/index.ts"],
-      "@neta-art/cohub-protocol/gateway": ["../protocol/src/gateway/index.ts"],
-      "@neta-art/cohub-protocol/task": ["../protocol/src/task/index.ts"],
-      "@neta-art/cohub-protocol/fs": ["../protocol/src/fs/index.ts"],
-      "@neta-art/cohub-protocol/ports": ["../protocol/src/ports/index.ts"]
+      "@cohub/protocol": ["../protocol/src/index.ts"],
+      "@cohub/protocol/core": ["../protocol/src/core/index.ts"],
+      "@cohub/protocol/model": ["../protocol/src/model/session.ts"],
+      "@cohub/protocol/realtime": ["../protocol/src/realtime/index.ts"],
+      "@cohub/protocol/gateway": ["../protocol/src/gateway/index.ts"],
+      "@cohub/protocol/task": ["../protocol/src/task/index.ts"],
+      "@cohub/protocol/fs": ["../protocol/src/fs/index.ts"],
+      "@cohub/protocol/ports": ["../protocol/src/ports/index.ts"]
     }
   },
   "include": ["src"]

@@ -1,5 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
-import type { SessionForkRecord, SessionTurnSegmentRecord } from "@neta-art/cohub-protocol/model";
+import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
 import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "./db/schema-v2.js";
 

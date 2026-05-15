@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayConversationCreateEvent, GatewayInboundEvent } from "@neta-art/cohub-protocol/gateway";
+import type { GatewayConversationCreateEvent, GatewayInboundEvent } from "@cohub/protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
 import { injectTrace } from "@cohub/tracing/propagator";
 import {
