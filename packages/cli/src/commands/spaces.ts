@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
@@ -23,6 +27,103 @@ type PromptOptions = {
   timezone?: string;
   json?: boolean;
 };
+
+type UploadFile = {
+  id: string;
+  localPath: string;
+  relativePath: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+};
+
+type UploadOptions = {
+  dir?: string;
+  json?: boolean;
+};
+
+const slashPath = (value: string) => value.split(sep).join("/");
+
+const walkUploadPath = async (input: string, root: string, prefix = ""): Promise<UploadFile[]> => {
+  const localPath = resolve(input);
+  const info = await stat(localPath);
+  const name = basename(localPath);
+  const relativePath = slashPath(prefix ? `${prefix}/${name}` : relative(root, localPath) || name);
+
+  if (info.isDirectory()) {
+    const children = await readdir(localPath);
+    const nested = await Promise.all(children.map((child) => walkUploadPath(resolve(localPath, child), root, relativePath)));
+    return nested.flat();
+  }
+  if (!info.isFile()) return [];
+
+  return [{
+    id: randomUploadEntryId(),
+    localPath,
+    relativePath,
+    name,
+    size: info.size,
+    mimeType: null,
+  }];
+};
+
+const randomUploadEntryId = () => randomUUID();
+
+async function collectUploadFiles(paths: string[]): Promise<UploadFile[]> {
+  if (paths.length === 0) return error("No files provided", "Pass one or more local files or directories.");
+  const roots = paths.map((path) => {
+    const resolved = resolve(path);
+    return dirname(resolved);
+  });
+  const nested = await Promise.all(paths.map((path, index) => walkUploadPath(path, roots[index] ?? process.cwd())));
+  const files = nested.flat();
+  if (files.length === 0) return error("No regular files found");
+  return files;
+}
+
+async function putUploadEntry(entry: UploadFile, uploadUrl: string, headers?: Record<string, string>): Promise<void> {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers,
+    body: createReadStream(entry.localPath) as never,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Failed to upload ${entry.relativePath}: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+async function uploadFiles(command: Command, paths: string[], opts: UploadOptions): Promise<void> {
+  const spaceId = requireSpace(command);
+  const client = createClient();
+  try {
+    const files = await collectUploadFiles(paths);
+    const plan = await client.space(spaceId).files.createUpload({
+      targetDir: opts.dir,
+      entries: files.map((file) => ({
+        id: file.id,
+        name: file.name,
+        relativePath: file.relativePath,
+        size: file.size,
+        mimeType: file.mimeType,
+      })),
+    });
+    const byId = new Map(files.map((file) => [file.id, file]));
+    for (const entry of plan.entries) {
+      const file = byId.get(entry.id);
+      if (!file) throw new Error(`Missing upload entry: ${entry.id}`);
+      await putUploadEntry(file, entry.uploadUrl, entry.headers);
+    }
+    const result = await client.space(spaceId).files.completeUpload(plan.uploadId, {
+      entries: plan.entries.map((entry) => ({ id: entry.id })),
+    });
+    if (opts.json) return outJson({ ...result, uploadId: plan.uploadId, files: files.length });
+    ok(`Uploaded ${files.length} file${files.length === 1 ? "" : "s"} — taskRunId: ${result.taskRunId}`);
+  } catch (e: unknown) {
+    handleHttp(e);
+  }
+}
 
 async function readPromptContent(words: string[]): Promise<string> {
   let content = words.join(" ");
@@ -305,6 +406,13 @@ function registerFiles(spacesCmd: Command): void {
         handleHttp(e);
       }
     });
+
+  filesCmd
+    .command("upload <paths...>")
+    .description("Upload local files or directories")
+    .option("--dir <path>", "Target directory in the space")
+    .option("--json", "Output as JSON")
+    .action((paths: string[], opts: UploadOptions) => uploadFiles(spacesCmd, paths, opts));
 
   filesCmd
     .command("mkdir <path>")
