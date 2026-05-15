@@ -85,6 +85,7 @@ function spaceToDefaultItem(
 		title: space.name ?? "Untitled space",
 		excerpt: compactText(space.description, 220),
 		spaceName: space.name ?? null,
+		ownerProfile: space.ownerProfile ?? null,
 		sessionTitle: null,
 		matchedField: "name",
 		href: `/spaces/${space.id}`,

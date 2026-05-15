@@ -29,6 +29,7 @@ import type { CommandPaletteItem } from "$lib/command-palette/types";
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
+const POINTER_HOVER_ARM_MS = 220;
 const DEFAULT_PLACEHOLDER =
 	"Search turns, sessions, spaces… Try type:space or t:";
 
@@ -45,6 +46,9 @@ let placeholder = $state(DEFAULT_PLACEHOLDER);
 let inputEl = $state<HTMLInputElement | null>(null);
 let resultsEl = $state<HTMLDivElement | null>(null);
 let activeIndex = $state(0);
+let settledItems = $state<CommandPaletteItem[]>([]);
+let suppressPointerHover = $state(false);
+let pointerHoverTimer: number | null = null;
 let localItems = $state<CommandPaletteItem[]>([]);
 let remoteItems = $state<import("@neta-art/cohub").GlobalSearchResult[]>([]);
 let defaultItems = $state<CommandPaletteItem[]>([]);
@@ -85,19 +89,58 @@ const mergedItems = $derived.by(() => {
 	});
 });
 const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
+const renderedItems = $derived(
+	mergedItems.length > 0 || !isSearching ? mergedItems : settledItems,
+);
+const showingSettledItems = $derived(
+	isSearching && mergedItems.length === 0 && settledItems.length > 0,
+);
 const statusText = $derived.by(() => {
 	const label = typeLabel ?? "Turns, Sessions, Spaces, and Commands";
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
-		return mergedItems.length > 0
+		return renderedItems.length > 0
 			? `${label} · type to filter`
 			: `Search ${label.toLowerCase()}`;
 	}
+	if (showingSettledItems) return `${label} · searching…`;
 	if (remoteError) return `${label} · local results only · ${remoteError}`;
 	if (!remoteDone)
 		return `${label} · local ${localItems.length} · syncing server…`;
 	if (!localDone) return `${label} · searching indexed cache…`;
-	return `${label} · ${mergedItems.length} result${mergedItems.length === 1 ? "" : "s"} · indexed cache + server`;
+	return `${label} · ${renderedItems.length} result${renderedItems.length === 1 ? "" : "s"} · indexed cache + server`;
 });
+
+function profileFor(item: CommandPaletteItem) {
+	if (item.type !== "space") return null;
+	return item.ownerProfile?.userUuid && item.ownerProfile.displayName
+		? item.ownerProfile
+		: null;
+}
+
+function initials(value: string | null | undefined) {
+	const text = (value ?? "").replace(/\s+/g, " ").trim();
+	if (!text) return "·";
+	const parts = text.split(" ");
+	const letters =
+		parts.length >= 2
+			? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
+			: text.slice(0, 2);
+	return letters.toUpperCase();
+}
+
+function armPointerHover() {
+	suppressPointerHover = true;
+	if (pointerHoverTimer != null) window.clearTimeout(pointerHoverTimer);
+	pointerHoverTimer = window.setTimeout(() => {
+		suppressPointerHover = false;
+		pointerHoverTimer = null;
+	}, POINTER_HOVER_ARM_MS);
+}
+
+function handleResultPointerMove(index: number) {
+	if (suppressPointerHover) return;
+	activeIndex = index;
+}
 
 function typeMeta(type: CommandPaletteItem["type"]) {
 	if (type === "turn") return { className: "turn", icon: MessageSquare };
@@ -118,6 +161,7 @@ function openPalette(detail?: OpenCommandPaletteDetail) {
 	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
 	query = detail?.query ?? "";
 	activeIndex = 0;
+	armPointerHover();
 	open = true;
 	void tick().then(() => inputEl?.focus());
 }
@@ -128,6 +172,7 @@ function closePalette() {
 	title = "Command search";
 	placeholder = DEFAULT_PLACEHOLDER;
 	activeIndex = 0;
+	settledItems = [];
 	searchToken += 1;
 	localController?.abort();
 	remoteController?.abort();
@@ -228,13 +273,13 @@ async function activate(item: CommandPaletteItem | undefined) {
 }
 
 function moveActive(delta: number) {
-	if (mergedItems.length === 0) {
+	if (renderedItems.length === 0) {
 		activeIndex = 0;
 		return;
 	}
 	activeIndex = Math.min(
 		Math.max(activeIndex + delta, 0),
-		mergedItems.length - 1,
+		renderedItems.length - 1,
 	);
 }
 
@@ -270,7 +315,7 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 	}
 	if (event.key === "Enter") {
 		event.preventDefault();
-		void activate(mergedItems[activeIndex]);
+		void activate(renderedItems[activeIndex]);
 	}
 }
 
@@ -298,13 +343,17 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (activeIndex >= mergedItems.length)
-		activeIndex = Math.max(mergedItems.length - 1, 0);
+	if (mergedItems.length > 0 || !isSearching) settledItems = mergedItems;
+});
+
+$effect(() => {
+	if (activeIndex >= renderedItems.length)
+		activeIndex = Math.max(renderedItems.length - 1, 0);
 });
 
 $effect(() => {
 	activeIndex;
-	mergedItems.length;
+	renderedItems.length;
 	void scrollActiveIntoView();
 });
 
@@ -322,6 +371,7 @@ onMount(() => {
 		localController?.abort();
 		remoteController?.abort();
 		if (debounceTimer != null) window.clearTimeout(debounceTimer);
+		if (pointerHoverTimer != null) window.clearTimeout(pointerHoverTimer);
 	};
 });
 </script>
@@ -342,8 +392,8 @@ onMount(() => {
 				<div class="command-shortcut">⌘K</div>
 			</div>
 
-			<div bind:this={resultsEl} class="command-results" role="listbox" aria-label="Search results">
-				{#if mergedItems.length === 0}
+			<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label="Search results">
+				{#if renderedItems.length === 0}
 					<div class="command-empty">
 						<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 						<div>
@@ -356,14 +406,15 @@ onMount(() => {
 						</div>
 					</div>
 				{:else}
-					{#each mergedItems as item, index (`${item.type}:${item.id || item.turnId || item.sessionId || item.spaceId}`)}
+					{#each renderedItems as item, index (`${item.type}:${item.id || item.turnId || item.sessionId || item.spaceId}`)}
 						{@const meta = typeMeta(item.type)}
 						{@const Icon = meta.icon}
+						{@const profile = profileFor(item)}
 						<button
 							type="button"
 							class:active={index === activeIndex}
 							class="command-result"
-							onmouseenter={() => { activeIndex = index; }}
+							onpointermove={() => handleResultPointerMove(index)}
 							onclick={() => void activate(item)}
 							role="option"
 							aria-selected={index === activeIndex}
@@ -375,7 +426,22 @@ onMount(() => {
 								<div class="flex min-w-0 items-center gap-2">
 									<span class="truncate text-[13px] font-medium text-text-primary">{item.title}</span>
 								</div>
-								<div class="mt-0.5 truncate text-[12px] text-text-tertiary">{contextFor(item)}</div>
+								<div class="command-context-row">
+									{#if profile}
+										<span class="command-profile" title={profile.displayName}>
+											<span class="command-profile-avatar" aria-hidden="true">
+												{#if profile.avatarUrl}
+													<img src={profile.avatarUrl} alt="" loading="lazy" />
+												{:else}
+													{initials(profile.displayName)}
+												{/if}
+											</span>
+											<span class="truncate">{profile.displayName}</span>
+										</span>
+										<span class="command-context-separator">·</span>
+									{/if}
+									<span class="truncate">{contextFor(item)}</span>
+								</div>
 							</div>
 							<div class="command-enter">↵</div>
 						</button>
@@ -459,6 +525,11 @@ onMount(() => {
 	.command-results {
 		overflow-y: auto;
 		padding: 8px;
+		transition: opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
+	}
+
+	.command-results.searching {
+		opacity: 0.72;
 	}
 
 	.command-result {
@@ -472,7 +543,7 @@ onMount(() => {
 		background: transparent;
 		padding: 10px 10px;
 		color: inherit;
-		transition: background-color 90ms ease, transform 90ms ease;
+		transition: background-color 90ms cubic-bezier(0.25, 1, 0.5, 1), transform 90ms cubic-bezier(0.25, 1, 0.5, 1);
 	}
 
 	.command-result::before {
@@ -522,6 +593,55 @@ onMount(() => {
 		background: color-mix(in oklch, var(--brand) 10%, var(--bg-primary) 90%);
 	}
 
+	.command-context-row {
+		margin-top: 2px;
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 6px;
+		color: var(--text-tertiary);
+		font-size: 12px;
+		line-height: 1.35;
+	}
+
+	.command-profile {
+		display: inline-flex;
+		min-width: 0;
+		max-width: min(190px, 42%);
+		flex-shrink: 0;
+		align-items: center;
+		gap: 5px;
+		color: color-mix(in oklch, var(--text-secondary) 86%, var(--brand) 14%);
+	}
+
+	.command-profile-avatar {
+		display: inline-grid;
+		width: 16px;
+		height: 16px;
+		place-items: center;
+		flex: 0 0 auto;
+		overflow: hidden;
+		border: 1px solid var(--border-subtle);
+		border-radius: 999px;
+		background: var(--bg-primary);
+		color: var(--text-tertiary);
+		font-size: 8px;
+		font-weight: 650;
+		letter-spacing: 0.02em;
+		line-height: 1;
+	}
+
+	.command-profile-avatar img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.command-context-separator {
+		flex: 0 0 auto;
+		color: var(--text-placeholder);
+	}
+
 	.command-enter {
 		opacity: 0;
 		color: var(--brand);
@@ -559,5 +679,14 @@ onMount(() => {
 	@keyframes command-enter {
 		from { opacity: 0; transform: translateY(-8px) scale(0.985); }
 		to { opacity: 1; transform: translateY(0) scale(1); }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.command-palette,
+		.command-results,
+		.command-result {
+			animation: none;
+			transition: none;
+		}
 	}
 </style>

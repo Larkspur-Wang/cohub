@@ -58,6 +58,7 @@ function spaceToItem(
 		title: space.name ?? "Untitled space",
 		excerpt: compactText(space.description, 220),
 		spaceName: space.name ?? null,
+		ownerProfile: space.ownerProfile ?? null,
 		sessionTitle: null,
 		matchedField,
 		href: `/spaces/${space.id}`,
