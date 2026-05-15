@@ -7,9 +7,15 @@ type Props = {
 	content: ContentBlock[];
 	toolCallsFile?: MessageToolCallsFile | null;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
+	onOpenFile?: (path: string) => void;
 };
 
-const { content, toolCallsFile = null, onLoadToolCalls }: Props = $props();
+const {
+	content,
+	toolCallsFile = null,
+	onLoadToolCalls,
+	onOpenFile,
+}: Props = $props();
 </script>
 
-<ToolCallList {content} {toolCallsFile} {onLoadToolCalls} />
+<ToolCallList {content} {toolCallsFile} {onLoadToolCalls} {onOpenFile} />
