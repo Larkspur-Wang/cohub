@@ -33,6 +33,7 @@ function getS3Client() {
     endpoint: config.turnObjectS3Endpoint,
     region: config.turnObjectS3Region,
     forcePathStyle: false,
+    requestChecksumCalculation: "WHEN_REQUIRED",
     credentials: {
       accessKeyId: config.turnObjectS3AccessKeyId,
       secretAccessKey: config.turnObjectS3SecretAccessKey,
