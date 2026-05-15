@@ -11,7 +11,7 @@ import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { clearCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
-import { loadOrCreateSessionHandle, ensurePendingUserMessage, resetStreamState, type SessionHandle } from "./session.js";
+import { loadOrCreateSessionHandle, ensurePendingUserMessage, resetStreamState, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
 import { claimTurnBatch, buildUserMessagesForBatch, enqueueNextQueuedTurn } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
@@ -276,6 +276,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
 
       await handle.persistenceChain.catch(() => undefined);
       await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
+      await refreshSessionHandleFileSignature(handle);
       await enqueueNextQueuedTurn({ spaceId: data.spaceId, sessionId: data.sessionId, enqueue: enqueueAgentTurnJob });
       clearBusyRetry(data);
       return {

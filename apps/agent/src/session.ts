@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@neta-art/cohub-protocol/core";
@@ -113,6 +113,12 @@ export type SessionHandle = {
     flushPromise?: Promise<void> | null;
     flushTimer?: ReturnType<typeof setTimeout> | null;
   };
+  sessionFileSignature: SessionFileSignature | null;
+};
+
+type SessionFileSignature = {
+  size: number;
+  mtimeMs: number;
 };
 
 export function getSessionKey(spaceId: string, sessionId: string) {
@@ -121,6 +127,23 @@ export function getSessionKey(spaceId: string, sessionId: string) {
 
 function setSessionManagerFilePath(sessionManager: SessionManager, sessionFile: string) {
   ((sessionManager as unknown) as { sessionFile?: string }).sessionFile = sessionFile;
+}
+
+async function getSessionFileSignature(path: string): Promise<SessionFileSignature | null> {
+  try {
+    const info = await stat(path);
+    return { size: info.size, mtimeMs: info.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function sameSessionFileSignature(a: SessionFileSignature | null, b: SessionFileSignature | null) {
+  return a?.size === b?.size && a?.mtimeMs === b?.mtimeMs;
+}
+
+export async function refreshSessionHandleFileSignature(handle: SessionHandle) {
+  handle.sessionFileSignature = await getSessionFileSignature(getAgentSessionFilePath(handle.spaceId, handle.sessionId));
 }
 
 function summarizeToolArgs(toolName: string, args: unknown): string {
@@ -724,13 +747,25 @@ export async function loadOrCreateSessionHandle(input: {
   });
 
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
+  await ensureAgentSpaceSessionPath(input.spaceId);
+
+  const existingSessionFile = getAgentSessionFilePath(input.spaceId, input.sessionId);
+  const spaceWorkspaceDir = getAgentWorkspacePath(input.spaceId);
+  const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
+  const fileSignature = await getSessionFileSignature(existingSessionFile);
+
   const existing = input.sessionHandles.get(sessionKey);
   if (existing) {
-    logger.debug(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
-    return existing;
-  }
+    if (sameSessionFileSignature(existing.sessionFileSignature, fileSignature)) {
+      logger.debug(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
+      return existing;
+    }
 
-  await ensureAgentSpaceSessionPath(input.spaceId);
+    logger.debug(`[Session] reload stale sessionId=${input.sessionId} spaceId=${input.spaceId}`);
+    existing.session.dispose();
+    clearCurrentSessionExecutionAuth(existing.sessionId);
+    input.sessionHandles.delete(sessionKey);
+  }
 
   await registerSpaceSession({
     spaceId: input.spaceId,
@@ -748,10 +783,6 @@ export async function loadOrCreateSessionHandle(input: {
     return null;
   });
   const spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
-
-  const existingSessionFile = getAgentSessionFilePath(input.spaceId, input.sessionId);
-  const spaceWorkspaceDir = getAgentWorkspacePath(input.spaceId);
-  const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
 
   let sessionManager: SessionManager;
   if (await pathExists(existingSessionFile)) {
@@ -820,6 +851,7 @@ export async function loadOrCreateSessionHandle(input: {
       flushPromise: null,
       flushTimer: null,
     },
+    sessionFileSignature: fileSignature,
   };
 
   subscribeSessionEvents(handle);

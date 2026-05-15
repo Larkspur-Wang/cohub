@@ -110,6 +110,7 @@ function createHandle(session: FakeSession): SessionHandle {
       pendingBoundary: false,
       flushPromise: null,
     },
+    sessionFileSignature: null,
   };
 }
 
