@@ -53,9 +53,13 @@ function normalizeTurn(row: Record<string, unknown>): TurnRow {
   };
 }
 
-function getUserMessageId(turn: TurnRow): string | null {
-  const meta = asRecord(turn.meta);
-  return typeof meta.userMessageId === "string" && meta.userMessageId.trim() ? meta.userMessageId.trim() : null;
+const getMetaString = (turn: TurnRow, key: string): string | null => {
+  const value = asRecord(turn.meta)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
+
+function getUserMessageId(turn: TurnRow): string {
+  return getMetaString(turn, "userMessageId") ?? getMetaString(turn, "messageId") ?? turn.id;
 }
 
 function getExecutionBatch(turn: TurnRow): ExecutionBatchMeta | null {
@@ -233,12 +237,18 @@ export async function enqueueNextQueuedTurn(input: { spaceId: string; sessionId:
 export function buildUserMessagesForBatch(batch: ClaimedTurnBatch) {
   return batch.turns.map((turn) => {
     const meta = asRecord(turn.meta);
+    const userMessageId = getUserMessageId(turn);
     return {
       turnId: turn.id,
       turnSeq: turn.sequence,
-      userMessageId: getUserMessageId(turn),
+      userMessageId,
       content: turn.userContent,
-      meta,
+      meta: {
+        ...meta,
+        userMessageId,
+        messageId: typeof meta.messageId === "string" && meta.messageId.trim() ? meta.messageId : userMessageId,
+        turnId: typeof meta.turnId === "string" && meta.turnId.trim() ? meta.turnId : turn.id,
+      },
     };
   });
 }

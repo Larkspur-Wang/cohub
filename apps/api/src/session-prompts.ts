@@ -166,10 +166,12 @@ export const submitSessionPrompt = async (
     source: input.source,
   });
 
+  const userMessageId = randomUUID();
   const turnMeta = {
     source: input.source,
     userId,
     clientMessageId,
+    userMessageId,
     intent: inputIntent,
     llm: isDirectShellCommand ? false : undefined,
     model: input.model ?? null,
@@ -189,7 +191,6 @@ export const submitSessionPrompt = async (
     throw new SubmitSessionPromptError("failed to create session turn", error);
   });
   const turnId = turn.id;
-  const userMessageId = randomUUID();
   const meta = {
     source: input.source,
     userId,
