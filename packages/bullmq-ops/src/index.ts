@@ -8,7 +8,7 @@ export const COHUB_SYSTEM_FS_QUEUE = "cohub-system-fs";
 
 export const DEFAULT_TASK_WORKER_CONCURRENCY = 5;
 export const DEFAULT_FS_CDN_WORKER_CONCURRENCY = 4;
-export const DEFAULT_AGENT_WORKER_CONCURRENCY = 2;
+export const DEFAULT_AGENT_WORKER_CONCURRENCY = 8;
 
 export const queueDefinitions = [
   {
