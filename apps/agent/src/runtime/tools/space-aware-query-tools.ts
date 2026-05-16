@@ -1,20 +1,15 @@
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
-import { getCurrentToolExecutionContext } from "../../tool-context.js";
+import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../../tool-context.js";
 
 const SPACE_ID_DESCRIPTION = "Only set when querying another space by id";
+
+type AccessCheck = (spaceId: string) => Promise<void>;
 
 function getRequestedSpaceId(params: unknown) {
   if (!params || typeof params !== "object") return null;
   const value = (params as Record<string, unknown>).space_id;
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function shouldUseCrossSpace(params: unknown) {
-  const spaceId = getRequestedSpaceId(params);
-  if (!spaceId) return false;
-  const ctx = getCurrentToolExecutionContext();
-  return !ctx?.spaceId || spaceId !== ctx.spaceId;
 }
 
 function withoutSpaceId(input: unknown) {
@@ -23,16 +18,30 @@ function withoutSpaceId(input: unknown) {
   return rest;
 }
 
-function routeExecute(sandboxTool: AgentTool, crossSpaceTool: AgentTool) {
-  return (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<unknown>) => {
-    if (shouldUseCrossSpace(params)) {
-      return crossSpaceTool.execute(toolCallId, params, signal, onUpdate);
+function routeExecute(sandboxTool: AgentTool, checkAccess: AccessCheck) {
+  return async (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<unknown>) => {
+    const ctx = getCurrentToolExecutionContext();
+    const requestedSpaceId = getRequestedSpaceId(params);
+    const targetSpaceId = requestedSpaceId ?? ctx?.spaceId;
+    if (!targetSpaceId || !ctx?.spaceId || targetSpaceId === ctx.spaceId) {
+      return sandboxTool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate);
     }
-    return sandboxTool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate);
+
+    await checkAccess(targetSpaceId);
+    return runWithToolExecutionContext({
+      spaceId: targetSpaceId,
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      turnSeq: ctx.turnSeq,
+      llmRound: ctx.llmRound,
+      toolCallId: ctx.toolCallId,
+      metrics: ctx.metrics,
+      actorUserId: ctx.actorUserId,
+    }, () => sandboxTool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate));
   };
 }
 
-export function createHybridReadTool(sandboxTool: AgentTool, crossSpaceTool: AgentTool): AgentTool {
+export function createSpaceAwareReadTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
   return {
     ...sandboxTool,
     parameters: Type.Object({
@@ -41,11 +50,11 @@ export function createHybridReadTool(sandboxTool: AgentTool, crossSpaceTool: Age
       limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, crossSpaceTool),
+    execute: routeExecute(sandboxTool, checkAccess),
   };
 }
 
-export function createHybridLsTool(sandboxTool: AgentTool, crossSpaceTool: AgentTool): AgentTool {
+export function createSpaceAwareLsTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
   return {
     ...sandboxTool,
     parameters: Type.Object({
@@ -53,11 +62,11 @@ export function createHybridLsTool(sandboxTool: AgentTool, crossSpaceTool: Agent
       limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, crossSpaceTool),
+    execute: routeExecute(sandboxTool, checkAccess),
   };
 }
 
-export function createHybridFindTool(sandboxTool: AgentTool, crossSpaceTool: AgentTool): AgentTool {
+export function createSpaceAwareFindTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
   return {
     ...sandboxTool,
     parameters: Type.Object({
@@ -66,11 +75,11 @@ export function createHybridFindTool(sandboxTool: AgentTool, crossSpaceTool: Age
       limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, crossSpaceTool),
+    execute: routeExecute(sandboxTool, checkAccess),
   };
 }
 
-export function createHybridGrepTool(sandboxTool: AgentTool, crossSpaceTool: AgentTool): AgentTool {
+export function createSpaceAwareGrepTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
   return {
     ...sandboxTool,
     parameters: Type.Object({
@@ -83,6 +92,6 @@ export function createHybridGrepTool(sandboxTool: AgentTool, crossSpaceTool: Age
       limit: Type.Optional(Type.Number({ description: "Maximum number of matches" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, crossSpaceTool),
+    execute: routeExecute(sandboxTool, checkAccess),
   };
 }

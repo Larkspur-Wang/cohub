@@ -3,13 +3,6 @@ import { assertPermission, createDrizzlePermissionStore } from "@cohub/permissio
 import { spaces } from "@cohub/db-schema";
 import { db } from "../db.js";
 
-export type CrossSpaceQueryAccess = {
-  exists: boolean;
-  allowed: boolean;
-  workspaceReady: boolean;
-  bootstrapStatus: string | null;
-};
-
 const permissionStore = createDrizzlePermissionStore(db);
 
 function getBootstrapStatus(meta: unknown) {
@@ -20,7 +13,7 @@ function getBootstrapStatus(meta: unknown) {
   return typeof status === "string" ? status : null;
 }
 
-export async function assertCrossSpaceQueryAccess(input: {
+export async function assertSpaceFileViewAccess(input: {
   actorUserId: string;
   spaceId: string;
 }): Promise<void> {

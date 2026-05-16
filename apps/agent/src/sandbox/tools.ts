@@ -33,18 +33,13 @@ import {
 } from "../runtime/paths.js";
 import { getCurrentSessionExecutionAuth } from "../runtime/session-execution-auth.js";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
+import { assertSpaceFileViewAccess } from "../runtime/cross-space-query-access.js";
 import {
-  createCrossSpaceFindTool,
-  createCrossSpaceGrepTool,
-  createCrossSpaceLsTool,
-  createCrossSpaceReadTool,
-} from "../runtime/tools/cross-space-query-tools.js";
-import {
-  createHybridFindTool,
-  createHybridGrepTool,
-  createHybridLsTool,
-  createHybridReadTool,
-} from "../runtime/tools/hybrid-query-tools.js";
+  createSpaceAwareFindTool,
+  createSpaceAwareGrepTool,
+  createSpaceAwareLsTool,
+  createSpaceAwareReadTool,
+} from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, waitForSandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
 import { recoverSpaceSandbox } from "../api.js";
@@ -780,6 +775,12 @@ function getCurrentActorUserId() {
   return null;
 }
 
+async function assertCurrentActorCanViewSpaceFiles(spaceId: string) {
+  const actorUserId = getCurrentActorUserId();
+  if (!actorUserId?.trim()) throw new Error("Access denied: cross-space queries require an authenticated user.");
+  await assertSpaceFileViewAccess({ actorUserId: actorUserId.trim(), spaceId });
+}
+
 export function createSandboxCodingTools() {
   const toolCwd = SANDBOX_WORKSPACE_PATH;
 
@@ -789,12 +790,12 @@ export function createSandboxCodingTools() {
   const sandboxGrepTool = createRemoteGrepTool();
 
   return [
-    createHybridReadTool(sandboxReadTool, createCrossSpaceReadTool(getCurrentActorUserId)),
+    createSpaceAwareReadTool(sandboxReadTool, assertCurrentActorCanViewSpaceFiles),
     createBashTool(toolCwd, { operations: createRemoteBashOperations() }),
     createEditTool(toolCwd, { operations: createRemoteEditOperations() }),
     createWriteTool(toolCwd, { operations: createRemoteWriteOperations() }),
-    createHybridLsTool(sandboxLsTool, createCrossSpaceLsTool(getCurrentActorUserId)),
-    createHybridFindTool(sandboxFindTool, createCrossSpaceFindTool(getCurrentActorUserId)),
-    createHybridGrepTool(sandboxGrepTool, createCrossSpaceGrepTool(getCurrentActorUserId)),
+    createSpaceAwareLsTool(sandboxLsTool, assertCurrentActorCanViewSpaceFiles),
+    createSpaceAwareFindTool(sandboxFindTool, assertCurrentActorCanViewSpaceFiles),
+    createSpaceAwareGrepTool(sandboxGrepTool, assertCurrentActorCanViewSpaceFiles),
   ];
 }
