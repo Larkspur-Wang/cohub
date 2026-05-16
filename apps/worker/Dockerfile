@@ -28,6 +28,9 @@ COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
 COPY packages/bullmq-ops/package.json ./packages/bullmq-ops/package.json
 COPY packages/bullmq-ops/tsconfig.json ./packages/bullmq-ops/tsconfig.json
 COPY packages/bullmq-ops/tsconfig.build.json ./packages/bullmq-ops/tsconfig.build.json
+COPY packages/db-schema/package.json ./packages/db-schema/package.json
+COPY packages/db-schema/tsconfig.json ./packages/db-schema/tsconfig.json
+COPY packages/db-schema/tsconfig.build.json ./packages/db-schema/tsconfig.build.json
 COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
 COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
 COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
@@ -41,6 +44,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY packages/protocol ./packages/protocol
 COPY packages/tracing ./packages/tracing
 COPY packages/bullmq-ops ./packages/bullmq-ops
+COPY packages/db-schema ./packages/db-schema
 COPY packages/config-runtime ./packages/config-runtime
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
