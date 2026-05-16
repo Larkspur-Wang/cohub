@@ -19,6 +19,12 @@ COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
 COPY packages/bullmq-ops/package.json ./packages/bullmq-ops/package.json
 COPY packages/bullmq-ops/tsconfig.json ./packages/bullmq-ops/tsconfig.json
 COPY packages/bullmq-ops/tsconfig.build.json ./packages/bullmq-ops/tsconfig.build.json
+COPY packages/db-schema/package.json ./packages/db-schema/package.json
+COPY packages/db-schema/tsconfig.json ./packages/db-schema/tsconfig.json
+COPY packages/db-schema/tsconfig.build.json ./packages/db-schema/tsconfig.build.json
+COPY packages/permissions/package.json ./packages/permissions/package.json
+COPY packages/permissions/tsconfig.json ./packages/permissions/tsconfig.json
+COPY packages/permissions/tsconfig.build.json ./packages/permissions/tsconfig.build.json
 COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
 COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
 COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
@@ -32,6 +38,8 @@ COPY packages/protocol ./packages/protocol
 COPY packages/agent-sandbox-protocol ./packages/agent-sandbox-protocol
 COPY packages/tracing ./packages/tracing
 COPY packages/bullmq-ops ./packages/bullmq-ops
+COPY packages/db-schema ./packages/db-schema
+COPY packages/permissions ./packages/permissions
 COPY packages/config-runtime ./packages/config-runtime
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json apps/agent/tsconfig.build.json ./apps/agent/
