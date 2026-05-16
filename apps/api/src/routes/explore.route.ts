@@ -13,7 +13,7 @@ import {
 } from "@cohub/config-runtime";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
-import { accessPolicies, checkpoints, spaces } from "../db/schema-v2.js";
+import { accessPolicies, checkpoints, spaces } from "@cohub/db-schema";
 import { redisCommandClient } from "../redis.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
 

@@ -436,22 +436,6 @@ export async function recoverSpaceSandbox(input: { spaceId: string; reason?: str
   } | null>;
 }
 
-export async function checkSpaceQueryAccess(input: { spaceId: string; userId: string }) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/query-access/check`;
-  return postJsonWithRetry({
-    url,
-    body: { userId: input.userId },
-    errorPrefix: "Check space query access failed",
-    maxAttempts: 2,
-  }) as Promise<{
-    ok: boolean;
-    exists: boolean;
-    allowed: boolean;
-    workspaceReady: boolean;
-    bootstrapStatus?: string | null;
-  } | null>;
-}
-
 export async function getSpace(input: { spaceId: string }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}`;
   const response = await fetch(url, {

@@ -2,7 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "rootDir": "../..",
     "paths": {
+      "@cohub/db-schema": [
+        "../../packages/db-schema/src/index.ts"
+      ],
+      "@cohub/permissions": [
+        "../../packages/permissions/src/index.ts"
+      ],
       "@cohub/protocol": [
         "../../packages/protocol/src/index.ts"
       ],
@@ -53,6 +60,9 @@
       ],
       "@cohub/tracing/propagator": [
         "../../packages/tracing/src/propagator.ts"
+      ],
+      "@cohub/db-schema/schema-v2": [
+        "../../packages/db-schema/src/schema-v2.ts"
       ]
     }
   },

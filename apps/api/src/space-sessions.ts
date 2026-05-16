@@ -12,7 +12,7 @@ import {
   spaceSessions,
   spaces,
   tokenUsageStatsHourly,
-} from "./db/schema-v2.js";
+} from "@cohub/db-schema";
 import {
   getSpaceWsUsersKey,
   getSpaceWsUsersUpdatedAtKey,

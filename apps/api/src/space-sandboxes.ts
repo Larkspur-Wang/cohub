@@ -1,6 +1,6 @@
 import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { spaceSandboxes, spaces } from "./db/schema-v2.js";
+import { spaceSandboxes, spaces } from "@cohub/db-schema";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";

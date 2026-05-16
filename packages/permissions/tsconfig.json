@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "paths": {
+      "@cohub/db-schema": ["../db-schema/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

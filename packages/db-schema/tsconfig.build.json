@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": false,
+    "paths": {
+      "@cohub/protocol/core": ["../protocol/dist/core/index.d.ts"],
+      "@cohub/protocol/task": ["../protocol/dist/task/index.d.ts"],
+      "@cohub/protocol/model": ["../protocol/dist/model/session.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { accessPolicies, spaceSessions } from "../db/schema-v2.js";
+import { accessPolicies, spaceSessions } from "@cohub/db-schema";
 import { requireValidId, useAuth } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
-import type { AccessPolicyRole } from "../db/schema-v2.js";
+import type { AccessPolicyRole } from "@cohub/db-schema";
 
 const router = new Hono();
 const SIGNED_IN_VALID_ROLES = new Set<AccessPolicyRole>(["builder", "guest", null]);

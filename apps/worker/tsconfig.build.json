@@ -4,10 +4,24 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@cohub/protocol": ["../../packages/protocol/dist/index.d.ts"],
-      "@cohub/bullmq-ops": ["../../packages/bullmq-ops/dist/index.d.ts"],
-      "@cohub/config-runtime/models": ["../../packages/config-runtime/dist/models.d.ts"]
+      "@cohub/db-schema": [
+        "../../packages/db-schema/dist/index.d.ts"
+      ],
+      "@cohub/protocol": [
+        "../../packages/protocol/dist/index.d.ts"
+      ],
+      "@cohub/bullmq-ops": [
+        "../../packages/bullmq-ops/dist/index.d.ts"
+      ],
+      "@cohub/config-runtime/models": [
+        "../../packages/config-runtime/dist/models.d.ts"
+      ],
+      "@cohub/db-schema/schema-v2": [
+        "../../packages/db-schema/dist/schema-v2.d.ts"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "./schema-v2.js";
+import * as schema from "@cohub/db-schema";
 import { initDrizzleTracing } from "@cohub/tracing/db";
 
 // connection string can be defined in .env

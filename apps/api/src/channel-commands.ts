@@ -16,7 +16,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayChannelCommand, GatewayChannelCommandName, GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
-import { sessionMessages, spaces } from "./db/schema-v2.js";
+import { sessionMessages, spaces } from "@cohub/db-schema";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { redisCommandClient } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";

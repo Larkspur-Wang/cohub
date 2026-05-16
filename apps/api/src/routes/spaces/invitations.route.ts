@@ -3,7 +3,7 @@ import { redisCommandClient } from "../../redis.js";
 import { requireValidId, useAuth } from "../../lib/middleware.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { hasPermission, getRoleForSpaceUser } from "../../permissions.js";
-import type { SpaceRole } from "../../db/schema-v2.js";
+import type { SpaceRole } from "@cohub/db-schema";
 
 const VALID_ROLES: SpaceRole[] = ["host", "builder", "guest"];
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days

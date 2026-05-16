@@ -11,7 +11,7 @@ import type {
   TurnIntermediateMessagesFile,
 } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
-import { sessionMessages, sessionTurnSegments, sessionTurns } from "./db/schema-v2.js";
+import { sessionMessages, sessionTurnSegments, sessionTurns } from "@cohub/db-schema";
 import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";

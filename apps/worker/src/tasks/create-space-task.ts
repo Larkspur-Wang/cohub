@@ -3,7 +3,7 @@ import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
-import { checkpoints, spaces } from "../db-schema.js";
+import { checkpoints, spaces } from "@cohub/db-schema";
 import { getUserGitAccount } from "../git-accounts.js";
 import { createRepository, forkRepository, renameRepository } from "../gitea.js";
 import {

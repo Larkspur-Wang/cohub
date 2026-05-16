@@ -601,6 +601,19 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/db-schema:
+    dependencies:
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/gateway-contract:
     dependencies:
       '@cohub/protocol':
@@ -610,6 +623,19 @@ importers:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260421.1
         version: 7.0.0-dev.20260421.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/permissions:
+    dependencies:
+      '@cohub/db-schema':
+        specifier: workspace:*
+        version: link:../db-schema
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+    devDependencies:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

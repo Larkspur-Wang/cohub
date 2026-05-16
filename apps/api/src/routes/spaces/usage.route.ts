@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import * as schema from "../../db/schema-v2.js";
+import * as schema from "@cohub/db-schema";
 import { getOptionalAuth, requireValidId } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 

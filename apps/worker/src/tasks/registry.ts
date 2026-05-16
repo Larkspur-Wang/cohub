@@ -2,7 +2,7 @@ import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { eq } from "drizzle-orm";
 import { db } from "../db.js";
-import { taskRuns } from "../db-schema.js";
+import { taskRuns } from "@cohub/db-schema";
 
 export type TaskHandlerContext = {
   taskRunId: string;

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { sql, and, gte, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
-import * as schema from "../db/schema-v2.js";
+import * as schema from "@cohub/db-schema";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 
 const router = new Hono();

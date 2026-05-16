@@ -21,7 +21,7 @@ import {
   toWorkspaceDisplayPath,
   toWorkspaceRelative,
 } from "../workspace-scope.js";
-import { assertCrossSpaceQueryAccess, getCrossSpaceQueryAccess } from "../cross-space-query-access.js";
+import { assertCrossSpaceQueryAccess } from "../cross-space-query-access.js";
 
 const execFileAsync = promisify(execFile);
 const GREP_MAX_LINE_LENGTH = 500;
@@ -32,8 +32,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 async function ensureAccess(spaceId: string, actorUserId: string | null | undefined) {
   if (!actorUserId?.trim()) throw new Error("Access denied: cross-space queries require an authenticated user.");
-  const status = await getCrossSpaceQueryAccess({ actorUserId: actorUserId.trim(), spaceId });
-  assertCrossSpaceQueryAccess(status, spaceId);
+  await assertCrossSpaceQueryAccess({ actorUserId: actorUserId.trim(), spaceId });
 }
 
 function detectImageMimeType(path: string) {

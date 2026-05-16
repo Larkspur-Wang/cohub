@@ -8,7 +8,7 @@ import {
   spaces,
   spaceMembers,
   userGitAccounts,
-} from "../../db/schema-v2.js";
+} from "@cohub/db-schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
@@ -29,7 +29,7 @@ import {
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
-import { checkpoints } from "../../db/schema-v2.js";
+import { checkpoints } from "@cohub/db-schema";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
