@@ -258,6 +258,32 @@ export const getQueueSnapshot = async (queue: Queue): Promise<QueueSnapshot> => 
 
 export const getQueueSnapshots = async (queues: Queue[]) => Promise.all(queues.map((queue) => getQueueSnapshot(queue)));
 
+export type ExportQueuesPrometheusMetricsOptions = {
+  includeQueueDefinitionLabels?: boolean;
+};
+
+const PROMETHEUS_HEADER_PATTERN = /^# (HELP|TYPE) bullmq_job_count /;
+
+export const exportQueuesPrometheusMetrics = async (
+  queues: Queue[],
+  options: ExportQueuesPrometheusMetricsOptions = {},
+) => {
+  const chunks = await Promise.all(
+    queues.map(async (queue, index) => {
+      const definition = getQueueDefinition(queue.name);
+      const labels = options.includeQueueDefinitionLabels && definition
+        ? { owner: definition.owner, criticality: definition.criticality }
+        : undefined;
+      const metrics = await queue.exportPrometheusMetrics(labels);
+      return index === 0
+        ? metrics
+        : metrics.split("\n").filter((line) => !PROMETHEUS_HEADER_PATTERN.test(line)).join("\n");
+    }),
+  );
+
+  return `${chunks.join("\n")}\n`;
+};
+
 const SENSITIVE_KEY_PATTERN = /(token|secret|password|authorization|api[-_]?key|access[-_]?key|credential|executionAuth)/i;
 
 const redactSensitiveDataInternal = (value: unknown, seen: WeakSet<object>): unknown => {

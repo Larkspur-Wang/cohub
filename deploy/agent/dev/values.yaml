@@ -13,3 +13,4 @@ workspaceSubpath: workspaces/dev
 sessionsSubpath: sessions/dev
 configsSubpath: configs/dev
 sessionsNamespace: cohub-sessions-dev
+agentWorkerConcurrency: "8"

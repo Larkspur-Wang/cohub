@@ -30,6 +30,7 @@ WORKSPACE_SUBPATH=$(get_value "workspaceSubpath")
 SESSIONS_SUBPATH=$(get_value "sessionsSubpath")
 CONFIGS_SUBPATH=$(get_value "configsSubpath")
 SESSIONS_NAMESPACE=$(get_value "sessionsNamespace")
+AGENT_WORKER_CONCURRENCY=$(get_value "agentWorkerConcurrency")
 
 require_value() {
   local name="$1"
@@ -54,6 +55,7 @@ require_value "workspaceSubpath" "$WORKSPACE_SUBPATH"
 require_value "sessionsSubpath" "$SESSIONS_SUBPATH"
 require_value "configsSubpath" "$CONFIGS_SUBPATH"
 require_value "sessionsNamespace" "$SESSIONS_NAMESPACE"
+require_value "agentWorkerConcurrency" "$AGENT_WORKER_CONCURRENCY"
 
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml，请先参考 secrets.template.yaml 生成${NC}"
@@ -81,6 +83,7 @@ sed -i.bak \
   -e "s|{{WORKSPACE_ROOT}}|${WORKSPACE_ROOT}|g" \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
   -e "s|{{SESSIONS_NAMESPACE}}|${SESSIONS_NAMESPACE}|g" \
+  -e "s|{{AGENT_WORKER_CONCURRENCY}}|${AGENT_WORKER_CONCURRENCY}|g" \
   -e "s|{{PLATFORM_CONFIG_ROOT}}|${PLATFORM_CONFIG_ROOT}|g" \
   -e "s|{{SPACE_STORAGE_PVC}}|${SPACE_STORAGE_PVC}|g" \
   -e "s|{{WORKSPACE_SUBPATH}}|${WORKSPACE_SUBPATH}|g" \
