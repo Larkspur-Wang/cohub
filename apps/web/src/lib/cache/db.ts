@@ -1,9 +1,22 @@
-import type { SessionTurnRecord } from "@cohub/protocol/model";
+import type {
+	SessionForkRecord,
+	SessionTurnRecord,
+} from "@cohub/protocol/model";
 import type { SessionRecord, SpaceFsEntry, SpaceRecord } from "@neta-art/cohub";
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
 export const DB_VERSION = 2;
+
+export type SessionListForkRecord = Partial<SessionForkRecord> & {
+	childSessionId: string;
+	parentSessionId?: string | null;
+	depth: number;
+	anchorSequence?: number | null;
+	createdAt?: string;
+	firstUserTextAfterFork?: string | null;
+	parentTitle?: string | null;
+};
 
 export type SessionListCacheRecord = {
 	key: string;
@@ -11,6 +24,7 @@ export type SessionListCacheRecord = {
 	spaceId: string;
 	kind: "recent";
 	sessions: SessionRecord[];
+	forks?: SessionListForkRecord[];
 	pageInfo: SessionListPageInfo;
 	updatedAt: number;
 	lastAccessedAt: number;

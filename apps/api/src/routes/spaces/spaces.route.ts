@@ -32,6 +32,7 @@ import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from ".
 import { checkpoints } from "@cohub/db-schema";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
+import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/agent-sandbox-protocol";
 
@@ -987,7 +988,27 @@ router.get("/:id/sessions", async (c) => {
     ? sessions
     : await filterSessionsByPermission(user, "session.view", spaceId, sessions);
 
-  return c.json({ sessions: visibleSessions, pageInfo });
+  const includeForks = c.req.query("includeForks") === "1" || c.req.query("includeForks") === "true";
+  const forks = includeForks
+    ? (await listSessionForksForSessions(visibleSessions.map((session) => session.id))).map((fork) => {
+      if (isMember) return fork;
+      const visibleSessionIds = new Set(visibleSessions.map((session) => session.id));
+      const parentVisible = visibleSessionIds.has(fork.parentSessionId);
+      return {
+        id: fork.id,
+        spaceId: fork.spaceId,
+        childSessionId: fork.childSessionId,
+        parentSessionId: parentVisible ? fork.parentSessionId : null,
+        depth: fork.depth,
+        anchorSequence: fork.anchorSequence,
+        createdAt: fork.createdAt,
+        firstUserTextAfterFork: fork.firstUserTextAfterFork,
+        parentTitle: parentVisible ? fork.parentTitle : null,
+      };
+    })
+    : undefined;
+
+  return c.json({ sessions: visibleSessions, ...(forks ? { forks } : {}), pageInfo });
 });
 
 // ── Channels ─────────────────────────────────────────────────────────────────

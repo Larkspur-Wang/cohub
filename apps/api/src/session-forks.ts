@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
 import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db-schema";
@@ -61,6 +61,49 @@ export const getSessionForkByChild = async (childSessionId: string) => {
 export const listSessionForkTree = async (rootSessionId: string) => {
   const rows = await db.select().from(sessionForks).where(eq(sessionForks.rootSessionId, rootSessionId)).orderBy(asc(sessionForks.depth), asc(sessionForks.createdAt));
   return rows.map(toForkRecord);
+};
+
+export type SessionForkListItem = SessionForkRecord & {
+  firstUserTextAfterFork: string | null;
+  parentTitle: string | null;
+};
+
+export const listSessionForksForSessions = async (sessionIds: string[]) => {
+  const ids = [...new Set(sessionIds.filter(Boolean))];
+  if (ids.length === 0) return [] satisfies SessionForkListItem[];
+
+  const rows = await db.select({
+    fork: sessionForks,
+    parentTitle: spaceSessions.title,
+  })
+    .from(sessionForks)
+    .leftJoin(spaceSessions, eq(spaceSessions.id, sessionForks.parentSessionId))
+    .where(inArray(sessionForks.childSessionId, ids))
+    .orderBy(asc(sessionForks.depth), asc(sessionForks.createdAt));
+
+  const childIds = rows.map((row) => row.fork.childSessionId);
+  const turnRows = childIds.length > 0
+    ? await db.select({
+      sessionId: sessionTurns.sessionId,
+      userText: sessionTurns.userText,
+      sequence: sessionTurns.sequence,
+    })
+      .from(sessionTurns)
+      .where(inArray(sessionTurns.sessionId, childIds))
+      .orderBy(asc(sessionTurns.sessionId), asc(sessionTurns.sequence))
+    : [];
+
+  const firstUserTextBySession = new Map<string, string | null>();
+  for (const turn of turnRows) {
+    if (firstUserTextBySession.has(turn.sessionId)) continue;
+    firstUserTextBySession.set(turn.sessionId, turn.userText ?? null);
+  }
+
+  return rows.map((row): SessionForkListItem => ({
+    ...toForkRecord(row.fork),
+    firstUserTextAfterFork: firstUserTextBySession.get(row.fork.childSessionId) ?? null,
+    parentTitle: row.parentTitle ?? null,
+  }));
 };
 
 export const findSegmentForTurn = (segments: SegmentRow[], input: { sourceSessionId: string; sequence: number }) =>

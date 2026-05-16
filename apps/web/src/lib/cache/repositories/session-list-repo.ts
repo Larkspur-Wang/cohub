@@ -3,6 +3,7 @@ import {
 	publishCacheMessage,
 	subscribeCacheMessages,
 } from "$lib/cache/broadcast";
+import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	idbDelete,
 	idbGet,
@@ -26,11 +27,13 @@ let subscribedToBroadcast = false;
 
 type SessionListFetchResult = {
 	sessions: SessionRecord[];
+	forks?: SessionListForkRecord[] | null;
 	pageInfo?: SessionListPageInfo | null;
 };
 
 export type SessionListSnapshot = {
 	sessions: SessionRecord[];
+	forks: SessionListForkRecord[];
 	pageInfo: SessionListPageInfo;
 	updatedAt: number;
 	stale: boolean;
@@ -66,6 +69,7 @@ function toSnapshot(
 ): SessionListSnapshot {
 	return {
 		sessions: record.sessions,
+		forks: record.forks ?? [],
 		pageInfo: record.pageInfo,
 		updatedAt: record.updatedAt,
 		stale: Date.now() - record.updatedAt >= SESSION_LIST_TTL_MS,
@@ -90,6 +94,7 @@ async function writeRecord(
 	spaceId: string,
 	sessions: SessionRecord[],
 	pageInfo?: SessionListPageInfo | null,
+	forks?: SessionListForkRecord[] | null,
 	options?: { broadcast?: boolean; completeness?: "partial" | "complete" },
 ) {
 	const userKey = getCacheUserKey();
@@ -102,6 +107,7 @@ async function writeRecord(
 		spaceId,
 		kind: "recent",
 		sessions: normalized,
+		forks: forks ?? [],
 		pageInfo: normalizePageInfo(pageInfo),
 		updatedAt: now,
 		lastAccessedAt: now,
@@ -131,6 +137,7 @@ function emit(spaceId: string, snapshot: SessionListSnapshot) {
 				detail: {
 					spaceId,
 					sessions: snapshot.sessions,
+					forks: snapshot.forks,
 					pageInfo: snapshot.pageInfo,
 				},
 			}),
@@ -149,6 +156,7 @@ function ensureBroadcastSubscription() {
 		if (message.type === "cache-deleted") {
 			emit(message.spaceId, {
 				sessions: [],
+				forks: [],
 				pageInfo: DEFAULT_SESSION_LIST_PAGE_INFO,
 				updatedAt: message.updatedAt,
 				stale: true,
@@ -180,6 +188,7 @@ export const sessionListRepo = {
 			spaceId,
 			result.sessions,
 			result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
+			result.forks ?? [],
 			{ completeness: "partial" },
 		);
 		return { ...toSnapshot(record, "network"), stale: false };
@@ -189,8 +198,9 @@ export const sessionListRepo = {
 		spaceId: string,
 		sessions: SessionRecord[],
 		pageInfo?: SessionListPageInfo | null,
+		forks?: SessionListForkRecord[] | null,
 	) {
-		const record = await writeRecord(spaceId, sessions, pageInfo);
+		const record = await writeRecord(spaceId, sessions, pageInfo, forks);
 		return toSnapshot(record, "indexeddb");
 	},
 
@@ -198,12 +208,14 @@ export const sessionListRepo = {
 		spaceId: string,
 		updater: (sessions: SessionRecord[]) => SessionRecord[],
 		pageInfo?: SessionListPageInfo | null,
+		forks?: SessionListForkRecord[] | null,
 	) {
 		const current = await readRecord(spaceId);
 		const record = await writeRecord(
 			spaceId,
 			updater(current?.record.sessions ?? []),
 			pageInfo !== undefined ? pageInfo : current?.record.pageInfo,
+			forks !== undefined ? forks : current?.record.forks,
 		);
 		return toSnapshot(record, "indexeddb");
 	},

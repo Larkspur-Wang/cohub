@@ -386,6 +386,10 @@ export type GlobalSearchResponse = {
 
 export type SpaceSessionsResponse = {
   sessions: SessionRecord[];
+  forks?: Array<SessionForkRecord & {
+    firstUserTextAfterFork?: string | null;
+    parentTitle?: string | null;
+  }>;
   pageInfo?: {
     hasMore: boolean;
     nextCursor: string | null;

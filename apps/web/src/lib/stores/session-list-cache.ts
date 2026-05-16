@@ -1,4 +1,5 @@
 import type { SessionRecord } from "@neta-art/cohub";
+import type { SessionListForkRecord } from "$lib/cache/db";
 import { deleteCacheDatabase } from "$lib/cache/db";
 import { sessionListRepo } from "$lib/cache/repositories/session-list-repo";
 import {
@@ -31,8 +32,14 @@ export async function setCachedSessionList(
 	spaceId: string,
 	sessions: SessionRecord[],
 	pageInfo?: SessionListPageInfo | null,
+	forks?: SessionListForkRecord[] | null,
 ): Promise<SessionRecord[]> {
-	const snapshot = await sessionListRepo.setRecent(spaceId, sessions, pageInfo);
+	const snapshot = await sessionListRepo.setRecent(
+		spaceId,
+		sessions,
+		pageInfo,
+		forks,
+	);
 	return snapshot.sessions;
 }
 
@@ -40,11 +47,13 @@ export async function patchCachedSessionList(
 	spaceId: string,
 	updater: (sessions: SessionRecord[]) => SessionRecord[],
 	pageInfo?: SessionListPageInfo | null,
+	forks?: SessionListForkRecord[] | null,
 ): Promise<SessionRecord[]> {
 	const snapshot = await sessionListRepo.patchRecent(
 		spaceId,
 		updater,
 		pageInfo,
+		forks,
 	);
 	return snapshot.sessions;
 }
@@ -61,6 +70,7 @@ export function onSessionListCacheUpdated(
 	handler: (event: {
 		spaceId: string;
 		sessions: SessionRecord[];
+		forks: SessionListForkRecord[];
 		pageInfo: SessionListPageInfo | null;
 	}) => void,
 ) {
@@ -71,10 +81,15 @@ export function onSessionListCacheUpdated(
 		const custom = event as CustomEvent<{
 			spaceId: string;
 			sessions: SessionRecord[];
+			forks?: SessionListForkRecord[];
 			pageInfo: SessionListPageInfo;
 		}>;
 		if (!custom.detail?.spaceId) return;
-		handler({ ...custom.detail, pageInfo: custom.detail.pageInfo });
+		handler({
+			...custom.detail,
+			forks: custom.detail.forks ?? [],
+			pageInfo: custom.detail.pageInfo,
+		});
 	};
 	if (typeof window !== "undefined")
 		window.addEventListener("cohub:session-list-cache-updated", listener);

@@ -2,6 +2,7 @@
 import type {
 	CheckpointRecord,
 	CronJobRecord,
+	SessionForkRecord,
 	SessionRecord,
 	SpaceMarkListItem,
 	SpaceRecord,
@@ -94,6 +95,28 @@ const SESSION_PAGE_SIZE = 20;
 let showUserMenu = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
 let sessions = $state<SessionRecord[]>([]);
+type SessionForkSidebarRecord = Partial<SessionForkRecord> & {
+	childSessionId: string;
+	parentSessionId?: string | null;
+	depth: number;
+	anchorSequence?: number | null;
+	createdAt?: string;
+	firstUserTextAfterFork?: string | null;
+	parentTitle?: string | null;
+};
+type SidebarSessionItem = {
+	session: SessionRecord;
+	depth: number;
+	visualDepth: number;
+	isFork: boolean;
+	parentVisible: boolean;
+	hasVisibleChildren: boolean;
+	fork: SessionForkSidebarRecord | null;
+	displayTitle: string;
+	titleText: string | undefined;
+	ariaLabel: string;
+};
+let sessionForks = $state<SessionForkSidebarRecord[]>([]);
 let checkpoints = $state<CheckpointRecord[]>([]);
 let pinnedMarks = $state<SpaceMarkListItem[]>([]);
 let loadingSessions = $state(false);
@@ -138,6 +161,9 @@ const activeCheckpointId = $derived.by(() => {
 const activeCheckpoint = $derived(
 	checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ??
 		null,
+);
+const sidebarSessionItems = $derived.by(() =>
+	buildSidebarSessionItems(sessions),
 );
 
 const activeCronjobId = $derived.by(() => {
@@ -283,6 +309,7 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 		const cached = await getCachedSessionListSnapshot(spaceId);
 		if (cached && cached.sessions.length > 0) {
 			sessions = cached.sessions;
+			sessionForks = cached.forks ?? [];
 			sessionsPageInfo = cached.pageInfo;
 		}
 	}
@@ -302,13 +329,20 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 	try {
 		const result = await sdk.space(spaceId).sessions.list({
 			limit: SESSION_PAGE_SIZE,
+			includeForks: true,
 		});
 		const nextSessions = result.sessions ?? [];
 		const nextPageInfo = result.pageInfo ?? {
 			hasMore: false,
 			nextCursor: null,
 		};
-		sessions = await setCachedSessionList(spaceId, nextSessions, nextPageInfo);
+		sessionForks = result.forks ?? [];
+		sessions = await setCachedSessionList(
+			spaceId,
+			nextSessions,
+			nextPageInfo,
+			sessionForks,
+		);
 		sessionsPageInfo = nextPageInfo;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
@@ -327,16 +361,24 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 		const result = await sdk.space(spaceId).sessions.list({
 			limit: SESSION_PAGE_SIZE,
 			cursor,
+			includeForks: true,
 		});
 		const moreSessions = result.sessions ?? [];
 		const nextPageInfo = result.pageInfo ?? {
 			hasMore: false,
 			nextCursor: null,
 		};
+		const forkByChildId = new Map(
+			sessionForks.map((fork) => [fork.childSessionId, fork]),
+		);
+		for (const fork of result.forks ?? [])
+			forkByChildId.set(fork.childSessionId, fork);
+		sessionForks = Array.from(forkByChildId.values());
 		sessions = await patchCachedSessionList(
 			spaceId,
 			(current) => [...current, ...moreSessions],
 			nextPageInfo,
+			sessionForks,
 		);
 		sessionsPageInfo = nextPageInfo;
 		exhaustedFallbackSessionCursor =
@@ -658,6 +700,94 @@ function getSessionTitle(session: SessionRecord, _index: number) {
 	return "New chat";
 }
 
+function isLikelyDefaultForkTitle(
+	session: SessionRecord,
+	fork: SessionForkSidebarRecord | null,
+) {
+	if (!fork) return false;
+	const childTitle = normalizeSessionDisplayText(session.title);
+	if (!childTitle) return true;
+	const parentTitle = normalizeSessionDisplayText(fork.parentTitle);
+	return Boolean(parentTitle && childTitle === parentTitle);
+}
+
+function buildForkTitle(
+	session: SessionRecord,
+	fork: SessionForkSidebarRecord | null,
+) {
+	const forkText = normalizeSessionDisplayText(fork?.firstUserTextAfterFork);
+	if (forkText && isLikelyDefaultForkTitle(session, fork))
+		return forkText.slice(0, 48);
+	return getSessionTitle(session, 0);
+}
+
+function getSessionRowStyle(item: SidebarSessionItem) {
+	if (!item.isFork)
+		return isMobile
+			? "-webkit-touch-callout: none; user-select: none;"
+			: undefined;
+	const depth = isMobile ? Math.min(item.visualDepth, 1) : item.visualDepth;
+	const indent = Math.min(depth, 3) * (isMobile ? 10 : 12);
+	const base = `--fork-indent: ${indent}px;`;
+	return isMobile
+		? `${base} -webkit-touch-callout: none; user-select: none;`
+		: base;
+}
+
+function buildSidebarSessionItems(
+	sessionList: SessionRecord[],
+): SidebarSessionItem[] {
+	const sessionById = new Map(
+		sessionList.map((session) => [session.id, session]),
+	);
+	const forkByChildId = new Map(
+		sessionForks.map((fork) => [fork.childSessionId, fork]),
+	);
+	const childCountByParentId = new Map<string, number>();
+	for (const fork of sessionForks) {
+		if (
+			!fork.parentSessionId ||
+			!sessionById.has(fork.parentSessionId) ||
+			!sessionById.has(fork.childSessionId)
+		)
+			continue;
+		childCountByParentId.set(
+			fork.parentSessionId,
+			(childCountByParentId.get(fork.parentSessionId) ?? 0) + 1,
+		);
+	}
+
+	return sessionList.map((session) => {
+		const fork = forkByChildId.get(session.id) ?? null;
+		const parentVisible = Boolean(
+			fork?.parentSessionId && sessionById.has(fork.parentSessionId),
+		);
+		const visualDepth = fork
+			? parentVisible
+				? Math.max(1, fork.depth)
+				: 1
+			: 0;
+		const displayTitle = buildForkTitle(session, fork);
+		const source = fork?.parentTitle
+			? `Forked from “${normalizeSessionDisplayText(fork.parentTitle)}”`
+			: "Forked from another chat";
+		const turn = fork?.anchorSequence ? ` at turn #${fork.anchorSequence}` : "";
+		const tooltip = fork ? `${source}${turn}` : undefined;
+		return {
+			session,
+			depth: fork?.depth ?? 0,
+			visualDepth,
+			isFork: Boolean(fork),
+			parentVisible,
+			hasVisibleChildren: (childCountByParentId.get(session.id) ?? 0) > 0,
+			fork,
+			displayTitle,
+			titleText: tooltip,
+			ariaLabel: tooltip ? `${displayTitle}, ${tooltip}` : displayTitle,
+		};
+	});
+}
+
 function getCheckpointTitle(checkpoint: CheckpointRecord): string {
 	return checkpoint.description || checkpoint.commitHash.slice(0, 12);
 }
@@ -706,9 +836,10 @@ onMount(() => {
 			},
 		);
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
-			({ spaceId, sessions: nextSessions, pageInfo }) => {
+			({ spaceId, sessions: nextSessions, forks, pageInfo }) => {
 				if (spaceId !== currentSpaceId) return;
 				sessions = nextSessions;
+				sessionForks = forks ?? [];
 				if (pageInfo) sessionsPageInfo = pageInfo;
 				exhaustedFallbackSessionCursor = null;
 			},
@@ -814,6 +945,7 @@ $effect(() => {
 	const id = currentSpaceId;
 	if (id) {
 		sessions = [];
+		sessionForks = [];
 		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
@@ -826,6 +958,7 @@ $effect(() => {
 		});
 	} else {
 		sessions = [];
+		sessionForks = [];
 		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
@@ -998,7 +1131,8 @@ $effect(() => {
               <div class="px-2 py-2 text-[12px] text-text-placeholder">No chats</div>
             {:else}
               <div class="space-y-[2px] mt-1">
-                {#each sessions as session, index (session.id)}
+                {#each sidebarSessionItems as item, index (item.session.id)}
+                  {@const session = item.session}
                   {@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
                   {@const isRenaming = renamingSessionId === session.id}
 
@@ -1046,9 +1180,9 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                      style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
-							onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.parentVisible ? 'session-fork-row--connected' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      style={getSessionRowStyle(item)}
+						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
 								ondragstart={(e) => {
 									e.dataTransfer?.setData(
@@ -1057,9 +1191,10 @@ $effect(() => {
 									);
 									if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
 								}}
-                      title={sourceTooltip(session.source) || undefined}
+                      title={item.titleText || sourceTooltip(session.source) || undefined}
+                      aria-label={item.ariaLabel}
                     >
-                      <span class="truncate leading-tight flex-1">{getSessionTitle(session, index)}</span>
+                      <span class="truncate leading-tight flex-1">{item.displayTitle}</span>
                       {#if sourceBadge(session.source)}
                         <span class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}">
                           {sourceBadge(session.source)}
@@ -1092,7 +1227,7 @@ $effect(() => {
                           onclick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            togglePinResource("session", session.id, getSessionTitle(session, index));
+                            togglePinResource("session", session.id, item.displayTitle);
                           }}
                         >
                           {#if isPinned("session", session.id)}
@@ -1557,3 +1692,53 @@ $effect(() => {
     </button>
   </div>
 </aside>
+
+<style>
+	.session-fork-row {
+		padding-left: calc(0.5rem + var(--fork-indent, 0px));
+	}
+
+	.session-fork-row::before {
+		content: "";
+		position: absolute;
+		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
+		top: 50%;
+		width: 7px;
+		height: 1px;
+		background: var(--color-border-subtle);
+		opacity: 0.72;
+		transform: translateY(-50%);
+		pointer-events: none;
+	}
+
+	.session-fork-row--connected::after {
+		content: "";
+		position: absolute;
+		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
+		top: 0.35rem;
+		bottom: 0.35rem;
+		width: 1px;
+		background: var(--color-border-subtle);
+		opacity: 0.38;
+		pointer-events: none;
+	}
+
+	@media (hover: hover) {
+		.session-fork-row:hover::before,
+		.session-fork-row:focus-within::before {
+			opacity: 1;
+			background: var(--color-text-placeholder);
+		}
+	}
+
+	@media (max-width: 640px) {
+		.session-fork-row {
+			padding-left: calc(0.5rem + min(var(--fork-indent, 0px), 10px));
+		}
+
+		.session-fork-row::before,
+		.session-fork-row--connected::after {
+			display: none;
+		}
+	}
+</style>
