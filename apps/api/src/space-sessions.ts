@@ -21,7 +21,6 @@ import {
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
 import { finalizeSessionTurnFromMessage } from "./session-turns.js";
-import { createExecutionGrant } from "./execution-grants.js";
 import { enqueueAgentTurnJob, enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
@@ -534,7 +533,7 @@ export const listSessionMessages = async (spaceSessionId: string, options?: { cu
   return db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, spaceSessionId), gt(sessionMessages.sequence, cursor))).orderBy(asc(sessionMessages.sequence)).limit(limit);
 };
 
-export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; turnId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null }) => {
+export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; turnId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; executionAuth: { token: string; expiresAt: number } }) => {
   const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
   if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
   await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
@@ -544,20 +543,7 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
   const actorUserId = typeof input.meta?.userId === "string" && input.meta.userId.trim()
     ? input.meta.userId.trim()
     : null;
-  const source = typeof input.meta?.source === "string" && input.meta.source.trim()
-    ? input.meta.source.trim()
-    : "prompt";
-  const executionGrant = input.meta && typeof input.meta === "object" && !Array.isArray(input.meta) &&
-    typeof (input.meta as Record<string, unknown>).executionAuth === "object" &&
-    (input.meta as Record<string, unknown>).executionAuth !== null &&
-    !Array.isArray((input.meta as Record<string, unknown>).executionAuth)
-    ? (input.meta as Record<string, unknown>).executionAuth as { token: string; expiresAt: number }
-    : await createExecutionGrant({
-        actorUserId,
-        spaceId: input.spaceId,
-        sessionId: input.sessionId,
-        source,
-      });
+  const executionGrant = input.executionAuth;
 
   const [activeTurn] = await db.select({ id: sessionTurns.id })
     .from(sessionTurns)

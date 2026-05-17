@@ -36,23 +36,43 @@ export type {
   WebsocketPromptContext,
 };
 
-const promptDependencies = {
+const createPromptDependencies = () => ({
   randomUUID,
   expandPromptTemplate: (input: { text: string; userId: string; spaceId: string }) =>
     expandPromptTemplate(input.text, { userId: input.userId, spaceId: input.spaceId }),
   createExecutionGrant,
   createSessionTurn,
-  enqueueSpacePrompt,
+  enqueueSpacePrompt: async (input: {
+    spaceId: string;
+    sessionId: string;
+    turnId: string;
+    userMessageId: string;
+    content: ContentBlock[];
+    meta: Record<string, unknown>;
+  }) => {
+    const executionAuth = input.meta.executionAuth;
+    if (!executionAuth || typeof executionAuth !== "object" || Array.isArray(executionAuth)) {
+      throw new Error("execution auth is required");
+    }
+    const { token, expiresAt } = executionAuth as { token?: unknown; expiresAt?: unknown };
+    if (typeof token !== "string" || typeof expiresAt !== "number") {
+      throw new Error("invalid execution auth");
+    }
+    await enqueueSpacePrompt({
+      ...input,
+      executionAuth: { token, expiresAt },
+    });
+  },
   failSessionTurn,
-};
+});
 
 export const expandPromptContent = async (input: {
   content: ContentBlock[];
   userId: string;
   spaceId: string;
-}) => expandCorePromptContent(promptDependencies, input);
+}) => expandCorePromptContent(createPromptDependencies(), input);
 
 export const submitSessionPrompt = async (
   input: SubmitSessionPromptInput,
   hooks: SubmitSessionPromptHooks = {},
-): Promise<SubmitSessionPromptResult> => submitCoreSessionPrompt(promptDependencies, input, hooks);
+): Promise<SubmitSessionPromptResult> => submitCoreSessionPrompt(createPromptDependencies(), input, hooks);
