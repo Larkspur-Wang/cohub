@@ -273,6 +273,10 @@ export function getSandboxClientConnection(spaceId: string) {
   return registrations.get(spaceId)?.connection ?? null;
 }
 
+export function hasPendingSandboxRequests(spaceId: string) {
+  return (registrations.get(spaceId)?.pendingByRequestId.size ?? 0) > 0;
+}
+
 async function runLoop(registration: SandboxClientRegistration) {
   let attempt = 0;
 

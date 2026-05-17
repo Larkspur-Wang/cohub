@@ -6,7 +6,7 @@ import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getSpace, abortSessionTurn, persistAssistantMessage, persistUserMessage } from "./api.js";
-import { acquireSandbox } from "./sandbox-pool.js";
+import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
@@ -453,7 +453,6 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
   }, parentCtx, async () => {
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) return { skipped: "session_locked" };
-    let sandboxLease: { release: () => void } | null = null;
     let activeTurn: { id: string; controller: AbortController } | null = null;
 
     try {
@@ -502,7 +501,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         requestedModel: resolveRequestedModel(ownerMeta),
       });
 
-      sandboxLease = await acquireSandbox(data.spaceId);
+      await ensureSandboxConnection(data.spaceId);
 
       const turnUserMessages: TurnUserMessage[] = buildUserMessagesForBatch(batch)
         .filter((item) => Boolean(item.userMessageId))
@@ -679,7 +678,6 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       };
     } finally {
       if (activeTurn) clearActiveAbortController(activeTurn.id, activeTurn.controller);
-      sandboxLease?.release();
       await lock.release();
     }
   });

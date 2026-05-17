@@ -1,7 +1,13 @@
 import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
 import { getSpaceSandbox } from "./api.js";
 import { updateSpaceRuntime } from "./ownership.js";
-import { startSandboxWsClient, waitForSandboxConnection, disconnectSandboxWsClient } from "./sandbox/ws-client.js";
+import {
+  disconnectSandboxWsClient,
+  hasPendingSandboxRequests,
+  startSandboxWsClient,
+  type SandboxConnection,
+  waitForSandboxConnection,
+} from "./sandbox/ws-client.js";
 
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
@@ -12,12 +18,12 @@ type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
 
 type PoolEntry = {
   spaceId: string;
-  activeCount: number;
   lastUsedAt: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const entries = new Map<string, PoolEntry>();
+const wsUrlResolutions = new Map<string, Promise<string>>();
 
 function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
@@ -73,78 +79,93 @@ async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   return `ws://${podIp}:8788/sandbox`;
 }
 
-function pruneIdleConnections() {
-  const idle = [...entries.values()]
-    .filter((entry) => entry.activeCount <= 0)
-    .sort((a, b) => a.lastUsedAt - b.lastUsedAt);
-  while (entries.size >= MAX_CONNECTIONS && idle.length > 0) {
-    const entry = idle.shift();
-    if (!entry) break;
-    if (entry.idleTimer) clearTimeout(entry.idleTimer);
-    entries.delete(entry.spaceId);
-    disconnectSandboxWsClient(entry.spaceId, "sandbox pool capacity pruning");
-  }
-  if (entries.size >= MAX_CONNECTIONS) {
-    console.warn(`[SandboxPool] max connections reached (${entries.size}/${MAX_CONNECTIONS}); allowing temporary overflow because all connections are active`);
-  }
+function resolveSandboxWsUrlOnce(spaceId: string) {
+  const existing = wsUrlResolutions.get(spaceId);
+  if (existing) return existing;
+  const promise = resolveSandboxWsUrl(spaceId).finally(() => {
+    wsUrlResolutions.delete(spaceId);
+  });
+  wsUrlResolutions.set(spaceId, promise);
+  return promise;
 }
 
-export async function acquireSandbox(spaceId: string) {
-  let entry = entries.get(spaceId);
-  if (!entry) {
-    pruneIdleConnections();
-    entry = { spaceId, activeCount: 0, lastUsedAt: Date.now(), idleTimer: null };
-    entries.set(spaceId, entry);
-  }
-  if (entry.idleTimer) {
-    clearTimeout(entry.idleTimer);
-    entry.idleTimer = null;
-  }
-  entry.activeCount += 1;
-  entry.lastUsedAt = Date.now();
-
-  try {
-    const wsUrl = await resolveSandboxWsUrl(spaceId);
-    await startSandboxWsClient({
-      spaceId,
-      wsUrl,
-      hooks: {
-        onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
-        onDisconnected: ({ reason }) => syncSandboxConnectionState({
-          spaceId,
-          status: "provisioning",
-          reason: reason ?? "sandbox disconnected",
-        }),
-        onConnectionError: ({ error }) => syncSandboxConnectionState({
-          spaceId,
-          status: "provisioning",
-          reason: error.message,
-        }),
-      },
-    });
-    await waitForSandboxConnection(spaceId);
-
-    return {
-      release: () => releaseSandbox(spaceId),
-    };
-  } catch (error) {
-    releaseSandbox(spaceId);
-    throw error;
-  }
-}
-
-function releaseSandbox(spaceId: string) {
+function disconnectEntry(spaceId: string, reason: string) {
   const entry = entries.get(spaceId);
-  if (!entry) return;
-  entry.activeCount = Math.max(0, entry.activeCount - 1);
-  entry.lastUsedAt = Date.now();
-  if (entry.activeCount > 0 || entry.idleTimer) return;
+  if (entry?.idleTimer) clearTimeout(entry.idleTimer);
+  entries.delete(spaceId);
+  disconnectSandboxWsClient(spaceId, reason);
+}
+
+function scheduleIdleEviction(entry: PoolEntry) {
+  if (entry.idleTimer) clearTimeout(entry.idleTimer);
   entry.idleTimer = setTimeout(() => {
-    const current = entries.get(spaceId);
-    if (!current || current.activeCount > 0) return;
-    entries.delete(spaceId);
-    disconnectSandboxWsClient(spaceId, "sandbox pool idle eviction");
+    const current = entries.get(entry.spaceId);
+    if (!current) return;
+    const idleForMs = Date.now() - current.lastUsedAt;
+    if (idleForMs < IDLE_TTL_MS) {
+      scheduleIdleEviction(current);
+      return;
+    }
+    if (hasPendingSandboxRequests(current.spaceId)) {
+      scheduleIdleEviction(current);
+      return;
+    }
+    disconnectEntry(current.spaceId, "sandbox pool idle eviction");
   }, IDLE_TTL_MS);
+}
+
+function touchSandboxConnection(spaceId: string) {
+  const existing = entries.get(spaceId);
+  const entry = existing ?? { spaceId, lastUsedAt: Date.now(), idleTimer: null };
+  entry.lastUsedAt = Date.now();
+  if (existing) entries.delete(spaceId);
+  entries.set(spaceId, entry);
+  scheduleIdleEviction(entry);
+}
+
+export async function ensureSandboxConnection(spaceId: string, options?: { timeoutMs?: number }): Promise<SandboxConnection> {
+  touchSandboxConnection(spaceId);
+  const wsUrl = await resolveSandboxWsUrlOnce(spaceId);
+  await startSandboxWsClient({
+    spaceId,
+    wsUrl,
+    hooks: {
+      onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
+      onDisconnected: ({ reason }) => syncSandboxConnectionState({
+        spaceId,
+        status: "provisioning",
+        reason: reason ?? "sandbox disconnected",
+      }),
+      onConnectionError: ({ error }) => syncSandboxConnectionState({
+        spaceId,
+        status: "provisioning",
+        reason: error.message,
+      }),
+    },
+  });
+  const connection = await waitForSandboxConnection(spaceId, options?.timeoutMs);
+  touchSandboxConnection(spaceId);
+  pruneSandboxConnections({ preserveSpaceId: spaceId });
+  return connection;
+}
+
+export function pruneSandboxConnections(options?: { preserveSpaceId?: string }) {
+  if (entries.size <= MAX_CONNECTIONS) return;
+
+  let skippedPending = 0;
+  for (const entry of [...entries.values()]) {
+    if (entries.size <= MAX_CONNECTIONS) break;
+    if (entry.spaceId === options?.preserveSpaceId) continue;
+    if (hasPendingSandboxRequests(entry.spaceId)) {
+      skippedPending += 1;
+      continue;
+    }
+    disconnectEntry(entry.spaceId, "sandbox pool LRU pruning");
+  }
+
+  if (entries.size > MAX_CONNECTIONS) {
+    console.warn(`[SandboxPool] max connections exceeded (${entries.size}/${MAX_CONNECTIONS}); skipped ${skippedPending} connections with pending requests`);
+  }
 }
 
 export function closeSandboxPool() {
@@ -153,4 +174,5 @@ export function closeSandboxPool() {
     disconnectSandboxWsClient(entry.spaceId, "agent shutdown");
   }
   entries.clear();
+  wsUrlResolutions.clear();
 }

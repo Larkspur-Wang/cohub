@@ -41,7 +41,8 @@ import {
   createSpaceAwareReadTool,
 } from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
-import { type SandboxConnection, waitForSandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
+import { type SandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
+import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
 import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
 import { logger } from "../logger.js";
@@ -123,7 +124,7 @@ function mapSandboxInputPath(path: string | undefined) {
 }
 
 async function getCurrentConnection() {
-  return waitForSandboxConnection(getCurrentSpaceId());
+  return ensureSandboxConnection(getCurrentSpaceId());
 }
 
 async function waitForRecoveredSandboxConnection(spaceId: string, timeoutMs = 60_000) {
@@ -133,8 +134,7 @@ async function waitForRecoveredSandboxConnection(spaceId: string, timeoutMs = 60
 
   while (Date.now() < deadline) {
     try {
-      const remaining = Math.max(1_000, deadline - Date.now());
-      return await waitForSandboxConnection(spaceId, Math.min(15_000, remaining));
+      return await ensureSandboxConnection(spaceId, { timeoutMs: Math.min(15_000, Math.max(1_000, deadline - Date.now())) });
     } catch (error) {
       lastError = error;
       attempt += 1;
@@ -192,14 +192,22 @@ async function tracedRpc<M extends RpcMethod>(
   });
 
   try {
-    return await execute();
-  } catch (error) {
-    const classified = classifySandboxInfrastructureError(error instanceof Error ? error.message : String(error));
-    if (!classified || !retryInfraError) throw error;
-    return recoverAndRetryAfterInfraError(spaceId, classified, async () => {
-      const freshConnection = await waitForSandboxConnection(spaceId, 60_000);
-      return tracedRpc(freshConnection, method, params, options, false);
-    });
+    try {
+      return await execute();
+    } catch (error) {
+      const classified = classifySandboxInfrastructureError(error instanceof Error ? error.message : String(error));
+      if (!classified || !retryInfraError) throw error;
+      return recoverAndRetryAfterInfraError(spaceId, classified, async () => {
+        const freshConnection = await ensureSandboxConnection(spaceId);
+        return tracedRpc(freshConnection, method, params, options, false);
+      });
+    }
+  } finally {
+    try {
+      pruneSandboxConnections();
+    } catch (error) {
+      logger.warn(`[SandboxPool] prune failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

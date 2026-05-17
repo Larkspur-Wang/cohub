@@ -21,22 +21,19 @@ function withoutSpaceId(input: unknown) {
 function routeExecute(sandboxTool: AgentTool, checkAccess: AccessCheck) {
   return async (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<unknown>) => {
     const ctx = getCurrentToolExecutionContext();
-    const requestedSpaceId = getRequestedSpaceId(params);
-    const targetSpaceId = requestedSpaceId ?? ctx?.spaceId;
-    if (!targetSpaceId || !ctx?.spaceId || targetSpaceId === ctx.spaceId) {
-      return sandboxTool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate);
+    if (!ctx?.spaceId) {
+      throw new Error("Tool execution context is missing spaceId");
     }
 
-    await checkAccess(targetSpaceId);
+    const requestedSpaceId = getRequestedSpaceId(params);
+    const targetSpaceId = requestedSpaceId ?? ctx.spaceId;
+    if (targetSpaceId !== ctx.spaceId) {
+      await checkAccess(targetSpaceId);
+    }
+
     return runWithToolExecutionContext({
+      ...ctx,
       spaceId: targetSpaceId,
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      turnSeq: ctx.turnSeq,
-      llmRound: ctx.llmRound,
-      toolCallId: ctx.toolCallId,
-      metrics: ctx.metrics,
-      actorUserId: ctx.actorUserId,
     }, () => sandboxTool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate));
   };
 }
