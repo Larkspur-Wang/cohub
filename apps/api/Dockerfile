@@ -8,6 +8,9 @@ RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 
 FROM base AS builder
 COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/identity/package.json ./packages/identity/package.json
+COPY packages/identity/tsconfig.json ./packages/identity/tsconfig.json
+COPY packages/identity/tsconfig.build.json ./packages/identity/tsconfig.build.json
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
 COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
@@ -26,6 +29,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store && \
   pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
 
+COPY packages/identity ./packages/identity
 COPY packages/core ./packages/core
 COPY packages/protocol ./packages/protocol
 COPY packages/infra ./packages/infra
