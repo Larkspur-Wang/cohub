@@ -5,7 +5,6 @@
     "rootDir": "src",
     "declaration": true,
     "declarationMap": false,
-    "baseUrl": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
       "@cohub/protocol": ["../protocol/dist/index.d.ts"],

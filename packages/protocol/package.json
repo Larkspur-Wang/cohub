@@ -65,7 +65,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "zod": "^4.3.6"

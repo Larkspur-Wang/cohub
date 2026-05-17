@@ -4,7 +4,6 @@
     "noEmit": true,
     "types": ["node"],
     "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "paths": {
       "@cohub/protocol": ["../protocol/src/index.ts"],
       "@cohub/protocol/core": ["../protocol/src/core/index.ts"],

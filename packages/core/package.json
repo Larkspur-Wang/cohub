@@ -45,7 +45,7 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@cohub/db": "workspace:*",

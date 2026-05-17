@@ -7,7 +7,6 @@
     "declaration": true,
     "declarationMap": false,
     "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "paths": {
       "@neta-art/cohub": ["../sdk/dist/index.d.ts"],
       "@neta-art/cohub/http": ["../sdk/dist/http.d.ts"],
