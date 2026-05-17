@@ -69,6 +69,9 @@
       ],
       "@cohub/core/spaces/audience": [
         "../../packages/core/dist/spaces/audience.d.ts"
+      ],
+      "@cohub/core/fs-cdn": [
+        "../../packages/core/dist/fs-cdn/index.d.ts"
       ]
     }
   },

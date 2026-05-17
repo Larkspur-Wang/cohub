@@ -1,23 +1,30 @@
+import {
+  buildFsCdnFailKey,
+  createFsCdnWarmJobsForChanges,
+  FS_CDN_FAIL_TTL_SECONDS,
+} from "@cohub/core/fs-cdn";
 import type { SpaceFsChange } from "@cohub/protocol/fs";
-import { getMimeType } from "./space-fs.js";
-import { enqueueFsCdnWarmForMeta, shouldUseFsCdnForMeta } from "./space-fs-cdn-cache.js";
+import { config } from "./config.js";
+import { redisCommandClient } from "./redis.js";
+import { enqueueFsCdnWarmFile } from "./space-fs-cdn-queue.js";
 
 export async function enqueueFsCdnWarmForChanges(spaceId: string, changes: SpaceFsChange[]) {
   await Promise.allSettled(
-    changes.map(async (change) => {
-      if ((change.kind !== "create" && change.kind !== "modify") || change.nodeType !== "file") return;
-      if (!change.path || change.size == null || change.mtimeMs == null) return;
-      const mimeType = getMimeType(change.path);
-      const meta = {
-        spaceId,
-        path: change.path,
-        name: change.path.split("/").pop() ?? "file",
-        size: change.size,
-        mimeType,
-        mtimeMs: change.mtimeMs,
-      };
-      if (!shouldUseFsCdnForMeta(meta)) return;
-      await enqueueFsCdnWarmForMeta(meta, "fs_changed");
+    createFsCdnWarmJobsForChanges({ spaceId, changes }).map(async (job) => {
+      const failKey = buildFsCdnFailKey({
+        env: config.env,
+        spaceId: job.spaceId,
+        path: job.path,
+        size: job.size,
+        mtimeMs: job.mtimeMs,
+      });
+      if (await redisCommandClient.get(failKey)) return;
+      await enqueueFsCdnWarmFile(job).catch(async (error) => {
+        await redisCommandClient
+          .set(failKey, error instanceof Error ? error.message : String(error), "EX", FS_CDN_FAIL_TTL_SECONDS)
+          .catch(() => undefined);
+        throw error;
+      });
     }),
   );
 }

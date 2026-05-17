@@ -39,6 +39,10 @@
     "./spaces/audience": {
       "types": "./dist/spaces/audience.d.ts",
       "default": "./dist/spaces/audience.js"
+    },
+    "./fs-cdn": {
+      "types": "./dist/fs-cdn/index.d.ts",
+      "default": "./dist/fs-cdn/index.js"
     }
   },
   "types": "./dist/index.d.ts",
