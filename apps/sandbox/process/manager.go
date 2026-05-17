@@ -1,7 +1,6 @@
 package process
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -305,12 +304,20 @@ func (m *Manager) terminateProcessGroup(managed *ManagedProcess, reason string) 
 	return nil
 }
 
-func StreamLines(reader io.Reader, onLine func(string)) error {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		onLine(scanner.Text())
+func StreamChunks(reader io.Reader, onChunk func(string)) error {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			onChunk(string(buf[:n]))
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
 	}
-	return scanner.Err()
 }
 
 func (p *ManagedProcess) requestStop(reason string) bool {

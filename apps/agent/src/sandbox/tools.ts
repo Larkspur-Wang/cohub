@@ -370,7 +370,7 @@ function createRemoteBashOperations(): BashOperations {
                     }
 
                     if (event.type === "stdout" || event.type === "stderr") {
-                      let chunk = `${event.chunk}\n`;
+                      let chunk = event.chunk;
                       if (executionToken) {
                         chunk = chunk.split(executionToken).join("[REDACTED_TOKEN]");
                       }

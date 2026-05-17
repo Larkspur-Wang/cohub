@@ -36,10 +36,12 @@ function createThrottledToolUpdate(onUpdate?: AgentToolUpdateCallback<unknown>) 
   let lastSentAt = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pendingText = "";
+  let lastSentText = "";
 
   const emit = () => {
-    if (!onUpdate || !pendingText) return;
+    if (!onUpdate || !pendingText || pendingText === lastSentText) return;
     lastSentAt = Date.now();
+    lastSentText = pendingText;
     onUpdate({
       content: [{ type: "text", text: tailOutput(pendingText) }],
       details: { partial: true },

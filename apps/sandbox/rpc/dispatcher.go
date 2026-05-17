@@ -571,13 +571,13 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string
 	_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "started", ProcessID: processID}))
 
 	go func() {
-		_ = process.StreamLines(stdout, func(line string) {
-			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stdout", Chunk: line}))
+		_ = process.StreamChunks(stdout, func(chunk string) {
+			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stdout", Chunk: chunk}))
 		})
 	}()
 	go func() {
-		_ = process.StreamLines(stderr, func(line string) {
-			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stderr", Chunk: line}))
+		_ = process.StreamChunks(stderr, func(chunk string) {
+			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stderr", Chunk: chunk}))
 		})
 	}()
 	go func() {
