@@ -13,7 +13,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
   "dependencies": {
