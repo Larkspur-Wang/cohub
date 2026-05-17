@@ -100,9 +100,6 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 		class={`relative flex min-h-7 w-full items-center gap-2 rounded-md py-1 pl-0 pr-1 text-left transition-colors duration-150 hover:bg-bg-hover/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/35 ${isRunning ? 'tool-call-running' : ''}`}
 		onclick={toggle}
 	>
-		{#if isRunning}
-			<span class="tool-call-rail pointer-events-none absolute -left-1 top-1/2 h-4 w-px -translate-y-1/2 rounded-full bg-brand/70"></span>
-		{/if}
 		<span class="h-1.5 w-1.5 shrink-0 rounded-full transition-[background-color,box-shadow,opacity,transform] duration-200 {statusDotMap[tool.status]} {isRunning ? 'tool-call-dot' : ''}"></span>
 		<span class="w-[3.25rem] shrink-0 truncate font-mono text-[13px] text-text-tertiary">{tool.name}</span>
 		{#if filePath}
@@ -175,10 +172,6 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 		isolation: isolate;
 	}
 
-	.tool-call-rail {
-		animation: cohub-tool-rail-breathe 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-	}
-
 	.tool-call-dot {
 		animation: cohub-tool-dot-breathe 1.55s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 	}
@@ -188,13 +181,7 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 		45% { opacity: 1; transform: scale(1.08); }
 	}
 
-	@keyframes cohub-tool-rail-breathe {
-		0%, 100% { opacity: 0.48; transform: translateY(-50%) scaleY(0.72); }
-		48% { opacity: 1; transform: translateY(-50%) scaleY(1); }
-	}
-
 	@media (prefers-reduced-motion: reduce) {
-		.tool-call-rail,
 		.tool-call-dot {
 			animation: none;
 		}
