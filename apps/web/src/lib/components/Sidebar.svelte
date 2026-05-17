@@ -734,6 +734,12 @@ function getSessionRowStyle(item: SidebarSessionItem) {
 		: base;
 }
 
+function getSessionActiveTime(session: SessionRecord) {
+	return new Date(
+		session.lastMessageAt ?? session.updatedAt ?? session.createdAt,
+	).getTime();
+}
+
 function buildSidebarSessionItems(
 	sessionList: SessionRecord[],
 ): SidebarSessionItem[] {
@@ -743,49 +749,93 @@ function buildSidebarSessionItems(
 	const forkByChildId = new Map(
 		sessionForks.map((fork) => [fork.childSessionId, fork]),
 	);
-	const childCountByParentId = new Map<string, number>();
-	for (const fork of sessionForks) {
-		if (
-			!fork.parentSessionId ||
-			!sessionById.has(fork.parentSessionId) ||
-			!sessionById.has(fork.childSessionId)
-		)
+	const childrenByParentId = new Map<string, SessionRecord[]>();
+
+	for (const session of sessionList) {
+		const fork = forkByChildId.get(session.id);
+		if (!fork?.parentSessionId || !sessionById.has(fork.parentSessionId))
 			continue;
-		childCountByParentId.set(
-			fork.parentSessionId,
-			(childCountByParentId.get(fork.parentSessionId) ?? 0) + 1,
-		);
+		const siblings = childrenByParentId.get(fork.parentSessionId) ?? [];
+		siblings.push(session);
+		childrenByParentId.set(fork.parentSessionId, siblings);
 	}
 
-	return sessionList.map((session) => {
+	const groupActiveTime = new Map<string, number>();
+	const getGroupActiveTime = (
+		session: SessionRecord,
+		seen = new Set<string>(),
+	) => {
+		const cachedActiveTime = groupActiveTime.get(session.id);
+		if (cachedActiveTime !== undefined) return cachedActiveTime;
+		if (seen.has(session.id)) return getSessionActiveTime(session);
+		seen.add(session.id);
+		let activeTime = getSessionActiveTime(session);
+		for (const child of childrenByParentId.get(session.id) ?? []) {
+			activeTime = Math.max(activeTime, getGroupActiveTime(child, seen));
+		}
+		seen.delete(session.id);
+		groupActiveTime.set(session.id, activeTime);
+		return activeTime;
+	};
+
+	const compareSessions = (a: SessionRecord, b: SessionRecord) => {
+		const activeDelta = getGroupActiveTime(b) - getGroupActiveTime(a);
+		if (activeDelta !== 0) return activeDelta;
+		return b.id.localeCompare(a.id);
+	};
+
+	const roots = sessionList
+		.filter((session) => {
+			const fork = forkByChildId.get(session.id);
+			return !fork?.parentSessionId || !sessionById.has(fork.parentSessionId);
+		})
+		.sort(compareSessions);
+
+	const items: SidebarSessionItem[] = [];
+	const appendSession = (
+		session: SessionRecord,
+		visualDepth: number,
+		seen = new Set<string>(),
+	) => {
+		if (seen.has(session.id)) return;
+		seen.add(session.id);
 		const fork = forkByChildId.get(session.id) ?? null;
 		const parentVisible = Boolean(
 			fork?.parentSessionId && sessionById.has(fork.parentSessionId),
 		);
-		const visualDepth = fork
-			? parentVisible
-				? Math.max(1, fork.depth)
-				: 1
-			: 0;
-		const displayTitle = buildForkTitle(session, fork);
-		const source = fork?.parentTitle
-			? `Forked from “${normalizeSessionDisplayText(fork.parentTitle)}”`
+		const connectedFork = parentVisible ? fork : null;
+		const displayTitle = connectedFork
+			? buildForkTitle(session, connectedFork)
+			: getSessionTitle(session, 0);
+		const source = connectedFork?.parentTitle
+			? `Forked from “${normalizeSessionDisplayText(connectedFork.parentTitle)}”`
 			: "Forked from another chat";
-		const turn = fork?.anchorSequence ? ` at turn #${fork.anchorSequence}` : "";
-		const tooltip = fork ? `${source}${turn}` : undefined;
-		return {
+		const turn = connectedFork?.anchorSequence
+			? ` at turn #${connectedFork.anchorSequence}`
+			: "";
+		const tooltip = connectedFork ? `${source}${turn}` : undefined;
+		items.push({
 			session,
-			depth: fork?.depth ?? 0,
-			visualDepth,
-			isFork: Boolean(fork),
+			depth: connectedFork?.depth ?? 0,
+			visualDepth: connectedFork ? visualDepth : 0,
+			isFork: Boolean(connectedFork),
 			parentVisible,
-			hasVisibleChildren: (childCountByParentId.get(session.id) ?? 0) > 0,
-			fork,
+			hasVisibleChildren: (childrenByParentId.get(session.id) ?? []).length > 0,
+			fork: connectedFork,
 			displayTitle,
 			titleText: tooltip,
 			ariaLabel: tooltip ? `${displayTitle}, ${tooltip}` : displayTitle,
-		};
-	});
+		});
+
+		const children = [...(childrenByParentId.get(session.id) ?? [])].sort(
+			compareSessions,
+		);
+		for (const child of children) appendSession(child, visualDepth + 1, seen);
+		seen.delete(session.id);
+	};
+
+	for (const root of roots) appendSession(root, 0);
+	return items;
 }
 
 function getCheckpointTitle(checkpoint: CheckpointRecord): string {
