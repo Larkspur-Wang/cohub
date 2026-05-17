@@ -12,9 +12,8 @@ import {
   enqueueSessionAbort,
   enqueueSessionFork,
   updateSpaceSessionInfo,
-  summarizeMessageForHistory,
-  markMessageAsFull,
 } from "../space-sessions.js";
+import { markMessageAsFull, summarizeMessageForHistory } from "../session-content.js";
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
 import { submitSessionPrompt } from "../session-prompts.js";

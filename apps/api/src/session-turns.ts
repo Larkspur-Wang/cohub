@@ -15,7 +15,7 @@ import { sessionMessages, sessionTurnSegments, sessionTurns } from "@cohub/db";
 import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
-import { deriveMessagePreviewText } from "./space-sessions.js";
+import { deriveMessagePreviewText } from "./session-content.js";
 
 const toIso = (value: Date | string | null | undefined) => {
   if (!value) return new Date().toISOString();
@@ -242,7 +242,7 @@ export const createSessionTurn = async (input: {
   intent?: SessionTurnIntent;
   meta?: Record<string, unknown> | null;
 }) => {
-  const userText = deriveMessagePreviewText({ role: "user", content: input.userContent }) || null;
+  const userText = deriveMessagePreviewText({ content: input.userContent }) || null;
   const [row] = await db.transaction(async (tx) => {
     const [sessionRow] = await tx.execute(sql`select id from v2.space_sessions where id = ${input.sessionId} for update`);
     if (!sessionRow) throw new Error("session not found");
