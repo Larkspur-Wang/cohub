@@ -27,6 +27,18 @@
     "./sessions/prompt": {
       "types": "./dist/sessions/prompt.d.ts",
       "default": "./dist/sessions/prompt.js"
+    },
+    "./sessions/service": {
+      "types": "./dist/sessions/service.d.ts",
+      "default": "./dist/sessions/service.js"
+    },
+    "./spaces": {
+      "types": "./dist/spaces/index.d.ts",
+      "default": "./dist/spaces/index.js"
+    },
+    "./spaces/audience": {
+      "types": "./dist/spaces/audience.d.ts",
+      "default": "./dist/spaces/audience.js"
     }
   },
   "types": "./dist/index.d.ts",

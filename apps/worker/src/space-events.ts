@@ -1,20 +1,35 @@
+import { randomUUID } from "node:crypto";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
-import { config } from "./config.js";
+import { recomputeSpaceWsUsers } from "@cohub/core/spaces";
+import { redisCommandClient } from "./redis.js";
+import { db } from "./db.js";
+import { enqueueFsCdnWarmForChanges } from "./space-fs-cdn-prewarm.js";
+
+const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 
 export async function publishSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
   try {
-    const response = await fetch(`${config.internalApiBaseUrl}/internal/space-events/${spaceId}/fs-changed`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-worker-secret": config.workerSecret,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Failed to report fs changes ${response.status}: ${text}`);
-    }
+    const targetUserIds = await recomputeSpaceWsUsers({ db, redis: redisCommandClient, spaceId });
+    await Promise.all([
+      redisCommandClient.publish(
+        REALTIME_OUTBOUND_CHANNEL,
+        JSON.stringify({
+          id: randomUUID(),
+          timestamp: Date.now(),
+          domain: "space",
+          type: "space.fs.changed",
+          spaceId,
+          sessionId: null,
+          payload: {
+            ...payload,
+            targetUserIds,
+          },
+        }),
+      ),
+      enqueueFsCdnWarmForChanges(spaceId, payload.changes).catch((error) => {
+        console.error("[SpaceFS] Failed to enqueue CDN prewarm:", error);
+      }),
+    ]);
   } catch (error) {
     console.warn(`[SpaceEvents] Failed to publish space fs changed for ${spaceId}:`, error);
     throw error;

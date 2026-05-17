@@ -87,6 +87,12 @@
       ],
       "@cohub/core/security/execution-grants": [
         "../../packages/core/dist/security/execution-grants.d.ts"
+      ],
+      "@cohub/core/spaces": [
+        "../../packages/core/dist/spaces/index.d.ts"
+      ],
+      "@cohub/core/spaces/audience": [
+        "../../packages/core/dist/spaces/audience.d.ts"
       ]
     }
   },

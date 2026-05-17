@@ -90,6 +90,12 @@
       ],
       "@cohub/core/security/execution-grants": [
         "../../packages/core/src/security/execution-grants.ts"
+      ],
+      "@cohub/core/spaces": [
+        "../../packages/core/src/spaces/index.ts"
+      ],
+      "@cohub/core/spaces/audience": [
+        "../../packages/core/src/spaces/audience.ts"
       ]
     }
   },

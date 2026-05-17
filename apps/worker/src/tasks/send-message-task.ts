@@ -38,10 +38,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
 
   const source = "scheduled_task";
   const targetSessionId = sessionId?.trim() || null;
-  let promptSessionId = targetSessionId;
-  if (!promptSessionId) {
-    promptSessionId = (await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null })).id;
-  }
+  const promptSessionId = targetSessionId ?? (await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null })).id;
 
   const result = await sessionPromptService.submitPrompt({
     spaceId,
