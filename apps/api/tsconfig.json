@@ -81,6 +81,18 @@
       ],
       "@cohub/protocol/realtime/schema": [
         "../../packages/protocol/src/realtime/schema.ts"
+      ],
+      "@cohub/core/sessions": [
+        "../../packages/core/src/sessions/index.ts"
+      ],
+      "@cohub/core/sessions/prompt": [
+        "../../packages/core/src/sessions/prompt.ts"
+      ],
+      "@cohub/core/security": [
+        "../../packages/core/src/security/index.ts"
+      ],
+      "@cohub/core/security/execution-grants": [
+        "../../packages/core/src/security/execution-grants.ts"
       ]
     }
   },

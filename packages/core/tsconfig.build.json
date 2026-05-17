@@ -3,21 +3,15 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
+    "types": ["node"],
     "paths": {
-      "@cohub/db": [
-        "../db/dist/index.d.ts"
-      ],
-      "@cohub/db/schema": [
-        "../db/dist/index.d.ts"
-      ],
-      "@cohub/db/schema-v2": [
-        "../db/dist/schema-v2.d.ts"
-      ]
+      "@cohub/db": ["../db/dist/index.d.ts"],
+      "@cohub/db/schema": ["../db/dist/index.d.ts"],
+      "@cohub/db/schema-v2": ["../db/dist/schema-v2.d.ts"],
+      "@cohub/protocol/core": ["../protocol/dist/core/index.d.ts"]
     },
     "declaration": true,
     "declarationMap": false
   },
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }

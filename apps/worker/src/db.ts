@@ -1,13 +1,13 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { config } from "./config.js";
-import { checkpoints, spaces, taskRuns, userGitAccounts } from "@cohub/db";
+import * as schema from "@cohub/db";
 import { initDrizzleTracing } from "@cohub/infra/tracing/db";
 
 const client = postgres(config.databaseUrl);
 
 export const db = initDrizzleTracing(
-  drizzle(client, { schema: { taskRuns, spaces, checkpoints, userGitAccounts } }),
+  drizzle(client, { schema }),
   {
     dbSystem: "postgresql",
     dbName: "cohub-worker",

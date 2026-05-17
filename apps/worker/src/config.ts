@@ -5,7 +5,7 @@ export interface WorkerConfig {
   internalApiBaseUrl: string;
   giteaBaseUrl: string;
   workerSecret: string;
-  appEncryptionKey: string;
+  executionGrantSigningKey: string;
   spaceStorageRoot: string;
   spaceStorageSubpath: string;
   platformConfigRoot: string;
@@ -40,7 +40,7 @@ export const config: WorkerConfig = {
   internalApiBaseUrl: process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8787",
   giteaBaseUrl: process.env.GITEA_BASE_URL ?? "",
   workerSecret: process.env.WORKER_SECRET ?? "",
-  appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
+  executionGrantSigningKey: process.env.EXECUTION_GRANT_SIGNING_KEY ?? process.env.APP_ENCRYPTION_KEY ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
@@ -61,6 +61,6 @@ export const assertRequiredConfig = () => {
   if (!config.internalApiBaseUrl) throw new Error("Missing required env: INTERNAL_API_BASE_URL");
   if (!config.giteaBaseUrl) throw new Error("Missing required env: GITEA_BASE_URL");
   if (!config.workerSecret) throw new Error("Missing required env: WORKER_SECRET");
-  if (!config.appEncryptionKey) throw new Error("Missing required env: APP_ENCRYPTION_KEY");
+  if (!config.executionGrantSigningKey) throw new Error("Missing required env: EXECUTION_GRANT_SIGNING_KEY (or APP_ENCRYPTION_KEY fallback)");
   if (!config.spaceStorageRoot) throw new Error("Missing required env: SPACE_STORAGE_ROOT");
 };

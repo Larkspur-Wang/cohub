@@ -68,7 +68,6 @@ attachWorkerEventLogger(taskWorker, {
 console.log("[Worker] Starting task worker...");
 console.log("[Worker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
 console.log("[Worker] App Redis:", getRedisHost(config.redisUrl));
-console.log("[Worker] API:", config.internalApiBaseUrl);
 console.log("[Worker] Registered tasks:", getRegisteredTasks());
 
 // Graceful shutdown

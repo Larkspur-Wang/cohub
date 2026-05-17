@@ -11,6 +11,22 @@
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",
       "default": "./dist/permissions/index.js"
+    },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "default": "./dist/security/index.js"
+    },
+    "./security/execution-grants": {
+      "types": "./dist/security/execution-grants.d.ts",
+      "default": "./dist/security/execution-grants.js"
+    },
+    "./sessions": {
+      "types": "./dist/sessions/index.d.ts",
+      "default": "./dist/sessions/index.js"
+    },
+    "./sessions/prompt": {
+      "types": "./dist/sessions/prompt.d.ts",
+      "default": "./dist/sessions/prompt.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -21,9 +37,11 @@
   },
   "dependencies": {
     "@cohub/db": "workspace:*",
+    "@cohub/protocol": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
+    "@types/node": "25.6.0",
     "typescript": "^6.0.3"
   }
 }

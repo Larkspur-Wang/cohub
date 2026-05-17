@@ -3,7 +3,7 @@ import { config } from "./config.js";
 
 const ALGORITHM = "aes-256-gcm";
 
-const getKey = () => createHash("sha256").update(config.appEncryptionKey).digest();
+const getKey = () => createHash("sha256").update(config.executionGrantSigningKey).digest();
 
 export const decryptSecret = (payload: string) => {
   const [ivB64, authTagB64, encryptedB64] = payload.split(":");

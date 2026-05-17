@@ -28,6 +28,9 @@ COPY packages/infra/tsconfig.build.json ./packages/infra/tsconfig.build.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/db/tsconfig.json ./packages/db/tsconfig.json
 COPY packages/db/tsconfig.build.json ./packages/db/tsconfig.build.json
+COPY packages/core/package.json ./packages/core/package.json
+COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
+COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
@@ -38,6 +41,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY packages/protocol ./packages/protocol
 COPY packages/infra ./packages/infra
 COPY packages/db ./packages/db
+COPY packages/core ./packages/core
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
 

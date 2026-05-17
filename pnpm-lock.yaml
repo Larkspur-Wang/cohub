@@ -442,6 +442,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1038.0
         version: 3.1038.0
+      '@cohub/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@cohub/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -537,10 +540,16 @@ importers:
       '@cohub/db':
         specifier: workspace:*
         version: link:../db
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
     devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
