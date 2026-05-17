@@ -1,5 +1,5 @@
-import type { AuthUserProfile } from "@cohub/core/auth";
-import { AuthorizationError, verifyUserAccessToken } from "@cohub/core/auth";
+import type { AuthUserProfile } from "@cohub/identity";
+import { AuthorizationError, verifyUserAccessToken } from "@cohub/identity";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";

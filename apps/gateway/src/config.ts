@@ -1,4 +1,4 @@
-import { resolveLogtoEndpoint } from "@cohub/core/auth";
+import { resolveLogtoEndpoint } from "@cohub/identity";
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
 

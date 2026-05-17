@@ -25,8 +25,8 @@
       "@cohub/protocol/fs": [
         "../../packages/protocol/dist/fs/index.d.ts"
       ],
-      "@cohub/core/auth": [
-        "../../packages/core/dist/auth/index.d.ts"
+      "@cohub/identity": [
+        "../../packages/identity/dist/index.d.ts"
       ],
       "@cohub/infra/tracing": [
         "../../packages/infra/dist/tracing/index.d.ts"
@@ -42,9 +42,6 @@
       ],
       "@cohub/infra/tracing/provider": [
         "../../packages/infra/dist/tracing/provider.d.ts"
-      ],
-      "@cohub/core/permissions": [
-        "../../packages/core/dist/permissions/index.d.ts"
       ],
       "@cohub/protocol/gateway/types": [
         "../../packages/protocol/dist/gateway/types.d.ts"

@@ -34,8 +34,8 @@
       "@cohub/protocol/ports": [
         "../../packages/protocol/src/ports/index.ts"
       ],
-      "@cohub/core/auth": [
-        "../../packages/core/src/auth/index.ts"
+      "@cohub/identity": [
+        "../../packages/identity/src/index.ts"
       ],
       "@cohub/protocol/sandbox": [
         "../../packages/protocol/src/sandbox/index.ts"

@@ -65,8 +65,8 @@
       "@cohub/infra/tracing/provider": [
         "../../packages/infra/src/tracing/provider.ts"
       ],
-      "@cohub/core/auth": [
-        "../../packages/core/src/auth/index.ts"
+      "@cohub/identity": [
+        "../../packages/identity/src/index.ts"
       ],
       "@cohub/protocol/gateway/types": [
         "../../packages/protocol/src/gateway/types.ts"

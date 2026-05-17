@@ -124,6 +124,9 @@ importers:
       '@cohub/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@cohub/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity
       '@cohub/infra':
         specifier: workspace:*
         version: link:../../packages/infra
@@ -218,9 +221,9 @@ importers:
 
   apps/gateway:
     dependencies:
-      '@cohub/core':
+      '@cohub/identity':
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../../packages/identity
       '@cohub/infra':
         specifier: workspace:*
         version: link:../../packages/infra
@@ -537,13 +540,7 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
-      jose:
-        specifier: ^6.2.3
-        version: 6.2.3
     devDependencies:
-      '@types/node':
-        specifier: 25.6.0
-        version: 25.6.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -557,6 +554,19 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
     devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/identity:
+    dependencies:
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
