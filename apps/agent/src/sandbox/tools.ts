@@ -323,13 +323,15 @@ function createRemoteBashOperations(): BashOperations {
               const sandboxCwd = mapLocalAbsolutePathToSandboxPath(cwd);
               const ctx = getCurrentToolExecutionContext();
               const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
+              const actorUserId = ctx?.actorUserId ?? sessionExecutionAuth?.actorUserId ?? null;
+              const executionToken = ctx?.executionToken ?? sessionExecutionAuth?.executionToken ?? null;
               const injectedEnv: Record<string, string> = {
                 ...(ctx?.spaceId ? getUserEnvForProcess(ctx.spaceId) : {}),
                 ...(env ?? {}),
                 ...(ctx?.spaceId ? { COHUB_SPACE_ID: ctx.spaceId } : {}),
                 ...(ctx?.sessionId ? { COHUB_SESSION_ID: ctx.sessionId } : {}),
-                ...(sessionExecutionAuth?.actorUserId ? { COHUB_USER_UUID: sessionExecutionAuth.actorUserId } : {}),
-                ...(sessionExecutionAuth?.executionToken ? { COHUB_EXECUTION_TOKEN: sessionExecutionAuth.executionToken } : {}),
+                ...(actorUserId ? { COHUB_USER_UUID: actorUserId } : {}),
+                ...(executionToken ? { COHUB_EXECUTION_TOKEN: executionToken } : {}),
               };
               logger.debug(`[Tool:bash] exec summary="${cmdSummary}" cwd=${sandboxCwd}`);
 
@@ -369,9 +371,8 @@ function createRemoteBashOperations(): BashOperations {
 
                     if (event.type === "stdout" || event.type === "stderr") {
                       let chunk = `${event.chunk}\n`;
-                      const token = injectedEnv.COHUB_EXECUTION_TOKEN;
-                      if (token) {
-                        chunk = chunk.split(token).join("[REDACTED_TOKEN]");
+                      if (executionToken) {
+                        chunk = chunk.split(executionToken).join("[REDACTED_TOKEN]");
                       }
                       onData(Buffer.from(chunk, "utf8"));
                       return;
