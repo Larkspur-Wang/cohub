@@ -205,7 +205,7 @@ const segments = $derived.by(() => {
 			{:else if segment.type === 'image'}
 				<AttachmentBlocks blocks={segment.blocks} />
 			{:else if segment.type === 'tool' && showToolCalls}
-				<ToolCallList content={segment.blocks} {onLoadToolCalls} flush {onOpenFile} />
+				<ToolCallList content={segment.blocks} streaming={isStreaming} {onLoadToolCalls} flush {onOpenFile} />
 			{/if}
 		</div>
 	{/each}

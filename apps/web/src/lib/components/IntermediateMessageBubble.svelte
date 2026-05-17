@@ -14,12 +14,19 @@ type ModelCatalogItem = {
 
 type Props = {
 	message: StoredIntermediateMessage;
+	streaming?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
 	onOpenFile?: (path: string) => void;
 };
 
-const { message, modelsCatalog, onLoadToolCalls, onOpenFile }: Props = $props();
+const {
+	message,
+	streaming = false,
+	modelsCatalog,
+	onLoadToolCalls,
+	onOpenFile,
+}: Props = $props();
 const chatMessage = $derived({
 	id: message.id,
 	sourceId: message.id,
@@ -31,6 +38,7 @@ const chatMessage = $derived({
 	createdAt: message.createdAt,
 	meta: {
 		messageKind: "assistant_intermediate",
+		streaming,
 		model: message.model,
 		provider: message.provider,
 		usage: message.usage,

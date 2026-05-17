@@ -7,6 +7,7 @@ import { buildToolCallViewModels } from "$lib/components/tool-call-format";
 type Props = {
 	content: ContentBlock[];
 	toolCallsFile?: MessageToolCallsFile | null;
+	streaming?: boolean;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
 	flush?: boolean;
 	onOpenFile?: (path: string) => void;
@@ -15,6 +16,7 @@ type Props = {
 const {
 	content,
 	toolCallsFile = null,
+	streaming = false,
 	onLoadToolCalls,
 	flush = false,
 	onOpenFile,
@@ -58,7 +60,7 @@ function retryLoad() {
 			</button>
 		{/if}
 		{#each tools as tool (tool.id)}
-			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} onExpand={ensureLoaded} {onOpenFile} />
+			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} defaultExpanded={streaming && tool.status === 'running'} autoExpandWhileRunning={streaming} onExpand={ensureLoaded} {onOpenFile} />
 		{/each}
 	</div>
 {/if}
