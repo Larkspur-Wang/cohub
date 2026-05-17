@@ -49,6 +49,7 @@
   },
   "dependencies": {},
   "devDependencies": {
+    "@cohub/protocol": "workspace:*",
     "tsdown": "^0.22.0",
     "typescript": "^6.0.3"
   }

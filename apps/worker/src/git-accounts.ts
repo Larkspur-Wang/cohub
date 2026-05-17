@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "./db.js";
-import { userGitAccounts } from "@cohub/db-schema";
+import { userGitAccounts } from "@cohub/db";
 import { decryptSecret } from "./crypto.js";
 
 export async function getUserGitAccount(userUuid: string) {

@@ -8,44 +8,28 @@ RUN echo 'registry=https://registry.npmmirror.com/' > /root/.npmrc
 
 FROM base AS builder
 COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
-COPY packages/auth/package.json ./packages/auth/package.json
-COPY packages/auth/tsconfig.json ./packages/auth/tsconfig.json
-COPY packages/auth/tsconfig.build.json ./packages/auth/tsconfig.build.json
+COPY packages/core/package.json ./packages/core/package.json
+COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
+COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
-COPY packages/tracing/package.json ./packages/tracing/package.json
-COPY packages/tracing/tsconfig.json ./packages/tracing/tsconfig.json
-COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
-COPY packages/bullmq-ops/package.json ./packages/bullmq-ops/package.json
-COPY packages/bullmq-ops/tsconfig.json ./packages/bullmq-ops/tsconfig.json
-COPY packages/bullmq-ops/tsconfig.build.json ./packages/bullmq-ops/tsconfig.build.json
-COPY packages/db-schema/package.json ./packages/db-schema/package.json
-COPY packages/db-schema/tsconfig.json ./packages/db-schema/tsconfig.json
-COPY packages/db-schema/tsconfig.build.json ./packages/db-schema/tsconfig.build.json
-COPY packages/permissions/package.json ./packages/permissions/package.json
-COPY packages/permissions/tsconfig.json ./packages/permissions/tsconfig.json
-COPY packages/permissions/tsconfig.build.json ./packages/permissions/tsconfig.build.json
-COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
-COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
-COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
-COPY packages/agent-sandbox-protocol/package.json ./packages/agent-sandbox-protocol/package.json
-COPY packages/agent-sandbox-protocol/tsconfig.json ./packages/agent-sandbox-protocol/tsconfig.json
-COPY packages/agent-sandbox-protocol/tsconfig.build.json ./packages/agent-sandbox-protocol/tsconfig.build.json
+COPY packages/infra/package.json ./packages/infra/package.json
+COPY packages/infra/tsconfig.json ./packages/infra/tsconfig.json
+COPY packages/infra/tsconfig.build.json ./packages/infra/tsconfig.build.json
+COPY packages/db/package.json ./packages/db/package.json
+COPY packages/db/tsconfig.json ./packages/db/tsconfig.json
+COPY packages/db/tsconfig.build.json ./packages/db/tsconfig.build.json
 COPY apps/api/package.json ./apps/api/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store && \
   pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
 
-COPY packages/auth ./packages/auth
+COPY packages/core ./packages/core
 COPY packages/protocol ./packages/protocol
-COPY packages/tracing ./packages/tracing
-COPY packages/bullmq-ops ./packages/bullmq-ops
-COPY packages/db-schema ./packages/db-schema
-COPY packages/permissions ./packages/permissions
-COPY packages/config-runtime ./packages/config-runtime
-COPY packages/agent-sandbox-protocol ./packages/agent-sandbox-protocol
+COPY packages/infra ./packages/infra
+COPY packages/db ./packages/db
 COPY apps/api/src ./apps/api/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
 COPY apps/api/drizzle ./apps/api/drizzle

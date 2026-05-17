@@ -1,12 +1,12 @@
-import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission } from "@cohub/permissions";
+import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission } from "@cohub/core/permissions";
 import { db } from "./db/index.js";
 import type { AuthUserProfile } from "./auth.js";
-import type { SpaceRole } from "@cohub/db-schema";
-import type { Permission, AccessPolicy } from "@cohub/permissions";
+import type { SpaceRole } from "@cohub/db";
+import type { Permission, AccessPolicy } from "@cohub/core/permissions";
 
 const permissionStore = createBatchDrizzlePermissionStore(db);
 
-export type { Audience, Permission } from "@cohub/permissions";
+export type { Audience, Permission } from "@cohub/core/permissions";
 
 export async function getSpaceMemberRole(spaceId: string, userId: string): Promise<SpaceRole | null> {
   return permissionStore.getSpaceMemberRole(spaceId, userId);
@@ -33,7 +33,7 @@ export async function getSessionSpaceId(sessionId: string): Promise<string | nul
   return permissionStore.getSessionSpaceId(sessionId);
 }
 
-type SpaceSessionRow = typeof import("@cohub/db-schema").spaceSessions.$inferSelect;
+type SpaceSessionRow = typeof import("@cohub/db").spaceSessions.$inferSelect;
 type AccessPolicyRow = AccessPolicy | null;
 
 export async function filterSessionsByPermission(

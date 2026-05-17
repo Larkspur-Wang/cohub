@@ -1,4 +1,4 @@
-import type { GenerationContentBlock, GenerationContentSpec, GenerationDeclaration } from "@cohub/protocol";
+import type { GenerationContentBlock, GenerationContentSpec, GenerationDeclaration } from "@cohub/protocol/generation";
 
 export class GenerationValidationError extends Error {
   constructor(message: string) {

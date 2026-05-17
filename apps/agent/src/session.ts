@@ -5,7 +5,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession, interruptSessionTurn } from "./api.js";
 import { sendOutput } from "./redis.js";
 import { logger } from "./logger.js";
-import { getAgentTracer } from "@cohub/tracing/agent";
+import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
 import {
   ensureAgentSpaceSessionPath,

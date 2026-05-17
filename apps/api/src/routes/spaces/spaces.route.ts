@@ -8,7 +8,7 @@ import {
   spaces,
   spaceMembers,
   userGitAccounts,
-} from "@cohub/db-schema";
+} from "@cohub/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
@@ -29,12 +29,12 @@ import {
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
-import { checkpoints } from "@cohub/db-schema";
+import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
-import { SYSTEM_ENV_KEY_SET } from "@cohub/agent-sandbox-protocol";
+import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 

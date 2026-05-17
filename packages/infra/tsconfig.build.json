@@ -4,10 +4,9 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "declarationMap": false,
-    "paths": {
-      "@cohub/db-schema": ["../db-schema/dist/index.d.ts"]
-    }
+    "declarationMap": false
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

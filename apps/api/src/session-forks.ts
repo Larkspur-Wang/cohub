@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
-import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db-schema";
+import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
 
 type SegmentRow = typeof sessionTurnSegments.$inferSelect;
 type ForkRow = typeof sessionForks.$inferSelect;

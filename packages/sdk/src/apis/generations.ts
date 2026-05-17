@@ -1,7 +1,7 @@
 import type {
   CreateGenerationRequest,
   Generation,
-} from "@cohub/protocol";
+} from "@cohub/protocol/generation";
 import type { HttpTransport } from "../transport.js";
 
 export class GenerationsApi {

@@ -41,6 +41,22 @@
     "./generation": {
       "types": "./dist/generation/index.d.ts",
       "default": "./dist/generation/index.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox/index.d.ts",
+      "default": "./dist/sandbox/index.js"
+    },
+    "./gateway/types": {
+      "types": "./dist/gateway/types.d.ts",
+      "default": "./dist/gateway/types.js"
+    },
+    "./realtime/types": {
+      "types": "./dist/realtime/types.d.ts",
+      "default": "./dist/realtime/types.js"
+    },
+    "./realtime/schema": {
+      "types": "./dist/realtime/schema.d.ts",
+      "default": "./dist/realtime/schema.js"
     }
   },
   "types": "./dist/index.d.ts",

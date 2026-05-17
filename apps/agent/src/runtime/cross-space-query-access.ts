@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
-import { assertPermission, createDrizzlePermissionStore } from "@cohub/permissions";
-import { spaces } from "@cohub/db-schema";
+import { assertPermission, createDrizzlePermissionStore } from "@cohub/core/permissions";
+import { spaces } from "@cohub/db";
 import { db } from "../db.js";
 
 const permissionStore = createDrizzlePermissionStore(db);

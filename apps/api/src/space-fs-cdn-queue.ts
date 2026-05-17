@@ -1,4 +1,4 @@
-import { createBullmqQueue } from "@cohub/bullmq-ops";
+import { createBullmqQueue } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import {
   FS_CDN_QUEUE_NAME,

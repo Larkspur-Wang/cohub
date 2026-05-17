@@ -1,9 +1,9 @@
-import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/bullmq-ops";
+import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
 import type { JobsOptions } from "bullmq";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
-import { cronJobs, taskRuns } from "@cohub/db-schema";
+import { cronJobs, taskRuns } from "@cohub/db";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol/task";
 
 const QUEUE_NAME = COHUB_TASKS_QUEUE;

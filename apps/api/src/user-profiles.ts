@@ -1,7 +1,7 @@
 import { inArray } from "drizzle-orm";
 import type { AuthUser } from "./lib/middleware.js";
 import { db } from "./db/index.js";
-import { userProfiles } from "@cohub/db-schema";
+import { userProfiles } from "@cohub/db";
 import { getLogtoUser, updateLogtoUserProfile } from "./logto-management.js";
 
 export type PublicUserProfile = {

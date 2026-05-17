@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { getAgentTracer } from "@cohub/tracing/agent";
+import { getAgentTracer } from "@cohub/infra/tracing/agent";
 
 process.env.SESSIONS_NAMESPACE ??= "test";
 process.env.REDIS_URL ??= "redis://localhost:6379";

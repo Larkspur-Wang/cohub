@@ -4,7 +4,7 @@ import type {
   FeishuChannelConfig,
   GatewaySessionOutput,
 } from "@cohub/protocol/gateway";
-import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 
 export const splitPlannedMessage = (value: string, limit = 1900) => {
   const text = value.trim();

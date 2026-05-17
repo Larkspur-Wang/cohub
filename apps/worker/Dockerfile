@@ -22,18 +22,12 @@ COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
-COPY packages/tracing/package.json ./packages/tracing/package.json
-COPY packages/tracing/tsconfig.json ./packages/tracing/tsconfig.json
-COPY packages/tracing/tsconfig.build.json ./packages/tracing/tsconfig.build.json
-COPY packages/bullmq-ops/package.json ./packages/bullmq-ops/package.json
-COPY packages/bullmq-ops/tsconfig.json ./packages/bullmq-ops/tsconfig.json
-COPY packages/bullmq-ops/tsconfig.build.json ./packages/bullmq-ops/tsconfig.build.json
-COPY packages/db-schema/package.json ./packages/db-schema/package.json
-COPY packages/db-schema/tsconfig.json ./packages/db-schema/tsconfig.json
-COPY packages/db-schema/tsconfig.build.json ./packages/db-schema/tsconfig.build.json
-COPY packages/config-runtime/package.json ./packages/config-runtime/package.json
-COPY packages/config-runtime/tsconfig.json ./packages/config-runtime/tsconfig.json
-COPY packages/config-runtime/tsconfig.build.json ./packages/config-runtime/tsconfig.build.json
+COPY packages/infra/package.json ./packages/infra/package.json
+COPY packages/infra/tsconfig.json ./packages/infra/tsconfig.json
+COPY packages/infra/tsconfig.build.json ./packages/infra/tsconfig.build.json
+COPY packages/db/package.json ./packages/db/package.json
+COPY packages/db/tsconfig.json ./packages/db/tsconfig.json
+COPY packages/db/tsconfig.build.json ./packages/db/tsconfig.build.json
 COPY apps/worker/package.json ./apps/worker/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
@@ -42,10 +36,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 # Copy source and build
 COPY packages/protocol ./packages/protocol
-COPY packages/tracing ./packages/tracing
-COPY packages/bullmq-ops ./packages/bullmq-ops
-COPY packages/db-schema ./packages/db-schema
-COPY packages/config-runtime ./packages/config-runtime
+COPY packages/infra ./packages/infra
+COPY packages/db ./packages/db
 COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
 

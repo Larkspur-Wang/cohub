@@ -12,11 +12,11 @@ import {
   type PromptTemplateCatalogEntry,
   type PromptTemplatesConfig,
   type PromptTemplateScope,
-} from "@cohub/config-runtime/prompts";
+} from "@cohub/infra/config-runtime/prompts";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
 
-export type { PromptTemplateCatalogEntry } from "@cohub/config-runtime/prompts";
+export type { PromptTemplateCatalogEntry } from "@cohub/infra/config-runtime/prompts";
 
 export type ExpandedPromptTemplate = {
   renderedText: string;

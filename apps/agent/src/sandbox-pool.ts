@@ -1,4 +1,4 @@
-import type { SandboxHeartbeat } from "@cohub/agent-sandbox-protocol";
+import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
 import { getSpaceSandbox } from "./api.js";
 import { updateSpaceRuntime } from "./ownership.js";
 import { startSandboxWsClient, waitForSandboxConnection, disconnectSandboxWsClient } from "./sandbox/ws-client.js";

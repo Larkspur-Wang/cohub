@@ -4,18 +4,60 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@cohub/protocol": ["../../packages/protocol/dist/index.d.ts"],
-      "@cohub/protocol/core": ["../../packages/protocol/dist/core/index.d.ts"],
-      "@cohub/protocol/model": ["../../packages/protocol/dist/model/session.d.ts"],
-      "@cohub/protocol/realtime": ["../../packages/protocol/dist/realtime/index.d.ts"],
-      "@cohub/protocol/gateway": ["../../packages/protocol/dist/gateway/index.d.ts"],
-      "@cohub/protocol/task": ["../../packages/protocol/dist/task/index.d.ts"],
-      "@cohub/protocol/fs": ["../../packages/protocol/dist/fs/index.d.ts"],
-      "@cohub/auth": ["../../packages/auth/dist/index.d.ts"],
-      "@cohub/gateway-contract": ["../../packages/gateway-contract/dist/index.d.ts"],
-      "@cohub/tracing": ["../../packages/tracing/dist/index.d.ts"],
-      "@cohub/tracing/propagator": ["../../packages/tracing/dist/propagator.d.ts"]
+      "@cohub/protocol": [
+        "../../packages/protocol/dist/index.d.ts"
+      ],
+      "@cohub/protocol/core": [
+        "../../packages/protocol/dist/core/index.d.ts"
+      ],
+      "@cohub/protocol/model": [
+        "../../packages/protocol/dist/model/session.d.ts"
+      ],
+      "@cohub/protocol/realtime": [
+        "../../packages/protocol/dist/realtime/index.d.ts"
+      ],
+      "@cohub/protocol/gateway": [
+        "../../packages/protocol/dist/gateway/index.d.ts"
+      ],
+      "@cohub/protocol/task": [
+        "../../packages/protocol/dist/task/index.d.ts"
+      ],
+      "@cohub/protocol/fs": [
+        "../../packages/protocol/dist/fs/index.d.ts"
+      ],
+      "@cohub/core/auth": [
+        "../../packages/core/dist/auth/index.d.ts"
+      ],
+      "@cohub/infra/tracing": [
+        "../../packages/infra/dist/tracing/index.d.ts"
+      ],
+      "@cohub/infra/tracing/propagator": [
+        "../../packages/infra/dist/tracing/propagator.d.ts"
+      ],
+      "@cohub/infra/config-runtime/generations": [
+        "../../packages/infra/dist/config-runtime/generations.d.ts"
+      ],
+      "@cohub/infra/config-runtime/explore": [
+        "../../packages/infra/dist/config-runtime/explore.d.ts"
+      ],
+      "@cohub/infra/tracing/provider": [
+        "../../packages/infra/dist/tracing/provider.d.ts"
+      ],
+      "@cohub/core/permissions": [
+        "../../packages/core/dist/permissions/index.d.ts"
+      ],
+      "@cohub/protocol/gateway/types": [
+        "../../packages/protocol/dist/gateway/types.d.ts"
+      ],
+      "@cohub/protocol/realtime/types": [
+        "../../packages/protocol/dist/realtime/types.d.ts"
+      ],
+      "@cohub/protocol/realtime/schema": [
+        "../../packages/protocol/dist/realtime/schema.d.ts"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

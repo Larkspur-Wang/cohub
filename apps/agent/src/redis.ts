@@ -6,7 +6,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { RealtimeEnvelope, SessionStreamError, SessionStreamEvent } from "@cohub/protocol/realtime";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { SpacePortsChangedPayload } from "@cohub/protocol/ports";
-import { injectTrace } from "@cohub/tracing/propagator";
+import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { env } from "./env.js";
 import { buildPatchOpsForContentDelta, getAppendPathForStreamEvent } from "./stream/patch-delta.js";
 

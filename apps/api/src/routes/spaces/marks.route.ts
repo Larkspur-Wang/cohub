@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, asc, count, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { checkpoints, spaceMarks, spaceSessions } from "@cohub/db-schema";
+import { checkpoints, spaceMarks, spaceSessions } from "@cohub/db";
 import { requireValidId, useAuth, getOptionalAuth } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 

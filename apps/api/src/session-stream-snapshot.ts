@@ -3,7 +3,7 @@ import type { StoredIntermediateMessage } from "@cohub/protocol/model";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { redisCommandClient } from "./redis.js";
 import { db } from "./db/index.js";
-import { sessionMessages } from "@cohub/db-schema";
+import { sessionMessages } from "@cohub/db";
 
 export const getSessionStreamSnapshotKey = (spaceId: string, sessionId: string) =>
   `session:stream:snapshot:${spaceId}:${sessionId}`;

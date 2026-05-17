@@ -1,9 +1,9 @@
 import type { Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { wrapAgentTurn } from "@cohub/tracing/agent";
-import { runInActiveSpan, extractTrace } from "@cohub/tracing/propagator";
-import { getAgentTracer } from "@cohub/tracing/agent";
+import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
+import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
+import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getSpace, abortSessionTurn } from "./api.js";
 import { acquireSandbox } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";

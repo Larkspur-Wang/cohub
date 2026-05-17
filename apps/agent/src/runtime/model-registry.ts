@@ -1,5 +1,5 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { mergeModelsConfigs, type ModelsConfig } from "@cohub/config-runtime/models";
+import { mergeModelsConfigs, type ModelsConfig } from "@cohub/infra/config-runtime/models";
 
 function resolveApiKey(value: string | undefined): string | undefined {
   if (!value) return undefined;

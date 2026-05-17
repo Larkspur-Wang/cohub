@@ -20,10 +20,10 @@ export type RequestPrincipal =
 import { config } from "../config.js";
 import { getProfilesByUuids } from "../user-profiles.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
-import { spaceSandboxes } from "@cohub/db-schema";
+import { spaceSandboxes } from "@cohub/db";
 import { db } from "../db/index.js";
 import { inArray } from "drizzle-orm";
-import type { spaces } from "@cohub/db-schema";
+import type { spaces } from "@cohub/db";
 
 const principalToAuthUser = (principal: RequestPrincipal | null | undefined): AuthUser | null => {
   if (principal?.type === "user") return principal.user;

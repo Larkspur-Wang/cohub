@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord } from "../model/session.js";
+import type { ChannelConfig, DiscordChannelConfig, FeishuChannelConfig } from "./types.js";
+export type { ChannelConfig, DiscordChannelConfig, FeishuChannelConfig } from "./types.js";
 
 export type ChannelProvider = "web" | "websocket" | "discord" | "feishu" | "telegram" | "slack";
 export const GATEWAY_CHANNEL_COMMAND_SPECS = [
@@ -140,30 +142,6 @@ export const gatewayInboundEventSchema = z.discriminatedUnion("eventType", [
   gatewayChannelCommandEventSchema,
 ]);
 
-export interface DiscordChannelConfig {
-  inbound?: {
-    requireMentionInGuild?: boolean;
-  };
-  outbound?: {
-    showThinking?: boolean;
-    showToolCalls?: boolean;
-  };
-}
-
-export interface FeishuChannelConfig {
-  brand?: "feishu" | "lark";
-  inbound?: {
-    requireMentionInGroup?: boolean;
-  };
-  outbound?: {
-    renderMode?: "card" | "post";
-    showThinking?: boolean;
-    showToolCalls?: boolean;
-  };
-}
-
-export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | Record<string, unknown>;
-
 export interface GatewayInboundEventBase {
   eventId: string;
   timestamp: number;
@@ -299,3 +277,5 @@ export interface GatewayLogEvent {
   errorMessage?: string;
   correlationId?: string;
 }
+
+export * from "./delivery-plan.js";

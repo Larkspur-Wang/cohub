@@ -9,7 +9,7 @@ import {
   type PromptTemplate,
   type PromptTemplatesConfig,
   type PromptTemplateScope,
-} from "@cohub/config-runtime/prompts";
+} from "@cohub/infra/config-runtime/prompts";
 import { redisCommandClient } from "./redis.js";
 
 function parseFrontmatter(markdown: string): {

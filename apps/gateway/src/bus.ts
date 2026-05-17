@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { GatewayConversationCreateEvent, GatewayInboundEvent } from "@cohub/protocol/gateway";
-import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
-import { injectTrace } from "@cohub/tracing/propagator";
+import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
+import { injectTrace } from "@cohub/infra/tracing/propagator";
 import {
   createBlockingRedisClient,
   type RedisStreamEntry,

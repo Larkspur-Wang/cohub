@@ -5,7 +5,7 @@ import type { ChannelConfig, ChannelProvider, GatewayChannelCommandEvent, Gatewa
 import type { RealtimeServerEvent } from "@cohub/protocol/realtime";
 import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
-import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceMembers } from "@cohub/db-schema";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceMembers } from "@cohub/db";
 import { GATEWAY_OUTBOUND_STREAM, REALTIME_OUTBOUND_CHANNEL, getSpaceWsUsersKey, getSpaceWsUsersUpdatedAtKey, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";
 import {

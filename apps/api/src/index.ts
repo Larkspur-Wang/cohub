@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
-import { verifyUserAccessToken } from "@cohub/auth";
+import { verifyUserAccessToken } from "@cohub/core/auth";
 
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
 import { UnauthorizedError } from "./lib/middleware.js";

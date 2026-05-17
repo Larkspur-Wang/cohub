@@ -6,7 +6,7 @@ import {
   parseModelsConfig,
   PLATFORM_MODELS_REDIS_KEY,
   type CachedModelsConfig,
-} from "@cohub/config-runtime/models";
+} from "@cohub/infra/config-runtime/models";
 import { redisCommandClient } from "./redis.js";
 
 export async function publishModelsCacheFromFile(input: {

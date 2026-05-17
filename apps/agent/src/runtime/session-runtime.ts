@@ -6,7 +6,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
-import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/tracing/agent";
+import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
 
 export type CohubAgentSessionEvent = AgentEvent;

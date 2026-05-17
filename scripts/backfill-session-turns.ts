@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { SessionTurnStatus, SessionTurnSummary } from "@cohub/protocol/model";
-import * as schema from "@cohub/db-schema";
+import * as schema from "@cohub/db";
 
 const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/cohub";
 const dbClient = postgres(connectionString, { prepare: false });

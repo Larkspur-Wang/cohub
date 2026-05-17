@@ -11,12 +11,12 @@ import {
   parseModelsConfig,
   PLATFORM_MODELS_REDIS_KEY,
   type ModelsConfig,
-} from "@cohub/config-runtime/models";
+} from "@cohub/infra/config-runtime/models";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayChannelCommand, GatewayChannelCommandName, GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
-import { sessionMessages, spaces } from "@cohub/db-schema";
+import { sessionMessages, spaces } from "@cohub/db";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { redisCommandClient } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";

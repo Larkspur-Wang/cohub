@@ -7,9 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "@cohub/agent-sandbox-protocol",
-    "@cohub/gateway-contract",
-    "@cohub/tracing"
-  ]
+  "ignore": []
 }

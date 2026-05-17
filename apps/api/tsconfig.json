@@ -4,11 +4,11 @@
     "noEmit": true,
     "rootDir": "../..",
     "paths": {
-      "@cohub/db-schema": [
-        "../../packages/db-schema/src/index.ts"
+      "@cohub/db": [
+        "../../packages/db/src/index.ts"
       ],
-      "@cohub/permissions": [
-        "../../packages/permissions/src/index.ts"
+      "@cohub/core/permissions": [
+        "../../packages/core/src/permissions/index.ts"
       ],
       "@cohub/protocol": [
         "../../packages/protocol/src/index.ts"
@@ -34,35 +34,53 @@
       "@cohub/protocol/ports": [
         "../../packages/protocol/src/ports/index.ts"
       ],
-      "@cohub/auth": [
-        "../../packages/auth/src/index.ts"
+      "@cohub/core/auth": [
+        "../../packages/core/src/auth/index.ts"
       ],
-      "@cohub/agent-sandbox-protocol": [
-        "../../packages/agent-sandbox-protocol/src/index.ts"
+      "@cohub/protocol/sandbox": [
+        "../../packages/protocol/src/sandbox/index.ts"
       ],
-      "@cohub/tracing": [
-        "../../packages/tracing/src/index.ts"
+      "@cohub/infra/tracing": [
+        "../../packages/infra/src/tracing/index.ts"
       ],
-      "@cohub/bullmq-ops": [
-        "../../packages/bullmq-ops/src/index.ts"
+      "@cohub/infra/bullmq": [
+        "../../packages/infra/src/bullmq/index.ts"
       ],
-      "@cohub/tracing/db": [
-        "../../packages/tracing/src/db.ts"
+      "@cohub/infra/tracing/db": [
+        "../../packages/infra/src/tracing/db.ts"
       ],
-      "@cohub/config-runtime": [
-        "../../packages/config-runtime/src/index.ts"
+      "@cohub/infra/config-runtime": [
+        "../../packages/infra/src/config-runtime/index.ts"
       ],
-      "@cohub/config-runtime/models": [
-        "../../packages/config-runtime/src/models.ts"
+      "@cohub/infra/config-runtime/models": [
+        "../../packages/infra/src/config-runtime/models.ts"
       ],
-      "@cohub/config-runtime/prompts": [
-        "../../packages/config-runtime/src/prompts.ts"
+      "@cohub/infra/config-runtime/prompts": [
+        "../../packages/infra/src/config-runtime/prompts.ts"
       ],
-      "@cohub/tracing/propagator": [
-        "../../packages/tracing/src/propagator.ts"
+      "@cohub/infra/tracing/propagator": [
+        "../../packages/infra/src/tracing/propagator.ts"
       ],
-      "@cohub/db-schema/schema-v2": [
-        "../../packages/db-schema/src/schema-v2.ts"
+      "@cohub/db/schema-v2": [
+        "../../packages/db/src/schema-v2.ts"
+      ],
+      "@cohub/infra/config-runtime/generations": [
+        "../../packages/infra/src/config-runtime/generations.ts"
+      ],
+      "@cohub/infra/config-runtime/explore": [
+        "../../packages/infra/src/config-runtime/explore.ts"
+      ],
+      "@cohub/infra/tracing/provider": [
+        "../../packages/infra/src/tracing/provider.ts"
+      ],
+      "@cohub/protocol/gateway/types": [
+        "../../packages/protocol/src/gateway/types.ts"
+      ],
+      "@cohub/protocol/realtime/types": [
+        "../../packages/protocol/src/realtime/types.ts"
+      ],
+      "@cohub/protocol/realtime/schema": [
+        "../../packages/protocol/src/realtime/schema.ts"
       ]
     }
   },

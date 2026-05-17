@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { userChannels, spaceChannels, spaces } from "@cohub/db-schema";
+import { userChannels, spaceChannels, spaces } from "@cohub/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { useAuth, requireValidId } from "../lib/middleware.js";
 

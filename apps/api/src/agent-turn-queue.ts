@@ -1,4 +1,4 @@
-import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue } from "@cohub/bullmq-ops";
+import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
 import type { JobsOptions } from "bullmq";
 import { config } from "./config.js";
 

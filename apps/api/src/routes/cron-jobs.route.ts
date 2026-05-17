@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { cronJobs, taskRuns } from "@cohub/db-schema";
+import { cronJobs, taskRuns } from "@cohub/db";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";

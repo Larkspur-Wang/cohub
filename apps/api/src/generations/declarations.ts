@@ -10,8 +10,8 @@ import {
   parseCachedGenerationsConfig,
   PLATFORM_GENERATIONS_REDIS_KEY,
   type GenerationsConfig,
-} from "@cohub/config-runtime/generations";
-import type { GenerationDeclaration, PublicGenerationDeclaration } from "@cohub/protocol";
+} from "@cohub/infra/config-runtime/generations";
+import type { GenerationDeclaration, PublicGenerationDeclaration } from "@cohub/protocol/generation";
 import { config } from "../config.js";
 import { redisCommandClient } from "../redis.js";
 

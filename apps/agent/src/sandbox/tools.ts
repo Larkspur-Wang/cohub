@@ -22,8 +22,8 @@ import {
 } from "../runtime/tools/index.js";
 
 const GREP_MAX_LINE_LENGTH = 500;
-import type { RpcMethod, RpcRequestMap } from "@cohub/agent-sandbox-protocol";
-import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/tracing/agent";
+import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
+import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
 import {
   getAgentPlatformAgentsPath,
   getAgentPlatformConfigPath,
@@ -165,7 +165,7 @@ async function tracedRpc<M extends RpcMethod>(
   method: M,
   params: RpcRequestMap[M]["params"],
   options?: {
-    onEvent?: (event: import("@cohub/agent-sandbox-protocol").RpcEventPayload) => void;
+    onEvent?: (event: import("@cohub/protocol/sandbox").RpcEventPayload) => void;
   },
   retryInfraError = true,
 ): Promise<RpcRequestMap[M]["result"]> {

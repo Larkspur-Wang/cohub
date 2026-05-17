@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import { SYSTEM_ENV_KEY_SET, SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
+import { SYSTEM_ENV_KEY_SET, SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { env } from "../env.js";
 
 const cachedUserEnvBySpace = new Map<string, Record<string, string>>();

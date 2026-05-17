@@ -19,9 +19,12 @@ const config = {
 			// protocol subpaths — must come before bare package alias to avoid prefix matching
 			"@cohub/protocol/core": `${protocolDir}/core/index.ts`,
 			"@cohub/protocol/fs": `${protocolDir}/fs/index.ts`,
+			"@cohub/protocol/gateway/types": `${protocolDir}/gateway/types.ts`,
 			"@cohub/protocol/gateway": `${protocolDir}/gateway/index.ts`,
 			"@cohub/protocol/model": `${protocolDir}/model/session.ts`,
 			"@cohub/protocol/ports": `${protocolDir}/ports/index.ts`,
+			"@cohub/protocol/realtime/types": `${protocolDir}/realtime/types.ts`,
+			"@cohub/protocol/realtime/schema": `${protocolDir}/realtime/schema.ts`,
 			"@cohub/protocol/realtime": `${protocolDir}/realtime/index.ts`,
 			"@cohub/protocol/task": `${protocolDir}/task/index.ts`,
 			"@cohub/protocol/generation": `${protocolDir}/generation/index.ts`,

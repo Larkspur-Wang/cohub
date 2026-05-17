@@ -14,10 +14,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@cohub/auth": "workspace:*",
+    "@cohub/core": "workspace:*",
+    "@cohub/infra": "workspace:*",
     "@cohub/protocol": "workspace:*",
-    "@cohub/gateway-contract": "workspace:*",
-    "@cohub/tracing": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@hono/otel": "^1.1.0",
     "@larksuiteoapi/node-sdk": "^1.61.1",

@@ -16,36 +16,52 @@ export default defineConfig({
 		alias: [
 			// protocol subpaths — more specific patterns MUST come before bare package name
 			{
-				find: /^@neta-art\/cohub-protocol\/core$/,
+				find: /^@cohub\/protocol\/core$/,
 				replacement: `${protocolDir}/core/index.ts`,
 			},
 			{
-				find: /^@neta-art\/cohub-protocol\/model$/,
+				find: /^@cohub\/protocol\/model$/,
 				replacement: `${protocolDir}/model/session.ts`,
 			},
 			{
-				find: /^@neta-art\/cohub-protocol\/realtime$/,
+				find: /^@cohub\/protocol\/realtime\/types$/,
+				replacement: `${protocolDir}/realtime/types.ts`,
+			},
+			{
+				find: /^@cohub\/protocol\/realtime\/schema$/,
+				replacement: `${protocolDir}/realtime/schema.ts`,
+			},
+			{
+				find: /^@cohub\/protocol\/realtime$/,
 				replacement: `${protocolDir}/realtime/index.ts`,
 			},
 			{
-				find: /^@neta-art\/cohub-protocol\/gateway$/,
+				find: /^@cohub\/protocol\/gateway\/types$/,
+				replacement: `${protocolDir}/gateway/types.ts`,
+			},
+			{
+				find: /^@cohub\/protocol\/gateway$/,
 				replacement: `${protocolDir}/gateway/index.ts`,
 			},
 			{
-				find: /^@neta-art\/cohub-protocol\/task$/,
+				find: /^@cohub\/protocol\/task$/,
 				replacement: `${protocolDir}/task/index.ts`,
 			},
 			{
-				find: /^@neta-art\/cohub-protocol\/fs$/,
+				find: /^@cohub\/protocol\/fs$/,
 				replacement: `${protocolDir}/fs/index.ts`,
 			},
 			{
-				find: /^@neta-art\/cohub-protocol\/ports$/,
+				find: /^@cohub\/protocol\/ports$/,
 				replacement: `${protocolDir}/ports/index.ts`,
+			},
+			{
+				find: /^@cohub\/protocol\/generation$/,
+				replacement: `${protocolDir}/generation/index.ts`,
 			},
 			// protocol bare import — must be last to avoid prefix-matching subpaths
 			{
-				find: /^@neta-art\/cohub-protocol$/,
+				find: /^@cohub\/protocol$/,
 				replacement: `${protocolDir}/index.ts`,
 			},
 			// sdk subpaths — more specific patterns first

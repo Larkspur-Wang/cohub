@@ -1,5 +1,5 @@
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { RealtimePatchOperation, SessionTurnPatchEvent } from "@cohub/protocol/realtime";
+import type { RealtimePatchOperation, SessionTurnPatchEvent } from "@cohub/protocol/realtime/types";
 
 export type SessionPatchStatus =
   | "idle"

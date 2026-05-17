@@ -1,5 +1,5 @@
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
-import { getTracer, extractTrace } from "@cohub/tracing/propagator";
+import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { gatewayInboundEventSchema } from "@cohub/protocol/gateway";
 import { Hono } from "hono";
 import { handleInboundEvent } from "../../channels.js";

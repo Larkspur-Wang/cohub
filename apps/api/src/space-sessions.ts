@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
-import { injectTrace } from "@cohub/tracing/propagator";
-import { SPACE_ENV_REDIS_KEY } from "@cohub/agent-sandbox-protocol";
+import { injectTrace } from "@cohub/infra/tracing/propagator";
+import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -12,7 +12,7 @@ import {
   spaceSessions,
   spaces,
   tokenUsageStatsHourly,
-} from "@cohub/db-schema";
+} from "@cohub/db";
 import {
   getSpaceWsUsersKey,
   getSpaceWsUsersUpdatedAtKey,

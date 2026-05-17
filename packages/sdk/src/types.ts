@@ -8,7 +8,7 @@ import type {
 } from "@cohub/protocol/model";
 import type {
   ChannelConfig,
-} from "@cohub/protocol/gateway";
+} from "@cohub/protocol/gateway/types";
 import type {
   ContentBlock,
   Usage,
@@ -18,13 +18,13 @@ import type {
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
   CreateGenerationRequest,
-} from "@cohub/protocol";
+} from "@cohub/protocol/generation";
 import type { MessageRecord } from "@cohub/protocol/model";
 
 export type {
   ChannelConfig,
   DiscordChannelConfig,
-} from "@cohub/protocol/gateway";
+} from "@cohub/protocol/gateway/types";
 
 export type ApiError = {
   message: string;

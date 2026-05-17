@@ -13,7 +13,7 @@ import {
   type CachedModelsConfig,
   type ModelCatalogEntry,
   type ModelsConfig,
-} from "@cohub/config-runtime/models";
+} from "@cohub/infra/config-runtime/models";
 import { loadPublicGenerationModels } from "../generations/declarations.js";
 import { config } from "../config.js";
 import { useAuth } from "../lib/middleware.js";

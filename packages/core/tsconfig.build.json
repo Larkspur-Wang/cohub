@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@cohub/db": [
+        "../db/dist/index.d.ts"
+      ],
+      "@cohub/db/schema": [
+        "../db/dist/index.d.ts"
+      ],
+      "@cohub/db/schema-v2": [
+        "../db/dist/schema-v2.d.ts"
+      ]
+    },
+    "declaration": true,
+    "declarationMap": false
+  },
+  "include": [
+    "src"
+  ]
+}

@@ -10,10 +10,10 @@ import {
   PLATFORM_EXPLORE_REDIS_KEY,
   type CachedExploreConfig,
   type ExploreConfig,
-} from "@cohub/config-runtime";
+} from "@cohub/infra/config-runtime";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
-import { accessPolicies, checkpoints, spaces } from "@cohub/db-schema";
+import { accessPolicies, checkpoints, spaces } from "@cohub/db";
 import { redisCommandClient } from "../redis.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
 

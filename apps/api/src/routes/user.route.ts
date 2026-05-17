@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { userGitAccounts } from "@cohub/db-schema";
+import { userGitAccounts } from "@cohub/db";
 import { eq, and } from "drizzle-orm";
 import { useAuth } from "../lib/middleware.js";
 import { ensureUserGitAccount } from "../git-accounts.js";

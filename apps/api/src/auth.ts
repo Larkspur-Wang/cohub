@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 
 import { verifyExecutionGrant, type ExecutionGrantPayload } from "./execution-grants.js";
-export type { AuthUserProfile } from "@cohub/auth";
+export type { AuthUserProfile } from "@cohub/core/auth";
 
 const parseBearer = (value?: string | null) => {
   if (!value) {

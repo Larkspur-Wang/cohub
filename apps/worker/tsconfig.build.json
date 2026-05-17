@@ -4,20 +4,44 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@cohub/db-schema": [
-        "../../packages/db-schema/dist/index.d.ts"
+      "@cohub/db": [
+        "../../packages/db/dist/index.d.ts"
       ],
       "@cohub/protocol": [
         "../../packages/protocol/dist/index.d.ts"
       ],
-      "@cohub/bullmq-ops": [
-        "../../packages/bullmq-ops/dist/index.d.ts"
+      "@cohub/infra/bullmq": [
+        "../../packages/infra/dist/bullmq/index.d.ts"
       ],
-      "@cohub/config-runtime/models": [
-        "../../packages/config-runtime/dist/models.d.ts"
+      "@cohub/infra/config-runtime/models": [
+        "../../packages/infra/dist/config-runtime/models.d.ts"
       ],
-      "@cohub/db-schema/schema-v2": [
-        "../../packages/db-schema/dist/schema-v2.d.ts"
+      "@cohub/db/schema-v2": [
+        "../../packages/db/dist/schema-v2.d.ts"
+      ],
+      "@cohub/infra/config-runtime/generations": [
+        "../../packages/infra/dist/config-runtime/generations.d.ts"
+      ],
+      "@cohub/infra/config-runtime/explore": [
+        "../../packages/infra/dist/config-runtime/explore.d.ts"
+      ],
+      "@cohub/infra/tracing/provider": [
+        "../../packages/infra/dist/tracing/provider.d.ts"
+      ],
+      "@cohub/core/auth": [
+        "../../packages/core/dist/auth/index.d.ts"
+      ],
+      "@cohub/core/permissions": [
+        "../../packages/core/dist/permissions/index.d.ts"
+      ],
+      "@cohub/protocol/gateway/types": [
+        "../../packages/protocol/dist/gateway/types.d.ts"
+      ],
+      "@cohub/protocol/realtime/types": [
+        "../../packages/protocol/dist/realtime/types.d.ts"
+      ],
+      "@cohub/protocol/realtime/schema": [
+        "../../packages/protocol/dist/realtime/schema.d.ts"
       ]
     }
   },

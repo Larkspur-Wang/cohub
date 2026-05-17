@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { accessPolicies, spaceMembers, spaceSessions } from "@cohub/db-schema";
-import type { AccessPolicyResourceType, SpaceRole } from "@cohub/db-schema";
+import { accessPolicies, spaceMembers, spaceSessions } from "@cohub/db";
+import type { AccessPolicyResourceType, SpaceRole } from "@cohub/db";
 
 export type Audience = "member_user" | "signed_in_user" | "anonymous_user";
 export type Permission =
@@ -99,10 +99,12 @@ export const resolveAudience = (user: PermissionSubject | null): Audience => {
 };
 
 export const roleHasPermission = (role: SpaceRole, permission: Permission) => {
-  if (permission === "session.prompt.readonly" && ROLE_PERMISSIONS[role].has("session.prompt.fullaccess")) {
+  const permissions = ROLE_PERMISSIONS[role];
+  if (!permissions) return false;
+  if (permission === "session.prompt.readonly" && permissions.has("session.prompt.fullaccess")) {
     return true;
   }
-  return ROLE_PERMISSIONS[role].has(permission);
+  return permissions.has(permission);
 };
 
 async function resolveNonMemberRole(input: {

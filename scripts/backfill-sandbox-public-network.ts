@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "../apps/api/src/db/index.js";
-import { spaceSandboxes } from "@cohub/db-schema";
+import { spaceSandboxes } from "@cohub/db";
 import { config, sessionsNamespace } from "../apps/api/src/config.js";
 import { reconcileSandboxPublicNetwork, getSandboxPublicEndpoints } from "../apps/api/src/sandbox-public-network.js";
 import { mergeSpaceSandboxMeta } from "../apps/api/src/space-sandboxes.js";

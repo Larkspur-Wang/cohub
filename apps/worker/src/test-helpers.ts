@@ -1,4 +1,4 @@
-import { COHUB_TASKS_QUEUE, createBullmqRedisConnection } from "@cohub/bullmq-ops";
+import { COHUB_TASKS_QUEUE, createBullmqRedisConnection } from "@cohub/infra/bullmq";
 import { Queue, type JobsOptions } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 

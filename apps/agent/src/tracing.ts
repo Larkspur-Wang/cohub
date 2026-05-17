@@ -1,3 +1,3 @@
-import { initTracing } from "@cohub/tracing";
+import { initTracing } from "@cohub/infra/tracing";
 
 initTracing({ serviceName: "cohub-agent" });

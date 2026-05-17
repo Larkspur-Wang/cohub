@@ -1,4 +1,4 @@
-import { exportQueuesPrometheusMetrics, getQueueSnapshots } from "@cohub/bullmq-ops";
+import { exportQueuesPrometheusMetrics, getQueueSnapshots } from "@cohub/infra/bullmq";
 import { Hono } from "hono";
 import { agentTurnQueue } from "../agent-turn-queue.js";
 import { fsCdnQueue } from "../space-fs-cdn-queue.js";

@@ -8,7 +8,7 @@ import {
   PLATFORM_MODELS_REDIS_KEY,
   type CachedModelsConfig,
   type ModelsConfig,
-} from "@cohub/config-runtime/models";
+} from "@cohub/infra/config-runtime/models";
 import { redis } from "../redis.js";
 import { getAgentPlatformModelsPath, getAgentUserModelsPath } from "./paths.js";
 

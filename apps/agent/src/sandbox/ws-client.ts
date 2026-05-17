@@ -7,10 +7,10 @@ import type {
   RpcMethod,
   RpcRequestMap,
   SandboxHeartbeat,
-} from "@cohub/agent-sandbox-protocol";
+} from "@cohub/protocol/sandbox";
 import type { SpaceFsChange } from "@cohub/protocol/fs";
 import type { SpacePortChange } from "@cohub/protocol/ports";
-import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/agent-sandbox-protocol";
+import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/protocol/sandbox";
 import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";

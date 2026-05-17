@@ -1,6 +1,6 @@
 import type { AuthUser } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
-import type { GenerationSource } from "@cohub/protocol";
+import type { GenerationSource } from "@cohub/protocol/generation";
 import { GenerationHttpError } from "./errors.js";
 import { readSpaceFile, SpaceFsError } from "../space-fs.js";
 

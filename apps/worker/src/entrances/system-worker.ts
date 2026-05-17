@@ -9,9 +9,9 @@ import {
   createBullmqRedisConnection,
   createQueueTelemetry,
   getRedisHost,
-} from "@cohub/bullmq-ops";
+} from "@cohub/infra/bullmq";
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
-import { getTracer, extractTrace } from "@cohub/tracing/propagator";
+import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
 import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry.js";
 import { FS_CDN_QUEUE_NAME } from "../system/jobs/fs-cdn-cache/types.js";

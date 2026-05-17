@@ -6,7 +6,7 @@ import {
   closeWorkerGracefully,
   createBullmqRedisConnection,
   createQueueTelemetry,
-} from "@cohub/bullmq-ops";
+} from "@cohub/infra/bullmq";
 import { env } from "./env.js";
 import { AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData } from "./queue.js";
 import { processAgentTurnJob, disposeAllSessionHandles } from "./processor.js";

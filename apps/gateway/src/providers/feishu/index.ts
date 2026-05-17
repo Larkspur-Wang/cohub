@@ -2,7 +2,7 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { FeishuChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
-import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import type { GatewayProvider } from "../base.js";
 import { resolveChannelCommand } from "../../channel-commands.js";
 import { publishInboundEvent, } from "../../bus.js";

@@ -1,1 +1,1 @@
-export * from "@cohub/db-schema";
+export * from "@cohub/db";

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { spaceMembers, spaces } from "@cohub/db-schema";
+import { spaceMembers, spaces } from "@cohub/db";
 import { and, eq } from "drizzle-orm";
 import { redisCommandClient } from "../redis.js";
 import { useAuth } from "../lib/middleware.js";

@@ -9,8 +9,8 @@ import {
   PLATFORM_GENERATIONS_REDIS_KEY,
   type CachedGenerationsConfig,
   type GenerationsConfig,
-} from "@cohub/config-runtime/generations";
-import type { GenerationDeclaration } from "@cohub/protocol";
+} from "@cohub/infra/config-runtime/generations";
+import type { GenerationDeclaration } from "@cohub/protocol/generation";
 import { redisCommandClient } from "./redis.js";
 
 const DECLARATION_EXTENSIONS = new Set([".yaml", ".yml", ".json"]);

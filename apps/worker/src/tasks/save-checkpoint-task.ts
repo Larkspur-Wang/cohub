@@ -4,7 +4,7 @@ import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
-import { checkpoints, spaces, userGitAccounts } from "@cohub/db-schema";
+import { checkpoints, spaces, userGitAccounts } from "@cohub/db";
 import { decryptSecret } from "../crypto.js";
 import { buildAuthenticatedRemoteUrl, getSpaceWorkspaceDir, runGit, runGitWithOutput } from "../git.js";
 import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../config-publish.js";

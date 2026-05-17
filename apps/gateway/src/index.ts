@@ -16,7 +16,7 @@ import type {
   WsClientEvent,
 } from "@cohub/protocol/realtime";
 
-import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import {
   getSessionTurnPatchStreamKey,
   realtimeEnvelopeSchema,

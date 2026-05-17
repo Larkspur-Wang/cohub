@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type Comman
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { DiscordChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
-import type { PlannedGatewayOutboundCommand } from "@cohub/gateway-contract";
+import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import type { GatewayProvider } from "../base.js";
 import { GATEWAY_CHANNEL_COMMAND_SPECS } from "@cohub/protocol/gateway";
 import { resolveChannelCommand } from "../../channel-commands.js";

@@ -1,5 +1,5 @@
-import { extractTrace, runInActiveSpan } from "@cohub/tracing/propagator";
-import { getAgentTracer } from "@cohub/tracing/agent";
+import { extractTrace, runInActiveSpan } from "@cohub/infra/tracing/propagator";
+import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getAgentSessionFilePath, getAgentSpaceSessionsPath } from "./runtime/paths.js";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { AgentSessionForkJobData } from "./queue.js";

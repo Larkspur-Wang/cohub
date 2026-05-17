@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import { db } from "./db/index.js";
-import { userGitAccounts, } from "@cohub/db-schema";
+import { userGitAccounts, } from "@cohub/db";
 import {
   createGiteaAccessTokenWithBasicAuth,
   createManagedGiteaUser,

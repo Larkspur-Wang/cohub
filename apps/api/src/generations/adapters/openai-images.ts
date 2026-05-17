@@ -1,4 +1,4 @@
-import type { GenerationContentBlock } from "@cohub/protocol";
+import type { GenerationContentBlock } from "@cohub/protocol/generation";
 import { resolveDeclarationApiKey } from "../declarations.js";
 import { GenerationProviderError } from "../errors.js";
 import { resolveSourceAsUrlOrDataUri } from "../sources.js";

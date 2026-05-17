@@ -1,13 +1,11 @@
 import {
   getSessionTurnPatchStreamKey,
-  realtimeCompactFrameSchema,
-  realtimeEnvelopeSchema,
   WS_COMPACT_STREAM_CAPABILITY,
   type ChannelEnvelope,
   type RealtimeCompactFrame,
   type RealtimePatchOperation,
   type WsClientEvent,
-} from "@cohub/protocol/realtime";
+} from "@cohub/protocol/realtime/types";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { CohubEnvironment } from "./environment.js";
 import { resolveWebsocketUrl } from "./environment.js";
@@ -114,6 +112,34 @@ const PATCH_STREAM_BUFFER_MAX_PENDING = 128;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const isRealtimeCompactFrame = (value: unknown): value is RealtimeCompactFrame => {
+  if (!isRecord(value)) return false;
+  if (value.t !== "d" && value.t !== "p") return false;
+  if (typeof value.sid !== "string" || !value.sid) return false;
+  if (typeof value.s !== "number" || !Number.isInteger(value.s) || value.s < 0) return false;
+  if (typeof value.b !== "number" || !Number.isInteger(value.b) || value.b < 0) return false;
+  if (value.t === "d") return "v" in value;
+  return (
+    (value.o === "append" ||
+      value.o === "replace" ||
+      value.o === "add" ||
+      value.o === "merge" ||
+      value.o === "remove") &&
+    typeof value.p === "string" &&
+    value.p.length > 0
+  );
+};
+
+const isRealtimeEnvelope = (value: unknown): value is ChannelEnvelope => {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== "string") return false;
+  if (typeof value.timestamp !== "number") return false;
+  if (value.domain !== "system" && value.domain !== "session" && value.domain !== "space") return false;
+  if (typeof value.type !== "string") return false;
+  if (!isRecord(value.payload)) return false;
+  return true;
+};
 
 const compactFrameToPatchOperation = (
   frame: RealtimeCompactFrame,
@@ -425,19 +451,17 @@ export class WebsocketClient {
       return;
     }
 
-    const compactResult = realtimeCompactFrameSchema.safeParse(parsed);
-    if (compactResult.success) {
-      this.handleCompactFrame(compactResult.data);
+    if (isRealtimeCompactFrame(parsed)) {
+      this.handleCompactFrame(parsed);
       return;
     }
 
-    const result = realtimeEnvelopeSchema.safeParse(parsed);
-    if (!result.success) {
+    if (!isRealtimeEnvelope(parsed)) {
       this.emit("error", { error: new Error("invalid realtime envelope"), recoverable: true });
       return;
     }
 
-    const envelope = result.data as ChannelEnvelope;
+    const envelope = parsed;
     this.rememberCompactStreamContext(envelope);
     if (envelope.type === "session.turn.patch") {
       this.handlePatchEnvelope(envelope);

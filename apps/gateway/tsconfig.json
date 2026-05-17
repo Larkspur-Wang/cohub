@@ -24,20 +24,38 @@
       "@cohub/protocol/fs": [
         "../../packages/protocol/src/fs/index.ts"
       ],
-      "@cohub/auth": [
-        "../../packages/auth/src/index.ts"
+      "@cohub/core/auth": [
+        "../../packages/core/src/auth/index.ts"
       ],
-      "@cohub/gateway-contract": [
-        "../../packages/gateway-contract/src/index.ts"
+      "@cohub/protocol/sandbox": [
+        "../../packages/protocol/src/sandbox/index.ts"
       ],
-      "@cohub/agent-sandbox-protocol": [
-        "../../packages/agent-sandbox-protocol/src/index.ts"
+      "@cohub/infra/tracing": [
+        "../../packages/infra/src/tracing/index.ts"
       ],
-      "@cohub/tracing": [
-        "../../packages/tracing/src/index.ts"
+      "@cohub/infra/tracing/propagator": [
+        "../../packages/infra/src/tracing/propagator.ts"
       ],
-      "@cohub/tracing/propagator": [
-        "../../packages/tracing/src/propagator.ts"
+      "@cohub/infra/config-runtime/generations": [
+        "../../packages/infra/src/config-runtime/generations.ts"
+      ],
+      "@cohub/infra/config-runtime/explore": [
+        "../../packages/infra/src/config-runtime/explore.ts"
+      ],
+      "@cohub/infra/tracing/provider": [
+        "../../packages/infra/src/tracing/provider.ts"
+      ],
+      "@cohub/core/permissions": [
+        "../../packages/core/src/permissions/index.ts"
+      ],
+      "@cohub/protocol/gateway/types": [
+        "../../packages/protocol/src/gateway/types.ts"
+      ],
+      "@cohub/protocol/realtime/types": [
+        "../../packages/protocol/src/realtime/types.ts"
+      ],
+      "@cohub/protocol/realtime/schema": [
+        "../../packages/protocol/src/realtime/schema.ts"
       ]
     }
   },

@@ -1,5 +1,5 @@
 {
-  "name": "@cohub/db-schema",
+  "name": "@cohub/db",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,10 @@
     "./schema-v2": {
       "types": "./dist/schema-v2.d.ts",
       "default": "./dist/schema-v2.js"
+    },
+    "./schema": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "types": "./dist/index.d.ts",
