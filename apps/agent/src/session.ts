@@ -42,15 +42,39 @@ function getAgentMessageMeta(message: AgentMessage): Record<string, unknown> | n
   return meta && typeof meta === "object" && !Array.isArray(meta) ? meta as Record<string, unknown> : null;
 }
 
+function getSessionUserMessageId(message: AgentMessage): string | null {
+  const meta = getAgentMessageMeta(message);
+  const messageId = meta?.messageId;
+  if (typeof messageId === "string" && messageId.trim()) return messageId.trim();
+  const userMessageId = meta?.userMessageId;
+  if (typeof userMessageId === "string" && userMessageId.trim()) return userMessageId.trim();
+  return null;
+}
+
 export function hasSessionUserMessage(handle: SessionHandle, userMessageId: string) {
+  const normalizedUserMessageId = userMessageId.trim();
+  if (!normalizedUserMessageId) return false;
   const messages = handle.sessionManager.buildSessionContext().messages;
-  return messages.some((message) => getAgentMessageMeta(message)?.messageId === userMessageId);
+  return messages.some((message) => getSessionUserMessageId(message) === normalizedUserMessageId);
 }
 
 export function ensurePendingUserMessage(handle: SessionHandle, pending: PendingUserMessage) {
-  if (hasSessionUserMessage(handle, pending.userMessageId)) return false;
-  handle.pendingUserMessages.push(pending);
+  const normalizedUserMessageId = pending.userMessageId.trim();
+  if (!normalizedUserMessageId) return false;
+  if (hasSessionUserMessage(handle, normalizedUserMessageId)) return false;
+  if (handle.pendingUserMessages.some((item) => item.userMessageId.trim() === normalizedUserMessageId)) return false;
+
+  handle.pendingUserMessages.push({
+    ...pending,
+    userMessageId: normalizedUserMessageId,
+  });
   return true;
+}
+
+export function removePendingUserMessage(handle: SessionHandle, userMessageId: string) {
+  const normalizedUserMessageId = userMessageId.trim();
+  if (!normalizedUserMessageId) return;
+  handle.pendingUserMessages = handle.pendingUserMessages.filter((item) => item.userMessageId.trim() !== normalizedUserMessageId);
 }
 
 type AssistantMessageContext = {
@@ -659,7 +683,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
       if (handle.session.shouldDeferErrorPersistence(rawMessage)) {
         resetStreamState(handle);
-        handle.pendingUserMessages = handle.pendingUserMessages.filter((item) => item.userMessageId !== currentUserMessageId);
+        removePendingUserMessage(handle, currentUserMessageId);
         return;
       }
 
@@ -701,7 +725,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
       resetStreamState(handle);
       if (handle.activeAssistantContext === assistantContext) handle.activeAssistantContext = null;
-      handle.pendingUserMessages = handle.pendingUserMessages.filter((item) => item.userMessageId !== currentUserMessageId);
+      removePendingUserMessage(handle, currentUserMessageId);
     }
 
     if (event.type === "agent_end") {

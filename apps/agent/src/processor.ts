@@ -12,7 +12,7 @@ import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
-import { loadOrCreateSessionHandle, ensurePendingUserMessage, resetStreamState, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
+import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
 import { claimTurnBatch, buildUserMessagesForBatch, enqueueNextQueuedTurn } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
@@ -108,38 +108,109 @@ function formatShellCommandResultForLlm(input: {
   return text;
 }
 
+type TurnUserMessage = {
+  turnId: string;
+  turnSeq: number;
+  userMessageId: string;
+  content: ContentBlock[];
+  meta: Record<string, unknown>;
+};
+
+function normalizeTurnUserMeta(input: TurnUserMessage, patch?: Record<string, unknown>) {
+  return {
+    ...input.meta,
+    ...(patch ?? {}),
+    userMessageId: input.userMessageId,
+    messageId: input.userMessageId,
+    turnId: input.turnId,
+    anchorUserMessageId: input.userMessageId,
+  };
+}
+
+function setActiveTurnContext(handle: SessionHandle, input: {
+  turnId: string;
+  turnSeq: number;
+  userMessageId: string | null;
+  userMeta: Record<string, unknown> | null;
+  llmRound?: number | null;
+}) {
+  handle.currentTurnId = input.turnId;
+  handle.currentTurnSeq = input.turnSeq;
+  handle.currentTurnPatchSeq = 0;
+  handle.currentAssistantMessageOrdinal = null;
+  handle.currentStreamMessageId = null;
+  handle.currentUserMessageId = input.userMessageId;
+  handle.currentUserMessageMeta = input.userMeta;
+  handle.currentLlmRound = input.llmRound ?? 0;
+}
+
+function clearActiveTurnContext(handle: SessionHandle, sessionId: string) {
+  clearCurrentSessionExecutionAuth(sessionId);
+  handle.currentLlmRound = null;
+  handle.currentTurnId = null;
+  handle.currentTurnSeq = null;
+  handle.currentTurnPatchSeq = null;
+  handle.currentAssistantMessageOrdinal = null;
+  handle.currentStreamMessageId = null;
+  handle.currentUserMessageId = null;
+  handle.currentUserMessageMeta = null;
+  handle.currentUserMessageContent = null;
+  handle.lastActiveAt = Date.now();
+}
+
+async function appendAndPersistUserMessage(input: {
+  handle: SessionHandle;
+  spaceId: string;
+  sessionId: string;
+  user: TurnUserMessage;
+  meta: Record<string, unknown>;
+}) {
+  const message = contentToAgentMessage(input.user.content, input.meta);
+  input.handle.session.agent.state.messages.push(message);
+  const entryId = input.handle.sessionManager.appendMessage(message);
+  (message as unknown as Record<string, unknown>).sessionEntryId = entryId;
+
+  await persistUserMessage({
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    userMessageId: input.user.userMessageId,
+    turnId: input.user.turnId,
+    content: input.user.content,
+    meta: input.meta,
+  });
+
+  return message;
+}
+
 async function runDirectShellCommandTurn(input: {
   handle: SessionHandle;
   tools: ReturnType<typeof createSandboxCodingTools>;
   spaceId: string;
   sessionId: string;
-  userMessageId: string | null | undefined;
-  content: ContentBlock[];
-  meta: Record<string, unknown> | null | undefined;
+  user: TurnUserMessage;
   command: string;
   rawText: string;
-  turnId: string;
-  turnSeq: number;
   actorUserId: string | null;
   executionToken: string | null;
   turnMetrics: { llmRoundCount: number; toolCallCount: number };
 }) {
-  const userMessageId = input.userMessageId;
-  if (!userMessageId) throw new Error("userMessageId is required for shell command inputs");
+  const { user } = input;
+  const userMessageId = user.userMessageId;
 
   const bashTool = input.tools.find((tool) => tool.name === "bash");
   if (!bashTool) throw new Error("bash tool is not available");
 
   const handle = input.handle;
-  handle.currentTurnId = input.turnId;
-  handle.currentTurnSeq = input.turnSeq;
-  handle.currentTurnPatchSeq = 0;
+  setActiveTurnContext(handle, {
+    turnId: user.turnId,
+    turnSeq: user.turnSeq,
+    userMessageId,
+    userMeta: user.meta,
+    llmRound: 0,
+  });
   handle.currentAssistantMessageOrdinal = 0;
-  handle.currentStreamMessageId = `turn:${input.turnId}:assistant:0`;
-  handle.currentUserMessageId = userMessageId;
-  handle.currentUserMessageContent = input.content;
-  handle.currentUserMessageMeta = input.meta ?? null;
-  handle.currentLlmRound = 0;
+  handle.currentStreamMessageId = `turn:${user.turnId}:assistant:0`;
+  handle.currentUserMessageContent = user.content;
 
   setCurrentSessionExecutionAuth({
     sessionId: input.sessionId,
@@ -148,34 +219,24 @@ async function runDirectShellCommandTurn(input: {
   });
 
   try {
-    const userMeta = {
-      ...(input.meta ?? {}),
+    const userMeta = normalizeTurnUserMeta(user, {
       intent: "shell_command",
       llm: false,
       rawText: input.rawText,
       command: input.command,
-    };
-    const userMessage = {
-      role: "user",
-      content: input.content,
-      timestamp: Date.now(),
-      meta: userMeta,
-    } as never;
-
-    handle.session.agent.state.messages.push(userMessage);
-    handle.sessionManager.appendMessage(userMessage);
-    await persistUserMessage({
+    });
+    handle.currentUserMessageMeta = userMeta;
+    await appendAndPersistUserMessage({
+      handle,
       spaceId: input.spaceId,
       sessionId: input.sessionId,
-      userMessageId,
-      turnId: input.turnId,
-      content: input.content,
+      user,
       meta: userMeta,
     });
 
     const toolUseId = `direct_shell_${randomUUID()}`;
     const abortController = new AbortController();
-    handle.activeDirectShellCommand = { turnId: input.turnId, abortController };
+    handle.activeDirectShellCommand = { turnId: user.turnId, abortController };
 
     const toolUseBlock: ContentBlock = {
       type: "tool_use",
@@ -195,7 +256,7 @@ async function runDirectShellCommandTurn(input: {
         type: "stream_update",
         spaceId: input.spaceId,
         sessionId: input.sessionId,
-        turnId: input.turnId,
+        turnId: user.turnId,
         seq: patchSeq,
         baseSeq: Math.max(0, patchSeq - 1),
         content: blocks,
@@ -310,7 +371,8 @@ async function runDirectShellCommandTurn(input: {
       },
     } as never;
     handle.session.agent.state.messages.push(assistantMessage);
-    handle.sessionManager.appendMessage(assistantMessage);
+    const entryId = handle.sessionManager.appendMessage(assistantMessage);
+    (assistantMessage as unknown as Record<string, unknown>).sessionEntryId = entryId;
 
     await persistAssistantMessage({
       spaceId: input.spaceId,
@@ -329,23 +391,14 @@ async function runDirectShellCommandTurn(input: {
         }],
       },
       userId: input.actorUserId,
-      turnId: input.turnId,
+      turnId: user.turnId,
     });
 
     input.turnMetrics.toolCallCount += 1;
+    removePendingUserMessage(handle, userMessageId);
   } finally {
     handle.activeDirectShellCommand = null;
-    clearCurrentSessionExecutionAuth(input.sessionId);
-    handle.currentLlmRound = null;
-    handle.currentTurnId = null;
-    handle.currentTurnSeq = null;
-    handle.currentTurnPatchSeq = null;
-    handle.currentAssistantMessageOrdinal = null;
-    handle.currentStreamMessageId = null;
-    handle.currentUserMessageId = null;
-    handle.currentUserMessageMeta = null;
-    handle.currentUserMessageContent = null;
-    handle.lastActiveAt = Date.now();
+    clearActiveTurnContext(handle, input.sessionId);
   }
 }
 
@@ -451,43 +504,47 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
 
       sandboxLease = await acquireSandbox(data.spaceId);
 
-      const userMessages = buildUserMessagesForBatch(batch);
-      for (const item of userMessages) {
-        if (!item.userMessageId) continue;
+      const turnUserMessages: TurnUserMessage[] = buildUserMessagesForBatch(batch)
+        .filter((item) => Boolean(item.userMessageId))
+        .map((item) => ({
+          turnId: item.turnId,
+          turnSeq: item.turnSeq,
+          userMessageId: item.userMessageId,
+          content: item.content,
+          meta: item.meta,
+        }));
+      for (const item of turnUserMessages) {
+        const meta = normalizeTurnUserMeta(item);
         ensurePendingUserMessage(handle, {
           userMessageId: item.userMessageId,
           turnId: item.turnId,
           turnSeq: item.turnSeq,
           content: item.content,
-          meta: item.meta,
+          meta,
         });
       }
 
-      const ownerUserMessageId = batch.executionBatch.anchorUserMessageId ?? userMessages.at(-1)?.userMessageId ?? null;
+      const ownerUserMessageId = batch.executionBatch.anchorUserMessageId ?? turnUserMessages.at(-1)?.userMessageId ?? null;
       const executionToken = executionAuth?.token?.trim() || null;
       const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
       const abortController = new AbortController();
       activeTurn = { id: batch.ownerTurn.id, controller: abortController };
       setActiveAbortController(batch.ownerTurn.id, abortController);
 
-      handle.currentTurnId = batch.ownerTurn.id;
-      handle.currentTurnSeq = batch.ownerTurn.sequence;
-      handle.currentTurnPatchSeq = 0;
-      handle.currentAssistantMessageOrdinal = null;
-      handle.currentStreamMessageId = null;
-      handle.currentUserMessageId = ownerUserMessageId;
-      handle.currentUserMessageMeta = ownerMeta;
-      handle.currentLlmRound = 0;
+      setActiveTurnContext(handle, {
+        turnId: batch.ownerTurn.id,
+        turnSeq: batch.ownerTurn.sequence,
+        userMessageId: ownerUserMessageId,
+        userMeta: ownerMeta,
+        llmRound: 0,
+      });
       resetStreamState(handle);
 
-      const messages = userMessages
-        .filter((item) => item.userMessageId && !handle.sessionManager.buildSessionContext().messages.some((message) => {
-          const meta = (message as unknown as { meta?: unknown }).meta;
-          return meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>).messageId === item.userMessageId;
-        }))
-        .map((item) => contentToAgentMessage(item.content, item.meta));
+      const messages = turnUserMessages
+        .filter((item) => !hasSessionUserMessage(handle, item.userMessageId))
+        .map((item) => contentToAgentMessage(item.content, normalizeTurnUserMeta(item)));
 
-      const directShellItem = userMessages.length === 1 ? userMessages[0] : null;
+      const directShellItem = turnUserMessages.length === 1 ? turnUserMessages[0] : null;
       const directShellCommand = directShellItem ? getShellCommandBlock(directShellItem.content) : null;
       if (directShellItem && directShellCommand) {
         await wrapAgentTurn(agentTracer, {
@@ -518,13 +575,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
               tools,
               spaceId: data.spaceId,
               sessionId: data.sessionId,
-              userMessageId: directShellItem.userMessageId,
-              content: directShellItem.content,
-              meta: directShellItem.meta,
+              user: directShellItem,
               command: directShellCommand.command,
               rawText: directShellCommand.rawText,
-              turnId: batch.ownerTurn.id,
-              turnSeq: batch.ownerTurn.sequence,
               actorUserId,
               executionToken,
               turnMetrics,
@@ -544,7 +597,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         return {
           ownerTurnId: batch.ownerTurn.id,
           mergedTurnIds: batch.mergedTurns.map((turn) => turn.id),
-          userMessageCount: userMessages.length,
+          userMessageCount: turnUserMessages.length,
         };
       }
 
@@ -622,7 +675,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       return {
         ownerTurnId: batch.ownerTurn.id,
         mergedTurnIds: batch.mergedTurns.map((turn) => turn.id),
-        userMessageCount: userMessages.length,
+        userMessageCount: turnUserMessages.length,
       };
     } finally {
       if (activeTurn) clearActiveAbortController(activeTurn.id, activeTurn.controller);
