@@ -331,6 +331,7 @@ export const reconcileSpaceSandbox = async (input: {
   if (pod.spec?.containers?.[0]) {
     pod.spec.containers[0].env = [
       { name: "COHUB_SPACE_ID", value: input.spaceId },
+      ...(config.env === "dev" ? [{ name: "ENV", value: "dev" }] : []),
       { name: "WORKSPACE_DIR", value: "/workspace" },
       { name: "PLATFORM_AGENTS_DIR", value: "/configs/platform/.agents" },
       { name: "USER_AGENTS_DIR", value: "/configs/user/.agents" },
