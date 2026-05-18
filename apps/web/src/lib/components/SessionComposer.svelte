@@ -254,6 +254,18 @@ function toggleComposerExpanded() {
 	});
 }
 
+function collapseComposer() {
+	if (!isComposerExpanded) return;
+	isComposerExpanded = false;
+	requestAnimationFrame(resizeTextarea);
+}
+
+function submitDraft() {
+	if (submitDisabled || !hasDraft) return;
+	onsubmit();
+	collapseComposer();
+}
+
 function applyPromptTemplate(item: SlashCommandMenuItem) {
 	const trimmedStart = value.trimStart();
 	const leadingWhitespace = value.slice(0, value.length - trimmedStart.length);
@@ -624,7 +636,7 @@ $effect(() => {
 			class={`relative rounded-[28px] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-border-subtle/70 bg-bg-content/92 focus-within:border-brand/25 focus-within:bg-bg-content/96'}`}
 			onsubmit={(event) => {
 				event.preventDefault();
-				if (!submitDisabled && hasDraft) onsubmit();
+				submitDraft();
 			}}
 			ondragenter={handleDragEnter}
 			ondragover={handleDragOver}
@@ -830,9 +842,7 @@ $effect(() => {
 
 							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing) {
 								event.preventDefault();
-								if (!submitDisabled && hasDraft) {
-									onsubmit();
-								}
+								submitDraft();
 								return;
 							}
 
@@ -846,9 +856,7 @@ $effect(() => {
 							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 								if (isMobile() || isComposerExpanded) return;
 								event.preventDefault();
-								if (!submitDisabled && hasDraft) {
-									onsubmit();
-								}
+								submitDraft();
 							}
 						}}
 						></textarea>
