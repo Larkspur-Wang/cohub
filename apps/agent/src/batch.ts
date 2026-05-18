@@ -276,8 +276,9 @@ export async function enqueueNextQueuedTurn(input: { spaceId: string; sessionId:
   `);
   const rawId = rows[0] ? (rows[0] as Record<string, unknown>).id : null;
   const id = typeof rawId === "string" ? rawId : null;
-  if (!id) return;
+  if (!id) return null;
   await input.enqueue({ spaceId: input.spaceId, sessionId: input.sessionId, turnIds: [id] });
+  return id;
 }
 
 export function buildUserMessagesForBatch(batch: ClaimedTurnBatch) {

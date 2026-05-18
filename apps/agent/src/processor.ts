@@ -25,34 +25,58 @@ import { logger } from "./logger.js";
 const sessionHandles = new Map<string, SessionHandle>();
 const tools = createSandboxCodingTools();
 const agentTracer = getAgentTracer();
-const busyRetryAttempts = new Map<string, number>();
+type RetryReason = "session_busy" | "session_locked";
+
+const retryAttemptsByKey = new Map<string, number>();
 const BUSY_RETRY_BASE_DELAY_MS = env.AGENT_BUSY_RETRY_BASE_DELAY_MS;
 const BUSY_RETRY_MAX_DELAY_MS = env.AGENT_BUSY_RETRY_MAX_DELAY_MS;
 
-function getBusyRetryKey(data: AgentTurnJobData) {
-  return `${data.sessionId}:${data.turnIds.join(",")}`;
+function getRetryKey(data: AgentTurnJobData, reason: RetryReason) {
+  return `${reason}:${data.sessionId}:${data.turnIds.join(",")}`;
 }
 
-function nextBusyRetryDelayMs(key: string) {
-  const attempt = (busyRetryAttempts.get(key) ?? 0) + 1;
-  busyRetryAttempts.set(key, attempt);
+function nextRetryDelayMs(key: string) {
+  const attempt = (retryAttemptsByKey.get(key) ?? 0) + 1;
+  retryAttemptsByKey.set(key, attempt);
   return Math.min(BUSY_RETRY_MAX_DELAY_MS, BUSY_RETRY_BASE_DELAY_MS * 2 ** Math.min(attempt - 1, 12));
 }
 
-function clearBusyRetry(data: AgentTurnJobData) {
-  busyRetryAttempts.delete(getBusyRetryKey(data));
+function clearRetryState(data: AgentTurnJobData) {
+  retryAttemptsByKey.delete(getRetryKey(data, "session_busy"));
+  retryAttemptsByKey.delete(getRetryKey(data, "session_locked"));
 }
 
-async function requeueTurnJob(data: AgentTurnJobData, reason: string, job?: Job<AgentTurnJobData>, meta?: Record<string, unknown>) {
+async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?: Job<AgentTurnJobData>, meta?: Record<string, unknown>) {
   const firstTurnId = data.turnIds[0];
   if (!firstTurnId) return { skipped: reason, retryInMs: 0, jobId: job?.id ?? null, ...meta };
-  const retryKey = getBusyRetryKey(data);
-  const delay = reason === "session_busy" ? nextBusyRetryDelayMs(retryKey) : BUSY_RETRY_BASE_DELAY_MS;
+  const retryKey = getRetryKey(data, reason);
+  const delay = nextRetryDelayMs(retryKey);
   await enqueueAgentTurnJob(data, {
-    jobId: `agent-turn-retry-${firstTurnId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    jobId: `agent-turn-retry-${reason}-${firstTurnId}-${Math.max(1, Math.ceil(Date.now() / delay))}`,
     delay,
+    removeOnComplete: true,
+    removeOnFail: true,
   });
   return { skipped: reason, retryInMs: delay, jobId: job?.id ?? null, ...meta };
+}
+
+type DrainNextQueuedResult = { enqueued: boolean; turnId: string | null };
+
+async function drainNextQueuedTurn(input: { spaceId: string; sessionId: string; reason: string }): Promise<DrainNextQueuedResult> {
+  try {
+    const turnId = await enqueueNextQueuedTurn({
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      enqueue: enqueueAgentTurnJob,
+    });
+    if (turnId) {
+      logger.info(`[Agent] enqueued next queued turn sessionId=${input.sessionId} turnId=${turnId} reason=${input.reason}`);
+    }
+    return { enqueued: Boolean(turnId), turnId: turnId ?? null };
+  } catch (error) {
+    logger.warn(`[Agent] failed to enqueue next queued turn spaceId=${input.spaceId} sessionId=${input.sessionId} reason=${input.reason}:`, error);
+    throw error;
+  }
 }
 
 async function getModelRegistryForUser(userId: string | null | undefined) {
@@ -193,6 +217,7 @@ async function runDirectShellCommandTurn(input: {
   actorUserId: string | null;
   executionToken: string | null;
   turnMetrics: { llmRoundCount: number; toolCallCount: number };
+  abortSignal?: AbortSignal;
 }) {
   const { user } = input;
   const userMessageId = user.userMessageId;
@@ -218,6 +243,8 @@ async function runDirectShellCommandTurn(input: {
     executionToken: input.executionToken,
   });
 
+  let cleanupParentAbort: (() => void) | null = null;
+
   try {
     const userMeta = normalizeTurnUserMeta(user, {
       intent: "shell_command",
@@ -236,6 +263,13 @@ async function runDirectShellCommandTurn(input: {
 
     const toolUseId = `direct_shell_${randomUUID()}`;
     const abortController = new AbortController();
+    const abortFromParent = () => abortController.abort();
+    if (input.abortSignal?.aborted) {
+      abortFromParent();
+    } else {
+      input.abortSignal?.addEventListener("abort", abortFromParent, { once: true });
+      cleanupParentAbort = () => input.abortSignal?.removeEventListener("abort", abortFromParent);
+    }
     handle.activeDirectShellCommand = { turnId: user.turnId, abortController };
 
     const toolUseBlock: ContentBlock = {
@@ -397,6 +431,7 @@ async function runDirectShellCommandTurn(input: {
     input.turnMetrics.toolCallCount += 1;
     removePendingUserMessage(handle, userMessageId);
   } finally {
+    cleanupParentAbort?.();
     handle.activeDirectShellCommand = null;
     clearActiveTurnContext(handle, input.sessionId);
   }
@@ -440,6 +475,8 @@ function resolveActorUserId(ownerMeta: Record<string, unknown>) {
   return typeof ownerMeta.userId === "string" && ownerMeta.userId.trim() ? ownerMeta.userId.trim() : null;
 }
 
+type PostReleaseDrain = { spaceId: string; sessionId: string; reason: string } | null;
+
 export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
   const data = job.data;
   const parentCtx = extractTrace((data.trace ?? data) as Record<string, unknown>);
@@ -452,13 +489,18 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     },
   }, parentCtx, async () => {
     const lock = await acquireSessionLock(data.sessionId);
-    if (!lock) return { skipped: "session_locked" };
+    if (!lock) {
+      const result = await requeueTurnJob(data, "session_locked", job);
+      logger.info(`[Agent] session locked; requeued sessionId=${data.sessionId} turnIds=${data.turnIds.join(",")} retryInMs=${result.retryInMs}`);
+      return result;
+    }
     let activeTurn: { id: string; controller: AbortController } | null = null;
+    let drainAfterRelease: PostReleaseDrain = null;
 
     try {
       const claim = await claimTurnBatch(data);
       if (claim.kind === "noop") {
-        clearBusyRetry(data);
+        clearRetryState(data);
         return { skipped: "noop" };
       }
       if (claim.kind === "busy") {
@@ -473,7 +515,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         return result;
       }
 
-      clearBusyRetry(data);
+      clearRetryState(data);
       const { batch } = claim;
       const ownerMeta = (batch.ownerTurn.meta && typeof batch.ownerTurn.meta === "object" && !Array.isArray(batch.ownerTurn.meta)
         ? batch.ownerTurn.meta as Record<string, unknown>
@@ -489,7 +531,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           sessionId: data.sessionId,
           turnId: batch.ownerTurn.id,
           actorUserId,
-        }).catch(() => undefined);
+        });
+        drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "abort_precheck" };
         return { skipped: "abort_requested", turnId: batch.ownerTurn.id };
       }
       const spaceInfo = await getSpace({ spaceId: data.spaceId }).catch(() => null);
@@ -580,6 +623,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
               actorUserId,
               executionToken,
               turnMetrics,
+              abortSignal: abortController.signal,
             });
             logger.debug(`[Agent] shell-command:end sessionId=${data.sessionId}`);
           });
@@ -591,8 +635,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         await handle.persistenceChain.catch(() => undefined);
         await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
         await refreshSessionHandleFileSignature(handle);
-        await enqueueNextQueuedTurn({ spaceId: data.spaceId, sessionId: data.sessionId, enqueue: enqueueAgentTurnJob });
-        clearBusyRetry(data);
+        drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "direct_shell_complete" };
+        clearRetryState(data);
         return {
           ownerTurnId: batch.ownerTurn.id,
           mergedTurnIds: batch.mergedTurns.map((turn) => turn.id),
@@ -669,8 +713,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       await handle.persistenceChain.catch(() => undefined);
       await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
       await refreshSessionHandleFileSignature(handle);
-      await enqueueNextQueuedTurn({ spaceId: data.spaceId, sessionId: data.sessionId, enqueue: enqueueAgentTurnJob });
-      clearBusyRetry(data);
+      drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_complete" };
+      clearRetryState(data);
       return {
         ownerTurnId: batch.ownerTurn.id,
         mergedTurnIds: batch.mergedTurns.map((turn) => turn.id),
@@ -679,6 +723,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     } finally {
       if (activeTurn) clearActiveAbortController(activeTurn.id, activeTurn.controller);
       await lock.release();
+      if (drainAfterRelease) await drainNextQueuedTurn(drainAfterRelease);
     }
   });
 }
