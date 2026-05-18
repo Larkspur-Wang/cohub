@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.10.1
+
+### Patch Changes
+
+- 3846078: Add a tree-shakeable debugger subpath for browser-side console and network collection, with JSON log and HAR export helpers.
+
 ## 1.10.0
 
 ### Minor Changes
