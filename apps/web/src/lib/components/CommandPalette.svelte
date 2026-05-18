@@ -671,7 +671,7 @@ onMount(() => {
 
 	.command-context {
 		min-width: 0;
-		flex: 1 1 auto;
+		flex: 0 1 auto;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
