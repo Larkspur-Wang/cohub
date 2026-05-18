@@ -4,6 +4,11 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+interface RolldownChecks {
+	eval?: boolean;
+	pluginTimings?: boolean;
+}
+
 const protocolDir = fileURLToPath(
 	new URL("../../packages/protocol/src", import.meta.url),
 );
@@ -91,6 +96,15 @@ export default defineConfig({
 	},
 	server: {
 		allowedHosts: true,
+	},
+	build: {
+		chunkSizeWarningLimit: 1200,
+		rolldownOptions: {
+			checks: {
+				eval: false,
+				pluginTimings: false,
+			} satisfies RolldownChecks,
+		},
 	},
 	plugins: [
 		tailwindcss(),
