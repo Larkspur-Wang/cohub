@@ -106,6 +106,73 @@ function shellCommandResultToText(message: Record<string, unknown>) {
   return text;
 }
 
+function toLlmImageContent(block: Record<string, unknown>): ImageContent | null {
+  const source = block.source && typeof block.source === "object" && !Array.isArray(block.source)
+    ? block.source as Record<string, unknown>
+    : null;
+
+  if (!source || source.type !== "base64" || typeof source.data !== "string" || !source.data.trim()) {
+    return null;
+  }
+
+  const mimeType = typeof source.media_type === "string" && source.media_type.trim()
+    ? source.media_type.trim()
+    : "application/octet-stream";
+  return {
+    type: "image",
+    data: source.data.replace(/^data:[^;,]+;base64,/, ""),
+    mimeType,
+  };
+}
+
+function toLlmTextContent(block: Record<string, unknown>) {
+  return {
+    type: "text",
+    text: typeof block.text === "string" ? block.text : "",
+  };
+}
+
+function toLlmUserMessage(message: AgentMessage): AgentMessage | null {
+  const record = message as unknown as Record<string, unknown>;
+  if (!Array.isArray(record.content)) return message;
+
+  const content = record.content
+    .map((block) => {
+      if (!block || typeof block !== "object" || Array.isArray(block)) return null;
+      const item = block as Record<string, unknown>;
+      if (item.type === "text") return toLlmTextContent(item);
+      if (item.type === "image") return toLlmImageContent(item);
+      return null;
+    })
+    .filter((block): block is ImageContent | { type: "text"; text: string } => Boolean(block));
+
+  if (content.length === 0) return null;
+  return {
+    ...record,
+    content,
+  } as unknown as AgentMessage;
+}
+
+function toLlmToolResultMessage(message: AgentMessage): AgentMessage {
+  const record = message as unknown as Record<string, unknown>;
+  if (!Array.isArray(record.content)) return message;
+
+  const content = record.content
+    .map((block) => {
+      if (!block || typeof block !== "object" || Array.isArray(block)) return null;
+      const item = block as Record<string, unknown>;
+      if (item.type === "text") return toLlmTextContent(item);
+      if (item.type === "image") return toLlmImageContent(item) ?? null;
+      return null;
+    })
+    .filter((block): block is ImageContent | { type: "text"; text: string } => Boolean(block));
+
+  return {
+    ...record,
+    content,
+  } as unknown as AgentMessage;
+}
+
 function toLlmMessages(messages: AgentMessage[]) {
   const result: unknown[] = [];
   for (const message of messages) {
@@ -128,8 +195,19 @@ function toLlmMessages(messages: AgentMessage[]) {
       continue;
     }
 
-    if (role === "user" || role === "assistant" || role === "toolResult") {
+    if (role === "user") {
+      const userMessage = toLlmUserMessage(message);
+      if (userMessage) result.push(userMessage);
+      continue;
+    }
+
+    if (role === "assistant") {
       result.push(message);
+      continue;
+    }
+
+    if (role === "toolResult") {
+      result.push(toLlmToolResultMessage(message));
     }
   }
   return result as never;

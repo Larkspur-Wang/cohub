@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { ImageContent } from "@mariozechner/pi-ai";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
@@ -88,10 +89,26 @@ async function getModelRegistryForUser(userId: string | null | undefined) {
   return registry;
 }
 
+function contentBlockToImageContent(block: ContentBlock): ImageContent | null {
+  if (block.type !== "image" || block.source.type !== "base64") return null;
+  return {
+    type: "image",
+    data: block.source.data.replace(/^data:[^;,]+;base64,/, ""),
+    mimeType: block.source.media_type || "application/octet-stream",
+  };
+}
+
+function contentBlockToAgentContent(block: ContentBlock): { type: "text"; text: string } | ImageContent | null {
+  if (block.type === "text") return { type: "text", text: block.text };
+  if (block.type === "image") return contentBlockToImageContent(block);
+  return null;
+}
+
 function contentToAgentMessage(content: ContentBlock[], meta: Record<string, unknown> | null): AgentMessage {
+  const agentContent = content.map(contentBlockToAgentContent).filter((block): block is { type: "text"; text: string } | ImageContent => Boolean(block));
   return {
     role: "user",
-    content,
+    content: agentContent.length > 0 ? agentContent : [{ type: "text", text: "" }],
     timestamp: Date.now(),
     meta: meta ?? null,
   } as unknown as AgentMessage;
