@@ -14,6 +14,7 @@ export type ToolExecutionContext = {
   toolCallId?: string;
   actorUserId?: string | null;
   executionToken?: string | null;
+  requestId?: string | null;
   metrics?: TurnTelemetryMetrics;
 };
 

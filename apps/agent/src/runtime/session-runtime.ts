@@ -249,6 +249,7 @@ function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
       sessionId: toolCtx?.sessionId,
       turnId: toolCtx?.turnId,
       turnSeq: toolCtx?.turnSeq,
+      requestId: toolCtx?.requestId ?? undefined,
       llmRound: round,
     });
 

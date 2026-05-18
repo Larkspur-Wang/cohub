@@ -1,5 +1,6 @@
 import type { AuthUserProfile } from "@cohub/identity";
 import { AuthorizationError, verifyUserAccessToken } from "@cohub/identity";
+import { buildTraceHeaders, getTraceResponseHeaders, type TraceIdentifiers } from "@cohub/infra/tracing";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";
@@ -70,12 +71,14 @@ export const submitInternalSessionPrompt = async (input: {
   model?: string | null;
   provider?: string | null;
   context?: Record<string, unknown> | null;
-}): Promise<{ ok: true; turnId: string; userMessageId: string }> => {
+}): Promise<{ ok: true; turnId: string; userMessageId: string; trace: TraceIdentifiers }> => {
+  const requestId = typeof input.context?.requestId === "string" ? input.context.requestId : null;
   const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/prompt`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders({ requestId }),
     },
     body: JSON.stringify({
       content: input.content,
@@ -96,7 +99,7 @@ export const submitInternalSessionPrompt = async (input: {
   if (!data?.ok || !data.turnId || !data.userMessageId) {
     throw new Error("Internal prompt submit returned an invalid response");
   }
-  return { ok: true, turnId: data.turnId, userMessageId: data.userMessageId };
+  return { ok: true, turnId: data.turnId, userMessageId: data.userMessageId, trace: getTraceResponseHeaders(response) };
 };
 
 export const authorizeSessionAccess = async (input: {
@@ -107,6 +110,7 @@ export const authorizeSessionAccess = async (input: {
   const sessionResponse = await fetch(`${gatewayConfig.apiBaseUrl}/api/sessions/${input.sessionId}`, {
     headers: {
       authorization: `Bearer ${input.token}`,
+      ...buildTraceHeaders(),
     },
   });
 

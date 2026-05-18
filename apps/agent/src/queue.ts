@@ -11,6 +11,7 @@ export type AgentTurnJobData = {
   sessionId: string;
   turnIds: string[];
   executionAuth?: { token: string; expiresAt: number } | null;
+  requestId?: string | null;
   trace?: Record<string, unknown>;
 };
 
@@ -21,6 +22,7 @@ export type AgentSessionForkJobData = {
   anchorTurnId: string;
   anchorSequence: number;
   anchorEntryId: string;
+  requestId?: string | null;
   trace?: Record<string, unknown>;
 };
 

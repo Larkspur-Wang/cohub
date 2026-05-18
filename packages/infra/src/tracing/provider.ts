@@ -11,6 +11,7 @@ import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
 import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { IORedisInstrumentation } from "@opentelemetry/instrumentation-ioredis";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
+import { FilteringSpanExporter } from "./filtering.js";
 
 const ARMS_ENDPOINT =
   "http://tracing-analysis-dc-usw-internal.aliyuncs.com/adapt_e4kueuvixa@b95f2fd373952c5_e4kueuvixa@53df7ad2afe8301/api/otlp/traces";
@@ -49,14 +50,18 @@ export function initTracing(options: TracingOptions) {
 
   const spanProcessors: import("@opentelemetry/sdk-trace-base").SpanProcessor[] = [];
 
+  const dropRealtimeRedisSpans = envFlag("OTEL_DROP_REALTIME_REDIS_SPANS", true);
+  const wrapExporter = (exporter: import("@opentelemetry/sdk-trace-base").SpanExporter) =>
+    new FilteringSpanExporter(exporter, { dropRealtimeRedisSpans });
+
   // Report to Alibaba Cloud ARMS. Batch exporting keeps tracing off the request hot path.
   const exporter = new OTLPTraceExporter({ url: ARMS_ENDPOINT });
-  spanProcessors.push(new BatchSpanProcessor(exporter));
+  spanProcessors.push(new BatchSpanProcessor(wrapExporter(exporter)));
 
   // Console span export is intentionally opt-in. It is very expensive for streaming
   // agent workloads because every span is serialized and written to stdout.
   if (envFlag("OTEL_CONSOLE_EXPORTER")) {
-    spanProcessors.push(new BatchSpanProcessor(new ConsoleSpanExporter(), {
+    spanProcessors.push(new BatchSpanProcessor(wrapExporter(new ConsoleSpanExporter()), {
       maxQueueSize: 256,
       maxExportBatchSize: 32,
       scheduledDelayMillis: 1000,
@@ -74,13 +79,27 @@ export function initTracing(options: TracingOptions) {
   });
 
   if (envFlag("OTEL_AUTO_INSTRUMENTATION", true)) {
+    const instrumentations = [
+      envFlag("OTEL_INSTRUMENT_HTTP", true) ? new HttpInstrumentation() : null,
+      envFlag("OTEL_INSTRUMENT_UNDICI", true) ? new UndiciInstrumentation() : null,
+      envFlag("OTEL_INSTRUMENT_REDIS", options.serviceName !== "cohub-agent")
+        ? new IORedisInstrumentation({
+            requireParentSpan: true,
+            dbStatementSerializer: (cmdName, cmdArgs) => {
+              const firstArg = String(cmdArgs[0] ?? "");
+              return firstArg ? `${cmdName} ${firstArg}` : cmdName;
+            },
+            requestHook: (span, requestInfo) => {
+              const firstArg = String(requestInfo.cmdArgs[0] ?? "");
+              if (firstArg) span.setAttribute("redis.key", firstArg.slice(0, 160));
+            },
+          })
+        : null,
+    ].filter((item): item is NonNullable<typeof item> => item != null);
+
     registerInstrumentations({
       tracerProvider: provider,
-      instrumentations: [
-        new HttpInstrumentation(),
-        new UndiciInstrumentation(),
-        new IORedisInstrumentation(),
-      ],
+      instrumentations,
     });
   }
 

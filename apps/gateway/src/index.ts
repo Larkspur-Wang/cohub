@@ -23,6 +23,7 @@ import {
   WS_COMPACT_STREAM_CAPABILITY,
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
+import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { authenticateRealtimeToken, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { gatewayConfig } from "./config.js";
@@ -379,6 +380,7 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
   if (!spaceId || !sessionId) throw new WsClientInputError("spaceId and sessionId are required");
   if (content.length === 0) throw new WsClientInputError("content is required");
 
+  const effectiveRequestId = getOrCreateRequestId(requestId);
   const result = await submitInternalSessionPrompt({
     spaceId,
     sessionId,
@@ -390,12 +392,12 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
     provider,
     context: {
       kind: "websocket",
-      requestId: requestId ?? null,
+      requestId: effectiveRequestId,
       connectionId: ctx.connectionId,
     },
   });
 
-  return { ...result, spaceId, sessionId, clientMessageId };
+  return { ...result, spaceId, sessionId, clientMessageId, requestId: effectiveRequestId };
 };
 
 async function main() {
@@ -597,13 +599,14 @@ async function main() {
             sendWsEnvelope(socket, buildRealtimeEnvelope({
               domain: "session",
               type: "session.request.accepted",
-              requestId: requestId ?? null,
+              requestId: result.requestId,
               spaceId: result.spaceId,
               sessionId: result.sessionId,
               payload: {
                 clientMessageId: result.clientMessageId,
                 turnId: result.turnId,
                 userMessageId: result.userMessageId,
+                traceId: result.trace.traceId,
               },
             }));
           } catch (error) {

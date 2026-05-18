@@ -56,6 +56,7 @@ function getCurrentTraceContext() {
     turnSeq: ctx?.turnSeq,
     llmRound: ctx?.llmRound,
     toolCallId: ctx?.toolCallId,
+    requestId: ctx?.requestId ?? undefined,
   };
 }
 

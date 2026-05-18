@@ -53,6 +53,9 @@ export type WebsocketClientEvents = {
     clientMessageId?: string | null;
     sessionId?: string | null;
     spaceId?: string | null;
+    turnId?: string | null;
+    userMessageId?: string | null;
+    traceId?: string | null;
   };
   serverError: {
     code?: string;
@@ -521,6 +524,9 @@ export class WebsocketClient {
           spaceId: envelope.spaceId ?? null,
           clientMessageId:
             typeof payload.clientMessageId === "string" ? payload.clientMessageId : null,
+          turnId: typeof payload.turnId === "string" ? payload.turnId : null,
+          userMessageId: typeof payload.userMessageId === "string" ? payload.userMessageId : null,
+          traceId: typeof payload.traceId === "string" ? payload.traceId : null,
         });
         this.emit("event", envelope);
         return;

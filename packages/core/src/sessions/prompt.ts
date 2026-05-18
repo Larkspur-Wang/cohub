@@ -10,6 +10,7 @@ export type PromptSource =
 
 export type WebAppPromptContext = {
   kind: "web_app";
+  requestId?: string | null;
 };
 
 export type WebsocketPromptContext = {
@@ -20,6 +21,7 @@ export type WebsocketPromptContext = {
 
 export type PublicApiPromptContext = {
   kind: "public_api";
+  requestId?: string | null;
 };
 
 export type ScheduledTaskPromptContext = {
@@ -32,6 +34,7 @@ export type ChannelPromptContext = {
   kind: "channel";
   provider: string;
   spaceChannelId: string;
+  requestId?: string | null;
   externalConversationId?: string | null;
   externalMessageId: string;
   providerContext?: Record<string, unknown> | null;

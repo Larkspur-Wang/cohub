@@ -3,6 +3,8 @@ import type { Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { context, trace } from "@opentelemetry/api";
+import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttributes } from "@cohub/infra/tracing";
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
@@ -496,15 +498,18 @@ type PostReleaseDrain = { spaceId: string; sessionId: string; reason: string } |
 
 export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
   const data = job.data;
+  const requestId = getOrCreateRequestId(data.requestId);
   const parentCtx = extractTrace((data.trace ?? data) as Record<string, unknown>);
   return runInActiveSpan(agentTracer, "agent.turn_job.process", {
     attributes: {
+      "cohub.request_id": requestId,
       "cohub.space_id": data.spaceId,
       "cohub.session_id": data.sessionId,
       "job.id": job.id ?? "",
       "job.attempt": job.attemptsMade,
     },
-  }, parentCtx, async () => {
+  }, parentCtx, async (jobSpan) => {
+    setRequestContextAttributes(jobSpan, getActiveTraceIdentifiers(requestId, trace.setSpan(context.active(), jobSpan)));
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) {
       const result = await requeueTurnJob(data, "session_locked", job);
@@ -614,6 +619,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           turnId: batch.ownerTurn.id,
           turnSeq: batch.ownerTurn.sequence,
           userMessageId: directShellItem.userMessageId,
+          requestId,
           modelProvider: handle.session.agent.state.model.provider,
           modelId: handle.session.agent.state.model.id,
           isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
@@ -626,6 +632,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             llmRound: 0,
             actorUserId,
             executionToken,
+            requestId,
             metrics: turnMetrics,
           }, async () => {
             logger.debug(`[Agent] shell-command:start sessionId=${data.sessionId}`);
@@ -673,6 +680,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         turnId: batch.ownerTurn.id,
         turnSeq: batch.ownerTurn.sequence,
         userMessageId: ownerUserMessageId,
+        requestId,
         modelProvider: handle.session.agent.state.model.provider,
         modelId: handle.session.agent.state.model.id,
         isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
@@ -685,6 +693,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           llmRound: 0,
           actorUserId,
           executionToken,
+          requestId,
           metrics: turnMetrics,
         }, async () => {
           try {

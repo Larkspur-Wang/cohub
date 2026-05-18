@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { GatewayConversationCreateEvent, GatewayInboundEvent } from "@cohub/protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
+import { buildTraceHeaders } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import {
   createBlockingRedisClient,
@@ -52,6 +53,7 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     headers: {
       "content-type": "application/json",
       "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders({ requestId: event.eventId }),
     },
     body: JSON.stringify(enrichedEvent),
   });

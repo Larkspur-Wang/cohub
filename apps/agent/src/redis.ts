@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { trace } from "@opentelemetry/api";
+import { context, trace, type Span } from "@opentelemetry/api";
 import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@cohub/protocol/core";
@@ -106,6 +106,93 @@ const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) =>
   await redis.del(getSessionStreamSnapshotKey(spaceId, sessionId)).catch(() => undefined);
 };
 
+type StreamTelemetryMetrics = {
+  patchCount: number;
+  publishErrorCount: number;
+  bytesTotal: number;
+  expiresAt: number;
+};
+
+const getStreamTelemetry = (span: Span) => {
+  pruneExpiredStreamTelemetry();
+  const key = span.spanContext().spanId;
+  let metrics = streamTelemetryBySpanId.get(key);
+  if (!metrics) {
+    metrics = { patchCount: 0, publishErrorCount: 0, bytesTotal: 0, expiresAt: Date.now() + STREAM_TELEMETRY_TTL_MS };
+    streamTelemetryBySpanId.set(key, metrics);
+  } else {
+    metrics.expiresAt = Date.now() + STREAM_TELEMETRY_TTL_MS;
+  }
+  return { key, metrics };
+};
+
+const clearStreamTelemetry = (span: Span) => {
+  streamTelemetryBySpanId.delete(span.spanContext().spanId);
+};
+
+const pruneExpiredStreamTelemetry = () => {
+  const now = Date.now();
+  if (now - lastStreamTelemetryPruneAt < STREAM_TELEMETRY_PRUNE_INTERVAL_MS) return;
+  lastStreamTelemetryPruneAt = now;
+  for (const [key, metrics] of streamTelemetryBySpanId) {
+    if (metrics.expiresAt <= now) streamTelemetryBySpanId.delete(key);
+  }
+};
+
+const recordStreamPublishSuccess = (span: Span, event: SessionStreamEvent | SessionStreamError, envelopeBytes = 0) => {
+  const { metrics } = getStreamTelemetry(span);
+  if (event.type === "stream_update") {
+    metrics.patchCount += 1;
+    metrics.bytesTotal += envelopeBytes;
+    span.setAttribute("agent.output.patch_count", metrics.patchCount);
+    span.setAttribute("agent.output.bytes_total", metrics.bytesTotal);
+    span.setAttribute("agent.output.last_seq", event.seq);
+    if (metrics.patchCount === 1) {
+      span.addEvent("agent.output.first_publish", {
+        "cohub.space_id": event.spaceId,
+        "cohub.session_id": event.sessionId,
+        "agent.turn_id": event.turnId ?? "",
+        "agent.output.seq": event.seq,
+      });
+    } else if (event.turnEnd) {
+      span.addEvent("agent.output.final_publish", {
+        "cohub.space_id": event.spaceId,
+        "cohub.session_id": event.sessionId,
+        "agent.turn_id": event.turnId ?? "",
+        "agent.output.seq": event.seq,
+        "agent.output.patch_count": metrics.patchCount,
+        "agent.output.bytes_total": metrics.bytesTotal,
+      });
+      streamTelemetryBySpanId.delete(span.spanContext().spanId);
+    } else if (metrics.patchCount % STREAM_PUBLISH_SAMPLE_EVERY === 0) {
+      span.addEvent("agent.output.publish_sampled", {
+        "agent.output.seq": event.seq,
+        "agent.output.patch_count": metrics.patchCount,
+      });
+    }
+  } else {
+    span.addEvent("agent.output.error_publish", {
+      "cohub.space_id": event.spaceId,
+      "cohub.session_id": event.sessionId ?? "",
+    });
+    clearStreamTelemetry(span);
+  }
+};
+
+const recordStreamPublishFailure = (span: Span, error: unknown) => {
+  const { metrics } = getStreamTelemetry(span);
+  metrics.publishErrorCount += 1;
+  span.setAttribute("agent.output.publish_error_count", metrics.publishErrorCount);
+  span.addEvent("agent.output.publish_failed");
+  if (error instanceof Error) span.recordException(error);
+};
+
+const STREAM_TELEMETRY_TTL_MS = Math.max(60_000, Number(process.env.AGENT_STREAM_TELEMETRY_TTL_MS ?? 10 * 60_000));
+const STREAM_TELEMETRY_PRUNE_INTERVAL_MS = Math.max(10_000, Number(process.env.AGENT_STREAM_TELEMETRY_PRUNE_INTERVAL_MS ?? 60_000));
+const STREAM_PUBLISH_SAMPLE_EVERY = Math.max(1, Number(process.env.AGENT_STREAM_TELEMETRY_SAMPLE_EVERY ?? 20));
+const streamTelemetryBySpanId = new Map<string, StreamTelemetryMetrics>();
+let lastStreamTelemetryPruneAt = 0;
+
 export function extractContentText(blocks: ContentBlock[]): string {
   return blocks
     .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text" && "text" in b)
@@ -163,23 +250,7 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   }
 
   const activeSpan = trace.getActiveSpan();
-  const event = parsed.data;
-  const outputAttributes: Record<string, string | number> = {
-    "cohub.space_id": event.spaceId,
-    "cohub.session_id": event.sessionId ?? "",
-    "agent.output.type": event.type,
-  };
-  if (event.type === "stream_update") {
-    outputAttributes["agent.output.delta_block_count"] = event.content.length;
-    if (event.sourceMessageId) outputAttributes["agent.input_message_id"] = event.sourceMessageId;
-    if (event.anchorUserMessageId ?? event.sourceMessageId) outputAttributes["agent.anchor_user_message_id"] = event.anchorUserMessageId ?? event.sourceMessageId ?? "";
-    if (event.turnId) outputAttributes["agent.turn_id"] = event.turnId;
-    if (event.messageId) outputAttributes["agent.output.message_id"] = event.messageId;
-    if (event.messageOrdinal != null) outputAttributes["agent.output.message_ordinal"] = event.messageOrdinal;
-    outputAttributes["agent.output.seq"] = event.seq;
-    outputAttributes["agent.output.base_seq"] = event.baseSeq;
-  }
-  activeSpan?.addEvent("agent.output.publish", outputAttributes);
+  const event = parsed.data as SessionStreamEvent | SessionStreamError;
 
   try {
     const traceCarrier = injectTrace();
@@ -226,10 +297,14 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
       };
     }
 
-    await redis.publish(AGENT_REALTIME_PATCH_CHANNEL, JSON.stringify({ ...envelope, ...traceCarrier })).catch((err) => {
+    const payload = JSON.stringify({ ...envelope, ...traceCarrier });
+    const span = trace.getActiveSpan();
+    await redis.publish(AGENT_REALTIME_PATCH_CHANNEL, payload).catch((err) => {
+      if (span) recordStreamPublishFailure(span, err);
       console.error("[Redis] Failed to publish realtime output:", err);
       throw err;
     });
+    if (span) recordStreamPublishSuccess(span, event, Buffer.byteLength(payload));
   } catch (error) {
     if (error instanceof Error) activeSpan?.recordException(error);
     throw error;
@@ -239,7 +314,7 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
 export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
   try {
     const traceCarrier = injectTrace();
-    await redis.publish(REALTIME_OUTBOUND_CHANNEL, JSON.stringify({
+    const message = JSON.stringify({
       id: randomUUID(),
       timestamp: Date.now(),
       domain: "space",
@@ -248,7 +323,8 @@ export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChange
       sessionId: null,
       payload,
       trace: traceCarrier,
-    }));
+    });
+    await context.with(trace.deleteSpan(context.active()), () => redis.publish(REALTIME_OUTBOUND_CHANNEL, message));
   } catch (err) {
     console.error("[Redis] Failed to send space fs changed event:", err);
   }
@@ -257,7 +333,7 @@ export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChange
 export async function sendSpacePortsChanged(spaceId: string, payload: SpacePortsChangedPayload) {
   try {
     const traceCarrier = injectTrace();
-    await redis.publish(REALTIME_OUTBOUND_CHANNEL, JSON.stringify({
+    const message = JSON.stringify({
       id: randomUUID(),
       timestamp: Date.now(),
       domain: "space",
@@ -266,7 +342,8 @@ export async function sendSpacePortsChanged(spaceId: string, payload: SpacePorts
       sessionId: null,
       payload,
       trace: traceCarrier,
-    }));
+    });
+    await context.with(trace.deleteSpan(context.active()), () => redis.publish(REALTIME_OUTBOUND_CHANNEL, message));
   } catch (err) {
     console.error("[Redis] Failed to send space ports changed event:", err);
   }

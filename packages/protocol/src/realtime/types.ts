@@ -93,7 +93,7 @@ export type SessionRequestAcceptedEvent = {
   requestId?: string | null;
   spaceId: string;
   sessionId: string;
-  payload: { clientMessageId?: string | null };
+  payload: { clientMessageId?: string | null; turnId?: string | null; userMessageId?: string | null; traceId?: string | null };
 };
 
 export type SessionRequestErrorEvent = {

@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
+import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { createProviderMessageRef } from "./channels.js";
 import { submitSessionPrompt, type ChannelPromptContext } from "./session-prompts.js";
 
@@ -39,6 +40,7 @@ export const executeSessionInteraction = async (input: ResolvedInboundInteractio
         kind: "channel",
         provider: input.inboundRef.provider,
         spaceChannelId: input.inboundRef.spaceChannelId,
+        requestId: getOrCreateRequestId(input.inboundRef.externalMessageId),
         externalConversationId: input.inboundRef.externalConversationId,
         externalMessageId: input.inboundRef.externalMessageId,
         providerContext: input.inboundRef.meta ?? null,

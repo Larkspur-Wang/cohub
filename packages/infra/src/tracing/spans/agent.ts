@@ -21,6 +21,7 @@ type AgentContextAttributes = {
   turnSeq?: number;
   llmRound?: number;
   toolCallId?: string;
+  requestId?: string;
 };
 
 function buildAgentContextAttributes(options: AgentContextAttributes) {
@@ -31,6 +32,7 @@ function buildAgentContextAttributes(options: AgentContextAttributes) {
     ...(options.turnSeq != null ? { "agent.turn_seq": options.turnSeq } : {}),
     ...(options.llmRound != null ? { "agent.llm_round": options.llmRound } : {}),
     ...(options.toolCallId ? { "agent.tool_call_id": options.toolCallId } : {}),
+    ...(options.requestId ? { "cohub.request_id": options.requestId } : {}),
   };
 }
 

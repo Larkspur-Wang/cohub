@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
+import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { db } from "./db/index.js";
@@ -581,11 +582,20 @@ export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: st
   }
 
   const traceCarrier = injectTrace();
+  const metaContext = input.meta?.context && typeof input.meta.context === "object" && !Array.isArray(input.meta.context)
+    ? input.meta.context as Record<string, unknown>
+    : null;
+  const requestId = typeof input.meta?.requestId === "string" && input.meta.requestId.trim()
+    ? input.meta.requestId.trim()
+    : typeof metaContext?.requestId === "string" && metaContext.requestId.trim()
+      ? metaContext.requestId.trim()
+      : getCurrentRequestId();
   await enqueueAgentTurnJob({
     spaceId: input.spaceId,
     sessionId: input.sessionId,
     turnIds: [input.turnId],
     executionAuth: executionGrant,
+    requestId: getOrCreateRequestId(requestId),
     trace: traceCarrier,
   });
 };
@@ -594,6 +604,7 @@ export const enqueueSessionFork = async (input: { spaceId: string; sessionId: st
   const traceCarrier = injectTrace();
   await enqueueAgentSessionForkJob({
     ...input,
+    requestId: getOrCreateRequestId(),
     trace: traceCarrier,
   });
 };

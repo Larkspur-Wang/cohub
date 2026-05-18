@@ -3,9 +3,11 @@ import "./tracing.js";
 
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { trace } from "@opentelemetry/api";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
+import { applyTraceResponseHeaders, getActiveTraceIdentifiers, getOrCreateRequestId, runWithRequestTraceContext, setRequestContextAttributes } from "@cohub/infra/tracing";
 import { verifyUserAccessToken } from "@cohub/identity";
 
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
@@ -22,6 +24,8 @@ const app = new Hono<{
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
     principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | null;
+    requestId: string;
+    traceId: string | null;
   };
 }>();
 
@@ -34,11 +38,22 @@ app.use(
   }),
 );
 
+app.use(async (c, next) => {
+  const requestId = getOrCreateRequestId(c.req.header("x-request-id"));
+  c.set("requestId", requestId);
+  await runWithRequestTraceContext({ requestId }, next);
+  const ids = getActiveTraceIdentifiers(requestId);
+  c.set("traceId", ids.traceId);
+  setRequestContextAttributes(trace.getActiveSpan(), ids);
+  applyTraceResponseHeaders(c.res.headers, ids);
+});
+
 app.use(
   cors({
     origin: (origin) => origin || "*",
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "X-Git-Token"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Git-Token", "X-Request-Id", "Traceparent"],
+    exposeHeaders: ["X-Request-Id", "X-Trace-Id", "X-Span-Id", "Traceparent"],
     credentials: true,
   }),
 );
@@ -94,13 +109,18 @@ const serializeErrorForLog = (error: unknown): unknown => {
 };
 
 app.onError((error, c) => {
+  const requestId = c.get("requestId") ?? getOrCreateRequestId(c.req.header("x-request-id"));
+  const ids = getActiveTraceIdentifiers(requestId);
+  setRequestContextAttributes(trace.getActiveSpan(), ids);
+  applyTraceResponseHeaders(c.res.headers, ids);
+
   if (error instanceof UnauthorizedError) {
-    return c.json({ message: error.message }, 401);
+    return c.json({ message: error.message, requestId, traceId: ids.traceId }, 401);
   }
   const path = c.req.path;
   const method = c.req.method;
-  console.error(`[API Error] ${method} ${path}:`, serializeErrorForLog(error));
-  return c.json({ message: error.message || "internal server error" }, 500);
+  console.error(`[API Error] ${method} ${path} requestId=${requestId} traceId=${ids.traceId ?? "none"}:`, serializeErrorForLog(error));
+  return c.json({ message: error.message || "internal server error", requestId, traceId: ids.traceId }, 500);
 });
 
 // ── Start server ─────────────────────────────────────────────────────────────

@@ -88,23 +88,18 @@ export async function runInActiveSpan<T>(
 ): Promise<T> {
   const span = tracer.startSpan(name, options);
   const activeCtx = trace.setSpan(parentCtx, span);
-
-  // Use the callback-style context.with which properly supports async functions.
-  // We wrap it in a promise to get the return value.
-  return new Promise<T>((resolve, reject) => {
-    context.with(activeCtx, async () => {
-      try {
-        const result = await fn(span);
-        resolve(result);
-      } catch (error) {
-        if (error instanceof Error) {
-          span.recordException(error);
-        }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
-        reject(error);
-      } finally {
-        span.end();
+  return context.with(activeCtx, async () => {
+    try {
+      const result = await fn(span);
+      return result;
+    } catch (error) {
+      if (error instanceof Error) {
+        span.recordException(error);
       }
-    });
+      span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+      throw error;
+    } finally {
+      span.end();
+    }
   });
 }
