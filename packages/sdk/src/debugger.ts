@@ -272,6 +272,7 @@ interface DebuggerState {
   startedAt: string;
   consoleBuffer: RingBuffer<CohubConsoleEntry>;
   networkBuffer: RingBuffer<CohubNetworkEntry>;
+  instrumentedRequestUrls: Set<string>;
   performanceResourceKeys: Set<string>;
   nextConsoleId: number;
   nextNetworkId: number;
@@ -424,6 +425,7 @@ function installFetchCollector(state: DebuggerState): void {
     const connectionId = nextConnectionId(state, "fetch");
     const startedAtMs = Date.now();
     const requestInfo = normalizeFetchRequest(input, init, state.options);
+    state.instrumentedRequestUrls.add(requestInfo.url);
 
     appendNetwork(state, {
       connectionId,
@@ -440,6 +442,8 @@ function installFetchCollector(state: DebuggerState): void {
     try {
       const response = await originalFetch(input, init);
       const durationMs = Date.now() - startedAtMs;
+      const responseUrl = normalizeHarUrl(response.url || requestInfo.url);
+      state.instrumentedRequestUrls.add(responseUrl);
       const responseHeaders = state.options.captureHeaders
         ? headersToRecord(response.headers, state.options)
         : undefined;
@@ -449,7 +453,7 @@ function installFetchCollector(state: DebuggerState): void {
         kind: "fetch",
         phase: "response",
         method: requestInfo.method,
-        url: response.url || requestInfo.url,
+        url: responseUrl,
         status: response.status,
         statusText: response.statusText,
         durationMs,
@@ -460,7 +464,7 @@ function installFetchCollector(state: DebuggerState): void {
         state,
         connectionId,
         requestInfo.method,
-        response.url || requestInfo.url,
+        responseUrl,
         response,
       );
 
@@ -502,15 +506,17 @@ function installXhrCollector(state: DebuggerState): void {
     username?: string | null,
     password?: string | null,
   ) {
+    const normalizedUrl = normalizeHarUrl(String(url));
     metadata.set(this, {
       id: nextConnectionId(state, "xhr"),
       method: method.toUpperCase(),
-      url: String(url),
+      url: normalizedUrl,
       requestHeaders: {},
       responseLineCount: 0,
       lastResponseLength: 0,
       pendingResponseLine: "",
     });
+    state.instrumentedRequestUrls.add(normalizedUrl);
 
     return originalOpen.call(this, method, url, async ?? true, username, password);
   };
@@ -623,10 +629,11 @@ function installEventSourceCollector(state: DebuggerState): void {
     eventSourceInitDict?: EventSourceInit,
   ) {
     const connectionId = nextConnectionId(state, "eventsource");
+    const sourceUrl = normalizeHarUrl(String(url));
     const source = new OriginalEventSource(url, eventSourceInitDict);
-    const sourceUrl = String(url);
     let lineNumber = 0;
     const listenerRecords: EventListenerRecord[] = [];
+    state.instrumentedRequestUrls.add(sourceUrl);
 
     const appendEventSourceMessage = (eventName: string, event: MessageEvent) => {
       appendLines(state, {
@@ -770,11 +777,12 @@ function installWebSocketCollector(state: DebuggerState): void {
     protocols?: string | string[],
   ) {
     const connectionId = nextConnectionId(state, "websocket");
+    const socketUrl = normalizeHarUrl(String(url), "websocket");
+    state.instrumentedRequestUrls.add(socketUrl);
     const socket =
       protocols === undefined
         ? new OriginalWebSocket(url)
         : new OriginalWebSocket(url, protocols);
-    const socketUrl = String(url);
     let lineNumber = 0;
     let userOnOpen: ((event: Event) => void) | null = null;
     let userOnMessage: ((event: MessageEvent) => void) | null = null;
@@ -958,6 +966,11 @@ function collectPerformanceResources(
     }
     state.performanceResourceKeys.add(key);
 
+    const normalizedEntryUrl = normalizeHarUrl(entry.name);
+    if (state.instrumentedRequestUrls.has(normalizedEntryUrl)) {
+      continue;
+    }
+
     const initiatorType = entry.initiatorType || "resource";
     const kind = resourceKindFromInitiator(initiatorType, entry.name);
     appendNetwork(state, {
@@ -965,7 +978,7 @@ function collectPerformanceResources(
       kind,
       phase: "response",
       method: "GET",
-      url: entry.name,
+      url: normalizedEntryUrl,
       status: entry.responseStatus || undefined,
       durationMs: Math.round(entry.duration),
       source: "performance",
@@ -1155,10 +1168,6 @@ function collectXhrResponseLines(
   meta.pendingResponseLine = parts.pop() ?? "";
 
   for (const line of parts) {
-    if (!line) {
-      continue;
-    }
-
     appendLine(state, {
       connectionId: meta.id,
       kind: "xhr",
@@ -1306,7 +1315,7 @@ function normalizeFetchRequest(
       ? input.url
       : typeof URL !== "undefined" && input instanceof URL
         ? input.href
-        : String(input);
+        : normalizeHarUrl(String(input));
   const headers = options.captureHeaders
     ? mergeHeaders(request?.headers, init?.headers, options)
     : undefined;
@@ -1695,11 +1704,22 @@ function createHarEntry(pageId: string, entries: CohubNetworkEntry[]): HarEntry 
   const responseText =
     responseEntry.kind === "websocket"
       ? undefined
-      : messageEntries
+      : messageEntries.length > 0
+        ? messageEntries
           .filter((entry) => entry.direction !== "outgoing")
           .map((entry) => payloadToText(entry.payload))
-          .filter(Boolean)
-          .join("\n");
+          .join("\n")
+        : undefined;
+  const contentType = guessMimeType(responseEntry.responseHeaders);
+  const normalizedResponseText =
+    responseText !== undefined &&
+    contentType.toLowerCase().includes("text/event-stream")
+      ? normalizeEventStreamText(responseText)
+      : responseText;
+  const responseContentSize =
+    normalizedResponseText !== undefined
+      ? byteLength(normalizedResponseText)
+      : responseBodyEntry?.sizeBytes ?? responseEntry.sizeBytes ?? -1;
 
   return {
     pageref: pageId,
@@ -1730,13 +1750,13 @@ function createHarEntry(pageId: string, entries: CohubNetworkEntry[]): HarEntry 
       cookies: [],
       headers: headersRecordToHarPairs(responseEntry.responseHeaders),
       content: {
-        size: responseBodyEntry?.sizeBytes ?? responseEntry.sizeBytes ?? -1,
-        mimeType: guessMimeType(responseEntry.responseHeaders),
-        text: responseText || undefined,
+        size: responseContentSize,
+        mimeType: contentType,
+        text: normalizedResponseText === undefined ? undefined : normalizedResponseText,
       },
       redirectURL: "",
       headersSize: -1,
-      bodySize: responseBodyEntry?.sizeBytes ?? responseEntry.sizeBytes ?? -1,
+      bodySize: responseContentSize,
     },
     cache: {},
     timings: {
@@ -1761,6 +1781,18 @@ function createHarEntry(pageId: string, entries: CohubNetworkEntry[]): HarEntry 
         ? createWebSocketMessages(messageEntries)
         : undefined,
   };
+}
+
+function normalizeEventStreamText(text: string): string {
+  if (!text) {
+    return text;
+  }
+
+  if (text.endsWith("\n\n")) {
+    return text;
+  }
+
+  return text.endsWith("\n") ? `${text}\n` : text;
 }
 
 function headersRecordToHarPairs(
@@ -1884,6 +1916,7 @@ function getOrCreateState(options: CohubDebuggerOptions = {}): DebuggerState {
     startedAt: new Date(startedAtMs).toISOString(),
     consoleBuffer: createRingBuffer(normalizedOptions.maxConsoleEntries),
     networkBuffer: createRingBuffer(normalizedOptions.maxNetworkEntries),
+    instrumentedRequestUrls: new Set(),
     performanceResourceKeys: new Set(),
     nextConsoleId: 1,
     nextNetworkId: 1,
@@ -1918,6 +1951,30 @@ function nextConnectionId(state: DebuggerState, kind: CohubNetworkKind): string 
   const id = `${kind}-${state.nextConnectionId}`;
   state.nextConnectionId += 1;
   return id;
+}
+
+function normalizeHarUrl(url: string, mode: "http" | "websocket" = "http"): string {
+  if (typeof URL === "undefined") {
+    return url;
+  }
+
+  const baseUrl =
+    typeof location !== "undefined" && location.href
+      ? location.href
+      : "http://localhost/";
+
+  try {
+    const normalizedUrl = new URL(url, baseUrl);
+    if (
+      mode === "websocket" &&
+      (normalizedUrl.protocol === "http:" || normalizedUrl.protocol === "https:")
+    ) {
+      normalizedUrl.protocol = normalizedUrl.protocol === "https:" ? "wss:" : "ws:";
+    }
+    return normalizedUrl.href;
+  } catch {
+    return url;
+  }
 }
 
 function headersToRecord(
