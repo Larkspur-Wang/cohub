@@ -156,6 +156,32 @@ function contextFor(item: CommandPaletteItem) {
 	return `${item.spaceName ?? "Space"}${item.sessionTitle ? ` / ${item.sessionTitle}` : ""} · Turn #${item.sequence ?? "?"}`;
 }
 
+function itemTimestamp(item: CommandPaletteItem) {
+	if (!item.updatedAt) return null;
+	const date = new Date(item.updatedAt);
+	const time = date.getTime();
+	if (!Number.isFinite(time)) return null;
+
+	const now = new Date();
+	const isSameLocalDay =
+		date.getFullYear() === now.getFullYear() &&
+		date.getMonth() === now.getMonth() &&
+		date.getDate() === now.getDate();
+	const pad = (value: number) => String(value).padStart(2, "0");
+	const dateLabel = `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
+	const timeLabel = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+	const timezoneLabel = new Intl.DateTimeFormat(undefined, {
+		timeZoneName: "short",
+	})
+		.formatToParts(date)
+		.find((part) => part.type === "timeZoneName")?.value;
+
+	return {
+		label: isSameLocalDay ? timeLabel : dateLabel,
+		title: `${dateLabel} ${timeLabel}${timezoneLabel ? ` ${timezoneLabel}` : ""}`,
+	};
+}
+
 function openPalette(detail?: OpenCommandPaletteDetail) {
 	title = detail?.title ?? "Command search";
 	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
@@ -410,6 +436,7 @@ onMount(() => {
 						{@const meta = typeMeta(item.type)}
 						{@const Icon = meta.icon}
 						{@const profile = profileFor(item)}
+						{@const timestamp = itemTimestamp(item)}
 						<button
 							type="button"
 							class:active={index === activeIndex}
@@ -443,7 +470,12 @@ onMount(() => {
 									<span class="truncate">{contextFor(item)}</span>
 								</div>
 							</div>
-							<div class="command-enter">↵</div>
+							<div class="command-result-meta">
+								{#if timestamp}
+									<time class="command-time" datetime={item.updatedAt ?? undefined} title={timestamp.title}>{timestamp.label}</time>
+								{/if}
+								<div class="command-enter">↵</div>
+							</div>
 						</button>
 					{/each}
 				{/if}
@@ -560,6 +592,7 @@ onMount(() => {
 	.command-result.active { background: color-mix(in oklch, var(--brand-bg) 56%, var(--bg-hover) 44%); }
 	.command-result.active::before { background: var(--brand); }
 	.command-result.active .command-enter { opacity: 1; }
+	.command-result.active .command-time { color: var(--text-secondary); }
 	.command-result.active .command-type-mark { border-color: color-mix(in oklch, currentColor 36%, transparent); }
 
 	.command-type-mark {
@@ -642,10 +675,35 @@ onMount(() => {
 		color: var(--text-placeholder);
 	}
 
+	.command-result-meta {
+		display: flex;
+		min-width: 42px;
+		flex: 0 0 auto;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+		align-self: stretch;
+	}
+
+	.command-time {
+		min-width: 24px;
+		color: var(--text-placeholder);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		letter-spacing: 0.01em;
+		line-height: 1;
+		text-align: right;
+		white-space: nowrap;
+	}
+
 	.command-enter {
+		width: 12px;
 		opacity: 0;
 		color: var(--brand);
 		font-size: 13px;
+		line-height: 1;
+		text-align: right;
 	}
 
 	.command-empty {
