@@ -5,7 +5,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import { sessionTurnSegments, sessionTurns, spaceSandboxes, spaceSessions, spaces } from "@cohub/db";
 import type { ExecutionGrantService } from "../security/index.js";
 import { recomputeSpaceWsUsers } from "../spaces/index.js";
-import { submitSessionPrompt, type ExpandedPromptTemplate, type SubmitSessionPromptInput } from "./prompt.js";
+import { submitSessionPrompt, type ExpandedPromptTemplate, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
 
 export type PromptTemplateService = {
   expand(text: string, options?: { userId?: string | null; spaceId?: string | null }): Promise<ExpandedPromptTemplate | null>;
@@ -32,6 +32,7 @@ export type AgentTurnQueue = {
     sessionId: string;
     turnIds: string[];
     executionAuth?: { token: string; expiresAt: number } | null;
+    requestId?: string | null;
     trace?: Record<string, unknown>;
     jobId: string;
   }): Promise<unknown>;
@@ -68,10 +69,12 @@ export function createSessionServices(input: {
   agentTurnQueue: AgentTurnQueue;
   randomUUID?: () => string;
   injectTrace?: () => Record<string, unknown>;
+  getRequestId?: () => string | null | undefined;
   logger?: Pick<Console, "warn">;
 }) {
   const randomUUID = input.randomUUID ?? defaultRandomUUID;
   const injectTrace = input.injectTrace ?? (() => ({}));
+  const getRequestId = input.getRequestId ?? (() => null);
   const logger = input.logger ?? console;
 
   async function ensureRootSessionTurnSegment(sessionId: string) {
@@ -132,9 +135,8 @@ export function createSessionServices(input: {
         userContent: turnInput.userContent,
         userText,
         intent: turnInput.intent,
-        status: "running",
+        status: "queued",
         meta: turnInput.meta,
-        startedAt: new Date(),
       }).returning();
     });
     if (!row) throw new Error("failed to create session turn");
@@ -151,7 +153,7 @@ export function createSessionServices(input: {
     }).where(and(
       eq(sessionTurns.id, turnInput.turnId),
       eq(sessionTurns.sessionId, turnInput.sessionId),
-      inArray(sessionTurns.status, ["running", "abort_requested"]),
+      inArray(sessionTurns.status, ["queued", "running", "abort_requested"]),
     )).returning();
     return row ?? null;
   }
@@ -217,17 +219,26 @@ export function createSessionServices(input: {
     }
 
     const executionAuth = promptInput.meta.executionAuth as { token: string; expiresAt: number } | undefined;
+    const metaContext = promptInput.meta.context && typeof promptInput.meta.context === "object" && !Array.isArray(promptInput.meta.context)
+      ? promptInput.meta.context as Record<string, unknown>
+      : null;
+    const requestId = typeof promptInput.meta.requestId === "string" && promptInput.meta.requestId.trim()
+      ? promptInput.meta.requestId.trim()
+      : typeof metaContext?.requestId === "string" && metaContext.requestId.trim()
+        ? metaContext.requestId.trim()
+        : getRequestId();
     await input.agentTurnQueue.enqueue({
       spaceId: promptInput.spaceId,
       sessionId: promptInput.sessionId,
       turnIds: [promptInput.turnId],
       executionAuth,
+      requestId: requestId ?? null,
       trace: injectTrace(),
       jobId: `agent-turn-${promptInput.turnId}`,
     });
   }
 
-  async function submitPrompt(promptInput: SubmitSessionPromptInput) {
+  async function submitPrompt(promptInput: SubmitSessionPromptInput, hooks: SubmitSessionPromptHooks = {}) {
     return submitSessionPrompt({
       randomUUID,
       expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
@@ -235,11 +246,22 @@ export function createSessionServices(input: {
       createSessionTurn,
       enqueueSpacePrompt,
       failSessionTurn,
+    }, promptInput, hooks);
+  }
+
+  async function expandSessionPromptContent(promptInput: {
+    content: ContentBlock[];
+    userId: string;
+    spaceId: string;
+  }) {
+    return expandPromptContent({
+      expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
     }, promptInput);
   }
 
   return {
     registerCronjobSession,
     submitPrompt,
+    expandPromptContent: expandSessionPromptContent,
   };
 }

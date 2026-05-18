@@ -14,6 +14,7 @@ const agentTurnQueue = createBullmqQueue<{
   sessionId: string;
   turnIds: string[];
   executionAuth?: { token: string; expiresAt: number } | null;
+  requestId?: string | null;
   trace?: Record<string, unknown>;
 }>(COHUB_AGENT_TURNS_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
@@ -30,12 +31,14 @@ export function getSessionDomainServices(input: {
     executionGrantService: input.executionGrantService,
     promptTemplateService: input.promptTemplateService,
     injectTrace,
+    getRequestId: () => null,
     agentTurnQueue: {
       enqueue: (job) => agentTurnQueue.add(AGENT_TURN_JOB_NAME, {
         spaceId: job.spaceId,
         sessionId: job.sessionId,
         turnIds: job.turnIds,
         executionAuth: job.executionAuth,
+        requestId: job.requestId,
         trace: job.trace,
       }, {
         jobId: job.jobId,

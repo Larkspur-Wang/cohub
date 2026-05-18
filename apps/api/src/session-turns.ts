@@ -480,7 +480,7 @@ export const failSessionTurn = async (input: { sessionId: string; turnId: string
     summary: { finishReason: "failed", text: input.errorMessage },
     completedAt: new Date(),
     updatedAt: new Date(),
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["queued", "running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
 

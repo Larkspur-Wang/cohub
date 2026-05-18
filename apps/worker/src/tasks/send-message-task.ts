@@ -19,12 +19,13 @@ const sessionPromptService = getSessionDomainServices({
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, model, provider } = (payload.data ?? {}) as {
+  const { content, sessionId, title, model, provider, clientMessageId } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
     model?: string;
     provider?: string;
+    clientMessageId?: string;
   };
 
   if (!spaceId) throw new Error("spaceId is required for send_message task");
@@ -39,12 +40,15 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
   const source = "scheduled_task";
   const targetSessionId = sessionId?.trim() || null;
   const promptSessionId = targetSessionId ?? (await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null })).id;
+  const promptClientMessageId = payload.cronJobId?.trim()
+    ? `cron:${payload.cronJobId.trim()}:run:${taskRunId}`
+    : clientMessageId?.trim() || `taskrun:${taskRunId}`;
 
   const result = await sessionPromptService.submitPrompt({
     spaceId,
     sessionId: promptSessionId,
     userId,
-    clientMessageId: `taskrun:${taskRunId}`,
+    clientMessageId: promptClientMessageId,
     content,
     source,
     model: model ?? null,

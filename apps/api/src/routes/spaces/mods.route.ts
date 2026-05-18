@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createDefaultMountSlug, listSpaceMods, assertValidMountSlug } from "@cohub/core/space-mods";
 import { spaceMods, spaces } from "@cohub/db";
 import { db } from "../../db/index.js";
