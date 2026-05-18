@@ -16,6 +16,7 @@ import {
 	ChevronDown,
 	Clock,
 	Compass,
+	Download,
 	FileText,
 	FolderKanban,
 	History,
@@ -43,6 +44,7 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
+import { downloadCohubDebugBundle } from "$lib/debugger";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import {
@@ -862,6 +864,12 @@ async function handleLogout() {
 	} catch (error) {
 		console.error("[sidebar] Failed to sign out", error);
 	}
+}
+
+function saveDebugLog() {
+	showUserMenu = false;
+	onClose?.();
+	downloadCohubDebugBundle();
 }
 
 function handleGlobalNewChatKeydown(event: KeyboardEvent) {
@@ -1699,19 +1707,28 @@ $effect(() => {
           <BarChart3 class="w-3.5 h-3.5" />
           <span>Trending</span>
         </a>
-        <button
-          type="button"
-          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={openHelpPanel}
+	        <button
+	          type="button"
+	          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+	          onclick={openHelpPanel}
         >
           <Keyboard class="w-3.5 h-3.5" />
-          <span>Help</span>
-          <span class="ml-auto rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-px font-mono text-[10px] leading-4 text-text-placeholder">?</span>
-        </button>
-        <button
-          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors duration-100"
-          onclick={() => { showUserMenu = false; void handleLogout(); }}
-        >
+	          <span>Help</span>
+	          <span class="ml-auto rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-px font-mono text-[10px] leading-4 text-text-placeholder">?</span>
+	        </button>
+	        <button
+	          type="button"
+	          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+	          onclick={saveDebugLog}
+	        >
+	          <Download class="w-3.5 h-3.5" />
+	          <span>Save debug log</span>
+	        </button>
+	        <button
+	          type="button"
+	          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-error-soft hover:bg-bg-hover transition-colors duration-100"
+	          onclick={() => { showUserMenu = false; void handleLogout(); }}
+	        >
           <LogOut class="w-3.5 h-3.5" />
           <span>Sign out</span>
         </button>

@@ -30,6 +30,7 @@
 		"@codemirror/search": "^6.7.0",
 		"@codemirror/state": "^6.6.0",
 		"@codemirror/view": "^6.41.1",
+		"@cohub/debugger": "workspace:*",
 		"@cohub/protocol": "workspace:*",
 		"@fontsource/geist": "^5.2.8",
 		"@fontsource/geist-mono": "^5.2.7",
