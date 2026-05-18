@@ -59,6 +59,29 @@ type SpacePromptInput = {
 
 const hasExplicitTimezone = (value: string) => /(?:Z|[+-]\d{2}:\d{2})$/i.test(value.trim());
 
+function validatePromptContentBlocks(content: unknown): content is ContentBlock[] {
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((block) => block && typeof block === "object" && !Array.isArray(block) && typeof (block as { type?: unknown }).type === "string");
+}
+
+function promptInputError(error: unknown): string | null {
+  if (error instanceof SandboxNotReadyError) return null;
+  if (!(error instanceof Error)) return String(error);
+  if (
+    error.message.includes("content") ||
+    error.message.includes("clientMessageId") ||
+    error.message.includes("userId") ||
+    error.message.includes("Invalid image") ||
+    error.message.includes("Invalid content block") ||
+    error.message.includes("shell command is empty")
+  ) {
+    return error.message;
+  }
+  return null;
+}
+
+const isPositiveSafeInteger = (value: number) => Number.isSafeInteger(value) && value > 0;
+
 const validateTimezone = (timezone: string) => {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
@@ -814,7 +837,7 @@ router.post("/:id/prompt", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
 
   const body = await c.req.json<SpacePromptInput>().catch(() => null);
-  if (!body?.content || !Array.isArray(body.content) || body.content.length === 0) {
+  if (!validatePromptContentBlocks(body?.content)) {
     return c.json({ message: "content is required and must be a non-empty ContentBlock array" }, 400);
   }
   if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
@@ -873,14 +896,16 @@ router.post("/:id/prompt", async (c) => {
       return c.json({ ok: true, mode: "immediate", sessionId, ...result });
     } catch (error) {
       if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
+      const inputError = promptInputError(error);
+      if (inputError) return c.json({ message: inputError }, 400);
       throw error;
     }
   }
 
   if (mode === "delay") {
     const delayMs = Number((schedule as { delayMs?: number }).delayMs);
-    if (!Number.isFinite(delayMs) || delayMs <= 0) {
-      return c.json({ message: "delayMs must be a positive number of milliseconds, e.g. 600000" }, 400);
+    if (!isPositiveSafeInteger(delayMs)) {
+      return c.json({ message: "delayMs must be a positive safe integer of milliseconds, e.g. 600000" }, 400);
     }
     const scheduledAt = new Date(Date.now() + delayMs);
     const { taskRunId } = await enqueueTask({

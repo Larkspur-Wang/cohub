@@ -21,6 +21,27 @@ import { createSessionFork } from "../session-forks.js";
 
 const router = new Hono();
 
+function validatePromptContentBlocks(content: unknown): content is ContentBlock[] {
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((block) => block && typeof block === "object" && !Array.isArray(block) && typeof (block as { type?: unknown }).type === "string");
+}
+
+function promptInputError(error: unknown): string | null {
+  if (error instanceof SandboxNotReadyError) return null;
+  if (!(error instanceof Error)) return String(error);
+  if (
+    error.message.includes("content") ||
+    error.message.includes("clientMessageId") ||
+    error.message.includes("userId") ||
+    error.message.includes("Invalid image") ||
+    error.message.includes("Invalid content block") ||
+    error.message.includes("shell command is empty")
+  ) {
+    return error.message;
+  }
+  return null;
+}
+
 router.post("/:id/turns/:turnId/fork", async (c) => {
   const user = useAuth(c);
   const sessionId = c.req.param("id");
@@ -394,10 +415,10 @@ router.post("/:id/messages", async (c) => {
     model?: string;
     provider?: string;
     clientMessageId?: string | null;
-  }>();
+  }>().catch(() => null);
 
-  if (!body.content || body.content.length === 0) {
-    return c.json({ message: "content is required" }, 400);
+  if (!validatePromptContentBlocks(body?.content)) {
+    return c.json({ message: "content is required and must be a non-empty ContentBlock array" }, 400);
   }
 
   try {
@@ -417,6 +438,8 @@ router.post("/:id/messages", async (c) => {
     if (error instanceof SandboxNotReadyError) {
       return c.json({ message: "sandbox is not ready" }, 503);
     }
+    const inputError = promptInputError(error);
+    if (inputError) return c.json({ message: inputError }, 400);
     throw error;
   }
 });

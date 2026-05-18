@@ -6,6 +6,8 @@ import { db } from "./db/index.js";
 import { cronJobs, taskRuns } from "@cohub/db";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol/task";
 
+type TaskEnqueueOptions = Omit<JobsOptions, "scheduledAt"> & { scheduledAt?: Date | null };
+
 const QUEUE_NAME = COHUB_TASKS_QUEUE;
 
 export const taskQueue = createBullmqQueue(QUEUE_NAME, {
@@ -17,12 +19,13 @@ export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_check
 
 export const enqueueTask = async (
   payload: TaskPayload,
-  opts?: JobsOptions & { scheduledAt?: Date | null },
+  opts?: TaskEnqueueOptions,
 ) => {
   const taskRunId = crypto.randomUUID();
+  const { scheduledAt, ...jobOptions } = opts ?? {};
 
   const job = await taskQueue.add(payload.type, payload, {
-    ...opts,
+    ...jobOptions,
     jobId: taskRunId,
   });
 
@@ -36,7 +39,7 @@ export const enqueueTask = async (
     cronJobId: payload.cronJobId ?? null,
     status: "pending",
     payload,
-    scheduledAt: opts?.scheduledAt ?? (opts?.delay ? new Date(Date.now() + opts.delay) : null),
+    scheduledAt: scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null),
   });
 
   return { job, taskRunId };
