@@ -3,6 +3,37 @@ export type LocalUploadEntry = {
 	relativePath: string;
 };
 
+const unsafePathPartPattern = /[<>:"/\\|?*]/;
+
+export function sanitizeRelativePath(input: string) {
+	if (typeof input !== "string" || input.length === 0 || input.length > 4096) {
+		throw new Error("Invalid upload path.");
+	}
+	if (
+		input !== input.trim() ||
+		input.startsWith("/") ||
+		/^[a-zA-Z]:/.test(input)
+	) {
+		throw new Error("Invalid upload path.");
+	}
+	const parts = input.split("/");
+	if (parts.length === 0) throw new Error("Invalid upload path.");
+	for (const part of parts) {
+		if (
+			!part ||
+			part === "." ||
+			part === ".." ||
+			part.length > 255 ||
+			part !== part.trim() ||
+			unsafePathPartPattern.test(part) ||
+			part.split("").some((char) => char.charCodeAt(0) <= 0x1f)
+		) {
+			throw new Error("Invalid upload path.");
+		}
+	}
+	return parts.join("/");
+}
+
 type FileSystemEntryLike = {
 	name: string;
 	isFile: boolean;
@@ -53,7 +84,9 @@ const walkEntry = async (
 	entry: FileSystemEntryLike,
 	parentPath = "",
 ): Promise<LocalUploadEntry[]> => {
-	const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+	const relativePath = sanitizeRelativePath(
+		parentPath ? `${parentPath}/${entry.name}` : entry.name,
+	);
 	if (entry.isFile) {
 		const file = await fileFromEntry(entry as FileSystemFileEntryLike);
 		return [{ file, relativePath }];
@@ -73,7 +106,7 @@ const walkEntry = async (
 const fileRelativePath = (file: File) => {
 	const maybePath = (file as File & { webkitRelativePath?: string })
 		.webkitRelativePath;
-	return maybePath || file.name;
+	return sanitizeRelativePath(maybePath || file.name);
 };
 
 export const entriesFromFiles = (files: File[]) =>

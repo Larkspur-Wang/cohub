@@ -18,7 +18,6 @@ import SpaceMentionMenu from "$lib/components/SpaceMentionMenu.svelte";
 import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
-	isSupportedComposerAttachmentFile,
 } from "$lib/composer-attachments";
 import type { SpaceMentionSuggestion } from "$lib/mentions/space";
 import {
@@ -34,6 +33,11 @@ import {
 	searchLocalSpaceMentions,
 	searchRemoteSpaceMentions,
 } from "$lib/mentions/space-search";
+import {
+	entriesFromDataTransfer,
+	entriesFromFiles,
+	type LocalUploadEntry,
+} from "$lib/upload-entries";
 
 type SelectedModel = {
 	provider: string;
@@ -56,7 +60,9 @@ type Props = {
 	currentSpaceId?: string | null;
 	onsubmit: () => void;
 	onabort?: () => void;
-	onpickattachment?: (files: FileList | File[] | null) => void;
+	onpickattachment?: (
+		files: FileList | File[] | LocalUploadEntry[] | null,
+	) => void;
 	onremoveattachment?: (id: string) => void;
 	onModelSelect?: () => void;
 };
@@ -84,6 +90,7 @@ let {
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let mentionMirrorEl = $state<HTMLDivElement | null>(null);
 let fileInputEl = $state<HTMLInputElement | null>(null);
+let folderInputEl = $state<HTMLInputElement | null>(null);
 let isDragOver = $state(false);
 let dragCounter = 0;
 let isPathDragOver = $state(false);
@@ -387,12 +394,9 @@ function applySpaceMention(item: SpaceMentionSuggestion) {
 
 function hasAttachmentFiles(dataTransfer: DataTransfer | null) {
 	if (!dataTransfer) return false;
-	return Array.from(dataTransfer.items ?? []).some((item) => {
-		if (item.kind !== "file") return false;
-		const file = item.getAsFile();
-		if (file) return isSupportedComposerAttachmentFile(file);
-		return item.type.startsWith("image/") || item.type.startsWith("text/");
-	});
+	return Array.from(dataTransfer.items ?? []).some(
+		(item) => item.kind === "file",
+	);
 }
 
 function handleDragEnter(event: DragEvent) {
@@ -417,12 +421,13 @@ function handleDragLeave(event: DragEvent) {
 	}
 }
 
-function handleDrop(event: DragEvent) {
+async function handleDrop(event: DragEvent) {
 	if (!hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	isDragOver = false;
 	dragCounter = 0;
-	onpickattachment?.(event.dataTransfer?.files ?? null);
+	if (!event.dataTransfer) return;
+	onpickattachment?.(await entriesFromDataTransfer(event.dataTransfer));
 }
 
 function handlePathDragOver(event: DragEvent) {
@@ -517,14 +522,11 @@ function handlePaste(event: ClipboardEvent) {
 	const files = Array.from(event.clipboardData?.items ?? [])
 		.filter((item) => item.kind === "file")
 		.map((item) => item.getAsFile())
-		.filter(
-			(file): file is File =>
-				file instanceof File && isSupportedComposerAttachmentFile(file),
-		);
+		.filter((file): file is File => file instanceof File);
 
 	if (files.length === 0) return;
 	event.preventDefault();
-	onpickattachment?.(files);
+	onpickattachment?.(entriesFromFiles(files));
 }
 
 onMount(() => {
@@ -645,16 +647,20 @@ $effect(() => {
 					data-drawer-swipe-ignore
 				>
 					{#each attachments as attachment (attachment.id)}
-						<div class={`group relative shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content transition-colors hover:border-border-strong ${attachment.kind === 'image' ? 'h-20 w-20 bg-bg-hover/45' : 'flex h-20 w-36 items-center px-3 py-2'}`}>
+						<div class={`group relative shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content transition-colors hover:border-border-strong ${attachment.kind === 'image' ? 'h-20 w-20 bg-bg-hover/45' : 'flex h-20 w-40 items-center px-3 py-2'}`}>
 							{#if attachment.kind === 'image'}
 								<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-contain" />
 							{:else}
 								<div class="min-w-0 flex-1 pr-4">
-									<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={attachment.name}>{attachment.name}</div>
+									<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={attachment.kind === 'file' ? attachment.relativePath : attachment.name}>{attachment.kind === 'file' ? attachment.relativePath : attachment.name}</div>
 									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-3 text-text-tertiary">
-										<span>Text</span>
+										<span>{attachment.kind === 'file' ? 'File' : 'Text'}</span>
 										<span aria-hidden="true">·</span>
 										<span>{Math.ceil(attachment.size / 1024)} KB</span>
+										{#if attachment.kind === 'file'}
+											<span aria-hidden="true">·</span>
+											<span>{attachment.status === 'uploading' ? 'Uploading' : attachment.status === 'failed' ? 'Failed' : 'Ready'}</span>
+										{/if}
 									</div>
 								</div>
 							{/if}
@@ -680,7 +686,20 @@ $effect(() => {
 						multiple
 						class="hidden"
 						onchange={(event) => {
-							onpickattachment?.((event.currentTarget as HTMLInputElement).files);
+							const files = Array.from((event.currentTarget as HTMLInputElement).files ?? []);
+							onpickattachment?.(entriesFromFiles(files));
+							(event.currentTarget as HTMLInputElement).value = "";
+						}}
+					/>
+					<input
+						bind:this={folderInputEl}
+						type="file"
+						webkitdirectory=""
+						multiple
+						class="hidden"
+						onchange={(event) => {
+							const files = Array.from((event.currentTarget as HTMLInputElement).files ?? []);
+							onpickattachment?.(entriesFromFiles(files));
 							(event.currentTarget as HTMLInputElement).value = "";
 						}}
 					/>
@@ -883,6 +902,15 @@ $effect(() => {
 								title="Add files"
 							>
 								<Plus class="h-[17px] w-[17px]" />
+							</button>
+							<button
+								type="button"
+								class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+								onclick={() => folderInputEl?.click()}
+								disabled={disabled || sending}
+								title="Add folder"
+							>
+								<Upload class="h-[16px] w-[16px]" />
 							</button>
 
 							{#if onModelSelect}

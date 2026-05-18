@@ -3,58 +3,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 export const MAX_COMPOSER_ATTACHMENTS = 14;
 export const MAX_COMPOSER_TEXT_ATTACHMENT_BYTES = 200 * 1024;
 
-export const COMPOSER_ATTACHMENT_ACCEPT = [
-	"image/*",
-	"text/*",
-	"application/json",
-	"application/xml",
-	"application/yaml",
-	"application/x-yaml",
-	"application/javascript",
-	"application/typescript",
-	"application/x-typescript",
-	"application/sql",
-	".txt",
-	".md",
-	".markdown",
-	".mdown",
-	".mkdn",
-	".json",
-	".jsonc",
-	".yaml",
-	".yml",
-	".csv",
-	".log",
-	".toml",
-	".ini",
-	".env",
-	".xml",
-	".html",
-	".htm",
-	".css",
-	".js",
-	".mjs",
-	".cjs",
-	".ts",
-	".tsx",
-	".jsx",
-	".py",
-	".sh",
-	".bash",
-	".zsh",
-	".sql",
-	".graphql",
-	".gql",
-	".go",
-	".rs",
-	".java",
-	".rb",
-	".php",
-	".c",
-	".cpp",
-	".h",
-	".hpp",
-].join(",");
+export const COMPOSER_ATTACHMENT_ACCEPT = "";
 
 export type ComposerImageAttachment = {
 	kind: "image";
@@ -75,9 +24,21 @@ export type ComposerTextAttachment = {
 	size: number;
 };
 
+export type ComposerFileAttachment = {
+	kind: "file";
+	id: string;
+	name: string;
+	relativePath: string;
+	mediaType: string | null;
+	file: File;
+	size: number;
+	status: "ready" | "uploading" | "failed";
+};
+
 export type ComposerAttachment =
 	| ComposerImageAttachment
-	| ComposerTextAttachment;
+	| ComposerTextAttachment
+	| ComposerFileAttachment;
 
 const supportedTextExtensions = new Set([
 	"txt",

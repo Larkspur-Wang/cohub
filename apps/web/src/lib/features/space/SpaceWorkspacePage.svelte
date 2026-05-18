@@ -87,6 +87,7 @@ import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import {
 	buildComposerTextContentBlock,
 	type ComposerAttachment,
+	type ComposerFileAttachment,
 	type ComposerImageAttachment,
 	createComposerAttachmentId,
 	isComposerImageFile,
@@ -114,6 +115,7 @@ import {
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
+import { joinUploadPath, uploadSpaceEntries } from "$lib/space-upload";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
@@ -166,7 +168,11 @@ import {
 	RIGHT_SIDEBAR_MIN,
 	uiState,
 } from "$lib/stores/ui.svelte";
-import type { LocalUploadEntry } from "$lib/upload-entries";
+import {
+	entriesFromDataTransfer,
+	entriesFromFiles,
+	type LocalUploadEntry,
+} from "$lib/upload-entries";
 
 type Props = {
 	data: {
@@ -2988,6 +2994,53 @@ async function handleAbort() {
 	}
 }
 
+function buildChatUploadTargetDir(sessionId: string) {
+	const stamp = new Date()
+		.toISOString()
+		.replace(/[-:]/g, "")
+		.replace(/\..+$/, "");
+	return joinUploadPath(
+		".cohub",
+		"chat-uploads",
+		sessionId,
+		`${stamp}-${crypto.randomUUID().slice(0, 8)}`,
+	);
+}
+
+function escapeMarkdownPath(path: string) {
+	return path.replace(/[\r\n`]/g, "_");
+}
+
+function buildFileReferencesText(paths: string[]) {
+	if (paths.length === 0) return "";
+	return [
+		"Files:",
+		...paths.map((path) => `- \`${escapeMarkdownPath(path)}\``),
+	].join("\n");
+}
+
+async function uploadComposerFileAttachments(
+	sessionId: string,
+	fileAttachments: ComposerFileAttachment[],
+) {
+	if (fileAttachments.length === 0) return [];
+	attachments = attachments.map((attachment) =>
+		attachment.kind === "file"
+			? { ...attachment, status: "uploading" as const }
+			: attachment,
+	);
+	const targetDir = buildChatUploadTargetDir(sessionId);
+	const uploaded = await uploadSpaceEntries({
+		spaceId,
+		targetDir,
+		entries: fileAttachments.map((attachment) => ({
+			file: attachment.file,
+			relativePath: attachment.relativePath,
+		})),
+	});
+	return uploaded.map((file) => file.path);
+}
+
 async function handleSend() {
 	if (
 		!activeSessionState?.session ||
@@ -2999,50 +3052,74 @@ async function handleSend() {
 	sending = true;
 	composerError = "";
 	clearGenerationError(activeSessionId);
-	const text = input.trim();
-	const attachmentBlocks: ContentBlock[] = attachments.map((attachment) => {
-		if (attachment.kind === "text")
-			return buildComposerTextContentBlock(attachment);
-		return {
-			type: "image",
-			source: {
-				type: "base64",
-				media_type: attachment.mediaType,
-				data: attachment.data,
-			},
-			_meta: {
-				filename: attachment.name,
-				size: attachment.size,
-			},
-		} satisfies ContentBlock;
-	});
-	const mentions = extractSpaceMentionsFromText(text);
-	const content: ContentBlock[] = [
-		...(text
-			? [
-					{
-						type: "text",
-						text,
-						_meta: mentions.length > 0 ? { mentions } : undefined,
-					} satisfies ContentBlock,
-				]
-			: []),
-		...attachmentBlocks,
-	];
 	const sessionId = activeSessionState.session.id;
+	const pendingInput = input;
+	const pendingAttachments = attachments;
 	const optimisticTurnId = crypto.randomUUID();
 	const currentUser = {
 		uuid: authStore.userUuid ?? null,
 		profile: authStore.profile,
 	};
-	// Clear input immediately so it disappears from the composer at the same
-	// time the optimistic turn appears in the list — avoids the awkward "stuck"
-	// feeling where the message shows in the list but lingers in the input.
-	const pendingInput = input;
-	const pendingAttachments = attachments;
-	input = "";
-	attachments = [];
+	let content: ContentBlock[] = [];
+	let text = "";
+	let hadFileUpload = false;
+	let fileUploadCompleted = false;
+	let uploadedReferenceText = "";
 	try {
+		const fileAttachments = attachments.filter(
+			(attachment): attachment is ComposerFileAttachment =>
+				attachment.kind === "file",
+		);
+		hadFileUpload = fileAttachments.length > 0;
+		const filePaths = await uploadComposerFileAttachments(
+			sessionId,
+			fileAttachments,
+		);
+		fileUploadCompleted = true;
+		const userText = input.trim();
+		const referenceText = buildFileReferencesText(filePaths);
+		uploadedReferenceText = referenceText;
+		text = [userText, referenceText].filter(Boolean).join("\n\n");
+		const attachmentBlocks: ContentBlock[] = attachments.flatMap(
+			(attachment) => {
+				if (attachment.kind === "file") return [];
+				if (attachment.kind === "text")
+					return [buildComposerTextContentBlock(attachment)];
+				return [
+					{
+						type: "image",
+						source: {
+							type: "base64",
+							media_type: attachment.mediaType,
+							data: attachment.data,
+						},
+						_meta: {
+							filename: attachment.name,
+							size: attachment.size,
+						},
+					} satisfies ContentBlock,
+				];
+			},
+		);
+		const mentions = extractSpaceMentionsFromText(text);
+		content = [
+			...(text
+				? [
+						{
+							type: "text",
+							text,
+							_meta: mentions.length > 0 ? { mentions } : undefined,
+						} satisfies ContentBlock,
+					]
+				: []),
+			...attachmentBlocks,
+		];
+
+		// Clear input immediately so it disappears from the composer at the same
+		// time the optimistic turn appears in the list — avoids the awkward "stuck"
+		// feeling where the message shows in the list but lingers in the input.
+		input = "";
+		attachments = [];
 		const model = activeSessionModel;
 		const now = new Date().toISOString();
 		const sequenceHint = (activeSessionState?.turns.at(-1)?.sequence ?? 0) + 1;
@@ -3146,10 +3223,31 @@ async function handleSend() {
 		}
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
-		input = pendingInput;
-		attachments = pendingAttachments;
+		if (hadFileUpload && fileUploadCompleted) {
+			input = [pendingInput.trim(), uploadedReferenceText]
+				.filter(Boolean)
+				.join("\n\n");
+			attachments = pendingAttachments.filter(
+				(attachment) => attachment.kind !== "file",
+			);
+		} else {
+			input = pendingInput;
+			attachments = pendingAttachments;
+		}
+		if (hadFileUpload && !fileUploadCompleted) {
+			attachments = attachments.map((attachment) =>
+				attachment.kind === "file"
+					? { ...attachment, status: "failed" as const }
+					: attachment,
+			);
+		}
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
+		composerError = hadFileUpload
+			? fileUploadCompleted
+				? "Message failed. Files were uploaded."
+				: "Upload failed. Please try again."
+			: sendError;
 		failGeneration(sessionId, sendError);
 		const current = sessionStateById[sessionId];
 		if (current) {
@@ -3400,20 +3498,30 @@ async function compressImageFile(file: File) {
 	const dataUrl = await fileToDataUrl(blob);
 	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
-async function handlePickAttachments(files: FileList | File[] | null) {
+async function handlePickAttachments(
+	files: FileList | File[] | LocalUploadEntry[] | null,
+) {
 	if (!files) return;
-	const pickedFiles = Array.from(files).filter(
-		isSupportedComposerAttachmentFile,
-	);
-	if (pickedFiles.length === 0) return;
+	let pickedEntries: LocalUploadEntry[];
+	try {
+		pickedEntries =
+			Array.isArray(files) &&
+			files.every((item) => "file" in item && "relativePath" in item)
+				? (files as LocalUploadEntry[])
+				: entriesFromFiles(Array.from(files as FileList | File[]));
+	} catch {
+		composerError = "Invalid upload path.";
+		return;
+	}
+	if (pickedEntries.length === 0) return;
 
 	const remainingSlots = MAX_COMPOSER_ATTACHMENTS - attachments.length;
 	if (remainingSlots <= 0) {
 		composerError = `You can attach up to ${MAX_COMPOSER_ATTACHMENTS} files.`;
 		return;
 	}
-	const acceptedFiles = pickedFiles.slice(0, remainingSlots);
-	if (acceptedFiles.length < pickedFiles.length) {
+	const acceptedEntries = pickedEntries.slice(0, remainingSlots);
+	if (acceptedEntries.length < pickedEntries.length) {
 		composerError = `Only the first ${remainingSlots} file${remainingSlots === 1 ? "" : "s"} were attached.`;
 	} else {
 		composerError = "";
@@ -3421,20 +3529,63 @@ async function handlePickAttachments(files: FileList | File[] | null) {
 
 	try {
 		const nextAttachments = await Promise.all(
-			acceptedFiles.map(async (file): Promise<ComposerAttachment> => {
-				if (!isComposerImageFile(file)) return readComposerTextAttachment(file);
-				const compressed = await compressImageFile(file);
-				const [, base64 = ""] = compressed.dataUrl.split(",");
-				const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
-				return {
-					kind: "image",
-					id: createComposerAttachmentId(file),
-					name: `${webpName}.webp`,
-					mediaType: compressed.mediaType,
-					data: base64,
-					previewUrl: compressed.dataUrl,
-					size: compressed.size,
-				} satisfies ComposerImageAttachment;
+			acceptedEntries.map(async (entry): Promise<ComposerAttachment> => {
+				const { file, relativePath } = entry;
+				if (!isSupportedComposerAttachmentFile(file)) {
+					return {
+						kind: "file",
+						id: createComposerAttachmentId(file),
+						name: file.name,
+						relativePath,
+						mediaType: file.type || null,
+						file,
+						size: file.size,
+						status: "ready",
+					} satisfies ComposerFileAttachment;
+				}
+				if (!isComposerImageFile(file)) {
+					try {
+						return await readComposerTextAttachment(file);
+					} catch (error) {
+						if (error instanceof Error && !error.message.includes("exceeds"))
+							throw error;
+						return {
+							kind: "file",
+							id: createComposerAttachmentId(file),
+							name: file.name,
+							relativePath,
+							mediaType: file.type || null,
+							file,
+							size: file.size,
+							status: "ready",
+						} satisfies ComposerFileAttachment;
+					}
+				}
+				try {
+					const compressed = await compressImageFile(file);
+					const [, base64 = ""] = compressed.dataUrl.split(",");
+					const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
+					return {
+						kind: "image",
+						id: createComposerAttachmentId(file),
+						name: `${webpName}.webp`,
+						mediaType: compressed.mediaType,
+						data: base64,
+						previewUrl: compressed.dataUrl,
+						size: compressed.size,
+					} satisfies ComposerImageAttachment;
+				} catch {
+					return {
+						kind: "file",
+						id: createComposerAttachmentId(file),
+						name: file.name,
+						relativePath,
+						mediaType: file.type || null,
+						file,
+						size: file.size,
+						status: "ready",
+					} satisfies ComposerFileAttachment;
+				}
 			}),
 		);
 		attachments = [...attachments, ...nextAttachments];

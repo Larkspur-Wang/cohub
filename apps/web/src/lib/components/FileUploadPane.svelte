@@ -1,6 +1,6 @@
 <script lang="ts">
 import { AlertCircle, Check, Upload, X } from "lucide-svelte";
-import { sdk } from "$lib/sdk";
+import { uploadSpaceEntries } from "$lib/space-upload";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 
 type UploadItem = {
@@ -39,7 +39,7 @@ let failed = $derived(items.filter((i) => i.status === "error"));
 const totalCount = $derived(items.length);
 const totalBytes = $derived(items.reduce((s, i) => s + i.file.size, 0));
 let uploadedBytes = $state(0);
-let taskRunId = $state<string | null>(null);
+let importedFiles = $state(0);
 let stage = $state<"idle" | "uploading" | "importing" | "done" | "error">(
 	"idle",
 );
@@ -86,147 +86,44 @@ $effect(() => {
 	queueMicrotask(() => processNewFiles());
 });
 
-async function putWithProgress(
-	item: UploadItem,
-	uploadUrl: string,
-	headers?: Record<string, string>,
-) {
-	item.status = "uploading";
-	await new Promise<void>((resolve, reject) => {
-		const xhr = new XMLHttpRequest();
-		xhr.open("PUT", uploadUrl);
-		for (const [key, value] of Object.entries(headers ?? {}))
-			xhr.setRequestHeader(key, value);
-		xhr.upload.onprogress = (event) => {
-			if (!event.lengthComputable) return;
-			const otherDone = items
-				.filter(
-					(i) =>
-						i !== item &&
-						(i.status === "uploading" ||
-							i.status === "importing" ||
-							i.status === "done"),
-				)
-				.reduce((sum, i) => sum + i.file.size, 0);
-			uploadedBytes = otherDone + event.loaded;
-		};
-		xhr.onload = () =>
-			xhr.status >= 200 && xhr.status < 300
-				? resolve()
-				: reject(new Error(`Upload failed (${xhr.status})`));
-		xhr.onerror = () => reject(new Error("Upload failed"));
-		xhr.send(item.file);
-	});
-	uploadedBytes = items
-		.filter((i) => i.status !== "pending")
-		.reduce((sum, i) => sum + i.file.size, 0);
-}
-
-async function pollImportTask(id: string) {
-	let failures = 0;
-	while (true) {
-		try {
-			const { run, progress } = await sdk.tasks.get(id);
-			failures = 0;
-			const progressData =
-				typeof progress === "object" && progress !== null
-					? (progress as {
-							importedFiles?: number;
-							phase?: string;
-							errors?: Array<{ name?: string; message?: string }>;
-						})
-					: null;
-			const imported = Number(progressData?.importedFiles ?? 0);
-			items = items.map((item, index) => ({
-				...item,
-				status: index < imported ? "done" : "importing",
-			}));
-			if (progressData?.phase === "failed" || run.status === "failed") {
-				stage = "error";
-				const errors = progressData?.errors ?? [];
-				items = items.map((item) => {
-					const error = errors.find(
-						(e) =>
-							e.name === item.relativePath ||
-							e.name?.endsWith(`/${item.relativePath}`),
-					);
-					if (error)
-						return {
-							...item,
-							status: "error",
-							error: error.message ?? "Import failed",
-						};
-					return item.status === "done"
-						? item
-						: {
-								...item,
-								status: "error",
-								error: run.errorMessage ?? "Import failed",
-							};
-				});
-				return;
-			}
-			if (run.status === "completed") {
-				items = items.map((item) => ({ ...item, status: "done" }));
-				stage = "done";
-				onComplete?.();
-				setTimeout(() => {
-					onClose?.();
-					items = [];
-					lastSignature = "";
-					taskRunId = null;
-				}, 1600);
-				return;
-			}
-		} catch (error) {
-			failures += 1;
-			if (failures >= 5) {
-				stage = "error";
-				const message =
-					error instanceof Error
-						? error.message
-						: "Unable to fetch import status";
-				items = items.map((item) =>
-					item.status === "done"
-						? item
-						: { ...item, status: "error", error: message },
-				);
-				return;
-			}
-		}
-		await new Promise((resolve) => setTimeout(resolve, 1200));
-	}
-}
-
 async function uploadAll() {
 	try {
 		stage = "uploading";
-		const plan = await sdk.space(spaceId).files.createUpload({
+		uploadedBytes = 0;
+		importedFiles = 0;
+		await uploadSpaceEntries({
+			spaceId,
 			targetDir,
 			entries: items.map((item) => ({
-				id: item.id,
-				name: item.file.name,
+				file: item.file,
 				relativePath: item.relativePath,
-				size: item.file.size,
-				mimeType: item.file.type || null,
-				lastModified: item.file.lastModified,
 			})),
+			onProgress: (progress) => {
+				stage = progress.stage;
+				uploadedBytes = progress.uploadedBytes;
+				importedFiles = progress.importedFiles;
+				items = items.map((item, index) => ({
+					...item,
+					status:
+						progress.stage === "done" || index < progress.importedFiles
+							? "done"
+							: progress.stage === "importing"
+								? "importing"
+								: item.status === "done"
+									? "done"
+									: "uploading",
+				}));
+			},
 		});
-		const planById = new Map(plan.entries.map((entry) => [entry.id, entry]));
-		for (const item of items) {
-			const planned = planById.get(item.id);
-			if (!planned) throw new Error("Upload plan missing file");
-			await putWithProgress(item, planned.uploadUrl, planned.headers);
-			item.status = "importing";
-		}
-		stage = "importing";
-		const complete = await sdk
-			.space(spaceId)
-			.files.completeUpload(plan.uploadId, {
-				entries: items.map((item) => ({ id: item.id })),
-			});
-		taskRunId = complete.taskRunId;
-		void pollImportTask(complete.taskRunId);
+		stage = "done";
+		items = items.map((item) => ({ ...item, status: "done" }));
+		onComplete?.();
+		setTimeout(() => {
+			onClose?.();
+			items = [];
+			lastSignature = "";
+			importedFiles = 0;
+		}, 1600);
 	} catch (error) {
 		stage = "error";
 		const message = error instanceof Error ? error.message : "Upload failed";
@@ -242,9 +139,9 @@ function handleDismiss() {
 	onClose?.();
 	items = [];
 	lastSignature = "";
-	taskRunId = null;
 	stage = "idle";
 	uploadedBytes = 0;
+	importedFiles = 0;
 }
 </script>
 
@@ -283,7 +180,7 @@ function handleDismiss() {
     </div>
 
     <div class="footer">
-      {totalCount} file{totalCount !== 1 ? 's' : ''} · {formatSize(stage === "uploading" ? uploadedBytes : totalBytes)} / {formatSize(totalBytes)}{#if taskRunId} · job {taskRunId.slice(0, 8)}{/if}
+      {totalCount} file{totalCount !== 1 ? 's' : ''} · {formatSize(stage === "uploading" ? uploadedBytes : totalBytes)} / {formatSize(totalBytes)}{#if stage === "importing"} · {importedFiles}/{totalCount} imported{/if}
     </div>
   </div>
 {/if}
