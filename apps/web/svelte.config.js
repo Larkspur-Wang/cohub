@@ -30,6 +30,7 @@ const config = {
 			"@cohub/protocol/generation": `${protocolDir}/generation/index.ts`,
 			"@cohub/protocol": `${protocolDir}/index.ts`,
 			// sdk subpaths
+			"@neta-art/cohub/debugger": `${sdkDir}/debugger.ts`,
 			"@neta-art/cohub/http": `${sdkDir}/http.ts`,
 			"@neta-art/cohub/websocket": `${sdkDir}/websocket.ts`,
 			// bare package aliases — must be last
