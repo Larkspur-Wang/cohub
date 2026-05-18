@@ -2,6 +2,7 @@ import { access, stat } from "node:fs/promises";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@cohub/protocol/core";
+import { normalizeContentBlocksSafe } from "@cohub/core/content/normalize";
 import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession, interruptSessionTurn } from "./api.js";
 import { sendOutput } from "./redis.js";
 import { logger } from "./logger.js";
@@ -485,6 +486,47 @@ function enqueuePersistence(handle: SessionHandle, label: string, task: () => Pr
   return next;
 }
 
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function warnInvalidToolResultBlock(issue: { message: string; block: unknown }) {
+  console.warn(`[Normalize] tool result content: ${issue.message}`, { block: issue.block });
+}
+
+type NormalizedToolResultContent = {
+  content: string | ContentBlock[];
+  isError: boolean;
+  errorMessage?: string;
+};
+
+function normalizeToolResultBlocks(blocks: unknown[]): NormalizedToolResultContent {
+  const issues: Array<{ message: string; block: unknown }> = [];
+  const content = normalizeContentBlocksSafe(blocks, {
+    onInvalid: (issue) => {
+      issues.push(issue);
+      warnInvalidToolResultBlock(issue);
+    },
+  });
+  if (issues.length === 0) return { content, isError: false };
+  const message = `Tool result content error: ${issues.map((issue) => issue.message).join("; ")}`;
+  return { content: message, isError: true, errorMessage: message };
+}
+
+function extractToolResultContent(result: unknown): NormalizedToolResultContent {
+  if (typeof result === "string") return { content: result, isError: false };
+  if (!result || typeof result !== "object") return { content: "", isError: false };
+  const record = result as Record<string, unknown>;
+  if (typeof record.content === "string") return { content: record.content, isError: false };
+  if (Array.isArray(record.content)) return normalizeToolResultBlocks(record.content);
+  if (typeof record.text === "string") return { content: record.text, isError: false };
+  return { content: safeStringify(result), isError: false };
+}
+
 function extractTextFromToolResult(result: unknown): string {
   if (typeof result === "string") return result;
   if (!result || typeof result !== "object") return "";
@@ -658,11 +700,12 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         "agent.tool_call_id": event.toolCallId,
         "tool.is_error": event.isError,
       });
-      const resultContent = event.result ? extractTextFromToolResult(event.result) : "";
+      const normalizedResult = event.result != null ? extractToolResultContent(event.result) : { content: "", isError: false };
+      const fallbackContent = event.result == null ? "" : safeStringify(event.result);
       handle.streamState.assistantState = applyToolExecutionEnd(handle.streamState.assistantState, {
         toolCallId: event.toolCallId,
-        content: resultContent || JSON.stringify(event.result ?? null),
-        isError: event.isError,
+        content: normalizedResult.content === "" ? fallbackContent : normalizedResult.content,
+        isError: event.isError || normalizedResult.isError,
       });
       handle.streamState.dirty = true;
       flushProviderRenderUpdate(handle, "tool_execution_end");

@@ -4,6 +4,7 @@ import type {
   RegisterSessionInput,
 } from "@cohub/protocol/model";
 import type { ContentBlock } from "@cohub/protocol/core";
+import { normalizeContentBlockSafe, normalizeContentBlocksSafe } from "@cohub/core/content/normalize";
 import { env } from "./env.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,24 +107,6 @@ async function postJsonWithRetry(input: {
 
 // ─── Content extraction ───
 
-const extractTextFromContent = (content: unknown): string => {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  const result: string[] = [];
-  for (const item of content) {
-    if (!item || typeof item !== "object" || !("type" in item)) continue;
-    const block = item as Record<string, unknown>;
-    const t = block.type;
-    if (t === "text" && typeof block.text === "string") result.push(block.text);
-    else if (t === "thinking" && typeof block.thinking === "string") result.push(block.thinking);
-    else if (t === "resource" && block.resource && typeof (block.resource as Record<string, unknown>).text === "string") result.push((block.resource as Record<string, unknown>).text as string);
-    else if (t === "tool_result" && typeof block.content === "string") result.push(block.content);
-    else if (t === "resource_link") result.push(String(block.title || block.name || block.uri || ""));
-  }
-  return result.join("\n").trim();
-};
-
 const extractThinkingFromContent = (content: unknown): string => {
   if (!Array.isArray(content)) return "";
   return content
@@ -154,6 +137,47 @@ const summarizeToolArgs = (toolName: string, args: unknown): string => {
     .map(([key, value]) => `${key}=${String(value)}`)
     .join(" ");
   return first.slice(0, 120);
+};
+
+const safeStringify = (value: unknown): string => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const warnInvalidContentBlock = (context: string) => (issue: { message: string; block: unknown }) => {
+  console.warn(`[Normalize] ${context}: ${issue.message}`, { block: issue.block });
+};
+
+type NormalizedToolResultContent = {
+  content: string | ContentBlock[];
+  isError: boolean;
+  errorMessage?: string;
+};
+
+const normalizeToolResultBlocks = (blocks: unknown[], context: string): NormalizedToolResultContent => {
+  const issues: Array<{ message: string; block: unknown }> = [];
+  const content = normalizeContentBlocksSafe(blocks, {
+    onInvalid: (issue) => {
+      issues.push(issue);
+      warnInvalidContentBlock(context)(issue);
+    },
+  });
+  if (issues.length === 0) return { content, isError: false };
+  const message = `Tool result content error: ${issues.map((issue) => issue.message).join("; ")}`;
+  return { content: message, isError: true, errorMessage: message };
+};
+
+const extractToolResultContent = (result: unknown): NormalizedToolResultContent => {
+  if (typeof result === "string") return { content: result, isError: false };
+  if (!result || typeof result !== "object") return { content: "", isError: false };
+  const record = result as Record<string, unknown>;
+  if (typeof record.content === "string") return { content: record.content, isError: false };
+  if (Array.isArray(record.content)) return normalizeToolResultBlocks(record.content, "tool result content");
+  if (typeof record.text === "string") return { content: record.text, isError: false };
+  return { content: safeStringify(result), isError: false };
 };
 
 type ToolExecution = {
@@ -189,19 +213,18 @@ const normalizeToolExecutions = (
     const id = typeof raw.toolCallId === "string" ? raw.toolCallId : "";
     const name = typeof raw.toolName === "string" ? raw.toolName : "";
     if (!id || !name) continue;
-    const rawResultContent = "content" in raw
-      ? (typeof raw.content === "string"
-          ? raw.content
-          : extractTextFromContent(raw.content))
-      : undefined;
+    const rawResultContent = "content" in raw ? extractToolResultContent(raw) : null;
 
     executions.set(id, {
       id,
       name,
       input: (raw.input as Record<string, unknown>) ?? {},
-      resultContent: rawResultContent,
-      isError: Boolean(raw.isError),
-      toolResultMeta: (raw._meta as Record<string, unknown> | undefined) ?? (raw.meta as Record<string, unknown> | undefined),
+      resultContent: rawResultContent?.content,
+      isError: Boolean(raw.isError) || Boolean(rawResultContent?.isError),
+      toolResultMeta: {
+        ...(((raw._meta as Record<string, unknown> | undefined) ?? (raw.meta as Record<string, unknown> | undefined)) ?? {}),
+        ...(rawResultContent?.errorMessage ? { invalidContentBlock: true, errorMessage: rawResultContent.errorMessage } : {}),
+      },
     });
   }
 
@@ -225,16 +248,20 @@ const normalizeToolExecutions = (
     if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
       const existing = executions.get(block.tool_use_id);
       if (!existing) continue;
-      // Only override resultContent when block.content is a plain string.
-      // When content is a structured array (e.g. [{type:"text",text:"..."}])
-      // the text was already extracted in round 1 from the raw toolResults;
-      // using the array here would replace the extracted text with an object
-      // and cause downstream duplication / garbled output.
+      const normalizedBlockContent = Array.isArray(block.content)
+        ? normalizeToolResultBlocks(block.content, "assistant tool_result content")
+        : null;
       executions.set(block.tool_use_id, {
         ...existing,
-        resultContent: typeof block.content === "string" ? block.content : (existing.resultContent ?? ""),
-        isError: Boolean(block.is_error) || existing.isError,
-        toolResultMeta: (block._meta as Record<string, unknown> | undefined) ?? existing.toolResultMeta,
+        resultContent: typeof block.content === "string"
+          ? block.content
+          : normalizedBlockContent?.content ?? existing.resultContent,
+        isError: Boolean(block.is_error) || existing.isError || Boolean(normalizedBlockContent?.isError),
+        toolResultMeta: {
+          ...(existing.toolResultMeta ?? {}),
+          ...((block._meta as Record<string, unknown> | undefined) ?? {}),
+          ...(normalizedBlockContent?.errorMessage ? { invalidContentBlock: true, errorMessage: normalizedBlockContent.errorMessage } : {}),
+        },
       });
     }
   }
@@ -297,14 +324,8 @@ export function normalizeAssistantTurn(
       continue;
     }
     if (block.type === "image") {
-      blocks.push({
-        type: "image",
-        source: typeof block.uri === "string"
-          ? { type: "url", url: block.uri }
-          : typeof block.data === "string"
-            ? { type: "base64", media_type: typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream", data: block.data }
-            : { type: "url", url: "" },
-      });
+      const normalizedImage = normalizeContentBlockSafe(block, { onInvalid: warnInvalidContentBlock("assistant image block") });
+      if (normalizedImage?.type === "image") blocks.push(normalizedImage);
       continue;
     }
     if ((block.type === "toolCall" || block.type === "tool_use") && typeof block.id === "string") {
@@ -338,11 +359,19 @@ export function normalizeAssistantTurn(
         console.warn("[Normalize] tool_result block has no matching execution", {
           toolCallId: block.tool_use_id,
         });
+        const normalizedContent = Array.isArray(block.content)
+          ? normalizeToolResultBlocks(block.content, "unmatched tool_result content")
+          : null;
         blocks.push({
           type: "tool_result",
           tool_use_id: block.tool_use_id,
-          content: typeof block.content === "string" ? block.content : ((block.content as string | ContentBlock[] | null) ?? ""),
-          is_error: Boolean(block.is_error),
+          content: typeof block.content === "string"
+            ? block.content
+            : normalizedContent?.content ?? "",
+          is_error: Boolean(block.is_error) || Boolean(normalizedContent?.isError),
+          _meta: normalizedContent?.errorMessage
+            ? { invalidContentBlock: true, errorMessage: normalizedContent.errorMessage }
+            : undefined,
         });
         emittedToolResults.add(block.tool_use_id);
       }

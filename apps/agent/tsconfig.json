@@ -11,6 +11,9 @@
       "@cohub/core/permissions": [
         "../../packages/core/src/permissions/index.ts"
       ],
+      "@cohub/core/content/normalize": [
+        "../../packages/core/src/content/normalize.ts"
+      ],
       "@cohub/protocol": [
         "../../packages/protocol/src/index.ts"
       ],
