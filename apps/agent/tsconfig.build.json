@@ -91,6 +91,9 @@
       "@cohub/core/security/execution-grants": [
         "../../packages/core/dist/security/execution-grants.d.ts"
       ],
+      "@cohub/core/space-mods": [
+        "../../packages/core/dist/space-mods/index.d.ts"
+      ],
       "@cohub/core/spaces": [
         "../../packages/core/dist/spaces/index.d.ts"
       ],

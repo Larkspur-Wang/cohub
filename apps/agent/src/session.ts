@@ -15,6 +15,8 @@ import {
   getAgentWorkspacePath,
 } from "./runtime/paths.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
+import { listEnabledSpaceMods } from "@cohub/core/space-mods";
+import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { refreshUserEnv } from "./runtime/env-cache.js";
@@ -850,6 +852,10 @@ export async function loadOrCreateSessionHandle(input: {
     return null;
   });
   const spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
+  const spaceMods = await listEnabledSpaceMods(db, input.spaceId).catch((error: unknown) => {
+    console.warn(`[Agent] Failed to load space mods for ${input.spaceId}; continuing without mods`, error);
+    return [];
+  });
 
   let sessionManager: SessionManager;
   if (await pathExists(existingSessionFile)) {
@@ -872,6 +878,7 @@ export async function loadOrCreateSessionHandle(input: {
     sessionManager,
     modelRegistry: input.modelRegistry,
     tools: input.tools,
+    spaceMods,
     ...(resolvedModel ? { model: resolvedModel } : {}),
   });
 

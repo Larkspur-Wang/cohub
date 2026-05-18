@@ -6,6 +6,7 @@ import type {
 	SpaceEnvInput,
 	SpaceInvitation,
 	SpaceMember,
+	SpaceModListItem,
 	SpaceRecord,
 	SpaceRole,
 } from "@neta-art/cohub";
@@ -18,6 +19,7 @@ import {
 	Link,
 	Loader2,
 	Network,
+	PackagePlus,
 	Pencil,
 	Plus,
 	RefreshCw,
@@ -50,6 +52,7 @@ let members = $state<SpaceMember[]>([]);
 let invitations = $state<SpaceInvitation[]>([]);
 let env = $state<SpaceEnvInput[]>([]);
 let channels = $state<SpaceChannelBindingRecord[]>([]);
+let mods = $state<SpaceModListItem[]>([]);
 let sandbox = $state<SandboxInfo | null>(null);
 let allChannels = $state<Channel[]>([]);
 let loading = $state(true);
@@ -60,6 +63,13 @@ let pictureUrl = $state("");
 let envName = $state("");
 let envValue = $state("");
 let selectedChannelId = $state("");
+let modSpaceId = $state("");
+let modName = $state("");
+let modError = $state("");
+let modSaving = $state(false);
+let modUpdatingId = $state<string | null>(null);
+let modRestartMessage = $state("");
+let modRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let revealedEnvNames = $state<Set<string>>(new Set());
 let addingMemberUuid = $state("");
 let addingMemberRole = $state<SpaceRole>("guest");
@@ -83,6 +93,7 @@ let sandboxRecoveryError = $state("");
 
 onDestroy(() => {
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
+	if (modRestartTimer) clearTimeout(modRestartTimer);
 });
 
 function getPictureUrl(record: SpaceRecord | null): string {
@@ -115,6 +126,26 @@ async function loadSandbox() {
 		.sandbox.get()
 		.catch(() => null);
 	sandbox = result?.sandbox ?? null;
+}
+
+function confirmModRestart(): boolean {
+	return window.confirm(
+		"Changing Space Mods will restart the Sandbox and may interrupt running commands or agent turns. Continue?",
+	);
+}
+
+function noteModRestart() {
+	modRestartMessage =
+		"Sandbox restart queued. Mods will be mounted when it comes back online.";
+	if (modRestartTimer) clearTimeout(modRestartTimer);
+	modRestartTimer = setTimeout(() => {
+		modRestartMessage = "";
+	}, 6000);
+}
+
+async function loadMods() {
+	const result = await sdk.space(spaceId).mods.list();
+	mods = result.items;
 }
 
 async function forceRecoverSandbox() {
@@ -150,6 +181,7 @@ async function loadPage() {
 			memberResult,
 			envResult,
 			channelResult,
+			modResult,
 			allChannelResult,
 			sandboxResult,
 			invitationResult,
@@ -171,6 +203,10 @@ async function loadPage() {
 				.space(spaceId)
 				.channels.list()
 				.catch(() => []),
+			sdk
+				.space(spaceId)
+				.mods.list()
+				.catch(() => ({ items: [] })),
 			sdk.channels.list().catch(() => []),
 			sdk
 				.space(spaceId)
@@ -186,6 +222,7 @@ async function loadPage() {
 		members = memberResult.items;
 		env = envResult.env;
 		channels = channelResult;
+		mods = modResult.items;
 		allChannels = allChannelResult;
 		sandbox = sandboxResult?.sandbox ?? null;
 		invitations = invitationResult.items;
@@ -394,6 +431,65 @@ async function unbindChannel(channelId: string) {
 	channels = await sdk.space(spaceId).channels.list();
 }
 
+async function addMod() {
+	const target = modSpaceId.trim();
+	if (!target || modSaving) return;
+	if (!confirmModRestart()) return;
+	modSaving = true;
+	modError = "";
+	try {
+		const result = await sdk.space(spaceId).mods.create({
+			modSpaceId: target,
+			name: modName.trim() || null,
+		});
+		mods = result.item
+			? [...mods, result.item].sort((a, b) => a.sortOrder - b.sortOrder)
+			: (await sdk.space(spaceId).mods.list()).items;
+		modSpaceId = "";
+		modName = "";
+		noteModRestart();
+		await loadSandbox();
+	} catch (err) {
+		modError = err instanceof Error ? err.message : "Failed to add mod";
+	} finally {
+		modSaving = false;
+	}
+}
+
+async function toggleMod(mod: SpaceModListItem) {
+	if (!confirmModRestart()) return;
+	modUpdatingId = mod.id;
+	modError = "";
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.mods.update(mod.id, { enabled: !mod.enabled });
+		mods = mods.map((item) => (item.id === mod.id ? result.item : item));
+		noteModRestart();
+		await loadSandbox();
+	} catch (err) {
+		modError = err instanceof Error ? err.message : "Failed to update mod";
+	} finally {
+		modUpdatingId = null;
+	}
+}
+
+async function removeMod(mod: SpaceModListItem) {
+	if (!confirmModRestart()) return;
+	modUpdatingId = mod.id;
+	modError = "";
+	try {
+		await sdk.space(spaceId).mods.remove(mod.id);
+		mods = mods.filter((item) => item.id !== mod.id);
+		noteModRestart();
+		await loadSandbox();
+	} catch (err) {
+		modError = err instanceof Error ? err.message : "Failed to remove mod";
+	} finally {
+		modUpdatingId = null;
+	}
+}
+
 $effect(() => {
 	void loadPage();
 });
@@ -530,6 +626,33 @@ $effect(() => {
 					<div class="flex items-center gap-2"><Terminal class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Env</div><div class="text-[15px] font-medium text-text-primary">Environment variables</div></div></div>
 					<div class="flex gap-2"><input bind:value={envName} placeholder="NAME" class="w-40 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" /><input bind:value={envValue} placeholder="value" class="flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" /><button type="button" onclick={addEnv} class="px-3 py-1.5 rounded bg-brand text-brand-contrast-fg text-[12px]">Add</button></div>
 					<div class="space-y-1">{#each env as item (item.name)}<div class="flex items-center gap-2 rounded-[5px] bg-bg-primary px-3 py-2"><code class="w-40 text-[11px] text-text-primary">{item.name}</code><code class="flex-1 truncate text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code><button type="button" onclick={() => toggleEnvReveal(item.name)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{revealedEnvNames.has(item.name) ? 'Hide' : 'Reveal'}</button><button type="button" onclick={() => removeEnv(item.name)} class="text-[11px] text-text-placeholder hover:text-error-soft">Remove</button></div>{/each}</div>
+				</section>
+
+				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
+					<div class="flex items-center gap-2"><PackagePlus class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Mods</div><div class="text-[15px] font-medium text-text-primary">Mounted spaces</div></div></div>
+					<p class="text-[11px] leading-relaxed text-text-tertiary">Mods are mounted read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Their append prompts and skills are available to the agent. Changes automatically restart the Sandbox.</p>
+					<div class="flex flex-col gap-2 sm:flex-row">
+						<input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-w-0 flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" />
+						<input bind:value={modName} placeholder="Display name (optional)" class="min-w-0 flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px]" />
+						<button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-brand text-brand-contrast-fg text-[12px] disabled:opacity-50">{#if modSaving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if} Add</button>
+					</div>
+					{#if modError}<div class="rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-all">{modError}</div>{/if}
+					{#if modRestartMessage}<div class="rounded-[5px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
+					<div class="space-y-1">
+						{#each mods as mod (mod.id)}
+							<div class="flex items-center gap-2 rounded-[5px] bg-bg-primary px-3 py-2">
+								<div class="min-w-0 flex-1">
+									<div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div>
+									<div class="truncate font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div>
+								</div>
+								<span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span>
+								<button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button>
+								<button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button>
+							</div>
+						{:else}
+							<div class="py-1 text-[12px] italic text-text-tertiary">No mods mounted.</div>
+						{/each}
+					</div>
 				</section>
 
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">

@@ -92,6 +92,9 @@
       "@cohub/core/security/execution-grants": [
         "../../packages/core/src/security/execution-grants.ts"
       ],
+      "@cohub/core/space-mods": [
+        "../../packages/core/src/space-mods/index.ts"
+      ],
       "@cohub/core/spaces": [
         "../../packages/core/src/spaces/index.ts"
       ],

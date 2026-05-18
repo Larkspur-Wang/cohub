@@ -1,5 +1,6 @@
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import type { SpaceModListItem } from "@cohub/core/space-mods";
 import {
   getAgentPlatformAgentPath,
   getAgentPlatformSkillsPath,
@@ -7,6 +8,7 @@ import {
   getAgentUserConfigPath,
   getAgentUserSkillsPath,
   getAgentWorkspaceAgentsPath,
+  getAgentWorkspacePath,
   getAgentWorkspaceSkillsPath,
   SANDBOX_PLATFORM_SKILLS_PATH,
   SANDBOX_USER_CONFIG_PATH,
@@ -38,6 +40,7 @@ export type BuildCohubSystemPromptOptions = {
   selectedTools?: string[];
   toolSnippets?: Record<string, string>;
   promptGuidelines?: string[];
+  spaceMods?: SpaceModListItem[];
 };
 
 async function pathExists(path: string): Promise<boolean> {
@@ -155,7 +158,12 @@ async function loadSkillsFromDir(input: {
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function loadMergedSkills(cwd: string, userId?: string | null): Promise<LoadedSkill[]> {
+async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: SpaceModListItem[] = []): Promise<LoadedSkill[]> {
+  const modSkillGroups = await Promise.all(spaceMods.map((mod) => loadSkillsFromDir({
+    agentDir: join(getAgentWorkspacePath(mod.modSpaceId), ".agents", "skills"),
+    sandboxDir: `${mod.mountPath}/.agents/skills`,
+  })));
+
   const [platformSkills, userSkills, workspaceSkills] = await Promise.all([
     loadSkillsFromDir({
       agentDir: getAgentPlatformSkillsPath(),
@@ -175,6 +183,9 @@ async function loadMergedSkills(cwd: string, userId?: string | null): Promise<Lo
 
   const merged = new Map<string, LoadedSkill>();
   for (const skill of platformSkills) merged.set(skill.name, skill);
+  for (const skills of modSkillGroups) {
+    for (const skill of skills) merged.set(skill.name, skill);
+  }
   for (const skill of userSkills) merged.set(skill.name, skill);
   for (const skill of workspaceSkills) merged.set(skill.name, skill);
   return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -205,6 +216,7 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
     selectedTools = ["read", "bash", "edit", "write"],
     toolSnippets = {},
     promptGuidelines = [],
+    spaceMods = [],
   } = options;
 
   const workspaceAgentDir = getAgentWorkspaceAgentsPath(cwd);
@@ -217,14 +229,16 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
 
   const appendSystemPrompts = (await Promise.all([
     readTextIfExists(join(getAgentPlatformAgentPath(), "APPEND_SYSTEM.md")),
+    ...spaceMods.map((mod) => readTextIfExists(join(getAgentWorkspacePath(mod.modSpaceId), ".cohub", "APPEND_SYSTEM.md"))),
     ...(userAgentDir ? [readTextIfExists(join(userAgentDir, "APPEND_SYSTEM.md"))] : []),
     readTextIfExists(join(workspaceAgentDir, "APPEND_SYSTEM.md")),
   ])).filter((value): value is string => Boolean(value));
 
-  const [userContextFiles, projectContextFiles, skills] = await Promise.all([
+  const [userContextFiles, modContextGroups, projectContextFiles, skills] = await Promise.all([
     userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : Promise.resolve([]),
+    Promise.all(spaceMods.map((mod) => loadContextFilesFromRoot(getAgentWorkspacePath(mod.modSpaceId), mod.mountPath))),
     loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH),
-    selectedTools.includes("read") ? loadMergedSkills(cwd, userId) : Promise.resolve([]),
+    selectedTools.includes("read") ? loadMergedSkills(cwd, userId, spaceMods) : Promise.resolve([]),
   ]);
 
   const sections: string[] = [systemPrompt, ...appendSystemPrompts];
@@ -235,6 +249,18 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
       userContext += `\n\n## ${file.sandboxPath}\n\n${file.content}`;
     }
     sections.push(userContext);
+  }
+
+  const modContextFiles = modContextGroups.flat();
+  if (spaceMods.length > 0 || modContextFiles.length > 0) {
+    let modContext = "# Space Mods\n\nMounted read-only spaces available under /mods. Priority: platform < mods < user < workspace.";
+    for (const mod of spaceMods) {
+      modContext += `\n- ${mod.name ?? mod.modSpaceName ?? mod.modSpaceId}: ${mod.mountPath}`;
+    }
+    for (const file of modContextFiles) {
+      modContext += `\n\n## ${file.sandboxPath}\n\n${file.content}`;
+    }
+    sections.push(modContext);
   }
 
   if (projectContextFiles.length > 0) {

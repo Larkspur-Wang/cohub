@@ -537,6 +537,22 @@ export type SpaceMarkListItem = SpaceMarkRecord & {
   } | null;
 };
 
+export type SpaceModListItem = {
+  id: string;
+  spaceId: string;
+  modSpaceId: string;
+  name: string | null;
+  mountSlug: string;
+  mountPath: string;
+  enabled: boolean;
+  sortOrder: number;
+  createdBy: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  modSpaceName: string | null;
+  modSpaceDescription: string | null;
+};
+
 export type ExploreSpaceItem = {
   space: SpaceRecord;
   accessAudience: "anonymous" | "signed_in";

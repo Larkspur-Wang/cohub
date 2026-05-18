@@ -9,6 +9,8 @@ import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
 
+import type { SpaceModListItem } from "@cohub/core/space-mods";
+
 export type CohubAgentSessionEvent = AgentEvent;
 
 export type CohubAgentSession = {
@@ -67,6 +69,7 @@ export type CreateCohubAgentSessionOptions = {
   sessionManager: SessionManager;
   modelRegistry: CohubModelRegistry;
   tools: ToolLike[];
+  spaceMods?: SpaceModListItem[];
   model?: Model<Api>;
 };
 
@@ -353,6 +356,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     userId: options.userId,
     selectedTools: options.tools.map((tool) => tool.name),
     toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
+    spaceMods: options.spaceMods ?? [],
   });
 
   const agent = new PiAgent({
@@ -507,6 +511,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
         userId: options.userId,
         selectedTools: options.tools.map((tool) => tool.name),
         toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
+        spaceMods: options.spaceMods ?? [],
       });
       agent.state.systemPrompt = nextPrompt;
       agent.state.tools = options.tools as never;

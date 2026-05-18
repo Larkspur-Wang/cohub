@@ -24,7 +24,9 @@ export type Permission =
   | "cronjob.manage"
   | "taskrun.view"
   | "sandbox.view"
-  | "sandbox.manage";
+  | "sandbox.manage"
+  | "mod.view"
+  | "mod.manage";
 
 export type PermissionSubject = {
   uuid?: string | null;
@@ -67,6 +69,8 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "taskrun.view",
     "sandbox.view",
     "sandbox.manage",
+    "mod.view",
+    "mod.manage",
   ]),
   builder: new Set([
     "space.view",
@@ -83,6 +87,7 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "cronjob.view",
     "taskrun.view",
     "sandbox.view",
+    "mod.view",
   ]),
   guest: new Set([
     "space.view",

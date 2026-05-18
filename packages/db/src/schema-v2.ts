@@ -128,6 +128,34 @@ export const spaces = v2.table(
   }),
 );
 
+export const spaceMods = v2.table(
+  "space_mods",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    modSpaceId: uuid("mod_space_id").notNull(),
+    name: varchar("name", { length: 255 }),
+    mountSlug: varchar("mount_slug", { length: 64 }).notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: varchar("created_by", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    spaceIdx: index("v2_idx_space_mods_space_id").on(table.spaceId),
+    modSpaceIdx: index("v2_idx_space_mods_mod_space_id").on(table.modSpaceId),
+    spaceModUniqueIdx: uniqueIndex("v2_uq_space_mods_space_mod").on(
+      table.spaceId,
+      table.modSpaceId,
+    ),
+    spaceMountSlugUniqueIdx: uniqueIndex("v2_uq_space_mods_space_mount_slug").on(
+      table.spaceId,
+      table.mountSlug,
+    ),
+  }),
+);
+
 export const spaceSandboxes = v2.table(
   "space_sandboxes",
   {

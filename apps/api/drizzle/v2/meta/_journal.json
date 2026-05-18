@@ -71,6 +71,13 @@
       "when": 1778569771163,
       "tag": "0009_loud_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779112351928,
+      "tag": "0010_empty_may_parker",
+      "breakpoints": true
     }
   ]
 }

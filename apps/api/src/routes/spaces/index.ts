@@ -6,6 +6,7 @@ import accessRouter from "./access.route.js";
 import usageRouter from "./usage.route.js";
 import invitationsRouter from "./invitations.route.js";
 import marksRouter from "./marks.route.js";
+import modsRouter from "./mods.route.js";
 
 const router = new Hono();
 
@@ -16,5 +17,6 @@ router.route("/:id/access", accessRouter);
 router.route("/:id/usage", usageRouter);
 router.route("/:id/invitations", invitationsRouter);
 router.route("/:id/marks", marksRouter);
+router.route("/:id/mods", modsRouter);
 
 export default router;

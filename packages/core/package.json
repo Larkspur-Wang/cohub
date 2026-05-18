@@ -32,6 +32,10 @@
       "types": "./dist/sessions/service.d.ts",
       "default": "./dist/sessions/service.js"
     },
+    "./space-mods": {
+      "types": "./dist/space-mods/index.d.ts",
+      "default": "./dist/space-mods/index.js"
+    },
     "./spaces": {
       "types": "./dist/spaces/index.d.ts",
       "default": "./dist/spaces/index.js"

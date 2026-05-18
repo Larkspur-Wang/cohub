@@ -46,6 +46,7 @@ import type {
   SpaceUsageResponse,
   SpaceFsWriteFileInput,
   SpaceMarkKind,
+  SpaceModListItem,
   SpaceMarkListItem,
   SpaceMarkResourceType,
   SpaceMember,
@@ -911,6 +912,59 @@ export class SpaceChannelsApi {
   }
 }
 
+export class SpaceModsApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  list() {
+    return this.transport.request<{ items: SpaceModListItem[] }>(
+      `/api/spaces/${this.spaceId}/mods`,
+    );
+  }
+
+  create(input: { modSpaceId: string; name?: string | null; mountSlug?: string | null }) {
+    return this.transport.request<{ item: SpaceModListItem; sandboxRestarting: boolean }>(
+      `/api/spaces/${this.spaceId}/mods`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  update(modId: string, input: { name?: string | null; mountSlug?: string; enabled?: boolean; sortOrder?: number }) {
+    return this.transport.request<{ item: SpaceModListItem; sandboxRestarting: boolean }>(
+      `/api/spaces/${this.spaceId}/mods/${modId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  remove(modId: string) {
+    return this.transport.request<{ ok: true; sandboxRestarting: boolean }>(
+      `/api/spaces/${this.spaceId}/mods/${modId}`,
+      { method: "DELETE" },
+    );
+  }
+
+  reorder(ids: string[]) {
+    return this.transport.request<{ items: SpaceModListItem[]; sandboxRestarting: boolean }>(
+      `/api/spaces/${this.spaceId}/mods/reorder`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      },
+    );
+  }
+}
+
 export class SpaceEnvApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -1070,6 +1124,7 @@ export class SpaceClient {
   readonly checkpoints: SpaceCheckpointsApi;
   readonly usage: SpaceUsageApi;
   readonly channels: SpaceChannelsApi;
+  readonly mods: SpaceModsApi;
   readonly env: SpaceEnvApi;
   readonly sandbox: SpaceSandboxApi;
   readonly invitations: SpaceInvitationsApi;
@@ -1087,6 +1142,7 @@ export class SpaceClient {
     this.checkpoints = new SpaceCheckpointsApi(transport, id);
     this.usage = new SpaceUsageApi(transport, id);
     this.channels = new SpaceChannelsApi(transport, id);
+    this.mods = new SpaceModsApi(transport, id);
     this.env = new SpaceEnvApi(transport, id);
     this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
