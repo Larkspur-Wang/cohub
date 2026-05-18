@@ -60,11 +60,100 @@ const parseSessionStreamSnapshot = (raw: string | null): SessionStreamSnapshot |
   }
 };
 
+type LocalSessionStreamSnapshotState = {
+  snapshot: SessionStreamSnapshot;
+  lastPersistedAt: number;
+  persistTimer: ReturnType<typeof setTimeout> | null;
+};
+
+const SESSION_STREAM_SNAPSHOT_WRITE_INTERVAL_MS = Math.max(
+  100,
+  Number(process.env.AGENT_STREAM_SNAPSHOT_WRITE_INTERVAL_MS ?? 500),
+);
+const SESSION_STREAM_SNAPSHOT_LOCAL_TTL_MS = Math.max(
+  60_000,
+  Number(process.env.AGENT_STREAM_SNAPSHOT_LOCAL_TTL_MS ?? SESSION_STREAM_SNAPSHOT_TTL_SECONDS * 1000),
+);
+const SESSION_STREAM_SNAPSHOT_PRUNE_INTERVAL_MS = Math.max(
+  10_000,
+  Number(process.env.AGENT_STREAM_SNAPSHOT_PRUNE_INTERVAL_MS ?? 60_000),
+);
+
+const sessionStreamSnapshotStates = new Map<string, LocalSessionStreamSnapshotState>();
+let lastSessionStreamSnapshotPruneAt = 0;
+
+const clearSnapshotPersistTimer = (state: LocalSessionStreamSnapshotState) => {
+  if (!state.persistTimer) return;
+  clearTimeout(state.persistTimer);
+  state.persistTimer = null;
+};
+
+const persistSessionStreamSnapshotNow = async (key: string) => {
+  const state = sessionStreamSnapshotStates.get(key);
+  if (!state) return;
+  clearSnapshotPersistTimer(state);
+  await redis.set(key, JSON.stringify(state.snapshot), "EX", SESSION_STREAM_SNAPSHOT_TTL_SECONDS);
+  state.lastPersistedAt = Date.now();
+};
+
+const scheduleSessionStreamSnapshotPersist = async (key: string, force = false) => {
+  const state = sessionStreamSnapshotStates.get(key);
+  if (!state) return;
+
+  if (force) {
+    await persistSessionStreamSnapshotNow(key);
+    return;
+  }
+
+  const elapsed = Date.now() - state.lastPersistedAt;
+  if (elapsed >= SESSION_STREAM_SNAPSHOT_WRITE_INTERVAL_MS) {
+    await persistSessionStreamSnapshotNow(key);
+    return;
+  }
+
+  if (state.persistTimer) return;
+  state.persistTimer = setTimeout(() => {
+    state.persistTimer = null;
+    void persistSessionStreamSnapshotNow(key).catch((error) => {
+      console.warn("[SessionStreamSnapshot] failed to persist snapshot:", error);
+    });
+  }, SESSION_STREAM_SNAPSHOT_WRITE_INTERVAL_MS - elapsed);
+  state.persistTimer.unref?.();
+};
+
+const pruneLocalSessionStreamSnapshots = () => {
+  const now = Date.now();
+  if (now - lastSessionStreamSnapshotPruneAt < SESSION_STREAM_SNAPSHOT_PRUNE_INTERVAL_MS) return;
+  lastSessionStreamSnapshotPruneAt = now;
+  for (const [key, state] of sessionStreamSnapshotStates) {
+    if (now - state.snapshot.updatedAt <= SESSION_STREAM_SNAPSHOT_LOCAL_TTL_MS) continue;
+    clearSnapshotPersistTimer(state);
+    sessionStreamSnapshotStates.delete(key);
+  }
+};
+
+const getLocalSessionStreamSnapshot = async (key: string, event: SessionStreamEvent) => {
+  const local = sessionStreamSnapshotStates.get(key);
+  if (local) return local.snapshot;
+  if (event.baseSeq === 0) return null;
+
+  const existing = parseSessionStreamSnapshot(await redis.get(key).catch(() => null));
+  if (!existing) return null;
+  sessionStreamSnapshotStates.set(key, {
+    snapshot: existing,
+    lastPersistedAt: Date.now(),
+    persistTimer: null,
+  });
+  return existing;
+};
+
 const cacheSessionStreamSnapshot = async (event: SessionStreamEvent) => {
   if (!Array.isArray(event.snapshotContent) || event.seq <= 0) return;
 
+  pruneLocalSessionStreamSnapshots();
+
   const key = getSessionStreamSnapshotKey(event.spaceId, event.sessionId);
-  const existing = parseSessionStreamSnapshot(await redis.get(key).catch(() => null));
+  const existing = await getLocalSessionStreamSnapshot(key, event);
   const incoming: SessionStreamSnapshot["current"] = {
     messageId: event.messageId ?? null,
     messageOrdinal: event.messageOrdinal ?? null,
@@ -77,14 +166,15 @@ const cacheSessionStreamSnapshot = async (event: SessionStreamEvent) => {
     existing.turnId === (event.turnId ?? null)
     ? existing
     : null;
+  const messageChanged = Boolean(sameTurnSnapshot && !isSameSnapshotMessage(sameTurnSnapshot.current, incoming));
   const intermediateMessages = sameTurnSnapshot
-    ? isSameSnapshotMessage(sameTurnSnapshot.current, incoming)
-      ? sameTurnSnapshot.intermediateMessages
-      : [...sameTurnSnapshot.intermediateMessages, {
+    ? messageChanged
+      ? [...sameTurnSnapshot.intermediateMessages, {
           messageId: sameTurnSnapshot.current.messageId,
           messageOrdinal: sameTurnSnapshot.current.messageOrdinal,
           content: sameTurnSnapshot.current.content,
         }]
+      : sameTurnSnapshot.intermediateMessages
     : [];
 
   const snapshot: SessionStreamSnapshot = {
@@ -99,11 +189,22 @@ const cacheSessionStreamSnapshot = async (event: SessionStreamEvent) => {
     updatedAt: Date.now(),
   };
 
-  await redis.set(key, JSON.stringify(snapshot), "EX", SESSION_STREAM_SNAPSHOT_TTL_SECONDS);
+  const currentState = sessionStreamSnapshotStates.get(key);
+  sessionStreamSnapshotStates.set(key, {
+    snapshot,
+    lastPersistedAt: currentState?.lastPersistedAt ?? 0,
+    persistTimer: currentState?.persistTimer ?? null,
+  });
+
+  await scheduleSessionStreamSnapshotPersist(key, event.baseSeq === 0 || event.turnEnd === true || messageChanged);
 };
 
 const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) => {
-  await redis.del(getSessionStreamSnapshotKey(spaceId, sessionId)).catch(() => undefined);
+  const key = getSessionStreamSnapshotKey(spaceId, sessionId);
+  const state = sessionStreamSnapshotStates.get(key);
+  if (state) clearSnapshotPersistTimer(state);
+  sessionStreamSnapshotStates.delete(key);
+  await redis.del(key).catch(() => undefined);
 };
 
 type StreamTelemetryMetrics = {
