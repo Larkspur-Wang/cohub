@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@cohub/protocol/core";
+import { normalizeContentBlocks } from "../content/normalize.js";
 
 export type PromptSource =
   | "web_app"
@@ -204,11 +205,12 @@ export const submitSessionPrompt = async (
   if (!clientMessageId) throw new Error("clientMessageId is required");
   if (!Array.isArray(input.content) || input.content.length === 0) throw new Error("content is required");
 
-  const { content, promptTemplate } = await expandPromptContent(deps, {
+  const { content: expandedContent, promptTemplate } = await expandPromptContent(deps, {
     content: input.content,
     userId,
     spaceId: input.spaceId,
   });
+  const content = normalizeContentBlocks(expandedContent);
 
   const isDirectShellCommand = content.length === 1 && content[0]?.type === "shell_command";
   const inputIntent = isDirectShellCommand ? "shell_command" : "steer";

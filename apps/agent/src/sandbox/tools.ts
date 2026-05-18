@@ -378,10 +378,11 @@ function createRemoteBashOperations(): BashOperations {
                     }
 
                     if (event.type === "stdout" || event.type === "stderr") {
-                      let chunk = event.chunk;
-                      if (executionToken) {
-                        chunk = chunk.split(executionToken).join("[REDACTED_TOKEN]");
-                      }
+                      const rawChunk = typeof event.chunk === "string" ? event.chunk : "";
+                      if (!rawChunk) return;
+                      const chunk = executionToken
+                        ? rawChunk.split(executionToken).join("[REDACTED_TOKEN]")
+                        : rawChunk;
                       onData(Buffer.from(chunk, "utf8"));
                       return;
                     }

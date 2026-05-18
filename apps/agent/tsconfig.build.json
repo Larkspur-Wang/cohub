@@ -10,6 +10,9 @@
       "@cohub/core/permissions": [
         "../../packages/core/dist/permissions/index.d.ts"
       ],
+      "@cohub/core/content/normalize": [
+        "../../packages/core/dist/content/normalize.d.ts"
+      ],
       "@cohub/protocol": [
         "../../packages/protocol/dist/index.d.ts"
       ],
