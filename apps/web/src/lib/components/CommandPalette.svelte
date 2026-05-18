@@ -467,15 +467,14 @@ onMount(() => {
 										</span>
 										<span class="command-context-separator">·</span>
 									{/if}
-									<span class="truncate">{contextFor(item)}</span>
+									<span class="command-context" title={contextFor(item)}>{contextFor(item)}</span>
+									{#if timestamp}
+										<span class="command-context-separator">·</span>
+										<time class="command-time" datetime={item.updatedAt ?? undefined} title={timestamp.title}>{timestamp.label}</time>
+									{/if}
 								</div>
 							</div>
-							<div class="command-result-meta">
-								{#if timestamp}
-									<time class="command-time" datetime={item.updatedAt ?? undefined} title={timestamp.title}>{timestamp.label}</time>
-								{/if}
-								<div class="command-enter">↵</div>
-							</div>
+							<div class="command-enter">↵</div>
 						</button>
 					{/each}
 				{/if}
@@ -670,35 +669,33 @@ onMount(() => {
 		object-fit: cover;
 	}
 
+	.command-context {
+		min-width: 0;
+		flex: 1 1 auto;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.command-context-separator {
 		flex: 0 0 auto;
 		color: var(--text-placeholder);
 	}
 
-	.command-result-meta {
-		display: flex;
-		min-width: 42px;
-		flex: 0 0 auto;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 10px;
-		align-self: stretch;
-	}
-
 	.command-time {
-		min-width: 24px;
+		flex: 0 0 auto;
 		color: var(--text-placeholder);
 		font-family: var(--font-mono);
 		font-size: 10px;
 		font-variant-numeric: tabular-nums;
 		letter-spacing: 0.01em;
 		line-height: 1;
-		text-align: right;
 		white-space: nowrap;
 	}
 
 	.command-enter {
 		width: 12px;
+		flex: 0 0 auto;
 		opacity: 0;
 		color: var(--brand);
 		font-size: 13px;
