@@ -5,6 +5,7 @@ import type {
 } from "@cohub/protocol/model";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { normalizeContentBlockSafe, normalizeContentBlocksSafe } from "@cohub/core/content/normalize";
+import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { env } from "./env.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,6 +19,7 @@ const INTERNAL_API_BASE_URL =
 const internalHeaders = () => ({
   "content-type": "application/json",
   ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}),
+  ...buildTraceHeaders({ requestId: getCurrentRequestId() }),
 });
 
 // ─── Idempotency ───

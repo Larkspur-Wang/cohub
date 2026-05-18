@@ -6,16 +6,25 @@ import type { AgentSessionForkJobData } from "./queue.js";
 
 const tracer = getAgentTracer();
 
-export async function processSessionForkJob(data: AgentSessionForkJobData) {
+export async function processSessionForkJob(job: { data: AgentSessionForkJobData; id?: string; attemptsMade?: number; timestamp?: number; processedOn?: number; delay?: number }) {
+  const data = job.data;
+  const queueWaitMs = getQueueWaitMs(job);
   const parentCtx = extractTrace((data.trace ?? data) as Record<string, unknown>);
   return runInActiveSpan(tracer, "agent.session_fork.process", {
     attributes: {
+      "cohub.request_id": data.requestId ?? "",
       "cohub.space_id": data.spaceId,
       "cohub.session_id": data.sessionId,
       "agent.parent_session_id": data.parentSessionId,
       "agent.anchor_turn_id": data.anchorTurnId,
       "agent.anchor_sequence": data.anchorSequence,
       "agent.anchor_entry_id": data.anchorEntryId,
+      "job.id": job.id ?? "",
+      "job.attempt": job.attemptsMade ?? 0,
+      ...(job.timestamp ? { "agent.queue.enqueued_at_ms": job.timestamp } : {}),
+      ...(job.processedOn ? { "agent.queue.processed_on_ms": job.processedOn } : {}),
+      ...(job.delay ? { "agent.queue.delay_ms": job.delay } : {}),
+      ...(queueWaitMs != null ? { "agent.queue.wait_ms": queueWaitMs } : {}),
     },
   }, parentCtx, async () => {
     const parentSessionFile = getAgentSessionFilePath(data.spaceId, data.parentSessionId);
@@ -30,4 +39,10 @@ export async function processSessionForkJob(data: AgentSessionForkJobData) {
     if (!branchFile) throw new Error("Failed to create forked session file");
     return { sessionId: data.sessionId, branchFile };
   });
+}
+
+function getQueueWaitMs(job: { timestamp?: number; processedOn?: number }) {
+  if (!job.timestamp) return null;
+  const processedAt = job.processedOn && job.processedOn >= job.timestamp ? job.processedOn : Date.now();
+  return Math.max(0, processedAt - job.timestamp);
 }

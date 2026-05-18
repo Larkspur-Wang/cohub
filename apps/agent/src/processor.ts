@@ -496,9 +496,16 @@ function resolveActorUserId(ownerMeta: Record<string, unknown>) {
 
 type PostReleaseDrain = { spaceId: string; sessionId: string; reason: string } | null;
 
+function getQueueWaitMs(job: Pick<Job<unknown>, "timestamp" | "processedOn">) {
+  if (!job.timestamp) return null;
+  const processedAt = job.processedOn && job.processedOn >= job.timestamp ? job.processedOn : Date.now();
+  return Math.max(0, processedAt - job.timestamp);
+}
+
 export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
   const data = job.data;
   const requestId = getOrCreateRequestId(data.requestId);
+  const queueWaitMs = getQueueWaitMs(job);
   const parentCtx = extractTrace((data.trace ?? data) as Record<string, unknown>);
   return runInActiveSpan(agentTracer, "agent.turn_job.process", {
     attributes: {
@@ -507,9 +514,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       "cohub.session_id": data.sessionId,
       "job.id": job.id ?? "",
       "job.attempt": job.attemptsMade,
+      ...(job.timestamp ? { "agent.queue.enqueued_at_ms": job.timestamp } : {}),
+      ...(job.processedOn ? { "agent.queue.processed_on_ms": job.processedOn } : {}),
+      ...(job.delay ? { "agent.queue.delay_ms": job.delay } : {}),
+      ...(queueWaitMs != null ? { "agent.queue.wait_ms": queueWaitMs } : {}),
     },
   }, parentCtx, async (jobSpan) => {
     setRequestContextAttributes(jobSpan, getActiveTraceIdentifiers(requestId, trace.setSpan(context.active(), jobSpan)));
+    if (queueWaitMs != null) jobSpan.addEvent("agent.queue.dequeued", { "agent.queue.wait_ms": queueWaitMs });
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) {
       const result = await requeueTurnJob(data, "session_locked", job);

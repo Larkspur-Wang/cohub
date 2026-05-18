@@ -26,7 +26,7 @@ const connection = createBullmqRedisConnection(env.BULLMQ_REDIS_URL);
 
 const processor: Processor<AgentJobData> = async (job) => {
   if (job.name === AGENT_SESSION_FORK_JOB_NAME) {
-    return processSessionForkJob(job.data as AgentSessionForkJobData);
+    return processSessionForkJob(job as Job<AgentSessionForkJobData>);
   }
   if (job.name === AGENT_TURN_JOB_NAME) {
     return processAgentTurnJob(job as Job<AgentTurnJobData>);
