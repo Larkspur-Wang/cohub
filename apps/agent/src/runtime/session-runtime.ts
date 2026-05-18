@@ -107,6 +107,20 @@ function shellCommandResultToText(message: Record<string, unknown>) {
 }
 
 function toLlmImageContent(block: Record<string, unknown>): ImageContent | null {
+  const directData = typeof block.data === "string" && block.data.trim() ? block.data : null;
+  if (directData) {
+    const mimeType = typeof block.mimeType === "string" && block.mimeType.trim()
+      ? block.mimeType.trim()
+      : typeof block.media_type === "string" && block.media_type.trim()
+        ? block.media_type.trim()
+        : "application/octet-stream";
+    return {
+      type: "image",
+      data: directData.replace(/^data:[^;,]+;base64,/, ""),
+      mimeType,
+    };
+  }
+
   const source = block.source && typeof block.source === "object" && !Array.isArray(block.source)
     ? block.source as Record<string, unknown>
     : null;
