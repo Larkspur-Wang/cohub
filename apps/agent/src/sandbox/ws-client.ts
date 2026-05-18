@@ -16,11 +16,22 @@ import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
 import { logger } from "../logger.js";
 
+const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
+const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
+const COMMAND_EXECUTION_FAILED_MESSAGE = "Command execution failed.";
+const OPERATION_FAILED_MESSAGE = "Operation failed.";
+
+function getUserFacingFailureMessage(method: string) {
+  return method === "process.start" ? COMMAND_EXECUTION_FAILED_MESSAGE : OPERATION_FAILED_MESSAGE;
+}
+
 type PendingOperation = {
   requestId: string;
   method: string;
   opId?: string;
   accepted: boolean;
+  detached?: boolean;
+  detachTimer?: ReturnType<typeof setTimeout>;
   resolve: (value: never) => void;
   reject: (error: Error) => void;
   onEvent?: (event: RpcEventPayload) => void;
@@ -118,8 +129,7 @@ export class SandboxConnection {
       const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
       logger.debug(`[SandboxWS] rpc:completed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
-      this.registration.pendingByRequestId.delete(requestId);
-      this.registration.requestIdByOpId.delete(message.opId);
+      this.clearPending(requestId, pending, message.opId);
       pending.resolve(message.result as never);
       return;
     }
@@ -128,8 +138,7 @@ export class SandboxConnection {
       const requestId = this.registration.requestIdByOpId.get(message.opId) ?? message.requestId;
       const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
-      this.registration.pendingByRequestId.delete(requestId);
-      this.registration.requestIdByOpId.delete(message.opId);
+      this.clearPending(requestId, pending, message.opId);
       console.error(`[SandboxWS] rpc:failed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)} error=${message.error.message}`);
       pending.reject(new Error(message.error.message));
     }
@@ -137,16 +146,42 @@ export class SandboxConnection {
 
   dispose(error?: Error) {
     const pendingEntries = [...this.registration.pendingByRequestId.entries()];
-    const toReject = pendingEntries.filter(([, pending]) => !pending.accepted);
-    if (toReject.length > 0) {
-      console.warn(`[SandboxWS] dispose with ${toReject.length} unaccepted requests spaceId=${this.spaceId} identity=${this.identity}`);
-    }
-    for (const [requestId, pending] of toReject) {
-      pending.reject(error ?? new Error("sandbox connection closed"));
-      this.registration.pendingByRequestId.delete(requestId);
-      if (pending.opId) {
-        this.registration.requestIdByOpId.delete(pending.opId);
+    if (pendingEntries.length === 0) return;
+
+    const unaccepted = pendingEntries.filter(([, pending]) => !pending.accepted);
+    const accepted = pendingEntries.length - unaccepted.length;
+    logger.warn(`[SandboxWS] dispose pending requests spaceId=${this.spaceId} identity=${this.identity} accepted=${accepted} unaccepted=${unaccepted.length} error=${error?.message ?? "connection closed"}`);
+
+    for (const [requestId, pending] of pendingEntries) {
+      if (!pending.accepted) {
+        this.clearPending(requestId, pending);
+        pending.reject(new Error(getUserFacingFailureMessage(pending.method)));
+        continue;
       }
+
+      if (pending.detachTimer) continue;
+      pending.detached = true;
+      pending.detachTimer = setTimeout(() => {
+        const current = this.registration.pendingByRequestId.get(pending.requestId);
+        if (current !== pending) return;
+        logger.warn(`[SandboxWS] accepted rpc did not complete after disconnect grace spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${pending.requestId.slice(0, 8)} opId=${pending.opId?.slice(0, 8) ?? "none"}`);
+        this.clearPending(requestId, pending);
+        pending.reject(new Error(getUserFacingFailureMessage(pending.method)));
+      }, ACCEPTED_RPC_DISCONNECT_GRACE_MS);
+    }
+  }
+
+  private clearPending(requestId: string, pending: PendingOperation, opId = pending.opId) {
+    if (pending.detachTimer) {
+      clearTimeout(pending.detachTimer);
+      pending.detachTimer = undefined;
+    }
+    this.registration.pendingByRequestId.delete(pending.requestId);
+    if (requestId !== pending.requestId) {
+      this.registration.pendingByRequestId.delete(requestId);
+    }
+    if (opId) {
+      this.registration.requestIdByOpId.delete(opId);
     }
   }
 
@@ -257,7 +292,11 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
     console.warn(`[SandboxWS] disconnect rejecting ${registration.pendingByRequestId.size} accepted requests spaceId=${spaceId} reason=${reason}`);
   }
   for (const [requestId, pending] of registration.pendingByRequestId) {
-    pending.reject(new Error(reason));
+    if (pending.detachTimer) {
+      clearTimeout(pending.detachTimer);
+      pending.detachTimer = undefined;
+    }
+    pending.reject(new Error(getUserFacingFailureMessage(pending.method)));
     registration.pendingByRequestId.delete(requestId);
     if (pending.opId) {
       registration.requestIdByOpId.delete(pending.opId);
@@ -297,7 +336,7 @@ async function runLoop(registration: SandboxClientRegistration) {
     }
 
     if (!registration.started) return;
-    const delayMs = Math.min(1000 * 2 ** Math.min(attempt, 5), 30000);
+    const delayMs = RECONNECT_DELAYS_MS[Math.min(Math.max(attempt - 1, 0), RECONNECT_DELAYS_MS.length - 1)];
     await sleep(delayMs);
   }
 }

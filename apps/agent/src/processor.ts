@@ -363,7 +363,7 @@ async function runDirectShellCommandTurn(input: {
       executionFailed = true;
       cancelled = abortController.signal.aborted;
       errorMessage = error instanceof Error ? error.message : String(error);
-      latestOutput = latestOutput || errorMessage;
+      latestOutput = latestOutput ? `${latestOutput}\n\n${errorMessage}` : errorMessage;
       exitCode = null;
       if (!cancelled) {
         logger.error(`[Agent] Direct shell command failed sessionId=${input.sessionId}:`, error);
