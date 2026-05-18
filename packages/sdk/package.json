@@ -36,6 +36,10 @@
     "./websocket": {
       "types": "./dist/websocket.d.ts",
       "import": "./dist/websocket.js"
+    },
+    "./debugger": {
+      "types": "./dist/debugger.d.ts",
+      "import": "./dist/debugger.js"
     }
   },
   "types": "./dist/index.d.ts",

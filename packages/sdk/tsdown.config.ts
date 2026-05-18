@@ -4,6 +4,7 @@ const entry = {
   index: "src/index.ts",
   http: "src/http.ts",
   websocket: "src/websocket.ts",
+  debugger: "src/debugger.ts",
 };
 
 export default defineConfig({

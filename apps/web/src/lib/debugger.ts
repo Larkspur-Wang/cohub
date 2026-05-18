@@ -6,7 +6,7 @@ import {
 	exportCohubDebugLog,
 	startCohubDebugger,
 	stopCohubDebugger,
-} from "@cohub/debugger";
+} from "@neta-art/cohub/debugger";
 
 declare global {
 	interface Window {

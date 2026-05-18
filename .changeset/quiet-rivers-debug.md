@@ -1,5 +1,5 @@
 ---
-"@cohub/debugger": patch
+"@neta-art/cohub": patch
 ---
 
-Add browser-side debug collection for console, fetch/XHR, EventSource, WebSocket, and performance network entries, with JSON log and HAR export helpers.
+Add a tree-shakeable debugger subpath for browser-side console and network collection, with JSON log and HAR export helpers.

@@ -10,10 +10,6 @@ const protocolDir = fileURLToPath(
 const sdkDir = fileURLToPath(
 	new URL("../../packages/sdk/src", import.meta.url),
 );
-const debuggerDir = fileURLToPath(
-	new URL("../../packages/debugger/src", import.meta.url),
-);
-
 export default defineConfig({
 	resolve: {
 		alias: [
@@ -76,14 +72,14 @@ export default defineConfig({
 				find: /^@neta-art\/cohub\/websocket$/,
 				replacement: `${sdkDir}/websocket.ts`,
 			},
+			{
+				find: /^@neta-art\/cohub\/debugger$/,
+				replacement: `${sdkDir}/debugger.ts`,
+			},
 			// sdk bare import — must be last
 			{
 				find: /^@neta-art\/cohub$/,
 				replacement: `${sdkDir}/index.ts`,
-			},
-			{
-				find: /^@cohub\/debugger$/,
-				replacement: `${debuggerDir}/index.ts`,
 			},
 		],
 	},

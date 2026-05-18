@@ -101,7 +101,7 @@ export interface CohubDebugHar {
   log: {
     version: "1.2";
     creator: {
-      name: "@cohub/debugger";
+      name: "@neta-art/cohub/debugger";
       version: string;
     };
     browser?: {
@@ -1633,7 +1633,7 @@ function createHarPackage(state: DebuggerState): CohubDebugHar {
     log: {
       version: "1.2",
       creator: {
-        name: "@cohub/debugger",
+        name: "@neta-art/cohub/debugger",
         version: "1",
       },
       browser: logPackage.userAgent
