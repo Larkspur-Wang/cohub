@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.10.2
+
+### Patch Changes
+
+- bfe50bf: update eventstream logging
+
 ## 1.10.1
 
 ### Patch Changes
