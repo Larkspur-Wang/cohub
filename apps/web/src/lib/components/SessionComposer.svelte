@@ -90,7 +90,6 @@ let {
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let mentionMirrorEl = $state<HTMLDivElement | null>(null);
 let fileInputEl = $state<HTMLInputElement | null>(null);
-let folderInputEl = $state<HTMLInputElement | null>(null);
 let isDragOver = $state(false);
 let dragCounter = 0;
 let isPathDragOver = $state(false);
@@ -691,18 +690,6 @@ $effect(() => {
 							(event.currentTarget as HTMLInputElement).value = "";
 						}}
 					/>
-					<input
-						bind:this={folderInputEl}
-						type="file"
-						webkitdirectory=""
-						multiple
-						class="hidden"
-						onchange={(event) => {
-							const files = Array.from((event.currentTarget as HTMLInputElement).files ?? []);
-							onpickattachment?.(entriesFromFiles(files));
-							(event.currentTarget as HTMLInputElement).value = "";
-						}}
-					/>
 
 					<div class="composer-input-shell relative min-h-[44px]">
 						{#if shouldRenderComposerMentionMirror}
@@ -902,15 +889,6 @@ $effect(() => {
 								title="Add files"
 							>
 								<Plus class="h-[17px] w-[17px]" />
-							</button>
-							<button
-								type="button"
-								class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-								onclick={() => folderInputEl?.click()}
-								disabled={disabled || sending}
-								title="Add folder"
-							>
-								<Upload class="h-[16px] w-[16px]" />
 							</button>
 
 							{#if onModelSelect}
