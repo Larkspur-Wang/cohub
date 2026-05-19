@@ -129,24 +129,28 @@ function handleKeyDown(e: KeyboardEvent) {
 	if (e.key === "Escape") {
 		e.preventDefault();
 		e.stopPropagation();
+		e.stopImmediatePropagation?.();
 		onClose();
 		return;
 	}
 	if (e.key === "ArrowDown" || (e.ctrlKey && key === "n")) {
 		e.preventDefault();
 		e.stopPropagation();
+		e.stopImmediatePropagation();
 		moveSelection(1);
 		return;
 	}
 	if (e.key === "ArrowUp" || (e.ctrlKey && key === "p")) {
 		e.preventDefault();
 		e.stopPropagation();
+		e.stopImmediatePropagation();
 		moveSelection(-1);
 		return;
 	}
 	if (e.key === "Enter" && filteredModels[selectedIndex]) {
 		e.preventDefault();
 		e.stopPropagation();
+		e.stopImmediatePropagation();
 		const selected = filteredModels[selectedIndex];
 		onSelect({ provider: selected.provider, id: selected.id });
 		return;
