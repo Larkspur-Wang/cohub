@@ -3,6 +3,7 @@ import type { UserProfile } from "@neta-art/cohub";
 export type SpaceMention = {
 	type: "space";
 	spaceId: string;
+	sessionId?: string;
 	label: string;
 	uri: string;
 	href: string;
@@ -33,16 +34,28 @@ export type SpaceMentionTextToken =
 			type: "spaceMention";
 			label: string;
 			spaceId: string;
+			sessionId?: string;
 			raw: string;
 			uri: string;
 			href: string;
 	  };
 
+export type ParsedCohubSpaceLink = {
+	raw: string;
+	spaceId: string;
+	sessionId?: string;
+};
+
 const SPACE_URI_PREFIX = "cohub://spaces/";
-const SPACE_MENTION_PATTERN = /@\[([^\]\n]+)\]\(cohub:\/\/spaces\/([^)\s]+)\)/g;
+const SPACE_MENTION_PATTERN =
+	/@\[([^\]\n]+)\]\(cohub:\/\/spaces\/([^/\s)]+)(?:\/sessions\/([^/\s)]+))?\)/g;
 const VALID_SPACE_MENTION_PREFIX_PATTERN = /[\s([{<:,;!?，。！？、；：]/;
-const SPACE_URL_PATTERN =
-	/(?:https?:\/\/(?:dev\.)?cohub\.run|https?:\/\/localhost(?::\d+)?)\/spaces\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:[/?#][^\s)\]]*)?|(^|[\s([{<:,;!?，。！？、；：])\/spaces\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:[/?#][^\s)\]]*)?/g;
+const ID_PATTERN =
+	"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const COHUB_SPACE_LINK_PATTERN = new RegExp(
+	`(?:https?:\\/\\/(?:dev\\.)?cohub\\.run|https?:\\/\\/localhost(?::\\d+)?)\\/spaces\\/(${ID_PATTERN})(?:\\/sessions\\/(${ID_PATTERN}))?(?:[/?#][^\\s)\\]]*)?|(^|[\\s([{<:,;!?，。！？、；：])\\/spaces\\/(${ID_PATTERN})(?:\\/sessions\\/(${ID_PATTERN}))?(?:[/?#][^\\s)\\]]*)?`,
+	"g",
+);
 
 function isSpaceMentionBoundary(text: string, index: number) {
 	if (index <= 0) return true;
@@ -64,39 +77,52 @@ function escapeMentionLabel(label: string) {
 		.trim();
 }
 
-export function buildSpaceMentionUri(spaceId: string) {
-	return `${SPACE_URI_PREFIX}${encodeURIComponent(spaceId)}`;
+export function buildSpaceMentionUri(spaceId: string, sessionId?: string) {
+	const base = `${SPACE_URI_PREFIX}${encodeURIComponent(spaceId)}`;
+	return sessionId ? `${base}/sessions/${encodeURIComponent(sessionId)}` : base;
 }
 
-export function buildSpaceMentionHref(spaceId: string) {
-	return `/spaces/${encodeURIComponent(spaceId)}`;
+export function buildSpaceMentionHref(spaceId: string, sessionId?: string) {
+	const base = `/spaces/${encodeURIComponent(spaceId)}`;
+	return sessionId ? `${base}/sessions/${encodeURIComponent(sessionId)}` : base;
 }
 
 export function buildSpaceMentionMarkdown(input: {
 	spaceId: string;
 	label: string;
+	sessionId?: string;
 }) {
 	const label =
 		escapeMentionLabel(input.label) || `space:${input.spaceId.slice(0, 8)}`;
-	return `@[${label}](${buildSpaceMentionUri(input.spaceId)})`;
+	return `@[${label}](${buildSpaceMentionUri(input.spaceId, input.sessionId)})`;
 }
 
-export function parseSpaceMentionUri(uri: string): { spaceId: string } | null {
+export function parseSpaceMentionUri(
+	uri: string,
+): { spaceId: string; sessionId?: string } | null {
 	if (!uri.startsWith(SPACE_URI_PREFIX)) return null;
-	const spaceId = safeDecode(uri.slice(SPACE_URI_PREFIX.length)).trim();
+	const path = uri.slice(SPACE_URI_PREFIX.length).split("/");
+	const spaceId = safeDecode(path[0] ?? "").trim();
 	if (!spaceId) return null;
-	return { spaceId };
+	const sessionId =
+		path[1] === "sessions" ? safeDecode(path[2] ?? "").trim() : "";
+	return sessionId ? { spaceId, sessionId } : { spaceId };
 }
 
 export function extractSpaceMentionsFromText(text: string): SpaceMention[] {
 	const mentions: SpaceMention[] = [];
 	const seen = new Set<string>();
 	for (const token of tokenizeSpaceMentionText(text)) {
-		if (token.type !== "spaceMention" || seen.has(token.spaceId)) continue;
-		seen.add(token.spaceId);
+		if (token.type !== "spaceMention") continue;
+		const key = token.sessionId
+			? `${token.spaceId}/sessions/${token.sessionId}`
+			: token.spaceId;
+		if (seen.has(key)) continue;
+		seen.add(key);
 		mentions.push({
 			type: "space",
 			spaceId: token.spaceId,
+			...(token.sessionId ? { sessionId: token.sessionId } : {}),
 			label: token.label,
 			uri: token.uri,
 			href: token.href,
@@ -121,17 +147,21 @@ export function tokenizeSpaceMentionText(
 
 		const label = match[1]?.trim();
 		const spaceId = safeDecode(match[2] ?? "").trim();
+		const sessionId = safeDecode(match[3] ?? "").trim() || undefined;
 		if (!raw || !label || !spaceId) {
 			tokens.push({ type: "text", text: raw });
 		} else {
-			tokens.push({
+			const token: SpaceMentionTextToken = {
 				type: "spaceMention",
 				label,
 				spaceId,
 				raw,
-				uri: buildSpaceMentionUri(spaceId),
-				href: buildSpaceMentionHref(spaceId),
-			});
+				uri: buildSpaceMentionUri(spaceId, sessionId),
+				href: buildSpaceMentionHref(spaceId, sessionId),
+			};
+			if (sessionId && token.type === "spaceMention")
+				token.sessionId = sessionId;
+			tokens.push(token);
 		}
 		cursor = index + raw.length;
 	}
@@ -151,19 +181,35 @@ export function formatSpaceMentionTextForDisplay(text: string): string {
 		.join("");
 }
 
+export function getCohubSpaceLinkKey(link: {
+	spaceId: string;
+	sessionId?: string;
+}) {
+	return link.sessionId
+		? `${link.spaceId}/sessions/${link.sessionId}`
+		: link.spaceId;
+}
+
 export function parseCohubSpaceUrls(
 	value: string,
 	maxMatches = 20,
-): Array<{ raw: string; spaceId: string }> {
-	const matches: Array<{ raw: string; spaceId: string }> = [];
-	for (const match of value.matchAll(SPACE_URL_PATTERN)) {
+): ParsedCohubSpaceLink[] {
+	const matches: ParsedCohubSpaceLink[] = [];
+	for (const match of value.matchAll(COHUB_SPACE_LINK_PATTERN)) {
 		const raw = match[0] ?? "";
 		const absoluteSpaceId = match[1]?.trim();
-		const relativePrefix = match[2] ?? "";
-		const relativeSpaceId = match[3]?.trim();
+		const absoluteSessionId = match[2]?.trim();
+		const relativePrefix = match[3] ?? "";
+		const relativeSpaceId = match[4]?.trim();
+		const relativeSessionId = match[5]?.trim();
 		const spaceId = absoluteSpaceId ?? relativeSpaceId;
+		const sessionId = absoluteSessionId ?? relativeSessionId;
 		if (!raw || !spaceId) continue;
-		matches.push({ raw: raw.slice(relativePrefix.length), spaceId });
+		matches.push({
+			raw: raw.slice(relativePrefix.length),
+			spaceId,
+			sessionId: sessionId || undefined,
+		});
 		if (matches.length >= maxMatches) break;
 	}
 	return matches;
@@ -171,20 +217,33 @@ export function parseCohubSpaceUrls(
 
 export function replaceCohubSpaceUrls(
 	value: string,
-	resolveLabel: (spaceId: string) => string | null | undefined,
+	resolveLabel: (link: ParsedCohubSpaceLink) => string | null | undefined,
 ) {
 	return value.replace(
-		SPACE_URL_PATTERN,
+		COHUB_SPACE_LINK_PATTERN,
 		(
 			match,
 			absoluteSpaceId: string,
+			absoluteSessionId: string,
 			relativePrefix: string,
 			relativeSpaceId: string,
+			relativeSessionId: string,
 		) => {
 			const spaceId = absoluteSpaceId?.trim() || relativeSpaceId?.trim();
+			const sessionId = absoluteSessionId?.trim() || relativeSessionId?.trim();
 			if (!spaceId) return match;
-			const label = resolveLabel(spaceId) ?? `space:${spaceId.slice(0, 8)}`;
-			return `${relativePrefix ?? ""}${buildSpaceMentionMarkdown({ spaceId, label })}`;
+			const link: ParsedCohubSpaceLink = {
+				raw: match.slice((relativePrefix ?? "").length),
+				spaceId,
+				sessionId: sessionId || undefined,
+			};
+			const label = resolveLabel(link);
+			if (!label) return match;
+			return `${relativePrefix ?? ""}${buildSpaceMentionMarkdown({
+				spaceId,
+				sessionId: sessionId || undefined,
+				label,
+			})}`;
 		},
 	);
 }

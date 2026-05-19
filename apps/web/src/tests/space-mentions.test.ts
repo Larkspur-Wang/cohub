@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	buildSpaceMentionMarkdown,
 	buildSpaceMentionUri,
 	extractSpaceMentionsFromText,
 	formatSpaceMentionTextForDisplay,
@@ -10,6 +11,7 @@ import {
 } from "../lib/mentions/space";
 
 const spaceId = "123e4567-e89b-12d3-a456-426614174000";
+const sessionId = "223e4567-e89b-12d3-a456-426614174000";
 
 test("tokenizeSpaceMentionText renders space mentions as semantic tokens", () => {
 	const uri = buildSpaceMentionUri(spaceId);
@@ -24,6 +26,27 @@ test("tokenizeSpaceMentionText renders space mentions as semantic tokens", () =>
 			raw: `@[Core API](${uri})`,
 			uri,
 			href: `/spaces/${spaceId}`,
+		},
+		{ type: "text", text: " next." },
+	]);
+});
+
+test("tokenizeSpaceMentionText renders session mentions as semantic tokens", () => {
+	const uri = buildSpaceMentionUri(spaceId, sessionId);
+	const tokens = tokenizeSpaceMentionText(
+		`Review @[Core API/Login flow](${uri}) next.`,
+	);
+
+	assert.deepEqual(tokens, [
+		{ type: "text", text: "Review " },
+		{
+			type: "spaceMention",
+			label: "Core API/Login flow",
+			spaceId,
+			sessionId,
+			raw: `@[Core API/Login flow](${uri})`,
+			uri,
+			href: `/spaces/${spaceId}/sessions/${sessionId}`,
 		},
 		{ type: "text", text: " next." },
 	]);
@@ -45,6 +68,43 @@ test("formatSpaceMentionTextForDisplay renders mention markdown as friendly text
 	);
 });
 
+test("parseCohubSpaceUrls detects session links", () => {
+	assert.deepEqual(
+		parseCohubSpaceUrls(`/spaces/${spaceId}/sessions/${sessionId}`),
+		[{ raw: `/spaces/${spaceId}/sessions/${sessionId}`, spaceId, sessionId }],
+	);
+	assert.deepEqual(
+		parseCohubSpaceUrls(
+			`https://cohub.run/spaces/${spaceId}/sessions/${sessionId}?turn=2`,
+		),
+		[
+			{
+				raw: `https://cohub.run/spaces/${spaceId}/sessions/${sessionId}?turn=2`,
+				spaceId,
+				sessionId,
+			},
+		],
+	);
+});
+
+test("replaceCohubSpaceUrls converts session links only when a label is resolved", () => {
+	const text = `Open /spaces/${spaceId}/sessions/${sessionId}`;
+	assert.equal(
+		replaceCohubSpaceUrls(text, (link) =>
+			link.sessionId ? "Core API/Login flow" : null,
+		),
+		`Open ${buildSpaceMentionMarkdown({
+			spaceId,
+			sessionId,
+			label: "Core API/Login flow",
+		})}`,
+	);
+	assert.equal(
+		replaceCohubSpaceUrls(text, () => null),
+		text,
+	);
+});
+
 test("replaceCohubSpaceUrls keeps asset URLs with embedded space path intact", () => {
 	const text = `https://sessions.cohub.run/dev/fs-cache/spaces/${spaceId}/files/06295bac606fe091/image.png`;
 
@@ -55,13 +115,17 @@ test("replaceCohubSpaceUrls keeps asset URLs with embedded space path intact", (
 	);
 });
 
-test("extractSpaceMentionsFromText keeps one mention per space", () => {
+test("extractSpaceMentionsFromText keeps one mention per resource", () => {
 	const uri = buildSpaceMentionUri(spaceId);
+	const sessionUri = buildSpaceMentionUri(spaceId, sessionId);
 	const mentions = extractSpaceMentionsFromText(
-		`@[Core API](${uri}) and @[Core API](${uri})`,
+		`@[Core API](${uri}) and @[Core API](${uri}) and @[Core API/Login](${sessionUri})`,
 	);
 
-	assert.equal(mentions.length, 1);
+	assert.equal(mentions.length, 2);
 	assert.equal(mentions[0]?.label, "Core API");
 	assert.equal(mentions[0]?.spaceId, spaceId);
+	assert.equal(mentions[1]?.label, "Core API/Login");
+	assert.equal(mentions[1]?.spaceId, spaceId);
+	assert.equal(mentions[1]?.sessionId, sessionId);
 });

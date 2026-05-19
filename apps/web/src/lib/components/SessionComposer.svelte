@@ -28,8 +28,11 @@ import {
 	tokenizeSpaceMentionText,
 } from "$lib/mentions/space";
 import {
+	getCohubLinkMentionKey,
+	resolveCohubLinkMentionLabels,
+} from "$lib/mentions/space-link-resolve";
+import {
 	mergeSpaceMentionSuggestions,
-	resolveSpaceMentionLabels,
 	searchLocalSpaceMentions,
 	searchRemoteSpaceMentions,
 } from "$lib/mentions/space-search";
@@ -493,18 +496,17 @@ function handlePaste(event: ClipboardEvent) {
 		event.preventDefault();
 		const known = new Map<string, SpaceMentionSuggestion>();
 		for (const item of spaceMentionItems) known.set(item.spaceId, item);
-		const converted = replaceCohubSpaceUrls(
-			clipboardText,
-			(spaceId) => known.get(spaceId)?.name,
+		const converted = replaceCohubSpaceUrls(clipboardText, (link) =>
+			link.sessionId ? null : known.get(link.spaceId)?.name,
 		);
 		const inserted = insertSnippet(converted);
-		const unresolved = pastedSpaceLinks
-			.map((item) => item.spaceId)
-			.filter((spaceId) => !known.has(spaceId));
+		const unresolved = pastedSpaceLinks.filter(
+			(link) => link.sessionId || !known.has(link.spaceId),
+		);
 		if (unresolved.length > 0) {
 			pastedSpaceResolveController?.abort();
 			pastedSpaceResolveController = new AbortController();
-			void resolveSpaceMentionLabels(unresolved, {
+			void resolveCohubLinkMentionLabels(unresolved, {
 				signal: pastedSpaceResolveController.signal,
 			})
 				.then((labels) => {
@@ -512,7 +514,11 @@ function handlePaste(event: ClipboardEvent) {
 					const currentSegment = value.slice(inserted.start, inserted.end);
 					const resolvedSegment = replaceCohubSpaceUrls(
 						clipboardText,
-						(spaceId) => labels.get(spaceId) ?? known.get(spaceId)?.name,
+						(link) => {
+							const resolved = labels.get(getCohubLinkMentionKey(link));
+							if (resolved) return resolved;
+							return link.sessionId ? null : known.get(link.spaceId)?.name;
+						},
 					);
 					if (currentSegment !== converted) return;
 					value =
