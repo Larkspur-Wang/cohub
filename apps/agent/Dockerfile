@@ -19,6 +19,9 @@ COPY packages/db/tsconfig.build.json ./packages/db/tsconfig.build.json
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
 COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
+COPY packages/sandbox-controller/package.json ./packages/sandbox-controller/package.json
+COPY packages/sandbox-controller/tsconfig.json ./packages/sandbox-controller/tsconfig.json
+COPY packages/sandbox-controller/tsconfig.build.json ./packages/sandbox-controller/tsconfig.build.json
 COPY apps/agent/package.json ./apps/agent/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
@@ -29,6 +32,7 @@ COPY packages/protocol ./packages/protocol
 COPY packages/infra ./packages/infra
 COPY packages/db ./packages/db
 COPY packages/core ./packages/core
+COPY packages/sandbox-controller ./packages/sandbox-controller
 COPY apps/agent/src ./apps/agent/src
 COPY apps/agent/tsconfig.json apps/agent/tsconfig.build.json ./apps/agent/
 

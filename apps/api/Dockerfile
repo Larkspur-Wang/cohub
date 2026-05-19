@@ -14,6 +14,9 @@ COPY packages/identity/tsconfig.build.json ./packages/identity/tsconfig.build.js
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
 COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
+COPY packages/sandbox-controller/package.json ./packages/sandbox-controller/package.json
+COPY packages/sandbox-controller/tsconfig.json ./packages/sandbox-controller/tsconfig.json
+COPY packages/sandbox-controller/tsconfig.build.json ./packages/sandbox-controller/tsconfig.build.json
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
@@ -31,6 +34,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 COPY packages/identity ./packages/identity
 COPY packages/core ./packages/core
+COPY packages/sandbox-controller ./packages/sandbox-controller
 COPY packages/protocol ./packages/protocol
 COPY packages/infra ./packages/infra
 COPY packages/db ./packages/db
