@@ -65,12 +65,15 @@ let envValue = $state("");
 let selectedChannelId = $state("");
 let modSpaceId = $state("");
 let modName = $state("");
+let modMountSlug = $state("");
 let modError = $state("");
 let modSaving = $state(false);
 let modUpdatingId = $state<string | null>(null);
 let modRestartMessage = $state("");
 let modRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let revealedEnvNames = $state<Set<string>>(new Set());
+let copiedMemberUserId = $state<string | null>(null);
+let copiedMemberTimer: ReturnType<typeof setTimeout> | null = null;
 let addingMemberUuid = $state("");
 let addingMemberRole = $state<SpaceRole>("guest");
 let savingMember = $state(false);
@@ -97,6 +100,7 @@ onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 	if (modRestartTimer) clearTimeout(modRestartTimer);
+	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
 });
 
 function getPictureUrl(record: SpaceRecord | null): string {
@@ -114,13 +118,6 @@ function getSandboxMetaValue(key: string): string {
 	if (!meta || typeof meta !== "object") return "";
 	const value = meta[key];
 	return typeof value === "string" ? value : "";
-}
-
-function formatTime(value?: string | null): string {
-	if (!value) return "—";
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "—";
-	return date.toLocaleString();
 }
 
 async function loadSandbox() {
@@ -328,6 +325,37 @@ function getMemberRoleIcon(role: SpaceRole) {
 	return null;
 }
 
+function getMemberUuid(member: SpaceMember): string {
+	return member.profile?.userUuid ?? member.userId;
+}
+
+async function copyMemberUuid(member: SpaceMember) {
+	const value = getMemberUuid(member);
+	try {
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(value);
+		} else {
+			const textarea = document.createElement("textarea");
+			textarea.value = value;
+			textarea.setAttribute("readonly", "true");
+			textarea.style.position = "fixed";
+			textarea.style.opacity = "0";
+			document.body.appendChild(textarea);
+			textarea.select();
+			const copied = document.execCommand("copy");
+			document.body.removeChild(textarea);
+			if (!copied) return;
+		}
+		copiedMemberUserId = member.userId;
+		if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
+		copiedMemberTimer = setTimeout(() => {
+			copiedMemberUserId = null;
+		}, 2000);
+	} catch {
+		// ignore copy failure silently
+	}
+}
+
 async function updateMemberRole(userId: string, role: SpaceRole) {
 	updatingMemberUserId = userId;
 	addingMemberError = "";
@@ -467,12 +495,14 @@ async function addMod() {
 		const result = await sdk.space(spaceId).mods.create({
 			modSpaceId: target,
 			name: modName.trim() || null,
+			mountSlug: modMountSlug.trim() || null,
 		});
 		mods = result.item
 			? [...mods, result.item].sort((a, b) => a.sortOrder - b.sortOrder)
 			: (await sdk.space(spaceId).mods.list()).items;
 		modSpaceId = "";
 		modName = "";
+		modMountSlug = "";
 		noteModRestart();
 		await loadSandbox();
 	} catch (err) {
@@ -490,6 +520,24 @@ async function toggleMod(mod: SpaceModListItem) {
 		const result = await sdk
 			.space(spaceId)
 			.mods.update(mod.id, { enabled: !mod.enabled });
+		mods = mods.map((item) => (item.id === mod.id ? result.item : item));
+		noteModRestart();
+		await loadSandbox();
+	} catch (err) {
+		modError = err instanceof Error ? err.message : "Failed to update mod";
+	} finally {
+		modUpdatingId = null;
+	}
+}
+
+async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
+	if (!confirmModRestart()) return;
+	modUpdatingId = mod.id;
+	modError = "";
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.mods.update(mod.id, { mountSlug: mountSlug || null });
 		mods = mods.map((item) => (item.id === mod.id ? result.item : item));
 		noteModRestart();
 		await loadSandbox();
@@ -584,10 +632,15 @@ $effect(() => {
 										{getInitials(getMemberDisplayName(member))}
 									{/if}
 								</div>
-								<div class="min-w-0 flex-1">
-									<div class="truncate text-[12px] font-medium text-text-secondary">{getMemberDisplayName(member)}</div>
-									<div class="truncate text-[10px] text-text-placeholder" title={member.userId}>{member.profile?.userUuid === member.userId ? 'Profile' : 'Profile unavailable'}</div>
-								</div>
+						<div class="min-w-0 flex-1">
+							<div class="truncate text-[12px] font-medium text-text-secondary">{getMemberDisplayName(member)}</div>
+							<button type="button" onclick={() => { void copyMemberUuid(member); }} title="Click to copy user UUID" class="mt-0.5 inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-left font-mono text-[9px] text-text-placeholder transition-colors hover:bg-bg-hover/60 hover:text-text-secondary">
+								<span class="min-w-0 truncate">{getMemberUuid(member)}</span>
+								{#if copiedMemberUserId === member.userId}
+									<Check class="w-3 h-3 shrink-0 text-success-soft" />
+								{/if}
+							</button>
+						</div>
 								<select value={member.role} disabled={updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onchange={(event) => { const role = (event.currentTarget as HTMLSelectElement).value as SpaceRole; void updateMemberRole(member.userId, role); }} class="rounded bg-transparent px-1 py-0.5 text-[10px] uppercase tracking-wider text-text-placeholder hover:bg-bg-hover focus:bg-bg-input focus:outline-none disabled:opacity-50"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
 								<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={removingMemberUserId === member.userId} title="Remove member" class="rounded-sm p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50">{#if removingMemberUserId === member.userId}<Loader2 class="w-3 h-3 animate-spin" />{:else}<X class="w-3 h-3" />{/if}</button>
 							</div>
@@ -661,6 +714,7 @@ $effect(() => {
 					<div class="flex flex-col gap-2 sm:flex-row">
 						<input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-w-0 flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" />
 						<input bind:value={modName} placeholder="Display name (optional)" class="min-w-0 flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px]" />
+						<input bind:value={modMountSlug} placeholder="Mount slug (optional)" class="min-w-0 flex-1 px-2 py-1.5 rounded bg-bg-input border border-border-subtle text-[12px] font-mono" />
 						<button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-brand text-brand-contrast-fg text-[12px] disabled:opacity-50">{#if modSaving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if} Add</button>
 					</div>
 					{#if modError}<div class="rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-all">{modError}</div>{/if}
@@ -671,6 +725,7 @@ $effect(() => {
 								<div class="min-w-0 flex-1">
 									<div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div>
 									<div class="truncate font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div>
+								<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-1 w-full rounded border border-border-subtle bg-bg-input px-2 py-1 text-[11px] font-mono text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 								</div>
 								<span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span>
 								<button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button>
