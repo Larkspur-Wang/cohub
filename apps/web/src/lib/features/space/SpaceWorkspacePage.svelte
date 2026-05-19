@@ -13,6 +13,7 @@ import {
 	type CronJobRecord,
 	type GenerationStreamEvent,
 	HttpError,
+	type Permission,
 	type PromptTemplateCatalogEntry,
 	type SessionRecord,
 	type SpaceAccessPolicy,
@@ -245,6 +246,10 @@ const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
 );
 let space = $state<SpaceRecord | null>(null);
+function hasAccessPermission(permission: Permission): boolean {
+	return space?.access?.permissions.includes(permission) === true;
+}
+const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
 // True when the backend returned only minimal info (session-level access only)
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 let spaceSessions = $state<SessionRecord[]>([]);
@@ -957,13 +962,14 @@ async function loadTaskDetail(taskId: string) {
 	}
 }
 function openShareModal(sessionId: string) {
+	if (!canManageSessionAccess) return;
 	shareModalSessionId = sessionId;
 	showShareModal = true;
 	shareCopied = false;
 	shareModalError = "";
 }
 async function shareAndCopyLink() {
-	if (!shareModalSessionId) return;
+	if (!shareModalSessionId || !canManageSessionAccess) return;
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
@@ -989,7 +995,7 @@ async function shareAndCopyLink() {
 	}
 }
 async function makeSessionPrivate() {
-	if (!shareModalSessionId) return;
+	if (!shareModalSessionId || !canManageSessionAccess) return;
 	shareModalError = "";
 	shareModalSaving = true;
 	try {
@@ -4701,6 +4707,9 @@ $effect(() => {
 	openFileDraft = "";
 	inlineFile = null;
 	resourceActionMenuOpen = false;
+	showShareModal = false;
+	shareModalSessionId = null;
+	sessionAccessById = {};
 	checkpointDetail = null;
 	cronjobDetail = null;
 	taskRunDetail = null;
@@ -5300,7 +5309,7 @@ $effect(() => {
   {/snippet}
   {#snippet right()}
     <!-- Session Share -->
-    {#if activeSessionId}
+    {#if activeSessionId && canManageSessionAccess}
       {@const isPublic = hasSessionPermission(activeSessionId)}
       <button
         type="button"

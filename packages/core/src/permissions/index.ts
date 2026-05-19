@@ -4,29 +4,32 @@ import { accessPolicies, spaceMembers, spaceSessions } from "@cohub/db";
 import type { AccessPolicyResourceType, SpaceRole } from "@cohub/db";
 
 export type Audience = "member_user" | "signed_in_user" | "anonymous_user";
-export type Permission =
-  | "space.view"
-  | "space.edit"
-  | "space.pin"
-  | "session.view"
-  | "session.edit"
-  | "session.prompt.readonly"
-  | "session.prompt.fullaccess"
-  | "file.view"
-  | "file.edit"
-  | "checkpoint.view"
-  | "checkpoint.edit"
-  | "member.view"
-  | "member.manage"
-  | "channel.view"
-  | "channel.manage"
-  | "cronjob.view"
-  | "cronjob.manage"
-  | "taskrun.view"
-  | "sandbox.view"
-  | "sandbox.manage"
-  | "mod.view"
-  | "mod.manage";
+export const ALL_PERMISSIONS = [
+  "space.view",
+  "space.edit",
+  "space.pin",
+  "session.view",
+  "session.edit",
+  "session.prompt.readonly",
+  "session.prompt.fullaccess",
+  "file.view",
+  "file.edit",
+  "checkpoint.view",
+  "checkpoint.edit",
+  "member.view",
+  "member.manage",
+  "channel.view",
+  "channel.manage",
+  "cronjob.view",
+  "cronjob.manage",
+  "taskrun.view",
+  "sandbox.view",
+  "sandbox.manage",
+  "mod.view",
+  "mod.manage",
+] as const;
+
+export type Permission = typeof ALL_PERMISSIONS[number];
 
 export type PermissionSubject = {
   uuid?: string | null;
@@ -35,6 +38,11 @@ export type PermissionSubject = {
 export type AccessPolicy = {
   signedInUserRole: SpaceRole | null;
   anonymousUserRole: SpaceRole | null;
+};
+
+export type PermissionAccess = {
+  role: SpaceRole | null;
+  permissions: Permission[];
 };
 
 export type PermissionStore = {
@@ -102,6 +110,39 @@ export const resolveAudience = (user: PermissionSubject | null): Audience => {
   if (user?.uuid) return "signed_in_user";
   return "anonymous_user";
 };
+
+export const permissionsForRole = (role: SpaceRole | null): Permission[] => {
+  if (!role) return [];
+  return ALL_PERMISSIONS.filter((permission) => roleHasPermission(role, permission));
+};
+
+export async function resolvePermissionAccess(input: {
+  store: PermissionStore;
+  user: PermissionSubject | null;
+  context: { spaceId: string; sessionId?: string };
+}): Promise<PermissionAccess> {
+  if (input.user?.uuid) {
+    const memberRole = await input.store.getSpaceMemberRole(input.context.spaceId, input.user.uuid);
+    if (memberRole) {
+      return {
+        role: memberRole,
+        permissions: permissionsForRole(memberRole),
+      };
+    }
+  }
+
+  const fallbackRole = await resolveNonMemberRole({
+    store: input.store,
+    user: input.user,
+    spaceId: input.context.spaceId,
+    sessionId: input.context.sessionId,
+  });
+  if (!fallbackRole) return { role: null, permissions: [] };
+  return {
+    role: fallbackRole,
+    permissions: permissionsForRole(fallbackRole),
+  };
+}
 
 export const roleHasPermission = (role: SpaceRole, permission: Permission) => {
   const permissions = ROLE_PERMISSIONS[role];

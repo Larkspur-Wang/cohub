@@ -28,7 +28,7 @@ import {
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
-import { hasPermission, getSpaceMemberRole, filterSessionsByPermission } from "../../permissions.js";
+import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
@@ -489,7 +489,10 @@ router.get("/:id", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
 
   if (await hasPermission(user, "space.view", { spaceId })) {
-    const sandbox = await getSpaceSandboxBySpaceId(space.id);
+    const [sandbox, access] = await Promise.all([
+      getSpaceSandboxBySpaceId(space.id),
+      resolvePermissionAccess(user, { spaceId }),
+    ]);
     const sanitizedMeta = sanitizeSpaceMeta(space.meta);
     const profileMap = await getProfilesByUuids([space.userUuid]);
     const ownerProfile = profileMap.get(space.userUuid) ?? fallbackPublicUserProfile(space.userUuid);
@@ -511,12 +514,14 @@ router.get("/:id", async (c) => {
       meta: sanitizedMeta,
       sandboxStatus: sandbox?.status ?? null,
       sandbox: attachSandboxPublicEndpoints(sandbox),
+      access,
       ownerProfile,
       gitInfo: gitInfo ?? null,
     });
   }
 
-  // Fallback: only session-level access — return minimal info
+  // Fallback: only session-level access — return minimal space info.
+  // Access is omitted here because effective permissions depend on a concrete session policy.
   return c.json({
     id: space.id,
     name: space.name,

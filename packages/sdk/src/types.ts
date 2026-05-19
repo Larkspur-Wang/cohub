@@ -208,6 +208,7 @@ export type SpaceRecord = {
     status: string;
   }[];
   accessLevel?: "minimal";
+  access?: SpaceAccess | null;
   ownerProfile?: Pick<UserProfile, "userUuid" | "displayName" | "avatarUrl"> | null;
   gitInfo?: SpaceGitInfo | null;
 };
@@ -568,6 +569,35 @@ export type ExploreSpaceItem = {
     forkCount: number;
   };
   sandboxStatus: string | null;
+};
+
+export type Permission =
+  | "space.view"
+  | "space.edit"
+  | "space.pin"
+  | "session.view"
+  | "session.edit"
+  | "session.prompt.readonly"
+  | "session.prompt.fullaccess"
+  | "file.view"
+  | "file.edit"
+  | "checkpoint.view"
+  | "checkpoint.edit"
+  | "member.view"
+  | "member.manage"
+  | "channel.view"
+  | "channel.manage"
+  | "cronjob.view"
+  | "cronjob.manage"
+  | "taskrun.view"
+  | "sandbox.view"
+  | "sandbox.manage"
+  | "mod.view"
+  | "mod.manage";
+
+export type SpaceAccess = {
+  role: SpaceRole | null;
+  permissions: Permission[];
 };
 
 export type SpaceAccessPolicy = {

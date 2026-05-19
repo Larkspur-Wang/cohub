@@ -1,8 +1,8 @@
-import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission } from "@cohub/core/permissions";
+import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission, resolvePermissionAccess as resolveSharedPermissionAccess } from "@cohub/core/permissions";
 import { db } from "./db/index.js";
 import type { AuthUserProfile } from "./auth.js";
 import type { SpaceRole } from "@cohub/db";
-import type { Permission, AccessPolicy } from "@cohub/core/permissions";
+import type { Permission, AccessPolicy, PermissionAccess } from "@cohub/core/permissions";
 
 const permissionStore = createBatchDrizzlePermissionStore(db);
 
@@ -27,6 +27,17 @@ export async function hasPermission(
 
 export async function getRoleForSpaceUser(spaceId: string, userId: string): Promise<SpaceRole | null> {
   return getSpaceMemberRole(spaceId, userId);
+}
+
+export async function resolvePermissionAccess(
+  user: AuthUserProfile | null,
+  context: { spaceId: string; sessionId?: string },
+): Promise<PermissionAccess> {
+  return resolveSharedPermissionAccess({
+    store: permissionStore,
+    user,
+    context,
+  });
 }
 
 export async function getSessionSpaceId(sessionId: string): Promise<string | null> {
