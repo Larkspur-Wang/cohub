@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.12.0
+
+### Minor Changes
+
+- Expose space access permissions in the SDK and improve CLI/API error messages.
+
 ## 1.11.0
 
 ### Minor Changes

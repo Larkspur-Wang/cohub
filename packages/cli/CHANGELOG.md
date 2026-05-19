@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.5.1
+
+### Patch Changes
+
+- Expose space access permissions in the SDK and improve CLI/API error messages.
+- Updated dependencies
+  - @neta-art/cohub@1.12.0
+
 ## 1.5.0
 
 ### Minor Changes
