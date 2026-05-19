@@ -85,6 +85,8 @@ let inviteTtlDays = $state(7);
 let inviteMaxUses = $state(0);
 let creatingInvite = $state(false);
 let inviteCreateError = $state("");
+let inviteCreateNotice = $state("");
+let inviteNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let copiedInviteToken = $state<string | null>(null);
 let copiedInviteTimer: ReturnType<typeof setTimeout> | null = null;
 let recoveringSandbox = $state(false);
@@ -92,6 +94,7 @@ let sandboxRecoveryMessage = $state("");
 let sandboxRecoveryError = $state("");
 
 onDestroy(() => {
+	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 });
@@ -376,12 +379,21 @@ async function createInvite() {
 	}
 	creatingInvite = true;
 	inviteCreateError = "";
+	inviteCreateNotice = "";
 	try {
-		await sdk.space(spaceId).invitations.create({
+		const created = await sdk.space(spaceId).invitations.create({
 			role: inviteRole,
 			ttlSeconds: inviteTtlDays * 24 * 60 * 60,
 			maxUses: inviteMaxUses || undefined,
 		});
+		const copied = await copyInviteLink(created.token);
+		inviteCreateNotice = copied
+			? "Invite link created and copied to clipboard."
+			: "Invite link created. Copying failed, please copy it manually.";
+		if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
+		inviteNoticeTimer = setTimeout(() => {
+			inviteCreateNotice = "";
+		}, 4000);
 		showInvitePanel = false;
 		await loadInvitations();
 	} catch (err) {
@@ -393,16 +405,30 @@ async function createInvite() {
 }
 
 async function copyInviteLink(token: string) {
+	const url = `${window.location.origin}/invite/${token}`;
 	try {
-		const url = `${window.location.origin}/invite/${token}`;
-		await navigator.clipboard.writeText(url);
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(url);
+		} else {
+			const textarea = document.createElement("textarea");
+			textarea.value = url;
+			textarea.setAttribute("readonly", "true");
+			textarea.style.position = "fixed";
+			textarea.style.opacity = "0";
+			document.body.appendChild(textarea);
+			textarea.select();
+			const copied = document.execCommand("copy");
+			document.body.removeChild(textarea);
+			if (!copied) return false;
+		}
 		copiedInviteToken = token;
 		if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 		copiedInviteTimer = setTimeout(() => {
 			copiedInviteToken = null;
 		}, 2000);
+		return true;
 	} catch {
-		invitationsError = "Failed to copy link. Please copy manually.";
+		return false;
 	}
 }
 
@@ -576,6 +602,7 @@ $effect(() => {
 							<div class="flex items-center gap-2 text-[11px] text-text-placeholder"><Link class="w-3.5 h-3.5" /> Invite links</div>
 							<div class="flex items-center gap-2"><button type="button" onclick={() => { void loadInvitations(); }} disabled={loadingInvitations} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">Refresh</button><span class="text-[11px] text-text-tertiary">{invitations.filter((item) => item.status === 'active').length} active</span></div>
 						</div>
+						{#if inviteCreateNotice}<div class="rounded-[5px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft break-all">{inviteCreateNotice}</div>{/if}
 						{#if invitationsError}<div class="rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-all">{invitationsError}</div>{/if}
 						{#if loadingInvitations}
 							<div class="flex items-center gap-2 py-2 text-[12px] text-text-tertiary"><Loader2 class="w-3.5 h-3.5 animate-spin" /> Loading invitations…</div>
