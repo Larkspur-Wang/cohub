@@ -123,7 +123,7 @@ function moveSelection(delta: number) {
 	scrollSelectedIntoView();
 }
 
-function handleKeyDown(e: KeyboardEvent) {
+function handleNavigationKeydown(e: KeyboardEvent) {
 	if (!open || e.defaultPrevented || e.isComposing) return;
 	const key = e.key.toLowerCase();
 	if (e.key === "Escape") {
@@ -153,15 +153,17 @@ function handleKeyDown(e: KeyboardEvent) {
 		e.stopImmediatePropagation();
 		const selected = filteredModels[selectedIndex];
 		onSelect({ provider: selected.provider, id: selected.id });
-		return;
 	}
 }
 
-onMount(() => {
-	window.addEventListener("keydown", handleKeyDown, { capture: true });
-	return () => {
-		window.removeEventListener("keydown", handleKeyDown, { capture: true });
-	};
+function handleKeyDown(e: KeyboardEvent) {
+	handleNavigationKeydown(e);
+}
+
+$effect(() => {
+	if (selectedIndex >= filteredModels.length) {
+		selectedIndex = Math.max(filteredModels.length - 1, 0);
+	}
 });
 
 function scrollSelectedIntoView() {
