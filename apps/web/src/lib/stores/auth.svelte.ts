@@ -100,6 +100,7 @@ class AuthStore {
 	async updateProfile(input: {
 		displayName?: string;
 		avatarUrl?: string | null;
+		username?: string | null;
 	}) {
 		const { profile } = await sdk.user.updateProfile(input);
 		this.profile = profile;

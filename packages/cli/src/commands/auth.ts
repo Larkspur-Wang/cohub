@@ -110,6 +110,7 @@ async function showSignedIn(asJson?: boolean): Promise<void> {
     console.log(`  Token: ${payload.refreshable ? "refreshable" : "ephemeral"}\n`);
     table([u], [
       { key: "id", label: "ID" },
+      { key: "username", label: "Username" },
       { key: "name", label: "Name" },
       { key: "email", label: "Email" },
       { key: "created_at", label: "Created" },

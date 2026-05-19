@@ -84,10 +84,11 @@ export function getLogtoUser(logtoUserId: string) {
   return logtoManagementRequest<LogtoUser>(`/users/${encodeURIComponent(logtoUserId)}`);
 }
 
-export async function updateLogtoUserProfile(logtoUserId: string, input: { displayName?: string; avatarUrl?: string | null }) {
+export async function updateLogtoUserProfile(logtoUserId: string, input: { displayName?: string; avatarUrl?: string | null; username?: string | null }) {
   const updates: Record<string, unknown> = {};
   if (input.displayName !== undefined) updates.name = input.displayName;
   if (input.avatarUrl !== undefined) updates.avatar = input.avatarUrl;
+  if (input.username !== undefined) updates.username = input.username;
 
   await logtoManagementRequest<unknown>(`/users/${encodeURIComponent(logtoUserId)}`, {
     method: "PATCH",

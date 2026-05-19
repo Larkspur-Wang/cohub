@@ -13,7 +13,7 @@ export class UserApi {
     return this.transport.request<MeResponse>("/api/me", { fetch: customFetch });
   }
 
-  updateProfile(input: { displayName?: string; avatarUrl?: string | null }) {
+  updateProfile(input: { displayName?: string; avatarUrl?: string | null; username?: string | null }) {
     return this.transport.request<{ profile: UserProfile }>("/api/me/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

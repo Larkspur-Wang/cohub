@@ -30,9 +30,10 @@ function truncate(value: string | null | undefined, maxLength: number): string {
 }
 
 function contextFor(item: GlobalSearchResult): string {
-  if (item.type === "space") return item.spaceName ?? "";
-  if (item.type === "session") return item.spaceName ?? "";
-  return item.sessionTitle || item.spaceName || "";
+  const owner = item.ownerProfile;
+  if (owner?.username) return `@${owner.username}`;
+  if (owner?.displayName) return owner.displayName;
+  return item.href;
 }
 
 function parseTypes(value: string | undefined): GlobalSearchType[] | undefined {
@@ -56,7 +57,7 @@ function parseSearchInput(opts: SearchCliOptions) {
 function rowsFor(items: GlobalSearchResult[]): Row[] {
   return items.map((item) => ({
     type: item.type,
-    title: truncate(item.title || item.excerpt, MAX_TITLE_LENGTH),
+    title: truncate(item.title, MAX_TITLE_LENGTH),
     context: truncate(contextFor(item), MAX_CONTEXT_LENGTH),
     match: item.matchedField,
     updated: item.updatedAt ? item.updatedAt.slice(0, 10) : "",

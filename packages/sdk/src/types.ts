@@ -33,6 +33,7 @@ export type ApiError = {
 export type UserProfile = {
   userUuid: string;
   logtoUserId?: string;
+  username: string | null;
   displayName: string;
   avatarUrl: string | null;
   syncedAt?: string;
@@ -208,9 +209,7 @@ export type SpaceRecord = {
     status: string;
   }[];
   accessLevel?: "minimal";
-  access?: SpaceAccess | null;
-  ownerProfile?: Pick<UserProfile, "userUuid" | "displayName" | "avatarUrl"> | null;
-  gitInfo?: SpaceGitInfo | null;
+  ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
 };
 
 export type SpaceBootstrapSource =
@@ -363,10 +362,7 @@ export type GlobalSearchResult = {
   turnId: string | null;
   sequence: number | null;
   title: string;
-  excerpt: string | null;
-  spaceName: string | null;
-  ownerProfile?: Pick<UserProfile, "userUuid" | "displayName" | "avatarUrl"> | null;
-  sessionTitle: string | null;
+  ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
   matchedField: "userText" | "title" | "name" | "description";
   href: string;
   score: number;

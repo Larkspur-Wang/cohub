@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { config } from "../config.js";
 import { requireValidId, useAuth } from "../lib/middleware.js";
-import { ensureCurrentUserProfile, updateCurrentUserProfile } from "../user-profiles.js";
+import { ensureCurrentUserProfile, updateCurrentUserProfile, UsernameConflictError, validateUsername } from "../user-profiles.js";
 
 const USER_RULES_FILE_NAME = "AGENTS.md";
 const USER_RULES_SANDBOX_PATH = "/configs/user/AGENTS.md";
@@ -61,8 +61,8 @@ router.get("/", async (c) => {
 
 router.patch("/profile", async (c) => {
   const user = useAuth(c);
-  const body = await c.req.json<{ displayName?: unknown; avatarUrl?: unknown }>().catch(() => ({} as { displayName?: unknown; avatarUrl?: unknown }));
-  const input: { displayName?: string; avatarUrl?: string | null } = {};
+  const body = await c.req.json<{ displayName?: unknown; avatarUrl?: unknown; username?: unknown }>().catch(() => ({} as { displayName?: unknown; avatarUrl?: unknown; username?: unknown }));
+  const input: { displayName?: string; avatarUrl?: string | null; username?: string | null } = {};
 
   if (body.displayName !== undefined) {
     if (typeof body.displayName !== "string") return c.json({ message: "displayName must be a string" }, 400);
@@ -90,12 +90,30 @@ router.patch("/profile", async (c) => {
     }
   }
 
-  if (input.displayName === undefined && input.avatarUrl === undefined) {
-    return c.json({ message: "displayName or avatarUrl is required" }, 400);
+  if (body.username !== undefined) {
+    if (body.username === null || body.username === "") {
+      input.username = null;
+    } else if (typeof body.username === "string") {
+      const { username, error } = validateUsername(body.username);
+      if (error) return c.json({ message: error }, 400);
+      input.username = username;
+    } else {
+      return c.json({ message: "username must be a string or null" }, 400);
+    }
+  }
+  if (input.displayName === undefined && input.avatarUrl === undefined && input.username === undefined) {
+    return c.json({ message: "displayName, avatarUrl, or username is required" }, 400);
   }
 
-  const profile = await updateCurrentUserProfile(user, input);
-  return c.json({ profile });
+  try {
+    const profile = await updateCurrentUserProfile(user, input);
+    return c.json({ profile });
+  } catch (error) {
+    if (error instanceof UsernameConflictError) {
+      return c.json({ message: error.message }, 409);
+    }
+    throw error;
+  }
 });
 
 router.get("/rules", async (c) => {

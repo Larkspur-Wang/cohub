@@ -32,6 +32,7 @@ export const userProfiles = v2.table(
   {
     userUuid: varchar("user_uuid", { length: 255 }).primaryKey(),
     logtoUserId: varchar("logto_user_id", { length: 255 }).notNull(),
+    username: varchar("username", { length: 39 }),
     displayName: varchar("display_name", { length: 120 }).notNull(),
     avatarUrl: text("avatar_url"),
     source: jsonb("source").$type<Record<string, unknown>>().notNull(),
@@ -44,8 +45,10 @@ export const userProfiles = v2.table(
       table.logtoUserId,
     ),
     updatedAtIdx: index("v2_idx_user_profiles_updated_at").on(table.updatedAt),
+    usernameUniqueIdx: uniqueIndex("v2_uq_user_profiles_username").on(table.username),
   }),
 );
+
 
 export const userGitAccounts = v2.table(
   "user_git_accounts",
