@@ -24,9 +24,13 @@ jobs:
   build-and-push:
     if: ${{ github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '@') && !github.event.release.prerelease && !github.event.release.draft) }}
     runs-on: ubuntu-latest
+    outputs:
+      sandbox_release_changed: ${{ steps.release-scope.outputs.changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate service release tag
         if: ${{ github.event_name == 'release' }}
@@ -38,31 +42,70 @@ jobs:
             exit 1
           fi
 
+      - name: Detect sandbox release changes
+        id: release-scope
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" != "release" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TAG="${{ github.event.release.tag_name }}"
+          git fetch --tags --force --prune
+
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "$TAG" | head -n 1 || true)
+
+          if [[ -z "$PREV_TAG" ]]; then
+            echo "No previous release tag found; proceeding with sandbox release."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "$PREV_TAG" "$TAG" -- apps/sandbox || true)
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "No sandbox-related changes detected between $PREV_TAG and $TAG."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Sandbox-related changes detected between $PREV_TAG and $TAG:"
+          echo "$CHANGED_FILES"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
       - name: Setup Go
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache-dependency-path: apps/sandbox/go.sum
 
       - name: Go fmt check
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         run: |
           cd apps/sandbox
           test -z "$(gofmt -l .)"
 
       - name: Go vet
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         run: |
           cd apps/sandbox
           go vet ./...
 
       - name: Go test
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         run: |
           cd apps/sandbox
           go test ./...
 
       - name: Set up Docker Buildx
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Registry
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -70,6 +113,7 @@ jobs:
           password: ${{ secrets.GITEA_PAT }}
 
       - name: Extract metadata
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -81,6 +125,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: ./apps/sandbox
@@ -130,7 +175,7 @@ jobs:
 
   deploy-prod:
     needs: build-and-push
-    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '@') && !github.event.release.prerelease && !github.event.release.draft }}
+    if: ${{ github.event_name == 'release' && needs.build-and-push.outputs.sandbox_release_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Setup kubectl
