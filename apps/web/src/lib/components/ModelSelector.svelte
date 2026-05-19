@@ -208,6 +208,7 @@ function subsequenceScore(query: string, text: string): number {
 			type="text"
 			placeholder="Search models..."
 			bind:value={searchQuery}
+			onkeydown={handleKeyDown}
 			class="w-full bg-bg-input border border-border-subtle rounded-md px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-placeholder focus:border-brand/40"
 		/>
 	</div>
