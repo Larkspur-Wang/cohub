@@ -514,7 +514,7 @@ export type SpaceMember = {
 
 export type SpaceMarkKind = "pin";
 
-export type SpaceMarkResourceType = "session" | "checkpoint" | "file";
+export type SpaceMarkResourceType = "session" | "checkpoint" | "file" | "space";
 
 export type SpaceMarkRecord = {
   id: string;
@@ -537,6 +537,7 @@ export type SpaceMarkListItem = SpaceMarkRecord & {
     status: string | null;
   } | null;
 };
+
 
 export type SpaceModListItem = {
   id: string;

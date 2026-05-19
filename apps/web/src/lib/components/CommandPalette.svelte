@@ -4,6 +4,7 @@ import {
 	FolderKanban,
 	Loader2,
 	MessageSquare,
+	Pin,
 	Plus,
 	Search,
 	TerminalSquare,
@@ -14,6 +15,11 @@ import { searchCommandItems } from "$lib/command-palette/commands";
 import { getCommandPaletteDefaultItems } from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
 import { mergeCommandResults } from "$lib/command-palette/merge-results";
+import {
+	applyPinInfoToItems,
+	getCachedCommandPalettePins,
+	getPinnedCommandItems,
+} from "$lib/command-palette/pins";
 import { parseCommandPaletteQuery } from "$lib/command-palette/query";
 import {
 	getRecentCommandItems,
@@ -25,13 +31,14 @@ import {
 	typeLabelFor,
 } from "$lib/command-palette/scope";
 import type { CommandPaletteItem } from "$lib/command-palette/types";
+import { toggleSpacePin } from "$lib/stores/space-pins";
 
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
 const POINTER_HOVER_ARM_MS = 220;
 const DEFAULT_PLACEHOLDER =
-	"Search turns, sessions, spaces… Try type:space or t:";
+	"Search turns, sessions, spaces… Try p: for pinned or a: for spaces";
 
 type OpenCommandPaletteDetail = {
 	query?: string;
@@ -52,9 +59,12 @@ let pointerHoverTimer: number | null = null;
 let localItems = $state<CommandPaletteItem[]>([]);
 let remoteItems = $state<import("@neta-art/cohub").GlobalSearchResult[]>([]);
 let defaultItems = $state<CommandPaletteItem[]>([]);
+let pinnedItems = $state<CommandPaletteItem[]>([]);
+let pins = $state(getCachedCommandPalettePins(null));
 let localDone = $state(true);
 let remoteDone = $state(true);
 let defaultDone = $state(true);
+let pinnedDone = $state(true);
 let remoteError = $state<string | null>(null);
 let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
@@ -70,25 +80,32 @@ const parsedQuery = $derived(parseCommandPaletteQuery(query));
 const searchPlan = $derived({
 	query: parsedQuery.query,
 	resourceTypes: parsedQuery.resourceTypes,
+	pinnedOnly: parsedQuery.pinnedOnly,
 });
 const trimmedQuery = $derived(searchPlan.query.trim());
-const typeLabel = $derived(typeLabelFor(searchPlan.resourceTypes));
+const typeLabel = $derived(
+	typeLabelFor(searchPlan.resourceTypes, searchPlan.pinnedOnly),
+);
 const recentItems = $derived.by(() => {
-	const items = getRecentCommandItems();
+	const items = applyPinInfoToItems(getRecentCommandItems(), pins);
 	if (!searchPlan.resourceTypes) return items;
 	return items.filter((item) => searchPlan.resourceTypes?.includes(item.type));
 });
 const mergedItems = $derived.by(() => {
+	if (searchPlan.pinnedOnly) return pinnedItems.slice(0, RESULT_LIMIT);
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
 		return defaultItems.length > 0 ? defaultItems : recentItems;
 	}
 	return mergeCommandResults({
 		local: [...localItems, ...searchCommandItems(searchPlan)],
 		remote: remoteItems,
+		pins,
 		limit: RESULT_LIMIT,
 	});
 });
-const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
+const isSearching = $derived(
+	!localDone || !remoteDone || !defaultDone || !pinnedDone,
+);
 const renderedItems = $derived(
 	mergedItems.length > 0 || !isSearching ? mergedItems : settledItems,
 );
@@ -97,6 +114,10 @@ const showingSettledItems = $derived(
 );
 const statusText = $derived.by(() => {
 	const label = typeLabel ?? "Turns, Sessions, Spaces, and Commands";
+	if (searchPlan.pinnedOnly) {
+		if (showingSettledItems) return `${label} · loading pins…`;
+		return `${label} · ${renderedItems.length} pinned item${renderedItems.length === 1 ? "" : "s"}`;
+	}
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
 		return renderedItems.length > 0
 			? `${label} · type to filter`
@@ -211,9 +232,11 @@ function resetSearch() {
 	localItems = [];
 	remoteItems = [];
 	defaultItems = [];
+	pinnedItems = [];
 	localDone = true;
 	remoteDone = true;
 	defaultDone = true;
+	pinnedDone = true;
 	remoteError = null;
 	activeIndex = 0;
 }
@@ -222,6 +245,45 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	const q = plan.query.trim();
 	resetSearch();
 	const token = ++searchToken;
+	pins = getCachedCommandPalettePins(spaceId);
+
+	if (plan.pinnedOnly) {
+		pinnedDone = false;
+		localController = new AbortController();
+		void getPinnedCommandItems({
+			query: q,
+			currentSpaceId: spaceId,
+			signal: localController.signal,
+		})
+			.then((items) => {
+				if (token !== searchToken) return;
+				pins = getCachedCommandPalettePins(spaceId);
+				pinnedItems = applyPinInfoToItems(items, pins);
+			})
+			.catch((error) => {
+				if (error?.name !== "AbortError")
+					console.warn("[command-palette] pinned search failed", error);
+			})
+			.finally(() => {
+				if (token === searchToken) pinnedDone = true;
+			});
+		return;
+	}
+
+	void getPinnedCommandItems({
+		query: "",
+		currentSpaceId: spaceId,
+	})
+		.then(() => {
+			if (token !== searchToken) return;
+			pins = getCachedCommandPalettePins(spaceId);
+			localItems = applyPinInfoToItems(localItems, pins);
+			defaultItems = applyPinInfoToItems(defaultItems, pins);
+		})
+		.catch((error) => {
+			console.warn("[command-palette] pin status refresh failed", error);
+		});
+
 	if (q.length < MIN_QUERY_LENGTH) {
 		defaultDone = false;
 		localController = new AbortController();
@@ -232,7 +294,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		})
 			.then((items) => {
 				if (token !== searchToken) return;
-				defaultItems = items;
+				defaultItems = applyPinInfoToItems(items, pins);
 			})
 			.catch((error) => {
 				console.warn("[command-palette] default items failed", error);
@@ -254,7 +316,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	})
 		.then((items) => {
 			if (token !== searchToken) return;
-			localItems = items;
+			localItems = applyPinInfoToItems(items, pins);
 		})
 		.catch((error) => {
 			if (error?.name !== "AbortError")
@@ -290,6 +352,54 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				if (token === searchToken) remoteDone = true;
 			});
 	}, DEBOUNCE_MS);
+}
+
+function isPinnable(item: CommandPaletteItem) {
+	return item.type === "space" || item.type === "session";
+}
+
+async function toggleItemPin(item: CommandPaletteItem) {
+	if (!isPinnable(item)) return;
+	const wasPinned = Boolean(item.isPinned);
+	const scopeSpaceId = item.type === "space" ? undefined : item.spaceId;
+	const marks = await toggleSpacePin({
+		spaceId: scopeSpaceId,
+		resourceType: item.type,
+		resourceRef:
+			item.type === "space" ? item.spaceId : (item.sessionId ?? item.id),
+		label: item.title,
+	}).catch((error) => {
+		console.warn("[command-palette] toggle pin failed", error);
+		return null;
+	});
+	if (!marks) return;
+	pins = getCachedCommandPalettePins(currentSpaceId);
+	localItems = applyPinInfoToItems(localItems, pins);
+	defaultItems = applyPinInfoToItems(defaultItems, pins);
+	const itemKey =
+		item.type === "space"
+			? `space:${item.spaceId}`
+			: `session:${item.sessionId ?? item.id}`;
+	pinnedItems = wasPinned
+		? pinnedItems.filter((pinnedItem) => {
+				const pinnedKey =
+					pinnedItem.type === "space"
+						? `space:${pinnedItem.spaceId}`
+						: `session:${pinnedItem.sessionId ?? pinnedItem.id}`;
+				return pinnedKey !== itemKey;
+			})
+		: applyPinInfoToItems([item, ...pinnedItems], pins).filter(
+				(pinnedItem) => pinnedItem.isPinned,
+			);
+}
+
+async function handlePinClick(
+	event: MouseEvent | KeyboardEvent,
+	item: CommandPaletteItem,
+) {
+	event.preventDefault();
+	event.stopPropagation();
+	await toggleItemPin(item);
 }
 
 async function activate(item: CommandPaletteItem | undefined) {
@@ -427,7 +537,7 @@ onMount(() => {
 								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
 							</div>
 							<div class="mt-1 text-[12px] text-text-tertiary">
-								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try type:space, type:turn, type:session, or new space." : "Try a different phrase or type filter."}
+								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try p: for pinned, a: for spaces, t: for turns, or new space." : "Try a different phrase or type filter."}
 							</div>
 						</div>
 					</div>
@@ -474,6 +584,25 @@ onMount(() => {
 									{/if}
 								</div>
 							</div>
+							{#if isPinnable(item)}
+								<span
+									role="button"
+									tabindex="0"
+									class:pinned={item.isPinned}
+									class="command-pin-action"
+									title={item.isPinned ? "Unpin" : "Pin"}
+									aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
+									onclick={(event) => void handlePinClick(event, item)}
+									onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") void handlePinClick(event, item); }}
+								>
+									{#if item.isPinned}
+										<Pin class="h-3 w-3" />
+										<span>Pinned</span>
+									{:else}
+										<Pin class="h-3.5 w-3.5" />
+									{/if}
+								</span>
+							{/if}
 							<div class="command-enter">↵</div>
 						</button>
 					{/each}
@@ -590,7 +719,12 @@ onMount(() => {
 
 	.command-result.active { background: color-mix(in oklch, var(--brand-bg) 56%, var(--bg-hover) 44%); }
 	.command-result.active::before { background: var(--brand); }
-	.command-result.active .command-enter { opacity: 1; }
+	.command-result.active .command-enter,
+	.command-result.active .command-pin-action:not(.pinned),
+	.command-result:hover .command-pin-action:not(.pinned),
+	.command-result:focus-within .command-pin-action:not(.pinned) {
+		opacity: 1;
+	}
 	.command-result.active .command-time { color: var(--text-secondary); }
 	.command-result.active .command-type-mark { border-color: color-mix(in oklch, currentColor 36%, transparent); }
 
@@ -701,6 +835,55 @@ onMount(() => {
 		font-size: 13px;
 		line-height: 1;
 		text-align: right;
+	}
+
+	.command-pin-action {
+		display: inline-flex;
+		place-items: center;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		min-width: 26px;
+		height: 26px;
+		flex: 0 0 auto;
+		border: 1px solid transparent;
+		border-radius: 999px;
+		padding: 0 7px;
+		background: transparent;
+		color: var(--text-tertiary);
+		opacity: 0;
+		font-size: 10px;
+		font-weight: 550;
+		line-height: 1;
+		transition: opacity 90ms cubic-bezier(0.25, 1, 0.5, 1), background-color 90ms cubic-bezier(0.25, 1, 0.5, 1), color 90ms cubic-bezier(0.25, 1, 0.5, 1), border-color 90ms cubic-bezier(0.25, 1, 0.5, 1);
+	}
+
+	.command-pin-action.pinned {
+		border-color: color-mix(in oklch, var(--brand) 20%, transparent);
+		background: color-mix(in oklch, var(--brand) 9%, transparent);
+		color: var(--brand);
+		opacity: 1;
+	}
+
+	.command-pin-action.pinned:hover {
+		border-color: color-mix(in oklch, var(--brand) 34%, transparent);
+		background: color-mix(in oklch, var(--brand) 14%, transparent);
+	}
+
+	.command-pin-action:hover {
+		border-color: var(--border-subtle);
+		background: var(--bg-hover);
+		color: var(--brand);
+	}
+
+	.command-pin-action:focus-visible {
+		opacity: 1;
+		outline: 2px solid color-mix(in oklch, var(--brand) 42%, transparent);
+		outline-offset: 2px;
+	}
+
+	.command-pin-action + .command-enter {
+		margin-left: -4px;
 	}
 
 	.command-empty {

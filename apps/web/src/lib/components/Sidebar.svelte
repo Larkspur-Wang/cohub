@@ -508,7 +508,7 @@ function openSpacePalette() {
 		new CustomEvent("cohub:open-command-palette", {
 			detail: {
 				title: "Switch Space",
-				query: "type:space ",
+				query: "a: ",
 				placeholder: "Search spaces…",
 			},
 		}),
@@ -588,7 +588,7 @@ async function handleCreateNewSession() {
 }
 
 function isPinned(
-	resourceType: "session" | "checkpoint" | "file",
+	resourceType: "session" | "checkpoint" | "file" | "space",
 	resourceRef: string,
 ) {
 	return isSpacePin(pinnedMarks, resourceType, resourceRef);
@@ -600,13 +600,13 @@ function insertPathReference(path: string) {
 }
 
 function togglePinResource(
-	resourceType: "session" | "checkpoint" | "file",
+	resourceType: "session" | "checkpoint" | "file" | "space",
 	resourceRef: string,
 	label?: string | null,
 ) {
-	if (!currentSpaceId) return;
+	if (!currentSpaceId && resourceType !== "space") return;
 	void toggleSpacePin({
-		spaceId: currentSpaceId,
+		spaceId: resourceType === "space" ? undefined : currentSpaceId,
 		resourceType,
 		resourceRef,
 		label,
@@ -616,6 +616,7 @@ function togglePinResource(
 }
 
 function getPinnedIcon(resourceType: string) {
+	if (resourceType === "space") return FolderKanban;
 	if (resourceType === "session") return Activity;
 	if (resourceType === "checkpoint") return History;
 	return FileText;
@@ -626,6 +627,7 @@ function getPinnedFallbackTitle(mark: SpaceMarkListItem) {
 }
 
 function isPinnedMarkActive(mark: SpaceMarkListItem) {
+	if (mark.resourceType === "space") return currentPath === mark.href;
 	if (!currentSpaceId) return false;
 	if (mark.resourceType === "session") {
 		return (

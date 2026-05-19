@@ -9,8 +9,11 @@ import {
 
 export type SpacePinResourceType = SpaceMarkResourceType;
 
+export type SpacePinScope = string;
+export const GLOBAL_SPACE_PIN_SCOPE = "00000000-0000-4000-8000-000000000000";
+
 export type ToggleSpacePinInput = {
-	spaceId: string;
+	spaceId?: string;
 	resourceType: SpacePinResourceType;
 	resourceRef: string;
 	label?: string | null;
@@ -38,6 +41,18 @@ export function findSpacePin(
 	);
 }
 
+function getPinScope(
+	spaceId: string | undefined,
+	resourceType: SpacePinResourceType,
+) {
+	return resourceType === "space" ? GLOBAL_SPACE_PIN_SCOPE : spaceId;
+}
+
+function requirePinScope(scope: SpacePinScope | undefined) {
+	if (!scope) throw new Error("spaceId is required for this pin resource");
+	return scope;
+}
+
 export function getPinnedFilePaths(marks: SpaceMarkListItem[]) {
 	return new Set(
 		marks
@@ -57,14 +72,18 @@ export async function fetchSpacePins(spaceId: string, force = false) {
 	);
 }
 
-export async function getSpacePinsForMutation(spaceId: string) {
-	const cached = getCachedSpacePins(spaceId);
+export async function fetchGlobalSpacePins(force = false) {
+	return fetchSpacePins(GLOBAL_SPACE_PIN_SCOPE, force);
+}
+
+export async function getSpacePinsForMutation(
+	spaceId: string | undefined,
+	resourceType: SpacePinResourceType,
+) {
+	const scope = requirePinScope(getPinScope(spaceId, resourceType));
+	const cached = getCachedSpacePins(scope);
 	if (cached) return cached;
-	try {
-		return await fetchSpacePins(spaceId);
-	} catch {
-		return [];
-	}
+	return fetchSpacePins(scope);
 }
 
 export function notifySpacePinsUpdated(spaceId: string) {
@@ -80,24 +99,25 @@ export async function toggleSpacePin({
 	resourceRef,
 	label = null,
 }: ToggleSpacePinInput): Promise<SpaceMarkListItem[]> {
-	const currentPins = await getSpacePinsForMutation(spaceId);
+	const scope = requirePinScope(getPinScope(spaceId, resourceType));
+	const currentPins = await getSpacePinsForMutation(spaceId, resourceType);
 	const currentPin = findSpacePin(currentPins, resourceType, resourceRef);
 
 	if (currentPin) {
-		await sdk.space(spaceId).marks.delete(currentPin.id);
-		const next = patchCachedSpacePins(spaceId, (items) =>
+		await sdk.space(scope).marks.delete(currentPin.id);
+		const next = patchCachedSpacePins(scope, (items) =>
 			items.filter((item) => item.id !== currentPin.id),
 		);
-		notifySpacePinsUpdated(spaceId);
+		notifySpacePinsUpdated(scope);
 		return next;
 	}
 
-	const result = await sdk.space(spaceId).marks.create({
+	const result = await sdk.space(scope).marks.create({
 		resourceType,
 		resourceRef,
 		label,
 	});
-	const next = setCachedSpacePins(spaceId, [...currentPins, result.mark]);
-	notifySpacePinsUpdated(spaceId);
+	const next = setCachedSpacePins(scope, [...currentPins, result.mark]);
+	notifySpacePinsUpdated(scope);
 	return next;
 }
