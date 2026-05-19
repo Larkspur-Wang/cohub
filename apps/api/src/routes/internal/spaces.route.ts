@@ -22,6 +22,7 @@ import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output
 import { submitSessionPrompt, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
+import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
 import {
   ensureInternalRequest,
   getRequestRemoteAddress,
@@ -160,15 +161,11 @@ router.post("/:id/sandbox-report", async (c) => {
 
   await updateSpaceSandbox({
     spaceId,
-    status:
-      body.status === "ready"
-        ? "ready"
-        : body.status === "error"
-          ? "error"
-          : "provisioning",
+    status: normalizeSandboxLifecycleStatus(body.status),
+    runtimeStatus: normalizeSandboxRuntimeStatus(body.status),
     podName: body.podName?.trim() || sandbox.podName || `sandbox-${spaceId}`,
     reportedImageVersion,
-    reportedAt: reportedImageVersion ? new Date() : undefined,
+    reportedAt: new Date(),
     lastHeartbeatAt: new Date(),
     meta: {
       ...(sandboxMeta ?? {}),

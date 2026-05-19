@@ -36,10 +36,15 @@ import { sdk } from "$lib/sdk";
 
 type SandboxInfo = {
 	status: string | null;
+	runtimeStatus?: string | null;
+	podName?: string | null;
 	desiredImage?: string | null;
 	reportedImageVersion?: string | null;
 	lastHeartbeatAt?: string | null;
+	lastActivityAt?: string | null;
 	reportedAt?: string | null;
+	stoppedAt?: string | null;
+	stopReason?: string | null;
 	meta?: Record<string, unknown> | null;
 };
 
@@ -125,6 +130,84 @@ function formatTime(value?: string | null): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return "—";
 	return date.toLocaleString();
+}
+
+function formatRelativeTime(value?: string | null): string {
+	if (!value) return "—";
+	const date = new Date(value);
+	const time = date.getTime();
+	if (Number.isNaN(time)) return "—";
+	const diffMs = Date.now() - time;
+	const absMs = Math.abs(diffMs);
+	const minute = 60_000;
+	const hour = 60 * minute;
+	const day = 24 * hour;
+	const suffix = diffMs >= 0 ? "ago" : "from now";
+	if (absMs < minute) return "just now";
+	if (absMs < hour) return `${Math.round(absMs / minute)}m ${suffix}`;
+	if (absMs < day) return `${Math.round(absMs / hour)}h ${suffix}`;
+	return `${Math.round(absMs / day)}d ${suffix}`;
+}
+
+function getSandboxLifecycleLabel(status?: string | null): string {
+	switch (status) {
+		case "running":
+		case "ready":
+			return "Running";
+		case "provisioning":
+		case "pending":
+			return "Provisioning";
+		case "stopping":
+			return "Stopping";
+		case "stopped":
+			return "Stopped";
+		case "error":
+			return "Error";
+		case "terminated":
+			return "Terminated";
+		default:
+			return "Unknown";
+	}
+}
+
+function getSandboxRuntimeLabel(status?: string | null): string {
+	switch (status) {
+		case "healthy":
+			return "Healthy";
+		case "starting":
+			return "Starting";
+		case "degraded":
+			return "Degraded";
+		case "unhealthy":
+			return "Unhealthy";
+		default:
+			return "Unknown";
+	}
+}
+
+function getSandboxStatusClass(status?: string | null): string {
+	if (status === "running" || status === "ready" || status === "healthy")
+		return "bg-success-bg text-success-soft ring-success-soft/20";
+	if (
+		status === "provisioning" ||
+		status === "pending" ||
+		status === "starting" ||
+		status === "stopping"
+	)
+		return "bg-brand-bg text-brand-muted-fg ring-brand/20";
+	if (status === "stopped" || status === "unknown")
+		return "bg-bg-hover text-text-tertiary ring-border-subtle";
+	return "bg-error-bg text-error-soft ring-error-soft/25";
+}
+
+function getSandboxActivityText(): string {
+	const activity = formatRelativeTime(sandbox?.lastActivityAt);
+	if (activity !== "—") return activity;
+	return formatRelativeTime(sandbox?.lastHeartbeatAt);
+}
+
+function getSandboxActivityLabel(): string {
+	return sandbox?.lastActivityAt ? "Last RPC activity" : "No RPC activity yet";
 }
 
 async function loadSandbox() {
@@ -750,22 +833,63 @@ $effect(() => {
 					<div class="space-y-1">{#each channels as binding (binding.id)}<div class="flex items-center justify-between rounded-[5px] bg-bg-primary px-3 py-2"><span class="text-[12px] text-text-secondary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span><button type="button" onclick={() => unbindChannel(binding.channelId)} class="text-[11px] text-text-placeholder hover:text-error-soft">Unbind</button></div>{/each}</div>
 				</section>
 
-				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
-					<div class="flex items-center justify-between gap-3">
-						<div class="flex items-center gap-2"><Settings class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sandbox</div><div class="text-[15px] font-medium text-text-primary">Runtime health</div></div></div>
-						<button type="button" onclick={forceRecoverSandbox} disabled={recoveringSandbox} class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-bg-input border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary disabled:opacity-50">
-							{#if recoveringSandbox}<Loader2 class="w-3.5 h-3.5 animate-spin" /> Recovering{:else}<RefreshCw class="w-3.5 h-3.5" /> Force recover{/if}
+				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
+					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+						<div class="flex items-center gap-2.5">
+							<div class="flex h-8 w-8 items-center justify-center rounded-[6px] bg-bg-primary ring-1 ring-border-subtle"><Settings class="h-4 w-4 text-text-tertiary" /></div>
+							<div>
+								<div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sandbox</div>
+								<div class="text-[15px] font-medium text-text-primary">Lifecycle and runtime</div>
+							</div>
+						</div>
+						<button type="button" onclick={forceRecoverSandbox} disabled={recoveringSandbox} class="inline-flex items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">
+							{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Recovering{:else}<RefreshCw class="h-3.5 w-3.5" /> Force recover{/if}
 						</button>
 					</div>
-					<div class="grid grid-cols-2 gap-2 text-[12px]">
-						<div class="rounded-[5px] bg-bg-primary px-3 py-2"><div class="text-text-placeholder">Status</div><div class="mt-0.5 text-text-primary">{sandbox?.status ?? '—'}</div></div>
-						<div class="rounded-[5px] bg-bg-primary px-3 py-2"><div class="text-text-placeholder">Last heartbeat</div><div class="mt-0.5 text-text-primary">{formatTime(sandbox?.lastHeartbeatAt)}</div></div>
-						<div class="rounded-[5px] bg-bg-primary px-3 py-2"><div class="text-text-placeholder">Desired image</div><div class="mt-0.5 truncate font-mono text-[11px] text-text-primary">{sandbox?.desiredImage ?? '—'}</div></div>
-						<div class="rounded-[5px] bg-bg-primary px-3 py-2"><div class="text-text-placeholder">Reported image</div><div class="mt-0.5 truncate font-mono text-[11px] text-text-primary">{(sandbox?.reportedImageVersion ?? getSandboxMetaValue('imageVersion')) || '—'}</div></div>
+
+					<div class="p-4">
+						<div class="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+							<div class="rounded-[8px] bg-bg-primary p-3 ring-1 ring-border-subtle">
+								<div class="flex flex-wrap items-center gap-2">
+									<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.status)}`}>{getSandboxLifecycleLabel(sandbox?.status)}</span>
+									<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.runtimeStatus)}`}>{getSandboxRuntimeLabel(sandbox?.runtimeStatus)}</span>
+									{#if sandbox?.stopReason}<span class="inline-flex items-center rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-tertiary ring-1 ring-border-subtle">{sandbox.stopReason}</span>{/if}
+								</div>
+								<div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
+									<div>
+										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Activity</div>
+										<div class="mt-1 text-text-primary">{getSandboxActivityText()}</div>
+										<div class="mt-0.5 text-[11px] text-text-placeholder">{getSandboxActivityLabel()}</div>
+									</div>
+									<div>
+										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Heartbeat</div>
+										<div class="mt-1 text-text-primary">{formatRelativeTime(sandbox?.lastHeartbeatAt)}</div>
+										<div class="mt-0.5 text-[11px] text-text-placeholder">Sandbox self-report</div>
+									</div>
+									<div>
+										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Stopped at</div>
+										<div class="mt-1 text-text-primary">{formatRelativeTime(sandbox?.stoppedAt)}</div>
+										<div class="mt-0.5 text-[11px] text-text-placeholder">{formatTime(sandbox?.stoppedAt)}</div>
+									</div>
+									<div>
+										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Pod</div>
+										<div class="mt-1 truncate font-mono text-[11px] text-text-primary">{sandbox?.podName ?? '—'}</div>
+										<div class="mt-0.5 text-[11px] text-text-placeholder">{getSandboxMetaValue('podIp') || 'internal IP unavailable'}</div>
+									</div>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-2 lg:grid-cols-1">
+								<div class="rounded-[8px] bg-bg-primary px-3 py-2 ring-1 ring-border-subtle"><div class="text-text-placeholder">Desired image</div><div class="mt-0.5 truncate font-mono text-[11px] text-text-primary">{sandbox?.desiredImage ?? '—'}</div></div>
+								<div class="rounded-[8px] bg-bg-primary px-3 py-2 ring-1 ring-border-subtle"><div class="text-text-placeholder">Reported image</div><div class="mt-0.5 truncate font-mono text-[11px] text-text-primary">{(sandbox?.reportedImageVersion ?? getSandboxMetaValue('imageVersion')) || '—'}</div></div>
+								<div class="rounded-[8px] bg-bg-primary px-3 py-2 ring-1 ring-border-subtle"><div class="text-text-placeholder">Report refreshed</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.reportedAt)}</div></div>
+							</div>
+						</div>
+
+						<p class="mt-3 text-[11px] leading-relaxed text-text-tertiary">Last activity is updated by sandbox RPC / tool calls and drives 48h idle hibernation. Heartbeat only means the sandbox runtime recently reported itself alive.</p>
+						{#if sandboxRecoveryMessage}<div class="mt-3 rounded-[5px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
+						{#if sandboxRecoveryError}<div class="mt-3 rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{sandboxRecoveryError}</div>{/if}
 					</div>
-					<p class="text-[11px] leading-relaxed text-text-tertiary">Force recover will recreate the Sandbox from the current template, so it also picks up the currently configured Sandbox image. Workspace files are preserved, but running processes will stop.</p>
-					{#if sandboxRecoveryMessage}<div class="rounded-[5px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
-					{#if sandboxRecoveryError}<div class="rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{sandboxRecoveryError}</div>{/if}
 				</section>
 			{/if}
 		</div>

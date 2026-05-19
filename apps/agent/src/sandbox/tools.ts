@@ -24,6 +24,7 @@ import {
 const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
 import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
+import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import {
   getAgentPlatformAgentsPath,
   getAgentPlatformConfigPath,
@@ -46,6 +47,9 @@ import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-poo
 import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
 import { logger } from "../logger.js";
+import { db } from "../db.js";
+
+const sandboxLifecycle = createSandboxLifecycleController({ db });
 
 function getCurrentTraceContext() {
   const ctx = getCurrentToolExecutionContext();
@@ -184,6 +188,9 @@ async function tracedRpc<M extends RpcMethod>(
     toolCallId: traceCtx.toolCallId,
     params: params as Record<string, unknown>,
   }, async () => {
+    await sandboxLifecycle.recordActivity({ spaceId, reason: "rpc", rpcMethod: method }).catch((error) => {
+      logger.warn(`[SandboxActivity] failed to record rpc activity spaceId=${spaceId} method=${method}: ${error instanceof Error ? error.message : String(error)}`);
+    });
     return connection.request(method, params, {
       requestId: randomUUID(),
       spaceId,

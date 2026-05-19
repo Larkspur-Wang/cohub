@@ -99,6 +99,12 @@
       ],
       "@cohub/core/spaces/audience": [
         "../../packages/core/dist/spaces/audience.d.ts"
+      ],
+      "@cohub/core/sandbox-lifecycle": [
+        "../../packages/core/dist/sandbox-lifecycle/index.d.ts"
+      ],
+      "@cohub/sandbox-controller": [
+        "../../packages/sandbox-controller/dist/index.d.ts"
       ]
     }
   },

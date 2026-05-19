@@ -45,6 +45,9 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@cohub/sandbox-controller':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-controller
       '@mariozechner/pi-agent-core':
         specifier: 0.70.0
         version: 0.70.0(ws@8.20.0)(zod@4.3.6)
@@ -136,6 +139,9 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@cohub/sandbox-controller':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-controller
       '@hono/node-server':
         specifier: 2.0.0
         version: 2.0.0(hono@4.12.14)
@@ -457,6 +463,12 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@cohub/sandbox-controller':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-controller
+      '@kubernetes/client-node':
+        specifier: ^1.4.0
+        version: 1.4.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -546,6 +558,9 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@cohub/sandbox-controller':
+        specifier: workspace:*
+        version: link:../sandbox-controller
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
@@ -644,6 +659,25 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/sandbox-controller:
+    dependencies:
+      '@cohub/db':
+        specifier: workspace:*
+        version: link:../db
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -4525,6 +4559,7 @@ packages:
   glob@11.1.0:
     resolution: {integrity: sha512-vuNwKSaKiqm7g0THUBu2x7ckSs3XJLXE+2ssL7/MfTGPLLcrJQ/4Uq1CjPTtO5cCIiRxqvN6Twy1qOwhL0Xjcw==}
     engines: {node: 20 || >=22}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   globalthis@1.0.4:

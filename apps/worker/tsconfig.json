@@ -97,6 +97,12 @@
       "@cohub/core/spaces/audience": [
         "../../packages/core/src/spaces/audience.ts"
       ],
+      "@cohub/core/sandbox-lifecycle": [
+        "../../packages/core/src/sandbox-lifecycle/index.ts"
+      ],
+      "@cohub/sandbox-controller": [
+        "../../packages/sandbox-controller/src/index.ts"
+      ],
       "@cohub/core/fs-cdn": [
         "../../packages/core/src/fs-cdn/index.ts"
       ]

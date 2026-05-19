@@ -1,7 +1,7 @@
 import "dotenv/config";
 import "../tracing.js";
 
-import { Worker, type Processor } from "bullmq";
+import { Queue, Worker, type Processor } from "bullmq";
 import {
   resolveQueueConcurrencyPerWorkerByName,
   attachWorkerEventLogger,
@@ -15,6 +15,7 @@ import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
 import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry.js";
 import { FS_CDN_QUEUE_NAME } from "../system/jobs/fs-cdn-cache/types.js";
+import { SANDBOX_IDLE_REAPER_JOB } from "../system/jobs/sandbox-idle-reaper/types.js";
 
 import "../system/jobs/index.js";
 
@@ -57,6 +58,22 @@ const systemWorker = new Worker(FS_CDN_QUEUE_NAME, processor, {
   telemetry: createQueueTelemetry("cohub-system-worker"),
 });
 
+const systemQueue = new Queue(FS_CDN_QUEUE_NAME, { connection });
+const sandboxIdleReaperIntervalMs = Number(process.env.SANDBOX_IDLE_REAPER_INTERVAL_MS ?? 60 * 60_000);
+await systemQueue.upsertJobScheduler(
+  "sandbox-idle-reaper",
+  { every: sandboxIdleReaperIntervalMs },
+  {
+    name: SANDBOX_IDLE_REAPER_JOB,
+    data: {},
+    opts: {
+      attempts: 1,
+      removeOnComplete: { age: 24 * 3600, count: 200 },
+      removeOnFail: { age: 7 * 24 * 3600, count: 200 },
+    },
+  },
+);
+
 attachWorkerEventLogger(systemWorker, {
   serviceName: "SystemWorker",
   queueName: FS_CDN_QUEUE_NAME,
@@ -66,6 +83,7 @@ console.log("[SystemWorker] Starting system worker...");
 console.log("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
 console.log("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
 console.log("[SystemWorker] Queue:", FS_CDN_QUEUE_NAME);
+console.log("[SystemWorker] Sandbox idle reaper interval:", sandboxIdleReaperIntervalMs);
 console.log("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
 const shutdown = async (signal: string) => {
@@ -75,6 +93,7 @@ const shutdown = async (signal: string) => {
     timeoutMs: Number(process.env.FS_CDN_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),
     pauseBeforeClose: true,
   });
+  await systemQueue.close().catch(() => undefined);
   await connection.quit().catch(() => undefined);
   process.exit(0);
 };

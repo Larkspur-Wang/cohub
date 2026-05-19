@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import type { ContentBlock, Usage } from "@cohub/protocol/core";
+import type { Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
-import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing";
+import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
+import { isSandboxUsableStatus } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -22,7 +23,7 @@ import {
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
 import { finalizeSessionTurnFromMessage } from "./session-turns.js";
-import { enqueueAgentTurnJob, enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
+import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 
@@ -534,72 +535,6 @@ export const listSessionMessages = async (spaceSessionId: string, options?: { cu
   return db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, spaceSessionId), gt(sessionMessages.sequence, cursor))).orderBy(asc(sessionMessages.sequence)).limit(limit);
 };
 
-export const enqueueSpacePrompt = async (input: { spaceId: string; sessionId: string; turnId: string; userMessageId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; executionAuth: { token: string; expiresAt: number } }) => {
-  const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
-  if (!sandbox || sandbox.status !== "ready") throw new SandboxNotReadyError();
-  await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
-    console.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
-  });
-
-  const actorUserId = typeof input.meta?.userId === "string" && input.meta.userId.trim()
-    ? input.meta.userId.trim()
-    : null;
-  const executionGrant = input.executionAuth;
-
-  const [activeTurn] = await db.select({ id: sessionTurns.id })
-    .from(sessionTurns)
-    .where(and(
-      eq(sessionTurns.sessionId, input.sessionId),
-      inArray(sessionTurns.status, ["running", "abort_requested"]),
-    ))
-    .orderBy(desc(sessionTurns.sequence))
-    .limit(1);
-
-  if (activeTurn) {
-    await db.update(sessionTurns).set({
-      status: "abort_requested",
-      meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({
-        abortRequestedAt: new Date().toISOString(),
-        continuedByTurnId: input.turnId,
-      })}::jsonb`,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(sessionTurns.id, activeTurn.id),
-      eq(sessionTurns.sessionId, input.sessionId),
-      inArray(sessionTurns.status, ["running", "abort_requested"]),
-    ));
-
-    await requestAgentTurnAbort({
-      spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      turnId: activeTurn.id,
-      reason: "interrupt",
-      continuedByTurnId: input.turnId,
-      actorUserId,
-    }).catch((error) => {
-      console.warn(`[AgentTurn] failed to publish abort for turn=${activeTurn.id}:`, error);
-    });
-  }
-
-  const traceCarrier = injectTrace();
-  const metaContext = input.meta?.context && typeof input.meta.context === "object" && !Array.isArray(input.meta.context)
-    ? input.meta.context as Record<string, unknown>
-    : null;
-  const requestId = typeof input.meta?.requestId === "string" && input.meta.requestId.trim()
-    ? input.meta.requestId.trim()
-    : typeof metaContext?.requestId === "string" && metaContext.requestId.trim()
-      ? metaContext.requestId.trim()
-      : getCurrentRequestId();
-  await enqueueAgentTurnJob({
-    spaceId: input.spaceId,
-    sessionId: input.sessionId,
-    turnIds: [input.turnId],
-    executionAuth: executionGrant,
-    requestId: getOrCreateRequestId(requestId),
-    trace: traceCarrier,
-  });
-};
-
 export const enqueueSessionFork = async (input: { spaceId: string; sessionId: string; parentSessionId: string; anchorTurnId: string; anchorSequence: number; anchorEntryId: string }) => {
   const traceCarrier = injectTrace();
   await enqueueAgentSessionForkJob({
@@ -649,7 +584,7 @@ export const waitForSpaceReady = async (spaceId: string, timeoutMs = 30000) => {
   while (Date.now() - startedAt < timeoutMs) {
     const sandbox = await getSpaceSandboxBySpaceId(spaceId);
     if (!sandbox) return false;
-    if (sandbox.status === "ready") return true;
+    if (isSandboxUsableStatus(sandbox.status)) return true;
     if (sandbox.status === "error") return false;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -659,7 +594,7 @@ export const waitForSpaceReady = async (spaceId: string, timeoutMs = 30000) => {
 export const updateSpaceStatus = async (spaceId: string, status: string) => {
   const normalizedStatus =
     status === "running" || status === "ready"
-      ? "ready"
+      ? "running"
       : status === "starting" || status === "provisioning"
         ? "provisioning"
         : status === "hibernated" || status === "stopped"
@@ -674,8 +609,16 @@ export const updateSpaceStatus = async (spaceId: string, status: string) => {
   await updateSpaceSandbox({
     spaceId,
     status: normalizedStatus,
-    podName: normalizedStatus === "terminated" ? null : `sandbox-${spaceId}`,
-    lastHeartbeatAt: normalizedStatus === "ready" || normalizedStatus === "provisioning" ? new Date() : undefined,
+    runtimeStatus:
+      normalizedStatus === "running"
+        ? "healthy"
+        : normalizedStatus === "provisioning"
+          ? "starting"
+          : normalizedStatus === "error"
+            ? "unhealthy"
+            : "unknown",
+    podName: normalizedStatus === "terminated" || normalizedStatus === "stopped" ? null : `sandbox-${spaceId}`,
+    lastHeartbeatAt: normalizedStatus === "running" || normalizedStatus === "provisioning" ? new Date() : undefined,
     meta: {
       ...((sandbox?.meta as Record<string, unknown> | null) ?? {}),
       lastStatus: status,

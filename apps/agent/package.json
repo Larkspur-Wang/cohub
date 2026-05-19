@@ -37,7 +37,8 @@
     "ioredis": "^5.10.1",
     "postgres": "^3.4.9",
     "ws": "^8.20.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@cohub/sandbox-controller": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

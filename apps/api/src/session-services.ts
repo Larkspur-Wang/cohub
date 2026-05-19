@@ -3,10 +3,13 @@ import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing"
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices } from "@cohub/core/sessions";
 import { createExecutionGrantService, type ExecutionGrantService } from "@cohub/core/security";
+import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
 import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPromptTemplate } from "./prompt-templates.js";
+import { recoverSpaceSandbox } from "./space-sandboxes.js";
+import { getSpaceById } from "./space-sessions.js";
 
 const AGENT_TURN_JOB_NAME = "agent_turns";
 
@@ -34,6 +37,8 @@ const agentTurnQueue = createBullmqQueue<{
   telemetryServiceName: "cohub-api-agent-turns",
 });
 
+const sandboxLifecycle = createSandboxLifecycleController({ db });
+
 let defaultSessionDomainServices: ReturnType<typeof createSessionServices> | null = null;
 
 export function getSessionDomainServices(input?: {
@@ -49,6 +54,24 @@ export function getSessionDomainServices(input?: {
     redis: redisCommandClient,
     executionGrantService: input?.executionGrantService ?? defaultExecutionGrantService,
     promptTemplateService: input?.promptTemplateService ?? defaultPromptTemplateService,
+    sandboxRecovery: {
+      maybeRecoverForPrompt: async ({ spaceId, userId, source }) => {
+        const sandbox = await sandboxLifecycle.getSandbox(spaceId);
+        if (!sandbox || sandbox.status === "running" || sandbox.status === "ready" || sandbox.status === "provisioning") return;
+        const space = await getSpaceById(spaceId);
+        if (!space) return;
+        void recoverSpaceSandbox({
+          spaceId,
+          userUuid: userId,
+          ownerUserUuid: space.userUuid,
+          reason: sandbox.status === "error" ? "auto_recover" : "auto_resume",
+          source,
+          verify: false,
+        }).catch((error) => {
+          console.warn(`[SandboxResume] failed to resume sandbox for prompt spaceId=${spaceId}:`, error);
+        });
+      },
+    },
     injectTrace,
     getRequestId: getCurrentRequestId,
     agentTurnQueue: {

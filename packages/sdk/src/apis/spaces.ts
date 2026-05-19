@@ -1009,11 +1009,15 @@ export class SpaceEnvApi {
 
 export type SpaceSandboxRecord = {
   status: string | null;
+  runtimeStatus?: string | null;
   podName?: string | null;
   desiredImage?: string | null;
   reportedImageVersion?: string | null;
   lastHeartbeatAt?: string | null;
+  lastActivityAt?: string | null;
   reportedAt?: string | null;
+  stoppedAt?: string | null;
+  stopReason?: string | null;
   meta?: Record<string, unknown> | null;
 };
 

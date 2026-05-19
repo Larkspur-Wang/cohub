@@ -55,10 +55,16 @@
     "./fs-cdn": {
       "types": "./dist/fs-cdn/index.d.ts",
       "default": "./dist/fs-cdn/index.js"
+    },
+    "./sandbox-lifecycle": {
+      "types": "./dist/sandbox-lifecycle/index.d.ts",
+      "default": "./dist/sandbox-lifecycle/index.js"
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsgo -p tsconfig.build.json",
     "typecheck": "tsgo -p tsconfig.json --noEmit"
@@ -66,6 +72,7 @@
   "dependencies": {
     "@cohub/db": "workspace:*",
     "@cohub/protocol": "workspace:*",
+    "@cohub/sandbox-controller": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

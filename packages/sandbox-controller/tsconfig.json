@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@cohub/db": ["../db/src/index.ts"],
+      "@cohub/protocol/sandbox": ["../protocol/src/sandbox/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

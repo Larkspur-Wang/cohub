@@ -447,6 +447,7 @@ export async function getSpaceSandbox(input: { spaceId: string }) {
     sandbox: {
       status: string;
       podName?: string | null;
+      lastActivityAt?: string | null;
       meta?: Record<string, unknown> | null;
     } | null;
   } | null>;

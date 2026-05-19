@@ -8,7 +8,7 @@ import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { deleteSandboxPublicNetwork, getSandboxPublicEndpoints, reconcileSandboxPublicNetwork } from "./sandbox-public-network.js";
 import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
 import { redisCommandClient } from "./redis.js";
-import type { SpaceSandboxStatus } from "./lib/sandbox/types.js";
+import type { SpaceSandboxRuntimeStatus, SpaceSandboxStatus, SpaceSandboxStopReason } from "./lib/sandbox/types.js";
 import { smokeVerifySandboxPod } from "./lib/sandbox/recovery.js";
 import type { V1Pod } from "@kubernetes/client-node";
 
@@ -91,10 +91,14 @@ export const getSpaceSandboxBySpaceId = async (spaceId: string) => {
 export const ensureSpaceSandbox = async (input: {
   spaceId: string;
   status?: SpaceSandboxStatus;
+  runtimeStatus?: SpaceSandboxRuntimeStatus;
   podName?: string | null;
   desiredImage?: string | null;
   reportedImageVersion?: string | null;
   reportedAt?: Date | null;
+  lastActivityAt?: Date | null;
+  stoppedAt?: Date | null;
+  stopReason?: SpaceSandboxStopReason | null;
   meta?: Record<string, unknown> | null;
 }) => {
   const [sandbox] = await db
@@ -102,20 +106,28 @@ export const ensureSpaceSandbox = async (input: {
     .values({
       spaceId: input.spaceId,
       status: input.status ?? "pending",
+      runtimeStatus: input.runtimeStatus ?? "unknown",
       podName: input.podName ?? null,
       desiredImage: input.desiredImage ?? null,
       reportedImageVersion: input.reportedImageVersion ?? null,
       reportedAt: input.reportedAt ?? null,
+      lastActivityAt: input.lastActivityAt ?? null,
+      stoppedAt: input.stoppedAt ?? null,
+      stopReason: input.stopReason ?? null,
       meta: input.meta ?? null,
     })
     .onConflictDoUpdate({
       target: spaceSandboxes.spaceId,
       set: {
         status: input.status ?? "pending",
+        runtimeStatus: input.runtimeStatus ?? "unknown",
         podName: input.podName ?? null,
         ...(input.desiredImage !== undefined ? { desiredImage: input.desiredImage } : {}),
         ...(input.reportedImageVersion !== undefined ? { reportedImageVersion: input.reportedImageVersion } : {}),
         ...(input.reportedAt !== undefined ? { reportedAt: input.reportedAt } : {}),
+        ...(input.lastActivityAt !== undefined ? { lastActivityAt: input.lastActivityAt } : {}),
+        ...(input.stoppedAt !== undefined ? { stoppedAt: input.stoppedAt } : {}),
+        ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
         meta: input.meta ?? null,
         updatedAt: new Date(),
       },
@@ -140,22 +152,30 @@ export const deleteSpaceSandbox = async (spaceId: string) => {
 export const updateSpaceSandbox = async (input: {
   spaceId: string;
   status?: SpaceSandboxStatus;
+  runtimeStatus?: SpaceSandboxRuntimeStatus;
   podName?: string | null;
   desiredImage?: string | null;
   reportedImageVersion?: string | null;
   reportedAt?: Date | null;
   lastHeartbeatAt?: Date | null;
+  lastActivityAt?: Date | null;
+  stoppedAt?: Date | null;
+  stopReason?: SpaceSandboxStopReason | null;
   meta?: Record<string, unknown> | null;
 }) => {
   const [sandbox] = await db
     .update(spaceSandboxes)
     .set({
       ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.runtimeStatus !== undefined ? { runtimeStatus: input.runtimeStatus } : {}),
       ...(input.podName !== undefined ? { podName: input.podName } : {}),
       ...(input.desiredImage !== undefined ? { desiredImage: input.desiredImage } : {}),
       ...(input.reportedImageVersion !== undefined ? { reportedImageVersion: input.reportedImageVersion } : {}),
       ...(input.reportedAt !== undefined ? { reportedAt: input.reportedAt } : {}),
       ...(input.lastHeartbeatAt !== undefined ? { lastHeartbeatAt: input.lastHeartbeatAt } : {}),
+      ...(input.lastActivityAt !== undefined ? { lastActivityAt: input.lastActivityAt } : {}),
+      ...(input.stoppedAt !== undefined ? { stoppedAt: input.stoppedAt } : {}),
+      ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
       ...(input.meta !== undefined ? { meta: input.meta } : {}),
       updatedAt: new Date(),
     })
@@ -271,7 +291,7 @@ export const reconcileSpaceSandbox = async (input: {
   userUuid: string;
   ownerUserUuid?: string;
   mode: "ensure" | "replace";
-  reason: "space_created" | "manual_recreate" | "auto_recover" | "space_mods_changed";
+  reason: "space_created" | "manual_recreate" | "auto_recover" | "auto_resume" | "space_mods_changed";
 }) => {
   const podName = `sandbox-${input.spaceId}`;
   const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
@@ -314,6 +334,7 @@ export const reconcileSpaceSandbox = async (input: {
   await ensureSpaceSandbox({
     spaceId: input.spaceId,
     status: "provisioning",
+    runtimeStatus: "starting",
     podName,
     desiredImage: toSandboxImageVersion(config.sandboxImage),
     meta: provisioningMeta,
@@ -374,6 +395,7 @@ export const reconcileSpaceSandbox = async (input: {
   await updateSpaceSandbox({
     spaceId: input.spaceId,
     status: "provisioning",
+    runtimeStatus: "starting",
     podName,
     desiredImage: toSandboxImageVersion(config.sandboxImage),
     meta: {
@@ -409,6 +431,7 @@ export const provisionSpaceSandbox = async (input: {
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "error",
+      runtimeStatus: "unhealthy",
       podName: `sandbox-${input.spaceId}`,
       desiredImage: toSandboxImageVersion(config.sandboxImage),
       meta: {
@@ -434,7 +457,7 @@ export const recoverSpaceSandbox = async (input: {
   if (locked !== "OK") {
     const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
     return {
-      ok: sandbox?.status === "ready",
+      ok: sandbox?.status === "ready" || sandbox?.status === "running",
       status: sandbox?.status ?? "provisioning",
       verified: false,
       recovering: true,
@@ -446,7 +469,7 @@ export const recoverSpaceSandbox = async (input: {
     if (cooldown && input.source !== "manual") {
       const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
       return {
-        ok: sandbox?.status === "ready",
+        ok: sandbox?.status === "ready" || sandbox?.status === "running",
         status: sandbox?.status ?? "provisioning",
         verified: false,
         throttled: true,
@@ -460,6 +483,7 @@ export const recoverSpaceSandbox = async (input: {
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "provisioning",
+      runtimeStatus: "starting",
       meta: {
         ...existingMeta,
         recoveryStatus: "recreating",
@@ -489,7 +513,8 @@ export const recoverSpaceSandbox = async (input: {
     const latest = await getSpaceSandboxBySpaceId(input.spaceId);
     await updateSpaceSandbox({
       spaceId: input.spaceId,
-      status: "ready",
+      status: "running",
+      runtimeStatus: "healthy",
       meta: {
         ...asMetaObject(latest?.meta),
         recoveryStatus: "ready",
@@ -499,12 +524,13 @@ export const recoverSpaceSandbox = async (input: {
         lastRecoveryError: null,
       },
     });
-    return { ok: true as const, status: "ready" as const, verified: input.verify !== false, checks };
+    return { ok: true as const, status: "running" as const, verified: input.verify !== false, checks };
   } catch (error) {
     const latest = await getSpaceSandboxBySpaceId(input.spaceId);
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "error",
+      runtimeStatus: "unhealthy",
       meta: {
         ...asMetaObject(latest?.meta),
         recoveryStatus: "failed",

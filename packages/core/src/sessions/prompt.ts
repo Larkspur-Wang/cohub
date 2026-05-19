@@ -114,6 +114,15 @@ export type SessionPromptDependencies = {
     sessionId: string;
     source: string;
   }): Promise<ExecutionGrant>;
+  sandboxRecovery?: {
+    maybeRecoverForPrompt(input: {
+      spaceId: string;
+      sessionId: string;
+      userId: string;
+      source: PromptSource;
+      context?: SubmitSessionPromptContext | null;
+    }): void | Promise<void>;
+  };
   createSessionTurn(input: {
     sessionId: string;
     userUuid: string;
@@ -207,6 +216,18 @@ export const submitSessionPrompt = async (
   const clientMessageId = input.clientMessageId.trim();
   if (!clientMessageId) throw new Error("clientMessageId is required");
   if (!Array.isArray(input.content) || input.content.length === 0) throw new Error("content is required");
+
+  if (deps.sandboxRecovery) {
+    void Promise.resolve(deps.sandboxRecovery.maybeRecoverForPrompt({
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      userId,
+      source: input.source,
+      context: input.context ?? null,
+    })).catch((error: unknown) => {
+      console.warn(`[SandboxResume] failed to resume sandbox for prompt spaceId=${input.spaceId}:`, error);
+    });
+  }
 
   const { content: expandedContent, promptTemplate } = await expandPromptContent(deps, {
     content: input.content,

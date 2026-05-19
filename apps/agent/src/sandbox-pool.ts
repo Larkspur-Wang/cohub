@@ -1,5 +1,7 @@
 import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
-import { getSpaceSandbox } from "./api.js";
+import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
+import { getSpaceSandbox, recoverSpaceSandbox } from "./api.js";
+import { db } from "./db.js";
 import { updateSpaceRuntime } from "./ownership.js";
 import {
   disconnectSandboxWsClient,
@@ -13,6 +15,7 @@ const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || nul
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 const IDLE_TTL_MS = Number(process.env.AGENT_SANDBOX_IDLE_TTL_MS ?? 30 * 60_000);
 const MAX_CONNECTIONS = Number(process.env.AGENT_SANDBOX_MAX_CONNECTIONS_PER_WORKER ?? 100);
+const sandboxLifecycle = createSandboxLifecycleController({ db });
 
 type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
 
@@ -45,18 +48,21 @@ async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) 
   if (normalized === "degraded" && setup) {
     console.warn(`[Agent] sandbox degraded spaceId=${spaceId} setup exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
   }
-  await updateSpaceRuntime({
-    spaceId,
-    status: toRuntimeSandboxStatus(normalized),
-    sandboxId: message.sandboxId,
-    error: normalized === "error"
-      ? `sandbox heartbeat reported ${message.status}`
-      : normalized === "degraded"
-        ? setup
-          ? `sandbox setup.sh failed (exitCode=${setup.exitCode}, error=${setup.error ?? "unknown"})`
-          : "sandbox setup.sh failed (no details)"
-        : null,
-  }).catch(() => undefined);
+  await Promise.allSettled([
+    sandboxLifecycle.recordHeartbeat({ spaceId, heartbeat: message }),
+    updateSpaceRuntime({
+      spaceId,
+      status: toRuntimeSandboxStatus(normalized),
+      sandboxId: message.sandboxId,
+      error: normalized === "error"
+        ? `sandbox heartbeat reported ${message.status}`
+        : normalized === "degraded"
+          ? setup
+            ? `sandbox setup.sh failed (exitCode=${setup.exitCode}, error=${setup.error ?? "unknown"})`
+            : "sandbox setup.sh failed (no details)"
+          : null,
+    }),
+  ]);
 }
 
 async function syncSandboxConnectionState(input: { spaceId: string; status: NormalizedSandboxStatus; reason: string }) {
@@ -73,6 +79,17 @@ async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   }
   const response = await getSpaceSandbox({ spaceId });
   const sandbox = response?.sandbox;
+  if (sandbox?.status === "stopped" || sandbox?.status === "error" || sandbox?.status === "terminated") {
+    await recoverSpaceSandbox({
+      spaceId,
+      reason: sandbox.status === "error" ? "auto_recover" : "auto_resume",
+      source: "agent",
+    });
+    const resumed = (await getSpaceSandbox({ spaceId }))?.sandbox;
+    const resumedMeta = (resumed?.meta as Record<string, unknown> | null) ?? null;
+    const resumedPodIp = typeof resumedMeta?.podIp === "string" ? resumedMeta.podIp.trim() : "";
+    if (resumedPodIp) return `ws://${resumedPodIp}:8788/sandbox`;
+  }
   const meta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
   const podIp = typeof meta?.podIp === "string" ? meta.podIp.trim() : "";
   if (!podIp) throw new Error(`sandbox is not ready for requests yet: missing podIp for ${spaceId}`);
