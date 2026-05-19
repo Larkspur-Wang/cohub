@@ -234,7 +234,7 @@ function subsequenceScore(query: string, text: string): number {
 					type="button"
 					class={`w-full text-left px-4 py-2 cursor-pointer border-b border-border-subtle/50 transition-colors ${
 						navigationMode === "mouse" ? "hover:bg-bg-hover" : ""
-					} ${index === selectedIndex ? "bg-accent" : ""}`}
+					} ${index === selectedIndex ? "bg-bg-hover" : ""}`}
 					data-model-item
 					onclick={() => onSelect({ provider: item.provider, id: item.id })}
 					onmouseenter={() => {
@@ -243,6 +243,7 @@ function subsequenceScore(query: string, text: string): number {
 						}
 					}}
 					aria-pressed={isCurrentModel(item)}
+					data-selected={index === selectedIndex}
 				>
 					<div class="flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1.5 min-w-0">
