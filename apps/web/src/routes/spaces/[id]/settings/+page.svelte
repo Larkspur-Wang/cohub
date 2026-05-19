@@ -210,6 +210,17 @@ function getSandboxActivityLabel(): string {
 	return sandbox?.lastActivityAt ? "Last RPC activity" : "No RPC activity yet";
 }
 
+function getSandboxActivityTitle(): string {
+	const label = getSandboxActivityLabel();
+	const activityTime = formatTime(sandbox?.lastActivityAt);
+	const heartbeatTime = formatTime(sandbox?.lastHeartbeatAt);
+	return `${label}\nLast RPC activity: ${activityTime}\nHeartbeat: ${heartbeatTime}\nIdle hibernation is driven by sandbox RPC / tool calls.`;
+}
+
+function getSandboxHeartbeatTitle(): string {
+	return `Sandbox self-report\nLast heartbeat: ${formatTime(sandbox?.lastHeartbeatAt)}\nHeartbeat only means the sandbox runtime recently reported itself alive.`;
+}
+
 async function loadSandbox() {
 	const result = await sdk
 		.space(spaceId)
@@ -856,15 +867,13 @@ $effect(() => {
 									{#if sandbox?.stopReason}<span class="inline-flex items-center rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-tertiary ring-1 ring-border-subtle">{sandbox.stopReason}</span>{/if}
 								</div>
 								<div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
-									<div>
+									<div title={getSandboxActivityTitle()}>
 										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Activity</div>
 										<div class="mt-1 text-text-primary">{getSandboxActivityText()}</div>
-										<div class="mt-0.5 text-[11px] text-text-placeholder">{getSandboxActivityLabel()}</div>
 									</div>
-									<div>
+									<div title={getSandboxHeartbeatTitle()}>
 										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Heartbeat</div>
 										<div class="mt-1 text-text-primary">{formatRelativeTime(sandbox?.lastHeartbeatAt)}</div>
-										<div class="mt-0.5 text-[11px] text-text-placeholder">Sandbox self-report</div>
 									</div>
 									<div>
 										<div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Stopped at</div>
@@ -886,7 +895,6 @@ $effect(() => {
 							</div>
 						</div>
 
-						<p class="mt-3 text-[11px] leading-relaxed text-text-tertiary">Last activity is updated by sandbox RPC / tool calls and drives 48h idle hibernation. Heartbeat only means the sandbox runtime recently reported itself alive.</p>
 						{#if sandboxRecoveryMessage}<div class="mt-3 rounded-[5px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
 						{#if sandboxRecoveryError}<div class="mt-3 rounded-[5px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{sandboxRecoveryError}</div>{/if}
 					</div>

@@ -553,6 +553,7 @@ export type SpaceModListItem = {
 
 export type ExploreSpaceItem = {
   space: SpaceRecord;
+  ownerProfile: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
   accessAudience: "anonymous" | "signed_in";
   explore: {
     rank: number;
@@ -566,6 +567,19 @@ export type ExploreSpaceItem = {
     forkCount: number;
   };
   sandboxStatus: string | null;
+};
+
+export type ExploreSection = {
+  key: string;
+  title: string | null;
+  subtitle: string | null;
+  description: string | null;
+  spaces: ExploreSpaceItem[];
+};
+
+export type ExploreSpacesResponse = {
+  sections: ExploreSection[];
+  spaces: ExploreSpaceItem[];
 };
 
 export type Permission =

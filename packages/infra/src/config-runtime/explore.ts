@@ -1,4 +1,4 @@
-export const EXPLORE_REDIS_KEY_VERSION = "v1";
+export const EXPLORE_REDIS_KEY_VERSION = "v2";
 export const PLATFORM_EXPLORE_REDIS_KEY = `configs:explore:${EXPLORE_REDIS_KEY_VERSION}:platform`;
 export const EXPLORE_CACHE_TTL_SEC = 24 * 60 * 60;
 
@@ -9,9 +9,18 @@ export type ExploreSpaceConfig = {
   label?: string;
 };
 
+export type ExploreSectionConfig = {
+  key: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  spaces: ExploreSpaceConfig[];
+};
+
 export type ExploreConfig = {
   version: number;
-  spaces: ExploreSpaceConfig[];
+  sections?: ExploreSectionConfig[];
+  spaces?: ExploreSpaceConfig[];
 };
 
 export type CachedExploreConfig = {
@@ -20,19 +29,34 @@ export type CachedExploreConfig = {
   content: ExploreConfig | null;
 };
 
+function isExploreSpaceConfig(value: unknown): value is ExploreSpaceConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.spaceId === "string" &&
+    (record.rank === undefined || typeof record.rank === "number") &&
+    (record.category === undefined || typeof record.category === "string") &&
+    (record.label === undefined || typeof record.label === "string");
+}
+
+function isExploreSectionConfig(value: unknown): value is ExploreSectionConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.key === "string" &&
+    (record.title === undefined || typeof record.title === "string") &&
+    (record.subtitle === undefined || typeof record.subtitle === "string") &&
+    (record.description === undefined || typeof record.description === "string") &&
+    Array.isArray(record.spaces) &&
+    record.spaces.every(isExploreSpaceConfig);
+}
+
 export function isExploreConfig(value: unknown): value is ExploreConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (typeof record.version !== "number") return false;
-  if (!Array.isArray(record.spaces)) return false;
-  return record.spaces.every((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
-    const space = item as Record<string, unknown>;
-    return typeof space.spaceId === "string" &&
-      (space.rank === undefined || typeof space.rank === "number") &&
-      (space.category === undefined || typeof space.category === "string") &&
-      (space.label === undefined || typeof space.label === "string");
-  });
+
+  const hasSpaces = record.spaces === undefined || (Array.isArray(record.spaces) && record.spaces.every(isExploreSpaceConfig));
+  const hasSections = record.sections === undefined || (Array.isArray(record.sections) && record.sections.every(isExploreSectionConfig));
+  return hasSpaces && hasSections;
 }
 
 export function parseExploreConfig(rawText: string): ExploreConfig {

@@ -36,8 +36,11 @@ const currentPath = $derived(page.url.pathname);
 const isLogin = $derived(currentPath === "/callback");
 const isHome = $derived(currentPath === "/");
 const isTrending = $derived(currentPath === "/trending");
+const isExplore = $derived(currentPath === "/explore");
 const isInvite = $derived(currentPath.startsWith("/invite"));
-const isStandalonePage = $derived(isLogin || isHome || isTrending || isInvite);
+const isStandalonePage = $derived(
+	isLogin || isHome || isTrending || isInvite || isExplore,
+);
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
