@@ -212,6 +212,24 @@ async function tracedRpc<M extends RpcMethod>(
   }
 }
 
+const SUPPORTED_READ_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+const SUPPORTED_READ_IMAGE_MIME_TYPE_LABEL = "image/jpeg, image/png, image/gif, image/webp";
+
+function isSupportedReadImageMimeType(mimeType: string | null | undefined): boolean {
+  return mimeType != null && SUPPORTED_READ_IMAGE_MIME_TYPES.has(mimeType);
+}
+
+function detectUnsupportedReadImageMimeType(mimeType: string | null | undefined): string | null {
+  if (!mimeType?.startsWith("image/")) return null;
+  return isSupportedReadImageMimeType(mimeType) ? null : mimeType;
+}
+
 function createRemoteReadOperations(): ReadOperations {
   const tracer = getAgentTracer();
   return {
@@ -249,9 +267,19 @@ function createRemoteReadOperations(): ReadOperations {
       const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
       const result = await tracedRpc(connection, "fs.read", { path, binary: true });
       const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
-      // Only return image MIME types. The upstream read tool treats any truthy
-      // return value here as an image and will otherwise misclassify text files.
-      return mimeType?.startsWith("image/") ? mimeType : null;
+      // Only return supported raster image MIME types. The upstream read tool
+      // treats any truthy return value here as an image.
+      return isSupportedReadImageMimeType(mimeType) ? mimeType : null;
+    },
+    async detectUnsupportedImageMimeType(absolutePath) {
+      const connection = await getCurrentConnection();
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      const result = await tracedRpc(connection, "fs.read", { path, binary: true });
+      const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
+      return detectUnsupportedReadImageMimeType(mimeType);
+    },
+    unsupportedImageMimeTypeMessage(mimeType) {
+      return `Unsupported image type: ${mimeType}. Supported image types: ${SUPPORTED_READ_IMAGE_MIME_TYPE_LABEL}.`;
     },
   };
 }

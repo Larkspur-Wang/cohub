@@ -1,6 +1,7 @@
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../../tool-context.js";
+import { assertCrossSpaceQueryPathAllowed } from "./query-path-policy.js";
 
 const SPACE_ID_DESCRIPTION = "Only set when querying another space by id";
 
@@ -10,6 +11,11 @@ function getRequestedSpaceId(params: unknown) {
   if (!params || typeof params !== "object") return null;
   const value = (params as Record<string, unknown>).space_id;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getQueryPath(params: unknown) {
+  if (!params || typeof params !== "object") return undefined;
+  return (params as Record<string, unknown>).path;
 }
 
 function withoutSpaceId(input: unknown) {
@@ -28,6 +34,7 @@ function routeExecute(sandboxTool: AgentTool, checkAccess: AccessCheck) {
     const requestedSpaceId = getRequestedSpaceId(params);
     const targetSpaceId = requestedSpaceId ?? ctx.spaceId;
     if (targetSpaceId !== ctx.spaceId) {
+      assertCrossSpaceQueryPathAllowed(getQueryPath(params));
       await checkAccess(targetSpaceId);
     }
 

@@ -3,42 +3,28 @@ import type { ContentBlock } from "@cohub/protocol/core";
 export const MAX_COMPOSER_ATTACHMENTS = 14;
 export const MAX_COMPOSER_TEXT_ATTACHMENT_BYTES = 200 * 1024;
 
-export const COMPOSER_ATTACHMENT_ACCEPT = "";
+const supportedImageMimeTypes = new Set([
+	"image/jpeg",
+	"image/png",
+	"image/gif",
+	"image/webp",
+]);
 
-export type ComposerImageAttachment = {
-	kind: "image";
-	id: string;
-	name: string;
-	mediaType: string;
-	data: string;
-	previewUrl: string;
-	size: number;
-};
-
-export type ComposerTextAttachment = {
-	kind: "text";
-	id: string;
-	name: string;
-	mediaType: string;
-	text: string;
-	size: number;
-};
-
-export type ComposerFileAttachment = {
-	kind: "file";
-	id: string;
-	name: string;
-	relativePath: string;
-	mediaType: string | null;
-	file: File;
-	size: number;
-	status: "ready" | "uploading" | "failed";
-};
-
-export type ComposerAttachment =
-	| ComposerImageAttachment
-	| ComposerTextAttachment
-	| ComposerFileAttachment;
+const imageExtensions = new Set([
+	"jpg",
+	"jpeg",
+	"png",
+	"gif",
+	"webp",
+	"svg",
+	"avif",
+	"bmp",
+	"ico",
+	"tif",
+	"tiff",
+	"heic",
+	"heif",
+]);
 
 const supportedTextExtensions = new Set([
 	"txt",
@@ -107,18 +93,62 @@ function getFileExtension(name: string) {
 	return name.slice(lastDot + 1).toLowerCase();
 }
 
+export const COMPOSER_ATTACHMENT_ACCEPT = "";
+
+export type ComposerImageAttachment = {
+	kind: "image";
+	id: string;
+	name: string;
+	mediaType: string;
+	data: string;
+	previewUrl: string;
+	size: number;
+};
+
+export type ComposerTextAttachment = {
+	kind: "text";
+	id: string;
+	name: string;
+	mediaType: string;
+	text: string;
+	size: number;
+};
+
+export type ComposerFileAttachment = {
+	kind: "file";
+	id: string;
+	name: string;
+	relativePath: string;
+	mediaType: string | null;
+	file: File;
+	size: number;
+	status: "ready" | "uploading" | "failed";
+};
+
+export type ComposerAttachment =
+	| ComposerImageAttachment
+	| ComposerTextAttachment
+	| ComposerFileAttachment;
+
 export function createComposerAttachmentId(file: File) {
 	return `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function isSupportedComposerAttachmentFile(file: File) {
-	if (file.type.startsWith("image/")) return true;
-	if (supportedTextMimeTypes.has(file.type)) return true;
-	return supportedTextExtensions.has(getFileExtension(file.name));
+export function isSupportedComposerImageFile(file: File) {
+	return supportedImageMimeTypes.has(file.type);
 }
 
 export function isComposerImageFile(file: File) {
-	return file.type.startsWith("image/");
+	return (
+		file.type.startsWith("image/") ||
+		imageExtensions.has(getFileExtension(file.name))
+	);
+}
+
+export function isSupportedComposerAttachmentFile(file: File) {
+	if (isSupportedComposerImageFile(file)) return true;
+	if (supportedTextMimeTypes.has(file.type)) return true;
+	return supportedTextExtensions.has(getFileExtension(file.name));
 }
 
 export async function readComposerTextAttachment(

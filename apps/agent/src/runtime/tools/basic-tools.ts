@@ -6,6 +6,8 @@ export interface ReadOperations {
   readFile: (absolutePath: string) => Promise<Buffer>;
   access: (absolutePath: string) => Promise<void>;
   detectImageMimeType?: (absolutePath: string) => Promise<string | null | undefined>;
+  detectUnsupportedImageMimeType?: (absolutePath: string) => Promise<string | null | undefined>;
+  unsupportedImageMimeTypeMessage?: (mimeType: string) => string;
 }
 
 export interface WriteOperations {
@@ -136,6 +138,15 @@ export function createReadTool(cwd: string, options: { operations: ReadOperation
           ],
           details: undefined,
         };
+      }
+      const unsupportedImageMimeType = options.operations.detectUnsupportedImageMimeType
+        ? await options.operations.detectUnsupportedImageMimeType(absolutePath)
+        : null;
+      if (unsupportedImageMimeType) {
+        throw new Error(
+          options.operations.unsupportedImageMimeTypeMessage?.(unsupportedImageMimeType)
+          ?? `Unsupported image type: ${unsupportedImageMimeType}.`,
+        );
       }
       const buffer = await options.operations.readFile(absolutePath);
       const allLines = buffer.toString("utf-8").split("\n");

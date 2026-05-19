@@ -92,6 +92,7 @@ import {
 	createComposerAttachmentId,
 	isComposerImageFile,
 	isSupportedComposerAttachmentFile,
+	isSupportedComposerImageFile,
 	MAX_COMPOSER_ATTACHMENTS,
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
@@ -3477,26 +3478,39 @@ async function canvasToWebpBlob(
 	});
 }
 async function compressImageFile(file: File) {
-	const image = await loadImageElement(file);
-	const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
-	const scale = longestEdge > MAX_IMAGE_EDGE ? MAX_IMAGE_EDGE / longestEdge : 1;
-	const width = Math.max(1, Math.round(image.naturalWidth * scale));
-	const height = Math.max(1, Math.round(image.naturalHeight * scale));
-	const canvas = document.createElement("canvas");
-	canvas.width = width;
-	canvas.height = height;
-	const context = canvas.getContext("2d");
-	if (!context) throw new Error("Canvas is not supported");
-	context.drawImage(image, 0, 0, width, height);
-	let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
-	for (const quality of WEBP_QUALITIES.slice(1)) {
-		if (blob.size <= MAX_IMAGE_BYTES) break;
-		blob = await canvasToWebpBlob(canvas, quality);
+	try {
+		const image = await loadImageElement(file);
+		const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
+		const scale =
+			longestEdge > MAX_IMAGE_EDGE ? MAX_IMAGE_EDGE / longestEdge : 1;
+		const width = Math.max(1, Math.round(image.naturalWidth * scale));
+		const height = Math.max(1, Math.round(image.naturalHeight * scale));
+		const canvas = document.createElement("canvas");
+		canvas.width = width;
+		canvas.height = height;
+		const context = canvas.getContext("2d");
+		if (!context) throw new Error("Canvas is not supported");
+		context.drawImage(image, 0, 0, width, height);
+		let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
+		for (const quality of WEBP_QUALITIES.slice(1)) {
+			if (blob.size <= MAX_IMAGE_BYTES) break;
+			blob = await canvasToWebpBlob(canvas, quality);
+		}
+		if (blob.size > MAX_IMAGE_BYTES)
+			throw new Error("Image is too large after compression");
+		const dataUrl = await fileToDataUrl(blob);
+		return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			error.message === "Image is too large after compression"
+		) {
+			throw error;
+		}
+		throw new Error(
+			`Could not process image "${file.name}". Use JPG, PNG, GIF, or WebP.`,
+		);
 	}
-	if (blob.size > MAX_IMAGE_BYTES)
-		throw new Error("Image is too large after compression");
-	const dataUrl = await fileToDataUrl(blob);
-	return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
 }
 async function handlePickAttachments(
 	files: FileList | File[] | LocalUploadEntry[] | null,
@@ -3561,20 +3575,7 @@ async function handlePickAttachments(
 						} satisfies ComposerFileAttachment;
 					}
 				}
-				try {
-					const compressed = await compressImageFile(file);
-					const [, base64 = ""] = compressed.dataUrl.split(",");
-					const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
-					return {
-						kind: "image",
-						id: createComposerAttachmentId(file),
-						name: `${webpName}.webp`,
-						mediaType: compressed.mediaType,
-						data: base64,
-						previewUrl: compressed.dataUrl,
-						size: compressed.size,
-					} satisfies ComposerImageAttachment;
-				} catch {
+				if (!isSupportedComposerImageFile(file)) {
 					return {
 						kind: "file",
 						id: createComposerAttachmentId(file),
@@ -3586,6 +3587,18 @@ async function handlePickAttachments(
 						status: "ready",
 					} satisfies ComposerFileAttachment;
 				}
+				const compressed = await compressImageFile(file);
+				const [, base64 = ""] = compressed.dataUrl.split(",");
+				const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
+				return {
+					kind: "image",
+					id: createComposerAttachmentId(file),
+					name: `${webpName}.webp`,
+					mediaType: compressed.mediaType,
+					data: base64,
+					previewUrl: compressed.dataUrl,
+					size: compressed.size,
+				} satisfies ComposerImageAttachment;
 			}),
 		);
 		attachments = [...attachments, ...nextAttachments];

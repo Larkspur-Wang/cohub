@@ -109,6 +109,17 @@ function shellCommandResultToText(message: Record<string, unknown>) {
   return text;
 }
 
+const SUPPORTED_LLM_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+function isSupportedLlmImageMimeType(mimeType: string | null | undefined): boolean {
+  return mimeType != null && SUPPORTED_LLM_IMAGE_MIME_TYPES.has(mimeType);
+}
+
 function toLlmImageContent(block: Record<string, unknown>): ImageContent | null {
   const directData = typeof block.data === "string" && block.data.trim() ? block.data : null;
   if (directData) {
@@ -117,6 +128,7 @@ function toLlmImageContent(block: Record<string, unknown>): ImageContent | null 
       : typeof block.media_type === "string" && block.media_type.trim()
         ? block.media_type.trim()
         : "application/octet-stream";
+    if (!isSupportedLlmImageMimeType(mimeType)) return null;
     return {
       type: "image",
       data: directData.replace(/^data:[^;,]+;base64,/, ""),
@@ -135,6 +147,7 @@ function toLlmImageContent(block: Record<string, unknown>): ImageContent | null 
   const mimeType = typeof source.media_type === "string" && source.media_type.trim()
     ? source.media_type.trim()
     : "application/octet-stream";
+  if (!isSupportedLlmImageMimeType(mimeType)) return null;
   return {
     type: "image",
     data: source.data.replace(/^data:[^;,]+;base64,/, ""),
