@@ -615,6 +615,13 @@ function togglePinResource(
 	});
 }
 
+function getPinnedInsertReference(mark: SpaceMarkListItem) {
+	if (mark.resourceType === "session")
+		return `/sessions/${mark.resourceRef}.jsonl`;
+	if (mark.resourceType === "file") return mark.resourceRef;
+	return null;
+}
+
 function getPinnedIcon(resourceType: string) {
 	if (resourceType === "space") return FolderKanban;
 	if (resourceType === "session") return Activity;
@@ -1141,16 +1148,38 @@ $effect(() => {
                 {#each pinnedMarks as mark (mark.id)}
                   {@const Icon = getPinnedIcon(mark.resourceType)}
                   {@const isActivePinned = isPinnedMarkActive(mark)}
+                  {@const insertReference = getPinnedInsertReference(mark)}
                   <button
                     type="button"
-                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-8 mx-[-2px] rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 {insertReference ? 'pr-14' : 'pr-8'} mx-[-2px] rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                     onclick={() => void handleNavigateToPinned(mark)}
                     title={mark.resource?.subtitle ?? mark.resourceRef}
                     aria-current={isActivePinned ? "page" : undefined}
                   >
                     <Icon class="w-3.5 h-3.5 shrink-0 {isActivePinned ? 'text-text-tertiary' : 'text-text-placeholder'}" />
                     <span class="truncate leading-tight flex-1">{getPinnedFallbackTitle(mark)}</span>
-                    <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto"}>
+                    <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto"}>
+                      {#if insertReference}
+                        <span
+                          role="button"
+                          tabindex="0"
+                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
+                          title="Insert"
+                          onclick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            insertPathReference(insertReference);
+                          }}
+                          onkeydown={(e) => {
+                            if (e.key !== 'Enter' && e.key !== ' ') return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            insertPathReference(insertReference);
+                          }}
+                        >
+                          <FileText class="w-3.5 h-3.5" />
+                        </span>
+                      {/if}
                       <span
                         role="button"
                         tabindex="0"
