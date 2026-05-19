@@ -243,7 +243,7 @@ function toLlmMessages(messages: AgentMessage[]) {
   return result as never;
 }
 
-function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
+function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | null): StreamFn {
   const tracer = getAgentTracer();
 
   return async (model: Model<Api>, ctx: Context, options?: SimpleStreamOptions) => {
@@ -272,9 +272,19 @@ function createStreamFn(modelRegistry: CohubModelRegistry): StreamFn {
     return context.with(llmRound.context, async () => {
       try {
         const headers = modelRegistry.getHeaders(model.provider, model.id);
+        const streamHeaders = headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers;
         const stream = await streamSimple(model, ctx, {
           ...options,
-          headers: headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers,
+          headers: model.provider === "cohub"
+            ? {
+                ...streamHeaders,
+                "x-litellm-track-extra": JSON.stringify({
+                  userUuid: userId?.trim() || null,
+                  spaceUuid: toolCtx?.spaceId ?? null,
+                  sessionUuid: toolCtx?.sessionId ?? null,
+                }),
+              }
+            : streamHeaders,
         });
 
         const wrapped = createAssistantMessageEventStream();
@@ -382,7 +392,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     steeringMode: "all",
     convertToLlm: toLlmMessages,
-    streamFn: createStreamFn(options.modelRegistry),
+    streamFn: createStreamFn(options.modelRegistry, options.userId),
     getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),
   });
 
