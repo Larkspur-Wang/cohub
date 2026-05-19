@@ -470,11 +470,11 @@ export async function uploadSpaceFiles(
   for (const file of files.slice(0, MAX_UPLOAD_COUNT)) {
     const safeName = sanitizeFileName(file.name);
     if (!safeName) {
-      errors.push({ name: file.name, code: "name_invalid", message: "Invalid file name." });
+      errors.push({ name: file.name, code: "name_invalid", message: "invalid file name" });
       continue;
     }
     if (file.size > MAX_UPLOAD_SIZE) {
-      errors.push({ name: safeName, code: "file_too_large", message: "File exceeds 50MB limit." });
+      errors.push({ name: safeName, code: "file_too_large", message: "file exceeds 50MB limit" });
       continue;
     }
     const targetPath = join(dir, safeName);
@@ -490,7 +490,7 @@ export async function uploadSpaceFiles(
         mtimeMs: stats.mtimeMs,
       });
     } catch {
-      errors.push({ name: safeName, code: "write_failed", message: "Failed to write file." });
+      errors.push({ name: safeName, code: "write_failed", message: "failed to write file" });
     }
   }
 
@@ -499,8 +499,7 @@ export async function uploadSpaceFiles(
 
 export function spaceFsJsonError(error: unknown) {
   if (error instanceof SpaceFsError) {
-    return { status: error.status, body: { code: error.code, message: error.message } };
+    return { status: error.status, body: { code: error.code, message: error.message.toLowerCase().replace(/\.$/, "") } };
   }
-  const message = error instanceof Error ? error.message : "Space file operation failed.";
-  return { status: 500, body: { code: "space_fs_error", message } };
+  return { status: 500, body: { code: "space_fs_error", message: "space file operation failed" } };
 }

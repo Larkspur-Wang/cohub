@@ -102,8 +102,8 @@ router.get("/rules", async (c) => {
   const user = useAuth(c);
   try {
     return c.json(await readUserRules(user.uuid));
-  } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Failed to load user rules" }, 500);
+  } catch {
+    return c.json({ message: "failed to load user rules" }, 500);
   }
 });
 

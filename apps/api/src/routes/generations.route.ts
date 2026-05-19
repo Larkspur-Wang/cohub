@@ -19,7 +19,7 @@ router.post("/", async (c) => {
 
   const request = parsed.data;
   const declaration = await loadGenerationDeclaration(user.uuid, request.model);
-  if (!declaration) return c.json({ message: `Generation model not found: ${request.model}` }, 404);
+  if (!declaration) return c.json({ message: "generation model not found" }, 404);
 
   let parameters: Record<string, unknown>;
   try {
@@ -69,7 +69,7 @@ router.post("/", async (c) => {
     return c.json({
       ...base,
       status: "failed",
-      error: { code: "generation_failed", message: "Generation failed" },
+      error: { code: "generation_failed", message: "generation failed" },
       updated_at: completedAt,
       completed_at: completedAt,
     } satisfies Generation, 500);

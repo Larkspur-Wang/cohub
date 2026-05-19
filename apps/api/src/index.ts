@@ -108,6 +108,8 @@ const serializeErrorForLog = (error: unknown): unknown => {
   }
 };
 
+app.notFound((c) => c.json({ message: "not found" }, 404));
+
 app.onError((error, c) => {
   const requestId = c.get("requestId") ?? getOrCreateRequestId(c.req.header("x-request-id"));
   const ids = getActiveTraceIdentifiers(requestId);
@@ -120,7 +122,7 @@ app.onError((error, c) => {
   const path = c.req.path;
   const method = c.req.method;
   console.error(`[API Error] ${method} ${path} requestId=${requestId} traceId=${ids.traceId ?? "none"}:`, serializeErrorForLog(error));
-  return c.json({ message: error.message || "internal server error", requestId, traceId: ids.traceId }, 500);
+  return c.json({ message: "internal server error", requestId, traceId: ids.traceId }, 500);
 });
 
 // ── Start server ─────────────────────────────────────────────────────────────

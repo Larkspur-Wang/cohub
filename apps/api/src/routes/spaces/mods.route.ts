@@ -22,8 +22,8 @@ function parseMountSlug(value: string | null | undefined) {
   if (!value) return { ok: true as const, value: null };
   try {
     return { ok: true as const, value: assertValidMountSlug(value) };
-  } catch (error) {
-    return { ok: false as const, message: error instanceof Error ? error.message : String(error) };
+  } catch {
+    return { ok: false as const, message: "invalid mount slug" };
   }
 }
 

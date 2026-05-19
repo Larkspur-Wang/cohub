@@ -218,7 +218,7 @@ router.get("/download", async (c) => {
     };
     if (shouldUseFsCdnForMeta(meta)) {
       const manifest = await ensureFsCdnManifest(meta, "download_miss", FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS);
-      if (!manifest) return c.json({ message: "File is being prepared. Please retry shortly.", retryAfterMs: 2000 }, 202);
+      if (!manifest) return c.json({ message: "file is preparing", retryAfterMs: 2000 }, 202);
       return c.redirect(manifest.url, 302);
     }
     const buffer = await readFile(info.target);
@@ -299,7 +299,7 @@ router.post("/uploads", async (c) => {
     });
     return c.json({ uploadId, expiresAt, entries: planned });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "failed to create upload";
+    const message = error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "failed to create upload";
     return c.json({ message }, 400);
   }
 });
@@ -350,8 +350,8 @@ router.post("/uploads/:uploadId/complete", async (c) => {
     return c.json({ ok: true, taskRunId });
   } catch (error) {
     await cancelSpaceUploadComplete(spaceId, uploadId);
-    const message = error instanceof Error ? error.message : "failed to complete upload";
-    return c.json({ message }, 500);
+    console.error("[space-fs] failed to complete upload", error);
+    return c.json({ message: "failed to complete upload" }, 500);
   }
 });
 

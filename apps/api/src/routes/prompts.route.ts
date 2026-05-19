@@ -21,7 +21,8 @@ router.get("/", async (c) => {
       }),
     });
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Failed to load prompt templates" }, 502);
+    console.error("[prompts] failed to load templates", error);
+    return c.json({ message: "failed to load prompt templates" }, 502);
   }
 });
 

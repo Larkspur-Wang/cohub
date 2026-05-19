@@ -67,6 +67,7 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`cohub self-update failed: ${message}\n`);
+  process.stderr.write("run with --version to skip self-update\n");
   process.exit(1);
 }
 

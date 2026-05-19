@@ -130,7 +130,8 @@ router.get("/", async (c) => {
     }
     return c.json(grouped);
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Failed to load models catalog" }, 502);
+    console.error("[models] failed to load catalog", error);
+    return c.json({ message: "failed to load models catalog" }, 502);
   }
 });
 

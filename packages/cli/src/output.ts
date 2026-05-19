@@ -61,22 +61,46 @@ export function error(msg: string, detail?: string): never {
 
 // -- HTTP error handler ------------------------------------------------------
 
+function errorMessageFromBody(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const errorBody = body as { message?: unknown; error?: { message?: unknown } };
+  if (typeof errorBody.message === "string" && errorBody.message.trim()) return errorBody.message;
+  if (typeof errorBody.error?.message === "string" && errorBody.error.message.trim()) return errorBody.error.message;
+  return null;
+}
+
+function debugErrorMetaFromBody(body: unknown): string[] {
+  if (!body || typeof body !== "object") return [];
+  const errorBody = body as {
+    code?: unknown;
+    requestId?: unknown;
+    traceId?: unknown;
+    error?: { code?: unknown };
+  };
+  const items: string[] = [];
+  const code = typeof errorBody.code === "string" ? errorBody.code : typeof errorBody.error?.code === "string" ? errorBody.error.code : null;
+  if (code) items.push(code);
+  if (typeof errorBody.requestId === "string") items.push(`requestId: ${errorBody.requestId}`);
+  if (typeof errorBody.traceId === "string") items.push(`traceId: ${errorBody.traceId}`);
+  return items;
+}
+
 export function handleHttp(e: unknown): never {
   if (e instanceof Error && e.name === "AuthRequiredError") {
-    return error("Not authenticated", "Run `cohub auth login`.");
+    return error("not authenticated", "run `cohub auth login`");
   }
 
   const status = (e as { status?: number }).status;
   const body = (e as { body?: unknown }).body;
-  const msg = e instanceof Error ? e.message : String(e);
+  const message = errorMessageFromBody(body) ?? (e instanceof Error ? e.message : String(e));
 
-  let detail: string | undefined;
-  if (status) detail = `HTTP ${status}`;
-  if (body && typeof body === "object" && "message" in body) {
-    detail = `${detail ? `${detail} — ` : ""}${(body as { message?: string }).message}`;
+  const detailParts: string[] = [];
+  if (process.env.COHUB_DEBUG_ERRORS) {
+    if (status) detailParts.push(`HTTP ${status}`);
+    detailParts.push(...debugErrorMetaFromBody(body));
   }
 
-  error(msg, detail);
+  error(message, detailParts.length > 0 ? detailParts.join(" · ") : undefined);
 }
 
 // -- Spinner -----------------------------------------------------------------

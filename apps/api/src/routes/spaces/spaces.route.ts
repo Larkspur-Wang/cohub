@@ -257,7 +257,7 @@ router.post("/", async (c) => {
       return { type: "blank" } as const;
     })();
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+    return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "invalid bootstrap source" }, 400);
   }
 
   if (normalizedBootstrapSource.type === "checkpoint") {
@@ -838,7 +838,7 @@ router.post("/:id/prompt", async (c) => {
 
   const body = await c.req.json<SpacePromptInput>().catch(() => null);
   if (!validatePromptContentBlocks(body?.content)) {
-    return c.json({ message: "content is required and must be a non-empty ContentBlock array" }, 400);
+    return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
   }
   if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
 
@@ -905,7 +905,7 @@ router.post("/:id/prompt", async (c) => {
   if (mode === "delay") {
     const delayMs = Number((schedule as { delayMs?: number }).delayMs);
     if (!isPositiveSafeInteger(delayMs)) {
-      return c.json({ message: "delayMs must be a positive safe integer of milliseconds, e.g. 600000" }, 400);
+      return c.json({ message: "delayMs must be a positive integer, e.g. 600000" }, 400);
     }
     const scheduledAt = new Date(Date.now() + delayMs);
     const { taskRunId } = await enqueueTask({
@@ -925,7 +925,7 @@ router.post("/:id/prompt", async (c) => {
     try {
       scheduledAt = parseScheduledAt(sendAt);
     } catch (error) {
-      return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+      return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "invalid sendAt" }, 400);
     }
     const { taskRunId } = await enqueueTask({
       type: "send_message",
@@ -944,12 +944,12 @@ router.post("/:id/prompt", async (c) => {
   try {
     parsedRepeat = validateRepeatSchedule({ cronExpression: repeat.cronExpression, timezone: repeat.timezone });
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+    return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "invalid repeat schedule" }, 400);
   }
 
   const cronJob = await createCronJob({
     userId: user.uuid,
-    title: body.title?.trim() || "Scheduled prompt",
+    title: body.title?.trim() || "scheduled prompt",
     taskType: "send_message",
     payload: taskData,
     schedule: { pattern: parsedRepeat.cronExpression, timezone: parsedRepeat.timezone },

@@ -32,7 +32,7 @@ router.post("/:spaceId/fs-changed", async (c) => {
       },
     }),
     enqueueFsCdnWarmForChanges(spaceId, payload.changes).catch((error) => {
-      console.error("[SpaceFS] Failed to enqueue internal CDN prewarm:", error);
+      console.error("[SpaceFS] failed to enqueue internal CDN prewarm:", error);
     }),
   ]);
 

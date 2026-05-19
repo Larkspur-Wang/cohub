@@ -112,7 +112,7 @@ router.post("/:id/status", async (c) => {
         lastHeartbeatAt: new Date(),
       });
     } catch (error) {
-      console.warn("[SandboxStatus] Failed to persist sandbox meta:", error);
+      console.warn("[SandboxStatus] failed to persist sandbox meta:", error);
     }
   }
 
@@ -211,7 +211,8 @@ router.post("/:id/sandbox/recover", async (c) => {
     });
     return c.json(result);
   } catch (error) {
-    return c.json({ ok: false, status: "error", message: error instanceof Error ? error.message : String(error) }, 500);
+    console.error("[sandbox] failed to recover sandbox", error);
+    return c.json({ ok: false, status: "error", message: "failed to recover sandbox" }, 500);
   }
 });
 
@@ -422,7 +423,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
     });
     return c.json({ ok: true, ...result });
   } catch (error) {
-    if (error instanceof SandboxNotReadyError) return c.json({ message: error.message }, 409);
+    if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
     throw error as Error;
   }
 });

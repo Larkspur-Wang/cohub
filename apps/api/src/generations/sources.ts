@@ -17,7 +17,7 @@ export async function resolveSourceAsUrlOrDataUri(source: GenerationSource, user
       try {
         const file = await readSpaceFile(source.space_id, source.path);
         if (!("content" in file)) {
-          throw new GenerationHttpError(202, "space_file_preparing", "Space file is being prepared. Please retry shortly.");
+          throw new GenerationHttpError(503, "space_file_preparing", "space file is preparing");
         }
         if (file.delivery === "url" && file.url) return file.url;
         const mediaType = file.mimeType ?? "application/octet-stream";
@@ -25,7 +25,7 @@ export async function resolveSourceAsUrlOrDataUri(source: GenerationSource, user
         return `data:${mediaType};base64,${data}`;
       } catch (error) {
         if (error instanceof SpaceFsError) {
-          throw new GenerationHttpError(error.status, error.code, error.message);
+          throw new GenerationHttpError(error.status, error.code, error.message.toLowerCase());
         }
         throw error;
       }

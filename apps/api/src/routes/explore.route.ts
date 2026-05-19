@@ -194,7 +194,8 @@ router.get("/spaces", async (c) => {
 
     return c.json({ spaces: items });
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "Failed to load explore spaces" }, 502);
+    console.error("[explore] failed to load spaces", error);
+    return c.json({ message: "failed to load explore spaces" }, 502);
   }
 });
 

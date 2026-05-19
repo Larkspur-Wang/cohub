@@ -68,7 +68,7 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
     : typeof agentMeta?.leafEntryId === "string"
       ? agentMeta.leafEntryId
       : null;
-  if (!anchorEntryId) return c.json({ message: "Cannot fork this turn because its session checkpoint is missing." }, 400);
+  if (!anchorEntryId) return c.json({ message: "session checkpoint missing" }, 400);
 
   try {
     const { session: childSession, fork } = await createSessionFork({
@@ -91,11 +91,11 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
       });
     } catch (enqueueError) {
       console.error("[SessionFork] failed to enqueue agent fork", enqueueError);
-      return c.json({ message: enqueueError instanceof Error ? enqueueError.message : "failed to prepare fork session" }, 503);
+      return c.json({ message: "failed to prepare fork session" }, 503);
     }
     return c.json({ session: childSession, fork });
   } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "failed to fork session" }, 400);
+    return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "failed to fork session" }, 400);
   }
 });
 
@@ -292,8 +292,8 @@ router.post("/:id/turns/:turnId/signed-urls", async (c) => {
   let urls: Awaited<ReturnType<typeof createSignedTurnUrls>>;
   try {
     urls = await createSignedTurnUrls({ spaceId: session.spaceId, sessionId: session.id, turnId, objectKeys });
-  } catch (error) {
-    return c.json({ message: error instanceof Error ? error.message : "invalid object key" }, 400);
+  } catch {
+    return c.json({ message: "invalid object key" }, 400);
   }
   return c.json({ urls });
 });
@@ -418,7 +418,7 @@ router.post("/:id/messages", async (c) => {
   }>().catch(() => null);
 
   if (!validatePromptContentBlocks(body?.content)) {
-    return c.json({ message: "content is required and must be a non-empty ContentBlock array" }, 400);
+    return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
   }
 
   try {

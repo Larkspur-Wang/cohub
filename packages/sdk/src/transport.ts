@@ -13,8 +13,15 @@ const responseBodyForError = async (response: Response) => {
     : await response.text().catch(() => response.statusText);
 };
 
-const messageFromErrorBody = (body: unknown, fallback: string) =>
-  typeof body === "string" ? body : JSON.stringify(body ?? null) || fallback;
+const messageFromErrorBody = (body: unknown, fallback: string) => {
+  if (typeof body === "string") return body.trim() || fallback;
+  if (body && typeof body === "object") {
+    const errorBody = body as { message?: unknown; error?: { message?: unknown } };
+    if (typeof errorBody.message === "string" && errorBody.message.trim()) return errorBody.message;
+    if (typeof errorBody.error?.message === "string" && errorBody.error.message.trim()) return errorBody.error.message;
+  }
+  return fallback;
+};
 
 export type RawHttpResponse = {
   response: Response;

@@ -75,7 +75,7 @@ router.get("/", async (c) => {
       .orderBy(desc(schema.tokenUsageStatsHourly.bucketStartAt));
   } catch (error) {
     console.error("[usage] DB query failed", error);
-    return c.json({ message: "Failed to load usage data" }, 500);
+    return c.json({ message: "failed to load usage data" }, 500);
   }
 
   // Aggregate by hour (in case there are multiple model/provider rows per hour)
