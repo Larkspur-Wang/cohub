@@ -21,6 +21,8 @@ body {
 	background-color: var(--bg-primary);
 	color: var(--text-primary);
 	font-family: var(--font-sans);
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
 	transition:
 		background-color 0.2s ease,
 		color 0.2s ease;
@@ -104,8 +106,40 @@ body.drawer-open {
 }
 
 /* ============================================================
-   Markdown — shared renderer for chat and document previews
+   iOS / touch-device form controls
+   Keep text inputs at 16px on coarse pointers to prevent Safari's
+   automatic focus zoom while preserving the compact desktop scale.
    ============================================================ */
+@media (hover: none) and (pointer: coarse) {
+	:where(
+		input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
+			[type='file']
+		):not([type='submit']):not([type='button']):not([type='reset']),
+		textarea,
+		select,
+		[contenteditable='true'],
+		[contenteditable='']
+	) {
+		font-size: 16px;
+	}
+
+	:where(button, input, select, textarea, [role='button']) {
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	:where(
+		input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
+			[type='file']
+		):not([type='submit']):not([type='button']):not([type='reset']),
+		textarea,
+		select,
+		button
+	) {
+		min-height: 44px;
+	}
+}
+
 .markdown-content {
 	color: var(--text-primary);
 	font-size: 14px;
