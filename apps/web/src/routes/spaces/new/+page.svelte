@@ -158,8 +158,8 @@ async function handleSubmit(event: SubmitEvent) {
 
 		await goto(`/spaces/${result.space.id}`);
 	} catch (error) {
-		if (error instanceof HttpError && error.status === 409) {
-			submitError = "This channel is already bound to another space.";
+		if (error instanceof HttpError) {
+			submitError = error.message;
 		} else {
 			submitError =
 				error instanceof Error ? error.message : "Failed to create space";
