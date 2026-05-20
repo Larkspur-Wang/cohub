@@ -67,7 +67,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 export function buildSandboxIdleCheckJobId(spaceId: string) {
-  return `sandbox-idle-check:${spaceId}`;
+  return `sandbox-idle-check-${spaceId}`;
 }
 
 export function isSandboxUsableStatus(status: string | null | undefined) {
@@ -171,15 +171,15 @@ const LOCK_RELEASE_SCRIPT = `
 
 export function createSandboxLifecycleController(input: {
   db: ControllerDb;
+  infra: SandboxInfraAdapter | null;
   redis?: RedisLike | null;
-  infra?: SandboxInfraAdapter | null;
   logger?: LoggerLike;
   lockTtlMs?: number;
 }) {
   const db = input.db;
   const logger = input.logger ?? console;
   const lockTtlMs = input.lockTtlMs ?? DEFAULT_LOCK_TTL_MS;
-  const infra = input.infra ?? null;
+  const infra = input.infra;
 
   async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T | { locked: true }> {
     if (!input.redis) return fn();

@@ -37,7 +37,7 @@ const agentTurnQueue = createBullmqQueue<{
   telemetryServiceName: "cohub-api-agent-turns",
 });
 
-const sandboxLifecycle = createSandboxLifecycleController({ db });
+const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
 let defaultSessionDomainServices: ReturnType<typeof createSessionServices> | null = null;
 

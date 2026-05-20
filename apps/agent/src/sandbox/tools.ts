@@ -49,7 +49,7 @@ import { classifySandboxInfrastructureError, type SandboxInfrastructureError } f
 import { logger } from "../logger.js";
 import { db } from "../db.js";
 
-const sandboxLifecycle = createSandboxLifecycleController({ db });
+const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
 function getCurrentTraceContext() {
   const ctx = getCurrentToolExecutionContext();

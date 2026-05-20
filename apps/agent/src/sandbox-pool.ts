@@ -15,7 +15,7 @@ const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || nul
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 const IDLE_TTL_MS = Number(process.env.AGENT_SANDBOX_IDLE_TTL_MS ?? 30 * 60_000);
 const MAX_CONNECTIONS = Number(process.env.AGENT_SANDBOX_MAX_CONNECTIONS_PER_WORKER ?? 100);
-const sandboxLifecycle = createSandboxLifecycleController({ db });
+const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
 type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
 
