@@ -1151,7 +1151,7 @@ $effect(() => {
                   {@const insertReference = getPinnedInsertReference(mark)}
                   <button
                     type="button"
-                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 {insertReference ? 'pr-14' : 'pr-8'} mx-[-2px] rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-4 {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} mx-[-2px] rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                     onclick={() => void handleNavigateToPinned(mark)}
                     title={mark.resource?.subtitle ?? mark.resourceRef}
                     aria-current={isActivePinned ? "page" : undefined}
@@ -1492,7 +1492,7 @@ $effect(() => {
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
-                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-2 py-1.5 pr-8 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-2 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
                     >
                       <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
