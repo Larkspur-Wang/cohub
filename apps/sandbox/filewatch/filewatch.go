@@ -31,6 +31,7 @@ type Handler func(Batch)
 const (
 	debounceWindow = 250 * time.Millisecond
 	maxBatchSize   = 500
+	repairInterval = 5 * time.Minute
 )
 
 var defaultIgnore = []string{
@@ -150,7 +151,7 @@ func (w *Watcher) loop() {
 }
 
 func (w *Watcher) repairLoop() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(repairInterval)
 	defer ticker.Stop()
 	for {
 		select {
