@@ -9,6 +9,7 @@ import type {
 	SpaceModListItem,
 	SpaceRecord,
 	SpaceRole,
+	SpaceSandboxAutoDestroyPolicy,
 } from "@neta-art/cohub";
 import {
 	ArrowLeft,
@@ -100,6 +101,11 @@ let copiedInviteTimer: ReturnType<typeof setTimeout> | null = null;
 let recoveringSandbox = $state(false);
 let sandboxRecoveryMessage = $state("");
 let sandboxRecoveryError = $state("");
+let sandboxAutoDestroyMode = $state<"idle" | "never">("idle");
+let sandboxIdleTtlSeconds = $state(48 * 60 * 60);
+let savingSandboxConfig = $state(false);
+let sandboxConfigMessage = $state("");
+let sandboxConfigError = $state("");
 
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
@@ -116,6 +122,55 @@ function getPictureUrl(record: SpaceRecord | null): string {
 		return "";
 	const raw = (profile as Record<string, unknown>).pictureUrl;
 	return typeof raw === "string" ? raw : "";
+}
+
+function getSpaceAutoDestroyPolicy(
+	record: SpaceRecord | null,
+): SpaceSandboxAutoDestroyPolicy {
+	const fallback = { mode: "idle" as const, ttlSeconds: 48 * 60 * 60 };
+	const policy = record?.meta?.config?.sandbox?.autoDestroy;
+	if (!policy) return fallback;
+	if (policy.mode === "never") return { mode: "never" };
+	if (policy.mode === "idle" && Number.isInteger(policy.ttlSeconds))
+		return policy;
+	return fallback;
+}
+
+function applySandboxConfigFromSpace(record: SpaceRecord | null) {
+	const policy = getSpaceAutoDestroyPolicy(record);
+	sandboxAutoDestroyMode = policy.mode;
+	sandboxIdleTtlSeconds =
+		policy.mode === "idle" ? policy.ttlSeconds : 48 * 60 * 60;
+}
+
+function formatTtl(seconds: number): string {
+	if (seconds % 86400 === 0) return `${seconds / 86400}d`;
+	if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+	if (seconds % 60 === 0) return `${seconds / 60}m`;
+	return `${seconds}s`;
+}
+
+async function saveSandboxConfig() {
+	savingSandboxConfig = true;
+	sandboxConfigMessage = "";
+	sandboxConfigError = "";
+	try {
+		const autoDestroy: SpaceSandboxAutoDestroyPolicy =
+			sandboxAutoDestroyMode === "never"
+				? { mode: "never" }
+				: { mode: "idle", ttlSeconds: Number(sandboxIdleTtlSeconds) };
+		const result = await sdk
+			.space(spaceId)
+			.updateConfig({ sandbox: { autoDestroy } });
+		space = result.space;
+		applySandboxConfigFromSpace(result.space);
+		sandboxConfigMessage = "Sandbox auto-destroy policy saved.";
+	} catch (err) {
+		sandboxConfigError =
+			err instanceof Error ? err.message : "Failed to save sandbox config";
+	} finally {
+		savingSandboxConfig = false;
+	}
 }
 
 function getSandboxMetaValue(key: string): string {
@@ -329,6 +384,7 @@ async function loadPage() {
 		invitations = invitationResult.items;
 		description = spaceResult.description ?? "";
 		pictureUrl = getPictureUrl(spaceResult);
+		applySandboxConfigFromSpace(spaceResult);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to load settings";
 	} finally {
@@ -693,6 +749,30 @@ $effect(() => {
 					<input bind:value={pictureUrl} placeholder="Picture URL" class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 					<textarea bind:value={description} rows="4" placeholder="Description" class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none resize-y"></textarea>
 					<div class="flex justify-end"><button type="button" onclick={saveProfile} disabled={saving} class="px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium disabled:opacity-50">Save profile</button></div>
+				</section>
+
+				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-4">
+					<div class="flex items-center justify-between gap-3">
+						<div class="flex items-center gap-2"><Settings class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Sandbox lifecycle</div><div class="text-[15px] font-medium text-text-primary">Auto-destroy policy</div></div></div>
+						<div class="text-[12px] text-text-tertiary">Current: {sandboxAutoDestroyMode === "never" ? "Never" : formatTtl(sandboxIdleTtlSeconds)}</div>
+					</div>
+					<div class="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-3">
+						<select bind:value={sandboxAutoDestroyMode} class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none">
+							<option value="idle">Destroy when idle</option>
+							<option value="never">Never destroy</option>
+						</select>
+						{#if sandboxAutoDestroyMode === "idle"}
+							<div class="flex items-center gap-2">
+								<input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary focus:border-brand/40 focus:outline-none" />
+								<span class="text-[12px] text-text-tertiary whitespace-nowrap">seconds · max 30d</span>
+							</div>
+						{:else}
+							<div class="px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-tertiary">Sandbox will stay alive until manually stopped or infrastructure replaces it.</div>
+						{/if}
+					</div>
+					{#if sandboxConfigError}<div class="text-[12px] text-error-soft">{sandboxConfigError}</div>{/if}
+					{#if sandboxConfigMessage}<div class="text-[12px] text-success-soft">{sandboxConfigMessage}</div>{/if}
+					<div class="flex justify-end"><button type="button" onclick={saveSandboxConfig} disabled={savingSandboxConfig} class="px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save lifecycle"}</button></div>
 				</section>
 
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">

@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { spaceSandboxes } from "@cohub/db";
+import { spaceSandboxes, spaces } from "@cohub/db";
 import type { RpcMethod, SandboxHeartbeat, SandboxStatus } from "@cohub/protocol/sandbox";
 
 export const SANDBOX_LIFECYCLE_STATUSES = [
@@ -13,7 +13,6 @@ export const SANDBOX_LIFECYCLE_STATUSES = [
   "error",
   "terminated",
 ] as const;
-
 export type SandboxLifecycleStatus = (typeof SANDBOX_LIFECYCLE_STATUSES)[number];
 
 export const SANDBOX_RUNTIME_STATUSES = [
@@ -23,7 +22,6 @@ export const SANDBOX_RUNTIME_STATUSES = [
   "degraded",
   "unhealthy",
 ] as const;
-
 export type SandboxRuntimeStatus = (typeof SANDBOX_RUNTIME_STATUSES)[number];
 
 export const SANDBOX_STOP_REASONS = ["idle", "manual", "replaced"] as const;
@@ -41,7 +39,6 @@ export type RedisLike = {
 export type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
 type SpaceSandboxRow = typeof spaceSandboxes.$inferSelect;
-
 type ControllerDb = PostgresJsDatabase<Record<string, unknown>>;
 
 export type SandboxInfraAdapter = {
@@ -53,12 +50,25 @@ export type SandboxInfraAdapter = {
 export type SandboxLifecycleController = ReturnType<typeof createSandboxLifecycleController>;
 
 const DEFAULT_LOCK_TTL_MS = 10 * 60_000;
-const DEFAULT_IDLE_TTL_MS = 48 * 60 * 60_000;
-const DEFAULT_REAPER_LIMIT = 50;
-
-const RUNNING_STATUSES = ["ready", "running"] as const;
-
 const nowDate = () => new Date();
+
+export const DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS = 48 * 60 * 60;
+export const MIN_SPACE_SANDBOX_IDLE_TTL_SECONDS = 60;
+export const MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+export type SpaceSandboxAutoDestroyPolicy =
+  | { mode: "idle"; ttlSeconds: number }
+  | { mode: "never" };
+
+export const SANDBOX_IDLE_CHECK_JOB = "sandbox.idle_check";
+export type SandboxIdleCheckJobData = { spaceId: string };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export function buildSandboxIdleCheckJobId(spaceId: string) {
+  return `sandbox-idle-check:${spaceId}`;
+}
 
 export function isSandboxUsableStatus(status: string | null | undefined) {
   return status === "ready" || status === "running";
@@ -85,17 +95,56 @@ export function normalizeSandboxLifecycleStatus(status: SandboxStatus | string |
   return "pending";
 }
 
+export function normalizeSpaceSandboxAutoDestroyPolicy(value: unknown): SpaceSandboxAutoDestroyPolicy {
+  if (!isRecord(value) || typeof value.mode !== "string") {
+    throw new Error("sandbox autoDestroy must be an object with mode");
+  }
+  if (value.mode === "never") return { mode: "never" };
+  if (value.mode !== "idle") {
+    throw new Error("sandbox autoDestroy.mode must be one of: idle, never");
+  }
+  const ttlSeconds = Number((value as { ttlSeconds?: unknown }).ttlSeconds);
+  if (!Number.isInteger(ttlSeconds)) {
+    throw new Error("sandbox autoDestroy.ttlSeconds must be an integer number of seconds");
+  }
+  if (ttlSeconds < MIN_SPACE_SANDBOX_IDLE_TTL_SECONDS || ttlSeconds > MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS) {
+    throw new Error(`sandbox autoDestroy.ttlSeconds must be between ${MIN_SPACE_SANDBOX_IDLE_TTL_SECONDS} and ${MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS}`);
+  }
+  return { mode: "idle", ttlSeconds };
+}
+
+export function resolveSpaceSandboxAutoDestroyPolicy(meta: unknown): SpaceSandboxAutoDestroyPolicy {
+  if (!isRecord(meta)) return { mode: "idle", ttlSeconds: DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS };
+  const config = isRecord(meta.config) ? meta.config : null;
+  const sandbox = isRecord(config?.sandbox) ? config.sandbox : null;
+  const autoDestroy = sandbox?.autoDestroy;
+  if (!autoDestroy) return { mode: "idle", ttlSeconds: DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS };
+  try {
+    return normalizeSpaceSandboxAutoDestroyPolicy(autoDestroy);
+  } catch {
+    return { mode: "idle", ttlSeconds: DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS };
+  }
+}
+
+export function getSpaceSandboxAutoDestroyDeadline(baseAt: Date, policy: SpaceSandboxAutoDestroyPolicy): Date | null {
+  if (policy.mode === "never") return null;
+  return new Date(baseAt.getTime() + policy.ttlSeconds * 1000);
+}
+
 export function getIdleBaseAt(row: Pick<SpaceSandboxRow, "lastActivityAt" | "lastHeartbeatAt" | "createdAt">) {
   return row.lastActivityAt ?? row.lastHeartbeatAt ?? row.createdAt ?? null;
 }
 
-export function isIdleCandidate(row: Pick<SpaceSandboxRow, "status" | "lastActivityAt" | "lastHeartbeatAt" | "createdAt">, input: { now?: Date; idleTtlMs?: number } = {}) {
+export function isIdleCandidate(
+  row: Pick<SpaceSandboxRow, "status" | "lastActivityAt" | "lastHeartbeatAt" | "createdAt">,
+  input: { now?: Date; idleTtlSeconds?: number } = {},
+) {
   if (!isSandboxUsableStatus(row.status)) return false;
   const baseAt = getIdleBaseAt(row);
   if (!baseAt) return false;
   const now = input.now ?? nowDate();
-  const idleTtlMs = input.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
-  return now.getTime() - baseAt.getTime() >= idleTtlMs;
+  const ttlSeconds = input.idleTtlSeconds ?? DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS;
+  return now.getTime() - baseAt.getTime() >= ttlSeconds * 1000;
 }
 
 function toReportMeta(heartbeat: SandboxHeartbeat) {
@@ -149,18 +198,14 @@ export function createSandboxLifecycleController(input: {
     return sandbox ?? null;
   }
 
-  async function recordActivity(input: {
-    spaceId: string;
-    reason: SandboxActivityReason;
-    rpcMethod?: RpcMethod | string | null;
-    at?: Date;
-  }) {
+  async function getSpace(spaceId: string) {
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+    return space ?? null;
+  }
+
+  async function recordActivity(input: { spaceId: string; reason: SandboxActivityReason; rpcMethod?: RpcMethod | string | null; at?: Date }) {
     const at = input.at ?? nowDate();
-    const patch = {
-      lastActivityReason: input.reason,
-      lastActivityRpcMethod: input.rpcMethod ?? null,
-      lastActivityRecordedAt: at.toISOString(),
-    };
+    const patch = { lastActivityReason: input.reason, lastActivityRpcMethod: input.rpcMethod ?? null, lastActivityRecordedAt: at.toISOString() };
     const [sandbox] = await db.update(spaceSandboxes).set({
       lastActivityAt: at,
       meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
@@ -177,12 +222,7 @@ export function createSandboxLifecycleController(input: {
     const reportedImageVersion = heartbeat.metadata?.imageVersion?.trim() || null;
     const existing = await getSandbox(input.spaceId);
     const reportMeta = toReportMeta(heartbeat);
-    const shouldRefreshReport = Boolean(
-      reportedImageVersion ||
-      heartbeat.capabilities ||
-      heartbeat.filesystem ||
-      heartbeat.metadata,
-    );
+    const shouldRefreshReport = Boolean(reportedImageVersion || heartbeat.capabilities || heartbeat.filesystem || heartbeat.metadata);
 
     const [sandbox] = await db.update(spaceSandboxes).set({
       status: lifecycleStatus === "running" ? "running" : lifecycleStatus,
@@ -259,53 +299,55 @@ export function createSandboxLifecycleController(input: {
     return "locked" in result ? { ok: true as const, status: sandbox.status, skipped: true, locked: true } : result;
   }
 
-  async function reapIdleSandboxes(input: { idleTtlMs?: number; limit?: number; now?: Date } = {}) {
-    const idleTtlMs = input.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
+  async function checkIdleSandbox(input: { spaceId: string; now?: Date }) {
     const now = input.now ?? nowDate();
-    const cutoff = new Date(now.getTime() - idleTtlMs);
-    const limit = input.limit ?? DEFAULT_REAPER_LIMIT;
-    const candidates = await db.select().from(spaceSandboxes).where(and(
-      inArray(spaceSandboxes.status, [...RUNNING_STATUSES]),
-      or(
-        lt(spaceSandboxes.lastActivityAt, cutoff),
-        and(isNull(spaceSandboxes.lastActivityAt), lt(spaceSandboxes.lastHeartbeatAt, cutoff)),
-        and(isNull(spaceSandboxes.lastActivityAt), isNull(spaceSandboxes.lastHeartbeatAt), lt(spaceSandboxes.createdAt, cutoff)),
-      ),
-    )).orderBy(asc(spaceSandboxes.lastActivityAt), asc(spaceSandboxes.createdAt)).limit(limit);
+    const [space, sandbox] = await Promise.all([getSpace(input.spaceId), getSandbox(input.spaceId)]);
+    if (!space) return { ok: false as const, skipped: true, reason: "space_not_found" };
+    if (!sandbox) return { ok: true as const, skipped: true, reason: "sandbox_not_found" };
+    if (!isSandboxUsableStatus(sandbox.status)) return { ok: true as const, skipped: true, reason: "not_usable" };
 
+    const policy = resolveSpaceSandboxAutoDestroyPolicy(space.meta);
+    if (policy.mode === "never") return { ok: true as const, skipped: true, reason: "never" };
+
+    const baseAt = getIdleBaseAt(sandbox);
+    if (!baseAt) return { ok: true as const, skipped: true, reason: "no_base_time" };
+
+    const dueAt = getSpaceSandboxAutoDestroyDeadline(baseAt, policy);
+    if (!dueAt || now.getTime() < dueAt.getTime()) {
+      return { ok: true as const, skipped: true, reason: "not_due", dueAt: dueAt?.toISOString() ?? null };
+    }
+
+    const stopped = await stopSandbox({ spaceId: input.spaceId, reason: "idle", podName: sandbox.podName ?? null, at: now });
+    return { ...stopped, dueAt: dueAt.toISOString() };
+  }
+
+  async function reapIdleSandboxes(input: { limit?: number; now?: Date } = {}) {
+    const now = input.now ?? nowDate();
+    const limit = input.limit ?? 50;
+    const candidates = await db.select({ spaceId: spaceSandboxes.spaceId }).from(spaceSandboxes).where(inArray(spaceSandboxes.status, ["ready", "running"])).orderBy(asc(spaceSandboxes.lastActivityAt), asc(spaceSandboxes.createdAt)).limit(limit);
     const stopped: Array<{ spaceId: string; status: string }> = [];
     const skipped: Array<{ spaceId: string; status: string; reason: string }> = [];
     const failed: Array<{ spaceId: string; error: string }> = [];
 
-    for (const sandbox of candidates) {
-      if (!isIdleCandidate(sandbox, { now, idleTtlMs })) {
-        skipped.push({ spaceId: sandbox.spaceId, status: sandbox.status, reason: "not_idle" });
-        continue;
-      }
+    for (const candidate of candidates) {
       try {
-        const result = await stopSandbox({ spaceId: sandbox.spaceId, reason: "idle", podName: sandbox.podName, at: now });
-        if (result.ok) stopped.push({ spaceId: sandbox.spaceId, status: result.status ?? "unknown" });
+        const result = await checkIdleSandbox({ spaceId: candidate.spaceId, now });
+        if (result.ok && !("skipped" in result)) {
+          stopped.push({ spaceId: candidate.spaceId, status: result.status ?? "unknown" });
+        } else {
+          const reason = "reason" in result ? String(result.reason) : "locked" in result ? "locked" : "unknown";
+          const status = "status" in result ? String(result.status ?? "unknown") : "unknown";
+          skipped.push({ spaceId: candidate.spaceId, status, reason });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        failed.push({ spaceId: sandbox.spaceId, error: message });
-        logger.error(`[SandboxReaper] failed to stop idle sandbox spaceId=${sandbox.spaceId}: ${message}`);
-        await db.update(spaceSandboxes).set({
-          status: "error",
-          meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ lastIdleStopError: message, lastIdleStopFailedAt: new Date().toISOString() })}::jsonb`,
-          updatedAt: new Date(),
-        }).where(eq(spaceSandboxes.spaceId, sandbox.spaceId)).catch(() => undefined);
+        failed.push({ spaceId: candidate.spaceId, error: message });
+        logger.error(`[SandboxReaper] failed to stop idle sandbox spaceId=${candidate.spaceId}: ${message}`);
       }
     }
 
     return { scanned: candidates.length, stopped, skipped, failed };
   }
 
-  return {
-    getSandbox,
-    recordActivity,
-    recordHeartbeat,
-    ensureRunning,
-    stopSandbox,
-    reapIdleSandboxes,
-  };
+  return { getSandbox, recordActivity, recordHeartbeat, ensureRunning, stopSandbox, checkIdleSandbox, reapIdleSandboxes };
 }

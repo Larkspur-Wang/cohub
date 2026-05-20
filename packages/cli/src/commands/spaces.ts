@@ -49,6 +49,27 @@ type UploadOptions = {
   json?: boolean;
 };
 
+const parseAutoDestroy = (opts: { autoDestroy?: string; idleTtl?: string }) => {
+  const mode = opts.autoDestroy ?? (opts.idleTtl ? "idle" : undefined);
+  if (!mode) return undefined;
+  if (mode === "never") return { mode: "never" as const };
+  if (mode !== "idle") return error("Invalid auto destroy mode", "Use --auto-destroy idle or --auto-destroy never");
+  const ttlSeconds = Number.parseInt(opts.idleTtl ?? "172800", 10);
+  if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 30 * 24 * 60 * 60) {
+    return error("Invalid idle TTL", "--idle-ttl must be an integer between 60 and 2592000 seconds");
+  }
+  return { mode: "idle" as const, ttlSeconds };
+};
+
+const formatAutoDestroy = (policy: { mode: "idle"; ttlSeconds: number } | { mode: "never" } | undefined) => {
+  if (!policy) return "48h (default)";
+  if (policy.mode === "never") return "never";
+  if (policy.ttlSeconds % 86400 === 0) return `${policy.ttlSeconds / 86400}d`;
+  if (policy.ttlSeconds % 3600 === 0) return `${policy.ttlSeconds / 3600}h`;
+  if (policy.ttlSeconds % 60 === 0) return `${policy.ttlSeconds / 60}m`;
+  return `${policy.ttlSeconds}s`;
+};
+
 const slashPath = (value: string) => value.split(sep).join("/");
 
 const walkUploadPath = async (input: string, root: string, prefix = ""): Promise<UploadFile[]> => {
@@ -257,13 +278,17 @@ export function registerSpaces(program: Command): void {
     .description("Create a new space")
     .option("-n, --name <name>", "Space name")
     .option("-d, --description <desc>", "Space description")
+    .option("--auto-destroy <mode>", "Sandbox auto destroy mode: idle or never")
+    .option("--idle-ttl <seconds>", "Idle auto destroy TTL in seconds, max 2592000 (30d)")
     .option("--json", "Output as JSON")
-    .action(async (opts: { name?: string; description?: string; json?: boolean }) => {
+    .action(async (opts: { name?: string; description?: string; autoDestroy?: string; idleTtl?: string; json?: boolean }) => {
       const client = createClient();
       try {
+        const autoDestroy = parseAutoDestroy(opts);
         const result = await client.spaces.create({
           name: opts.name,
           description: opts.description,
+          ...(autoDestroy ? { config: { sandbox: { autoDestroy } } } : {}),
         });
         if (opts.json) return outJson(result);
         ok(`Space created: ${result.space.id}`);
@@ -286,6 +311,34 @@ export function registerSpaces(program: Command): void {
       try {
         await client.space(id).rename(name);
         ok(`Space renamed to "${name}"`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  // ── spaces config ──
+  spacesCmd
+    .command("config <id>")
+    .description("Show or update space configuration")
+    .option("--auto-destroy <mode>", "Sandbox auto destroy mode: idle or never")
+    .option("--idle-ttl <seconds>", "Idle auto destroy TTL in seconds, max 2592000 (30d)")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { autoDestroy?: string; idleTtl?: string; json?: boolean }) => {
+      const client = createClient();
+      try {
+        const autoDestroy = parseAutoDestroy(opts);
+        if (autoDestroy) {
+          const result = await client.space(id).updateConfig({ sandbox: { autoDestroy } });
+          if (opts.json) return outJson(result);
+          ok(`Space config updated — sandbox auto destroy: ${formatAutoDestroy(autoDestroy)}`);
+          return;
+        }
+        const result = await client.space(id).getConfig();
+        if (opts.json) return outJson(result);
+        table([{ key: "sandbox.autoDestroy", value: formatAutoDestroy(result.config.sandbox.autoDestroy) }], [
+          { key: "key", label: "Key" },
+          { key: "value", label: "Value" },
+        ]);
       } catch (e: unknown) {
         handleHttp(e);
       }

@@ -26,8 +26,6 @@ import type {
   SessionTurnSignedUrlsResponse,
   SessionRecord,
   SpaceAccessPolicy,
-  SpaceBootstrapSource,
-  SpaceChannelBindingInput,
   SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
   CreateSpacePromptInput,
@@ -53,6 +51,9 @@ import type {
   SpaceRecord,
   SpaceRole,
   SpaceSessionsResponse,
+  CreateSpaceInput,
+  SpaceConfigInput,
+  SpaceConfigResponse,
 } from "../types.js";
 import { SpaceInvitationsApi } from "./invitations.js";
 
@@ -172,14 +173,7 @@ export class SpacesApi {
   }
 
   create(
-    input?: {
-      name?: string;
-      description?: string;
-      source?: string;
-      extraEnv?: SpaceEnvInput[];
-      channelBindings?: SpaceChannelBindingInput[];
-      bootstrapSource?: SpaceBootstrapSource;
-    },
+    input?: CreateSpaceInput,
     headers?: Record<string, string>,
   ) {
     return this.transport.request<SpaceCreateResponse>("/api/spaces", {
@@ -1187,6 +1181,23 @@ export class SpaceClient {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+      },
+    );
+  }
+
+  getConfig() {
+    return this.transport.request<SpaceConfigResponse>(
+      `/api/spaces/${this.id}/config`,
+    );
+  }
+
+  updateConfig(input: SpaceConfigInput) {
+    return this.transport.request<{ space: SpaceRecord }>(
+      `/api/spaces/${this.id}/config`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       },
     );
   }

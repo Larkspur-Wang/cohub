@@ -13,6 +13,7 @@ import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
+import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import { getSpaceSandboxBySpaceId, recoverSpaceSandbox, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
@@ -57,6 +58,84 @@ type SpacePromptInput = {
   schedule?: SpacePromptSchedule | null;
 };
 
+type SpaceSandboxAutoDestroyPolicy =
+  | { mode: "idle"; ttlSeconds: number }
+  | { mode: "never" };
+
+type SpaceConfigInput = {
+  sandbox?: {
+    autoDestroy?: SpaceSandboxAutoDestroyPolicy;
+  };
+};
+
+const DEFAULT_SPACE_SANDBOX_AUTO_DESTROY: SpaceSandboxAutoDestroyPolicy = {
+  mode: "idle",
+  ttlSeconds: 48 * 60 * 60,
+};
+
+const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;
+const MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readSpaceConfig = (space: typeof spaces.$inferSelect) => {
+  const meta = isRecord(space.meta) ? space.meta : {};
+  const config = isRecord(meta.config) ? meta.config : {};
+  return { meta, config };
+};
+
+const normalizeSpaceSandboxAutoDestroyPolicy = (value: unknown): SpaceSandboxAutoDestroyPolicy => {
+  if (!isRecord(value) || typeof value.mode !== "string") {
+    throw new Error("sandbox.autoDestroy must be an object with mode");
+  }
+  if (value.mode === "never") return { mode: "never" };
+  if (value.mode !== "idle") {
+    throw new Error("sandbox.autoDestroy.mode must be idle or never");
+  }
+  const ttlSeconds = Number((value as { ttlSeconds?: unknown }).ttlSeconds);
+  if (!Number.isInteger(ttlSeconds)) {
+    throw new Error("sandbox.autoDestroy.ttlSeconds must be an integer number of seconds");
+  }
+  if (ttlSeconds < MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS || ttlSeconds > MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS) {
+    throw new Error(`sandbox.autoDestroy.ttlSeconds must be between ${MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS} and ${MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS}`);
+  }
+  return { mode: "idle", ttlSeconds };
+};
+
+const getSpaceSandboxAutoDestroyPolicy = (space: typeof spaces.$inferSelect) => {
+  const { config } = readSpaceConfig(space);
+  const sandbox = isRecord(config.sandbox) ? config.sandbox : {};
+  const autoDestroy = sandbox.autoDestroy;
+  if (!autoDestroy) return DEFAULT_SPACE_SANDBOX_AUTO_DESTROY;
+  try {
+    return normalizeSpaceSandboxAutoDestroyPolicy(autoDestroy);
+  } catch {
+    return DEFAULT_SPACE_SANDBOX_AUTO_DESTROY;
+  }
+};
+
+const normalizeSpaceConfigInput = (input?: SpaceConfigInput | null): SpaceConfigInput => {
+  const policy = input?.sandbox?.autoDestroy;
+  if (!policy) return { sandbox: { autoDestroy: DEFAULT_SPACE_SANDBOX_AUTO_DESTROY } };
+  return { sandbox: { autoDestroy: normalizeSpaceSandboxAutoDestroyPolicy(policy) } };
+};
+
+const mergeSpaceConfig = (space: typeof spaces.$inferSelect, patch: SpaceConfigInput) => {
+  const { meta, config } = readSpaceConfig(space);
+  const nextSandbox = {
+    ...(isRecord(config.sandbox) ? config.sandbox : {}),
+    ...(patch.sandbox ? { autoDestroy: patch.sandbox.autoDestroy } : {}),
+  };
+  const nextConfig = {
+    ...config,
+    sandbox: nextSandbox,
+  };
+  return {
+    ...meta,
+    config: nextConfig,
+  };
+};
 const hasExplicitTimezone = (value: string) => /(?:Z|[+-]\d{2}:\d{2})$/i.test(value.trim());
 
 function validatePromptContentBlocks(content: unknown): content is ContentBlock[] {
@@ -194,6 +273,7 @@ router.post("/", async (c) => {
       | { type: "git_repo"; repoUrl?: string; ref?: string | null }
       | { type: "checkpoint"; checkpointId?: string };
     gitHubToken?: string;
+    config?: SpaceConfigInput;
   };
 
   const name = body.name?.trim();
@@ -209,6 +289,8 @@ router.post("/", async (c) => {
   const normalizedExtraEnv = normalizeSpaceEnv(body.extraEnv);
   const envValidationError = validateSpaceEnvForResponse(normalizedExtraEnv);
   if (envValidationError) return c.json(envValidationError, 400);
+
+  const normalizedConfig = normalizeSpaceConfigInput(body.config ?? null);
 
   const normalizedChannelBindings = Array.isArray(body.channelBindings)
     ? body.channelBindings
@@ -284,6 +366,13 @@ router.post("/", async (c) => {
       headCheckpointId: null,
       meta: {
         ...(body.meta ?? {}),
+        config: {
+          ...(isRecord(body.meta?.config) ? body.meta.config : {}),
+          sandbox: {
+            ...((isRecord(body.meta?.config) && isRecord((body.meta.config as Record<string, unknown>).sandbox) ? (body.meta.config as Record<string, unknown>).sandbox : {}) as Record<string, unknown>),
+            autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+          },
+        },
         extraEnv: normalizedExtraEnv,
         bootstrap: {
           status: "pending",
@@ -332,6 +421,11 @@ router.post("/", async (c) => {
   }
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
+  void scheduleSandboxAutoDestroy({
+    spaceId: space.id,
+    policy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+    baseAt: space.createdAt ? new Date(space.createdAt) : new Date(),
+  }).catch(console.error);
   void reconcileSpaceSandbox(
     {
       ...getSpaceProvisionParams(user, space, gitAccount),
@@ -786,6 +880,51 @@ router.delete("/:id/env/:name", async (c) => {
 
   await persistSpaceEnv(space, filtered);
   return c.json({ env: filtered });
+});
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+router.get("/:id/config", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  return c.json({
+    config: {
+      sandbox: {
+        autoDestroy: getSpaceSandboxAutoDestroyPolicy(space),
+      },
+    },
+  });
+});
+
+router.patch("/:id/config", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  const body = await c.req.json<{ sandbox?: { autoDestroy?: SpaceSandboxAutoDestroyPolicy } }>().catch(() => null);
+  if (!body) return c.json({ message: "invalid body" }, 400);
+
+  const nextAutoDestroy = body.sandbox?.autoDestroy ? normalizeSpaceSandboxAutoDestroyPolicy(body.sandbox.autoDestroy) : DEFAULT_SPACE_SANDBOX_AUTO_DESTROY;
+  const nextMeta = mergeSpaceConfig(space, { sandbox: { autoDestroy: nextAutoDestroy } });
+
+  const [updated] = await db.update(spaces).set({ meta: nextMeta, updatedAt: new Date() }).where(eq(spaces.id, spaceId)).returning();
+  if (!updated) return c.json({ message: "failed to update space config" }, 500);
+
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+  const baseAt = sandbox?.lastActivityAt ?? sandbox?.lastHeartbeatAt ?? sandbox?.createdAt ?? updated.createdAt ?? new Date();
+  await scheduleSandboxAutoDestroy({ spaceId, policy: nextAutoDestroy, baseAt: baseAt ? new Date(baseAt) : null }).catch(console.error);
+
+  return c.json({ space: updated });
 });
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────

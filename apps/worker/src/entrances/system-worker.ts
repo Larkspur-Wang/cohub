@@ -15,7 +15,6 @@ import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
 import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry.js";
 import { FS_CDN_QUEUE_NAME } from "../system/jobs/fs-cdn-cache/types.js";
-import { SANDBOX_IDLE_REAPER_JOB } from "../system/jobs/sandbox-idle-reaper/types.js";
 
 import "../system/jobs/index.js";
 
@@ -59,20 +58,6 @@ const systemWorker = new Worker(FS_CDN_QUEUE_NAME, processor, {
 });
 
 const systemQueue = new Queue(FS_CDN_QUEUE_NAME, { connection });
-const sandboxIdleReaperIntervalMs = Number(process.env.SANDBOX_IDLE_REAPER_INTERVAL_MS ?? 60 * 60_000);
-await systemQueue.upsertJobScheduler(
-  "sandbox-idle-reaper",
-  { every: sandboxIdleReaperIntervalMs },
-  {
-    name: SANDBOX_IDLE_REAPER_JOB,
-    data: {},
-    opts: {
-      attempts: 1,
-      removeOnComplete: { age: 24 * 3600, count: 200 },
-      removeOnFail: { age: 7 * 24 * 3600, count: 200 },
-    },
-  },
-);
 
 attachWorkerEventLogger(systemWorker, {
   serviceName: "SystemWorker",
@@ -83,7 +68,6 @@ console.log("[SystemWorker] Starting system worker...");
 console.log("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
 console.log("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
 console.log("[SystemWorker] Queue:", FS_CDN_QUEUE_NAME);
-console.log("[SystemWorker] Sandbox idle reaper interval:", sandboxIdleReaperIntervalMs);
 console.log("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
 const shutdown = async (signal: string) => {

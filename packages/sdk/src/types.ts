@@ -184,6 +184,28 @@ export type SessionRecord = ProtocolSessionRecord & {
   totalCost?: string | number | null;
 };
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export type JsonObject = { [key: string]: JsonValue };
+
+export type SpaceSandboxAutoDestroyPolicy =
+  | { mode: "idle"; ttlSeconds: number }
+  | { mode: "never" };
+
+export type SpaceSandboxConfig = {
+  autoDestroy: SpaceSandboxAutoDestroyPolicy;
+};
+
+export type SpaceConfig = {
+  sandbox?: SpaceSandboxConfig;
+};
+
+export type SpaceMeta = JsonObject & {
+  config?: SpaceConfig;
+  extraEnv?: SpaceEnvInput[];
+  publicProfile?: { pictureUrl?: string | null };
+};
+
 export type SpaceGitInfo = {
   giteaHost: string;
   giteaUsername: string;
@@ -199,7 +221,7 @@ export type SpaceRecord = {
   headCheckpointId?: string | null;
   title: string | null;
   status: string | null;
-  meta: Record<string, unknown> | null;
+  meta: SpaceMeta | null;
   createdAt: string;
   updatedAt: string;
   channels?: {
@@ -216,6 +238,26 @@ export type SpaceBootstrapSource =
   | { type: "blank" }
   | { type: "git_repo"; repoUrl?: string; ref?: string | null }
   | { type: "checkpoint"; checkpointId: string };
+
+export type SpaceConfigInput = {
+  sandbox?: {
+    autoDestroy?: SpaceSandboxAutoDestroyPolicy;
+  };
+};
+
+export type CreateSpaceInput = {
+  name?: string;
+  description?: string | null;
+  source?: string;
+  extraEnv?: SpaceEnvInput[];
+  channelBindings?: SpaceChannelBindingInput[];
+  bootstrapSource?: SpaceBootstrapSource;
+  config?: SpaceConfigInput;
+};
+
+export type SpaceConfigResponse = {
+  config: Required<Pick<SpaceConfig, "sandbox">>;
+};
 
 export type SpaceCreateResponse = {
   space: SpaceRecord;

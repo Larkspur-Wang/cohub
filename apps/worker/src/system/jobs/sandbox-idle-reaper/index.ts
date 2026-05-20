@@ -65,7 +65,6 @@ const sandboxLifecycle = createSandboxLifecycleController({
 
 registerSystemJob(SANDBOX_IDLE_REAPER_JOB, async () => {
   const result = await sandboxLifecycle.reapIdleSandboxes({
-    idleTtlMs: getIdleTtlMs(),
     limit: getLimit(),
   });
   console.log("[SandboxReaper] completed", JSON.stringify(result));
