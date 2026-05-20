@@ -44,6 +44,28 @@ function getNewestSequence(turns: SessionTurnRecord[]) {
 	return turns.length > 0 ? (turns.at(-1)?.sequence ?? null) : null;
 }
 
+function getNewestTurn(turns: SessionTurnRecord[]) {
+	return turns.length > 0 ? (turns.at(-1) ?? null) : null;
+}
+
+function parseTurnUpdatedAt(turn: SessionTurnRecord | null | undefined) {
+	if (!turn?.updatedAt) return 0;
+	const value = Date.parse(turn.updatedAt);
+	return Number.isFinite(value) ? value : 0;
+}
+
+function isIncomingTailOlder(input: {
+	currentTurns: SessionTurnRecord[];
+	incomingTurns: SessionTurnRecord[];
+}) {
+	const currentNewest = getNewestTurn(input.currentTurns);
+	const incomingNewest = getNewestTurn(input.incomingTurns);
+	if (!currentNewest || !incomingNewest) return false;
+	if (incomingNewest.sequence < currentNewest.sequence) return true;
+	if (incomingNewest.sequence > currentNewest.sequence) return false;
+	return parseTurnUpdatedAt(incomingNewest) < parseTurnUpdatedAt(currentNewest);
+}
+
 function toSnapshot(
 	record: SessionTurnsCacheRecord,
 	source: CacheSource,
@@ -192,6 +214,17 @@ export const sessionTurnsRepo = {
 		options?: { source?: CacheSource },
 	) {
 		ensureBroadcastSubscription();
+		const current = await readRecord(spaceId, sessionId);
+		if (
+			current &&
+			isIncomingTailOlder({
+				currentTurns: current.record.turns,
+				incomingTurns: response.turns,
+			})
+		) {
+			return toSnapshot(current.record, current.source);
+		}
+
 		const record = await writeRecord(
 			spaceId,
 			sessionId,

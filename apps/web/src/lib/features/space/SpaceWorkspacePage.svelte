@@ -2099,11 +2099,23 @@ async function syncGenerationStateFromTail(
 		(turn) => turn.status === "running" || turn.status === "abort_requested",
 	);
 	if (runningTurn) {
+		const anchorUserMessageId =
+			typeof runningTurn.meta?.userMessageId === "string"
+				? runningTurn.meta.userMessageId
+				: runningTurn.id;
 		sessionGenerationStore.resumePending(sessionId, {
 			spaceId,
 			turnId: runningTurn.id,
-			anchorUserMessageId: runningTurn.id,
+			anchorUserMessageId,
 		});
+		const state = sessionStateById[sessionId];
+		if (!state?.turns.some((turn) => turn.id === runningTurn.id)) {
+			await hydrateTurnOnce({
+				sessionId,
+				turnId: runningTurn.id,
+				reason: "running-recovery",
+			});
+		}
 		await restoreSessionStreamSnapshot(sessionId, { turnId: runningTurn.id });
 		return;
 	}
@@ -3063,6 +3075,7 @@ async function handleSend() {
 	const pendingInput = input;
 	const pendingAttachments = attachments;
 	const optimisticTurnId = crypto.randomUUID();
+	const clientMessageId = crypto.randomUUID();
 	const currentUser = {
 		uuid: authStore.userUuid ?? null,
 		profile: authStore.profile,
@@ -3153,6 +3166,7 @@ async function handleSend() {
 			meta: {
 				optimistic: true,
 				userId: currentUser.uuid,
+				clientMessageId,
 			},
 			authorProfile: currentUser.profile,
 			startedAt: now,
@@ -3180,6 +3194,7 @@ async function handleSend() {
 				content,
 				model: model?.id,
 				provider: model?.provider,
+				clientMessageId,
 			});
 		if (sendResult.turnId) {
 			replaceGenerationTurnId(sessionId, {
@@ -3211,6 +3226,7 @@ async function handleSend() {
 											...(turn.meta ?? {}),
 											optimistic: true,
 											userId: currentUser.uuid,
+											clientMessageId,
 										},
 										authorProfile: currentUser.profile ?? turn.authorProfile,
 									}
