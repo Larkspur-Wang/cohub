@@ -75,9 +75,11 @@ const inputSummary = $derived(summarizeToolInput(tool.name, tool.input));
 $effect(() => {
 	if (
 		(defaultExpanded || (autoExpandWhileRunning && isRunning)) &&
-		!userToggled
+		!userToggled &&
+		!expanded
 	) {
 		expanded = true;
+		void onExpand?.();
 	}
 });
 

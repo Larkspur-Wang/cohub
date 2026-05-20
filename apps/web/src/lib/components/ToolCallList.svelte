@@ -8,6 +8,7 @@ type Props = {
 	content: ContentBlock[];
 	toolCallsFile?: MessageToolCallsFile | null;
 	streaming?: boolean;
+	defaultExpanded?: boolean;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
 	flush?: boolean;
 	onOpenFile?: (path: string) => void;
@@ -17,6 +18,7 @@ const {
 	content,
 	toolCallsFile = null,
 	streaming = false,
+	defaultExpanded = false,
 	onLoadToolCalls,
 	flush = false,
 	onOpenFile,
@@ -60,7 +62,7 @@ function retryLoad() {
 			</button>
 		{/if}
 		{#each tools as tool (tool.id)}
-			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} defaultExpanded={streaming && tool.status === 'running'} autoExpandWhileRunning={streaming} onExpand={ensureLoaded} {onOpenFile} />
+			<ToolCallItem {tool} loading={loading && requestedLoad && !effectiveFile} needsDetails={Boolean(onLoadToolCalls) && !effectiveFile} defaultExpanded={defaultExpanded || (streaming && tool.status === 'running')} autoExpandWhileRunning={streaming} onExpand={ensureLoaded} {onOpenFile} />
 		{/each}
 	</div>
 {/if}

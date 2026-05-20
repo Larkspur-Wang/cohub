@@ -94,6 +94,13 @@ const assistantErrorMessage = $derived(
 
 const isUserMessage = $derived(message.role === "user");
 
+const defaultExpandToolCalls = $derived(
+	message.role === "assistant" &&
+		message.meta?.messageKind === "assistant_final" &&
+		message.meta?.streaming !== true &&
+		(message.content ?? []).some((block) => block.type === "tool_use"),
+);
+
 const hasForkCheckpoint = $derived(
 	Boolean(
 		message.meta?.turn &&
@@ -328,6 +335,7 @@ function handleCopy() {
         {thinkingExpanded}
         {isStreaming}
         {showToolCalls}
+        defaultExpandToolCalls={defaultExpandToolCalls}
         onToggleThinking={toggleThinking}
         onMarkdownSegmentRendered={handleMarkdownSegmentRendered}
         onMarkdownSegmentStart={handleMarkdownSegmentStart}

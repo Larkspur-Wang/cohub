@@ -23,6 +23,7 @@ type Props = {
 	thinkingExpanded: boolean;
 	isStreaming?: boolean;
 	showToolCalls?: boolean;
+	defaultExpandToolCalls?: boolean;
 	onToggleThinking?: () => void;
 	onMarkdownSegmentRendered?: () => void;
 	onMarkdownSegmentStart?: () => void;
@@ -42,6 +43,7 @@ const {
 	thinkingExpanded,
 	isStreaming = false,
 	showToolCalls = true,
+	defaultExpandToolCalls = false,
 	onToggleThinking,
 	onMarkdownSegmentRendered,
 	onMarkdownSegmentStart,
@@ -205,7 +207,7 @@ const segments = $derived.by(() => {
 			{:else if segment.type === 'image'}
 				<AttachmentBlocks blocks={segment.blocks} />
 			{:else if segment.type === 'tool' && showToolCalls}
-				<ToolCallList content={segment.blocks} streaming={isStreaming} {onLoadToolCalls} flush {onOpenFile} />
+				<ToolCallList content={segment.blocks} streaming={isStreaming} defaultExpanded={defaultExpandToolCalls} {onLoadToolCalls} flush {onOpenFile} />
 			{/if}
 		</div>
 	{/each}
