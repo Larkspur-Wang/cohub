@@ -17,6 +17,7 @@ export {
   createReadTool,
   createWriteTool,
   type BashOperations,
+  type BashExecutionResult,
   type EditOperations,
   type FindOperations,
   type GrepToolDetails,

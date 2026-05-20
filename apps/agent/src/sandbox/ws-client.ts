@@ -15,6 +15,7 @@ import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
 import { logger } from "../logger.js";
+import { SandboxRpcError } from "./rpc-error.js";
 
 const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
@@ -139,8 +140,12 @@ export class SandboxConnection {
       const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
       this.clearPending(requestId, pending, message.opId);
-      console.error(`[SandboxWS] rpc:failed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)} error=${message.error.message}`);
-      pending.reject(new Error(message.error.message));
+      logger.warn(`[SandboxWS] rpc:failed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)} rpcErrorCode=${message.error.code} retryable=${message.error.retryable ?? false}`);
+      pending.reject(new SandboxRpcError(message.error.message, {
+        method: pending.method,
+        rpcErrorCode: message.error.code,
+        retryable: message.error.retryable ?? false,
+      }));
     }
   }
 
@@ -155,7 +160,11 @@ export class SandboxConnection {
     for (const [requestId, pending] of pendingEntries) {
       if (!pending.accepted) {
         this.clearPending(requestId, pending);
-        pending.reject(new Error(getUserFacingFailureMessage(pending.method)));
+        pending.reject(new SandboxRpcError(getUserFacingFailureMessage(pending.method), {
+          method: pending.method,
+          rpcErrorCode: "IO_ERROR",
+          retryable: false,
+        }));
         continue;
       }
 
@@ -166,7 +175,11 @@ export class SandboxConnection {
         if (current !== pending) return;
         logger.warn(`[SandboxWS] accepted rpc did not complete after disconnect grace spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${pending.requestId.slice(0, 8)} opId=${pending.opId?.slice(0, 8) ?? "none"}`);
         this.clearPending(requestId, pending);
-        pending.reject(new Error(getUserFacingFailureMessage(pending.method)));
+        pending.reject(new SandboxRpcError(getUserFacingFailureMessage(pending.method), {
+          method: pending.method,
+          rpcErrorCode: "IO_ERROR",
+          retryable: false,
+        }));
       }, ACCEPTED_RPC_DISCONNECT_GRACE_MS);
     }
   }

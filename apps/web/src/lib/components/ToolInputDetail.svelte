@@ -34,10 +34,10 @@ function sectionBodyId(section: ToolInputSection) {
 </script>
 
 {#if view}
-	<div class="min-w-0 space-y-1.5">
+	<div class="min-w-0 space-y-1.5 pt-px">
 		{#if view.primary}
 			<div class="relative min-w-0">
-				<pre class="whitespace-pre-wrap break-words rounded-sm border-l border-border-subtle/70 bg-bg-code/40 py-1 pl-2 pr-1 font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] max-sm:text-[12px]">{view.primary.value}</pre>
+				<pre class="whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] max-sm:text-[12px]">{view.primary.value}</pre>
 			</div>
 		{/if}
 
@@ -45,7 +45,7 @@ function sectionBodyId(section: ToolInputSection) {
 			<div class="space-y-0.5">
 				{#each view.fields as field (field.label)}
 					<div class="grid grid-cols-[minmax(4.5rem,max-content)_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 text-[12px] leading-snug max-sm:grid-cols-[minmax(3.5rem,max-content)_minmax(0,1fr)] max-sm:gap-x-1.5 max-sm:gap-y-0.5">
-						<div class="font-mono text-[10px] uppercase tracking-wide text-text-placeholder select-none">{field.label}</div>
+						<div class="font-mono text-[10px] uppercase tracking-wide text-text-placeholder select-none pt-[1px]">{field.label}</div>
 						<div class={`min-w-0 break-words text-text-secondary [overflow-wrap:anywhere] ${field.mono ? 'font-mono text-[13px] max-sm:text-[12px]' : ''}`}>{field.value}</div>
 					</div>
 				{/each}
@@ -56,8 +56,8 @@ function sectionBodyId(section: ToolInputSection) {
 			<div class="space-y-2 pt-0.5">
 				{#each view.sections as section (section.id)}
 					<div class="min-w-0 space-y-1">
-						<div class="flex min-h-5 items-center gap-2 text-[11px] leading-none max-sm:gap-1.5">
-							<div class="font-mono uppercase tracking-wide text-text-placeholder select-none">{section.label}</div>
+						<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none max-sm:gap-1.5">
+							<div class="font-mono uppercase tracking-wide text-text-placeholder select-none pt-[1px]">{section.label}</div>
 							{#if section.summary}
 								<div class="truncate text-text-placeholder">{section.summary}</div>
 							{/if}
@@ -70,7 +70,7 @@ function sectionBodyId(section: ToolInputSection) {
 							<div class="relative min-w-0">
 								<div
 									id={sectionBodyId(section)}
-									class={`overflow-hidden rounded-sm border-l border-border-subtle/70 bg-bg-code/40 py-1 pl-2 pr-1 ${shouldCollapse(section) ? 'max-h-56' : ''}`}
+									class={`overflow-hidden ${shouldCollapse(section) ? 'max-h-56' : ''}`}
 								>
 									{#each section.lines ?? [] as line, index (`${index}-${line.sign}`)}
 										<div class="grid grid-cols-[1rem_minmax(0,1fr)] gap-1 font-mono text-[12px] leading-snug max-sm:text-[12px]">
@@ -84,7 +84,7 @@ function sectionBodyId(section: ToolInputSection) {
 							<div class="relative min-w-0">
 								<pre
 									id={sectionBodyId(section)}
-									class={`whitespace-pre-wrap break-words rounded-sm border-l border-border-subtle/70 bg-bg-code/40 py-1 pl-2 pr-1 font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] ${shouldCollapse(section) ? 'max-h-56 overflow-hidden' : ''}`}
+									class={`whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] ${shouldCollapse(section) ? 'max-h-56 overflow-hidden' : ''}`}
 								>{section.value}</pre>
 							</div>
 						{/if}

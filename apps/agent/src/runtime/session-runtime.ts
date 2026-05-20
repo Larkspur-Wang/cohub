@@ -409,6 +409,15 @@ function toolSnippets(toolName: string): string | undefined {
   }
 }
 
+function isToolFailureDetails(value: unknown): value is { isError: true; retryable: boolean; infrastructure: boolean; message: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return record.isError === true
+    && typeof record.retryable === "boolean"
+    && typeof record.infrastructure === "boolean"
+    && typeof record.message === "string";
+}
+
 export async function createCohubAgentSession(options: CreateCohubAgentSessionOptions): Promise<{ session: CohubAgentSession }> {
   const sessionContext = options.sessionManager.buildSessionContext();
   const model = options.model ?? (sessionContext.model ? options.modelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId) : undefined) ?? options.modelRegistry.getDefault();
@@ -441,6 +450,10 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     convertToLlm: toLlmMessages,
     streamFn: createStreamFn(options.modelRegistry, options.userId),
     getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),
+    async afterToolCall({ result }) {
+      if (!isToolFailureDetails(result.details)) return undefined;
+      return { isError: true };
+    },
   });
 
   let lastAssistantMessage: AssistantMessage | undefined;

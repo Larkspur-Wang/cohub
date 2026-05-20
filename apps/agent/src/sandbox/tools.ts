@@ -8,6 +8,7 @@ import {
   createReadTool,
   createWriteTool,
   type BashOperations,
+  type BashExecutionResult,
   type EditOperations,
   type FindOperations,
   type GrepToolDetails,
@@ -43,6 +44,7 @@ import {
 } from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
+import { isSandboxRpcError } from "./rpc-error.js";
 import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
 import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
@@ -336,6 +338,7 @@ function createRemoteBashOperations(): BashOperations {
   const tracer = getAgentTracer();
   return {
     exec(command, cwd, { onData, signal, timeout, env }) {
+      let outputPreview = "";
       return new Promise((resolve, reject) => {
         let processId: string | null = null;
         let settled = false;
@@ -433,6 +436,20 @@ function createRemoteBashOperations(): BashOperations {
               );
             }));
           } catch (error) {
+            if (isSandboxRpcError(error)) {
+              logger.warn(`[Tool:bash] sandbox rpc failed cmd="${cmdSummary}" method=${error.method} rpcErrorCode=${error.rpcErrorCode} retryable=${error.retryable}`);
+              finish(() => resolve({
+                failure: {
+                  isError: true,
+                  retryable: error.retryable,
+                  infrastructure: error.infrastructure,
+                  rpcErrorCode: error.rpcErrorCode,
+                  outputTail: outputPreview,
+                  message: error.message,
+                },
+              } satisfies BashExecutionResult));
+              return;
+            }
             console.error(`[Tool:bash] error cmd="${cmdSummary}"`, error);
             finish(() => reject(error));
           }

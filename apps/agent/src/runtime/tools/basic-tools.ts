@@ -21,12 +21,25 @@ export interface EditOperations {
   access: (absolutePath: string) => Promise<void>;
 }
 
+export interface ToolFailureDetails {
+  isError: true;
+  retryable: boolean;
+  infrastructure: boolean;
+  rpcErrorCode?: string;
+  outputTail?: string;
+  message: string;
+}
+
+export type BashExecutionResult =
+  | { exitCode: number | null }
+  | { failure: ToolFailureDetails };
+
 export interface BashOperations {
   exec: (
     command: string,
     cwd: string,
     options: { onData: (chunk: Buffer) => void; signal?: AbortSignal; timeout?: number; env?: Record<string, string> },
-  ) => Promise<{ exitCode: number | null }>;
+  ) => Promise<BashExecutionResult>;
 }
 
 function tailOutput(content: string, maxChars = 900) {
@@ -258,6 +271,15 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
         timeout: params.timeout,
       });
       updates.flush();
+
+      if ("failure" in result) {
+        const tail = result.failure.outputTail?.trim();
+        return {
+          content: [{ type: "text", text: tail ? `${result.failure.message}\n\n${tail}` : result.failure.message }],
+          details: result.failure,
+        };
+      }
+
       const output = Buffer.concat(chunks).toString("utf-8");
       const truncated = truncateHead(output, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
       return {
