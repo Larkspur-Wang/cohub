@@ -1,8 +1,10 @@
 <script lang="ts">
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
+import ToolInputDetail from "$lib/components/ToolInputDetail.svelte";
+import ToolOutputDetail from "$lib/components/ToolOutputDetail.svelte";
 import {
-	formatToolInput,
 	getToolFilePath,
+	sanitizeToolDomId,
 	summarizeToolInput,
 	type ToolCallViewModel,
 } from "$lib/components/tool-call-format";
@@ -46,7 +48,6 @@ const toolActivityMap: Record<string, string> = {
 	write: "writing",
 };
 
-const inputDetail = $derived(formatToolInput(tool.input));
 const visibleResult = $derived(tool.partialResult || tool.result || "");
 const hasVisibleResult = $derived(Boolean(visibleResult));
 const shouldWaitForDetails = $derived(expanded && loading && needsDetails);
@@ -71,6 +72,7 @@ const statusLabel = $derived(
 		: tool.status,
 );
 const inputSummary = $derived(summarizeToolInput(tool.name, tool.input));
+const detailIdPrefix = $derived(`tool-call-${sanitizeToolDomId(tool.id)}`);
 
 $effect(() => {
 	if (
@@ -133,7 +135,7 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 	</button>
 
 	{#if expanded}
-		<div class="ml-[3px] border-l border-border-subtle/70 py-1 pl-[21px] pr-2">
+		<div class="ml-[3px] border-l border-border-subtle/70 py-1 pl-[21px] pr-2 max-sm:pl-3 max-sm:pr-1">
 			{#if shouldWaitForDetails}
 				<div class="inline-flex items-center gap-1.5 py-0.5 text-[12px] leading-snug text-text-placeholder">
 					<Loader2 class="h-3 w-3 animate-spin" />
@@ -141,16 +143,16 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 				</div>
 			{:else}
 				<div class="space-y-2">
-					{#if inputDetail}
-						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
+					{#if tool.input && Object.keys(tool.input).length > 0}
+						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2 max-sm:grid-cols-[1.25rem_minmax(0,1fr)] max-sm:gap-1.5">
 							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">in</div>
-							<pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-snug text-text-secondary [overflow-wrap:anywhere]">{inputDetail}</pre>
+							<ToolInputDetail name={tool.name} input={tool.input} live={isRunning} idPrefix={detailIdPrefix} />
 						</div>
 					{/if}
 					{#if showResult}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
 							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide select-none {tool.status === 'failed' ? 'text-status-error' : 'text-text-placeholder'}">{resultLabel}</div>
-							<pre class="whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] {tool.status === 'failed' ? 'text-status-error' : 'text-text-secondary'}">{visibleResult}</pre>
+							<ToolOutputDetail value={visibleResult} failed={tool.status === 'failed'} live={isRunning} partial={tool.resultPartial} idPrefix={detailIdPrefix} />
 						</div>
 					{:else if tool.resultOmitted}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">

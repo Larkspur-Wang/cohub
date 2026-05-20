@@ -2,6 +2,33 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { MessageToolCallsFile } from "@cohub/protocol/model";
 import type { ToolState } from "$lib/session-tree";
 
+export type ToolInputField = {
+	label: string;
+	value: string;
+	mono?: boolean;
+};
+
+export type ToolInputDiffLine = {
+	sign: "+" | "-";
+	text: string;
+};
+
+export type ToolInputSection = {
+	id: string;
+	label: string;
+	summary?: string;
+	kind: "text" | "json" | "diff";
+	value?: string;
+	lines?: ToolInputDiffLine[];
+	collapsible?: boolean;
+};
+
+export type ToolInputView = {
+	primary?: { value: string };
+	fields: ToolInputField[];
+	sections: ToolInputSection[];
+};
+
 export type ToolCallStatus = "running" | "done" | "failed";
 
 export type ToolCallPhase = "drafting" | "executing";
@@ -81,6 +108,218 @@ export function stringifyToolValue(value: unknown): string {
 export function formatToolInput(input?: Record<string, unknown>): string {
 	if (!input || Object.keys(input).length === 0) return "";
 	return JSON.stringify(input, null, 2);
+}
+
+function workspacePath(path: string): string {
+	return path.startsWith("/workspace/")
+		? path.slice("/workspace/".length)
+		: path;
+}
+
+export function sanitizeToolDomId(value: string): string {
+	return value.replace(/[^a-zA-Z0-9_-]+/g, "-") || "tool";
+}
+
+export function describeTextValue(value: string): string {
+	const bytes = new TextEncoder().encode(value).length;
+	const lines = value.length === 0 ? 0 : value.split("\n").length;
+	const size =
+		bytes < 1024
+			? `${bytes} B`
+			: bytes < 1024 * 1024
+				? `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+				: `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	return `${lines} ${lines === 1 ? "line" : "lines"} · ${size}`;
+}
+
+export function isLongTextValue(value: string): boolean {
+	return value.length > 700 || value.split("\n").length > 10;
+}
+
+function primitiveToString(value: unknown): string | null {
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean")
+		return String(value);
+	if (value == null) return "null";
+	return null;
+}
+
+function jsonString(value: unknown): string {
+	try {
+		return JSON.stringify(value, null, 2);
+	} catch {
+		return String(value);
+	}
+}
+
+function addRemainingInputs(
+	input: Record<string, unknown>,
+	used: Set<string>,
+	view: ToolInputView,
+) {
+	for (const [key, value] of Object.entries(input)) {
+		if (used.has(key)) continue;
+		const primitive = primitiveToString(value);
+		if (primitive !== null) {
+			view.fields.push({
+				label: key,
+				value: primitive,
+				mono: typeof value === "string",
+			});
+			continue;
+		}
+		const text = jsonString(value);
+		view.sections.push({
+			id: `json-${key}`,
+			label: key,
+			kind: "json",
+			value: text,
+			collapsible: isLongTextValue(text),
+		});
+	}
+}
+
+function replacementDiffLines(
+	oldText: string,
+	newText: string,
+): ToolInputDiffLine[] {
+	return [
+		...oldText.split("\n").map((text) => ({ sign: "-" as const, text })),
+		...newText.split("\n").map((text) => ({ sign: "+" as const, text })),
+	];
+}
+
+export function formatToolInputView(
+	name: string,
+	input?: Record<string, unknown>,
+): ToolInputView | null {
+	if (!input || Object.keys(input).length === 0) return null;
+	const view: ToolInputView = { fields: [], sections: [] };
+	const used = new Set<string>();
+
+	if (name === "bash" && typeof input.command === "string") {
+		view.primary = { value: input.command };
+		used.add("command");
+		if (typeof input.timeout === "number") {
+			view.fields.push({ label: "timeout", value: `${input.timeout}s` });
+			used.add("timeout");
+		}
+	} else if (
+		["read", "write", "edit", "ls"].includes(name) &&
+		typeof input.path === "string"
+	) {
+		view.primary = { value: workspacePath(input.path) };
+		used.add("path");
+		if (name === "read") {
+			const offset =
+				typeof input.offset === "number" ? input.offset : undefined;
+			const limit = typeof input.limit === "number" ? input.limit : undefined;
+			if (offset !== undefined && limit !== undefined) {
+				view.fields.push({
+					label: "lines",
+					value: `${offset}–${offset + limit - 1}`,
+				});
+				used.add("offset");
+				used.add("limit");
+			} else if (offset !== undefined) {
+				view.fields.push({ label: "offset", value: String(offset) });
+				used.add("offset");
+			} else if (limit !== undefined) {
+				view.fields.push({ label: "limit", value: String(limit) });
+				used.add("limit");
+			}
+		}
+		if (name === "write" && typeof input.content === "string") {
+			view.fields.push({
+				label: "content",
+				value: describeTextValue(input.content),
+			});
+			view.sections.push({
+				id: "content",
+				label: "content",
+				kind: "text",
+				value: input.content,
+				collapsible: isLongTextValue(input.content),
+			});
+			used.add("content");
+		}
+		if (name === "edit" && Array.isArray(input.edits)) {
+			view.fields.push({
+				label: "edits",
+				value: `${input.edits.length} ${input.edits.length === 1 ? "replacement" : "replacements"}`,
+			});
+			input.edits.forEach((edit, index) => {
+				if (!edit || typeof edit !== "object") {
+					const value = jsonString(edit);
+					view.sections.push({
+						id: `edit-${index + 1}`,
+						label: `#${index + 1}`,
+						kind: "json",
+						value,
+						collapsible: isLongTextValue(value),
+					});
+					return;
+				}
+				const oldText = (edit as { oldText?: unknown }).oldText;
+				const newText = (edit as { newText?: unknown }).newText;
+				if (typeof oldText === "string" && typeof newText === "string") {
+					view.sections.push({
+						id: `edit-${index + 1}`,
+						label: `#${index + 1}`,
+						summary: `${describeTextValue(oldText)} → ${describeTextValue(newText)}`,
+						kind: "diff",
+						lines: replacementDiffLines(oldText, newText),
+						collapsible: isLongTextValue(oldText) || isLongTextValue(newText),
+					});
+					return;
+				}
+				const value = jsonString(edit);
+				view.sections.push({
+					id: `edit-${index + 1}`,
+					label: `#${index + 1}`,
+					kind: "json",
+					value,
+					collapsible: isLongTextValue(value),
+				});
+			});
+			used.add("edits");
+		}
+	} else if (
+		["grep", "find"].includes(name) &&
+		typeof input.pattern === "string"
+	) {
+		view.primary = { value: input.pattern };
+		used.add("pattern");
+		if (typeof input.path === "string") {
+			view.fields.push({
+				label: "path",
+				value: workspacePath(input.path),
+				mono: true,
+			});
+			used.add("path");
+		}
+		for (const key of [
+			"glob",
+			"ignoreCase",
+			"literal",
+			"context",
+			"limit",
+		] as const) {
+			const value = input[key];
+			const primitive = primitiveToString(value);
+			if (primitive !== null && value !== undefined) {
+				view.fields.push({
+					label: key,
+					value: primitive,
+					mono: typeof value === "string",
+				});
+				used.add(key);
+			}
+		}
+	}
+
+	addRemainingInputs(input, used, view);
+	return view;
 }
 
 /**
