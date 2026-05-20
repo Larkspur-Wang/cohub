@@ -45,6 +45,22 @@ function handledEffect(
 	};
 }
 
+function resolveFinalContent(turn: {
+	assistantContent?: ContentBlock[] | null;
+	assistantText?: string | null;
+}): ContentBlock[] {
+	if (
+		Array.isArray(turn.assistantContent) &&
+		turn.assistantContent.length > 0
+	) {
+		return turn.assistantContent;
+	}
+	if (turn.assistantText) {
+		return [{ type: "text", text: turn.assistantText }];
+	}
+	return [];
+}
+
 function resolveStreamMessageId(input: {
 	sessionId: string;
 	turnId?: string | null;
@@ -203,7 +219,23 @@ export function applyGenerationStreamEvent(
 				shouldRefreshSessions: true,
 			});
 		}
-		return ignoredEffect;
+		// For completed turns, immediately apply the final content from the
+		// finalized event so the UI shows the complete text without waiting
+		// for the HTTP hydrate. The generation stays in "streaming" status
+		// until hydrateTurnOnce resolves and calls completeGeneration.
+		const finalContent = resolveFinalContent(event.turn);
+		if (finalContent.length > 0) {
+			sessionGenerationStore.applyProgress(sessionId, {
+				contentBlocks: finalContent,
+				turnId: event.turn.id,
+			});
+		}
+		return handledEffect({
+			shouldScroll: true,
+			shouldReconcile: true,
+			shouldRestoreSnapshot: false,
+			shouldRefreshSessions: true,
+		});
 	}
 
 	if (event.type === "error") {
