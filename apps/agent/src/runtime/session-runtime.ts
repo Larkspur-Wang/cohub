@@ -1,8 +1,9 @@
 import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
 import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
-import { context } from "@opentelemetry/api";
+import { context, trace, type Span } from "@opentelemetry/api";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { logger } from "../logger.js";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
@@ -61,6 +62,49 @@ function isEmptySuccessfulAssistantMessage(message: AssistantMessage | undefined
 export function isRetryableAssistantFailure(message: AssistantMessage | undefined): boolean {
   return isRetryableAssistantError(message) || isEmptySuccessfulAssistantMessage(message);
 }
+
+type AssistantRetryOutcome = {
+  shouldRetry: boolean;
+  retryAttempt: number;
+  retryDelayMs?: number;
+  retryReason?: string;
+};
+
+function getAssistantRetryOutcome(message: AssistantMessage | undefined, retryAttempt: number): AssistantRetryOutcome {
+  if (!AGENT_RETRY_ENABLED || !isRetryableAssistantFailure(message) || retryAttempt >= AGENT_RETRY_MAX_RETRIES) {
+    return { shouldRetry: false, retryAttempt };
+  }
+
+  return {
+    shouldRetry: true,
+    retryAttempt: retryAttempt + 1,
+    retryDelayMs: AGENT_RETRY_BASE_DELAY_MS * 2 ** retryAttempt,
+    retryReason: message?.stopReason === "error"
+      ? (message?.errorMessage ?? "assistant_error")
+      : "empty_assistant_message",
+  };
+}
+
+function recordAssistantRetrySpanAttributes(span: Span | undefined, outcome: AssistantRetryOutcome) {
+  if (!span) return;
+  span.setAttribute("agent.retry.should_retry", outcome.shouldRetry);
+  span.setAttribute("agent.retry.attempt", outcome.retryAttempt);
+  if (outcome.retryDelayMs != null) span.setAttribute("agent.retry.delay_ms", outcome.retryDelayMs);
+  if (outcome.retryReason) span.setAttribute("agent.retry.reason", outcome.retryReason);
+}
+
+function logAssistantRetry(sessionId: string, turnId: string | undefined, outcome: AssistantRetryOutcome) {
+  const contextInfo = `sessionId=${sessionId}${turnId ? ` turnId=${turnId}` : ""}`;
+  const reason = outcome.retryReason ?? "not_retryable";
+  if (outcome.shouldRetry) {
+    logger.info(
+      `[Agent] assistant retry scheduled ${contextInfo} attempt=${outcome.retryAttempt} delayMs=${outcome.retryDelayMs} reason=${reason}`,
+    );
+  } else {
+    logger.debug(`[Agent] assistant retry not scheduled ${contextInfo} attempt=${outcome.retryAttempt} reason=${reason}`);
+  }
+}
+
 
 export function shouldResetAssistantRetryState(message: AssistantMessage | undefined): boolean {
   return !isRetryableAssistantFailure(message);
@@ -433,10 +477,12 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       if (message.role === "assistant") {
         const assistantMessage = event.message as AssistantMessage;
         lastAssistantMessage = assistantMessage;
-        const shouldDeferPersistence = AGENT_RETRY_ENABLED
-          && isRetryableAssistantFailure(assistantMessage)
-          && retryAttempt < AGENT_RETRY_MAX_RETRIES;
-        if (!shouldDeferPersistence) {
+        const retryOutcome = getAssistantRetryOutcome(assistantMessage, retryAttempt);
+        const sessionId = getCurrentToolExecutionContext()?.sessionId ?? "unknown";
+        const turnId = getCurrentToolExecutionContext()?.turnId ?? undefined;
+        logAssistantRetry(sessionId, turnId, retryOutcome);
+        recordAssistantRetrySpanAttributes(trace.getActiveSpan(), retryOutcome);
+        if (!retryOutcome.shouldRetry) {
           const entryId = options.sessionManager.appendMessage(event.message as never);
           (event.message as unknown as Record<string, unknown>).sessionEntryId = entryId;
         }
