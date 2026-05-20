@@ -62,6 +62,9 @@ export function isRetryableAssistantFailure(message: AssistantMessage | undefine
   return isRetryableAssistantError(message) || isEmptySuccessfulAssistantMessage(message);
 }
 
+export function shouldResetAssistantRetryState(message: AssistantMessage | undefined): boolean {
+  return !isRetryableAssistantFailure(message);
+}
 
 export type CreateCohubAgentSessionOptions = {
   cwd: string;
@@ -437,7 +440,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
           const entryId = options.sessionManager.appendMessage(event.message as never);
           (event.message as unknown as Record<string, unknown>).sessionEntryId = entryId;
         }
-        if (assistantMessage.stopReason !== "error") {
+        if (shouldResetAssistantRetryState(assistantMessage)) {
           retryAttempt = 0;
           finishRetry();
         }

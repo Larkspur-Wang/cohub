@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 
-const { isRetryableAssistantFailure } = await import("../runtime/session-runtime.js");
+const { isRetryableAssistantFailure, shouldResetAssistantRetryState } = await import("../runtime/session-runtime.js");
 
 function assistantMessage(input: Partial<AssistantMessage>): AssistantMessage {
   return {
@@ -24,9 +24,21 @@ assert.equal(
 );
 
 assert.equal(
+  shouldResetAssistantRetryState(assistantMessage({ content: [], stopReason: "stop" })),
+  false,
+  "empty successful assistant messages should not reset retry state",
+);
+
+assert.equal(
   isRetryableAssistantFailure(assistantMessage({ content: [{ type: "text", text: "ok" }], stopReason: "stop" })),
   false,
   "non-empty successful assistant messages should not be retried",
+);
+
+assert.equal(
+  shouldResetAssistantRetryState(assistantMessage({ content: [{ type: "text", text: "ok" }], stopReason: "stop" })),
+  true,
+  "non-empty successful assistant messages should reset retry state",
 );
 
 assert.equal(
