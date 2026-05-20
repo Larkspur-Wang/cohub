@@ -1,9 +1,8 @@
 import { randomUUID as defaultRandomUUID } from "node:crypto";
-import { isSandboxPromptAcceptingStatus } from "@cohub/sandbox-controller";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { sessionTurnSegments, sessionTurns, spaceSandboxes, spaceSessions, spaces } from "@cohub/db";
+import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import type { ExecutionGrantService } from "../security/index.js";
 import { recomputeSpaceWsUsers } from "../spaces/index.js";
 import { submitSessionPrompt, type ExpandedPromptTemplate, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
@@ -198,9 +197,6 @@ export function createSessionServices(input: {
     content: ContentBlock[];
     meta: Record<string, unknown>;
   }) {
-    const [sandbox] = await input.db.select({ status: spaceSandboxes.status }).from(spaceSandboxes).where(eq(spaceSandboxes.spaceId, promptInput.spaceId)).limit(1);
-    if (!sandbox || !isSandboxPromptAcceptingStatus(sandbox.status)) throw new Error("space sandbox is not ready");
-
     await recomputeSpaceWsUsers({ db: input.db, redis: input.redis, spaceId: promptInput.spaceId }).catch((error) => {
       logger.warn(`[RealtimeAudience] failed to refresh ws users for ${promptInput.spaceId}:`, error);
     });

@@ -8,7 +8,7 @@ import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
 import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPromptTemplate } from "./prompt-templates.js";
-import { recoverSpaceSandbox } from "./space-sandboxes.js";
+import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
 import { getSpaceById } from "./space-sessions.js";
 
 const AGENT_TURN_JOB_NAME = "agent_turns";
@@ -57,14 +57,17 @@ export function getSessionDomainServices(input?: {
     sandboxRecovery: {
       maybeRecoverForPrompt: async ({ spaceId, userId, source }) => {
         const sandbox = await sandboxLifecycle.getSandbox(spaceId);
-        if (!sandbox || sandbox.status === "running" || sandbox.status === "ready" || sandbox.status === "provisioning") return;
+        if (sandbox && (sandbox.status === "running" || sandbox.status === "ready" || sandbox.status === "provisioning")) return;
         const space = await getSpaceById(spaceId);
         if (!space) return;
+        if (!sandbox) {
+          await ensureSpaceSandbox({ spaceId, status: "pending", runtimeStatus: "unknown" });
+        }
         void recoverSpaceSandbox({
           spaceId,
           userUuid: userId,
           ownerUserUuid: space.userUuid,
-          reason: sandbox.status === "error" ? "auto_recover" : "auto_resume",
+          reason: sandbox?.status === "error" ? "auto_recover" : "auto_resume",
           source,
           verify: false,
         }).catch((error) => {
