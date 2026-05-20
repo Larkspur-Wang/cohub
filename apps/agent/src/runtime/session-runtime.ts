@@ -279,9 +279,9 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
             ? {
                 ...streamHeaders,
                 "x-litellm-track-extra": JSON.stringify({
-                  userUuid: userId?.trim() || null,
-                  spaceUuid: toolCtx?.spaceId ?? null,
-                  sessionUuid: toolCtx?.sessionId ?? null,
+                  user_uuid: userId?.trim() || null,
+                  cohub_space_uuid: toolCtx?.spaceId ?? null,
+                  cohub_session_uuid: toolCtx?.sessionId ?? null,
                 }),
               }
             : streamHeaders,
