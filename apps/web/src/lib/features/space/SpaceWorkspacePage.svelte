@@ -1202,7 +1202,7 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 							activeGenerationState.anchorUserMessageId ?? null,
 						intermediateMessages: activeStreamingIntermediateMessages,
 						contentBlocks: activeGenerationState.contentBlocks,
-						truncatedStart: activeGenerationState.truncatedStart,
+						finalizedPreview: activeGenerationState.finalizedPreview,
 						status: activeGenerationState.status,
 					}
 				: null,

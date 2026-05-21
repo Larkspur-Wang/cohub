@@ -228,6 +228,7 @@ export function applyGenerationStreamEvent(
 			sessionGenerationStore.applyProgress(sessionId, {
 				contentBlocks: finalContent,
 				turnId: event.turn.id,
+				finalizedPreview: true,
 			});
 		}
 		return handledEffect({

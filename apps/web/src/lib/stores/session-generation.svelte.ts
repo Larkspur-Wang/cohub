@@ -43,6 +43,7 @@ export type SessionGenerationState = {
 	truncatedStart: boolean;
 	patchSeq: number;
 	turnId: string | null;
+	finalizedPreview: boolean;
 };
 
 type PersistedGenerationState = SessionGenerationState & {
@@ -78,6 +79,7 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	truncatedStart: false,
 	patchSeq: 0,
 	turnId: null,
+	finalizedPreview: false,
 });
 
 function getStorage(): Storage | null {
@@ -199,6 +201,7 @@ function parsePersistedState(raw: string): SessionGenerationState | null {
 			truncatedStart: Boolean(parsed.truncatedStart),
 			patchSeq: typeof parsed.patchSeq === "number" ? parsed.patchSeq : 0,
 			turnId: typeof parsed.turnId === "string" ? parsed.turnId : null,
+			finalizedPreview: Boolean(parsed.finalizedPreview),
 		};
 		return isFresh(state) ? state : null;
 	} catch {
@@ -313,6 +316,7 @@ class SessionGenerationStore {
 			requestId?: string | null;
 			spaceId?: string | null;
 			turnId?: string | null;
+			finalizedPreview?: boolean;
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
@@ -337,6 +341,7 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: 0,
 			turnId: input?.turnId ?? null,
+			finalizedPreview: false,
 		});
 	}
 
@@ -362,6 +367,8 @@ class SessionGenerationStore {
 			anchorUserMessageId:
 				input?.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
 			turnId: input?.turnId ?? current.turnId ?? null,
+			finalizedPreview:
+				input?.finalizedPreview ?? current.finalizedPreview ?? false,
 		});
 	}
 
@@ -377,6 +384,7 @@ class SessionGenerationStore {
 			truncatedStart?: boolean;
 			patchSeq?: number;
 			turnId?: string | null;
+			finalizedPreview?: boolean;
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
@@ -403,6 +411,7 @@ class SessionGenerationStore {
 			truncatedStart: input.truncatedStart ?? current.truncatedStart,
 			patchSeq: input.patchSeq ?? current.patchSeq,
 			turnId: input.turnId ?? current.turnId ?? null,
+			finalizedPreview: input.finalizedPreview ?? false,
 		});
 	}
 
@@ -447,6 +456,7 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+			finalizedPreview: false,
 		});
 	}
 
@@ -465,6 +475,7 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+			finalizedPreview: false,
 		});
 	}
 
@@ -483,6 +494,7 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+			finalizedPreview: false,
 		});
 	}
 
