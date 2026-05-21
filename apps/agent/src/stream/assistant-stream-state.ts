@@ -22,6 +22,7 @@ type StreamBlock =
       id: string;
       name: string;
       input: Record<string, unknown>;
+      rawInput?: string;
       done: boolean;
     }
   | {
@@ -186,6 +187,7 @@ export function applyAssistantMessageEvent(
         id: partialToolCall?.id ?? (existing?.kind === "tool_use" ? existing.id : ""),
         name: partialToolCall?.name ?? (existing?.kind === "tool_use" ? existing.name : ""),
         input: partialToolCall?.arguments ?? (existing?.kind === "tool_use" ? existing.input : {}),
+        rawInput: existing?.kind === "tool_use" ? existing.rawInput : undefined,
         done: false,
       });
     }
@@ -193,12 +195,14 @@ export function applyAssistantMessageEvent(
       const existing = getBlock(state, event.contentIndex);
       const partialToolCall = getToolCallFromPartial(event.partial, event.contentIndex);
       if (existing?.kind !== "tool_use" && !partialToolCall) return state;
+      const rawInput = `${existing?.kind === "tool_use" ? existing.rawInput ?? "" : ""}${event.delta}`;
       return upsertBlock(state, {
         kind: "tool_use",
         contentIndex: event.contentIndex,
         id: partialToolCall?.id ?? (existing?.kind === "tool_use" ? existing.id : ""),
         name: partialToolCall?.name ?? (existing?.kind === "tool_use" ? existing.name : ""),
         input: partialToolCall?.arguments ?? (existing?.kind === "tool_use" ? existing.input : {}),
+        rawInput,
         done: false,
       });
     }
@@ -209,6 +213,7 @@ export function applyAssistantMessageEvent(
         id: event.toolCall.id ?? "",
         name: event.toolCall.name ?? "",
         input: event.toolCall.arguments ?? {},
+        rawInput: undefined,
         done: true,
       });
     }
@@ -416,7 +421,12 @@ export function projectAssistantStreamState(state: AssistantStreamState): Conten
       id: block.id,
       name: block.name,
       input: block.input,
-      _meta: withStreamIndexMeta(meta, block.contentIndex),
+      _meta: withStreamIndexMeta(
+        block.rawInput
+          ? { ...(meta ?? {}), rawInput: block.rawInput }
+          : meta,
+        block.contentIndex,
+      ),
     });
 
     const result = state.toolResultsById.get(block.id);

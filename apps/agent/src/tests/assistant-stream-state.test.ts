@@ -50,6 +50,48 @@ import {
 
 {
   let state = createAssistantStreamState();
+  state = applyAssistantMessageEvent(state, {
+    type: "toolcall_start",
+    contentIndex: 0,
+    partial: {
+      content: [{ type: "toolCall", id: "t-raw", name: "bash" }],
+    },
+  });
+  state = applyAssistantMessageEvent(state, {
+    type: "toolcall_delta",
+    contentIndex: 0,
+    delta: '{"command":"pnpm ',
+  });
+  state = applyAssistantMessageEvent(state, {
+    type: "toolcall_delta",
+    contentIndex: 0,
+    delta: '--filter web typecheck"}',
+  });
+
+  let content = projectAssistantStreamState(state);
+  let toolUse = content[0] as Extract<ContentBlock, { type: "tool_use" }>;
+  assert.equal(toolUse.id, "t-raw");
+  assert.equal(toolUse.name, "bash");
+  assert.deepEqual(toolUse.input, {});
+  assert.equal(
+    toolUse._meta?.rawInput,
+    '{"command":"pnpm --filter web typecheck"}',
+    "tool input raw preview should continue streaming even before arguments are parsed",
+  );
+
+  state = applyAssistantMessageEvent(state, {
+    type: "toolcall_end",
+    contentIndex: 0,
+    toolCall: { id: "t-raw", name: "bash", arguments: { command: "pnpm --filter web typecheck" } },
+  });
+  content = projectAssistantStreamState(state);
+  toolUse = content[0] as Extract<ContentBlock, { type: "tool_use" }>;
+  assert.deepEqual(toolUse.input, { command: "pnpm --filter web typecheck" });
+  assert.equal(toolUse._meta?.rawInput, undefined, "final tool_use should drop raw input metadata");
+}
+
+{
+  let state = createAssistantStreamState();
   state = applyAssistantMessageEvent(state, { type: "thinking_start", contentIndex: 0 });
   state = applyAssistantMessageEvent(state, { type: "thinking_delta", contentIndex: 0, delta: "need " });
   state = applyAssistantMessageEvent(state, { type: "thinking_delta", contentIndex: 0, delta: "files" });

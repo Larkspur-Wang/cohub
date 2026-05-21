@@ -151,6 +151,65 @@ function main() {
   );
   assert.ok(replace5.length >= 1, "新流首帧应有 tool 整块 replace");
 
+  const rawToolBlock = (rawInput: string): ContentBlock => ({
+    type: "tool_use",
+    id: "toolu_raw",
+    name: "bash",
+    input: {},
+    _meta: { streamIndex: 2, rawInput },
+  });
+  const rawBase = (): Omit<SessionStreamEvent, "seq" | "baseSeq" | "content"> => ({
+    ...baseEvent(),
+    turnId: "turn-raw",
+    sourceMessageId: "um-raw",
+    anchorUserMessageId: "um-raw",
+  });
+  const rawReducer = createSessionPatchReducer();
+  rawReducer.start({ sessionId: "se1", spaceId: "sp1", turnId: "turn-raw" });
+
+  const raw1: SessionStreamEvent = {
+    ...rawBase(),
+    seq: 1,
+    baseSeq: 0,
+    content: [rawToolBlock('{"command":"pnpm ')],
+    snapshotContent: [rawToolBlock('{"command":"pnpm ')],
+  };
+  const rawOps1 = buildPatchOpsForContentDelta(raw1);
+  let rawResult = rawReducer.applyPatch({
+    sessionId: "se1",
+    spaceId: "sp1",
+    turnId: "turn-raw",
+    seq: 1,
+    baseSeq: 0,
+    ops: rawOps1,
+  });
+  assert.equal(rawResult.applied, true);
+
+  const raw2: SessionStreamEvent = {
+    ...rawBase(),
+    seq: 2,
+    baseSeq: 1,
+    content: [rawToolBlock('{"command":"pnpm --filter web typecheck"}')],
+    snapshotContent: [rawToolBlock('{"command":"pnpm --filter web typecheck"}')],
+  };
+  const rawOps2 = buildPatchOpsForContentDelta(raw2);
+  assert.deepEqual(
+    rawOps2.filter((o) => o.o === "append" && o.p === "/message/content/blocks/2/_meta/rawInput"),
+    [{ o: "append", p: "/message/content/blocks/2/_meta/rawInput", v: '--filter web typecheck"}' }],
+    "rawInput 前缀增长应通过 append delta 传输",
+  );
+  rawResult = rawReducer.applyPatch({
+    sessionId: "se1",
+    spaceId: "sp1",
+    turnId: "turn-raw",
+    seq: 2,
+    baseSeq: 1,
+    ops: rawOps2,
+  });
+  assert.equal(rawResult.applied, true);
+  const rawTool = rawResult.state.contentBlocks.find((b) => b.type === "tool_use" && b.id === "toolu_raw");
+  assert.equal(rawTool?._meta?.rawInput, '{"command":"pnpm --filter web typecheck"}');
+
   console.log("session-patch-tool-use-content: ok");
 }
 

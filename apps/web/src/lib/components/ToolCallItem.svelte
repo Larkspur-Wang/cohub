@@ -143,10 +143,10 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 				</div>
 			{:else}
 				<div class="space-y-2">
-					{#if tool.input && Object.keys(tool.input).length > 0}
+					{#if (tool.input && Object.keys(tool.input).length > 0) || tool.rawInput}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2 max-sm:grid-cols-[1.25rem_minmax(0,1fr)] max-sm:gap-1.5">
 							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">in</div>
-							<ToolInputDetail name={tool.name} input={tool.input} live={isRunning} idPrefix={detailIdPrefix} />
+							<ToolInputDetail name={tool.name} input={tool.input} live={isRunning} rawInput={tool.rawInput} idPrefix={detailIdPrefix} />
 						</div>
 					{/if}
 					{#if showResult}
