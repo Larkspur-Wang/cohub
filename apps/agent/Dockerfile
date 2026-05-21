@@ -34,6 +34,7 @@ COPY packages/db ./packages/db
 COPY packages/core ./packages/core
 COPY packages/sandbox-controller ./packages/sandbox-controller
 COPY apps/agent/src ./apps/agent/src
+COPY apps/agent/scripts ./apps/agent/scripts
 COPY apps/agent/tsconfig.json apps/agent/tsconfig.build.json ./apps/agent/
 
 RUN pnpm --filter @cohub/agent... build

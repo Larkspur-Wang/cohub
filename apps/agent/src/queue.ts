@@ -5,6 +5,7 @@ import { env } from "./env.js";
 export const AGENT_TURN_QUEUE_NAME = COHUB_AGENT_TURNS_QUEUE;
 export const AGENT_TURN_JOB_NAME = "agent_turns";
 export const AGENT_SESSION_FORK_JOB_NAME = "agent_session_fork";
+export const AGENT_SANDBOX_BASH_JOB_NAME = "sandbox_bash";
 
 export type AgentTurnJobData = {
   spaceId: string;
@@ -26,7 +27,26 @@ export type AgentSessionForkJobData = {
   trace?: Record<string, unknown>;
 };
 
-export type AgentJobData = AgentTurnJobData | AgentSessionForkJobData;
+export type SandboxBashUploadFile = {
+  relativePath: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  downloadUrl: string;
+};
+
+export type SandboxBashUploadJobData = {
+  spaceId: string;
+  sessionId: string;
+  uploadId: string;
+  destinationRoot: string;
+  downloadHost: string;
+  files: SandboxBashUploadFile[];
+  requestId?: string | null;
+  trace?: Record<string, unknown>;
+};
+
+export type AgentJobData = AgentTurnJobData | AgentSessionForkJobData | SandboxBashUploadJobData;
 
 export const agentTurnQueue = createBullmqQueue<AgentJobData>(AGENT_TURN_QUEUE_NAME, {
   redisUrl: env.BULLMQ_REDIS_URL,
@@ -50,6 +70,17 @@ export async function enqueueAgentSessionForkJob(data: AgentSessionForkJobData, 
   return agentTurnQueue.add(AGENT_SESSION_FORK_JOB_NAME, data, {
     jobId: `agent-session-fork-${data.sessionId}-${data.anchorEntryId}`,
     attempts: 3,
+    backoff: { type: "fixed", delay: 1000 },
+    removeOnComplete: { age: 24 * 3600, count: 10_000 },
+    removeOnFail: { age: 7 * 24 * 3600 },
+    ...options,
+  });
+}
+
+export async function enqueueSandboxBashJob(data: SandboxBashUploadJobData, options: JobsOptions = {}) {
+  return agentTurnQueue.add(AGENT_SANDBOX_BASH_JOB_NAME, data, {
+    jobId: `sandbox-bash-${data.uploadId}`,
+    attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
     removeOnComplete: { age: 24 * 3600, count: 10_000 },
     removeOnFail: { age: 7 * 24 * 3600 },

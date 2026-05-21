@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${UPLOAD_ROOT:?UPLOAD_ROOT is required}"
+
+b64_decode() {
+  if base64 --help 2>&1 | grep -q -- '-d'; then
+    base64 -d
+  else
+    base64 -D
+  fi
+}
+
+root_real="$(mkdir -p "$UPLOAD_ROOT" && cd "$UPLOAD_ROOT" && pwd -P)"
+
+while IFS=$'\t' read -r rel_b64 expected_size url_b64; do
+  [ -n "${rel_b64:-}" ] || continue
+
+  relative_path="$(printf '%s' "$rel_b64" | b64_decode)"
+  url="$(printf '%s' "$url_b64" | b64_decode)"
+
+  case "$relative_path" in
+    ""|/*|*"/../"*|../*|*"/.."|..)
+      echo "invalid relative path: $relative_path" >&2
+      exit 2
+      ;;
+  esac
+
+  target="$root_real/$relative_path"
+  parent="$(dirname "$target")"
+  mkdir -p "$parent"
+  parent_real="$(cd "$parent" && pwd -P)"
+  case "$parent_real" in
+    "$root_real"|"$root_real"/*) ;;
+    *)
+      echo "target escapes upload root: $relative_path" >&2
+      exit 2
+      ;;
+  esac
+
+  tmp="$(mktemp "$parent_real/.cohub-upload.XXXXXX")"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 10 -o "$tmp" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$tmp" "$url"
+  else
+    echo "curl or wget is required" >&2
+    rm -f "$tmp"
+    exit 127
+  fi
+
+  actual_size="$(wc -c < "$tmp" | tr -d ' ')"
+  if [ "$actual_size" != "$expected_size" ]; then
+    echo "size mismatch for $relative_path: expected $expected_size, got $actual_size" >&2
+    rm -f "$tmp"
+    exit 3
+  fi
+
+  mv -f "$tmp" "$target"
+  printf 'uploaded\t%s\t%s\n' "$relative_path" "$target"
+done

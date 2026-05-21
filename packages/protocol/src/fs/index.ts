@@ -109,8 +109,18 @@ export type SpaceFsUploadPlanEntryInput = {
   lastModified?: number;
 };
 
+export type SpaceFsUploadDestination =
+  | {
+      kind: "workspace";
+      targetDir?: string;
+    }
+  | {
+      kind: "sandbox_tmp";
+      sessionId: string;
+    };
+
 export type SpaceFsCreateUploadInput = {
-  targetDir?: string;
+  destination: SpaceFsUploadDestination;
   entries: SpaceFsUploadPlanEntryInput[];
 };
 
@@ -133,7 +143,7 @@ export type SpaceFsCompleteUploadInput = {
 
 export type SpaceFsCompleteUploadResponse = {
   ok: true;
-  taskRunId: string;
+  uploaded: SpaceFsUploadEntry[];
 };
 
 export type SpaceFsUploadProgress = {

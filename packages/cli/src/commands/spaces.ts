@@ -128,7 +128,7 @@ async function uploadFiles(command: Command, paths: string[], opts: UploadOption
   try {
     const files = await collectUploadFiles(paths);
     const plan = await client.space(spaceId).files.createUpload({
-      targetDir: opts.dir,
+      destination: { kind: "workspace", targetDir: opts.dir },
       entries: files.map((file) => ({
         id: file.id,
         name: file.name,
@@ -147,7 +147,7 @@ async function uploadFiles(command: Command, paths: string[], opts: UploadOption
       entries: plan.entries.map((entry) => ({ id: entry.id })),
     });
     if (opts.json) return outJson({ ...result, uploadId: plan.uploadId, files: files.length });
-    ok(`Uploaded ${files.length} file${files.length === 1 ? "" : "s"} — taskRunId: ${result.taskRunId}`);
+    ok(`Uploaded ${files.length} file${files.length === 1 ? "" : "s"}`);
   } catch (e: unknown) {
     handleHttp(e);
   }

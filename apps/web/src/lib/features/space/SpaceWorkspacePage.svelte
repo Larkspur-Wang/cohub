@@ -117,7 +117,7 @@ import {
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
-import { joinUploadPath, uploadSpaceEntries } from "$lib/space-upload";
+import { uploadSpaceEntries } from "$lib/space-upload";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
@@ -3013,19 +3013,6 @@ async function handleAbort() {
 	}
 }
 
-function buildChatUploadTargetDir(sessionId: string) {
-	const stamp = new Date()
-		.toISOString()
-		.replace(/[-:]/g, "")
-		.replace(/\..+$/, "");
-	return joinUploadPath(
-		".cohub",
-		"chat-uploads",
-		sessionId,
-		`${stamp}-${crypto.randomUUID().slice(0, 8)}`,
-	);
-}
-
 function escapeMarkdownPath(path: string) {
 	return path.replace(/[\r\n`]/g, "_");
 }
@@ -3048,10 +3035,9 @@ async function uploadComposerFileAttachments(
 			? { ...attachment, status: "uploading" as const }
 			: attachment,
 	);
-	const targetDir = buildChatUploadTargetDir(sessionId);
 	const uploaded = await uploadSpaceEntries({
 		spaceId,
-		targetDir,
+		destination: { kind: "sandbox_tmp", sessionId },
 		entries: fileAttachments.map((attachment) => ({
 			file: attachment.file,
 			relativePath: attachment.relativePath,

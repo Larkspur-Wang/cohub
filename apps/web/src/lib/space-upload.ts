@@ -1,3 +1,4 @@
+import type { SpaceFsUploadDestination } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
 import {
 	type LocalUploadEntry,
@@ -23,18 +24,11 @@ export type SpaceUploadedFile = {
 
 export type UploadSpaceEntriesOptions = {
 	spaceId: string;
+	destination?: SpaceFsUploadDestination;
 	targetDir?: string;
 	entries: LocalUploadEntry[];
 	onProgress?: (progress: SpaceUploadProgress) => void;
 };
-
-type ImportProgressData = {
-	importedFiles?: number;
-	phase?: string;
-	errors?: Array<{ name?: string; message?: string }>;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function joinUploadPath(...parts: string[]) {
 	return parts
@@ -69,72 +63,40 @@ function putWithProgress(
 	});
 }
 
-async function waitForImportTask(
-	taskRunId: string,
-	totalFiles: number,
-	totalBytes: number,
-	onProgress?: (progress: SpaceUploadProgress) => void,
-) {
-	let failures = 0;
-	while (true) {
-		let task: Awaited<ReturnType<typeof sdk.tasks.get>>;
-		try {
-			task = await sdk.tasks.get(taskRunId);
-			failures = 0;
-		} catch (error) {
-			failures += 1;
-			if (failures >= 5) throw error;
-			await sleep(1200);
-			continue;
+function normalizeDestination(input: {
+	destination?: SpaceFsUploadDestination;
+	targetDir?: string;
+}): SpaceFsUploadDestination {
+	if (input.destination) {
+		if (input.destination.kind === "workspace") {
+			return {
+				kind: "workspace",
+				targetDir: input.destination.targetDir
+					? sanitizeRelativePath(input.destination.targetDir)
+					: "",
+			};
 		}
-
-		const { run, progress } = task;
-		const progressData =
-			typeof progress === "object" && progress !== null
-				? (progress as ImportProgressData)
-				: null;
-		const importedFiles = Number(progressData?.importedFiles ?? 0);
-		onProgress?.({
-			stage: "importing",
-			uploadedBytes: totalBytes,
-			totalBytes,
-			importedFiles,
-			totalFiles,
-		});
-
-		if (progressData?.phase === "failed" || run.status === "failed") {
-			const message =
-				progressData?.errors?.[0]?.message ??
-				run.errorMessage ??
-				"Import failed";
-			throw new Error(message);
-		}
-		if (run.status === "completed") {
-			onProgress?.({
-				stage: "done",
-				uploadedBytes: totalBytes,
-				totalBytes,
-				importedFiles: totalFiles,
-				totalFiles,
-			});
-			return;
-		}
-		await sleep(1200);
+		return input.destination;
 	}
+	return {
+		kind: "workspace",
+		targetDir: input.targetDir ? sanitizeRelativePath(input.targetDir) : "",
+	};
 }
 
 export async function uploadSpaceEntries({
 	spaceId,
+	destination,
 	targetDir = "",
 	entries,
 	onProgress,
 }: UploadSpaceEntriesOptions): Promise<SpaceUploadedFile[]> {
 	if (entries.length === 0) return [];
+	const uploadDestination = normalizeDestination({ destination, targetDir });
 	const safeEntries = entries.map((entry) => ({
 		...entry,
 		relativePath: sanitizeRelativePath(entry.relativePath),
 	}));
-	const safeTargetDir = targetDir ? sanitizeRelativePath(targetDir) : "";
 	const totalFiles = safeEntries.length;
 	const totalBytes = safeEntries.reduce(
 		(sum, entry) => sum + entry.file.size,
@@ -151,7 +113,7 @@ export async function uploadSpaceEntries({
 	});
 
 	const plan = await sdk.space(spaceId).files.createUpload({
-		targetDir: safeTargetDir,
+		destination: uploadDestination,
 		entries: safeEntries.map((entry, index) => ({
 			id: ids[index],
 			name: entry.file.name,
@@ -204,17 +166,19 @@ export async function uploadSpaceEntries({
 		.files.completeUpload(plan.uploadId, {
 			entries: ids.map((id) => ({ id })),
 		});
-	await waitForImportTask(
-		complete.taskRunId,
-		totalFiles,
-		totalBytes,
-		onProgress,
-	);
 
-	return safeEntries.map((entry) => ({
-		path: joinUploadPath(safeTargetDir, entry.relativePath),
-		name: entry.relativePath.split("/").at(-1) ?? entry.file.name,
-		size: entry.file.size,
-		mimeType: entry.file.type || null,
+	onProgress?.({
+		stage: "done",
+		uploadedBytes: totalBytes,
+		totalBytes,
+		importedFiles: totalFiles,
+		totalFiles,
+	});
+
+	return complete.uploaded.map((file) => ({
+		path: file.path,
+		name: file.name,
+		size: file.size,
+		mimeType: file.mimeType,
 	}));
 }

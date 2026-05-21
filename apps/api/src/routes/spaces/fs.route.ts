@@ -18,19 +18,20 @@ import {
   writeSpaceFile,
 } from "../../space-fs.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
-import { enqueueTask } from "../../tasks.js";
 import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
+  buildSpaceUploadPublicUrl,
   cancelSpaceUploadComplete,
   createPresignedPutUrl,
   createSpaceUploadId,
   deleteSpaceUploadManifest,
-  finishSpaceUploadComplete,
   getSpaceUploadManifest,
   saveSpaceUploadManifest,
+  type SpaceUploadDestination,
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
+import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
 import type { SpaceFsCreateUploadInput, SpaceFsCompleteUploadInput } from "@cohub/protocol/fs";
 
 const router = new Hono();
@@ -60,6 +61,26 @@ const normalizeUploadRelativePath = (input: string) => {
   const normalized = parts.join("/");
   if (normalized.length > 4096) throw new Error("Upload path is too long.");
   return normalized;
+};
+
+const normalizeUploadDestination = (input: SpaceFsCreateUploadInput["destination"]): SpaceUploadDestination => {
+  if (!input || typeof input !== "object") throw new Error("Upload destination is required.");
+  if (input.kind === "workspace") {
+    return {
+      kind: "workspace",
+      targetDir: input.targetDir ? assertSafeRelativePath(input.targetDir, { allowEmpty: true }) : "",
+    };
+  }
+  if (input.kind === "sandbox_tmp") {
+    if (!input.sessionId || !requireValidId(input.sessionId)) throw new Error("Invalid upload session.");
+    return { kind: "sandbox_tmp", sessionId: input.sessionId };
+  }
+  throw new Error("Invalid upload destination.");
+};
+
+const buildUploadDestinationRoot = (destination: SpaceUploadDestination, uploadId: string) => {
+  if (destination.kind === "sandbox_tmp") return `/tmp/uploads/${destination.sessionId}/${uploadId}`;
+  return destination.targetDir ? `/workspace/${destination.targetDir}` : "/workspace";
 };
 
 router.get("/tree", async (c) => {
@@ -249,7 +270,7 @@ router.post("/uploads", async (c) => {
   let totalBytes = 0;
 
   try {
-    const targetDir = body.targetDir ? assertSafeRelativePath(body.targetDir, { allowEmpty: true }) : "";
+    const destination = normalizeUploadDestination(body.destination);
     for (const entry of body.entries) {
       if (typeof entry.id !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(entry.id) || seenIds.has(entry.id)) {
         return c.json({ message: "entry ids must be unique safe strings" }, 400);
@@ -292,7 +313,7 @@ router.post("/uploads", async (c) => {
       uploadId,
       spaceId,
       userId: user.uuid,
-      targetDir,
+      destination,
       entries,
       createdAt: new Date().toISOString(),
       expiresAt,
@@ -317,7 +338,6 @@ router.post("/uploads/:uploadId/complete", async (c) => {
   if (body.entries.some((entry) => typeof entry.id !== "string")) return c.json({ message: "invalid entries" }, 400);
   const completeState = await beginSpaceUploadComplete(spaceId, uploadId);
   if (!completeState.acquired) {
-    if (completeState.taskRunId && completeState.taskRunId !== "pending") return c.json({ ok: true, taskRunId: completeState.taskRunId });
     return c.json({ message: "upload is already being completed" }, 409);
   }
 
@@ -334,20 +354,26 @@ router.post("/uploads/:uploadId/complete", async (c) => {
       return c.json({ message: "no completed entries" }, 400);
     }
 
-    const { taskRunId } = await enqueueTask({
-      type: "import_space_upload",
+    const destinationRoot = buildUploadDestinationRoot(manifest.destination, manifest.uploadId);
+    const result = await enqueueSandboxUploadFilesJob({
       spaceId,
-      userId: user.uuid,
-      data: { ...manifest, entries },
-    }, {
-      attempts: 3,
-      backoff: { type: "exponential", delay: 10_000 },
-      removeOnComplete: { age: 7 * 24 * 3600 },
-      removeOnFail: { age: 30 * 24 * 3600 },
+      sessionId: manifest.destination.kind === "sandbox_tmp" ? manifest.destination.sessionId : `upload:${uploadId}`,
+      uploadId,
+      destinationRoot,
+      files: entries.map((entry) => ({
+        relativePath: entry.relativePath,
+        name: entry.name,
+        size: entry.size,
+        mimeType: entry.mimeType,
+        downloadUrl: buildSpaceUploadPublicUrl(entry.objectKey),
+      })),
     });
-    await finishSpaceUploadComplete(spaceId, uploadId, taskRunId);
+
     await deleteSpaceUploadManifest(spaceId, uploadId);
-    return c.json({ ok: true, taskRunId });
+    return c.json({
+      ok: true,
+      uploaded: result.uploaded,
+    });
   } catch (error) {
     await cancelSpaceUploadComplete(spaceId, uploadId);
     console.error("[space-fs] failed to complete upload", error);

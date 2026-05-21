@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsgo -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json && tsx scripts/copy-shell-assets.ts",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "typecheck": "tsgo -p tsconfig.json --noEmit",

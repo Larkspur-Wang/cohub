@@ -141,8 +141,17 @@ export type SpaceFsUploadPlanEntryInput = {
   mimeType?: string | null;
   lastModified?: number;
 };
+export type SpaceFsUploadDestination =
+  | {
+      kind: "workspace";
+      targetDir?: string;
+    }
+  | {
+      kind: "sandbox_tmp";
+      sessionId: string;
+    };
 export type SpaceFsCreateUploadInput = {
-  targetDir?: string;
+  destination: SpaceFsUploadDestination;
   entries: SpaceFsUploadPlanEntryInput[];
 };
 export type SpaceFsUploadPlanEntry = {
@@ -161,7 +170,7 @@ export type SpaceFsCompleteUploadInput = {
 };
 export type SpaceFsCompleteUploadResponse = {
   ok: true;
-  taskRunId: string;
+  uploaded: SpaceFsUploadEntry[];
 };
 export type SpaceFsUploadProgress = {
   phase: "queued" | "importing" | "done" | "failed";
@@ -172,6 +181,7 @@ export type SpaceFsUploadProgress = {
   currentPath?: string;
   errors: SpaceFsUploadError[];
 };
+
 
 export type SessionBindingRecord = ProtocolSessionBindingRecord;
 

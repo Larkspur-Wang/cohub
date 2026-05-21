@@ -14,11 +14,15 @@ export type SpaceUploadManifestEntry = {
   objectKey: string;
 };
 
+export type SpaceUploadDestination =
+  | { kind: "workspace"; targetDir?: string }
+  | { kind: "sandbox_tmp"; sessionId: string };
+
 export type SpaceUploadManifest = {
   uploadId: string;
   spaceId: string;
   userId: string;
-  targetDir: string;
+  destination: SpaceUploadDestination;
   entries: SpaceUploadManifestEntry[];
   createdAt: string;
   expiresAt: string;
@@ -101,7 +105,7 @@ const publicEndpoint = (bucket: string) => {
   return parsed.toString().replace(/\/+$/, "");
 };
 
-export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) => {
+const createPresignedPutObjectUrl = (objectKey: string, contentType?: string | null) => {
   requireObjectConfig();
   const accessKeyId = config.turnObjectS3AccessKeyId as string;
   const secretAccessKey = config.turnObjectS3SecretAccessKey as string;
@@ -146,6 +150,13 @@ export const createPresignedPutUrl = (objectKey: string, contentType?: string | 
     expiresAt: new Date(now.getTime() + PRESIGN_TTL_SECONDS * 1000).toISOString(),
     headers: contentType ? { "content-type": contentType } : undefined,
   };
+};
+
+export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) => createPresignedPutObjectUrl(objectKey, contentType);
+
+export const buildSpaceUploadPublicUrl = (objectKey: string) => {
+  requireObjectConfig();
+  return `${publicEndpoint(config.turnObjectS3Bucket as string)}/${encodePath(objectKey)}`;
 };
 
 const sha256Hex = (value: string) => createHash("sha256").update(value).digest("hex");

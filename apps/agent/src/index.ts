@@ -8,9 +8,10 @@ import {
   createQueueTelemetry,
 } from "@cohub/infra/bullmq";
 import { env } from "./env.js";
-import { AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData } from "./queue.js";
+import { AGENT_SANDBOX_BASH_JOB_NAME, AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData, type SandboxBashUploadJobData } from "./queue.js";
 import { processAgentTurnJob, disposeAllSessionHandles } from "./processor.js";
 import { processSessionForkJob } from "./fork.js";
+import { processSandboxBashJob } from "./sandbox-bash.js";
 import { subscribeAbortEvents, closeAbortSubscriber } from "./abort.js";
 import { getActiveAbortController } from "./active-turns.js";
 import { closeDb } from "./db.js";
@@ -30,6 +31,9 @@ const processor: Processor<AgentJobData> = async (job) => {
   }
   if (job.name === AGENT_TURN_JOB_NAME) {
     return processAgentTurnJob(job as Job<AgentTurnJobData>);
+  }
+  if (job.name === AGENT_SANDBOX_BASH_JOB_NAME) {
+    return processSandboxBashJob(job as Job<SandboxBashUploadJobData>);
   }
   throw new Error(`Unknown agent job: ${job.name}`);
 };

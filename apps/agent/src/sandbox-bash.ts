@@ -1,0 +1,140 @@
+import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import type { Job } from "bullmq";
+import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";
+import { createSandboxCodingTools } from "./sandbox/tools.js";
+import { runWithToolExecutionContext } from "./tool-context.js";
+import { logger } from "./logger.js";
+import type { SandboxBashUploadJobData } from "./queue.js";
+
+const SCRIPT_PATH = new URL("./jobs/sandbox-bash/upload-files.sh", import.meta.url);
+const tools = createSandboxCodingTools();
+const tracer = getAgentTracer();
+
+async function loadScript() {
+  return readFile(SCRIPT_PATH, "utf8");
+}
+
+function shellSingleQuote(value: string) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function toBase64(value: string) {
+  return Buffer.from(value, "utf8").toString("base64");
+}
+
+function buildManifest(data: SandboxBashUploadJobData) {
+  return data.files
+    .map((file) => [toBase64(file.relativePath), String(file.size), toBase64(file.downloadUrl)].join("\t"))
+    .join("\n");
+}
+
+async function buildUploadCommand(data: SandboxBashUploadJobData) {
+  const script = await loadScript();
+  const manifest = buildManifest(data);
+  return [
+    "set -euo pipefail",
+    "script_path=$(mktemp /tmp/cohub-upload-files.XXXXXX.sh)",
+    "trap 'rm -f \"$script_path\"' EXIT",
+    "cat > \"$script_path\" <<'COHUB_UPLOAD_SCRIPT'",
+    script.trimEnd(),
+    "COHUB_UPLOAD_SCRIPT",
+    "chmod +x \"$script_path\"",
+    `UPLOAD_ROOT=${shellSingleQuote(data.destinationRoot)} bash "$script_path" <<'COHUB_UPLOAD_MANIFEST'`,
+    manifest,
+    "COHUB_UPLOAD_MANIFEST",
+  ].join("\n");
+}
+
+function extractResultText(result: unknown) {
+  if (!result || typeof result !== "object") return "";
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return typeof content === "string" ? content : "";
+  return content
+    .map((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "text"
+      ? String((item as { text?: unknown }).text ?? "")
+      : "")
+    .join("");
+}
+
+function getExitCode(result: unknown) {
+  if (!result || typeof result !== "object") return null;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return null;
+  const exitCode = (details as { exitCode?: unknown }).exitCode;
+  return typeof exitCode === "number" ? exitCode : null;
+}
+
+function parseUploadedLines(output: string, data: SandboxBashUploadJobData) {
+  const expected = new Map(data.files.map((file) => [file.relativePath, file]));
+  const uploaded = new Map<string, { path: string; name: string; size: number; mimeType: string | null; mtimeMs: number }>();
+
+  for (const line of output.split(/\r?\n/)) {
+    const [kind, relativePath, targetPath] = line.split("\t");
+    if (kind !== "uploaded" || !relativePath || !targetPath) continue;
+    const file = expected.get(relativePath);
+    if (!file) continue;
+    uploaded.set(relativePath, {
+      path: targetPath,
+      name: file.name,
+      size: file.size,
+      mimeType: file.mimeType,
+      mtimeMs: Date.now(),
+    });
+  }
+
+  if (uploaded.size !== data.files.length) {
+    throw new Error(`Uploaded file count mismatch: expected ${data.files.length}, got ${uploaded.size}`);
+  }
+
+  return [...uploaded.values()];
+}
+
+export async function processSandboxBashJob(job: Job<SandboxBashUploadJobData>) {
+  const data = job.data;
+  if (!data.spaceId || !data.sessionId || !data.uploadId || !data.destinationRoot || !Array.isArray(data.files)) {
+    throw new Error("Invalid sandbox_bash upload job payload");
+  }
+
+  const bashTool = tools.find((tool) => tool.name === "bash");
+  if (!bashTool) throw new Error("bash tool is not available");
+
+  const command = await buildUploadCommand(data);
+  const toolCallId = `sandbox_bash_${randomUUID()}`;
+  let latestOutput = "";
+
+  await runWithToolExecutionContext({
+    spaceId: data.spaceId,
+    sessionId: data.sessionId,
+    llmRound: 0,
+    toolCallId,
+    requestId: data.requestId ?? undefined,
+  }, async () => wrapToolCall(tracer, {
+    toolName: "sandbox_bash",
+    input: { task: "upload_files", uploadId: data.uploadId, files: data.files.length },
+    spaceId: data.spaceId,
+    sessionId: data.sessionId,
+    llmRound: 0,
+    toolCallId,
+    requestId: data.requestId ?? undefined,
+  }, async () => {
+    const result = await bashTool.execute(
+      toolCallId,
+      { command, timeout: 3600 } as never,
+      undefined,
+      (partial) => {
+        const text = extractResultText(partial);
+        if (text) latestOutput = text;
+      },
+    );
+    latestOutput = extractResultText(result) || latestOutput;
+    const exitCode = getExitCode(result);
+    if (exitCode !== 0) {
+      throw new Error(latestOutput || `sandbox_bash upload_files failed with exit code ${exitCode ?? "unknown"}`);
+    }
+  }));
+
+  const uploaded = parseUploadedLines(latestOutput, data);
+  logger.info(`[SandboxBash] uploaded ${uploaded.length} file(s) spaceId=${data.spaceId} sessionId=${data.sessionId} uploadId=${data.uploadId}`);
+  return { ok: true, uploaded, output: latestOutput };
+}
