@@ -1,5 +1,12 @@
 # web
 
+## 0.1.12
+
+### Patch Changes
+
+- Updated dependencies [fc1dc64]
+  - @neta-art/cohub@1.13.1
+
 ## 0.1.11
 
 ### Patch Changes

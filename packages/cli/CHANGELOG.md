@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.6.1
+
+### Patch Changes
+
+- fc1dc64: Update sandbox upload materialization types and CLI space handling.
+- Updated dependencies [fc1dc64]
+  - @neta-art/cohub@1.13.1
+
 ## 1.6.0
 
 ### Minor Changes
