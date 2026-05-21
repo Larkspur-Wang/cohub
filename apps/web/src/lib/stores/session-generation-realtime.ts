@@ -71,22 +71,6 @@ function isContentTextuallySame(a: ContentBlock[], b: ContentBlock[]): boolean {
 	return getVisibleTextContent(a) === getVisibleTextContent(b);
 }
 
-function resolveFinalContent(turn: {
-	assistantContent?: ContentBlock[] | null;
-	assistantText?: string | null;
-}): ContentBlock[] {
-	if (
-		Array.isArray(turn.assistantContent) &&
-		turn.assistantContent.length > 0
-	) {
-		return turn.assistantContent;
-	}
-	if (turn.assistantText) {
-		return [{ type: "text", text: turn.assistantText }];
-	}
-	return [];
-}
-
 function resolveStreamMessageId(input: {
 	sessionId: string;
 	turnId?: string | null;
@@ -178,10 +162,8 @@ export function applyGenerationStreamSnapshot(
 	) {
 		return { applied: false, reason: "stale_snapshot" as const };
 	}
-	// If the snapshot content is textually identical to the current
-	// streaming-accumulated content, skip the contentBlocks update to
-	// avoid resetting the StreamingMarkdownController's typing animation.
-	// Other fields (patchSeq, turnId, etc.) are still applied.
+	// Skip contentBlocks update when textually identical to avoid
+	// resetting the StreamingMarkdownController's typing animation.
 	const currentBlocks = current?.contentBlocks ?? [];
 	const snapshotBlocks = input.current.content;
 	const skipContentUpdate =
@@ -225,12 +207,9 @@ export function applyGenerationStreamEvent(
 
 	if (event.type === "commit") {
 		if (event.commit.kind === "final" || event.commit.kind === "error") {
-			// The persisted message (session.message.persisted) carries the
-			// full content blocks including thinking, tool_use, tool_result,
-			// etc. Apply it immediately so the UI shows the complete final
-			// content without waiting for hydrateTurnOnce. This avoids the
-			// re-stream bug where session.turn.finalized (which arrives a few
-			// ms later) only carries assistantText and lacks assistantContent.
+			// Apply the full content blocks from the persisted message
+			// (session.message.persisted) which carries complete content
+			// including thinking, tool_use, tool_result, etc.
 			const commitContent = event.commit.message.content;
 			if (Array.isArray(commitContent) && commitContent.length > 0) {
 				const current = sessionGenerationStore.get(sessionId);
@@ -271,28 +250,10 @@ export function applyGenerationStreamEvent(
 				shouldRefreshSessions: true,
 			});
 		}
-		// session.turn.finalized deliberately strips assistantContent (via
-		// toRealtimeTurnRecord) to keep the WS payload lightweight. The
-		// preceding commit event (session.message.persisted) already carries
-		// the full content blocks and has been applied above. So we only
-		// update contentBlocks here as a fallback when the commit event was
-		// somehow missed, and only when the finalized event actually has full
-		// blocks (which currently never happens).
-		const hasFullBlocks =
-			Array.isArray(event.turn.assistantContent) &&
-			event.turn.assistantContent.length > 0;
-		if (hasFullBlocks) {
-			const finalContent = resolveFinalContent(event.turn);
-			const current = sessionGenerationStore.get(sessionId);
-			const currentBlocks = current?.contentBlocks ?? [];
-			if (!isContentTextuallySame(currentBlocks, finalContent)) {
-				sessionGenerationStore.applyProgress(sessionId, {
-					contentBlocks: finalContent,
-					turnId: event.turn.id,
-					finalizedPreview: true,
-				});
-			}
-		}
+		// Content blocks are NOT updated here — session.turn.finalized
+		// strips assistantContent (via toRealtimeTurnRecord). The full
+		// content is applied by the preceding commit event
+		// (session.message.persisted) which arrives a few ms earlier.
 		return handledEffect({
 			shouldScroll: true,
 			shouldReconcile: true,
