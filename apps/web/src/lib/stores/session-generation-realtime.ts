@@ -254,17 +254,25 @@ export function applyGenerationStreamEvent(
 				shouldRefreshSessions: true,
 			});
 		}
-		// For completed turns, avoid replacing the streaming-accumulated
-		// contentBlocks with the server's final blocks when the visible text
-		// is already equivalent. Replacing blocks resets the
-		// StreamingMarkdownController's typing animation because the new
-		// source may not extend the currently displayed source (e.g. blocks
-		// in a different order, empty thinking blocks added/removed, trailing
-		// whitespace differences). The streaming preview already shows the
-		// complete text, and hydrateTurnOnce + completeGeneration will swap
-		// it for the persisted final message shortly after.
-		const finalContent = resolveFinalContent(event.turn);
-		if (finalContent.length > 0) {
+		// For completed turns, the finalized event may carry `assistantContent`
+		// (full blocks including thinking) or only `assistantText` (plain text
+		// without thinking). When only `assistantText` is available, the
+		// resolved blocks are INCOMPLETE — they lack thinking blocks that the
+		// streaming-accumulated content already has. Replacing blocks in this
+		// case would:
+		//   1. Reset the StreamingMarkdownController (source mismatch → re-stream)
+		//   2. Briefly show only text, then flash in thinking when hydrate completes
+		//
+		// The streaming preview already shows the complete text, and
+		// hydrateTurnOnce + completeGeneration will swap it for the persisted
+		// final message (with full blocks) shortly after. So we only update
+		// contentBlocks when the finalized event carries the full blocks AND
+		// they differ from the streaming-accumulated content.
+		const hasFullBlocks =
+			Array.isArray(event.turn.assistantContent) &&
+			event.turn.assistantContent.length > 0;
+		if (hasFullBlocks) {
+			const finalContent = resolveFinalContent(event.turn);
 			const current = sessionGenerationStore.get(sessionId);
 			const currentBlocks = current?.contentBlocks ?? [];
 			if (!isContentTextuallySame(currentBlocks, finalContent)) {
