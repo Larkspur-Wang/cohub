@@ -1,13 +1,17 @@
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
-import { useAuth } from "../lib/middleware.js";
+import { getOptionalAuth } from "../lib/middleware.js";
 import { listPromptTemplates } from "../prompt-templates.js";
 
 const router = new Hono();
 
 router.get("/", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   const spaceId = c.req.query("spaceId")?.trim() || null;
+
+  if (!user && !spaceId) {
+    return c.json({ prompts: [] });
+  }
 
   if (spaceId && !(await hasPermission(user, "space.view", { spaceId }))) {
     return c.json({ message: "not found" }, 404);
