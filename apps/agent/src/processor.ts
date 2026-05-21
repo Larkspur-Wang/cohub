@@ -82,6 +82,12 @@ async function drainNextQueuedTurn(input: { spaceId: string; sessionId: string; 
   }
 }
 
+function warmupSandboxConnection(spaceId: string) {
+  void ensureSandboxConnection(spaceId).catch((error) => {
+    logger.warn(`[Agent] sandbox warmup failed spaceId=${spaceId}:`, error);
+  });
+}
+
 async function getModelRegistryForUser(userId: string | null | undefined) {
   const configs = await loadRuntimeModelsConfigs(userId?.trim() || null);
   const registry = new CohubModelRegistry({ configs });
@@ -578,7 +584,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         requestedModel: resolveRequestedModel(ownerMeta),
       });
 
-      await ensureSandboxConnection(data.spaceId);
+      warmupSandboxConnection(data.spaceId);
 
       const turnUserMessages: TurnUserMessage[] = buildUserMessagesForBatch(batch)
         .filter((item) => Boolean(item.userMessageId))
