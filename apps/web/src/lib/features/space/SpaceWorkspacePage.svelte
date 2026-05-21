@@ -2100,16 +2100,26 @@ async function syncGenerationStateFromTail(
 	);
 	if (runningTurn) {
 		const current = sessionGenerationStore.get(sessionId);
-		// The HTTP API response may lag behind the WebSocket `finalized` event.
-		// If the generation has already reached a terminal state for the same
-		// turn, the API data is stale — skip resume to avoid re-activating a
-		// completed generation (which would cause the final content to
-		// re-stream via the typing animation).
+		// The HTTP API response may lag behind WebSocket events. Two guards:
+		//
+		// 1. If the generation already reached a terminal state for the same
+		//    turn, the API data is stale — skip to avoid re-activating.
+		//
+		// 2. If the generation is actively streaming for the same turn and
+		//    the API request was sent BEFORE the last streaming event arrived,
+		//    the API data is likely stale (the server may not have persisted
+		//    the completed status yet). Skip to avoid replacing
+		//    streaming-accumulated content with a stale snapshot, which would
+		//    reset the StreamingMarkdownController and cause a re-stream.
+		const isSameTurn = current?.turnId === runningTurn.id;
 		const alreadyTerminalForTurn =
+			current && TERMINAL_GENERATION_STATUSES.has(current.status) && isSameTurn;
+		const staleApiForActiveStream =
 			current &&
-			TERMINAL_GENERATION_STATUSES.has(current.status) &&
-			current.turnId === runningTurn.id;
-		if (alreadyTerminalForTurn) {
+			isSameTurn &&
+			(current.status === "streaming" || current.status === "pending") &&
+			(current.lastEventAt ?? 0) > requestStartedAt;
+		if (alreadyTerminalForTurn || staleApiForActiveStream) {
 			return;
 		}
 		const anchorUserMessageId =

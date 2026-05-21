@@ -45,6 +45,32 @@ function handledEffect(
 	};
 }
 
+/**
+ * Extract visible text from content blocks, normalizing for comparison.
+ * Empty/whitespace-only thinking and text blocks are excluded to match
+ * the behavior of `buildStreamingPreviewBlocks`, which filters them out
+ * during streaming.
+ */
+function getVisibleTextContent(blocks: ContentBlock[]): string {
+	return blocks
+		.map((block) => {
+			if (block.type === "text") return block.text.trim();
+			if (block.type === "thinking") return block.thinking.trim();
+			return "";
+		})
+		.filter(Boolean)
+		.join("\n\n");
+}
+
+/**
+ * Compare two sets of content blocks by their visible text content.
+ * Used to avoid replacing streaming-accumulated blocks with the server's
+ * final blocks when the rendered text is already identical.
+ */
+function isContentTextuallySame(a: ContentBlock[], b: ContentBlock[]): boolean {
+	return getVisibleTextContent(a) === getVisibleTextContent(b);
+}
+
 function resolveFinalContent(turn: {
 	assistantContent?: ContentBlock[] | null;
 	assistantText?: string | null;
@@ -152,9 +178,18 @@ export function applyGenerationStreamSnapshot(
 	) {
 		return { applied: false, reason: "stale_snapshot" as const };
 	}
+	// If the snapshot content is textually identical to the current
+	// streaming-accumulated content, skip the contentBlocks update to
+	// avoid resetting the StreamingMarkdownController's typing animation.
+	// Other fields (patchSeq, turnId, etc.) are still applied.
+	const currentBlocks = current?.contentBlocks ?? [];
+	const snapshotBlocks = input.current.content;
+	const skipContentUpdate =
+		snapshotBlocks.length > 0 &&
+		isContentTextuallySame(currentBlocks, snapshotBlocks);
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: input.spaceId ?? current?.spaceId ?? null,
-		contentBlocks: input.current.content,
+		contentBlocks: skipContentUpdate ? currentBlocks : snapshotBlocks,
 		intermediateMessages: input.intermediateMessages ?? [],
 		streamMessageId: resolveStreamMessageId({
 			sessionId,
@@ -219,17 +254,26 @@ export function applyGenerationStreamEvent(
 				shouldRefreshSessions: true,
 			});
 		}
-		// For completed turns, immediately apply the final content from the
-		// finalized event so the UI shows the complete text without waiting
-		// for the HTTP hydrate. The generation stays in "streaming" status
-		// until hydrateTurnOnce resolves and calls completeGeneration.
+		// For completed turns, avoid replacing the streaming-accumulated
+		// contentBlocks with the server's final blocks when the visible text
+		// is already equivalent. Replacing blocks resets the
+		// StreamingMarkdownController's typing animation because the new
+		// source may not extend the currently displayed source (e.g. blocks
+		// in a different order, empty thinking blocks added/removed, trailing
+		// whitespace differences). The streaming preview already shows the
+		// complete text, and hydrateTurnOnce + completeGeneration will swap
+		// it for the persisted final message shortly after.
 		const finalContent = resolveFinalContent(event.turn);
 		if (finalContent.length > 0) {
-			sessionGenerationStore.applyProgress(sessionId, {
-				contentBlocks: finalContent,
-				turnId: event.turn.id,
-				finalizedPreview: true,
-			});
+			const current = sessionGenerationStore.get(sessionId);
+			const currentBlocks = current?.contentBlocks ?? [];
+			if (!isContentTextuallySame(currentBlocks, finalContent)) {
+				sessionGenerationStore.applyProgress(sessionId, {
+					contentBlocks: finalContent,
+					turnId: event.turn.id,
+					finalizedPreview: true,
+				});
+			}
 		}
 		return handledEffect({
 			shouldScroll: true,
