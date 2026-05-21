@@ -30,6 +30,37 @@ export interface ToolFailureDetails {
   message: string;
 }
 
+export type ToolResult<T> = T | ToolFailureDetails;
+
+export function createToolFailure(message: string, options?: {
+  retryable?: boolean;
+  infrastructure?: boolean;
+  rpcErrorCode?: string;
+  outputTail?: string;
+}): ToolFailureDetails {
+  return {
+    isError: true,
+    retryable: options?.retryable ?? false,
+    infrastructure: options?.infrastructure ?? false,
+    ...(options?.rpcErrorCode ? { rpcErrorCode: options.rpcErrorCode } : {}),
+    ...(options?.outputTail ? { outputTail: options.outputTail } : {}),
+    message,
+  };
+}
+
+export function isToolFailureDetails(value: unknown): value is ToolFailureDetails {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return (value as Record<string, unknown>).isError === true;
+}
+
+function failureToolResult(failure: ToolFailureDetails): AgentToolResult<unknown> {
+  const tail = failure.outputTail?.trim();
+  return {
+    content: [{ type: "text", text: tail ? `${failure.message}\n\n${tail}` : failure.message }],
+    details: failure,
+  };
+}
+
 export type BashExecutionResult =
   | { exitCode: number | null }
   | { failure: ToolFailureDetails };
@@ -273,11 +304,7 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
       updates.flush();
 
       if ("failure" in result) {
-        const tail = result.failure.outputTail?.trim();
-        return {
-          content: [{ type: "text", text: tail ? `${result.failure.message}\n\n${tail}` : result.failure.message }],
-          details: result.failure,
-        };
+        return failureToolResult(result.failure);
       }
 
       const output = Buffer.concat(chunks).toString("utf-8");

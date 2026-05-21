@@ -23,6 +23,7 @@ export class SandboxRpcError extends Error {
       method: RpcMethod | string;
       rpcErrorCode: RpcErrorCode;
       retryable: boolean;
+      transportReason?: string;
     },
   ) {
     super(message);
@@ -40,6 +41,10 @@ export class SandboxRpcError extends Error {
 
   get retryable() {
     return this.options.retryable;
+  }
+
+  get transportReason() {
+    return this.options.transportReason;
   }
 }
 

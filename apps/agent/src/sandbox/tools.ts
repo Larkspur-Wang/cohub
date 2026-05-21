@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   createBashTool,
+  createToolFailure,
   createEditTool,
   createFindTool,
   createGrepToolDefinition,
@@ -24,6 +25,7 @@ import {
 
 const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import {
@@ -44,7 +46,8 @@ import {
 } from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
-import { isSandboxRpcError } from "./rpc-error.js";
+import { SandboxRpcError, isSandboxRpcError } from "./rpc-error.js";
+
 import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
 import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
@@ -52,6 +55,7 @@ import { logger } from "../logger.js";
 import { db } from "../db.js";
 
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
+const SANDBOX_UNAVAILABLE_MESSAGE = "Sandbox unavailable.";
 
 function getCurrentTraceContext() {
   const ctx = getCurrentToolExecutionContext();
@@ -130,8 +134,18 @@ function mapSandboxInputPath(path: string | undefined) {
   return path;
 }
 
-async function getCurrentConnection() {
-  return ensureSandboxConnection(getCurrentSpaceId());
+async function getCurrentConnection(method: RpcMethod | string = "sandbox.connect") {
+  const spaceId = getCurrentSpaceId();
+  try {
+    return await ensureSandboxConnection(spaceId);
+  } catch (error) {
+    logger.warn(`[SandboxWS] unavailable while waiting for connection spaceId=${spaceId}:`, error);
+    throw new SandboxRpcError(SANDBOX_UNAVAILABLE_MESSAGE, {
+      method,
+      rpcErrorCode: "IO_ERROR",
+      retryable: false,
+    });
+  }
 }
 
 async function waitForRecoveredSandboxConnection(spaceId: string, timeoutMs = 60_000) {
@@ -208,7 +222,7 @@ async function tracedRpc<M extends RpcMethod>(
       const classified = classifySandboxInfrastructureError(error instanceof Error ? error.message : String(error));
       if (!classified || !retryInfraError) throw error;
       return recoverAndRetryAfterInfraError(spaceId, classified, async () => {
-        const freshConnection = await ensureSandboxConnection(spaceId);
+        const freshConnection = await getCurrentConnection(method);
         return tracedRpc(freshConnection, method, params, options, false);
       });
     }
@@ -844,6 +858,26 @@ async function assertCurrentActorCanViewSpaceFiles(spaceId: string) {
   await assertSpaceFileViewAccess({ actorUserId: actorUserId.trim(), spaceId });
 }
 
+function withSandboxFailureResult<T extends AgentTool>(tool: T): T {
+  const execute: AgentTool["execute"] = async (...args) => {
+    try {
+      return await tool.execute(...args);
+    } catch (error) {
+      if (!isSandboxRpcError(error)) throw error;
+      logger.warn(`[Tool:${tool.name}] sandbox unavailable method=${error.method} rpcErrorCode=${error.rpcErrorCode}`);
+      return {
+        content: [{ type: "text", text: SANDBOX_UNAVAILABLE_MESSAGE }],
+        details: createToolFailure(SANDBOX_UNAVAILABLE_MESSAGE, {
+          retryable: error.retryable,
+          infrastructure: error.infrastructure,
+          rpcErrorCode: error.rpcErrorCode,
+        }),
+      };
+    }
+  };
+  return { ...tool, execute } as T;
+}
+
 export function createSandboxCodingTools() {
   const toolCwd = SANDBOX_WORKSPACE_PATH;
 
@@ -853,12 +887,12 @@ export function createSandboxCodingTools() {
   const sandboxGrepTool = createRemoteGrepTool();
 
   return [
-    createSpaceAwareReadTool(sandboxReadTool, assertCurrentActorCanViewSpaceFiles),
-    createBashTool(toolCwd, { operations: createRemoteBashOperations() }),
-    createEditTool(toolCwd, { operations: createRemoteEditOperations() }),
-    createWriteTool(toolCwd, { operations: createRemoteWriteOperations() }),
-    createSpaceAwareLsTool(sandboxLsTool, assertCurrentActorCanViewSpaceFiles),
-    createSpaceAwareFindTool(sandboxFindTool, assertCurrentActorCanViewSpaceFiles),
-    createSpaceAwareGrepTool(sandboxGrepTool, assertCurrentActorCanViewSpaceFiles),
+    withSandboxFailureResult(createSpaceAwareReadTool(sandboxReadTool, assertCurrentActorCanViewSpaceFiles)),
+    withSandboxFailureResult(createBashTool(toolCwd, { operations: createRemoteBashOperations() })),
+    withSandboxFailureResult(createEditTool(toolCwd, { operations: createRemoteEditOperations() })),
+    withSandboxFailureResult(createWriteTool(toolCwd, { operations: createRemoteWriteOperations() })),
+    withSandboxFailureResult(createSpaceAwareLsTool(sandboxLsTool, assertCurrentActorCanViewSpaceFiles)),
+    withSandboxFailureResult(createSpaceAwareFindTool(sandboxFindTool, assertCurrentActorCanViewSpaceFiles)),
+    withSandboxFailureResult(createSpaceAwareGrepTool(sandboxGrepTool, assertCurrentActorCanViewSpaceFiles)),
   ];
 }

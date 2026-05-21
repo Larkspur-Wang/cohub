@@ -9,6 +9,8 @@ export {
 } from "./truncate.js";
 
 export {
+  createToolFailure,
+  isToolFailureDetails,
   createBashTool,
   createEditTool,
   createFindTool,

@@ -19,11 +19,10 @@ import { SandboxRpcError } from "./rpc-error.js";
 
 const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
-const COMMAND_EXECUTION_FAILED_MESSAGE = "Command execution failed.";
-const OPERATION_FAILED_MESSAGE = "Operation failed.";
+const SANDBOX_UNAVAILABLE_MESSAGE = "Sandbox unavailable.";
 
-function getUserFacingFailureMessage(method: string) {
-  return method === "process.start" ? COMMAND_EXECUTION_FAILED_MESSAGE : OPERATION_FAILED_MESSAGE;
+function getUserFacingFailureMessage(_method: string) {
+  return SANDBOX_UNAVAILABLE_MESSAGE;
 }
 
 type PendingOperation = {
@@ -57,6 +56,7 @@ type SandboxClientRegistration = {
 
 export class SandboxConnection {
   private closed = false;
+  private disposed = false;
 
   constructor(
     readonly spaceId: string,
@@ -84,27 +84,38 @@ export class SandboxConnection {
     const requestId = options.requestId ?? randomUUID();
     logger.debug(`[SandboxWS] rpc:request spaceId=${this.spaceId} identity=${this.identity} method=${method} requestId=${requestId.slice(0, 8)}`);
     return new Promise((resolve, reject) => {
-      this.registration.pendingByRequestId.set(requestId, {
+      const pending = {
         requestId,
         method,
         accepted: false,
         resolve,
         reject,
         onEvent: options.onEvent,
-      });
+      };
+      this.registration.pendingByRequestId.set(requestId, pending);
 
-      this.send({
-        version: AGENT_SANDBOX_PROTOCOL_VERSION,
-        type: "rpc.request",
-        requestId,
-        spaceId: options.spaceId,
-        sandboxId: options.sandboxId,
-        sessionId: null,
-        toolCallId: null,
-        timestamp: Date.now(),
-        method,
-        params,
-      });
+      try {
+        this.send({
+          version: AGENT_SANDBOX_PROTOCOL_VERSION,
+          type: "rpc.request",
+          requestId,
+          spaceId: options.spaceId,
+          sandboxId: options.sandboxId,
+          sessionId: null,
+          toolCallId: null,
+          timestamp: Date.now(),
+          method,
+          params,
+        });
+      } catch (error) {
+        this.clearPending(requestId, pending);
+        reject(new SandboxRpcError(getUserFacingFailureMessage(method), {
+          method,
+          rpcErrorCode: "IO_ERROR",
+          retryable: false,
+          transportReason: error instanceof Error ? error.message : String(error),
+        }));
+      }
     });
   }
 
@@ -145,11 +156,15 @@ export class SandboxConnection {
         method: pending.method,
         rpcErrorCode: message.error.code,
         retryable: message.error.retryable ?? false,
+        transportReason: message.error.message,
       }));
     }
   }
 
   dispose(error?: Error) {
+    if (this.disposed) return;
+    this.disposed = true;
+
     const pendingEntries = [...this.registration.pendingByRequestId.entries()];
     if (pendingEntries.length === 0) return;
 
@@ -164,6 +179,7 @@ export class SandboxConnection {
           method: pending.method,
           rpcErrorCode: "IO_ERROR",
           retryable: false,
+          transportReason: error?.message ?? "connection closed",
         }));
         continue;
       }
@@ -179,6 +195,7 @@ export class SandboxConnection {
           method: pending.method,
           rpcErrorCode: "IO_ERROR",
           retryable: false,
+          transportReason: error?.message ?? "connection closed",
         }));
       }, ACCEPTED_RPC_DISCONNECT_GRACE_MS);
     }

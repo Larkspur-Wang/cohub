@@ -9,6 +9,7 @@ import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
+import { isToolFailureDetails } from "./tools/index.js";
 
 import type { SpaceModListItem } from "@cohub/core/space-mods";
 
@@ -407,15 +408,6 @@ function toolSnippets(toolName: string): string | undefined {
     case "ls": return "List directory contents";
     default: return undefined;
   }
-}
-
-function isToolFailureDetails(value: unknown): value is { isError: true; retryable: boolean; infrastructure: boolean; message: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return record.isError === true
-    && typeof record.retryable === "boolean"
-    && typeof record.infrastructure === "boolean"
-    && typeof record.message === "string";
 }
 
 export async function createCohubAgentSession(options: CreateCohubAgentSessionOptions): Promise<{ session: CohubAgentSession }> {

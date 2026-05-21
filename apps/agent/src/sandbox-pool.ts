@@ -27,6 +27,7 @@ type PoolEntry = {
 
 const entries = new Map<string, PoolEntry>();
 const wsUrlResolutions = new Map<string, Promise<string>>();
+const sandboxRecoveries = new Map<string, Promise<void>>();
 
 function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
@@ -73,6 +74,23 @@ async function syncSandboxConnectionState(input: { spaceId: string; status: Norm
   }).catch(() => undefined);
 }
 
+async function recoverSandboxOnce(spaceId: string, reason: string) {
+  const existing = sandboxRecoveries.get(spaceId);
+  if (existing) return existing;
+
+  const promise = recoverSpaceSandbox({ spaceId, reason, source: "agent" })
+    .then((result) => {
+      if (!result?.ok) {
+        throw new Error(`sandbox recovery failed: ${result?.message ?? reason}`);
+      }
+    })
+    .finally(() => {
+      sandboxRecoveries.delete(spaceId);
+    });
+  sandboxRecoveries.set(spaceId, promise);
+  return promise;
+}
+
 async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   if (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID) {
     return LOCAL_SANDBOX_WS_URL;
@@ -80,11 +98,7 @@ async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   const response = await getSpaceSandbox({ spaceId });
   const sandbox = response?.sandbox;
   if (sandbox?.status === "stopped" || sandbox?.status === "error" || sandbox?.status === "terminated") {
-    await recoverSpaceSandbox({
-      spaceId,
-      reason: sandbox.status === "error" ? "auto_recover" : "auto_resume",
-      source: "agent",
-    });
+    await recoverSandboxOnce(spaceId, sandbox.status === "error" ? "auto_recover" : "auto_resume");
     const resumed = (await getSpaceSandbox({ spaceId }))?.sandbox;
     const resumedMeta = (resumed?.meta as Record<string, unknown> | null) ?? null;
     const resumedPodIp = typeof resumedMeta?.podIp === "string" ? resumedMeta.podIp.trim() : "";
