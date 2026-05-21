@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.13.1
+
+### Patch Changes
+
+- fc1dc64: Update sandbox upload materialization types and CLI space handling.
+
 ## 1.13.0
 
 ### Minor Changes
