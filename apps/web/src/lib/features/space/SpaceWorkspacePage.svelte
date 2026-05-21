@@ -2099,6 +2099,19 @@ async function syncGenerationStateFromTail(
 		(turn) => turn.status === "running" || turn.status === "abort_requested",
 	);
 	if (runningTurn) {
+		const current = sessionGenerationStore.get(sessionId);
+		// The HTTP API response may lag behind the WebSocket `finalized` event.
+		// If the generation has already reached a terminal state for the same
+		// turn, the API data is stale — skip resume to avoid re-activating a
+		// completed generation (which would cause the final content to
+		// re-stream via the typing animation).
+		const alreadyTerminalForTurn =
+			current &&
+			TERMINAL_GENERATION_STATUSES.has(current.status) &&
+			current.turnId === runningTurn.id;
+		if (alreadyTerminalForTurn) {
+			return;
+		}
 		const anchorUserMessageId =
 			typeof runningTurn.meta?.userMessageId === "string"
 				? runningTurn.meta.userMessageId
