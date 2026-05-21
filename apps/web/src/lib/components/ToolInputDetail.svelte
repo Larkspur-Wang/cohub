@@ -25,7 +25,7 @@ function isExpanded(section: ToolInputSection) {
 }
 
 function shouldCollapse(section: ToolInputSection) {
-	return section.collapsible && !isExpanded(section);
+	return section.collapsible && !live && !isExpanded(section);
 }
 
 function sectionBodyId(section: ToolInputSection) {
@@ -89,7 +89,7 @@ function sectionBodyId(section: ToolInputSection) {
 							</div>
 						{/if}
 
-						{#if section.collapsible}
+						{#if section.collapsible && !live}
 							<button
 								type="button"
 								class="inline-flex min-h-7 items-center rounded-sm px-0 text-[12px] leading-none text-text-placeholder transition-colors hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/35 sm:min-h-5 max-sm:min-h-11 max-sm:px-1"
