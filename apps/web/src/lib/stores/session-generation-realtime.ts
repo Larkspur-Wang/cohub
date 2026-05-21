@@ -225,8 +225,25 @@ export function applyGenerationStreamEvent(
 
 	if (event.type === "commit") {
 		if (event.commit.kind === "final" || event.commit.kind === "error") {
+			// The persisted message (session.message.persisted) carries the
+			// full content blocks including thinking, tool_use, tool_result,
+			// etc. Apply it immediately so the UI shows the complete final
+			// content without waiting for hydrateTurnOnce. This avoids the
+			// re-stream bug where session.turn.finalized (which arrives a few
+			// ms later) only carries assistantText and lacks assistantContent.
+			const commitContent = event.commit.message.content;
+			if (Array.isArray(commitContent) && commitContent.length > 0) {
+				const current = sessionGenerationStore.get(sessionId);
+				const currentBlocks = current?.contentBlocks ?? [];
+				if (!isContentTextuallySame(currentBlocks, commitContent)) {
+					sessionGenerationStore.applyProgress(sessionId, {
+						contentBlocks: commitContent,
+						finalizedPreview: true,
+					});
+				}
+			}
 			return handledEffect({
-				shouldScroll: false,
+				shouldScroll: true,
 				shouldReconcile: true,
 				shouldRestoreSnapshot: false,
 				shouldRefreshSessions: true,
@@ -254,20 +271,13 @@ export function applyGenerationStreamEvent(
 				shouldRefreshSessions: true,
 			});
 		}
-		// For completed turns, the finalized event may carry `assistantContent`
-		// (full blocks including thinking) or only `assistantText` (plain text
-		// without thinking). When only `assistantText` is available, the
-		// resolved blocks are INCOMPLETE — they lack thinking blocks that the
-		// streaming-accumulated content already has. Replacing blocks in this
-		// case would:
-		//   1. Reset the StreamingMarkdownController (source mismatch → re-stream)
-		//   2. Briefly show only text, then flash in thinking when hydrate completes
-		//
-		// The streaming preview already shows the complete text, and
-		// hydrateTurnOnce + completeGeneration will swap it for the persisted
-		// final message (with full blocks) shortly after. So we only update
-		// contentBlocks when the finalized event carries the full blocks AND
-		// they differ from the streaming-accumulated content.
+		// session.turn.finalized deliberately strips assistantContent (via
+		// toRealtimeTurnRecord) to keep the WS payload lightweight. The
+		// preceding commit event (session.message.persisted) already carries
+		// the full content blocks and has been applied above. So we only
+		// update contentBlocks here as a fallback when the commit event was
+		// somehow missed, and only when the finalized event actually has full
+		// blocks (which currently never happens).
 		const hasFullBlocks =
 			Array.isArray(event.turn.assistantContent) &&
 			event.turn.assistantContent.length > 0;
