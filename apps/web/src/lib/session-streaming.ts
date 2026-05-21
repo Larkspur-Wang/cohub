@@ -103,7 +103,9 @@ export function mergeStreamingDeltaBlocks(
 export function getStreamingRenderKey(
 	anchorUserMessageId: string | null,
 	sessionId: string,
+	turnId?: string | null,
 ) {
+	if (turnId?.trim()) return `turn:${turnId.trim()}:assistant`;
 	return anchorUserMessageId?.trim()
 		? `assistant-final:${anchorUserMessageId.trim()}`
 		: `assistant-streaming:${sessionId}`;

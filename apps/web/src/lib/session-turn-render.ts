@@ -125,7 +125,6 @@ export function buildTurnTimelineItems(input: {
 			(input.streaming.status === "pending" ||
 				input.streaming.status === "streaming"),
 	);
-	const shouldRenderFinalPreview = Boolean(input.streaming?.finalizedPreview);
 	let streamingProcessInserted = false;
 	for (const turn of input.turns) {
 		items.push({
@@ -171,11 +170,7 @@ export function buildTurnTimelineItems(input: {
 		}
 		const assistant = turnToAssistantMessage(turn);
 		if (assistant) {
-			if (
-				hasStreamingState &&
-				streamingTurnId === turn.id &&
-				!shouldRenderFinalPreview
-			) {
+			if (hasStreamingState && streamingTurnId === turn.id) {
 				// Keep the live streaming preview as the visual source of truth until
 				// generation is marked terminal. Finalized / reconciled turn patches can
 				// arrive before the full persisted turn is available, and temporarily
@@ -249,8 +244,9 @@ export function buildTurnTimelineItems(input: {
 		input.streaming?.status === "pending" && streamingBlocks.length === 0;
 	if (streamingBlocks.length > 0 || showPendingPlaceholder) {
 		const renderKey = getStreamingRenderKey(
-			input.streaming?.turnId ?? input.streaming?.anchorUserMessageId ?? null,
+			input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
+			input.streaming?.turnId ?? null,
 		);
 		const blocks = buildStreamingPreviewBlocks(streamingBlocks, {
 			truncatedStart: input.streaming?.truncatedStart,
@@ -270,12 +266,7 @@ export function buildTurnTimelineItems(input: {
 					effectiveBlocks.find((block) => block.type === "text")?.text ?? "",
 				sequence: fallbackSequence + 1,
 				createdAt: renderCreatedAt,
-				meta: {
-					messageKind: shouldRenderFinalPreview
-						? "assistant_final"
-						: "assistant_streaming_preview",
-					streaming: !shouldRenderFinalPreview,
-				},
+				meta: { messageKind: "assistant_streaming_preview" },
 			},
 		});
 	}
