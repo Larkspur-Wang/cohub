@@ -45,6 +45,7 @@ import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { downloadCohubDebugBundle } from "$lib/debugger";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import {
@@ -900,7 +901,7 @@ function saveDebugLog() {
 }
 
 function handleGlobalNewChatKeydown(event: KeyboardEvent) {
-	if (event.isComposing) return;
+	if (isComposingKeyboardEvent(event)) return;
 	const key = event.key.toLowerCase();
 	const isNewChatShortcut = (event.metaKey || event.ctrlKey) && key === "o";
 	if (isNewChatShortcut) {
@@ -1255,7 +1256,11 @@ $effect(() => {
                         maxlength={80}
                         disabled={renameSaving}
                         onkeydown={(e) => {
-                          if (e.key === "Enter" && !renameSaving) {
+                          if (
+                            e.key === "Enter" &&
+                            !renameSaving &&
+                            !isComposingKeyboardEvent(e)
+                          ) {
                             e.preventDefault();
                             void submitRenameSession(session);
                           }
@@ -1390,7 +1395,11 @@ $effect(() => {
                   maxlength={80}
                   disabled={renameSaving}
                   onkeydown={(e) => {
-                    if (e.key === "Enter" && !renameSaving) {
+                    if (
+                      e.key === "Enter" &&
+                      !renameSaving &&
+                      !isComposingKeyboardEvent(e)
+                    ) {
                       e.preventDefault();
                       void submitRenameSession(activeSession);
                     }

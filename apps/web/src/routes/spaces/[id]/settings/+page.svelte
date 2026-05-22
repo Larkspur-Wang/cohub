@@ -33,6 +33,7 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 
 type SandboxInfo = {
@@ -789,7 +790,7 @@ $effect(() => {
 					</div>
 
 					<div class="flex flex-col gap-2 sm:flex-row">
-						<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addMember(); } }} class="min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+						<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 						<div class="flex gap-2">
 							<select bind:value={addingMemberRole} class="rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
 							<button type="button" onclick={() => { void addMember(); }} disabled={savingMember || !addingMemberUuid.trim()} class="inline-flex min-w-16 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if savingMember}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Plus class="w-3.5 h-3.5" />{/if} Add</button>
@@ -907,7 +908,7 @@ $effect(() => {
 								<div class="min-w-0 flex-1">
 									<div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div>
 									<div class="truncate font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div>
-								<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-1 w-full rounded border border-border-subtle bg-bg-input px-2 py-1 text-[11px] font-mono text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+								<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-1 w-full rounded border border-border-subtle bg-bg-input px-2 py-1 text-[11px] font-mono text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 								</div>
 								<span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span>
 								<button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button>

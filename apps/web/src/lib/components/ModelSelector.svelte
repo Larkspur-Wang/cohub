@@ -2,6 +2,7 @@
 import { Image } from "lucide-svelte";
 import { onMount } from "svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 
 type ModelItem = {
 	provider: string;
@@ -124,7 +125,7 @@ function moveSelection(delta: number) {
 }
 
 function handleNavigationKeydown(e: KeyboardEvent) {
-	if (!open || e.defaultPrevented || e.isComposing) return;
+	if (!open || e.defaultPrevented || isComposingKeyboardEvent(e)) return;
 	const key = e.key.toLowerCase();
 	if (e.key === "Escape") {
 		e.preventDefault();

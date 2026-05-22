@@ -14,6 +14,7 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
 	getResolvedTheme,
@@ -114,7 +115,7 @@ function handleEditKeydown(event: KeyboardEvent) {
 		cancelEdit();
 		return;
 	}
-	if (event.key === "Enter") {
+	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
 		event.preventDefault();
 		void saveEditingField();
 	}

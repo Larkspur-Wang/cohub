@@ -31,6 +31,7 @@ import {
 	typeLabelFor,
 } from "$lib/command-palette/scope";
 import type { CommandPaletteItem } from "$lib/command-palette/types";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { toggleSpacePin } from "$lib/stores/space-pins";
 
 const MIN_QUERY_LENGTH = 2;
@@ -433,6 +434,7 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 		closePalette();
 		return;
 	}
+	if (isComposingKeyboardEvent(event)) return;
 	if (
 		event.key === "ArrowDown" ||
 		(event.ctrlKey && event.key.toLowerCase() === "n")
@@ -456,6 +458,7 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {
+	if (isComposingKeyboardEvent(event)) return;
 	if (open && event.key === "Escape") {
 		event.preventDefault();
 		event.stopPropagation();

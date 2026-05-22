@@ -22,6 +22,7 @@ import {
 	shouldStartDrawerGesture,
 	shouldStartRightDrawerGesture,
 } from "$lib/gestures/drawer-swipe";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
@@ -349,7 +350,7 @@ $effect(() => {
 		showHelpPanel = true;
 	}
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.defaultPrevented || e.isComposing) return;
+		if (e.defaultPrevented || isComposingKeyboardEvent(e)) return;
 		if (e.key === "Escape" && showHelpPanel) {
 			e.preventDefault();
 			showHelpPanel = false;

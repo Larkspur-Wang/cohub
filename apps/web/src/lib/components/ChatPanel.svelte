@@ -1,4 +1,6 @@
 <script lang="ts">
+import { isComposingKeyboardEvent } from "$lib/keyboard";
+
 type ChatBubble = {
 	role: "system" | "user";
 	content: string;
@@ -41,7 +43,8 @@ const submit = () => {
     <input
       bind:value={draft}
       onkeydown={(event) => {
-        if (event.key === "Enter") {
+        if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
+          event.preventDefault();
           submit();
         }
       }}

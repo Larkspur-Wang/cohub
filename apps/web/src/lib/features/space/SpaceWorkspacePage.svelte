@@ -97,6 +97,7 @@ import {
 	MAX_COMPOSER_ATTACHMENTS,
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import type { TimelineItem } from "$lib/session-tree";
@@ -4465,7 +4466,7 @@ async function jumpRelativeTurn(direction: 1 | -1) {
 }
 
 function handleSessionVimKeydown(event: KeyboardEvent) {
-	if (event.defaultPrevented || event.isComposing) return;
+	if (event.defaultPrevented || isComposingKeyboardEvent(event)) return;
 	if (routeView !== "session" || !activeSessionState) return;
 	const key = event.key.toLowerCase();
 	if (
@@ -5239,7 +5240,11 @@ $effect(() => {
               maxlength={80}
               disabled={sessionRenameSaving}
               onkeydown={(e) => {
-                if (e.key === "Enter" && !sessionRenameSaving) {
+                if (
+                  e.key === "Enter" &&
+                  !sessionRenameSaving &&
+                  !isComposingKeyboardEvent(e)
+                ) {
                   e.preventDefault();
                   void submitSessionRename();
                 }
@@ -6157,7 +6162,11 @@ $effect(() => {
                     disabled={renameSaving}
                     class="text-[20px] font-medium text-text-primary bg-bg-input border border-border-subtle rounded-[6px] px-2 py-1 focus:border-brand/40 focus:outline-none transition-colors w-full max-w-xs disabled:opacity-60"
                     onkeydown={(e) => {
-                      if (e.key === "Enter" && !renameSaving) {
+                      if (
+                        e.key === "Enter" &&
+                        !renameSaving &&
+                        !isComposingKeyboardEvent(e)
+                      ) {
                         e.preventDefault();
                         const trimmed = renameInput.trim();
                         if (trimmed && trimmed !== space?.name) {

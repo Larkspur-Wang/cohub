@@ -19,6 +19,7 @@ import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
 } from "$lib/composer-attachments";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import type { SpaceMentionSuggestion } from "$lib/mentions/space";
 import {
 	buildSpaceMentionMarkdown,
@@ -785,7 +786,11 @@ $effect(() => {
 									selectSpaceMentionIndex(spaceMentionItems.length - 1);
 									return;
 								}
-								if (spaceMentionItems.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
+								if (
+									spaceMentionItems.length > 0 &&
+									(event.key === 'Tab' ||
+										(event.key === 'Enter' && !isComposingKeyboardEvent(event)))
+								) {
 									if (!(event.key === 'Enter' && event.shiftKey)) {
 										event.preventDefault();
 										const selected = spaceMentionItems[selectedSpaceMentionIndex];
@@ -826,7 +831,11 @@ $effect(() => {
 									selectedPromptIndex = filteredPromptTemplates.length - 1;
 									return;
 								}
-								if (filteredPromptTemplates.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
+								if (
+									filteredPromptTemplates.length > 0 &&
+									(event.key === 'Tab' ||
+										(event.key === 'Enter' && !isComposingKeyboardEvent(event)))
+								) {
 									if (!(event.key === 'Enter' && event.shiftKey)) {
 										event.preventDefault();
 										const selected = filteredPromptTemplates[selectedPromptIndex];
@@ -846,7 +855,11 @@ $effect(() => {
 								return;
 							}
 
-							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing) {
+							if (
+								(event.metaKey || event.ctrlKey) &&
+								event.key === 'Enter' &&
+								!isComposingKeyboardEvent(event)
+							) {
 								event.preventDefault();
 								submitDraft();
 								return;
@@ -859,7 +872,11 @@ $effect(() => {
 								return;
 							}
 
-							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+							if (
+								event.key === 'Enter' &&
+								!event.shiftKey &&
+								!isComposingKeyboardEvent(event)
+							) {
 								if (isMobile() || isComposerExpanded) return;
 								event.preventDefault();
 								submitDraft();
