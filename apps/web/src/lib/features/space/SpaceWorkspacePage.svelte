@@ -1664,8 +1664,14 @@ async function refreshSessionsList(force = true) {
 			const sessions = await fetchSessionListWithCache(
 				spaceId,
 				async () => {
-					const result = await sdk.space(spaceId).sessions.list();
-					return result.sessions ?? [];
+					const result = await sdk.space(spaceId).sessions.list({
+						includeForks: true,
+					});
+					return {
+						sessions: result.sessions ?? [],
+						forks: result.forks,
+						pageInfo: result.pageInfo,
+					};
 				},
 				{ force },
 			);

@@ -100,19 +100,39 @@ export function onSessionListCacheUpdated(
 	};
 }
 
+type SessionListCacheFetchResult =
+	| SessionRecord[]
+	| {
+			sessions: SessionRecord[];
+			forks?: SessionListForkRecord[] | null;
+			pageInfo?: SessionListPageInfo | null;
+	  };
+
+function normalizeSessionListFetchResult(result: SessionListCacheFetchResult): {
+	sessions: SessionRecord[];
+	forks?: SessionListForkRecord[] | null;
+	pageInfo?: SessionListPageInfo | null;
+} {
+	return Array.isArray(result) ? { sessions: result } : result;
+}
+
 export async function fetchSessionListWithCache(
 	spaceId: string,
-	fetcher: () => Promise<SessionRecord[]>,
+	fetcher: () => Promise<SessionListCacheFetchResult>,
 	options?: { force?: boolean },
 ): Promise<SessionRecord[]> {
 	if (!options?.force) {
 		const cached = await sessionListRepo.getRecent(spaceId);
 		if (cached && !cached.stale) return cached.sessions;
 	}
-	const snapshot = await sessionListRepo.refreshRecent(spaceId, async () => ({
-		sessions: await fetcher(),
-		pageInfo: DEFAULT_SESSION_LIST_PAGE_INFO,
-	}));
+	const snapshot = await sessionListRepo.refreshRecent(spaceId, async () => {
+		const result = normalizeSessionListFetchResult(await fetcher());
+		return {
+			sessions: result.sessions,
+			forks: result.forks,
+			pageInfo: result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
+		};
+	});
 	return snapshot.sessions;
 }
 
@@ -125,9 +145,9 @@ export async function fetchSessionListWithPageInfoCache(
 	_options?: { force?: boolean },
 ): Promise<{ sessions: SessionRecord[]; pageInfo: SessionListPageInfo }> {
 	const result = await fetcher();
-	const snapshot = await sessionListRepo.setRecent(
+	const snapshot = await sessionListRepo.patchRecent(
 		spaceId,
-		result.sessions,
+		() => result.sessions,
 		result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
 	);
 	return { sessions: snapshot.sessions, pageInfo: snapshot.pageInfo };

@@ -183,12 +183,15 @@ export const sessionListRepo = {
 		fetcher: () => Promise<SessionListFetchResult>,
 	) {
 		ensureBroadcastSubscription();
-		const result = await fetcher();
+		const [current, result] = await Promise.all([
+			readRecord(spaceId),
+			fetcher(),
+		]);
 		const record = await writeRecord(
 			spaceId,
 			result.sessions,
 			result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
-			result.forks ?? [],
+			result.forks !== undefined ? result.forks : current?.record.forks,
 			{ completeness: "partial" },
 		);
 		return { ...toSnapshot(record, "network"), stale: false };
