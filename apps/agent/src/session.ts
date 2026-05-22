@@ -243,6 +243,12 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   // or stale re-scheduling against the new state.
   const stateAtStart = handle.streamState;
 
+  // The flush body runs the actual work. Note: it must NOT clear flushPromise
+  // itself — that is owned by the outer finally block. Otherwise, if flush()
+  // returns synchronously (e.g. empty delta early-return), the assignment
+  // `stateAtStart.flushPromise = flush()` happens AFTER the inner clear, and
+  // pins flushPromise to a resolved-but-truthy Promise forever, silencing all
+  // subsequent stream output.
   const flush = async () => {
     if (stateAtStart.dirty) {
       ensureProjectedStreamContent(handle);
@@ -258,7 +264,6 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     stateAtStart.pendingBoundary = false;
 
     if (delta.length === 0 && !forceBoundary) {
-      stateAtStart.flushPromise = null;
       return;
     }
     const startsFreshStream = (assistantContext?.patchSeq ?? stateAtStart.patchSeq ?? 0) === 0;
@@ -289,19 +294,24 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     } catch (error) {
       if (error instanceof Error) span?.recordException(error);
       throw error;
-    } finally {
-      stateAtStart.flushPromise = null;
-    }
-
-    // Only re-schedule against the same state. If reset replaced it, the
-    // pending data should already have been drained by drainStreamStateBeforeReset().
-    if (handle.streamState === stateAtStart && stateAtStart.pendingFlush) {
-      scheduleProviderRenderUpdate(handle, "flush_pending", { immediate: true });
     }
   };
 
   stateAtStart.flushPromise = flush();
-  await stateAtStart.flushPromise;
+  try {
+    await stateAtStart.flushPromise;
+  } finally {
+    // Always clear flushPromise after await, regardless of whether flush
+    // completed synchronously, threw, or actually awaited a Promise. This is
+    // the single source of truth for the flush lock.
+    stateAtStart.flushPromise = null;
+  }
+
+  // Only re-schedule against the same state. If reset replaced it, the
+  // pending data should already have been drained by drainStreamStateBeforeReset().
+  if (handle.streamState === stateAtStart && stateAtStart.pendingFlush) {
+    scheduleProviderRenderUpdate(handle, "flush_pending", { immediate: true });
+  }
 }
 
 /**
