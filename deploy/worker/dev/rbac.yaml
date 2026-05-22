@@ -3,3 +3,17 @@ kind: ServiceAccount
 metadata:
   name: cohub-worker-dev
   namespace: cohub-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cohub-worker-dev-sessions-manager
+  namespace: cohub-sessions-dev
+subjects:
+  - kind: ServiceAccount
+    name: cohub-worker-dev
+    namespace: cohub-dev
+roleRef:
+  kind: Role
+  name: cohub-api-dev-sessions-manager
+  apiGroup: rbac.authorization.k8s.io
