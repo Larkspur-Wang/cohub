@@ -82,7 +82,7 @@ app.use(async (c, next) => {
       c.set("authUser", authUser);
       c.set("principal", { type: "user", user: authUser });
     } catch {
-      c.set("authUser", null);
+      return c.json({ message: "unauthorized" }, 401);
     }
   }
 

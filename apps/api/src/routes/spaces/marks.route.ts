@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { and, asc, count, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { checkpoints, spaceMarks, spaceSessions, spaces } from "@cohub/db";
-import { requireValidId, useAuth, getOptionalAuth } from "../../lib/middleware.js";
+import { requireValidId, useAuth, getOptionalAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 
 const router = new Hono();
@@ -58,7 +58,7 @@ async function getSpaceMarks(
   user: ReturnType<typeof getOptionalAuth>,
   globalScope: boolean,
 ) {
-  if (!globalScope && !(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!globalScope && !(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
   const userPrefix = globalScope ? `${user?.uuid ?? ""}:%` : "";
 
   const kind = c.req.query("kind") ?? MARK_KIND;
@@ -163,7 +163,7 @@ router.post("/", async (c) => {
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   const globalScope = isGlobalPinScope(spaceId);
-  if (!globalScope && !(await hasPermission(user, "space.pin", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!globalScope && !(await hasPermission(user, "space.pin", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{
     kind?: string;
@@ -185,7 +185,7 @@ router.post("/", async (c) => {
 
   if (resourceType === "space") {
     if (!requireValidId(targetResourceRef)) return c.json({ message: "space not found" }, 404);
-    if (!(await hasPermission(user, "space.view", { spaceId: targetResourceRef }))) return c.json({ message: "space not found" }, 404);
+    if (!(await hasPermission(user, "space.view", { spaceId: targetResourceRef }))) return authzDenied(c);
     const [space] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, targetResourceRef)).limit(1);
     if (!space) return c.json({ message: "space not found" }, 404);
   } else if (resourceType === "session") {
@@ -267,7 +267,7 @@ router.delete("/:markId", async (c) => {
   const markId = c.req.param("markId");
   if (!spaceId || !requireValidId(spaceId) || !markId || !requireValidId(markId)) return c.json({ message: "not found" }, 404);
   const globalScope = isGlobalPinScope(spaceId);
-  if (!globalScope && !(await hasPermission(user, "space.pin", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!globalScope && !(await hasPermission(user, "space.pin", { spaceId }))) return authzDenied(c);
 
   await db.delete(spaceMarks).where(and(
     eq(spaceMarks.spaceId, spaceId),

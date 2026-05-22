@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
-import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
 import {
   getSpaceById,
   getSpaceSessionById,
@@ -52,7 +52,7 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.edit", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const sourceTurn = await getSessionTurnById(session.id, turnId);
@@ -107,7 +107,7 @@ router.get("/:id", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const space = await getSpaceById(session.spaceId);
@@ -126,7 +126,7 @@ router.patch("/:id", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.edit", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const body = await c.req.json<{ title?: string }>().catch(() => null);
@@ -149,7 +149,7 @@ router.get("/:id/turns", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const cursorParam = c.req.query("cursor");
@@ -187,7 +187,7 @@ router.get("/:id/turns/index", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const cursorParam = c.req.query("cursor");
@@ -209,7 +209,7 @@ router.get("/:id/turns/window", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const turnId = c.req.query("turnId");
@@ -237,7 +237,7 @@ router.get("/:id/turns/stream-snapshot", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const snapshot = await getSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id });
@@ -262,7 +262,7 @@ router.get("/:id/turns/:turnId", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const turn = await getSessionTurnById(session.id, turnId);
@@ -281,7 +281,7 @@ router.post("/:id/turns/:turnId/signed-urls", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
   const turn = await getSessionTurnById(session.id, turnId);
   if (!turn) return c.json({ message: "turn not found" }, 404);
@@ -306,7 +306,7 @@ router.get("/:id/messages", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const cursorParam = c.req.query("cursor");
@@ -356,7 +356,7 @@ router.get("/:id/messages/:messageId", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.view", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const message = await getSessionMessageById(session.id, messageId);
@@ -379,7 +379,7 @@ router.post("/:id/abort", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const body = await c.req.json<{ turnId?: string | null }>().catch(() => null);
@@ -404,7 +404,7 @@ router.post("/:id/messages", async (c) => {
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
   if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const space = await getSpaceById(session.spaceId);

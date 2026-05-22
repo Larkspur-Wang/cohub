@@ -10,7 +10,7 @@ import {
   userGitAccounts,
 } from "@cohub/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
@@ -632,7 +632,7 @@ router.patch("/:id", async (c) => {
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ name?: string }>().catch(() => null);
   const name = body?.name?.trim();
@@ -664,7 +664,7 @@ router.patch("/:id/profile", async (c) => {
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ description?: string | null; pictureUrl?: string | null }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
@@ -697,7 +697,7 @@ router.post("/:id/checkpoints", async (c) => {
   const spaceId = c.req.param("id");
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "checkpoint.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "checkpoint.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ description?: string }>().catch(() => null);
   const description = body?.description?.trim() || null;
@@ -727,7 +727,7 @@ router.get("/:id/checkpoints", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
 
   const rows = await db
     .select()
@@ -746,7 +746,7 @@ router.get("/:id/checkpoints/:checkpointId", async (c) => {
   if (!requireValidId(spaceId) || !requireValidId(checkpointId)) {
     return c.json({ message: "checkpoint not found" }, 404);
   }
-  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
 
   const [checkpoint] = await db
     .select()
@@ -782,7 +782,7 @@ router.get("/:id/env", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -811,7 +811,7 @@ router.post("/:id/env", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -839,7 +839,7 @@ router.put("/:id/env/:name", async (c) => {
   const spaceId = c.req.param("id");
   const envName = c.req.param("name");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   if (!envName?.trim()) return c.json({ message: "env name is required" }, 400);
   if (SYSTEM_ENV_KEY_SET.has(envName)) {
@@ -869,7 +869,7 @@ router.delete("/:id/env/:name", async (c) => {
   const spaceId = c.req.param("id");
   const envName = c.req.param("name");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -888,7 +888,7 @@ router.get("/:id/config", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -906,7 +906,7 @@ router.patch("/:id/config", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -933,7 +933,7 @@ router.get("/:id/sandbox", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return authzDenied(c);
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
   return c.json({ sandbox: attachSandboxPublicEndpoints(sandbox) });
@@ -943,7 +943,7 @@ router.get("/:id/sandbox/ports", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return authzDenied(c);
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
   return c.json({ endpoints: attachSandboxPublicEndpoints(sandbox)?.publicEndpoints ?? {} });
@@ -953,7 +953,7 @@ router.post("/:id/sandbox/recreate", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "sandbox.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.manage", { spaceId }))) return authzDenied(c);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -975,7 +975,7 @@ router.post("/:id/prompt", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return authzDenied(c);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -991,7 +991,7 @@ router.post("/:id/prompt", async (c) => {
     const session = await getSpaceSessionById(sessionId);
     if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
     if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId, sessionId }))) {
-      return c.json({ message: "not found" }, 404);
+      return authzDenied(c);
     }
   }
 
@@ -1115,7 +1115,7 @@ router.post("/:id/sessions", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return authzDenied(c);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -1141,7 +1141,7 @@ router.get("/:id/sessions", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "session.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId }))) return authzDenied(c);
 
   const limitParam = Number(c.req.query("limit") ?? 20);
   const limit = Number.isFinite(limitParam) ? limitParam : 20;
@@ -1186,7 +1186,7 @@ router.get("/:id/channels", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "channel.view", { spaceId }))) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "channel.view", { spaceId }))) return authzDenied(c);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -1217,11 +1217,11 @@ router.post("/:id/channels/:channelId", async (c) => {
   if (!requireValidId(spaceId) || !requireValidId(channelId)) {
     return c.json({ message: "space or channel not found" }, 404);
   }
-  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return authzDenied(c);
 
   // Verify ownership: the channel must belong to the same user
   const [userChannel] = await db.select().from(userChannels).where(and(eq(userChannels.id, channelId), eq(userChannels.userUuid, user.uuid))).limit(1);
-  if (!userChannel) return c.json({ message: "channel not found or not owned by you" }, 404);
+  if (!userChannel) return c.json({ message: "channel not owned by you" }, 403);
 
   // Check if already bound to any space
   const [existingBinding] = await db.select({ id: spaceChannels.id }).from(spaceChannels).where(eq(spaceChannels.channelId, channelId)).limit(1);
@@ -1252,7 +1252,7 @@ router.delete("/:id/channels/:channelId", async (c) => {
   if (!requireValidId(spaceId) || !requireValidId(channelId)) {
     return c.json({ message: "space or channel not found" }, 404);
   }
-  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return authzDenied(c);
 
   const [spaceChannel] = await db.select().from(spaceChannels).where(and(eq(spaceChannels.spaceId, spaceId), eq(spaceChannels.channelId, channelId))).limit(1);
   if (!spaceChannel) return c.json({ message: "channel not bound to this space" }, 404);

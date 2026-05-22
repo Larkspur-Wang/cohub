@@ -4,7 +4,7 @@ import { unbindSpaceChannelFromGateway } from "../../channels.js";
 import { db } from "../../db/index.js";
 import { spaceChannels, spaceMembers, userChannels, userProfiles } from "@cohub/db";
 import type { SpaceRole } from "@cohub/db";
-import { requireValidId, useAuth } from "../../lib/middleware.js";
+import { requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission, getRoleForSpaceUser } from "../../permissions.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { fallbackPublicUserProfile } from "../../user-profiles.js";
@@ -31,7 +31,7 @@ router.get("/", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "member.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "member.view", { spaceId }))) return authzDenied(c);
 
   const items = await db
     .select({
@@ -64,9 +64,9 @@ router.put("/", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "member.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "member.manage", { spaceId }))) return authzDenied(c);
   const actorRole = await getRoleForSpaceUser(spaceId, user.uuid);
-  if (actorRole !== "host") return c.json({ message: "not found" }, 404);
+  if (actorRole !== "host") return authzDenied(c);
 
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
@@ -127,9 +127,9 @@ router.delete("/", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "member.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "member.manage", { spaceId }))) return authzDenied(c);
   const actorRole = await getRoleForSpaceUser(spaceId, user.uuid);
-  if (actorRole !== "host") return c.json({ message: "not found" }, 404);
+  if (actorRole !== "host") return authzDenied(c);
 
   const body = await c.req.json<{ userId?: string }>().catch(() => null);
   if (!body?.userId || !requireValidId(body.userId)) return c.json({ message: "userId is required" }, 400);

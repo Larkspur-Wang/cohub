@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { accessPolicies } from "@cohub/db";
-import { requireValidId, useAuth } from "../../lib/middleware.js";
+import { requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 import type { AccessPolicyRole } from "@cohub/db";
 
@@ -14,7 +14,7 @@ router.get("/", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "member.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "member.view", { spaceId }))) return authzDenied(c);
 
   const [policy] = await db
     .select({
@@ -35,7 +35,7 @@ router.patch("/", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "member.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "member.manage", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ signed_in_user?: AccessPolicyRole; anonymous_user?: AccessPolicyRole }>().catch(() => null);
   if (!body || (body.signed_in_user === undefined && body.anonymous_user === undefined)) {

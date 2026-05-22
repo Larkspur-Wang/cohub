@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
-import { getOptionalAuth } from "../lib/middleware.js";
+import { getOptionalAuth, authzDenied } from "../lib/middleware.js";
 import { listPromptTemplates } from "../prompt-templates.js";
 
 const router = new Hono();
@@ -14,7 +14,7 @@ router.get("/", async (c) => {
   }
 
   if (spaceId && !(await hasPermission(user, "space.view", { spaceId }))) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   try {

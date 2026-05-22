@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { cronJobs, taskRuns } from "@cohub/db";
 import { eq, and, isNull, desc } from "drizzle-orm";
-import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { disableCronJob, enableCronJob, removeCronJob } from "../tasks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
@@ -25,7 +25,7 @@ router.get("/", async (c) => {
   if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
 
   if (spaceId) {
-    if (!(await hasPermission(user, "cronjob.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+    if (!(await hasPermission(user, "cronjob.view", { spaceId }))) return authzDenied(c);
     const jobs = await db
       .select()
       .from(cronJobs)
@@ -65,10 +65,10 @@ router.get("/:id/runs", async (c) => {
 
   if (job.spaceId) {
     if (!(await hasPermission(user, "taskrun.view", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
-      return c.json({ message: "not found" }, 404);
+      return authzDenied(c);
     }
   } else if (!user || job.userUuid !== user.uuid) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const runs = await db
@@ -101,10 +101,10 @@ router.delete("/:id", async (c) => {
   if (!job) return c.json({ message: "not found" }, 404);
   if (job.spaceId) {
     if (!(await hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
-      return c.json({ message: "not found" }, 404);
+      return authzDenied(c);
     }
   } else if (job.userUuid !== user.uuid) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   await removeCronJob(cronJobId, job.bullJobKey);
@@ -136,10 +136,10 @@ router.patch("/:id", async (c) => {
   if (!job) return c.json({ message: "not found" }, 404);
   if (job.spaceId) {
     if (!(await hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) {
-      return c.json({ message: "not found" }, 404);
+      return authzDenied(c);
     }
   } else if (job.userUuid !== user.uuid) {
-    return c.json({ message: "not found" }, 404);
+    return authzDenied(c);
   }
 
   const body = await c.req.json<{ enabled?: boolean }>().catch(() => null);

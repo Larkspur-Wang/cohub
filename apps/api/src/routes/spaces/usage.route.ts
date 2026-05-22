@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import * as schema from "@cohub/db";
-import { getOptionalAuth, requireValidId } from "../../lib/middleware.js";
+import { getOptionalAuth, requireValidId, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 
 const router = new Hono();
@@ -15,7 +15,7 @@ router.get("/", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
 
   const daysParam = c.req.query("days");
   const parsedDays = parseInt(daysParam ?? "", 10);

@@ -81,6 +81,11 @@ export const getOptionalAuth = (c: Context): AuthUser | null => {
   return principalToAuthUser(c.get("principal") as RequestPrincipal | null | undefined);
 };
 
+export const authzDenied = (c: Context) => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
+};
+
 export const getExecutionPrincipal = (c: Context): ExecutionAuthPrincipal | null => {
   const principal = c.get("principal") as RequestPrincipal | null | undefined;
   return principal?.type === "execution" ? principal.execution : null;

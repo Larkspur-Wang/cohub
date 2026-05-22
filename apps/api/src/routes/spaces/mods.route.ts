@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { createDefaultMountSlug, listSpaceMods, assertValidMountSlug } from "@cohub/core/space-mods";
 import { spaceMods, spaces } from "@cohub/db";
 import { db } from "../../db/index.js";
-import { getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
+import { getOptionalAuth, requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { recoverSpaceSandbox } from "../../space-sandboxes.js";
@@ -55,7 +55,7 @@ router.get("/", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = getValidParam(c.req.param("id"));
   if (!spaceId) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "mod.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "mod.view", { spaceId }))) return authzDenied(c);
   return c.json({ items: await listSpaceMods(db, spaceId) });
 });
 
@@ -63,7 +63,7 @@ router.post("/", async (c) => {
   const user = useAuth(c);
   const spaceId = getValidParam(c.req.param("id"));
   if (!spaceId) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ modSpaceId?: string; name?: string | null; mountSlug?: string | null }>().catch(() => null);
   const modSpaceId = getValidParam(body?.modSpaceId?.trim());
@@ -105,7 +105,7 @@ router.post("/reorder", async (c) => {
   const user = useAuth(c);
   const spaceId = getValidParam(c.req.param("id"));
   if (!spaceId) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ ids?: string[] }>().catch(() => null);
   const ids = Array.isArray(body?.ids) ? body.ids : [];
@@ -133,7 +133,7 @@ router.patch("/:modId", async (c) => {
   const spaceId = getValidParam(c.req.param("id"));
   const modId = getValidParam(c.req.param("modId"));
   if (!spaceId || !modId) return c.json({ message: "not found" }, 404);
-  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ name?: string | null; mountSlug?: string; enabled?: boolean; sortOrder?: number }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
@@ -165,7 +165,7 @@ router.delete("/:modId", async (c) => {
   const spaceId = getValidParam(c.req.param("id"));
   const modId = getValidParam(c.req.param("modId"));
   if (!spaceId || !modId) return c.json({ message: "not found" }, 404);
-  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
   const [deleted] = await db.delete(spaceMods).where(and(eq(spaceMods.id, modId), eq(spaceMods.spaceId, spaceId))).returning();
   if (!deleted) return c.json({ message: "mod not found" }, 404);

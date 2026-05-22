@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { taskRuns } from "@cohub/db";
 import { eq, and, desc } from "drizzle-orm";
-import { getOptionalAuth, useAuth, requireValidId } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { taskQueue } from "../tasks.js";
 
@@ -18,7 +18,7 @@ router.get("/", async (c) => {
   if (cronJobId && !requireValidId(cronJobId)) return c.json({ message: "invalid cronJobId" }, 400);
 
   if (spaceId) {
-    if (!(await hasPermission(user, "taskrun.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+    if (!(await hasPermission(user, "taskrun.view", { spaceId }))) return authzDenied(c);
     const conditions = [eq(taskRuns.spaceId, spaceId)];
     if (cronJobId) conditions.push(eq(taskRuns.cronJobId, cronJobId));
     const runs = await db
@@ -53,10 +53,10 @@ router.get("/:taskId", async (c) => {
 
   if (run.spaceId) {
     if (!(await hasPermission(user, "taskrun.view", { spaceId: run.spaceId, sessionId: run.sessionId ?? undefined }))) {
-      return c.json({ message: "task run not found" }, 404);
+      return authzDenied(c);
     }
   } else if (!user || run.userUuid !== user.uuid) {
-    return c.json({ message: "task run not found" }, 404);
+    return authzDenied(c);
   }
 
   const job = await taskQueue.getJob(run.jobId).catch(() => null);

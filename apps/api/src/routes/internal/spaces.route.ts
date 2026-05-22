@@ -401,7 +401,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   const userId = body.userId?.trim();
   if (!userId) return c.json({ message: "userId is required" }, 400);
   if (!(await hasPermission({ uuid: userId }, "session.prompt.fullaccess", { spaceId, sessionId }))) {
-    return c.json({ message: "not found" }, 404);
+    return c.json({ message: "forbidden" }, 403);
   }
   const clientMessageId = body.clientMessageId?.trim();
   if (!clientMessageId) return c.json({ message: "clientMessageId is required" }, 400);

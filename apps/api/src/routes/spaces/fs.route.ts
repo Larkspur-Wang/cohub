@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
 import { ensureFsCdnManifest, shouldUseFsCdnForMeta } from "../../space-fs-cdn-cache.js";
 import { FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS } from "../../space-fs-cdn-constants.js";
-import { getOptionalAuth, useAuth, requireValidId } from "../../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 import {
   assertSafeRelativePath,
@@ -87,7 +87,7 @@ router.get("/tree", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   try {
@@ -102,7 +102,7 @@ router.get("/file", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   try {
@@ -119,7 +119,7 @@ router.post("/files", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ paths: string[] }>().catch(() => null);
   if (!Array.isArray(body?.paths)) return c.json({ message: "paths are required" }, 400);
@@ -135,7 +135,7 @@ router.put("/file", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req
     .json<{ path: string; content: string; encoding: "utf-8" | "base64" }>()
@@ -161,7 +161,7 @@ router.post("/dir", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ path: string }>().catch(() => null);
   if (!body?.path) return c.json({ message: "path is required" }, 400);
@@ -182,7 +182,7 @@ router.delete("/node", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   const recursive = c.req.query("recursive") === "true";
@@ -203,7 +203,7 @@ router.post("/move", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ fromPath: string; toPath: string }>().catch(() => null);
   if (!body?.fromPath || !body?.toPath) return c.json({ message: "fromPath and toPath are required" }, 400);
@@ -224,7 +224,7 @@ router.get("/download", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   try {
@@ -257,7 +257,7 @@ router.post("/uploads", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<SpaceFsCreateUploadInput>().catch(() => null);
   if (!body?.entries?.length) return c.json({ message: "entries are required" }, 400);
@@ -331,7 +331,7 @@ router.post("/uploads/:uploadId/complete", async (c) => {
   const uploadId = c.req.param("uploadId");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!uploadId || !requireValidId(uploadId)) return c.json({ message: "upload not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<SpaceFsCompleteUploadInput>().catch(() => null);
   if (!body?.entries?.length || !Array.isArray(body.entries)) return c.json({ message: "entries are required" }, 400);
@@ -385,7 +385,7 @@ router.post("/upload", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const dir = c.req.query("dir") ?? "";
   const formData = await c.req.formData().catch(() => null);
