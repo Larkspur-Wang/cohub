@@ -1,5 +1,11 @@
 # @neta-art/cohub-cli
 
+## 1.6.2
+
+### Patch Changes
+
+- 8eb954c: Differentiate default sandbox idle TTL by environment (dev: 10m, prod: 12h).
+
 ## 1.6.1
 
 ### Patch Changes
