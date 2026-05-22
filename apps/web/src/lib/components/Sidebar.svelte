@@ -1801,10 +1801,15 @@ $effect(() => {
 		position: absolute;
 		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
 		top: 50%;
-		width: 7px;
-		height: 1px;
-		background: var(--color-border-subtle);
-		opacity: 0.72;
+		width: 8px;
+		height: 2px;
+		border-radius: 999px;
+		background: color-mix(
+			in oklab,
+			var(--color-brand) 34%,
+			var(--color-border-subtle)
+		);
+		opacity: 0.74;
 		transform: translateY(-50%);
 		pointer-events: none;
 	}
@@ -1816,16 +1821,24 @@ $effect(() => {
 		top: 0.35rem;
 		bottom: 0.35rem;
 		width: 1px;
-		background: var(--color-border-subtle);
-		opacity: 0.38;
+		background: color-mix(
+			in oklab,
+			var(--color-brand) 24%,
+			var(--color-border-subtle)
+		);
+		opacity: 0.62;
 		pointer-events: none;
 	}
 
 	@media (hover: hover) {
 		.session-fork-row:hover::before,
 		.session-fork-row:focus-within::before {
-			opacity: 1;
-			background: var(--color-text-placeholder);
+			opacity: 0.95;
+			background: color-mix(
+				in oklab,
+				var(--color-brand) 48%,
+				var(--color-text-placeholder)
+			);
 		}
 	}
 
