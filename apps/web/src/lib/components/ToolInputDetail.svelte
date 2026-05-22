@@ -31,6 +31,18 @@ function shouldCollapse(section: ToolInputSection) {
 function sectionBodyId(section: ToolInputSection) {
 	return `${idPrefix}-${section.id}-body`;
 }
+
+function diffLineClass(sign: "+" | "-") {
+	const tone =
+		sign === "+"
+			? "border-success/35 bg-success-bg/45 text-success"
+			: "border-error/35 bg-error-bg/45 text-error";
+	return `grid grid-cols-[1rem_minmax(0,1fr)] gap-1 border-l px-1 py-px font-mono text-[12px] leading-snug ${tone} max-sm:text-[12px]`;
+}
+
+function diffTextClass(sign: "+" | "-") {
+	return `whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${sign === "+" ? "text-success" : "text-error"}`;
+}
 </script>
 
 {#if view}
@@ -73,9 +85,9 @@ function sectionBodyId(section: ToolInputSection) {
 									class={`overflow-hidden ${shouldCollapse(section) ? 'max-h-56' : ''}`}
 								>
 									{#each section.lines ?? [] as line, index (`${index}-${line.sign}`)}
-										<div class="grid grid-cols-[1rem_minmax(0,1fr)] gap-1 font-mono text-[12px] leading-snug max-sm:text-[12px]">
-											<span class={`select-none ${line.sign === '-' ? 'text-status-error' : 'text-brand/80'}`}>{line.sign}</span>
-											<span class={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${line.sign === '-' ? 'text-status-error/90' : 'text-text-secondary'}`}>{line.text || ' '}</span>
+										<div class={diffLineClass(line.sign)}>
+											<span class="select-none opacity-85">{line.sign}</span>
+											<span class={diffTextClass(line.sign)}>{line.text || ' '}</span>
 										</div>
 									{/each}
 								</div>
