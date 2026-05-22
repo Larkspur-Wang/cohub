@@ -3752,46 +3752,38 @@ async function loadFileTree(force = false) {
 async function expandDirectory(node: SpaceFsNode) {
 	if (node.type !== "dir") return;
 	if (node.isOpen) {
+		directoryLoadTokenByPath = {
+			...directoryLoadTokenByPath,
+			[node.path]: (directoryLoadTokenByPath[node.path] ?? 0) + 1,
+		};
 		fileTree = updateNodeState(fileTree, node.path, (item) => ({
 			...item,
 			isOpen: false,
+			isLoading: false,
 		}));
 		return;
 	}
-	if (node.isLoaded) {
-		fileTree = updateNodeState(fileTree, node.path, (item) => ({
-			...item,
-			isOpen: true,
-		}));
-		return;
-	}
+
 	const requestToken = (directoryLoadTokenByPath[node.path] ?? 0) + 1;
 	directoryLoadTokenByPath = {
 		...directoryLoadTokenByPath,
 		[node.path]: requestToken,
 	};
+
+	const hasExistingChildren = node.children.length > 0;
 	const cached = await getCachedSpaceFsDir(spaceId, node.path);
+	if (directoryLoadTokenByPath[node.path] !== requestToken) return;
+
 	if (cached) {
 		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(cached));
-	}
-	if (!cached) {
+	} else {
 		fileTree = updateNodeState(fileTree, node.path, (item) => ({
 			...item,
-			isLoading: true,
+			isLoading: !hasExistingChildren,
 			isOpen: true,
 		}));
 	}
-	const cacheMeta = await getCachedSpaceFsDirMeta(spaceId, node.path);
-	const shouldFetch = !cacheMeta || cacheMeta.isStale;
-	if (!shouldFetch) {
-		fileTree = updateNodeState(fileTree, node.path, (item) => ({
-			...item,
-			isLoading: false,
-			isOpen: true,
-			isLoaded: true,
-		}));
-		return;
-	}
+
 	try {
 		const entries = await fetchSpaceFsDirWithCache(
 			spaceId,
@@ -3800,6 +3792,7 @@ async function expandDirectory(node: SpaceFsNode) {
 				const tree = await sdk.space(spaceId).files.list(node.path);
 				return tree.entries;
 			},
+			{ force: true },
 		);
 		if (directoryLoadTokenByPath[node.path] !== requestToken) return;
 		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(entries));
