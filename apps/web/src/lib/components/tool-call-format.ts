@@ -43,7 +43,6 @@ export type ToolCallViewModel = {
 	phase?: ToolCallPhase;
 	resultPartial?: boolean;
 	resultOmitted?: boolean;
-	rawInput?: string;
 };
 
 export function summarizeToolInput(
@@ -407,10 +406,6 @@ export function buildToolCallViewModels(input: {
 				: "";
 		const partialResult = stringifyToolValue(block._meta?.partialResult);
 		const resultPartial = Boolean(partialResult);
-		const rawInput =
-			typeof block._meta?.rawInput === "string"
-				? block._meta.rawInput
-				: undefined;
 		return {
 			id: block.id,
 			name: block.name,
@@ -420,7 +415,6 @@ export function buildToolCallViewModels(input: {
 			status,
 			phase,
 			resultPartial,
-			rawInput,
 			resultOmitted:
 				result?.type === "tool_result" &&
 				result._meta?.resultDetail === "omitted",

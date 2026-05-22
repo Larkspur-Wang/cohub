@@ -8,22 +8,12 @@ type Props = {
 	name: string;
 	input?: Record<string, unknown>;
 	live?: boolean;
-	rawInput?: string;
 	idPrefix?: string;
 };
 
-const {
-	name,
-	input,
-	live = false,
-	rawInput,
-	idPrefix = "tool-input",
-}: Props = $props();
+const { name, input, live = false, idPrefix = "tool-input" }: Props = $props();
 
 const view = $derived(formatToolInputView(name, input));
-const hasRawInput = $derived(
-	live && typeof rawInput === "string" && rawInput.length > 0,
-);
 let expandedSections = $state<Record<string, boolean>>({});
 
 function toggleSection(id: string) {
@@ -43,23 +33,15 @@ function sectionBodyId(section: ToolInputSection) {
 }
 </script>
 
-{#if view || hasRawInput}
+{#if view}
 	<div class="min-w-0 space-y-1.5 pt-px">
-		{#if hasRawInput}
-			<div class="min-w-0 space-y-1">
-				<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none max-sm:gap-1.5">
-					<div class="font-mono uppercase tracking-wide text-text-placeholder select-none pt-[1px]">raw</div>
-					<div class="shrink-0 rounded-sm bg-brand-muted px-1 py-px font-mono text-[9px] uppercase tracking-wide text-brand-muted-fg">live</div>
-				</div>
-				<pre class="whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] max-sm:text-[12px]">{rawInput}</pre>
-			</div>
-		{:else if view.primary}
+		{#if view.primary}
 			<div class="relative min-w-0">
 				<pre class="whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] max-sm:text-[12px]">{view.primary.value}</pre>
 			</div>
 		{/if}
 
-		{#if view && view.fields.length > 0}
+		{#if view.fields.length > 0}
 			<div class="space-y-0.5">
 				{#each view.fields as field (field.label)}
 					<div class="grid grid-cols-[minmax(4.5rem,max-content)_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 text-[12px] leading-snug max-sm:grid-cols-[minmax(3.5rem,max-content)_minmax(0,1fr)] max-sm:gap-x-1.5 max-sm:gap-y-0.5">
@@ -70,7 +52,7 @@ function sectionBodyId(section: ToolInputSection) {
 			</div>
 		{/if}
 
-		{#if view && view.sections.length > 0}
+		{#if view.sections.length > 0}
 			<div class="space-y-2 pt-0.5">
 				{#each view.sections as section (section.id)}
 					<div class="min-w-0 space-y-1">
