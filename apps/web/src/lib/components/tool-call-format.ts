@@ -21,6 +21,8 @@ export type ToolInputSection = {
 	value?: string;
 	lines?: ToolInputDiffLine[];
 	collapsible?: boolean;
+	/** True when the section content is still being streamed (partial edit). */
+	partial?: boolean;
 };
 
 export type ToolInputView = {
@@ -270,6 +272,40 @@ export function formatToolInputView(
 						kind: "diff",
 						lines: replacementDiffLines(oldText, newText),
 						collapsible: isLongTextValue(oldText) || isLongTextValue(newText),
+					});
+					return;
+				}
+				// Streaming partial: render diff progressively as each side arrives.
+				if (typeof oldText === "string" || typeof newText === "string") {
+					const partialLines: ToolInputDiffLine[] = [];
+					if (typeof oldText === "string") {
+						partialLines.push(
+							...oldText
+								.split("\n")
+								.map((text) => ({ sign: "-" as const, text })),
+						);
+					}
+					if (typeof newText === "string") {
+						partialLines.push(
+							...newText
+								.split("\n")
+								.map((text) => ({ sign: "+" as const, text })),
+						);
+					}
+					const partialSummary = [
+						typeof oldText === "string" ? describeTextValue(oldText) : "…",
+						typeof newText === "string" ? describeTextValue(newText) : "…",
+					].join(" → ");
+					view.sections.push({
+						id: `edit-${index + 1}`,
+						label: `#${index + 1}`,
+						summary: partialSummary,
+						kind: "diff",
+						lines: partialLines,
+						partial: true,
+						collapsible:
+							(typeof oldText === "string" && isLongTextValue(oldText)) ||
+							(typeof newText === "string" && isLongTextValue(newText)),
 					});
 					return;
 				}

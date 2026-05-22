@@ -8,10 +8,18 @@ type Props = {
 	name: string;
 	input?: Record<string, unknown>;
 	live?: boolean;
+	/** True when the tool input JSON itself is still being streamed. */
+	drafting?: boolean;
 	idPrefix?: string;
 };
 
-const { name, input, live = false, idPrefix = "tool-input" }: Props = $props();
+const {
+	name,
+	input,
+	live = false,
+	drafting = false,
+	idPrefix = "tool-input",
+}: Props = $props();
 
 const view = $derived(formatToolInputView(name, input));
 let expandedSections = $state<Record<string, boolean>>({});
@@ -90,6 +98,9 @@ function diffTextClass(sign: "+" | "-") {
 											<span class={diffTextClass(line.sign)}>{line.text || ' '}</span>
 										</div>
 									{/each}
+									{#if section.partial && drafting}
+										<div class="diff-streaming-cursor"></div>
+									{/if}
 								</div>
 							</div>
 						{:else}
@@ -118,3 +129,27 @@ function diffTextClass(sign: "+" | "-") {
 		{/if}
 	</div>
 {/if}
+
+<style>
+	.diff-streaming-cursor {
+		display: inline-block;
+		width: 2px;
+		height: 0.85em;
+		margin-left: 1.25rem;
+		background: var(--brand);
+		opacity: 0.7;
+		animation: diff-cursor-blink 1s steps(2) infinite;
+	}
+
+	@keyframes diff-cursor-blink {
+		0% { opacity: 0.7; }
+		50% { opacity: 0; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.diff-streaming-cursor {
+			animation: none;
+			opacity: 0.5;
+		}
+	}
+</style>
