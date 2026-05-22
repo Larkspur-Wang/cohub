@@ -1,6 +1,5 @@
 <script lang="ts">
 import {
-	Check,
 	CornerDownRight,
 	FolderKanban,
 	Loader2,
@@ -72,10 +71,8 @@ let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
-let pinFeedback = $state<{ tone: "success" | "error"; message: string } | null>(
-	null,
-);
-let pinFeedbackTimer: number | null = null;
+let pinError = $state("");
+let pinErrorTimer: number | null = null;
 let pendingPinKeys = $state<Set<string>>(new Set());
 
 const currentSpaceId = $derived.by(() => {
@@ -137,6 +134,24 @@ const statusText = $derived.by(() => {
 	if (!localDone) return `${label} · searching indexed cache…`;
 	return `${label} · ${renderedItems.length} result${renderedItems.length === 1 ? "" : "s"} · indexed cache + server`;
 });
+
+function pinScopeIdsForItems(items: CommandPaletteItem[]) {
+	return items
+		.filter((item) => item.type === "session")
+		.map((item) => item.spaceId);
+}
+
+function refreshPinIndex(extraItems: CommandPaletteItem[] = []) {
+	return getCachedCommandPalettePins(
+		currentSpaceId,
+		pinScopeIdsForItems([
+			...extraItems,
+			...localItems,
+			...defaultItems,
+			...pinnedItems,
+		]),
+	);
+}
 
 function profileFor(item: CommandPaletteItem) {
 	if (item.type !== "space") return null;
@@ -264,7 +279,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		})
 			.then((items) => {
 				if (token !== searchToken) return;
-				pins = getCachedCommandPalettePins(spaceId);
+				pins = refreshPinIndex(items);
 				pinnedItems = applyPinInfoToItems(items, pins);
 			})
 			.catch((error) => {
@@ -283,7 +298,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	})
 		.then(() => {
 			if (token !== searchToken) return;
-			pins = getCachedCommandPalettePins(spaceId);
+			pins = refreshPinIndex();
 			localItems = applyPinInfoToItems(localItems, pins);
 			defaultItems = applyPinInfoToItems(defaultItems, pins);
 		})
@@ -301,6 +316,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		})
 			.then((items) => {
 				if (token !== searchToken) return;
+				pins = refreshPinIndex(items);
 				defaultItems = applyPinInfoToItems(items, pins);
 			})
 			.catch((error) => {
@@ -323,6 +339,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	})
 		.then((items) => {
 			if (token !== searchToken) return;
+			pins = refreshPinIndex(items);
 			localItems = applyPinInfoToItems(items, pins);
 		})
 		.catch((error) => {
@@ -348,6 +365,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 			.then((items) => {
 				if (token !== searchToken) return;
 				remoteItems = items;
+				pins = refreshPinIndex(items as CommandPaletteItem[]);
 				remoteError = null;
 			})
 			.catch((error) => {
@@ -371,19 +389,37 @@ function pinKeyFor(item: CommandPaletteItem) {
 		: `session:${item.sessionId ?? item.id}`;
 }
 
-function setPinFeedback(
-	feedback: { tone: "success" | "error"; message: string } | null,
-) {
-	pinFeedback = feedback;
-	if (pinFeedbackTimer != null) window.clearTimeout(pinFeedbackTimer);
-	if (!feedback) {
-		pinFeedbackTimer = null;
+function setPinError(message: string) {
+	pinError = message;
+	if (pinErrorTimer != null) window.clearTimeout(pinErrorTimer);
+	if (!message) {
+		pinErrorTimer = null;
 		return;
 	}
-	pinFeedbackTimer = window.setTimeout(() => {
-		pinFeedback = null;
-		pinFeedbackTimer = null;
-	}, 1800);
+	pinErrorTimer = window.setTimeout(() => {
+		pinError = "";
+		pinErrorTimer = null;
+	}, 2400);
+}
+
+function syncPinStateFromCache(extraItems: CommandPaletteItem[] = []) {
+	const nextPins = refreshPinIndex(extraItems);
+	pins = nextPins;
+	localItems = applyPinInfoToItems(localItems, nextPins);
+	defaultItems = applyPinInfoToItems(defaultItems, nextPins);
+	pinnedItems = applyPinInfoToItems(pinnedItems, nextPins).filter(
+		(item) => item.isPinned,
+	);
+}
+
+function upsertPinnedItem(item: CommandPaletteItem) {
+	const [nextItem] = applyPinInfoToItems([item], pins);
+	if (!nextItem?.isPinned) return;
+	const itemKey = pinKeyFor(nextItem);
+	pinnedItems = [
+		nextItem,
+		...pinnedItems.filter((pinnedItem) => pinKeyFor(pinnedItem) !== itemKey),
+	];
 }
 
 async function toggleItemPin(item: CommandPaletteItem) {
@@ -392,7 +428,7 @@ async function toggleItemPin(item: CommandPaletteItem) {
 	if (pendingPinKeys.has(itemKey)) return;
 	const wasPinned = Boolean(item.isPinned);
 	pendingPinKeys = new Set([...pendingPinKeys, itemKey]);
-	setPinFeedback(null);
+	setPinError("");
 	const scopeSpaceId = item.type === "space" ? undefined : item.spaceId;
 	const marks = await toggleSpacePin({
 		spaceId: scopeSpaceId,
@@ -408,30 +444,17 @@ async function toggleItemPin(item: CommandPaletteItem) {
 		[...pendingPinKeys].filter((pendingKey) => pendingKey !== itemKey),
 	);
 	if (!marks) {
-		setPinFeedback({
-			tone: "error",
-			message: `Couldn't ${wasPinned ? "unpin" : "pin"} ${item.title}`,
-		});
+		setPinError(`Couldn't ${wasPinned ? "unpin" : "pin"} ${item.title}`);
 		return;
 	}
-	pins = getCachedCommandPalettePins(currentSpaceId);
-	localItems = applyPinInfoToItems(localItems, pins);
-	defaultItems = applyPinInfoToItems(defaultItems, pins);
-	pinnedItems = wasPinned
-		? pinnedItems.filter((pinnedItem) => {
-				const pinnedKey =
-					pinnedItem.type === "space"
-						? `space:${pinnedItem.spaceId}`
-						: `session:${pinnedItem.sessionId ?? pinnedItem.id}`;
-				return pinnedKey !== itemKey;
-			})
-		: applyPinInfoToItems([item, ...pinnedItems], pins).filter(
-				(pinnedItem) => pinnedItem.isPinned,
-			);
-	setPinFeedback({
-		tone: "success",
-		message: `${wasPinned ? "Unpinned" : "Pinned"} ${item.title}`,
-	});
+	syncPinStateFromCache([item]);
+	if (wasPinned) {
+		pinnedItems = pinnedItems.filter(
+			(pinnedItem) => pinKeyFor(pinnedItem) !== itemKey,
+		);
+	} else {
+		upsertPinnedItem(item);
+	}
 }
 
 async function handlePinClick(
@@ -551,7 +574,7 @@ onMount(() => {
 		remoteController?.abort();
 		if (debounceTimer != null) window.clearTimeout(debounceTimer);
 		if (pointerHoverTimer != null) window.clearTimeout(pointerHoverTimer);
-		if (pinFeedbackTimer != null) window.clearTimeout(pinFeedbackTimer);
+		if (pinErrorTimer != null) window.clearTimeout(pinErrorTimer);
 	};
 });
 </script>
@@ -660,21 +683,12 @@ onMount(() => {
 			</div>
 
 			<div class="command-footer">
-				<div class="flex items-center gap-2">
-					{#if isSearching}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
-					<span>{statusText}</span>
+				<div class:error={Boolean(pinError)} class="command-status" role="status" aria-live="polite">
+					{#if isSearching && !pinError}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
+					<span>{pinError || statusText}</span>
 				</div>
 				<div class="hidden items-center gap-2 sm:flex"><span>↑↓</span><span>C-n/p</span><span>navigate</span><span>↵</span><span>open</span><span>esc</span><span>close</span></div>
 			</div>
-
-			{#if pinFeedback}
-				<div class:error={pinFeedback.tone === "error"} class="command-pin-feedback" role="status" aria-live="polite">
-					{#if pinFeedback.tone === "success"}
-						<Check class="h-3.5 w-3.5 shrink-0 text-brand" />
-					{/if}
-					<span>{pinFeedback.message}</span>
-				</div>
-			{/if}
 		</div>
 	</div>
 {/if}
@@ -952,37 +966,6 @@ onMount(() => {
 		margin-left: -4px;
 	}
 
-	.command-pin-feedback {
-		position: absolute;
-		right: 14px;
-		bottom: 42px;
-		display: inline-flex;
-		max-width: min(360px, calc(100% - 28px));
-		align-items: center;
-		gap: 7px;
-		border: 1px solid color-mix(in oklch, var(--brand) 24%, var(--border-primary) 76%);
-		border-radius: 999px;
-		padding: 7px 10px;
-		background: color-mix(in oklch, var(--bg-surface) 92%, var(--brand-bg) 8%);
-		box-shadow: 0 10px 34px color-mix(in oklch, var(--neutral-100) 54%, transparent);
-		color: var(--text-secondary);
-		font-size: 12px;
-		line-height: 1.2;
-		animation: command-feedback-enter 120ms cubic-bezier(0.16, 1, 0.3, 1);
-	}
-
-	.command-pin-feedback.error {
-		border-color: color-mix(in oklch, var(--error-700) 34%, var(--border-primary) 66%);
-		background: var(--error-900);
-		color: var(--error-700);
-	}
-
-	.command-pin-feedback span {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.command-empty {
 		display: flex;
 		align-items: center;
@@ -1011,13 +994,25 @@ onMount(() => {
 		font-size: 10px;
 	}
 
-	@keyframes command-enter {
-		from { opacity: 0; transform: translateY(-8px) scale(0.985); }
-		to { opacity: 1; transform: translateY(0) scale(1); }
+	.command-status {
+		display: inline-flex;
+		min-width: 0;
+		align-items: center;
+		gap: 6px;
 	}
 
-	@keyframes command-feedback-enter {
-		from { opacity: 0; transform: translateY(4px) scale(0.98); }
+	.command-status span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.command-status.error {
+		color: var(--error-700);
+	}
+
+	@keyframes command-enter {
+		from { opacity: 0; transform: translateY(-8px) scale(0.985); }
 		to { opacity: 1; transform: translateY(0) scale(1); }
 	}
 
@@ -1078,11 +1073,6 @@ onMount(() => {
 		.command-footer {
 			padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
 		}
-
-		.command-pin-feedback {
-			right: 12px;
-			bottom: calc(46px + env(safe-area-inset-bottom));
-		}
 	}
 
 	@keyframes command-sheet-enter {
@@ -1093,8 +1083,7 @@ onMount(() => {
 	@media (prefers-reduced-motion: reduce) {
 		.command-palette,
 		.command-results,
-		.command-result,
-		.command-pin-feedback {
+		.command-result {
 			animation: none;
 			transition: none;
 		}

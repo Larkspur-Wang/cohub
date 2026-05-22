@@ -183,11 +183,17 @@ export async function getPinnedCommandItems(input: {
 		.filter((item) => matchesPinnedQuery(item, input.query));
 }
 
-export function getCachedCommandPalettePins(currentSpaceId?: string | null) {
-	return buildPinIndex([
-		...(getCachedSpacePins(GLOBAL_SPACE_PIN_SCOPE) ?? []),
-		...(currentSpaceId && currentSpaceId !== GLOBAL_SPACE_PIN_SCOPE
-			? (getCachedSpacePins(currentSpaceId) ?? [])
-			: []),
-	]);
+export function getCachedCommandPalettePins(
+	currentSpaceId?: string | null,
+	extraSpaceIds: Iterable<string | null | undefined> = [],
+) {
+	const scopeIds = new Set<string>([GLOBAL_SPACE_PIN_SCOPE]);
+	if (currentSpaceId && currentSpaceId !== GLOBAL_SPACE_PIN_SCOPE)
+		scopeIds.add(currentSpaceId);
+	for (const spaceId of extraSpaceIds) {
+		if (spaceId && spaceId !== GLOBAL_SPACE_PIN_SCOPE) scopeIds.add(spaceId);
+	}
+	return buildPinIndex(
+		[...scopeIds].flatMap((spaceId) => getCachedSpacePins(spaceId) ?? []),
+	);
 }
