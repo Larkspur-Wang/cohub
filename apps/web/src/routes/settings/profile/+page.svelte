@@ -1,5 +1,15 @@
 <script lang="ts">
-import { Check, Copy, Loader2, Monitor, Moon, Sun, User } from "lucide-svelte";
+import {
+	Check,
+	Copy,
+	Loader2,
+	Monitor,
+	Moon,
+	Pencil,
+	Sun,
+	User,
+	X,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
@@ -17,17 +27,24 @@ const resolved = $derived(getResolvedTheme());
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
+type EditableField = "displayName" | "username" | "avatarUrl";
+
 let userUuid = $state("");
 let displayName = $state("");
 let avatarUrl = $state("");
 let username = $state("");
 let uuidCopied = $state(false);
 let loadError = $state("");
-let saveError = $state("");
-let saving = $state(false);
-let saved = $state(false);
+let inlineError = $state("");
+let profileLoading = $state(true);
+let editingField = $state<EditableField | null>(null);
+let draftValue = $state("");
+let savingField = $state<EditableField | null>(null);
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let savedTimer: ReturnType<typeof setTimeout> | null = null;
+
+const profileTitle = $derived(displayName || username || "User");
+const usernameLabel = $derived(username ? `@${username}` : "Public profile");
+const uuidLabel = $derived(formatUuid(userUuid));
 
 const themeOptions: {
 	value: ThemeMode;
@@ -65,9 +82,51 @@ function isThemeActive(option: ThemeMode): boolean {
 	return false;
 }
 
-async function loadProfile() {
-	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
+function formatUuid(uuid: string): string {
+	if (!uuid) return "";
+	if (uuid.length <= 13) return uuid;
+	return `${uuid.slice(0, 8)}…${uuid.slice(-4)}`;
+}
+
+function getFieldValue(field: EditableField): string {
+	if (field === "displayName") return displayName;
+	if (field === "username") return username;
+	return avatarUrl;
+}
+
+function beginEdit(field: EditableField) {
+	if (profileLoading || savingField) return;
+	inlineError = "";
+	editingField = field;
+	draftValue = getFieldValue(field);
+}
+
+function cancelEdit() {
+	if (savingField) return;
+	editingField = null;
+	draftValue = "";
+	inlineError = "";
+}
+
+function handleEditKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		cancelEdit();
 		return;
+	}
+	if (event.key === "Enter") {
+		event.preventDefault();
+		void saveEditingField();
+	}
+}
+
+async function loadProfile() {
+	profileLoading = true;
+	loadError = "";
+	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))) {
+		profileLoading = false;
+		return;
+	}
 	try {
 		await authStore.ensureLoaded(true);
 		userUuid = authStore.userUuid ?? "";
@@ -83,33 +142,45 @@ async function loadProfile() {
 		loadError =
 			error instanceof Error ? error.message : "Failed to load profile";
 		console.error("[profile] Failed to load profile:", error);
+	} finally {
+		profileLoading = false;
 	}
 }
 
-async function saveProfile() {
-	if (saving) return;
-	saveError = "";
-	saved = false;
-	saving = true;
+async function saveEditingField() {
+	if (!editingField || savingField) return;
+
+	const field = editingField;
+	const nextDisplayName =
+		field === "displayName" ? draftValue.trim() : displayName.trim();
+	const nextUsername =
+		field === "username" ? draftValue.trim() : username.trim();
+	const nextAvatarUrl =
+		field === "avatarUrl" ? draftValue.trim() : avatarUrl.trim();
+
+	inlineError = "";
+	if (!nextDisplayName) {
+		inlineError = "Display name is required.";
+		return;
+	}
+
+	savingField = field;
 	try {
 		const profile = await authStore.updateProfile({
-			displayName: displayName.trim(),
-			avatarUrl: avatarUrl.trim() || null,
-			username: username.trim() || null,
+			displayName: nextDisplayName,
+			avatarUrl: nextAvatarUrl || null,
+			username: nextUsername || null,
 		});
 		displayName = profile.displayName;
 		avatarUrl = profile.avatarUrl ?? "";
 		username = profile.username ?? "";
-		saved = true;
-		if (savedTimer) clearTimeout(savedTimer);
-		savedTimer = setTimeout(() => {
-			saved = false;
-		}, 1800);
+		editingField = null;
+		draftValue = "";
 	} catch (error) {
-		saveError =
+		inlineError =
 			error instanceof Error ? error.message : "Failed to save profile";
 	} finally {
-		saving = false;
+		savingField = null;
 	}
 }
 
@@ -148,67 +219,129 @@ onMount(() => {
 
 			{#if loadError}
 				<div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
-			{:else if userUuid}
+			{:else}
 				<div class="py-6">
-					<div class="flex items-center gap-3">
-						{#if avatarUrl}
-							<img src={avatarUrl} alt="avatar" class="w-11 h-11 rounded-full border border-border-subtle object-cover" />
+					<div class="flex items-start gap-3">
+						{#if profileLoading}
+							<div class="w-11 h-11 shrink-0 rounded-full border border-border-subtle bg-bg-hover-strong" aria-hidden="true"></div>
+						{:else if avatarUrl}
+							<img src={avatarUrl} alt="avatar" class="w-11 h-11 shrink-0 rounded-full border border-border-subtle object-cover" />
 						{:else}
-							<div class="w-11 h-11 rounded-full bg-bg-hover-strong border border-border-subtle flex items-center justify-center">
+							<div class="w-11 h-11 shrink-0 rounded-full bg-bg-hover-strong border border-border-subtle flex items-center justify-center">
 								<User class="w-4 h-4 text-text-tertiary" />
 							</div>
 						{/if}
-						<div class="min-w-0">
-							<div class="truncate text-[15px] font-medium text-text-primary">{displayName || username || "User"}</div>
-							<div class="mt-0.5 text-[12px] text-text-tertiary">{username ? `@${username}` : "Public profile"}</div>
+						<div class="min-w-0 flex-1 pt-0.5">
+							{#if profileLoading}
+								<div class="h-4 w-32 rounded bg-bg-hover-strong" aria-hidden="true"></div>
+								<div class="mt-2 h-3 w-20 rounded bg-bg-hover-strong" aria-hidden="true"></div>
+								<div class="mt-2 h-3 w-36 rounded bg-bg-hover-strong" aria-hidden="true"></div>
+							{:else}
+								<div class="flex min-w-0 items-center gap-2">
+									<button type="button" onclick={() => beginEdit("displayName")} class="min-w-0 truncate text-left text-[15px] font-medium text-text-primary transition-colors hover:text-brand" title="Edit display name">
+										{profileTitle}
+									</button>
+									<button type="button" onclick={() => beginEdit("displayName")} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit display name">
+										<Pencil class="w-3 h-3" />
+									</button>
+								</div>
+								<button type="button" onclick={() => beginEdit("username")} class="mt-0.5 block max-w-full truncate text-left text-[12px] text-text-tertiary transition-colors hover:text-text-secondary" title="Edit username">
+									{usernameLabel}
+								</button>
+								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
+									<span class="shrink-0 uppercase tracking-wider">ID</span>
+									<code class="min-w-0 truncate font-mono" title={userUuid}>{uuidLabel}</code>
+									<button type="button" onclick={copyUuid} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy UUID">
+										{#if uuidCopied}
+											<Check class="w-3 h-3 text-status-running" />
+										{:else}
+											<Copy class="w-3 h-3" />
+										{/if}
+									</button>
+								</div>
+							{/if}
 						</div>
 					</div>
 
-					<div class="mt-6 space-y-4">
-						<label class="block">
-							<div class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Username</div>
-							<div class="flex items-center rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 transition-colors focus-within:border-brand/40">
-								<span class="mr-1 shrink-0 text-[13px] text-text-tertiary">@</span>
-								<input bind:value={username} placeholder="your-handle" maxlength="39" class="w-full bg-transparent text-[13px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
+					<div class="mt-5 divide-y divide-border-subtle border-y border-border-subtle">
+						<div class="grid min-h-11 grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-2">
+							<div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Display name</div>
+							{#if profileLoading}
+								<div class="h-3.5 w-40 rounded bg-bg-hover-strong" aria-hidden="true"></div>
+							{:else if editingField === "displayName"}
+								<div class="flex min-w-0 items-center gap-2">
+									<input bind:value={draftValue} maxlength="120" onkeydown={handleEditKeydown} disabled={savingField === "displayName"} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[13px] text-text-primary transition-colors focus:outline-none" />
+									<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "displayName"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save display name">
+										{#if savingField === "displayName"}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Check class="w-3.5 h-3.5" />{/if}
+									</button>
+									<button type="button" onclick={cancelEdit} disabled={savingField === "displayName"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
+										<X class="w-3.5 h-3.5" />
+									</button>
+								</div>
+							{:else}
+								<button type="button" onclick={() => beginEdit("displayName")} class="flex min-w-0 items-center justify-between gap-3 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-bg-hover">
+									<span class="min-w-0 truncate text-[13px] text-text-primary">{displayName}</span>
+									<Pencil class="w-3 h-3 shrink-0 text-text-tertiary" />
+								</button>
+							{/if}
+						</div>
+
+						<div class="grid min-h-11 grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-2">
+							<div>
+								<div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Username</div>
 							</div>
-							<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Lowercase letters, numbers, and hyphens only. This will be used in public URLs.</p>
-						</label>
+							{#if profileLoading}
+								<div class="h-3.5 w-32 rounded bg-bg-hover-strong" aria-hidden="true"></div>
+							{:else if editingField === "username"}
+								<div class="min-w-0">
+									<div class="flex min-w-0 items-center gap-2">
+										<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5">
+											<span class="mr-1 shrink-0 text-[13px] text-text-tertiary">@</span>
+											<input bind:value={draftValue} placeholder="your-handle" maxlength="39" onkeydown={handleEditKeydown} disabled={savingField === "username"} class="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
+										</div>
+										<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "username"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save username">
+											{#if savingField === "username"}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Check class="w-3.5 h-3.5" />{/if}
+										</button>
+										<button type="button" onclick={cancelEdit} disabled={savingField === "username"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
+											<X class="w-3.5 h-3.5" />
+										</button>
+									</div>
+									<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Lowercase letters, numbers, and hyphens only.</p>
+								</div>
+							{:else}
+								<button type="button" onclick={() => beginEdit("username")} class="flex min-w-0 items-center justify-between gap-3 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-bg-hover">
+									<span class="min-w-0 truncate text-[13px] {username ? 'text-text-primary' : 'text-text-placeholder'}">{username ? `@${username}` : "Not set"}</span>
+									<Pencil class="w-3 h-3 shrink-0 text-text-tertiary" />
+								</button>
+							{/if}
+						</div>
 
-						<label class="block">
-							<div class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Display name</div>
-							<input bind:value={displayName} maxlength="120" class="w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/40 focus:outline-none" />
-						</label>
-
-						<label class="block">
-							<div class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Avatar URL</div>
-							<input bind:value={avatarUrl} placeholder="https://..." class="w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none" />
-						</label>
-					</div>
-
-					{#if saveError}
-						<div class="mt-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{saveError}</div>
-					{/if}
-
-					<div class="mt-5 flex items-center justify-between gap-3">
-						<button type="button" onclick={saveProfile} disabled={saving || !displayName.trim()} class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">
-							{#if saving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else if saved}<Check class="w-3.5 h-3.5" />{/if}
-							{saved ? "Saved" : "Save"}
-						</button>
-					</div>
-
-					<div class="mt-8 border-t border-border-subtle pt-5">
-						<div class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">User UUID</div>
-						<div class="flex items-center gap-2">
-							<code class="flex-1 rounded-[5px] bg-bg-code px-3 py-[7px] text-[12px] font-mono text-text-secondary truncate select-all">{userUuid}</code>
-							<button type="button" onclick={copyUuid} class="shrink-0 p-2 rounded-[5px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors cursor-pointer" title="Copy UUID">
-								{#if uuidCopied}
-									<Check class="w-4 h-4 text-status-running" />
-								{:else}
-									<Copy class="w-4 h-4" />
-								{/if}
-							</button>
+						<div class="grid min-h-11 grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-2">
+							<div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Avatar URL</div>
+							{#if profileLoading}
+								<div class="h-3.5 w-56 rounded bg-bg-hover-strong" aria-hidden="true"></div>
+							{:else if editingField === "avatarUrl"}
+								<div class="flex min-w-0 items-center gap-2">
+									<input bind:value={draftValue} placeholder="https://..." onkeydown={handleEditKeydown} disabled={savingField === "avatarUrl"} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:outline-none" />
+									<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "avatarUrl"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save avatar URL">
+										{#if savingField === "avatarUrl"}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Check class="w-3.5 h-3.5" />{/if}
+									</button>
+									<button type="button" onclick={cancelEdit} disabled={savingField === "avatarUrl"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
+										<X class="w-3.5 h-3.5" />
+									</button>
+								</div>
+							{:else}
+								<button type="button" onclick={() => beginEdit("avatarUrl")} class="flex min-w-0 items-center justify-between gap-3 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-bg-hover">
+									<span class="min-w-0 truncate text-[13px] {avatarUrl ? 'text-text-primary' : 'text-text-placeholder'}">{avatarUrl || "Not set"}</span>
+									<Pencil class="w-3 h-3 shrink-0 text-text-tertiary" />
+								</button>
+							{/if}
 						</div>
 					</div>
+
+					{#if inlineError}
+						<div class="mt-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{inlineError}</div>
+					{/if}
 				</div>
 			{/if}
 
