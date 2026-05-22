@@ -83,7 +83,7 @@ export class SandboxConnection {
   ): Promise<RpcRequestMap[M]["result"]> {
     const requestId = options.requestId ?? randomUUID();
     logger.debug(`[SandboxWS] rpc:request spaceId=${this.spaceId} identity=${this.identity} method=${method} requestId=${requestId.slice(0, 8)}`);
-    return new Promise((resolve, reject) => {
+    const promise = new Promise<RpcRequestMap[M]["result"]>((resolve, reject) => {
       const pending = {
         requestId,
         method,
@@ -117,6 +117,14 @@ export class SandboxConnection {
         }));
       }
     });
+
+    // Attach a no-op handler synchronously so Node.js never sees this promise
+    // as "unhandled" during the brief window between rejection and the caller's
+    // await-microtask picking it up (prevents unhandledRejection crashes on
+    // Node.js v22+ where the default is --unhandled-rejections=throw).
+    promise.catch(() => {});
+
+    return promise;
   }
 
   handleMessage(message: AgentSandboxMessage) {

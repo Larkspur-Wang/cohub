@@ -1,4 +1,4 @@
-import { chmod, mkdir, readdir, rm } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { config } from "./config.js";
@@ -25,7 +25,33 @@ export const emptyDirectory = async (dir: string) => {
   await Promise.all(names.map((name) => rm(join(dir, name), { recursive: true, force: true })));
 };
 
+/**
+ * Remove stale `.git/index.lock` if it exists and no git process is holding it.
+ *
+ * When a git process crashes (e.g. OOM, SIGKILL) or the container restarts
+ * mid-operation, the lock file is left behind and all subsequent git commands
+ * fail with "Unable to create ... index.lock: File exists".
+ */
+export const cleanStaleGitLock = async (cwd: string) => {
+  const lockPath = join(cwd, ".git", "index.lock");
+  try {
+    const st = await stat(lockPath);
+    // If the lock file is older than 30 seconds, consider it stale.
+    // A fresh git operation would have a very recent mtime.
+    const ageMs = Date.now() - st.mtimeMs;
+    if (ageMs > 30_000) {
+      await unlink(lockPath);
+      console.warn(`[git] removed stale index.lock (age=${Math.round(ageMs / 1000)}s) cwd=${cwd}`);
+    }
+  } catch {
+    // lock file doesn't exist or already removed — nothing to do
+  }
+};
+
 export const runGitWithOutput = async (args: string[], cwd: string) => {
+  // Clean stale lock before any git operation to prevent index.lock failures.
+  await cleanStaleGitLock(cwd);
+
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     // Allow git to operate in directories owned by different uids (common in container + PVC env)
     const safeArgs = ["-c", `safe.directory=${cwd}`, ...args];

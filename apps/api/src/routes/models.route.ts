@@ -111,8 +111,12 @@ async function fetchModelsCatalog(userId: string): Promise<ModelCatalogEntry[]> 
 const router = new Hono();
 
 router.get("/", async (c) => {
+  // Auth check outside try/catch so UnauthorizedError propagates to
+  // Hono's onError handler (returns 401) instead of being mis-reported
+  // as a catalog loading failure.
+  const user = useAuth(c);
+
   try {
-    const user = useAuth(c);
     const modelType = c.req.query("modelType");
     if (modelType === MULTIMODAL_MODEL_TYPE) {
       return c.json(await loadPublicGenerationModels(user.uuid));
