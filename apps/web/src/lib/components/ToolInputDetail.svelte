@@ -67,14 +67,12 @@ function diffTextClass(sign: "+" | "-") {
 			<div class="space-y-2 pt-0.5">
 				{#each view.sections as section (section.id)}
 					<div class="min-w-0 space-y-1">
-						{#if section.kind !== 'diff'}
-							<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none max-sm:gap-1.5">
-								<div class="font-mono uppercase tracking-wide text-text-placeholder select-none pt-[1px]">{section.label}</div>
-								{#if section.summary}
-									<div class="truncate text-text-placeholder">{section.summary}</div>
-								{/if}
-							</div>
-						{/if}
+						<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none max-sm:gap-1.5">
+							<div class="font-mono uppercase tracking-wide text-text-placeholder select-none pt-[1px]">{section.label}</div>
+							{#if section.summary}
+								<div class="truncate text-text-placeholder">{section.summary}</div>
+							{/if}
+						</div>
 
 						{#if section.kind === 'diff'}
 							<div class="relative min-w-0">
