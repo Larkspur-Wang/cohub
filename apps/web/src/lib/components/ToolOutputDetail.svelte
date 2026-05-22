@@ -7,7 +7,6 @@ import {
 type Props = {
 	value: string;
 	failed?: boolean;
-	live?: boolean;
 	partial?: boolean;
 	idPrefix?: string;
 };
@@ -15,7 +14,6 @@ type Props = {
 const {
 	value,
 	failed = false,
-	live = false,
 	partial = false,
 	idPrefix = "tool-output",
 }: Props = $props();
@@ -29,12 +27,9 @@ const bodyId = $derived(`${idPrefix}-${failed ? "err" : "out"}-body`);
 </script>
 
 <div class="min-w-0 space-y-1 pt-px">
-	{#if collapsible || partial || live}
+	{#if collapsible || partial}
 		<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none text-text-placeholder max-sm:gap-1.5">
 			<span class="pt-[1px]">{summary}</span>
-			{#if partial || live}
-				<span class="shrink-0 rounded-sm bg-brand-muted px-1 py-px font-mono text-[9px] uppercase tracking-wide text-brand-muted-fg">live</span>
-			{/if}
 		</div>
 	{/if}
 

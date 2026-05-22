@@ -21,8 +21,6 @@ export type ToolInputSection = {
 	value?: string;
 	lines?: ToolInputDiffLine[];
 	collapsible?: boolean;
-	/** True when the section content is still being streamed (partial edit). */
-	partial?: boolean;
 };
 
 export type ToolInputView = {
@@ -302,7 +300,6 @@ export function formatToolInputView(
 						summary: partialSummary,
 						kind: "diff",
 						lines: partialLines,
-						partial: true,
 						collapsible:
 							(typeof oldText === "string" && isLongTextValue(oldText)) ||
 							(typeof newText === "string" && isLongTextValue(newText)),

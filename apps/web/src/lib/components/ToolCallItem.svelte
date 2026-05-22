@@ -146,13 +146,13 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 					{#if tool.input && Object.keys(tool.input).length > 0}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2 max-sm:grid-cols-[1.25rem_minmax(0,1fr)] max-sm:gap-1.5">
 							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">in</div>
-							<ToolInputDetail name={tool.name} input={tool.input} live={isRunning} drafting={runningPhase === 'drafting'} idPrefix={detailIdPrefix} />
+							<ToolInputDetail name={tool.name} input={tool.input} idPrefix={detailIdPrefix} />
 						</div>
 					{/if}
 					{#if showResult}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
 							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide select-none {tool.status === 'failed' ? 'text-status-error' : 'text-text-placeholder'}">{resultLabel}</div>
-							<ToolOutputDetail value={visibleResult} failed={tool.status === 'failed'} live={isRunning} partial={tool.resultPartial} idPrefix={detailIdPrefix} />
+							<ToolOutputDetail value={visibleResult} failed={tool.status === 'failed'} partial={tool.resultPartial} idPrefix={detailIdPrefix} />
 						</div>
 					{:else if tool.resultOmitted}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">

@@ -7,19 +7,10 @@ import {
 type Props = {
 	name: string;
 	input?: Record<string, unknown>;
-	live?: boolean;
-	/** True when the tool input JSON itself is still being streamed. */
-	drafting?: boolean;
 	idPrefix?: string;
 };
 
-const {
-	name,
-	input,
-	live = false,
-	drafting = false,
-	idPrefix = "tool-input",
-}: Props = $props();
+const { name, input, idPrefix = "tool-input" }: Props = $props();
 
 const view = $derived(formatToolInputView(name, input));
 let expandedSections = $state<Record<string, boolean>>({});
@@ -76,15 +67,14 @@ function diffTextClass(sign: "+" | "-") {
 			<div class="space-y-2 pt-0.5">
 				{#each view.sections as section (section.id)}
 					<div class="min-w-0 space-y-1">
-						<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none max-sm:gap-1.5">
-							<div class="font-mono uppercase tracking-wide text-text-placeholder select-none pt-[1px]">{section.label}</div>
-							{#if section.summary}
-								<div class="truncate text-text-placeholder">{section.summary}</div>
-							{/if}
-							{#if live && section.collapsible}
-								<div class="shrink-0 rounded-sm bg-brand-muted px-1 py-px font-mono text-[9px] uppercase tracking-wide text-brand-muted-fg">live</div>
-							{/if}
-						</div>
+						{#if section.kind !== 'diff'}
+							<div class="flex min-h-5 items-start gap-2 text-[11px] leading-none max-sm:gap-1.5">
+								<div class="font-mono uppercase tracking-wide text-text-placeholder select-none pt-[1px]">{section.label}</div>
+								{#if section.summary}
+									<div class="truncate text-text-placeholder">{section.summary}</div>
+								{/if}
+							</div>
+						{/if}
 
 						{#if section.kind === 'diff'}
 							<div class="relative min-w-0">
@@ -98,9 +88,6 @@ function diffTextClass(sign: "+" | "-") {
 											<span class={diffTextClass(line.sign)}>{line.text || ' '}</span>
 										</div>
 									{/each}
-									{#if section.partial && drafting}
-										<div class="diff-streaming-cursor"></div>
-									{/if}
 								</div>
 							</div>
 						{:else}
@@ -129,27 +116,3 @@ function diffTextClass(sign: "+" | "-") {
 		{/if}
 	</div>
 {/if}
-
-<style>
-	.diff-streaming-cursor {
-		display: inline-block;
-		width: 2px;
-		height: 0.85em;
-		margin-left: 1.25rem;
-		background: var(--brand);
-		opacity: 0.7;
-		animation: diff-cursor-blink 1s steps(2) infinite;
-	}
-
-	@keyframes diff-cursor-blink {
-		0% { opacity: 0.7; }
-		50% { opacity: 0; }
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.diff-streaming-cursor {
-			animation: none;
-			opacity: 0.5;
-		}
-	}
-</style>
