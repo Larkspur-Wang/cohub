@@ -1,5 +1,6 @@
 <script lang="ts">
 import {
+	Check,
 	CornerDownRight,
 	FolderKanban,
 	Loader2,
@@ -71,6 +72,11 @@ let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
+let pinFeedback = $state<{ tone: "success" | "error"; message: string } | null>(
+	null,
+);
+let pinFeedbackTimer: number | null = null;
+let pendingPinKeys = $state<Set<string>>(new Set());
 
 const currentSpaceId = $derived.by(() => {
 	const match = page.url.pathname.match(/^\/spaces\/([^/]+)/);
@@ -359,9 +365,34 @@ function isPinnable(item: CommandPaletteItem) {
 	return item.type === "space" || item.type === "session";
 }
 
+function pinKeyFor(item: CommandPaletteItem) {
+	return item.type === "space"
+		? `space:${item.spaceId}`
+		: `session:${item.sessionId ?? item.id}`;
+}
+
+function setPinFeedback(
+	feedback: { tone: "success" | "error"; message: string } | null,
+) {
+	pinFeedback = feedback;
+	if (pinFeedbackTimer != null) window.clearTimeout(pinFeedbackTimer);
+	if (!feedback) {
+		pinFeedbackTimer = null;
+		return;
+	}
+	pinFeedbackTimer = window.setTimeout(() => {
+		pinFeedback = null;
+		pinFeedbackTimer = null;
+	}, 1800);
+}
+
 async function toggleItemPin(item: CommandPaletteItem) {
 	if (!isPinnable(item)) return;
+	const itemKey = pinKeyFor(item);
+	if (pendingPinKeys.has(itemKey)) return;
 	const wasPinned = Boolean(item.isPinned);
+	pendingPinKeys = new Set([...pendingPinKeys, itemKey]);
+	setPinFeedback(null);
 	const scopeSpaceId = item.type === "space" ? undefined : item.spaceId;
 	const marks = await toggleSpacePin({
 		spaceId: scopeSpaceId,
@@ -373,14 +404,19 @@ async function toggleItemPin(item: CommandPaletteItem) {
 		console.warn("[command-palette] toggle pin failed", error);
 		return null;
 	});
-	if (!marks) return;
+	pendingPinKeys = new Set(
+		[...pendingPinKeys].filter((pendingKey) => pendingKey !== itemKey),
+	);
+	if (!marks) {
+		setPinFeedback({
+			tone: "error",
+			message: `Couldn't ${wasPinned ? "unpin" : "pin"} ${item.title}`,
+		});
+		return;
+	}
 	pins = getCachedCommandPalettePins(currentSpaceId);
 	localItems = applyPinInfoToItems(localItems, pins);
 	defaultItems = applyPinInfoToItems(defaultItems, pins);
-	const itemKey =
-		item.type === "space"
-			? `space:${item.spaceId}`
-			: `session:${item.sessionId ?? item.id}`;
 	pinnedItems = wasPinned
 		? pinnedItems.filter((pinnedItem) => {
 				const pinnedKey =
@@ -392,6 +428,10 @@ async function toggleItemPin(item: CommandPaletteItem) {
 		: applyPinInfoToItems([item, ...pinnedItems], pins).filter(
 				(pinnedItem) => pinnedItem.isPinned,
 			);
+	setPinFeedback({
+		tone: "success",
+		message: `${wasPinned ? "Unpinned" : "Pinned"} ${item.title}`,
+	});
 }
 
 async function handlePinClick(
@@ -511,6 +551,7 @@ onMount(() => {
 		remoteController?.abort();
 		if (debounceTimer != null) window.clearTimeout(debounceTimer);
 		if (pointerHoverTimer != null) window.clearTimeout(pointerHoverTimer);
+		if (pinFeedbackTimer != null) window.clearTimeout(pinFeedbackTimer);
 	};
 });
 </script>
@@ -550,6 +591,7 @@ onMount(() => {
 						{@const Icon = meta.icon}
 						{@const profile = profileFor(item)}
 						{@const timestamp = itemTimestamp(item)}
+						{@const isPinPending = isPinnable(item) && pendingPinKeys.has(pinKeyFor(item))}
 						<button
 							type="button"
 							class:active={index === activeIndex}
@@ -592,13 +634,18 @@ onMount(() => {
 									role="button"
 									tabindex="0"
 									class:pinned={item.isPinned}
+									class:pending={isPinPending}
 									class="command-pin-action"
 									title={item.isPinned ? "Unpin" : "Pin"}
 									aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
+									aria-busy={isPinPending}
 									onclick={(event) => void handlePinClick(event, item)}
-									onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") void handlePinClick(event, item); }}
+									onkeydown={(event) => { if (!isPinPending && (event.key === "Enter" || event.key === " ")) void handlePinClick(event, item); }}
 								>
-									{#if item.isPinned}
+									{#if isPinPending}
+										<Loader2 class="h-3 w-3 animate-spin" />
+										<span>{item.isPinned ? "Unpinning" : "Pinning"}</span>
+									{:else if item.isPinned}
 										<Pin class="h-3 w-3" />
 										<span>Pinned</span>
 									{:else}
@@ -619,6 +666,15 @@ onMount(() => {
 				</div>
 				<div class="hidden items-center gap-2 sm:flex"><span>↑↓</span><span>C-n/p</span><span>navigate</span><span>↵</span><span>open</span><span>esc</span><span>close</span></div>
 			</div>
+
+			{#if pinFeedback}
+				<div class:error={pinFeedback.tone === "error"} class="command-pin-feedback" role="status" aria-live="polite">
+					{#if pinFeedback.tone === "success"}
+						<Check class="h-3.5 w-3.5 shrink-0 text-brand" />
+					{/if}
+					<span>{pinFeedback.message}</span>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -724,6 +780,7 @@ onMount(() => {
 	.command-result.active::before { background: var(--brand); }
 	.command-result.active .command-enter,
 	.command-result.active .command-pin-action:not(.pinned),
+	.command-result.active .command-pin-action.pending,
 	.command-result:hover .command-pin-action:not(.pinned),
 	.command-result:focus-within .command-pin-action:not(.pinned) {
 		opacity: 1;
@@ -861,11 +918,17 @@ onMount(() => {
 		transition: opacity 90ms cubic-bezier(0.25, 1, 0.5, 1), background-color 90ms cubic-bezier(0.25, 1, 0.5, 1), color 90ms cubic-bezier(0.25, 1, 0.5, 1), border-color 90ms cubic-bezier(0.25, 1, 0.5, 1);
 	}
 
-	.command-pin-action.pinned {
+	.command-pin-action.pinned,
+	.command-pin-action.pending {
 		border-color: color-mix(in oklch, var(--brand) 20%, transparent);
 		background: color-mix(in oklch, var(--brand) 9%, transparent);
 		color: var(--brand);
 		opacity: 1;
+	}
+
+	.command-pin-action.pending {
+		cursor: progress;
+		pointer-events: none;
 	}
 
 	.command-pin-action.pinned:hover {
@@ -887,6 +950,37 @@ onMount(() => {
 
 	.command-pin-action + .command-enter {
 		margin-left: -4px;
+	}
+
+	.command-pin-feedback {
+		position: absolute;
+		right: 14px;
+		bottom: 42px;
+		display: inline-flex;
+		max-width: min(360px, calc(100% - 28px));
+		align-items: center;
+		gap: 7px;
+		border: 1px solid color-mix(in oklch, var(--brand) 24%, var(--border-primary) 76%);
+		border-radius: 999px;
+		padding: 7px 10px;
+		background: color-mix(in oklch, var(--bg-surface) 92%, var(--brand-bg) 8%);
+		box-shadow: 0 10px 34px color-mix(in oklch, var(--neutral-100) 54%, transparent);
+		color: var(--text-secondary);
+		font-size: 12px;
+		line-height: 1.2;
+		animation: command-feedback-enter 120ms cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.command-pin-feedback.error {
+		border-color: color-mix(in oklch, var(--error-700) 34%, var(--border-primary) 66%);
+		background: var(--error-900);
+		color: var(--error-700);
+	}
+
+	.command-pin-feedback span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.command-empty {
@@ -922,10 +1016,85 @@ onMount(() => {
 		to { opacity: 1; transform: translateY(0) scale(1); }
 	}
 
+	@keyframes command-feedback-enter {
+		from { opacity: 0; transform: translateY(4px) scale(0.98); }
+		to { opacity: 1; transform: translateY(0) scale(1); }
+	}
+
+	@media (max-width: 640px) {
+		.command-palette-root {
+			align-items: flex-end;
+			padding: 0;
+			background: var(--overlay-scrim);
+		}
+
+		.command-palette {
+			width: 100vw;
+			max-height: min(82svh, 680px);
+			border-right: 0;
+			border-bottom: 0;
+			border-left: 0;
+			border-radius: 16px 16px 0 0;
+			animation-name: command-sheet-enter;
+		}
+
+		.command-palette::before {
+			content: "";
+			align-self: center;
+			width: 36px;
+			height: 4px;
+			margin-top: 8px;
+			border-radius: 999px;
+			background: var(--border-primary);
+		}
+
+		.command-input-row {
+			padding: 12px 14px 13px;
+		}
+
+		.command-shortcut,
+		.command-enter {
+			display: none;
+		}
+
+		.command-result {
+			min-height: 58px;
+			gap: 10px;
+			padding: 10px 8px;
+		}
+
+		.command-type-mark {
+			width: 32px;
+			height: 32px;
+		}
+
+		.command-pin-action,
+		.command-pin-action:not(.pinned) {
+			min-width: 44px;
+			height: 44px;
+			opacity: 1;
+		}
+
+		.command-footer {
+			padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+		}
+
+		.command-pin-feedback {
+			right: 12px;
+			bottom: calc(46px + env(safe-area-inset-bottom));
+		}
+	}
+
+	@keyframes command-sheet-enter {
+		from { opacity: 0; transform: translateY(14px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.command-palette,
 		.command-results,
-		.command-result {
+		.command-result,
+		.command-pin-feedback {
 			animation: none;
 			transition: none;
 		}
