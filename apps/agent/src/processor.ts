@@ -15,7 +15,7 @@ import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
-import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
+import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
 import { claimTurnBatch, buildUserMessagesForBatch, enqueueNextQueuedTurn } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
@@ -620,6 +620,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         userMeta: ownerMeta,
         llmRound: 0,
       });
+      await drainStreamStateBeforeReset(handle);
       resetStreamState(handle);
 
       const messages = turnUserMessages

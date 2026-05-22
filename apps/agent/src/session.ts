@@ -238,30 +238,35 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
     return;
   }
 
+  // Capture the state reference at flush start. If resetStreamState() replaces
+  // handle.streamState while we're in-flight, we detect it and avoid stale writes
+  // or stale re-scheduling against the new state.
+  const stateAtStart = handle.streamState;
+
   const flush = async () => {
-    if (handle.streamState.dirty) {
+    if (stateAtStart.dirty) {
       ensureProjectedStreamContent(handle);
     }
 
-    const full = handle.streamState.content;
-    const last = handle.streamState.lastSent ?? [];
+    const full = stateAtStart.content;
+    const last = stateAtStart.lastSent ?? [];
     const delta = computeDelta(full, last);
-    const forceBoundary = handle.streamState.pendingBoundary === true;
+    const forceBoundary = stateAtStart.pendingBoundary === true;
 
-    handle.streamState.lastSent = structuredClone(full);
-    handle.streamState.pendingFlush = false;
-    handle.streamState.pendingBoundary = false;
+    stateAtStart.lastSent = structuredClone(full);
+    stateAtStart.pendingFlush = false;
+    stateAtStart.pendingBoundary = false;
 
     if (delta.length === 0 && !forceBoundary) {
-      handle.streamState.flushPromise = null;
+      stateAtStart.flushPromise = null;
       return;
     }
-    const startsFreshStream = (assistantContext?.patchSeq ?? handle.streamState.patchSeq ?? 0) === 0;
-    const baseSeq = startsFreshStream ? 0 : (assistantContext?.patchSeq ?? handle.currentTurnPatchSeq ?? handle.streamState.patchSeq ?? 0);
+    const startsFreshStream = (assistantContext?.patchSeq ?? stateAtStart.patchSeq ?? 0) === 0;
+    const baseSeq = startsFreshStream ? 0 : (assistantContext?.patchSeq ?? handle.currentTurnPatchSeq ?? stateAtStart.patchSeq ?? 0);
     const seq = (assistantContext?.patchSeq ?? handle.currentTurnPatchSeq ?? 0) + 1;
     if (assistantContext) assistantContext.patchSeq = seq;
     handle.currentTurnPatchSeq = seq;
-    handle.streamState.patchSeq = seq;
+    stateAtStart.patchSeq = seq;
 
     const span = trace.getActiveSpan();
 
@@ -285,16 +290,58 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
       if (error instanceof Error) span?.recordException(error);
       throw error;
     } finally {
-      handle.streamState.flushPromise = null;
+      stateAtStart.flushPromise = null;
     }
 
-    if (handle.streamState.pendingFlush) {
+    // Only re-schedule against the same state. If reset replaced it, the
+    // pending data should already have been drained by drainStreamStateBeforeReset().
+    if (handle.streamState === stateAtStart && stateAtStart.pendingFlush) {
       scheduleProviderRenderUpdate(handle, "flush_pending", { immediate: true });
     }
   };
 
-  handle.streamState.flushPromise = flush();
-  await handle.streamState.flushPromise;
+  stateAtStart.flushPromise = flush();
+  await stateAtStart.flushPromise;
+}
+
+/**
+ * Synchronously drain any pending stream content by awaiting in-flight flush
+ * and triggering a final immediate flush if more data became available.
+ * Call this BEFORE resetStreamState() to ensure no pending delta is lost.
+ */
+export async function drainStreamStateBeforeReset(handle: SessionHandle) {
+  const inflight = handle.streamState.flushPromise;
+  if (inflight) {
+    try {
+      await inflight;
+    } catch {
+      // sendOutput errors are already logged; we just need the wait.
+    }
+  }
+  // After waiting, if there's still pending content (e.g. arrived during the
+  // in-flight flush, or queued by debounce timer), flush it immediately.
+  if (handle.streamState.pendingFlush || handle.streamState.dirty) {
+    if (handle.streamState.flushTimer) {
+      clearTimeout(handle.streamState.flushTimer);
+      handle.streamState.flushTimer = null;
+    }
+    try {
+      await emitProviderRenderUpdate(handle);
+    } catch (error) {
+      console.error(
+        `[Agent] Final drain flush failed for session ${handle.sessionId}:`,
+        error,
+      );
+    }
+    // emitProviderRenderUpdate may have set a new flushPromise; await it too.
+    if (handle.streamState.flushPromise) {
+      try {
+        await handle.streamState.flushPromise;
+      } catch {
+        // already logged
+      }
+    }
+  }
 }
 
 function scheduleProviderRenderUpdate(
@@ -342,6 +389,10 @@ function ensureProjectedStreamContent(handle: SessionHandle) {
 }
 
 export function resetStreamState(handle: SessionHandle) {
+  // Cancel any pending debounce timer to prevent stale flush after reset.
+  if (handle.streamState.flushTimer) {
+    clearTimeout(handle.streamState.flushTimer);
+  }
   handle.streamState = {
     assistantState: createAssistantStreamState(),
     content: [],
@@ -550,7 +601,7 @@ function extractTextFromToolResult(result: unknown): string {
 }
 
 export function subscribeSessionEvents(handle: SessionHandle) {
-  handle.session.subscribe((event) => {
+  handle.session.subscribe(async (event) => {
     if (event.type === "message_start") {
       const traceCtx = getCurrentSessionTraceContext(handle);
       if (event.message.role === "assistant") {
@@ -607,6 +658,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         }
       }
       if (message.role === "assistant") {
+        await drainStreamStateBeforeReset(handle);
         resetStreamState(handle);
         handle.streamState.pendingBoundary = true;
         flushProviderRenderUpdate(handle, "assistant_message_start");
@@ -727,6 +779,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
 
 
       if (handle.session.shouldDeferErrorPersistence(rawMessage)) {
+        await drainStreamStateBeforeReset(handle);
         resetStreamState(handle);
         removePendingUserMessage(handle, currentUserMessageId);
         return;
@@ -768,6 +821,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         }
       });
 
+      await drainStreamStateBeforeReset(handle);
       resetStreamState(handle);
       if (handle.activeAssistantContext === assistantContext) handle.activeAssistantContext = null;
       removePendingUserMessage(handle, currentUserMessageId);
