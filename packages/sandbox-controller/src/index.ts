@@ -52,7 +52,12 @@ export type SandboxLifecycleController = ReturnType<typeof createSandboxLifecycl
 const DEFAULT_LOCK_TTL_MS = 10 * 60_000;
 const nowDate = () => new Date();
 
-export const DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS = 48 * 60 * 60;
+export function getDefaultSandboxIdleTtl(env: "dev" | "prod"): number {
+  return env === "prod" ? 12 * 60 * 60 : 10 * 60;
+}
+
+const resolvedEnv = (typeof process !== "undefined" && process.env?.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
+export const DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS = getDefaultSandboxIdleTtl(resolvedEnv);
 export const MIN_SPACE_SANDBOX_IDLE_TTL_SECONDS = 60;
 export const MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS = 30 * 24 * 60 * 60;
 

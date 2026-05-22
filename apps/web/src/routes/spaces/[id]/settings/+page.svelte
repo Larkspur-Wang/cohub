@@ -51,6 +51,7 @@ type SandboxInfo = {
 
 const props = $props<{ data: { spaceId: string } }>();
 const spaceId = $derived(props.data.spaceId);
+const defaultIdleTtlSeconds = import.meta.env.DEV ? 10 * 60 : 12 * 60 * 60;
 
 let space = $state<SpaceRecord | null>(null);
 let access = $state<SpaceAccessPolicy | null>(null);
@@ -102,7 +103,7 @@ let recoveringSandbox = $state(false);
 let sandboxRecoveryMessage = $state("");
 let sandboxRecoveryError = $state("");
 let sandboxAutoDestroyMode = $state<"idle" | "never">("idle");
-let sandboxIdleTtlSeconds = $state(48 * 60 * 60);
+let sandboxIdleTtlSeconds = $state(defaultIdleTtlSeconds);
 let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
@@ -127,7 +128,7 @@ function getPictureUrl(record: SpaceRecord | null): string {
 function getSpaceAutoDestroyPolicy(
 	record: SpaceRecord | null,
 ): SpaceSandboxAutoDestroyPolicy {
-	const fallback = { mode: "idle" as const, ttlSeconds: 48 * 60 * 60 };
+	const fallback = { mode: "idle" as const, ttlSeconds: defaultIdleTtlSeconds };
 	const policy = record?.meta?.config?.sandbox?.autoDestroy;
 	if (!policy) return fallback;
 	if (policy.mode === "never") return { mode: "never" };
@@ -140,7 +141,7 @@ function applySandboxConfigFromSpace(record: SpaceRecord | null) {
 	const policy = getSpaceAutoDestroyPolicy(record);
 	sandboxAutoDestroyMode = policy.mode;
 	sandboxIdleTtlSeconds =
-		policy.mode === "idle" ? policy.ttlSeconds : 48 * 60 * 60;
+		policy.mode === "idle" ? policy.ttlSeconds : defaultIdleTtlSeconds;
 }
 
 function formatTtl(seconds: number): string {

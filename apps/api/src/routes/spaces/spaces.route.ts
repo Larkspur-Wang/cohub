@@ -70,7 +70,7 @@ type SpaceConfigInput = {
 
 const DEFAULT_SPACE_SANDBOX_AUTO_DESTROY: SpaceSandboxAutoDestroyPolicy = {
   mode: "idle",
-  ttlSeconds: 48 * 60 * 60,
+  ttlSeconds: config.env === "prod" ? 12 * 60 * 60 : 10 * 60,
 };
 
 const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;

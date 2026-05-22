@@ -49,12 +49,15 @@ type UploadOptions = {
   json?: boolean;
 };
 
+const cliEnv = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
+const defaultIdleTtlSeconds = cliEnv === "prod" ? 12 * 60 * 60 : 10 * 60;
+
 const parseAutoDestroy = (opts: { autoDestroy?: string; idleTtl?: string }) => {
   const mode = opts.autoDestroy ?? (opts.idleTtl ? "idle" : undefined);
   if (!mode) return undefined;
   if (mode === "never") return { mode: "never" as const };
   if (mode !== "idle") return error("Invalid auto destroy mode", "Use --auto-destroy idle or --auto-destroy never");
-  const ttlSeconds = Number.parseInt(opts.idleTtl ?? "172800", 10);
+  const ttlSeconds = Number.parseInt(opts.idleTtl ?? String(defaultIdleTtlSeconds), 10);
   if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 30 * 24 * 60 * 60) {
     return error("Invalid idle TTL", "--idle-ttl must be an integer between 60 and 2592000 seconds");
   }
@@ -62,7 +65,7 @@ const parseAutoDestroy = (opts: { autoDestroy?: string; idleTtl?: string }) => {
 };
 
 const formatAutoDestroy = (policy: { mode: "idle"; ttlSeconds: number } | { mode: "never" } | undefined) => {
-  if (!policy) return "48h (default)";
+  if (!policy) return `${cliEnv === "prod" ? "12h" : "10m"} (default)`;
   if (policy.mode === "never") return "never";
   if (policy.ttlSeconds % 86400 === 0) return `${policy.ttlSeconds / 86400}d`;
   if (policy.ttlSeconds % 3600 === 0) return `${policy.ttlSeconds / 3600}h`;
