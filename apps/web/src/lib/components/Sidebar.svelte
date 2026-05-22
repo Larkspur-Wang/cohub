@@ -112,7 +112,7 @@ type SidebarSessionItem = {
 	visualDepth: number;
 	isFork: boolean;
 	parentVisible: boolean;
-	hasVisibleChildren: boolean;
+	isLastVisibleChild: boolean;
 	fork: SessionForkSidebarRecord | null;
 	displayTitle: string;
 	titleText: string | undefined;
@@ -761,6 +761,8 @@ function buildSidebarSessionItems(
 		sessionForks.map((fork) => [fork.childSessionId, fork]),
 	);
 	const childrenByParentId = new Map<string, SessionRecord[]>();
+	const childIndexById = new Map<string, number>();
+	const childCountByParentId = new Map<string, number>();
 
 	for (const session of sessionList) {
 		const fork = forkByChildId.get(session.id);
@@ -795,6 +797,14 @@ function buildSidebarSessionItems(
 		return b.id.localeCompare(a.id);
 	};
 
+	for (const [parentId, children] of childrenByParentId) {
+		const sortedChildren = children.sort(compareSessions);
+		childCountByParentId.set(parentId, sortedChildren.length);
+		sortedChildren.forEach((child, index) => {
+			childIndexById.set(child.id, index);
+		});
+	}
+
 	const roots = sessionList
 		.filter((session) => {
 			const fork = forkByChildId.get(session.id);
@@ -825,22 +835,30 @@ function buildSidebarSessionItems(
 			? ` at turn #${connectedFork.anchorSequence}`
 			: "";
 		const tooltip = connectedFork ? `${source}${turn}` : undefined;
+		const childIndex = childIndexById.get(session.id);
+		const childCount = fork?.parentSessionId
+			? childCountByParentId.get(fork.parentSessionId)
+			: undefined;
+		const isLastVisibleChild = Boolean(
+			connectedFork &&
+				childIndex !== undefined &&
+				childCount !== undefined &&
+				childIndex === childCount - 1,
+		);
 		items.push({
 			session,
 			depth: connectedFork?.depth ?? 0,
 			visualDepth: connectedFork ? visualDepth : 0,
 			isFork: Boolean(connectedFork),
 			parentVisible,
-			hasVisibleChildren: (childrenByParentId.get(session.id) ?? []).length > 0,
+			isLastVisibleChild,
 			fork: connectedFork,
 			displayTitle,
 			titleText: tooltip,
 			ariaLabel: tooltip ? `${displayTitle}, ${tooltip}` : displayTitle,
 		});
 
-		const children = [...(childrenByParentId.get(session.id) ?? [])].sort(
-			compareSessions,
-		);
+		const children = childrenByParentId.get(session.id) ?? [];
 		for (const child of children) appendSession(child, visualDepth + 1, seen);
 		seen.delete(session.id);
 	};
@@ -1269,7 +1287,7 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.parentVisible ? 'session-fork-row--connected' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={getSessionRowStyle(item)}
 						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
@@ -1814,7 +1832,7 @@ $effect(() => {
 		pointer-events: none;
 	}
 
-	.session-fork-row--connected::after {
+	.session-fork-row::after {
 		content: "";
 		position: absolute;
 		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
@@ -1828,6 +1846,10 @@ $effect(() => {
 		);
 		opacity: 0.62;
 		pointer-events: none;
+	}
+
+	.session-fork-row--last::after {
+		bottom: 50%;
 	}
 
 	@media (hover: hover) {
@@ -1848,8 +1870,8 @@ $effect(() => {
 		}
 
 		.session-fork-row::before,
-		.session-fork-row--connected::after {
-			display: none;
+		.session-fork-row::after {
+			left: calc(0.45rem + min(var(--fork-indent, 0px), 10px) - 7px);
 		}
 	}
 </style>
