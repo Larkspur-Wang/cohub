@@ -208,8 +208,8 @@ import {
     ],
     [
       { type: "thinking", thinking: "plan", _meta: { streamIndex: 0 } },
-      { type: "tool_use", id: "t1", name: "read", input: { path: "/tmp/a" }, _meta: { streamIndex: 1 } },
-      { type: "tool_result", tool_use_id: "t1", content: "hello", is_error: false, _meta: { streamIndex: 1 } },
+      { type: "tool_use", id: "t1", name: "read", input: { path: "/tmp/a" }, _meta: { streamIndex: 1, timing: { startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.250Z", durationMs: 1250 } } },
+      { type: "tool_result", tool_use_id: "t1", content: "hello", is_error: false, _meta: { streamIndex: 1, timing: { startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.250Z", durationMs: 1250 } } },
       { type: "text", text: "done", _meta: { streamIndex: 2 } },
     ],
   );
@@ -219,6 +219,12 @@ import {
     ["thinking", "tool_use", "tool_result", "text"],
     "persisted final content should normalize toolCall and preserve streamed tool order",
   );
+  const toolUse = finalContent[1] as Extract<ContentBlock, { type: "tool_use" }>;
+  const toolResult = finalContent[2] as Extract<ContentBlock, { type: "tool_result" }>;
+  assert.equal(toolUse._meta?.streamIndex, undefined, "stream index should be stripped from persisted tool_use");
+  assert.equal(toolResult._meta?.streamIndex, undefined, "stream index should be stripped from persisted tool_result");
+  assert.deepEqual(toolUse._meta?.timing, { startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.250Z", durationMs: 1250 });
+  assert.deepEqual(toolResult._meta?.timing, { startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.250Z", durationMs: 1250 });
 }
 
 console.log("assistant-stream-state checks passed");

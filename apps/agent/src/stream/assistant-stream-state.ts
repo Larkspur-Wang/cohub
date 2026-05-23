@@ -344,6 +344,26 @@ function stripStreamMeta(block: ContentBlock): ContentBlock {
     : (rest as ContentBlock);
 }
 
+function withoutStreamIndex(meta: Record<string, unknown> | undefined) {
+  if (!meta) return null;
+  const { streamIndex: _streamIndex, ...rest } = meta;
+  return Object.keys(rest).length > 0 ? rest : null;
+}
+
+function mergeFinalBlockWithStreamMeta(finalBlock: ContentBlock, streamBlock: ContentBlock): ContentBlock {
+  const strippedFinal = stripStreamMeta(finalBlock);
+  const streamMeta = withoutStreamIndex(streamBlock._meta);
+  if (!streamMeta) return strippedFinal;
+  const finalMeta = withoutStreamIndex(strippedFinal._meta);
+  return {
+    ...strippedFinal,
+    _meta: {
+      ...streamMeta,
+      ...(finalMeta ?? {}),
+    },
+  } as ContentBlock;
+}
+
 function finalBlockIdentity(block: ContentBlock): string | null {
   if (block.type === "tool_use") return `tool_use:${block.id}`;
   if (block.type === "tool_result") return `tool_result:${block.tool_use_id}`;
@@ -387,7 +407,7 @@ export function mergeFinalAssistantContentWithStreamOrder(
       : null;
     const compatible = exact ?? normalizedFinal.find((block) => !usedFinal.has(block) && contentBlocksCompatible(streamBlock, block));
     if (!compatible) continue;
-    ordered.push(stripStreamMeta(compatible));
+    ordered.push(mergeFinalBlockWithStreamMeta(compatible, streamBlock));
     usedFinal.add(compatible);
   }
 
