@@ -488,12 +488,13 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
 
 export const failSessionTurn = async (input: { sessionId: string; turnId: string; errorMessage: string }) => {
   const completedAt = new Date();
+  const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({
     status: "failed",
     errorMessage: input.errorMessage,
     summary: { finishReason: "failed", text: input.errorMessage },
     completedAt,
-    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAt}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
+    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["queued", "running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
@@ -518,6 +519,7 @@ export const finalizeSessionTurnFromMessage = async (input: {
     return null;
   });
   const completedAt = new Date();
+  const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({
     status: input.status,
     assistantContent: input.assistantContent,
@@ -541,7 +543,7 @@ export const finalizeSessionTurnFromMessage = async (input: {
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
     completedAt,
-    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAt}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
+    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
@@ -567,6 +569,7 @@ const finalizeInterruptedTurn = async (input: {
     return null;
   });
   const completedAt = new Date();
+  const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({
     status: "interrupted",
     assistantContent: last?.content ?? null,
@@ -581,7 +584,7 @@ const finalizeInterruptedTurn = async (input: {
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
     completedAt,
-    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAt}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
+    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
