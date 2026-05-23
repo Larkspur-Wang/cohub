@@ -835,6 +835,7 @@ onMount(() => {
 										class="command-pin-action"
 										title={item.isPinned ? "Unpin" : "Pin"}
 										aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
+										aria-pressed={item.isPinned}
 										aria-busy={isPinPending}
 										onclick={(event) => void handlePinClick(event, item)}
 										onkeydown={(event) => { if (!isPinPending && (event.key === "Enter" || event.key === " ")) void handlePinClick(event, item); }}
@@ -844,7 +845,6 @@ onMount(() => {
 											<span>{item.isPinned ? "Unpinning" : "Pinning"}</span>
 										{:else if item.isPinned}
 											<Pin class="h-3 w-3" />
-											<span>Pinned</span>
 										{:else}
 											<Pin class="h-3.5 w-3.5" />
 										{/if}
