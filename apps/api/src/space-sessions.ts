@@ -64,6 +64,20 @@ const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage |
   };
 };
 
+const toDateOrNull = (value: string | Date | null | undefined) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const durationBetweenMs = (startedAt: Date | null, completedAt: Date | null) => {
+  if (!startedAt || !completedAt) return null;
+  return Math.max(0, completedAt.getTime() - startedAt.getTime());
+};
+
+const normalizeDurationMs = (value: unknown, fallback: number | null) =>
+  typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+
 const toUtcHourBucket = (date: Date) => new Date(Date.UTC(
   date.getUTCFullYear(),
   date.getUTCMonth(),
@@ -401,6 +415,9 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const isDirectShellCommandResult = requestedMessageKind === "shell_command_result";
   const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : isDirectShellCommandResult ? "assistant_final" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
   const displayErrorMessage = isAborted ? null : input.message.errorMessage ?? null;
+  const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
+  const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
+  const durationMs = normalizeDurationMs(input.message.durationMs, durationBetweenMs(startedAt, completedAt));
 
   const [messageNode] = await db.insert(sessionMessages).values({
     id: input.message.id?.trim() || undefined,
@@ -421,6 +438,9 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     stopReason: input.message.stopReason ?? null,
     errorMessage: displayErrorMessage,
     usage: normalizedUsage,
+    startedAt,
+    completedAt,
+    durationMs,
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
 
@@ -496,6 +516,9 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     ...messageNode,
     role: messageNode.role as "user" | "assistant" | "system",
     meta: (messageNode.meta as Record<string, unknown> | null) ?? null,
+    startedAt: messageNode.startedAt instanceof Date ? messageNode.startedAt.toISOString() : null,
+    completedAt: messageNode.completedAt instanceof Date ? messageNode.completedAt.toISOString() : null,
+    durationMs: messageNode.durationMs ?? null,
     createdAt: messageNode.createdAt instanceof Date ? messageNode.createdAt.toISOString() : new Date().toISOString(),
   };
   const outputs = await buildSessionOutputsForPersistedMessage({

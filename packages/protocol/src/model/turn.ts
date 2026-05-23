@@ -91,6 +91,7 @@ export type SessionTurnIndexItem = {
   status: SessionTurnStatus;
   startedAt: string | null;
   completedAt: string | null;
+  durationMs: number | null;
   createdAt: string;
   updatedAt: string;
   userPreview: string | null;
@@ -134,6 +135,7 @@ export type SessionTurnRecord = {
   authorProfile?: SessionTurnAuthorProfile | null;
   startedAt: string | null;
   completedAt: string | null;
+  durationMs: number | null;
   createdAt: string;
   updatedAt: string;
 };

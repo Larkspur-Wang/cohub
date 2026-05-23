@@ -85,6 +85,9 @@ export type PersistMessageInput = {
     errorMessage?: string | null;
     meta?: Record<string, unknown> | null;
     usage?: Usage | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    durationMs?: number | null;
   };
 };
 
@@ -147,5 +150,8 @@ export type MessageRecord = {
   meta: Record<string, unknown> | null;
   authorUuid?: string | null;
   authorProfile?: MessageAuthorProfile | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
   createdAt: string;
 };

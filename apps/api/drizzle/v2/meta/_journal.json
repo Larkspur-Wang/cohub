@@ -92,6 +92,13 @@
       "when": 1779193748805,
       "tag": "0012_thick_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779543533401,
+      "tag": "0013_luxuriant_abomination",
+      "breakpoints": true
     }
   ]
 }

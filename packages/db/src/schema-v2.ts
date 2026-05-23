@@ -420,6 +420,7 @@ export const sessionTurns = v2.table(
     meta: jsonb("meta"),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    durationMs: integer("duration_ms"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -452,6 +453,9 @@ export const sessionMessages = v2.table(
     idempotencyKey: varchar("idempotency_key", { length: 255 }),
     usage: jsonb("usage").$type<import("@cohub/protocol/core").Usage | null>(),
     meta: jsonb("meta"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    durationMs: integer("duration_ms"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({

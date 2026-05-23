@@ -175,6 +175,7 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   meta: normalizeRecord(row.meta),
   startedAt: row.startedAt ? toIso(row.startedAt) : null,
   completedAt: row.completedAt ? toIso(row.completedAt) : null,
+  durationMs: row.durationMs ?? null,
   createdAt: toIso(row.createdAt),
   updatedAt: toIso(row.updatedAt),
 });
@@ -198,6 +199,7 @@ type SessionTurnIndexRow = {
   status: SessionTurnStatus;
   startedAt: Date | string | null;
   completedAt: Date | string | null;
+  durationMs: number | null;
   createdAt: Date | string | null;
   updatedAt: Date | string | null;
   userText: string | null;
@@ -216,6 +218,7 @@ const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
   status: row.status,
   startedAt: row.startedAt ? toIso(row.startedAt) : null,
   completedAt: row.completedAt ? toIso(row.completedAt) : null,
+  durationMs: row.durationMs ?? null,
   createdAt: toIso(row.createdAt),
   updatedAt: toIso(row.updatedAt),
   userPreview: previewText(row.userText),
@@ -323,6 +326,7 @@ export const listSessionTurnIndex = async (sessionId: string, options?: { cursor
       status: sessionTurns.status,
       startedAt: sessionTurns.startedAt,
       completedAt: sessionTurns.completedAt,
+      durationMs: sessionTurns.durationMs,
       createdAt: sessionTurns.createdAt,
       updatedAt: sessionTurns.updatedAt,
       userText: sessionTurns.userText,
@@ -474,12 +478,14 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
 };
 
 export const failSessionTurn = async (input: { sessionId: string; turnId: string; errorMessage: string }) => {
+  const completedAt = new Date();
   const [row] = await db.update(sessionTurns).set({
     status: "failed",
     errorMessage: input.errorMessage,
     summary: { finishReason: "failed", text: input.errorMessage },
-    completedAt: new Date(),
-    updatedAt: new Date(),
+    completedAt,
+    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAt}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
+    updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["queued", "running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
@@ -502,6 +508,7 @@ export const finalizeSessionTurnFromMessage = async (input: {
     console.warn("[SessionTurn] failed to build intermediate objects", error);
     return null;
   });
+  const completedAt = new Date();
   const [row] = await db.update(sessionTurns).set({
     status: input.status,
     assistantContent: input.assistantContent,
@@ -524,8 +531,9 @@ export const finalizeSessionTurnFromMessage = async (input: {
     },
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
-    completedAt: new Date(),
-    updatedAt: new Date(),
+    completedAt,
+    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAt}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
+    updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
@@ -549,6 +557,7 @@ const finalizeInterruptedTurn = async (input: {
     console.warn("[SessionTurn] failed to build interrupted intermediate objects", error);
     return null;
   });
+  const completedAt = new Date();
   const [row] = await db.update(sessionTurns).set({
     status: "interrupted",
     assistantContent: last?.content ?? null,
@@ -562,8 +571,9 @@ const finalizeInterruptedTurn = async (input: {
     summary: input.summary,
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
-    completedAt: new Date(),
-    updatedAt: new Date(),
+    completedAt,
+    durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAt}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
+    updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
   return row ? toTurnRecord(row) : null;
 };

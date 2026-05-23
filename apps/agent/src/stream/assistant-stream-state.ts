@@ -34,6 +34,11 @@ type ToolMeta = {
   toolStatus?: ToolStatus;
   summary?: string;
   partialResult?: string | ContentBlock[];
+  timing?: {
+    startedAt?: string;
+    completedAt?: string;
+    durationMs?: number;
+  };
 };
 
 type ToolResultState = {
@@ -217,12 +222,18 @@ export function applyAssistantMessageEvent(
 
 export function applyToolExecutionStart(
   state: AssistantStreamState,
-  input: { toolCallId: string; summary: string },
+  input: { toolCallId: string; summary: string; startedAt?: string },
 ): AssistantStreamState {
+  const previous = state.toolMetaById.get(input.toolCallId) ?? {};
+  const timing = {
+    ...(previous.timing ?? {}),
+    ...(input.startedAt ? { startedAt: input.startedAt } : {}),
+  };
   state.toolMetaById.set(input.toolCallId, {
-    ...(state.toolMetaById.get(input.toolCallId) ?? {}),
+    ...previous,
     toolStatus: "running",
     summary: input.summary,
+    ...(Object.keys(timing).length > 0 ? { timing } : {}),
   });
   return state;
 }
@@ -248,19 +259,32 @@ export function applyToolExecutionEnd(
     toolCallId: string;
     content: string | ContentBlock[];
     isError: boolean;
+    startedAt?: string;
+    completedAt?: string;
+    durationMs?: number;
   },
 ): AssistantStreamState {
   const { partialResult: _partialResult, ...previousMeta } = state.toolMetaById.get(input.toolCallId) ?? {};
+  const timing = {
+    ...(previousMeta.timing ?? {}),
+    ...(input.startedAt ? { startedAt: input.startedAt } : {}),
+    ...(input.completedAt ? { completedAt: input.completedAt } : {}),
+    ...(typeof input.durationMs === "number" ? { durationMs: input.durationMs } : {}),
+  };
   state.toolMetaById.set(input.toolCallId, {
     ...previousMeta,
     toolStatus: input.isError ? "failed" : "done",
+    ...(Object.keys(timing).length > 0 ? { timing } : {}),
   });
 
   state.toolResultsById.set(input.toolCallId, {
     tool_use_id: input.toolCallId,
     content: input.content,
     is_error: input.isError,
-    _meta: { toolStatus: input.isError ? "failed" : "done" },
+    _meta: {
+      toolStatus: input.isError ? "failed" : "done",
+      ...(Object.keys(timing).length > 0 ? { timing } : {}),
+    },
   });
 
   return state;

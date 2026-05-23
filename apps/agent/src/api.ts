@@ -524,7 +524,9 @@ export async function persistUserMessage(input: {
   turnId?: string | null;
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
+  startedAt?: string | null;
 }) {
+  const timing = completeMessageTiming({ startedAt: input.startedAt });
   const payload: PersistMessageInput = {
     spaceId: input.spaceId,
     sessionId: input.sessionId,
@@ -550,6 +552,7 @@ export async function persistUserMessage(input: {
       stopReason: null,
       errorMessage: null,
       usage: null,
+      ...timing,
     },
   };
 
@@ -569,6 +572,32 @@ export async function persistUserMessage(input: {
   });
 }
 
+type MessageTimingInput = {
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+};
+
+const toDateOrNull = (value: string | Date | null | undefined) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const completeMessageTiming = (input?: MessageTimingInput | null) => {
+  const completedAt = toDateOrNull(input?.completedAt) ?? new Date();
+  const startedAt = toDateOrNull(input?.startedAt) ?? completedAt;
+  const durationMs =
+    typeof input?.durationMs === "number" && Number.isFinite(input.durationMs)
+      ? Math.max(0, Math.floor(input.durationMs))
+      : Math.max(0, completedAt.getTime() - startedAt.getTime());
+  return {
+    startedAt: startedAt.toISOString(),
+    completedAt: completedAt.toISOString(),
+    durationMs,
+  };
+};
+
 const EMPTY_ASSISTANT_MESSAGE_ERROR = "LLM returned an empty assistant message after streaming completed.";
 
 export async function persistAssistantMessage(input: {
@@ -578,6 +607,7 @@ export async function persistAssistantMessage(input: {
   event: Record<string, unknown>;
   userId?: string | null;
   turnId?: string | null;
+  startedAt?: string | null;
 }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults)
@@ -595,6 +625,7 @@ export async function persistAssistantMessage(input: {
 
   const stopReason = typeof assistant.stopReason === "string" ? assistant.stopReason : null;
   const errorMessage = typeof assistant.errorMessage === "string" ? assistant.errorMessage : null;
+  const timing = completeMessageTiming({ startedAt: input.startedAt });
   const hasAssistantError = stopReason === "error" || stopReason === "aborted" || Boolean(errorMessage);
   const isEmptySuccessfulAssistant = content.length === 0 && !hasAssistantError;
   const effectiveStopReason = isEmptySuccessfulAssistant ? "error" : stopReason;
@@ -690,6 +721,7 @@ export async function persistAssistantMessage(input: {
                   : null,
             }
           : null,
+      ...timing,
     },
   };
 

@@ -88,6 +88,7 @@ type AssistantMessageContext = {
   assistantOrdinal: number;
   streamMessageId: string | null;
   patchSeq: number;
+  startedAt: string;
 };
 
 
@@ -124,6 +125,8 @@ export type SessionHandle = {
   currentUserMessageId: string | null;
   currentUserMessageContent: ContentBlock[] | null;
   currentUserMessageMeta: Record<string, unknown> | null;
+  currentUserMessageStartedAt: string | null;
+  toolExecutionStartedAtById: Map<string, string>;
   activeAssistantContext: AssistantMessageContext | null;
   persistenceChain: Promise<void>;
   operationChain: Promise<void>;
@@ -630,6 +633,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           assistantOrdinal: ordinal,
           streamMessageId: handle.currentStreamMessageId,
           patchSeq: 0,
+          startedAt: new Date().toISOString(),
         };
       }
       logger.debug(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
@@ -657,6 +661,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           handle.currentUserMessageId = pending.userMessageId;
           handle.currentUserMessageContent = pending.content;
           handle.currentUserMessageMeta = pending.meta ?? null;
+          handle.currentUserMessageStartedAt = new Date().toISOString();
         }
         const nextExecutionAuth = handle.pendingExecutionAuths.shift();
         if (nextExecutionAuth) {
@@ -698,7 +703,9 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         const userMessageId = handle.currentUserMessageId;
         const content = handle.currentUserMessageContent;
         const meta = handle.currentUserMessageMeta;
+        const startedAt = handle.currentUserMessageStartedAt;
         handle.currentUserMessageContent = null;
+        handle.currentUserMessageStartedAt = null;
 
         schedulePersistence(handle, `user:${userMessageId}`, async () => {
           const span = handle.turnTracer.startSpan("agent.persistence.user_message", {
@@ -718,6 +725,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
               turnId: typeof meta?.turnId === "string" ? meta.turnId : handle.currentTurnId ?? null,
               content,
               meta,
+              startedAt,
             });
           } catch (error) {
             if (error instanceof Error) span.recordException(error);
@@ -737,9 +745,12 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         "agent.tool_call_id": event.toolCallId,
       });
       handle.currentLlmRound = handle.currentLlmRound ?? 1;
+      const toolStartedAt = new Date().toISOString();
+      handle.toolExecutionStartedAtById.set(event.toolCallId, toolStartedAt);
       handle.streamState.assistantState = applyToolExecutionStart(handle.streamState.assistantState, {
         toolCallId: event.toolCallId,
         summary: summarizeToolArgs(event.toolName, event.args),
+        startedAt: toolStartedAt,
       });
       handle.streamState.dirty = true;
       flushProviderRenderUpdate(handle, "tool_execution_start");
@@ -766,11 +777,18 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       });
       const normalizedResult = event.result != null ? extractToolResultContent(event.result) : { content: "", isError: false };
       const fallbackContent = event.result == null ? "" : safeStringify(event.result);
+      const completedAt = new Date().toISOString();
+      const startedAt = handle.toolExecutionStartedAtById.get(event.toolCallId) ?? completedAt;
+      const durationMs = Math.max(0, new Date(completedAt).getTime() - new Date(startedAt).getTime());
       handle.streamState.assistantState = applyToolExecutionEnd(handle.streamState.assistantState, {
         toolCallId: event.toolCallId,
         content: normalizedResult.content === "" ? fallbackContent : normalizedResult.content,
         isError: event.isError || normalizedResult.isError,
+        startedAt,
+        completedAt,
+        durationMs,
       });
+      handle.toolExecutionStartedAtById.delete(event.toolCallId);
       handle.streamState.dirty = true;
       flushProviderRenderUpdate(handle, "tool_execution_end");
     }
@@ -822,6 +840,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             event: enrichedEvent as Record<string, unknown>,
             userId: ((assistantContext?.userMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
             turnId: typeof assistantContext?.userMeta?.turnId === "string" ? assistantContext.userMeta.turnId : assistantContext?.turnId ?? handle.currentTurnId ?? null,
+            startedAt: assistantContext?.startedAt ?? null,
           });
         } catch (error) {
           if (error instanceof Error) span.recordException(error);
@@ -974,6 +993,8 @@ export async function loadOrCreateSessionHandle(input: {
     currentUserMessageId: null,
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
+    currentUserMessageStartedAt: null,
+    toolExecutionStartedAtById: new Map(),
     activeAssistantContext: null,
     persistenceChain: Promise.resolve(),
     operationChain: Promise.resolve(),

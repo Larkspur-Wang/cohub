@@ -215,6 +215,7 @@ async function appendAndPersistUserMessage(input: {
   meta: Record<string, unknown>;
 }) {
   const message = contentToAgentMessage(input.user.content, input.meta);
+  const startedAt = new Date().toISOString();
   input.handle.session.agent.state.messages.push(message);
   const entryId = input.handle.sessionManager.appendMessage(message);
   (message as unknown as Record<string, unknown>).sessionEntryId = entryId;
@@ -226,6 +227,7 @@ async function appendAndPersistUserMessage(input: {
     turnId: input.user.turnId,
     content: input.user.content,
     meta: input.meta,
+    startedAt,
   });
 
   return message;
@@ -287,6 +289,7 @@ async function runDirectShellCommandTurn(input: {
     });
 
     const toolUseId = `direct_shell_${randomUUID()}`;
+    const toolStartedAt = new Date().toISOString();
     const abortController = new AbortController();
     const abortFromParent = () => abortController.abort();
     if (input.abortSignal?.aborted) {
@@ -302,7 +305,7 @@ async function runDirectShellCommandTurn(input: {
       id: toolUseId,
       name: "bash",
       input: { command: input.command },
-      _meta: { direct: true, source: "shell_command", toolStatus: "running" },
+      _meta: { direct: true, source: "shell_command", toolStatus: "running", timing: { startedAt: toolStartedAt } },
     };
     let patchSeq = 0;
     let latestOutput = "";
@@ -377,9 +380,12 @@ async function runDirectShellCommandTurn(input: {
     }
 
     const isError = executionFailed || cancelled || (exitCode != null && exitCode !== 0);
+    const toolCompletedAt = new Date().toISOString();
+    const toolDurationMs = Math.max(0, new Date(toolCompletedAt).getTime() - new Date(toolStartedAt).getTime());
+    const toolTiming = { startedAt: toolStartedAt, completedAt: toolCompletedAt, durationMs: toolDurationMs };
     const finalToolUseBlock: ContentBlock = {
       ...toolUseBlock,
-      _meta: { direct: true, source: "shell_command", toolStatus: isError ? "failed" : "done" },
+      _meta: { direct: true, source: "shell_command", toolStatus: isError ? "failed" : "done", timing: toolTiming },
     };
     const finalToolResultBlock: ContentBlock = {
       type: "tool_result",
@@ -395,6 +401,7 @@ async function runDirectShellCommandTurn(input: {
         cancelled,
         truncated,
         executionFailed,
+        timing: toolTiming,
         ...(errorMessage ? { errorMessage } : {}),
       },
     };
@@ -451,6 +458,7 @@ async function runDirectShellCommandTurn(input: {
       },
       userId: input.actorUserId,
       turnId: user.turnId,
+      startedAt: toolStartedAt,
     });
 
     input.turnMetrics.toolCallCount += 1;

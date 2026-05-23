@@ -44,6 +44,9 @@ const toRealtimeMessageRecord = (message: MessageRecord): RealtimeMessageRecord 
   errorMessage: message.errorMessage,
   usage: message.usage,
   meta: pickRealtimeMessageMeta(message.meta),
+  startedAt: message.startedAt,
+  completedAt: message.completedAt,
+  durationMs: message.durationMs,
   createdAt: message.createdAt,
 });
 
@@ -68,6 +71,7 @@ export const toRealtimeTurnRecord = (turn: SessionTurnRecord): RealtimeTurnRecor
   intermediateSummary: turn.intermediateSummary,
   startedAt: turn.startedAt,
   completedAt: turn.completedAt,
+  durationMs: turn.durationMs,
   createdAt: turn.createdAt,
   updatedAt: turn.updatedAt,
 });

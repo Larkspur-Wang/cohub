@@ -98,6 +98,8 @@ function createHandle(session: FakeSession): SessionHandle {
     currentUserMessageId: "00000000-0000-4000-8000-000000000001",
     currentUserMessageContent: null,
     currentUserMessageMeta: null,
+    currentUserMessageStartedAt: null,
+    toolExecutionStartedAtById: new Map(),
     activeAssistantContext: null,
     persistenceChain: Promise.resolve(),
     operationChain: Promise.resolve(),

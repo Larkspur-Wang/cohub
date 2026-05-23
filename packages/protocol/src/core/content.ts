@@ -1,5 +1,11 @@
 export type ContentBlockMeta = Record<string, unknown>;
 
+export type Timing = {
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+};
+
 export type ContentBlock =
   | { type: "text"; text: string; _meta?: ContentBlockMeta }
   | { type: "thinking"; thinking: string; signature?: string; _meta?: ContentBlockMeta }

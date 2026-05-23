@@ -238,6 +238,7 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "intermediateSummary"
   | "startedAt"
   | "completedAt"
+  | "durationMs"
   | "createdAt"
   | "updatedAt"
 >>;
@@ -278,6 +279,9 @@ export type RealtimeMessageRecord = Pick<
   | "errorMessage"
   | "usage"
   | "meta"
+  | "startedAt"
+  | "completedAt"
+  | "durationMs"
   | "createdAt"
 >;
 
