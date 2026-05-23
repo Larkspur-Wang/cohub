@@ -56,7 +56,14 @@ export async function loadTurnIntermediate(input: {
 	const url = urls[input.messagesObjectKey];
 	if (!url) throw new Error("Missing signed URL for intermediate messages");
 	const file = await fetchJson<TurnIntermediateMessagesFile>(url);
-	return file.messages;
+	return file.messages.map((message) => ({
+		...message,
+		durationMs:
+			typeof message.durationMs === "number" &&
+			Number.isFinite(message.durationMs)
+				? message.durationMs
+				: null,
+	}));
 }
 
 export async function loadMessageToolCalls(input: {

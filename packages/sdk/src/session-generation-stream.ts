@@ -47,6 +47,7 @@ export type GenerationStreamIntermediateMessage = {
   stopReason?: string | null;
   errorMessage?: string | null;
   usage?: Usage | null;
+  durationMs?: number | null;
   toolCallsObjectKey?: string | null;
   meta?: Record<string, unknown> | null;
   createdAt?: string;
@@ -244,6 +245,7 @@ function parseSnapshotMessage(
       ? { errorMessage: value.errorMessage }
       : {}),
     ...(isRecord(value.usage) ? { usage: value.usage as Usage } : {}),
+    ...(typeof value.durationMs === "number" ? { durationMs: value.durationMs } : {}),
     ...(typeof value.toolCallsObjectKey === "string"
       ? { toolCallsObjectKey: value.toolCallsObjectKey }
       : {}),
@@ -276,6 +278,7 @@ function messageRecordToIntermediate(
     stopReason: message.stopReason,
     errorMessage: message.errorMessage,
     usage: message.usage,
+    durationMs: message.durationMs,
     meta: message.meta,
     createdAt: message.createdAt,
   };

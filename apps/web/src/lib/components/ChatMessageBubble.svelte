@@ -2,6 +2,11 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import { Check, Copy, GitFork, Loader2, UserRound } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
+import {
+	formatDurationDetail,
+	formatDurationMs,
+	isDisplayableDurationMs,
+} from "$lib/format-duration";
 import type { ChatMessage } from "$lib/session-tree";
 
 type ModelCatalogItem = {
@@ -201,6 +206,26 @@ function formatCost(n: number): string {
 		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
 	return `$${formatted}`;
 }
+
+const hasDuration = $derived.by(() => {
+	const durationMs = message.meta?.durationMs;
+	return (
+		message.role === "assistant" &&
+		message.meta?.streaming !== true &&
+		message.meta?.messageKind !== "assistant_streaming_preview" &&
+		isDisplayableDurationMs(durationMs)
+	);
+});
+
+const durationDisplay = $derived(
+	hasDuration ? formatDurationMs(message.meta?.durationMs ?? 0) : "",
+);
+
+const durationDetailText = $derived.by(() => {
+	const durationMs = message.meta?.durationMs;
+	if (!hasDuration || typeof durationMs !== "number") return "";
+	return formatDurationDetail(durationMs);
+});
 
 const hasUsage = $derived.by(() => {
 	const u = message.meta?.usage;
@@ -409,6 +434,12 @@ function handleCopy() {
           {#if hasUsage}
             <span class={getTokenDisplayClass(inputContextPercent)} title={tokenDetailText}>
               {tokenDisplay}
+            </span>
+          {/if}
+
+          {#if hasDuration}
+            <span class="shrink-0 tabular-nums cursor-default text-text-placeholder/65" title={durationDetailText}>
+              {durationDisplay}
             </span>
           {/if}
 

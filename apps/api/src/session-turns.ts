@@ -45,6 +45,11 @@ const addUsage = (a: Usage | null | undefined, b: Usage | null | undefined): Usa
   };
 };
 
+const addDurationMs = (a: number | null, b: number | null | undefined) => {
+  if (typeof b !== "number" || !Number.isFinite(b)) return a;
+  return (a ?? 0) + Math.max(0, Math.floor(b));
+};
+
 const truncateText = (text: string, limit: number) => {
   if (text.length <= limit) return { value: text, truncated: false, originalLength: text.length };
   return { value: `${text.slice(0, Math.max(0, limit - 1))}…`, truncated: true, originalLength: text.length };
@@ -404,6 +409,7 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
   const prefix = buildTurnObjectPrefix(input);
   const toolCallsBaseObjectKey = `${prefix}intermediate/messages/`;
   let totalUsage: Usage | null = null;
+  let totalDurationMs: number | null = null;
   let toolCallCount = 0;
   let hasError = false;
 
@@ -413,6 +419,7 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
     const details = extractToolCalls(content);
     toolCallCount += details.length;
     totalUsage = addUsage(totalUsage, row.usage as Usage | null | undefined);
+    totalDurationMs = addDurationMs(totalDurationMs, row.durationMs ?? null);
     hasError = hasError || Boolean(row.errorMessage) || details.some((tool) => tool.result?.isError);
     const toolCallsObjectKey = details.length > 0 ? `${toolCallsBaseObjectKey}${row.id}/tool-calls.json` : null;
     if (toolCallsObjectKey) {
@@ -437,6 +444,7 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
       stopReason: row.stopReason ?? null,
       errorMessage: row.errorMessage ?? null,
       usage: row.usage as Usage | null,
+      durationMs: row.durationMs ?? null,
       toolCallsObjectKey,
       meta: normalizeRecord(row.meta),
       createdAt: toIso(row.createdAt),
@@ -447,6 +455,7 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
     messageCount: messages.length,
     toolCallCount,
     usage: totalUsage,
+    durationMs: totalDurationMs,
     lastMessageText: messages.at(-1)?.text ?? null,
     hasError,
   };

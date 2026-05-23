@@ -41,6 +41,7 @@ export type ToolCallViewModel = {
 	partialResult?: string;
 	status: ToolCallStatus;
 	phase?: ToolCallPhase;
+	durationMs?: number | null;
 	resultPartial?: boolean;
 	resultOmitted?: boolean;
 };
@@ -400,6 +401,14 @@ function findToolResult(content: ContentBlock[], toolUseId: string) {
 	);
 }
 
+function timingDurationMs(value: unknown): number | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const durationMs = (value as { durationMs?: unknown }).durationMs;
+	return typeof durationMs === "number" && Number.isFinite(durationMs)
+		? durationMs
+		: null;
+}
+
 export function buildToolCallViewModels(input: {
 	content: ContentBlock[];
 	toolCallsFile?: MessageToolCallsFile | null;
@@ -439,6 +448,13 @@ export function buildToolCallViewModels(input: {
 				: "";
 		const partialResult = stringifyToolValue(block._meta?.partialResult);
 		const resultPartial = Boolean(partialResult);
+		const durationMs =
+			timingDurationMs(fullTool?.meta?.timing) ??
+			timingDurationMs(fullTool?.result?.meta?.timing) ??
+			timingDurationMs(block._meta?.timing) ??
+			(result?.type === "tool_result"
+				? timingDurationMs(result._meta?.timing)
+				: null);
 		return {
 			id: block.id,
 			name: block.name,
@@ -447,6 +463,7 @@ export function buildToolCallViewModels(input: {
 			partialResult,
 			status,
 			phase,
+			durationMs,
 			resultPartial,
 			resultOmitted:
 				result?.type === "tool_result" &&

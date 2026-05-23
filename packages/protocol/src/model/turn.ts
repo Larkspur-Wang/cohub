@@ -32,6 +32,7 @@ export type SessionTurnIntermediateSummary = {
   messageCount: number;
   toolCallCount: number;
   usage?: Usage | null;
+  durationMs?: number | null;
   lastMessageText?: string | null;
   hasError?: boolean;
 };
@@ -47,6 +48,7 @@ export type StoredIntermediateMessage = {
   stopReason: string | null;
   errorMessage: string | null;
   usage: Usage | null;
+  durationMs: number | null;
   toolCallsObjectKey: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;

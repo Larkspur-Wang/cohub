@@ -12,6 +12,11 @@ function getTurnContextWindow(turn: SessionTurnRecord) {
 	return typeof raw === "number" && raw > 0 ? raw : null;
 }
 
+function getFinalMessageDurationMs(turn: SessionTurnRecord) {
+	const raw = turn.meta?.finalMessageDurationMs;
+	return typeof raw === "number" && raw > 0 ? raw : null;
+}
+
 function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	const meta = turn.meta ?? {};
 	return {
@@ -71,6 +76,7 @@ function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
 			provider: turn.provider,
 			contextWindow: getTurnContextWindow(turn),
 			usage: turn.finalUsage,
+			durationMs: getFinalMessageDurationMs(turn),
 			stopReason: turn.stopReason,
 			errorMessage: isAborted ? null : turn.errorMessage,
 		},

@@ -29,6 +29,7 @@ export function buildStreamingStoredIntermediateMessages(input: {
 				stopReason: message.stopReason,
 				errorMessage: message.errorMessage,
 				usage: message.usage,
+				durationMs: message.durationMs,
 				toolCallsObjectKey: message.toolCallsObjectKey,
 				meta: message.meta,
 				createdAt: message.createdAt,

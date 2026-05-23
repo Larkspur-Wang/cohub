@@ -7,6 +7,11 @@ import type {
 } from "@cohub/protocol/model";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
 import IntermediateMessageBubble from "$lib/components/IntermediateMessageBubble.svelte";
+import {
+	formatDurationDetail,
+	formatDurationMs,
+	isDisplayableDurationMs,
+} from "$lib/format-duration";
 
 type ModelCatalogItem = {
 	provider: string;
@@ -111,8 +116,18 @@ const usageBreakdownLabel = $derived.by(() => {
 		usageOutputTokens > 0 ? `↓${formatTokenCount(usageOutputTokens)}` : "";
 	return [inputLabel, cachedLabel, outputLabel].filter(Boolean).join(" ");
 });
+const durationLabel = $derived(
+	isDisplayableDurationMs(summary?.durationMs)
+		? formatDurationMs(summary.durationMs)
+		: "",
+);
+const durationTitle = $derived(
+	isDisplayableDurationMs(summary?.durationMs)
+		? formatDurationDetail(summary.durationMs)
+		: "",
+);
 const usageTitle = $derived.by(() => {
-	if (!summary?.usage) return "";
+	if (!summary?.usage && !durationTitle) return "";
 	const parts = [];
 	if (usageInputTokens > 0) {
 		parts.push(
@@ -126,6 +141,7 @@ const usageTitle = $derived.by(() => {
 	if (summary.usage.cacheWrite)
 		parts.push(`Cache write: ${formatTokenCount(summary.usage.cacheWrite)}`);
 	if (usageTokens > 0) parts.push(`Total: ${formatTokenCount(usageTokens)}`);
+	if (durationTitle) parts.push(durationTitle);
 	return parts.join(" · ");
 });
 const labelParts = $derived(
@@ -140,6 +156,7 @@ const labelParts = $derived(
 			: "",
 		usageBreakdownLabel ||
 			(usageTokens > 0 ? `${formatTokenCount(usageTokens)} tokens` : ""),
+		durationLabel,
 	].filter(Boolean),
 );
 const summaryLabel = $derived(

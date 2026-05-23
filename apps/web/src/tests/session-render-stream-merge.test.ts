@@ -98,6 +98,7 @@ test("buildTurnTimelineItems renders streaming intermediate messages separately 
 				intermediateSummary: null,
 				meta: null,
 				startedAt: null,
+				durationMs: null,
 				completedAt: null,
 				createdAt: "2026-01-01T00:00:00.000Z",
 				updatedAt: "2026-01-01T00:00:00.000Z",
@@ -131,6 +132,7 @@ test("buildTurnTimelineItems renders streaming intermediate messages separately 
 					stopReason: null,
 					errorMessage: null,
 					usage: null,
+					durationMs: null,
 					toolCallsObjectKey: null,
 					meta: null,
 					createdAt: "2026-01-01T00:00:00.000Z",
@@ -180,6 +182,7 @@ test("buildTurnTimelineItems keeps streaming preview visible when a same-turn pa
 				intermediateSummary: null,
 				meta: null,
 				startedAt: null,
+				durationMs: null,
 				completedAt: null,
 				createdAt: "2026-01-01T00:00:00.000Z",
 				updatedAt: "2026-01-01T00:00:01.000Z",
@@ -240,6 +243,7 @@ test("buildTurnTimelineItems keeps streaming intermediate messages after final t
 				intermediateSummary: null,
 				meta: null,
 				startedAt: null,
+				durationMs: null,
 				completedAt: "2026-01-01T00:00:01.000Z",
 				createdAt: "2026-01-01T00:00:00.000Z",
 				updatedAt: "2026-01-01T00:00:01.000Z",
@@ -261,6 +265,7 @@ test("buildTurnTimelineItems keeps streaming intermediate messages after final t
 					stopReason: null,
 					errorMessage: null,
 					usage: null,
+					durationMs: null,
 					toolCallsObjectKey: null,
 					meta: null,
 					createdAt: "2026-01-01T00:00:00.000Z",
@@ -281,5 +286,49 @@ test("buildTurnTimelineItems keeps streaming intermediate messages after final t
 	assert.equal(
 		process?.kind === "process" ? process.intermediateMessages?.[0]?.text : "",
 		"previous answer",
+	);
+});
+
+test("buildTurnTimelineItems exposes persisted assistant duration metadata", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "completed",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: [{ type: "text", text: "final" }],
+				assistantText: "final",
+				provider: null,
+				model: null,
+				stopReason: "end_turn",
+				errorMessage: null,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: { finalMessageDurationMs: 1523 },
+				startedAt: "2026-01-01T00:00:00.000Z",
+				completedAt: "2026-01-01T00:00:03.000Z",
+				durationMs: 3000,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:03.000Z",
+			},
+		],
+	});
+
+	const assistant = items.find(
+		(item) => item.kind === "message" && item.message.role === "assistant",
+	);
+	assert.equal(assistant?.kind, "message");
+	assert.equal(
+		assistant?.kind === "message" ? assistant.message.meta?.durationMs : null,
+		1523,
 	);
 });

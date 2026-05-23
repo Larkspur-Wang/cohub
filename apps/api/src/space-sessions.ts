@@ -495,11 +495,10 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         stopReason: input.message.stopReason ?? null,
         errorMessage: displayErrorMessage,
         usage: normalizedUsage,
-        metaPatch: agentSessionEntryId
-          ? {
-              agentSessionEntryId,
-            }
-          : null,
+        metaPatch: {
+          ...(agentSessionEntryId ? { agentSessionEntryId } : {}),
+          ...(typeof messageNode.durationMs === "number" ? { finalMessageDurationMs: messageNode.durationMs } : {}),
+        },
       }).catch((error) => {
         console.warn("[SessionTurn] failed to finalize turn", error);
         return null;

@@ -8,6 +8,11 @@ import {
 	summarizeToolInput,
 	type ToolCallViewModel,
 } from "$lib/components/tool-call-format";
+import {
+	formatDurationDetail,
+	formatDurationMs,
+	isDisplayableDurationMs,
+} from "$lib/format-duration";
 
 type Props = {
 	tool: ToolCallViewModel;
@@ -15,6 +20,7 @@ type Props = {
 	needsDetails?: boolean;
 	defaultExpanded?: boolean;
 	autoExpandWhileRunning?: boolean;
+	showDuration?: boolean;
 	onExpand?: () => void | Promise<void>;
 	onOpenFile?: (path: string) => void;
 };
@@ -25,6 +31,7 @@ const {
 	needsDetails = false,
 	defaultExpanded = false,
 	autoExpandWhileRunning = false,
+	showDuration = true,
 	onExpand,
 	onOpenFile,
 }: Props = $props();
@@ -64,12 +71,22 @@ const filePath = $derived(getToolFilePath(tool.name, tool.input));
 const isRunning = $derived(tool.status === "running");
 const runningPhase = $derived(tool.phase ?? "drafting");
 const runningVerb = $derived(toolActivityMap[tool.name] ?? "running");
+const durationLabel = $derived(
+	showDuration && isDisplayableDurationMs(tool.durationMs)
+		? formatDurationMs(tool.durationMs)
+		: "",
+);
+const durationTitle = $derived(
+	showDuration && isDisplayableDurationMs(tool.durationMs)
+		? formatDurationDetail(tool.durationMs)
+		: "",
+);
 const statusLabel = $derived(
 	isRunning
 		? runningPhase === "drafting"
 			? "receiving"
 			: runningVerb
-		: tool.status,
+		: durationLabel || tool.status,
 );
 const inputSummary = $derived(summarizeToolInput(tool.name, tool.input));
 const detailIdPrefix = $derived(`tool-call-${sanitizeToolDomId(tool.id)}`);
@@ -120,7 +137,7 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 		{:else}
 			<span class="min-w-0 flex-1"></span>
 		{/if}
-		<span class={`ml-auto shrink-0 text-[11px] tabular-nums ${isRunning ? 'text-brand/75' : tool.status === 'failed' ? 'text-status-error' : 'text-text-placeholder'}`}>
+		<span class={`ml-auto shrink-0 text-[11px] tabular-nums ${isRunning ? 'text-brand/75' : tool.status === 'failed' ? 'text-status-error' : 'text-text-placeholder'}`} title={durationTitle || undefined}>
 			{statusLabel}
 		</span>
 		<span class="shrink-0 text-text-tertiary">

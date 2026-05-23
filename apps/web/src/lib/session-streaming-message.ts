@@ -27,6 +27,7 @@ export function createStreamingIntermediateMessage(input: {
 	stopReason?: string | null;
 	errorMessage?: string | null;
 	usage?: Usage | null;
+	durationMs?: number | null;
 	toolCallsObjectKey?: string | null;
 	meta?: Record<string, unknown> | null;
 	createdAt?: string;
@@ -54,6 +55,7 @@ export function createStreamingIntermediateMessage(input: {
 			input.errorMessage ??
 			(toolResultError ? blockText(toolResultError) : null),
 		usage: input.usage ?? null,
+		durationMs: input.durationMs ?? null,
 		toolCallsObjectKey: input.toolCallsObjectKey ?? null,
 		meta: {
 			...(input.meta ?? {}),

@@ -22,6 +22,7 @@ export type StreamingIntermediateMessage = {
 	stopReason?: string | null;
 	errorMessage?: string | null;
 	usage?: Usage | null;
+	durationMs?: number | null;
 	toolCallsObjectKey?: string | null;
 	meta?: Record<string, unknown> | null;
 	createdAt?: string;
@@ -143,6 +144,8 @@ function parseIntermediateMessage(
 			record.usage && typeof record.usage === "object"
 				? (record.usage as Usage)
 				: null,
+		durationMs:
+			typeof record.durationMs === "number" ? record.durationMs : null,
 		toolCallsObjectKey:
 			typeof record.toolCallsObjectKey === "string"
 				? record.toolCallsObjectKey
