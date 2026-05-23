@@ -600,6 +600,9 @@ importers:
 
   packages/infra:
     dependencies:
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@kubiks/otel-drizzle':
         specifier: ^2.1.0
         version: 2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
