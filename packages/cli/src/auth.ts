@@ -163,7 +163,7 @@ const toSession = (token: LogtoTokenResponse, config: AuthConfig, env: CohubEnvi
 
 export const readAuthSession = () => readJson<AuthSession>(sessionPath());
 
-export const clearDeviceCode = () => {
+const clearDeviceCode = () => {
   removeIfExists(deviceCodePath());
 };
 
