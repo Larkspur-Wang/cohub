@@ -52,6 +52,10 @@
       "types": "./dist/content/normalize.d.ts",
       "default": "./dist/content/normalize.js"
     },
+    "./commands": {
+      "types": "./src/commands/index.ts",
+      "default": "./dist/commands/index.js"
+    },
     "./fs-cdn": {
       "types": "./dist/fs-cdn/index.d.ts",
       "default": "./dist/fs-cdn/index.js"

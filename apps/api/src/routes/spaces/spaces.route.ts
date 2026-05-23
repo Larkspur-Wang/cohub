@@ -29,6 +29,7 @@ import {
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
+import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
@@ -967,6 +968,34 @@ router.post("/:id/sandbox/recreate", async (c) => {
   });
 
   return c.json(result);
+});
+
+const MAX_COMMAND_LENGTH = 16 * 1024;
+
+router.post("/:id/commands", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "command.execute", { spaceId }))) return authzDenied(c);
+
+  const body = await c.req.json<{ command?: string }>().catch(() => null);
+  const command = body?.command?.trim();
+  if (!command) return c.json({ message: "command is required" }, 400);
+  if (command.length > MAX_COMMAND_LENGTH) return c.json({ message: `command is too long; max ${MAX_COMMAND_LENGTH} characters` }, 400);
+  const cwd = "/workspace";
+
+  const { taskRunId } = await enqueueTask({
+    type: RUN_COMMAND_TASK_TYPE,
+    spaceId,
+    userId: user.uuid,
+    data: {
+      command,
+      cwd,
+      source: "command_palette",
+    },
+  });
+
+  return c.json({ taskRunId });
 });
 
 // ── Sessions ─────────────────────────────────────────────────────────────────

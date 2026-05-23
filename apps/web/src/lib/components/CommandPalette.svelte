@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { ContentBlock } from "@cohub/protocol/core";
 import {
 	CornerDownRight,
 	FolderKanban,
@@ -31,7 +32,9 @@ import {
 	typeLabelFor,
 } from "$lib/command-palette/scope";
 import type { CommandPaletteItem } from "$lib/command-palette/types";
+import ToolCallList from "$lib/components/ToolCallList.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { sdk } from "$lib/sdk";
 import { toggleSpacePin } from "$lib/stores/space-pins";
 
 const MIN_QUERY_LENGTH = 2;
@@ -74,6 +77,16 @@ let searchToken = 0;
 let pinError = $state("");
 let pinErrorTimer: number | null = null;
 let pendingPinKeys = $state<Set<string>>(new Set());
+let runMode = $state(false);
+let runCommand = $state("");
+let runTaskId = $state<string | null>(null);
+let runProgress = $state<ContentBlock[] | null>(null);
+let runResult = $state<ContentBlock[] | null>(null);
+let runStatus = $state<"idle" | "queued" | "running" | "done" | "failed">(
+	"idle",
+);
+let runError = $state("");
+let runPollTimer: number | null = null;
 
 const currentSpaceId = $derived.by(() => {
 	const match = page.url.pathname.match(/^\/spaces\/([^/]+)/);
@@ -116,6 +129,7 @@ const renderedItems = $derived(
 const showingSettledItems = $derived(
 	isSearching && mergedItems.length === 0 && settledItems.length > 0,
 );
+const runBlocks = $derived(runResult ?? runProgress ?? []);
 const statusText = $derived.by(() => {
 	const label = typeLabel ?? "Turns, Sessions, Spaces, and Commands";
 	if (searchPlan.pinnedOnly) {
@@ -185,6 +199,22 @@ function handleResultPointerMove(index: number) {
 	activeIndex = index;
 }
 
+function handleCommandInput(event: Event) {
+	const value = (event.currentTarget as HTMLInputElement).value;
+	if (runMode) {
+		runCommand = value;
+		if (runStatus !== "running" && runStatus !== "queued") {
+			runTaskId = null;
+			runProgress = null;
+			runResult = null;
+			runError = "";
+			runStatus = "idle";
+		}
+		return;
+	}
+	query = value;
+}
+
 function typeMeta(type: CommandPaletteItem["type"]) {
 	if (type === "turn") return { className: "turn", icon: MessageSquare };
 	if (type === "session") return { className: "session", icon: TerminalSquare };
@@ -225,12 +255,25 @@ function itemTimestamp(item: CommandPaletteItem) {
 	};
 }
 
+function resetRunState() {
+	runMode = false;
+	runCommand = "";
+	runTaskId = null;
+	runProgress = null;
+	runResult = null;
+	runStatus = "idle";
+	runError = "";
+	if (runPollTimer != null) window.clearInterval(runPollTimer);
+	runPollTimer = null;
+}
+
 function openPalette(detail?: OpenCommandPaletteDetail) {
 	title = detail?.title ?? "Command search";
 	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
 	query = detail?.query ?? "";
 	activeIndex = 0;
 	armPointerHover();
+	resetRunState();
 	open = true;
 	void tick().then(() => inputEl?.focus());
 }
@@ -245,6 +288,7 @@ function closePalette() {
 	searchToken += 1;
 	localController?.abort();
 	remoteController?.abort();
+	resetRunState();
 }
 
 function resetSearch() {
@@ -466,8 +510,78 @@ async function handlePinClick(
 	await toggleItemPin(item);
 }
 
+function openRunCommandMode() {
+	runMode = true;
+	title = "Run Command";
+	placeholder = "Type a command…";
+	runCommand = "";
+	runTaskId = null;
+	runProgress = null;
+	runResult = null;
+	runStatus = "idle";
+	runError = "";
+	activeIndex = 0;
+	void tick().then(() => inputEl?.focus());
+}
+
+async function submitRunCommand() {
+	if (!currentSpaceId) {
+		runError = "Open a space first.";
+		runStatus = "failed";
+		return;
+	}
+	if (!runCommand.trim() || runStatus === "running" || runStatus === "queued")
+		return;
+	runError = "";
+	runStatus = "queued";
+	try {
+		const { taskRunId } = await sdk.space(currentSpaceId).runCommand({
+			command: runCommand.trim(),
+		});
+		runTaskId = taskRunId;
+		runProgress = null;
+		runResult = null;
+		runStatus = "running";
+		if (runPollTimer != null) window.clearInterval(runPollTimer);
+		const poll = async () => {
+			if (!runTaskId) return;
+			try {
+				const { run, progress } = await sdk.tasks.get(runTaskId);
+				runProgress =
+					(progress as { content?: ContentBlock[] } | null)?.content ?? null;
+				if (run.status === "completed") {
+					runStatus = "done";
+					runResult =
+						(run.result as { content?: ContentBlock[] } | null)?.content ??
+						null;
+					if (runPollTimer != null) window.clearInterval(runPollTimer);
+					runPollTimer = null;
+					return;
+				}
+				if (run.status === "failed") {
+					runStatus = "failed";
+					runError = run.errorMessage ?? "Command failed";
+					if (runPollTimer != null) window.clearInterval(runPollTimer);
+					runPollTimer = null;
+				}
+			} catch (error) {
+				console.warn("[command-palette] command polling failed", error);
+			}
+		};
+		await poll();
+		runPollTimer = window.setInterval(() => void poll(), 1000);
+	} catch (error) {
+		runStatus = "failed";
+		runError = error instanceof Error ? error.message : "Failed to run command";
+	}
+}
+
 async function activate(item: CommandPaletteItem | undefined) {
 	if (!item) return;
+	if (item.id === "run-command") {
+		openRunCommandMode();
+		return;
+	}
 	await openCommandItem(item);
 	closePalette();
 }
@@ -494,10 +608,30 @@ async function scrollActiveIntoView() {
 function handlePaletteKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") {
 		event.preventDefault();
+		if (runMode) {
+			if (runStatus === "running" || runStatus === "queued") {
+				closePalette();
+				return;
+			}
+			if (runCommand.trim()) {
+				runMode = false;
+				title = "Command search";
+				placeholder = DEFAULT_PLACEHOLDER;
+				runStatus = "idle";
+				return;
+			}
+		}
 		closePalette();
 		return;
 	}
 	if (isComposingKeyboardEvent(event)) return;
+	if (runMode) {
+		if (event.key === "Enter") {
+			event.preventDefault();
+			void submitRunCommand();
+		}
+		return;
+	}
 	if (
 		event.key === "ArrowDown" ||
 		(event.ctrlKey && event.key.toLowerCase() === "n")
@@ -540,7 +674,7 @@ function handleOpenPaletteEvent(event: Event) {
 }
 
 $effect(() => {
-	if (!open) return;
+	if (!open || runMode) return;
 	scheduleSearch(searchPlan, currentSpaceId);
 });
 
@@ -583,109 +717,155 @@ onMount(() => {
 	<div class="command-palette-root" role="presentation" onmousedown={(event) => { if (event.target === event.currentTarget) closePalette(); }}>
 		<div class="command-palette" role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onkeydown={handlePaletteKeydown}>
 			<div class="command-input-row">
-				<Search class="h-4 w-4 text-text-tertiary" />
+				{#if runMode}
+					<TerminalSquare class="h-4 w-4 text-brand" />
+				{:else}
+					<Search class="h-4 w-4 text-text-tertiary" />
+				{/if}
 				<input
 					bind:this={inputEl}
-					bind:value={query}
+					value={runMode ? runCommand : query}
 					class="command-input"
-					{placeholder}
+					placeholder={placeholder}
 					autocomplete="off"
 					spellcheck="false"
+					oninput={handleCommandInput}
 				/>
-				<div class="command-shortcut">⌘K</div>
-			</div>
-
-			<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label="Search results">
-				{#if renderedItems.length === 0}
-					<div class="command-empty">
-						<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
-						<div>
-							<div class="text-[13px] font-medium text-text-secondary">
-								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
-							</div>
-							<div class="mt-1 text-[12px] text-text-tertiary">
-								{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try p: for pinned, a: for spaces, t: for turns, or new space." : "Try a different phrase or type filter."}
-							</div>
-						</div>
-					</div>
+				{#if runMode}
+					<div class="command-shortcut">↵ Run</div>
 				{:else}
-					{#each renderedItems as item, index (`${item.type}:${item.id || item.turnId || item.sessionId || item.spaceId}`)}
-						{@const meta = typeMeta(item.type)}
-						{@const Icon = meta.icon}
-						{@const profile = profileFor(item)}
-						{@const timestamp = itemTimestamp(item)}
-						{@const isPinPending = isPinnable(item) && pendingPinKeys.has(pinKeyFor(item))}
-						<button
-							type="button"
-							class:active={index === activeIndex}
-							class="command-result"
-							onpointermove={() => handleResultPointerMove(index)}
-							onclick={() => void activate(item)}
-							role="option"
-							aria-selected={index === activeIndex}
-						>
-							<div class={`command-type-mark ${meta.className}`} aria-label={item.type}>
-								<Icon class="h-3.5 w-3.5" />
-							</div>
-							<div class="min-w-0 flex-1 text-left">
-								<div class="flex min-w-0 items-center gap-2">
-									<span class="truncate text-[13px] font-medium text-text-primary">{item.title}</span>
-								</div>
-								<div class="command-context-row">
-									{#if profile}
-										<span class="command-profile" title={profile.displayName}>
-											<span class="command-profile-avatar" aria-hidden="true">
-												{#if profile.avatarUrl}
-													<img src={profile.avatarUrl} alt="" loading="lazy" />
-												{:else}
-													{initials(profile.displayName)}
-												{/if}
-											</span>
-											<span class="truncate">{profile.displayName}</span>
-										</span>
-										<span class="command-context-separator">·</span>
-									{/if}
-									<span class="command-context" title={contextFor(item)}>{contextFor(item)}</span>
-									{#if timestamp}
-										<span class="command-context-separator">·</span>
-										<time class="command-time" datetime={item.updatedAt ?? undefined} title={timestamp.title}>{timestamp.label}</time>
-									{/if}
-								</div>
-							</div>
-							{#if isPinnable(item)}
-								<span
-									role="button"
-									tabindex="0"
-									class:pinned={item.isPinned}
-									class:pending={isPinPending}
-									class="command-pin-action"
-									title={item.isPinned ? "Unpin" : "Pin"}
-									aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
-									aria-busy={isPinPending}
-									onclick={(event) => void handlePinClick(event, item)}
-									onkeydown={(event) => { if (!isPinPending && (event.key === "Enter" || event.key === " ")) void handlePinClick(event, item); }}
-								>
-									{#if isPinPending}
-										<Loader2 class="h-3 w-3 animate-spin" />
-										<span>{item.isPinned ? "Unpinning" : "Pinning"}</span>
-									{:else if item.isPinned}
-										<Pin class="h-3 w-3" />
-										<span>Pinned</span>
-									{:else}
-										<Pin class="h-3.5 w-3.5" />
-									{/if}
-								</span>
-							{/if}
-							<div class="command-enter">↵</div>
-						</button>
-					{/each}
+					<div class="command-shortcut">⌘K</div>
 				{/if}
 			</div>
 
+			{#if runMode}
+				<div bind:this={resultsEl} class="command-results command-runner">
+					{#if runError}
+						<div class="command-empty">
+							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
+							<div>
+								<div class="text-[13px] font-medium text-text-secondary">{runStatus === "failed" ? "Command failed" : "Run command ready"}</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">{runError}</div>
+							</div>
+						</div>
+					{:else if !currentSpaceId}
+						<div class="command-empty">
+							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
+							<div>
+								<div class="text-[13px] font-medium text-text-secondary">Open a space first</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">Run commands need a space context.</div>
+							</div>
+						</div>
+					{:else if runBlocks.length === 0}
+						<div class="command-empty">
+							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
+							<div>
+								<div class="text-[13px] font-medium text-text-secondary">Ready to run</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">Enter a bash command and press ↵.</div>
+							</div>
+						</div>
+					{:else}
+						<ToolCallList content={runBlocks} streaming={runStatus === "running" || runStatus === "queued"} defaultExpanded flush />
+					{/if}
+				</div>
+			{:else}
+				<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label="Search results">
+					{#if renderedItems.length === 0}
+						<div class="command-empty">
+							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
+							<div>
+								<div class="text-[13px] font-medium text-text-secondary">
+									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
+								</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">
+									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try p: for pinned, a: for spaces, t: for turns, or Run Command." : "Try a different phrase or type filter."}
+								</div>
+							</div>
+						</div>
+					{:else}
+						{#each renderedItems as item, index (`${item.type}:${item.id || item.turnId || item.sessionId || item.spaceId}`)}
+							{@const meta = typeMeta(item.type)}
+							{@const Icon = meta.icon}
+							{@const profile = profileFor(item)}
+							{@const timestamp = itemTimestamp(item)}
+							{@const isPinPending = isPinnable(item) && pendingPinKeys.has(pinKeyFor(item))}
+							<button
+								type="button"
+								class:active={index === activeIndex}
+								class="command-result"
+								onpointermove={() => handleResultPointerMove(index)}
+								onclick={() => void activate(item)}
+								role="option"
+								aria-selected={index === activeIndex}
+							>
+								<div class={`command-type-mark ${meta.className}`} aria-label={item.type}>
+									<Icon class="h-3.5 w-3.5" />
+								</div>
+								<div class="min-w-0 flex-1 text-left">
+									<div class="flex min-w-0 items-center gap-2">
+										<span class="truncate text-[13px] font-medium text-text-primary">{item.title}</span>
+									</div>
+									<div class="command-context-row">
+										{#if profile}
+											<span class="command-profile" title={profile.displayName}>
+												<span class="command-profile-avatar" aria-hidden="true">
+													{#if profile.avatarUrl}
+														<img src={profile.avatarUrl} alt="" loading="lazy" />
+													{:else}
+														{initials(profile.displayName)}
+													{/if}
+												</span>
+												<span class="truncate">{profile.displayName}</span>
+											</span>
+											<span class="command-context-separator">·</span>
+										{/if}
+										<span class="command-context" title={contextFor(item)}>{contextFor(item)}</span>
+										{#if timestamp}
+											<span class="command-context-separator">·</span>
+											<time class="command-time" datetime={item.updatedAt ?? undefined} title={timestamp.title}>{timestamp.label}</time>
+										{/if}
+									</div>
+								</div>
+								{#if isPinnable(item)}
+									<span
+										role="button"
+										tabindex="0"
+										class:pinned={item.isPinned}
+										class:pending={isPinPending}
+										class="command-pin-action"
+										title={item.isPinned ? "Unpin" : "Pin"}
+										aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
+										aria-busy={isPinPending}
+										onclick={(event) => void handlePinClick(event, item)}
+										onkeydown={(event) => { if (!isPinPending && (event.key === "Enter" || event.key === " ")) void handlePinClick(event, item); }}
+									>
+										{#if isPinPending}
+											<Loader2 class="h-3 w-3 animate-spin" />
+											<span>{item.isPinned ? "Unpinning" : "Pinning"}</span>
+										{:else if item.isPinned}
+											<Pin class="h-3 w-3" />
+											<span>Pinned</span>
+										{:else}
+											<Pin class="h-3.5 w-3.5" />
+										{/if}
+									</span>
+								{/if}
+								<div class="command-enter">↵</div>
+							</button>
+						{/each}
+					{/if}
+				</div>
+			{/if}
+
 			<div class="command-footer">
-				<div class:error={Boolean(pinError)} class="command-status" role="status" aria-live="polite">
-					{#if isSearching && !pinError}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
-					<span>{pinError || statusText}</span>
+				<div class:error={Boolean(pinError) || Boolean(runError)} class="command-status" role="status" aria-live="polite">
+					{#if runMode}
+						{#if runStatus === "queued" || runStatus === "running"}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
+						<span>{runError || (runStatus === "done" ? `Done · ${runTaskId}` : runStatus === "running" ? "Running…" : runStatus === "queued" ? "Queued…" : currentSpaceId ? "Press ↵ to run" : "Open a space first")}</span>
+					{:else}
+						{#if isSearching && !pinError}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
+						<span>{pinError || statusText}</span>
+					{/if}
 				</div>
 				<div class="hidden items-center gap-2 sm:flex"><span>↑↓</span><span>C-n/p</span><span>navigate</span><span>↵</span><span>open</span><span>esc</span><span>close</span></div>
 			</div>

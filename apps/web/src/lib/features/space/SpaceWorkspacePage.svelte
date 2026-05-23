@@ -82,6 +82,7 @@ import PortPreview from "$lib/components/PortPreview.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
+import ToolCallList from "$lib/components/ToolCallList.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
@@ -623,6 +624,8 @@ let cronjobNewError = $state("");
 let taskRunDetail = $state<TaskRunRecord | null>(null);
 let taskRunDetailLoading = $state(false);
 let taskRunDetailError = $state("");
+let taskRunProgress = $state<unknown>(null);
+let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
 type TokenUsageDays = 7 | 30 | 90;
@@ -948,18 +951,40 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 	}
 }
 // ─── Task detail ───
-async function loadTaskDetail(taskId: string) {
-	taskRunDetailLoading = true;
+function clearTaskRunPoll() {
+	if (taskRunPollTimer) clearInterval(taskRunPollTimer);
+	taskRunPollTimer = null;
+}
+
+async function refreshTaskDetail(taskId: string, loading = false) {
+	if (loading) taskRunDetailLoading = true;
 	taskRunDetailError = "";
 	try {
-		const { run } = await sdk.tasks.get(taskId);
+		const { run, progress } = await sdk.tasks.get(taskId);
 		taskRunDetail = run;
+		taskRunProgress = progress;
+		if (run.status !== "pending" && run.status !== "running")
+			clearTaskRunPoll();
 	} catch (error) {
 		taskRunDetail = null;
+		taskRunProgress = null;
 		taskRunDetailError =
 			error instanceof Error ? error.message : "Failed to load task run";
+		clearTaskRunPoll();
 	} finally {
-		taskRunDetailLoading = false;
+		if (loading) taskRunDetailLoading = false;
+	}
+}
+
+async function loadTaskDetail(taskId: string) {
+	clearTaskRunPoll();
+	taskRunProgress = null;
+	await refreshTaskDetail(taskId, true);
+	if (
+		taskRunDetail?.status === "pending" ||
+		taskRunDetail?.status === "running"
+	) {
+		taskRunPollTimer = setInterval(() => void refreshTaskDetail(taskId), 1500);
 	}
 }
 function openShareModal(sessionId: string) {
@@ -1979,6 +2004,70 @@ function makeImagePanHandlers(
 		document.removeEventListener("mouseup", handleEnd);
 	}
 }
+function taskTypeLabel(taskType: string) {
+	if (taskType === "run_command") return "Run Command";
+	return taskType;
+}
+
+function isContentBlockArray(value: unknown): value is ContentBlock[] {
+	return (
+		Array.isArray(value) &&
+		value.every((block) => {
+			return (
+				block &&
+				typeof block === "object" &&
+				typeof (block as { type?: unknown }).type === "string"
+			);
+		})
+	);
+}
+
+function contentBlocksFrom(value: unknown): ContentBlock[] {
+	if (!value || typeof value !== "object") return [];
+	const content = (value as { content?: unknown }).content;
+	return isContentBlockArray(content) ? content : [];
+}
+
+function runCommandContent(run: TaskRunRecord): ContentBlock[] {
+	const resultContent = contentBlocksFrom(run.result);
+	if (resultContent.length > 0) return resultContent;
+	return contentBlocksFrom(taskRunProgress);
+}
+
+function runCommandPayload(run: TaskRunRecord) {
+	const payload =
+		run.payload && typeof run.payload === "object"
+			? (run.payload as { data?: unknown })
+			: null;
+	const data =
+		payload?.data && typeof payload.data === "object"
+			? (payload.data as Record<string, unknown>)
+			: null;
+	return {
+		command: typeof data?.command === "string" ? data.command : "",
+		cwd: typeof data?.cwd === "string" ? data.cwd : "/workspace",
+	};
+}
+
+function runCommandResultMeta(run: TaskRunRecord) {
+	const result =
+		run.result && typeof run.result === "object"
+			? (run.result as Record<string, unknown>)
+			: null;
+	return {
+		exitCode: typeof result?.exitCode === "number" ? result.exitCode : null,
+		durationMs:
+			typeof result?.durationMs === "number" ? result.durationMs : null,
+		truncated: Boolean(result?.truncated),
+	};
+}
+
+function formatDurationMs(ms: number | null) {
+	if (ms === null) return "—";
+	if (ms < 1000) return `${ms}ms`;
+	return `${(ms / 1000).toFixed(1)}s`;
+}
+
 function taskRunStatusBadge(run: TaskRunRecord) {
 	switch (run.status) {
 		case "completed":
@@ -4667,6 +4756,7 @@ onMount(() => {
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+		clearTaskRunPoll();
 		if (turnMarkerMeasureFrame != null)
 			cancelAnimationFrame(turnMarkerMeasureFrame);
 		stopVimScroll();
@@ -5110,7 +5200,9 @@ $effect(() => {
 		void loadTaskDetail(routeTaskId);
 		return;
 	}
+	clearTaskRunPoll();
 	taskRunDetail = null;
+	taskRunProgress = null;
 	taskRunDetailError = "";
 });
 $effect(() => {
@@ -5754,7 +5846,7 @@ $effect(() => {
                       </div>
                     </div>
                   </div>
-                    <div class="mt-1.5 font-mono text-[13px] text-text-primary">{cronjobDetail.taskType}</div>
+                    <div class="mt-1.5 font-mono text-[13px] text-text-primary">{taskTypeLabel(cronjobDetail.taskType)}</div>
                   </div>
                   <div>
                     <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Session</div>
@@ -5819,7 +5911,7 @@ $effect(() => {
         </div>
       </div>
     {:else if routeView === 'task'}
-      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl space-y-4">
+      <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:p-4 max-w-4xl w-full space-y-4">
         {#if taskRunDetailLoading}
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
             Loading task run...
@@ -5828,81 +5920,123 @@ $effect(() => {
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{taskRunDetailError}</div>
         {:else if taskRunDetail}
           {@const badge = taskRunStatusBadge(taskRunDetail)}
-          <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
-            <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Task Run</div>
-              <div class="flex items-center gap-3">
-                <span class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full {badge.dot}"></span>
-                  <span class="text-[16px] font-semibold text-text-primary {badge.color}">{badge.label}</span>
-                </span>
+          {#if taskRunDetail.taskType === "run_command"}
+            {@const commandInfo = runCommandPayload(taskRunDetail)}
+            {@const commandMeta = runCommandResultMeta(taskRunDetail)}
+            {@const commandContent = runCommandContent(taskRunDetail)}
+            <div class="mx-auto w-full max-w-4xl px-1 sm:px-2">
+              <div class="border-b border-border-subtle/80 pb-4 sm:pb-5">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div class="min-w-0 space-y-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Run Command</span>
+                      <span class="inline-flex items-center gap-1.5 rounded-full bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary">
+                        <span class="h-1.5 w-1.5 rounded-full {badge.dot}"></span>
+                        {badge.label}
+                      </span>
+                      {#if commandMeta.exitCode !== null}
+                        <span class="rounded-full bg-bg-elevated px-2 py-1 font-mono text-[11px] text-text-secondary">exit {commandMeta.exitCode}</span>
+                      {/if}
+                    </div>
+                    <pre class="max-w-full whitespace-pre-wrap break-words font-mono text-[14px] leading-relaxed text-text-primary sm:text-[15px]">{commandInfo.command}</pre>
+                  </div>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-tertiary sm:justify-end">
+                    <span class="font-mono">{commandInfo.cwd}</span>
+                    <span>{formatDurationMs(commandMeta.durationMs)}</span>
+                    <span>{formatDateTime(taskRunDetail.createdAt)}</span>
+                  </div>
+                </div>
               </div>
-              <p class="text-[13px] text-text-tertiary">
-                {#if taskRunDetail.cronJobId}
-                  From cronjob
-                  <a
-                    href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
-                    class="text-text-primary hover:text-brand transition-colors"
-                    onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
-                  >view</a>
+
+              <div class="py-4 sm:py-5">
+                {#if commandContent.length > 0}
+                  <ToolCallList content={commandContent} streaming={taskRunDetail.status === "pending" || taskRunDetail.status === "running"} defaultExpanded flush />
                 {:else}
-                  One-time task
+                  <div class="py-8 text-[13px] text-text-tertiary">Waiting for command output…</div>
                 {/if}
-              </p>
+              </div>
+
+              {#if taskRunDetail.errorMessage}
+                <div class="border-t border-error-soft/30 py-4 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
+              {/if}
             </div>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Task Type</div>
-                <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.taskType}</div>
-              </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Attempts</div>
-                <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.attemptCount}</div>
-              </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Clock class="w-3.5 h-3.5" />
-                  Scheduled
+          {:else}
+            <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
+              <div class="space-y-1">
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Task Run</div>
+                <div class="flex items-center gap-3">
+                  <span class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full {badge.dot}"></span>
+                    <span class="text-[16px] font-semibold text-text-primary {badge.color}">{badge.label}</span>
+                  </span>
                 </div>
-                <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
+                <p class="text-[13px] text-text-tertiary">
+                  {#if taskRunDetail.cronJobId}
+                    From cronjob
+                    <a
+                      href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
+                      class="text-text-primary hover:text-brand transition-colors"
+                      onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
+                    >view</a>
+                  {:else}
+                    One-time task
+                  {/if}
+                </p>
               </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                  <Clock3 class="w-3.5 h-3.5" />
-                  Duration
-                </div>
-                <div class="mt-2 text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
-              </div>
-            </div>
-            {#if taskRunDetail.startedAt || taskRunDetail.finishedAt}
               <div class="grid gap-3 md:grid-cols-2">
                 <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Started At</div>
-                  <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div>
+                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Task Type</div>
+                  <div class="mt-2 text-[13px] text-text-primary">{taskTypeLabel(taskRunDetail.taskType)}</div>
                 </div>
                 <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Finished At</div>
-                  <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div>
+                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Attempts</div>
+                  <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.attemptCount}</div>
+                </div>
+                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                  <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                    <Clock class="w-3.5 h-3.5" />
+                    Scheduled
+                  </div>
+                  <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
+                </div>
+                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                  <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+                    <Clock3 class="w-3.5 h-3.5" />
+                    Duration
+                  </div>
+                  <div class="mt-2 text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
                 </div>
               </div>
-            {/if}
-            <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
-              <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Payload</div>
-              <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.payload, null, 2)}</pre>
-            </div>
-            {#if taskRunDetail.result}
+              {#if taskRunDetail.startedAt || taskRunDetail.finishedAt}
+                <div class="grid gap-3 md:grid-cols-2">
+                  <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Started At</div>
+                    <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div>
+                  </div>
+                  <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
+                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Finished At</div>
+                    <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div>
+                  </div>
+                </div>
+              {/if}
               <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
-                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Result</div>
-                <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.result, null, 2)}</pre>
+                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Payload</div>
+                <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.payload, null, 2)}</pre>
               </div>
-            {/if}
-            {#if taskRunDetail.errorMessage}
-              <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-4">
-                <div class="text-[11px] uppercase tracking-wider text-error-soft font-medium">Error</div>
-                <div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
-              </div>
-            {/if}
-          </div>
+              {#if taskRunDetail.result}
+                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
+                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Result</div>
+                  <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.result, null, 2)}</pre>
+                </div>
+              {/if}
+              {#if taskRunDetail.errorMessage}
+                <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-4">
+                  <div class="text-[11px] uppercase tracking-wider text-error-soft font-medium">Error</div>
+                  <div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
+                </div>
+              {/if}
+            </div>
+          {/if}
         {:else}
           <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Task run not found.</div>
         {/if}

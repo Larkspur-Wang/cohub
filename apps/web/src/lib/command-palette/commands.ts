@@ -5,6 +5,26 @@ import type { CommandPaletteItem } from "./types";
 const COMMANDS: CommandPaletteItem[] = [
 	{
 		type: "command",
+		id: "run-command",
+		spaceId: "",
+		sessionId: null,
+		turnId: null,
+		sequence: null,
+		title: "Run Command",
+		excerpt: "Execute bash in the current space",
+		spaceName: null,
+		sessionTitle: null,
+		matchedField: "command",
+		href: "#",
+		score: 0.96,
+		textScore: 0.96,
+		recencyScore: 0.62,
+		typePriorityScore: 0.9,
+		updatedAt: null,
+		source: "default",
+	},
+	{
+		type: "command",
 		id: "new-space",
 		spaceId: "",
 		sessionId: null,
@@ -26,6 +46,8 @@ const COMMANDS: CommandPaletteItem[] = [
 ];
 
 function commandAliases(item: CommandPaletteItem) {
+	if (item.id === "run-command")
+		return ["run command", "run bash", "shell", "terminal", "command"];
 	if (item.id === "new-space")
 		return ["new space", "create space", "space new"];
 	return [item.title];

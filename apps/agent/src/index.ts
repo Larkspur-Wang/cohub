@@ -8,10 +8,11 @@ import {
   createQueueTelemetry,
 } from "@cohub/infra/bullmq";
 import { env } from "./env.js";
-import { AGENT_SANDBOX_BASH_JOB_NAME, AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData, type SandboxBashUploadJobData } from "./queue.js";
+import { AGENT_SANDBOX_BASH_JOB_NAME, AGENT_RUN_COMMAND_JOB_NAME, AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData, type AgentSandboxBashUploadJobData, type AgentRunCommandJobData } from "./queue.js";
 import { processAgentTurnJob, disposeAllSessionHandles } from "./processor.js";
 import { processSessionForkJob } from "./fork.js";
 import { processSandboxBashJob } from "./sandbox-bash.js";
+import { processRunCommandJob } from "./run-command.js";
 import { subscribeAbortEvents, closeAbortSubscriber } from "./abort.js";
 import { getActiveAbortController } from "./active-turns.js";
 import { closeDb } from "./db.js";
@@ -33,7 +34,10 @@ const processor: Processor<AgentJobData> = async (job) => {
     return processAgentTurnJob(job as Job<AgentTurnJobData>);
   }
   if (job.name === AGENT_SANDBOX_BASH_JOB_NAME) {
-    return processSandboxBashJob(job as Job<SandboxBashUploadJobData>);
+    return processSandboxBashJob(job as Job<AgentSandboxBashUploadJobData>);
+  }
+  if (job.name === AGENT_RUN_COMMAND_JOB_NAME) {
+    return processRunCommandJob(job as Job<AgentRunCommandJobData>);
   }
   throw new Error(`Unknown agent job: ${job.name}`);
 };

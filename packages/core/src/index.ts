@@ -3,4 +3,5 @@ export * from "./security/index.js";
 export * from "./sessions/index.js";
 export * from "./spaces/index.js";
 export * from "./content/index.js";
+export * from "./commands/index.js";
 export * from "./fs-cdn/index.js";

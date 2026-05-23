@@ -15,7 +15,7 @@ export const taskQueue = createBullmqQueue(QUEUE_NAME, {
   telemetryServiceName: "cohub-api",
 });
 
-export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space"]);
+export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space", "run_command"]);
 
 export const enqueueTask = async (
   payload: TaskPayload,

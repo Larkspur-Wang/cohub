@@ -5,7 +5,7 @@ import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { logger } from "./logger.js";
-import type { SandboxBashUploadJobData } from "./queue.js";
+import type { AgentSandboxBashUploadJobData } from "./queue.js";
 
 const SCRIPT_PATH = new URL("./jobs/sandbox-bash/upload-files.sh", import.meta.url);
 const tools = createSandboxCodingTools();
@@ -23,13 +23,13 @@ function toBase64(value: string) {
   return Buffer.from(value, "utf8").toString("base64");
 }
 
-function buildManifest(data: SandboxBashUploadJobData) {
+function buildManifest(data: AgentSandboxBashUploadJobData) {
   return data.files
     .map((file) => [toBase64(file.relativePath), String(file.size), toBase64(file.downloadUrl)].join("\t"))
     .join("\n");
 }
 
-async function buildUploadCommand(data: SandboxBashUploadJobData) {
+async function buildUploadCommand(data: AgentSandboxBashUploadJobData) {
   const script = await loadScript();
   const manifest = buildManifest(data);
   return [
@@ -65,7 +65,7 @@ function getExitCode(result: unknown) {
   return typeof exitCode === "number" ? exitCode : null;
 }
 
-function parseUploadedLines(output: string, data: SandboxBashUploadJobData) {
+function parseUploadedLines(output: string, data: AgentSandboxBashUploadJobData) {
   const expected = new Map(data.files.map((file) => [file.relativePath, file]));
   const uploaded = new Map<string, { path: string; name: string; size: number; mimeType: string | null; mtimeMs: number }>();
 
@@ -90,7 +90,7 @@ function parseUploadedLines(output: string, data: SandboxBashUploadJobData) {
   return [...uploaded.values()];
 }
 
-export async function processSandboxBashJob(job: Job<SandboxBashUploadJobData>) {
+export async function processSandboxBashJob(job: Job<AgentSandboxBashUploadJobData>) {
   const data = job.data;
   if (!data.spaceId || !data.sessionId || !data.uploadId || !data.destinationRoot || !Array.isArray(data.files)) {
     throw new Error("Invalid sandbox_bash upload job payload");

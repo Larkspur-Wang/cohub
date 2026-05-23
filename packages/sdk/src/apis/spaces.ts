@@ -1046,6 +1046,8 @@ export class SpaceSandboxApi {
   }
 }
 
+export type SpaceRunCommandResponse = { taskRunId: string };
+
 export class SpaceMarksApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -1181,6 +1183,17 @@ export class SpaceClient {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+      },
+    );
+  }
+
+  runCommand(input: { command: string }) {
+    return this.transport.request<SpaceRunCommandResponse>(
+      `/api/spaces/${this.id}/commands`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       },
     );
   }
