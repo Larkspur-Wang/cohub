@@ -1,0 +1,3 @@
+ALTER TABLE "v2"."spaces" ADD COLUMN "slug" varchar(80);--> statement-breakpoint
+CREATE UNIQUE INDEX "v2_uq_spaces_user_slug" ON "v2"."spaces" USING btree ("user_uuid","slug") WHERE "v2"."spaces"."slug" is not null;--> statement-breakpoint
+ALTER TABLE "v2"."spaces" ADD CONSTRAINT "v2_chk_spaces_slug_format" CHECK ("v2"."spaces"."slug" is null or (length("v2"."spaces"."slug") between 1 and 80 and "v2"."spaces"."slug" !~ '[^a-z0-9_-]' and left("v2"."spaces"."slug", 1) ~ '[a-z0-9]' and right("v2"."spaces"."slug", 1) ~ '[a-z0-9]'));

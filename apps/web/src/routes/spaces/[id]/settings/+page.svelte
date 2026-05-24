@@ -70,6 +70,11 @@ let error = $state("");
 let saving = $state(false);
 let description = $state("");
 let avatarUrl = $state("");
+let slug = $state("");
+let slugDraft = $state("");
+let editingSlug = $state(false);
+let savingSlug = $state(false);
+let slugError = $state("");
 let uploadingAvatar = $state(false);
 let envName = $state("");
 let envValue = $state("");
@@ -111,6 +116,12 @@ let sandboxIdleTtlSeconds = $state(defaultIdleTtlSeconds);
 let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
+
+const spaceSlugUrl = $derived.by(() => {
+	const username = space?.ownerProfile?.username;
+	if (!username || !slug) return "";
+	return `/${username}/${slug}`;
+});
 
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
@@ -391,12 +402,69 @@ async function loadPage() {
 		invitations = invitationResult.items;
 		description = spaceResult.description ?? "";
 		avatarUrl = getSpaceAvatarUrl(spaceResult);
+		slug = spaceResult.slug ?? "";
+		slugDraft = spaceResult.slug ?? "";
 		applySandboxConfigFromSpace(spaceResult);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to load settings";
 	} finally {
 		loading = false;
 	}
+}
+
+function beginSlugEdit() {
+	if (savingSlug) return;
+	slugError = "";
+	slugDraft = slug;
+	editingSlug = true;
+}
+
+function cancelSlugEdit() {
+	if (savingSlug) return;
+	slugError = "";
+	slugDraft = slug;
+	editingSlug = false;
+}
+
+function handleSlugKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		cancelSlugEdit();
+		return;
+	}
+	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
+		event.preventDefault();
+		void saveSlug();
+	}
+}
+
+async function saveSlug() {
+	if (savingSlug) return;
+	slugError = "";
+	const nextSlug = slugDraft.trim();
+	if (nextSlug === slug) {
+		editingSlug = false;
+		return;
+	}
+	savingSlug = true;
+	try {
+		const result = await sdk.space(spaceId).update({ slug: nextSlug || null });
+		space = result.space;
+		slug = result.space.slug ?? "";
+		slugDraft = slug;
+		editingSlug = false;
+	} catch (err) {
+		slugError = err instanceof Error ? err.message : "Failed to save slug";
+	} finally {
+		savingSlug = false;
+	}
+}
+
+async function copySpaceSlugUrl() {
+	if (!spaceSlugUrl) return;
+	await navigator.clipboard.writeText(
+		`${window.location.origin}${spaceSlugUrl}`,
+	);
 }
 
 async function saveProfile() {
@@ -835,6 +903,40 @@ $effect(() => {
 								<div class="text-[12px] font-medium text-text-secondary">Space avatar</div>
 							</div>
 						</div>
+						<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+							<div class="flex min-w-0 items-start justify-between gap-3">
+								<div class="min-w-0">
+									<div class="text-[12px] font-medium text-text-secondary">Slug</div>
+									<div class="mt-1 min-w-0 text-[11px] text-text-tertiary">
+										{#if spaceSlugUrl}
+											<a href={spaceSlugUrl} class="break-all font-mono text-brand hover:underline">{spaceSlugUrl}</a>
+										{:else}
+											<span class="text-text-placeholder">No friendly URL configured.</span>
+										{/if}
+									</div>
+								</div>
+								<div class="flex shrink-0 items-center gap-1">
+									{#if spaceSlugUrl}
+										<button type="button" onclick={() => void copySpaceSlugUrl()} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy friendly URL"><Copy class="h-3.5 w-3.5" /></button>
+									{/if}
+									{#if !editingSlug}
+										<button type="button" onclick={beginSlugEdit} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug"><Pencil class="h-3.5 w-3.5" /></button>
+									{/if}
+								</div>
+							</div>
+							{#if editingSlug}
+								<div class="mt-3 flex min-w-0 items-center gap-2">
+									<input aria-label="Space slug" bind:value={slugDraft} maxlength="80" placeholder="optional-url-name" onkeydown={handleSlugKeydown} disabled={savingSlug} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 font-mono text-[13px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
+									<button type="button" onclick={() => void saveSlug()} disabled={savingSlug} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">{#if savingSlug}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
+									<button type="button" onclick={cancelSlugEdit} disabled={savingSlug} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel"><X class="h-3.5 w-3.5" /></button>
+								</div>
+								<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Optional. Lowercase letters, numbers, hyphens, or underscores.</p>
+							{/if}
+							{#if slugError}
+								<div class="mt-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[11px] text-error-soft break-all">{slugError}</div>
+							{/if}
+						</div>
+
 						<div>
 							<label class="mb-1.5 block text-[11px] font-medium text-text-tertiary" for="space-description">Description</label>
 							<textarea id="space-description" bind:value={description} rows="4" placeholder="Describe this space" class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none focus:ring-1 focus:ring-brand/20"></textarea>

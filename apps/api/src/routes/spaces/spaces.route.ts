@@ -8,6 +8,7 @@ import {
   spaces,
   spaceMembers,
   userGitAccounts,
+  userProfiles,
 } from "@cohub/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied } from "../../lib/middleware.js";
@@ -76,9 +77,30 @@ const DEFAULT_SPACE_SANDBOX_AUTO_DESTROY: SpaceSandboxAutoDestroyPolicy = {
 
 const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;
 const MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 30 * 24 * 60 * 60;
+const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeSpaceSlug = (value: unknown): { slug: string | null; error?: string } => {
+  if (value === undefined || value === null) return { slug: null };
+  if (typeof value !== "string") return { slug: null, error: "slug must be a string or null" };
+  const slug = value.trim();
+  if (!slug) return { slug: null };
+  if (!SPACE_SLUG_PATTERN.test(slug)) {
+    return {
+      slug: null,
+      error: "slug must be 1-80 characters, lowercase letters, numbers, hyphens, or underscores, and cannot start or end with a separator",
+    };
+  }
+  return { slug };
+};
+
+const uniqueViolationConstraint = (error: unknown): string | null => {
+  const record = error as { code?: string; constraint_name?: string; constraint?: string };
+  if (record?.code !== "23505") return null;
+  return record.constraint_name ?? record.constraint ?? null;
+};
 
 const readSpaceConfig = (space: typeof spaces.$inferSelect) => {
   const meta = isRecord(space.meta) ? space.meta : {};
@@ -247,6 +269,7 @@ router.post("/", async (c) => {
   const body = (await c.req
     .json<{
       name?: string;
+      slug?: string | null;
       description?: string | null;
       source?: string;
       cwd?: string;
@@ -262,6 +285,7 @@ router.post("/", async (c) => {
     }>()
     .catch(() => ({}))) as {
     name?: string;
+    slug?: string | null;
     description?: string | null;
     source?: string;
     cwd?: string;
@@ -279,6 +303,9 @@ router.post("/", async (c) => {
 
   const name = body.name?.trim();
   if (!name) return c.json({ message: "name is required" }, 400);
+
+  const { slug, error: slugError } = normalizeSpaceSlug(body.slug);
+  if (slugError) return c.json({ message: slugError }, 400);
 
   const existingSpace = await db
     .select({ id: spaces.id })
@@ -355,38 +382,46 @@ router.post("/", async (c) => {
   const spaceId = crypto.randomUUID();
   const storageRepoName = buildStorageRepoName(spaceId);
 
-  const [space] = await db
-    .insert(spaces)
-    .values({
-      id: spaceId,
-      userUuid: user.uuid,
-      name,
-      description: body.description ?? null,
-      storageRepoName,
-      baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
-      headCheckpointId: null,
-      meta: {
-        ...(body.meta ?? {}),
-        config: {
-          ...(isRecord(body.meta?.config) ? body.meta.config : {}),
-          sandbox: {
-            ...((isRecord(body.meta?.config) && isRecord((body.meta.config as Record<string, unknown>).sandbox) ? (body.meta.config as Record<string, unknown>).sandbox : {}) as Record<string, unknown>),
-            autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+  let space: typeof spaces.$inferSelect | undefined;
+  try {
+    [space] = await db
+      .insert(spaces)
+      .values({
+        id: spaceId,
+        userUuid: user.uuid,
+        name,
+        slug,
+        description: body.description ?? null,
+        storageRepoName,
+        baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
+        headCheckpointId: null,
+        meta: {
+          ...(body.meta ?? {}),
+          config: {
+            ...(isRecord(body.meta?.config) ? body.meta.config : {}),
+            sandbox: {
+              ...((isRecord(body.meta?.config) && isRecord((body.meta.config as Record<string, unknown>).sandbox) ? (body.meta.config as Record<string, unknown>).sandbox : {}) as Record<string, unknown>),
+              autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+            },
+          },
+          extraEnv: normalizedExtraEnv,
+          bootstrap: {
+            status: "pending",
+            stage: null,
+            taskRunId: null,
+            errorMessage: null,
+            source: normalizedBootstrapSource,
+            startedAt: null,
+            finishedAt: null,
           },
         },
-        extraEnv: normalizedExtraEnv,
-        bootstrap: {
-          status: "pending",
-          stage: null,
-          taskRunId: null,
-          errorMessage: null,
-          source: normalizedBootstrapSource,
-          startedAt: null,
-          finishedAt: null,
-        },
-      },
-    })
-    .returning();
+      })
+      .returning();
+  } catch (error) {
+    const constraint = uniqueViolationConstraint(error);
+    if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
+    throw error;
+  }
 
   if (!space) return c.json({ message: "failed to create space" }, 500);
 
@@ -512,6 +547,36 @@ router.post("/", async (c) => {
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────
 
+async function serializeSpaceForResponse(space: typeof spaces.$inferSelect, user: AuthUser | null) {
+  const [sandbox, access] = await Promise.all([
+    getSpaceSandboxBySpaceId(space.id),
+    resolvePermissionAccess(user, { spaceId: space.id }),
+  ]);
+  const profileMap = await getProfilesByUuids([space.userUuid]);
+  const ownerProfile = profileMap.get(space.userUuid) ?? fallbackPublicUserProfile(space.userUuid);
+
+  let gitInfo: { giteaHost: string; giteaUsername: string } | undefined;
+  if (user?.uuid === space.userUuid) {
+    const giteaUsername = await getGiteaUsernameForUser(space.userUuid);
+    if (giteaUsername) {
+      gitInfo = {
+        giteaHost: new URL(config.giteaBaseUrl).host,
+        giteaUsername,
+      };
+    }
+  }
+
+  return {
+    ...space,
+    meta: sanitizeSpaceMeta(space.meta),
+    sandboxStatus: sandbox?.status ?? null,
+    sandbox: attachSandboxPublicEndpoints(sandbox),
+    access,
+    ownerProfile,
+    gitInfo: gitInfo ?? null,
+  };
+}
+
 function sanitizeRepoUrl(url: string): string {
   try {
     const parsed = new URL(url);
@@ -584,35 +649,7 @@ router.get("/:id", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
 
   if (await hasPermission(user, "space.view", { spaceId })) {
-    const [sandbox, access] = await Promise.all([
-      getSpaceSandboxBySpaceId(space.id),
-      resolvePermissionAccess(user, { spaceId }),
-    ]);
-    const sanitizedMeta = sanitizeSpaceMeta(space.meta);
-    const profileMap = await getProfilesByUuids([space.userUuid]);
-    const ownerProfile = profileMap.get(space.userUuid) ?? fallbackPublicUserProfile(space.userUuid);
-
-    // Only include git info when the requester is the space creator
-    let gitInfo: { giteaHost: string; giteaUsername: string } | undefined;
-    if (user?.uuid === space.userUuid) {
-      const giteaUsername = await getGiteaUsernameForUser(space.userUuid);
-      if (giteaUsername) {
-        gitInfo = {
-          giteaHost: new URL(config.giteaBaseUrl).host,
-          giteaUsername,
-        };
-      }
-    }
-
-    return c.json({
-      ...space,
-      meta: sanitizedMeta,
-      sandboxStatus: sandbox?.status ?? null,
-      sandbox: attachSandboxPublicEndpoints(sandbox),
-      access,
-      ownerProfile,
-      gitInfo: gitInfo ?? null,
-    });
+    return c.json(await serializeSpaceForResponse(space, user));
   }
 
   // Fallback: only session-level access — return minimal space info.
@@ -624,7 +661,42 @@ router.get("/:id", async (c) => {
   });
 });
 
-// ── PATCH /api/spaces/:id (rename) ─────────────────────────────────────────
+// ── GET /api/spaces/by-slug/:username/:slug ────────────────────────────────
+
+router.get("/by-slug/:username/:slug", async (c) => {
+  const user = getOptionalAuth(c);
+  const username = c.req.param("username");
+  const rawSlug = c.req.param("slug");
+  const { slug, error: slugError } = normalizeSpaceSlug(rawSlug);
+  if (slugError || !slug) return c.json({ message: "space not found" }, 404);
+
+  const [profile] = await db
+    .select({ userUuid: userProfiles.userUuid })
+    .from(userProfiles)
+    .where(eq(userProfiles.username, username))
+    .limit(1);
+  if (!profile) return c.json({ message: "space not found" }, 404);
+
+  const [space] = await db
+    .select()
+    .from(spaces)
+    .where(and(eq(spaces.userUuid, profile.userUuid), eq(spaces.slug, slug)))
+    .limit(1);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
+  if (await hasPermission(user, "space.view", { spaceId: space.id })) {
+    return c.json(await serializeSpaceForResponse(space, user));
+  }
+
+  return c.json({
+    id: space.id,
+    name: space.name,
+    slug: space.slug,
+    accessLevel: "minimal" as const,
+  });
+});
+
+// ── PATCH /api/spaces/:id (rename / slug) ───────────────────────────────────
 
 router.patch("/:id", async (c) => {
   const user = useAuth(c);
@@ -635,25 +707,46 @@ router.patch("/:id", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ name?: string }>().catch(() => null);
-  const name = body?.name?.trim();
-  if (!name) return c.json({ message: "name is required" }, 400);
-  if (name === space.name) return c.json({ space });
+  const body = await c.req.json<{ name?: string; slug?: string | null }>().catch(() => null);
+  if (!body) return c.json({ message: "invalid body" }, 400);
 
-  const duplicate = await db
-    .select({ id: spaces.id })
-    .from(spaces)
-    .where(and(eq(spaces.userUuid, user.uuid), eq(spaces.name, name)))
-    .limit(1);
-  if (duplicate.length > 0) return c.json({ message: "space name already exists" }, 409);
+  const updates: Partial<Pick<typeof spaces.$inferSelect, "name" | "slug">> = {};
 
-  const [updated] = await db
-    .update(spaces)
-    .set({ name, updatedAt: new Date() })
-    .where(eq(spaces.id, spaceId))
-    .returning();
+  if (body.name !== undefined) {
+    const name = body.name.trim();
+    if (!name) return c.json({ message: "name is required" }, 400);
+    if (name !== space.name) {
+      const duplicate = await db
+        .select({ id: spaces.id })
+        .from(spaces)
+        .where(and(eq(spaces.userUuid, space.userUuid), eq(spaces.name, name)))
+        .limit(1);
+      if (duplicate.length > 0) return c.json({ message: "space name already exists" }, 409);
+      updates.name = name;
+    }
+  }
 
-  return c.json({ space: updated ?? space });
+  if (body.slug !== undefined) {
+    const { slug, error: slugError } = normalizeSpaceSlug(body.slug);
+    if (slugError) return c.json({ message: slugError }, 400);
+    if (slug !== space.slug) updates.slug = slug;
+  }
+
+  if (updates.name === undefined && updates.slug === undefined) return c.json({ space });
+
+  try {
+    const [updated] = await db
+      .update(spaces)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(spaces.id, spaceId))
+      .returning();
+
+    return c.json({ space: updated ?? space });
+  } catch (error) {
+    const constraint = uniqueViolationConstraint(error);
+    if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
+    throw error;
+  }
 });
 
 // ── PATCH /api/spaces/:id/profile ───────────────────────────────────────────

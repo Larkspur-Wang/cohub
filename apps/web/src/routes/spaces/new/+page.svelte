@@ -24,6 +24,7 @@ let loadError = $state("");
 let submitError = $state("");
 
 let name = $state("");
+let slug = $state("");
 let description = $state("");
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<SpaceEnvInput[]>([]);
@@ -133,6 +134,7 @@ async function handleSubmit(event: SubmitEvent) {
 		const result = await sdk.spaces.create(
 			{
 				name: name.trim(),
+				slug: slug.trim() || null,
 				description: description.trim() || undefined,
 				source: "web",
 				extraEnv: normalizedExtraEnv,
@@ -211,6 +213,19 @@ async function handleSubmit(event: SubmitEvent) {
               class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
               required
             />
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="space-slug">Slug</label>
+            <input
+              id="space-slug"
+              bind:value={slug}
+              type="text"
+              placeholder="optional-url-name"
+              pattern="[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?"
+              class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+            />
+            <p class="mt-1 text-[11px] text-text-placeholder">Optional. Lowercase letters, numbers, hyphens, or underscores.</p>
           </div>
 
           <div>

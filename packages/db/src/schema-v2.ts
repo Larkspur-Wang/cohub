@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgSchema,
   uuid,
@@ -10,6 +11,7 @@ import {
   boolean,
   jsonb,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { TaskPayload } from "@cohub/protocol/task";
@@ -110,6 +112,7 @@ export const spaces = v2.table(
     id: uuid("id").primaryKey().defaultRandom(),
     userUuid: varchar("user_uuid", { length: 255 }).notNull(),
     name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 80 }),
     description: text("description"),
     storageRepoName: varchar("storage_repo_name", { length: 255 }).notNull(),
     baseCheckpointId: uuid("base_checkpoint_id"),
@@ -125,6 +128,13 @@ export const spaces = v2.table(
     nameSearchIdx: index("v2_idx_spaces_name_trgm").using("gin", table.name.op("gin_trgm_ops")),
     descriptionSearchIdx: index("v2_idx_spaces_description_trgm").using("gin", table.description.op("gin_trgm_ops")),
     userSpaceNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_name").on(table.userUuid, table.name),
+    userSpaceSlugUniqueIdx: uniqueIndex("v2_uq_spaces_user_slug")
+      .on(table.userUuid, table.slug)
+      .where(sql`${table.slug} is not null`),
+    spaceSlugFormatCheck: check(
+      "v2_chk_spaces_slug_format",
+      sql`${table.slug} is null or (length(${table.slug}) between 1 and 80 and ${table.slug} !~ '[^a-z0-9_-]' and left(${table.slug}, 1) ~ '[a-z0-9]' and right(${table.slug}, 1) ~ '[a-z0-9]')`,
+    ),
     storageRepoNameUniqueIdx: uniqueIndex("v2_uq_spaces_storage_repo_name").on(
       table.storageRepoName,
     ),

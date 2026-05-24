@@ -172,6 +172,13 @@ export class SpacesApi {
     });
   }
 
+  getBySlug(username: string, slug: string, customFetch?: Fetch) {
+    return this.transport.request<SpaceRecord>(
+      `/api/spaces/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(slug)}`,
+      { fetch: customFetch },
+    );
+  }
+
   create(
     input?: CreateSpaceInput,
     headers?: Record<string, string>,
@@ -1166,14 +1173,18 @@ export class SpaceClient {
     );
   }
 
-  rename(name: string) {
+  update(input: { name?: string; slug?: string | null }) {
     return this.transport.request<{ space: SpaceRecord }>(`/api/spaces/${this.id}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(input),
     });
+  }
+
+  rename(name: string) {
+    return this.update({ name });
   }
 
   profile(body: { description?: string | null; avatarUrl?: string | null }) {

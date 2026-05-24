@@ -225,6 +225,7 @@ export type SpaceRecord = {
   id: string;
   userUuid: string;
   name: string | null;
+  slug: string | null;
   description: string | null;
   storageRepoName?: string | null;
   baseCheckpointId?: string | null;
@@ -257,6 +258,7 @@ export type SpaceConfigInput = {
 
 export type CreateSpaceInput = {
   name?: string;
+  slug?: string | null;
   description?: string | null;
   source?: string;
   extraEnv?: SpaceEnvInput[];
