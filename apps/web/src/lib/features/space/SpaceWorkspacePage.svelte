@@ -2183,6 +2183,7 @@ async function uploadSpaceAvatar(file: File) {
 		});
 		if (!response.ok) throw new Error("Failed to upload avatar image.");
 		const result = await sdk.space(spaceId).profile({
+			description: space?.description ?? null,
 			avatarUrl: plan.asset.publicUrl,
 		});
 		space = result.space;
@@ -6360,8 +6361,7 @@ $effect(() => {
                   {/if}
                 </div>
                 <div class="min-w-0 flex-1 pt-0.5">
-                  <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
-                  <div class="mt-1 flex min-w-0 items-center gap-1.5 group">
+                  <div class="flex min-w-0 items-center gap-1.5 group">
                     {#if renamingSpace && canEditSpaceProfile}
                       <input
                         type="text"

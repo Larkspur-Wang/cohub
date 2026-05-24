@@ -27,14 +27,11 @@ import {
 	Settings,
 	Terminal,
 	Trash2,
-	Upload,
-	User,
 	Users,
 	X,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
-import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 
@@ -67,15 +64,6 @@ let sandbox = $state<SandboxInfo | null>(null);
 let allChannels = $state<Channel[]>([]);
 let loading = $state(true);
 let error = $state("");
-let saving = $state(false);
-let description = $state("");
-let avatarUrl = $state("");
-let slug = $state("");
-let slugDraft = $state("");
-let editingSlug = $state(false);
-let savingSlug = $state(false);
-let slugError = $state("");
-let uploadingAvatar = $state(false);
 let envName = $state("");
 let envValue = $state("");
 let selectedChannelId = $state("");
@@ -117,30 +105,12 @@ let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
 
-const spaceSlugUrl = $derived.by(() => {
-	const username = space?.ownerProfile?.username;
-	if (!username || !slug) return "";
-	return `/${username}/${slug}`;
-});
-
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
 });
-
-function getSpaceAvatarUrl(record: SpaceRecord | null): string {
-	const meta = record?.meta;
-	if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "";
-	const profile = (meta as Record<string, unknown>).publicProfile;
-	if (!profile || typeof profile !== "object" || Array.isArray(profile))
-		return "";
-	const raw =
-		(profile as Record<string, unknown>).avatarUrl ??
-		(profile as Record<string, unknown>).pictureUrl;
-	return typeof raw === "string" ? raw : "";
-}
 
 function getSpaceAutoDestroyPolicy(
 	record: SpaceRecord | null,
@@ -400,122 +370,12 @@ async function loadPage() {
 		allChannels = allChannelResult;
 		sandbox = sandboxResult?.sandbox ?? null;
 		invitations = invitationResult.items;
-		description = spaceResult.description ?? "";
-		avatarUrl = getSpaceAvatarUrl(spaceResult);
-		slug = spaceResult.slug ?? "";
-		slugDraft = spaceResult.slug ?? "";
 		applySandboxConfigFromSpace(spaceResult);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to load settings";
 	} finally {
 		loading = false;
 	}
-}
-
-function beginSlugEdit() {
-	if (savingSlug) return;
-	slugError = "";
-	slugDraft = slug;
-	editingSlug = true;
-}
-
-function cancelSlugEdit() {
-	if (savingSlug) return;
-	slugError = "";
-	slugDraft = slug;
-	editingSlug = false;
-}
-
-function handleSlugKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		cancelSlugEdit();
-		return;
-	}
-	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
-		event.preventDefault();
-		void saveSlug();
-	}
-}
-
-async function saveSlug() {
-	if (savingSlug) return;
-	slugError = "";
-	const nextSlug = slugDraft.trim();
-	if (nextSlug === slug) {
-		editingSlug = false;
-		return;
-	}
-	savingSlug = true;
-	try {
-		const result = await sdk.space(spaceId).update({ slug: nextSlug || null });
-		space = result.space;
-		slug = result.space.slug ?? "";
-		slugDraft = slug;
-		editingSlug = false;
-	} catch (err) {
-		slugError = err instanceof Error ? err.message : "Failed to save slug";
-	} finally {
-		savingSlug = false;
-	}
-}
-
-async function copySpaceSlugUrl() {
-	if (!spaceSlugUrl) return;
-	await navigator.clipboard.writeText(
-		`${window.location.origin}${spaceSlugUrl}`,
-	);
-}
-
-async function saveProfile() {
-	saving = true;
-	try {
-		const result = await sdk.space(spaceId).profile({ description, avatarUrl });
-		space = result.space;
-	} finally {
-		saving = false;
-	}
-}
-
-async function uploadSpaceAvatar(file: File) {
-	if (uploadingAvatar) return;
-	uploadingAvatar = true;
-	error = "";
-	try {
-		const avatarFile = await normalizeAvatarToWebp(file);
-		const plan = await sdk.publicAssets.createUpload({
-			purpose: "space_avatar",
-			spaceId,
-			file: {
-				size: avatarFile.size,
-				mimeType: "image/webp",
-			},
-		});
-		const formData = new FormData();
-		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
-			formData.append(key, value);
-		}
-		formData.append("file", avatarFile);
-		const response = await fetch(plan.asset.uploadUrl, {
-			method: plan.asset.uploadMethod,
-			body: formData,
-		});
-		if (!response.ok) throw new Error("Failed to upload space avatar.");
-		avatarUrl = plan.asset.publicUrl;
-		await saveProfile();
-	} catch (err) {
-		error =
-			err instanceof Error ? err.message : "Failed to upload space avatar";
-	} finally {
-		uploadingAvatar = false;
-	}
-}
-
-function handleSpaceAvatarFileChange(event: Event) {
-	const input = event.currentTarget as HTMLInputElement;
-	const file = input.files?.[0];
-	input.value = "";
-	if (file) void uploadSpaceAvatar(file);
 }
 
 async function setAccess(body: {
@@ -855,7 +715,6 @@ $effect(() => {
 			</button>
 			<div class="min-w-0">
 				<div class="truncate text-[13px] font-medium text-text-primary">Space settings</div>
-				<div class="hidden truncate text-[11px] text-text-tertiary sm:block">Profile, access, runtime</div>
 			</div>
 		</div>
 	</header>
@@ -869,84 +728,6 @@ $effect(() => {
 			{:else if error}
 				<div class="rounded-[8px] border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
 			{:else}
-				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<div class="border-b border-border-subtle px-4 py-3 sm:px-5">
-						<div class="flex items-center gap-2.5">
-							<User class="h-4 w-4 text-text-tertiary" />
-							<div class="min-w-0">
-								<div class="text-[15px] font-medium text-text-primary">Profile</div>
-								<div class="text-[12px] text-text-tertiary">Public space identity.</div>
-							</div>
-						</div>
-					</div>
-					<div class="space-y-4 p-4 sm:p-5">
-						<div class="flex items-start gap-4">
-							<div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
-								<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-text-tertiary transition-colors hover:border-brand/50 focus-within:ring-1 focus-within:ring-brand/40" title="Change space avatar" aria-label="Change space avatar">
-									{#if avatarUrl}
-										<img src={avatarUrl} alt="" class="h-full w-full object-cover" />
-									{:else}
-										<span class="flex h-full w-full items-center justify-center"><User class="h-4 w-4" /></span>
-									{/if}
-									<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-										{#if uploadingAvatar}<Loader2 class="h-3.5 w-3.5 animate-spin text-overlay-control-text" />{:else}<Upload class="h-3.5 w-3.5 text-overlay-control-text" />{/if}
-									</span>
-									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleSpaceAvatarFileChange} />
-								</label>
-								<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {uploadingAvatar ? 'pointer-events-none opacity-50' : ''}">
-									{#if uploadingAvatar}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-									<span>Change</span>
-									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleSpaceAvatarFileChange} />
-								</label>
-							</div>
-							<div class="min-w-0 flex-1 pt-0.5">
-								<div class="text-[12px] font-medium text-text-secondary">Space avatar</div>
-							</div>
-						</div>
-						<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
-							<div class="flex min-w-0 items-start justify-between gap-3">
-								<div class="min-w-0">
-									<div class="text-[12px] font-medium text-text-secondary">Slug</div>
-									<div class="mt-1 min-w-0 text-[11px] text-text-tertiary">
-										{#if spaceSlugUrl}
-											<a href={spaceSlugUrl} class="break-all font-mono text-brand hover:underline">{spaceSlugUrl}</a>
-										{:else}
-											<span class="text-text-placeholder">No friendly URL configured.</span>
-										{/if}
-									</div>
-								</div>
-								<div class="flex shrink-0 items-center gap-1">
-									{#if spaceSlugUrl}
-										<button type="button" onclick={() => void copySpaceSlugUrl()} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy friendly URL"><Copy class="h-3.5 w-3.5" /></button>
-									{/if}
-									{#if !editingSlug}
-										<button type="button" onclick={beginSlugEdit} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug"><Pencil class="h-3.5 w-3.5" /></button>
-									{/if}
-								</div>
-							</div>
-							{#if editingSlug}
-								<div class="mt-3 flex min-w-0 items-center gap-2">
-									<input aria-label="Space slug" bind:value={slugDraft} maxlength="80" placeholder="optional-url-name" onkeydown={handleSlugKeydown} disabled={savingSlug} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 font-mono text-[13px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
-									<button type="button" onclick={() => void saveSlug()} disabled={savingSlug} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">{#if savingSlug}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
-									<button type="button" onclick={cancelSlugEdit} disabled={savingSlug} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel"><X class="h-3.5 w-3.5" /></button>
-								</div>
-								<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Optional. Lowercase letters, numbers, hyphens, or underscores.</p>
-							{/if}
-							{#if slugError}
-								<div class="mt-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[11px] text-error-soft break-all">{slugError}</div>
-							{/if}
-						</div>
-
-						<div>
-							<label class="mb-1.5 block text-[11px] font-medium text-text-tertiary" for="space-description">Description</label>
-							<textarea id="space-description" bind:value={description} rows="4" placeholder="Describe this space" class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none focus:ring-1 focus:ring-brand/20"></textarea>
-						</div>
-						<div class="flex justify-end">
-							<button type="button" onclick={saveProfile} disabled={saving || uploadingAvatar} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{saving ? "Saving…" : "Save profile"}</button>
-						</div>
-					</div>
-				</section>
-
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
 					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
 						<div class="flex min-w-0 items-center gap-2.5">
