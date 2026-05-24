@@ -1137,10 +1137,10 @@ $effect(() => {
       class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-primary px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:border-brand/35 hover:bg-bg-hover hover:text-text-primary"
       onclick={openCommandPalette}
       title="Search everywhere (⌘K / Ctrl K)"
-      aria-label="Search everywhere (⌘K / Ctrl K)"
+      aria-label="Search everywhere"
     >
       <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
-      <span class="font-mono tracking-[0.02em]">⌘K</span>
+      <span class="hidden sm:inline font-mono tracking-[0.02em]">⌘K</span>
     </button>
   </div>
 
