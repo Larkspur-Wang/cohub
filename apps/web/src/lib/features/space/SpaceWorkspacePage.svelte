@@ -2123,10 +2123,23 @@ async function handleRenameSpace(newName: string) {
 function getSpaceOwnerUsername(record: SpaceRecord | null): string {
 	return record?.ownerProfile?.username?.trim() ?? "";
 }
+function getSpaceSlug(record: SpaceRecord | null): string {
+	return record?.slug?.trim() ?? "";
+}
 function getSpacePublicPath(record: SpaceRecord | null): string {
 	const username = getSpaceOwnerUsername(record);
-	const slug = record?.slug?.trim();
+	const slug = getSpaceSlug(record);
 	return username && slug ? `/${username}/${slug}` : "";
+}
+function getSpacePrettyUrlHint(record: SpaceRecord | null): string {
+	const hasUsername = Boolean(getSpaceOwnerUsername(record));
+	const hasSlug = Boolean(getSpaceSlug(record));
+	if (hasUsername && hasSlug) return "";
+	if (!hasUsername && !hasSlug)
+		return "Add a space slug and username for a cleaner URL.";
+	if (!hasUsername)
+		return "Add username in Profile to complete the pretty URL.";
+	return "Add a space slug for a cleaner URL.";
 }
 function formatCompactId(id: string): string {
 	if (!id) return "";
@@ -5483,10 +5496,12 @@ $effect(() => {
       {#if routeView === "session" && activeSessionState?.session}
         <button
           type="button"
-          class="inline-flex min-w-0 max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-          title="Space details"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
+          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+          title={space?.name || space?.title || spaceId}
+          aria-label="Space details"
+        >
+          <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />
+        </button>
         <div class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
           {#if sessionRenaming}
             <input
@@ -6527,7 +6542,7 @@ $effect(() => {
                         <div class="min-w-0">
                           <div class="flex min-w-0 items-center gap-2">
                             <div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5">
-                              <span class="mr-0.5 shrink-0 font-mono text-[12px] text-text-tertiary">/{getSpaceOwnerUsername(space) || 'user'}/</span>
+                              <span class="mr-0.5 shrink-0 font-mono text-[12px] {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span>
                               <input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
                             </div>
                             <button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">
@@ -6537,24 +6552,39 @@ $effect(() => {
                               <X class="h-3.5 w-3.5" />
                             </button>
                           </div>
-                          <p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Lowercase letters, numbers, hyphens, or underscores. Leave empty to disable the public route.</p>
+                          <p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Optional. Adds a cleaner URL; the space remains public by ID.</p>
                           {#if spaceSlugError}<div class="mt-1.5 text-[11px] text-error-soft break-words">{spaceSlugError}</div>{/if}
                         </div>
                       {:else}
-                        <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
-                          <span class="shrink-0 uppercase tracking-wider">Slug</span>
-                          {#if getSpacePublicPath(space)}
-                            <button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy public link">
-                              <code class="min-w-0 truncate font-mono">{getSpacePublicPath(space)}</code>
-                              {#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}
-                            </button>
-                          {:else}
-                            <span class="min-w-0 truncate text-text-placeholder">No public slug</span>
-                          {/if}
-                          {#if canEditSpaceProfile}
-                            <button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug">
-                              <Pencil class="h-3 w-3" />
-                            </button>
+                        <div class="min-w-0">
+                          <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
+                            <span class="shrink-0 uppercase tracking-wider">Slug</span>
+                            {#if getSpacePublicPath(space)}
+                              <button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy pretty URL">
+                                <code class="min-w-0 truncate font-mono">{getSpacePublicPath(space)}</code>
+                                {#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}
+                              </button>
+                            {:else if getSpaceSlug(space)}
+                              <code class="inline-flex min-w-0 rounded-[4px] px-1 py-0.5 font-mono text-text-tertiary"><span class="text-text-placeholder">/username/</span><span class="min-w-0 truncate">{getSpaceSlug(space)}</span></code>
+                            {:else if getSpaceOwnerUsername(space)}
+                              <button type="button" onclick={beginSpaceSlugEdit} class="min-w-0 truncate rounded-[4px] px-1 py-0.5 text-left text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Add space slug">Add space slug</button>
+                            {:else}
+                              <button type="button" onclick={beginSpaceSlugEdit} class="min-w-0 truncate rounded-[4px] px-1 py-0.5 text-left text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Add pretty URL">Add pretty URL</button>
+                            {/if}
+                            {#if canEditSpaceProfile}
+                              <button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug">
+                                <Pencil class="h-3 w-3" />
+                              </button>
+                            {/if}
+                          </div>
+                          {#if getSpacePrettyUrlHint(space)}
+                            <p class="mt-1 text-[11px] leading-4 text-text-placeholder">
+                              {#if !getSpaceOwnerUsername(space)}
+                                Add username in <a href="/settings/profile" class="text-text-tertiary transition-colors hover:text-text-secondary hover:underline">Profile</a>{getSpaceSlug(space) ? ' to complete the pretty URL.' : ' and a space slug for a cleaner URL.'}
+                              {:else}
+                                {getSpacePrettyUrlHint(space)}
+                              {/if}
+                            </p>
                           {/if}
                         </div>
                       {/if}

@@ -48,7 +48,7 @@ let uploadingAvatar = $state(false);
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 const profileTitle = $derived(displayName || username || "User");
-const usernameLabel = $derived(username ? `@${username}` : "Public profile");
+const usernameLabel = $derived(username ? `@${username}` : "Set username");
 const uuidLabel = $derived(formatUuid(userUuid));
 
 const themeOptions: {

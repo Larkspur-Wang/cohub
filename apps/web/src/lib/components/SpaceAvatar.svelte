@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { SpacePublicProfile } from "@neta-art/cohub";
 
-type Size = "xs" | "sm" | "md" | "lg";
+type Size = "xxs" | "xs" | "sm" | "md" | "lg";
 
 type Props = {
 	name?: string | null;
@@ -22,6 +22,7 @@ let {
 }: Props = $props();
 
 const sizeClass = $derived.by(() => {
+	if (size === "xxs") return "h-4 w-4 rounded-[5px] text-[7px]";
 	if (size === "xs") return "h-5 w-5 rounded-[6px] text-[8px]";
 	if (size === "sm") return "h-7 w-7 rounded-[8px] text-[10px]";
 	if (size === "lg") return "h-12 w-12 rounded-[14px] text-[13px]";

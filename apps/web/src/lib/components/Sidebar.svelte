@@ -1137,10 +1137,10 @@ $effect(() => {
       class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-primary px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:border-brand/35 hover:bg-bg-hover hover:text-text-primary"
       onclick={openCommandPalette}
       title="Search everywhere (⌘K / Ctrl K)"
-      aria-label="Search everywhere"
+      aria-label="Search everywhere (⌘K / Ctrl K)"
     >
       <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
-      <span class="hidden xl:inline font-mono tracking-[0.02em]">⌘K</span>
+      <span class="font-mono tracking-[0.02em]">⌘K</span>
     </button>
   </div>
 
@@ -1153,7 +1153,7 @@ $effect(() => {
         onclick={openSpacePalette}
       >
         {#if currentSpace}
-          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
+          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="xxs" />
           <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
         {:else}
           <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
