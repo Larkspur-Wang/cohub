@@ -32,10 +32,8 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
-import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
-import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 
 type SandboxInfo = {
 	status: string | null;
@@ -54,7 +52,6 @@ type SandboxInfo = {
 const props = $props<{ data: { spaceId: string } }>();
 const spaceId = $derived(props.data.spaceId);
 const defaultIdleTtlSeconds = import.meta.env.DEV ? 10 * 60 : 12 * 60 * 60;
-const spaceSlugPattern = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 
 let space = $state<SpaceRecord | null>(null);
 let access = $state<SpaceAccessPolicy | null>(null);
@@ -67,16 +64,6 @@ let sandbox = $state<SandboxInfo | null>(null);
 let allChannels = $state<Channel[]>([]);
 let loading = $state(true);
 let error = $state("");
-let editingSlug = $state(false);
-let slugDraft = $state("");
-let savingSlug = $state(false);
-let slugError = $state("");
-let slugNotice = $state("");
-let copiedSlugLink = $state(false);
-let copiedSpaceId = $state(false);
-let slugNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-let copiedSlugLinkTimer: ReturnType<typeof setTimeout> | null = null;
-let copiedSpaceIdTimer: ReturnType<typeof setTimeout> | null = null;
 let envName = $state("");
 let envValue = $state("");
 let selectedChannelId = $state("");
@@ -123,9 +110,6 @@ onDestroy(() => {
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
-	if (slugNoticeTimer) clearTimeout(slugNoticeTimer);
-	if (copiedSlugLinkTimer) clearTimeout(copiedSlugLinkTimer);
-	if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
 });
 
 function getSpaceAutoDestroyPolicy(
@@ -145,126 +129,6 @@ function applySandboxConfigFromSpace(record: SpaceRecord | null) {
 	sandboxAutoDestroyMode = policy.mode;
 	sandboxIdleTtlSeconds =
 		policy.mode === "idle" ? policy.ttlSeconds : defaultIdleTtlSeconds;
-}
-
-function getSpaceOwnerUsername(record: SpaceRecord | null): string {
-	return record?.ownerProfile?.username?.trim() ?? "";
-}
-
-function getSpacePublicPath(record: SpaceRecord | null): string {
-	const username = getSpaceOwnerUsername(record);
-	const slug = record?.slug?.trim();
-	return username && slug ? `/${username}/${slug}` : "";
-}
-
-function formatId(id: string): string {
-	if (!id) return "";
-	if (id.length <= 13) return id;
-	return `${id.slice(0, 8)}…${id.slice(-4)}`;
-}
-
-function beginSlugEdit() {
-	if (loading || savingSlug) return;
-	slugDraft = space?.slug ?? "";
-	slugError = "";
-	slugNotice = "";
-	editingSlug = true;
-}
-
-function cancelSlugEdit() {
-	if (savingSlug) return;
-	editingSlug = false;
-	slugDraft = "";
-	slugError = "";
-}
-
-function validateSpaceSlug(value: string): string | null {
-	const slug = value.trim();
-	if (!slug) return null;
-	if (!spaceSlugPattern.test(slug)) {
-		throw new Error(
-			"Slug must be 1–80 characters: lowercase letters, numbers, hyphens, or underscores. It cannot start or end with a separator.",
-		);
-	}
-	return slug;
-}
-
-function handleSlugKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		cancelSlugEdit();
-		return;
-	}
-	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
-		event.preventDefault();
-		void saveSpaceSlug();
-	}
-}
-
-async function saveSpaceSlug() {
-	if (!space || savingSlug) return;
-	slugError = "";
-	slugNotice = "";
-	let nextSlug: string | null;
-	try {
-		nextSlug = validateSpaceSlug(slugDraft);
-	} catch (err) {
-		slugError = err instanceof Error ? err.message : "Invalid slug";
-		return;
-	}
-	if (nextSlug === space.slug) {
-		editingSlug = false;
-		return;
-	}
-	savingSlug = true;
-	try {
-		const result = await sdk.space(spaceId).update({ slug: nextSlug });
-		space = result.space;
-		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
-		patchCachedSpaceList((items) =>
-			items.map((item) => (item.id === spaceId ? result.space : item)),
-		);
-		editingSlug = false;
-		slugDraft = "";
-		slugNotice = nextSlug ? "Space slug saved." : "Space slug removed.";
-		if (slugNoticeTimer) clearTimeout(slugNoticeTimer);
-		slugNoticeTimer = setTimeout(() => {
-			slugNotice = "";
-		}, 3000);
-	} catch (err) {
-		slugError = err instanceof Error ? err.message : "Failed to save slug";
-	} finally {
-		savingSlug = false;
-	}
-}
-
-async function copySpacePublicLink() {
-	const path = getSpacePublicPath(space);
-	if (!path) return;
-	try {
-		await navigator.clipboard.writeText(`${window.location.origin}${path}`);
-		copiedSlugLink = true;
-		if (copiedSlugLinkTimer) clearTimeout(copiedSlugLinkTimer);
-		copiedSlugLinkTimer = setTimeout(() => {
-			copiedSlugLink = false;
-		}, 2000);
-	} catch {
-		// Clipboard failures are non-critical.
-	}
-}
-
-async function copySpaceId() {
-	if (!spaceId) return;
-	try {
-		await navigator.clipboard.writeText(spaceId);
-		copiedSpaceId = true;
-		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
-		copiedSpaceIdTimer = setTimeout(() => {
-			copiedSpaceId = false;
-		}, 2000);
-	} catch {
-		// Clipboard failures are non-critical.
-	}
 }
 
 function formatTtl(seconds: number): string {
@@ -864,83 +728,6 @@ $effect(() => {
 			{:else if error}
 				<div class="rounded-[8px] border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
 			{:else}
-				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-						<div class="flex min-w-0 items-center gap-2.5">
-							<Globe class="h-4 w-4 text-text-tertiary" />
-							<div class="min-w-0">
-								<div class="text-[15px] font-medium text-text-primary">Space identity</div>
-								<div class="text-[12px] text-text-tertiary">Public slug and shareable route.</div>
-							</div>
-						</div>
-						{#if !editingSlug}
-							<button type="button" onclick={beginSlugEdit} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">
-								<Pencil class="h-3.5 w-3.5" /> Edit slug
-							</button>
-						{/if}
-					</div>
-					<div class="space-y-3 p-4 sm:p-5">
-						<div class="grid gap-3 border-b border-border-subtle pb-3 lg:grid-cols-[180px_1fr]">
-							<div>
-								<div class="text-[10px] font-medium uppercase tracking-[0.14em] text-text-placeholder">ID</div>
-								<p class="mt-1 text-[11px] leading-4 text-text-tertiary">Stable UUID for API calls, CLI commands, and internal references.</p>
-							</div>
-							<div class="min-w-0">
-								<button type="button" onclick={() => void copySpaceId()} title="Copy space ID" class="group inline-flex max-w-full items-center gap-2 rounded-[6px] px-1.5 py-1 text-left transition-colors hover:bg-bg-hover">
-									<code class="min-w-0 truncate font-mono text-[13px] text-text-primary" title={spaceId}>{formatId(spaceId)}</code>
-									{#if copiedSpaceId}<Check class="h-3.5 w-3.5 shrink-0 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5 shrink-0 text-text-placeholder transition-colors group-hover:text-text-secondary" />{/if}
-								</button>
-							</div>
-						</div>
-
-						<div class="grid gap-3 lg:grid-cols-[180px_1fr]">
-							<div>
-								<div class="text-[10px] font-medium uppercase tracking-[0.14em] text-text-placeholder">Slug</div>
-								<p class="mt-1 text-[11px] leading-4 text-text-tertiary">Used with your username to form <code class="font-mono text-text-secondary">/&lt;user&gt;/&lt;slug&gt;</code>.</p>
-							</div>
-							<div class="min-w-0">
-								{#if editingSlug}
-									<div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
-										<div class="min-w-0 flex-1">
-											<div class="flex min-h-9 min-w-0 items-center rounded-[6px] border border-brand/40 bg-bg-input px-3 py-2">
-												<span class="shrink-0 font-mono text-[12px] text-text-tertiary">/{getSpaceOwnerUsername(space) || 'user'}/</span>
-												<input aria-label="Space slug" bind:value={slugDraft} maxlength="80" placeholder="my-space" onkeydown={handleSlugKeydown} disabled={savingSlug} class="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
-											</div>
-											<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Leave empty to disable the public slug route. Use lowercase letters, numbers, hyphens, or underscores.</p>
-										</div>
-										<div class="flex shrink-0 items-center gap-1">
-											<button type="button" onclick={() => void saveSpaceSlug()} disabled={savingSlug} class="inline-flex h-9 w-9 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">
-												{#if savingSlug}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-											</button>
-											<button type="button" onclick={cancelSlugEdit} disabled={savingSlug} class="inline-flex h-9 w-9 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
-												<X class="h-3.5 w-3.5" />
-											</button>
-										</div>
-									</div>
-								{:else}
-									<div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-										<div class="min-w-0">
-											{#if getSpacePublicPath(space)}
-												<button type="button" onclick={() => void copySpacePublicLink()} class="group inline-flex max-w-full items-center gap-2 rounded-[6px] px-1.5 py-1 text-left transition-colors hover:bg-bg-hover" title="Copy public link">
-													<code class="min-w-0 truncate font-mono text-[13px] text-text-primary">{getSpacePublicPath(space)}</code>
-													{#if copiedSlugLink}<Check class="h-3.5 w-3.5 shrink-0 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5 shrink-0 text-text-placeholder transition-colors group-hover:text-text-secondary" />{/if}
-												</button>
-											{:else}
-												<div class="inline-flex rounded-[6px] bg-bg-hover px-2.5 py-1.5 font-mono text-[12px] text-text-placeholder">No public slug</div>
-											{/if}
-										</div>
-										<button type="button" onclick={beginSlugEdit} class="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary">
-											<Pencil class="h-3 w-3" /> Change
-										</button>
-									</div>
-								{/if}
-							</div>
-						</div>
-						{#if slugError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{slugError}</div>{/if}
-						{#if slugNotice}<div class="rounded-[6px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{slugNotice}</div>{/if}
-					</div>
-				</section>
-
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
 					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
 						<div class="flex min-w-0 items-center gap-2.5">

@@ -155,6 +155,7 @@ import {
 	getCachedSpaceFsDirMeta,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import {
 	getCachedSpacePins,
 	onSpacePinsCacheUpdated,
@@ -227,6 +228,7 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const WEBP_QUALITIES = [0.88, 0.82, 0.76, 0.7, 0.62, 0.54];
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
+const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -276,6 +278,14 @@ let spaceProfileDraft = $state("");
 let spaceProfileSaving = $state<SpaceProfileEditableField | null>(null);
 let spaceProfileError = $state("");
 let spaceAvatarUploading = $state(false);
+let editingSpaceSlug = $state(false);
+let spaceSlugDraft = $state("");
+let spaceSlugSaving = $state(false);
+let spaceSlugError = $state("");
+let copiedSpaceId = $state(false);
+let copiedSpaceIdTimer: ReturnType<typeof setTimeout> | null = null;
+let copiedSpaceSlugLink = $state(false);
+let copiedSpaceSlugLinkTimer: ReturnType<typeof setTimeout> | null = null;
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -2108,6 +2118,110 @@ async function handleRenameSpace(newName: string) {
 			error instanceof Error ? error.message : "Failed to rename space";
 	} finally {
 		renameSaving = false;
+	}
+}
+function getSpaceOwnerUsername(record: SpaceRecord | null): string {
+	return record?.ownerProfile?.username?.trim() ?? "";
+}
+function getSpacePublicPath(record: SpaceRecord | null): string {
+	const username = getSpaceOwnerUsername(record);
+	const slug = record?.slug?.trim();
+	return username && slug ? `/${username}/${slug}` : "";
+}
+function formatCompactId(id: string): string {
+	if (!id) return "";
+	if (id.length <= 13) return id;
+	return `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+function beginSpaceSlugEdit() {
+	if (!canEditSpaceProfile || spaceSlugSaving) return;
+	spaceSlugDraft = space?.slug ?? "";
+	spaceSlugError = "";
+	editingSpaceSlug = true;
+}
+function cancelSpaceSlugEdit() {
+	if (spaceSlugSaving) return;
+	editingSpaceSlug = false;
+	spaceSlugDraft = "";
+	spaceSlugError = "";
+}
+function validateSpaceSlug(value: string): string | null {
+	const slug = value.trim();
+	if (!slug) return null;
+	if (!SPACE_SLUG_PATTERN.test(slug)) {
+		throw new Error(
+			"Slug must be 1–80 characters: lowercase letters, numbers, hyphens, or underscores. It cannot start or end with a separator.",
+		);
+	}
+	return slug;
+}
+function handleSpaceSlugKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		cancelSpaceSlugEdit();
+		return;
+	}
+	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
+		event.preventDefault();
+		void saveSpaceSlug();
+	}
+}
+async function saveSpaceSlug() {
+	if (!space || spaceSlugSaving) return;
+	spaceSlugError = "";
+	let nextSlug: string | null;
+	try {
+		nextSlug = validateSpaceSlug(spaceSlugDraft);
+	} catch (error) {
+		spaceSlugError = error instanceof Error ? error.message : "Invalid slug";
+		return;
+	}
+	if (nextSlug === space.slug) {
+		editingSpaceSlug = false;
+		return;
+	}
+	spaceSlugSaving = true;
+	try {
+		const result = await sdk.space(spaceId).update({ slug: nextSlug });
+		space = result.space;
+		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+		patchCachedSpaceList((items) =>
+			items.map((item) => (item.id === spaceId ? result.space : item)),
+		);
+		editingSpaceSlug = false;
+		spaceSlugDraft = "";
+	} catch (error) {
+		spaceSlugError =
+			error instanceof Error ? error.message : "Failed to save space slug";
+	} finally {
+		spaceSlugSaving = false;
+	}
+}
+async function copySpaceId() {
+	if (!spaceId) return;
+	try {
+		await navigator.clipboard.writeText(spaceId);
+		copiedSpaceId = true;
+		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
+		copiedSpaceIdTimer = setTimeout(() => {
+			copiedSpaceId = false;
+		}, 2000);
+	} catch {
+		// Clipboard failures are non-critical.
+	}
+}
+async function copySpacePublicLink() {
+	const path = getSpacePublicPath(space);
+	if (!path) return;
+	try {
+		await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+		copiedSpaceSlugLink = true;
+		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
+		copiedSpaceSlugLinkTimer = setTimeout(() => {
+			copiedSpaceSlugLink = false;
+		}, 2000);
+	} catch {
+		// Clipboard failures are non-critical.
 	}
 }
 function beginSpaceProfileEdit(field: SpaceProfileEditableField) {
@@ -4805,6 +4919,8 @@ onMount(() => {
 		offSpacePinsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
+		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
+		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		clearTaskRunPoll();
 		if (turnMarkerMeasureFrame != null)
@@ -6427,6 +6543,54 @@ $effect(() => {
                     {:else if space?.description}
                       <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
                     {/if}
+                  </div>
+
+                  <div class="mt-3 space-y-1.5 border-t border-border-subtle pt-3">
+                    <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
+                      <span class="shrink-0 uppercase tracking-wider">ID</span>
+                      <code class="min-w-0 truncate font-mono" title={spaceId}>{formatCompactId(spaceId)}</code>
+                      <button type="button" onclick={() => void copySpaceId()} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy space ID">
+                        {#if copiedSpaceId}<Check class="h-3 w-3 text-success-soft" />{:else}<Copy class="h-3 w-3" />{/if}
+                      </button>
+                    </div>
+
+                    <div class="min-w-0">
+                      {#if editingSpaceSlug && canEditSpaceProfile}
+                        <div class="min-w-0">
+                          <div class="flex min-w-0 items-center gap-2">
+                            <div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5">
+                              <span class="mr-0.5 shrink-0 font-mono text-[12px] text-text-tertiary">/{getSpaceOwnerUsername(space) || 'user'}/</span>
+                              <input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
+                            </div>
+                            <button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">
+                              {#if spaceSlugSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+                            </button>
+                            <button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
+                              <X class="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Lowercase letters, numbers, hyphens, or underscores. Leave empty to disable the public route.</p>
+                          {#if spaceSlugError}<div class="mt-1.5 text-[11px] text-error-soft break-words">{spaceSlugError}</div>{/if}
+                        </div>
+                      {:else}
+                        <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
+                          <span class="shrink-0 uppercase tracking-wider">Slug</span>
+                          {#if getSpacePublicPath(space)}
+                            <button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy public link">
+                              <code class="min-w-0 truncate font-mono">{getSpacePublicPath(space)}</code>
+                              {#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />{/if}
+                            </button>
+                          {:else}
+                            <span class="min-w-0 truncate text-text-placeholder">No public slug</span>
+                          {/if}
+                          {#if canEditSpaceProfile}
+                            <button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug">
+                              <Pencil class="h-3 w-3" />
+                            </button>
+                          {/if}
+                        </div>
+                      {/if}
+                    </div>
                   </div>
 
                   {#if spaceProfileError}
