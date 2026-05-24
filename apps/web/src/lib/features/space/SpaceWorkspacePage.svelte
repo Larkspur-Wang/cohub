@@ -6513,39 +6513,7 @@ $effect(() => {
                     <div class="mt-1 text-[11px] text-status-error">{renameError}</div>
                   {/if}
 
-                  <div class="mt-2 min-w-0">
-                    {#if spaceProfileEditingField === "description" && canEditSpaceProfile}
-                      <div class="space-y-2">
-                        <textarea
-                          aria-label="Space description"
-                          bind:value={spaceProfileDraft}
-                          rows="3"
-                          maxlength="2000"
-                          disabled={spaceProfileSaving === "description"}
-                          onkeydown={handleSpaceProfileEditKeydown}
-                          class="min-h-20 w-full resize-y rounded-[6px] border border-brand/40 bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:outline-none disabled:opacity-60"
-                          placeholder="Describe what this space is for…"
-                        ></textarea>
-                        <div class="flex items-center gap-2">
-                          <button type="button" onclick={() => void saveSpaceProfileField()} disabled={spaceProfileSaving === "description"} class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">
-                            {#if spaceProfileSaving === "description"}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-                            Save
-                          </button>
-                          <button type="button" onclick={cancelSpaceProfileEdit} disabled={spaceProfileSaving === "description"} class="rounded-[5px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50">Cancel</button>
-                          <span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter to save</span>
-                        </div>
-                      </div>
-                    {:else if canEditSpaceProfile}
-                      <button type="button" onclick={() => beginSpaceProfileEdit("description")} class="group/edit -ml-1 block max-w-full rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Edit description">
-                        <span class="text-[13px] leading-6 {space?.description ? 'text-text-secondary' : 'text-text-placeholder'}">{space?.description || "Add a short description for this space."}</span>
-                        <Pencil class="ml-1 inline h-3 w-3 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
-                      </button>
-                    {:else if space?.description}
-                      <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
-                    {/if}
-                  </div>
-
-                  <div class="mt-3 space-y-1.5 border-t border-border-subtle pt-3">
+                  <div class="mt-2 space-y-1.5">
                     <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
                       <span class="shrink-0 uppercase tracking-wider">ID</span>
                       <code class="min-w-0 truncate font-mono" title={spaceId}>{formatCompactId(spaceId)}</code>
@@ -6578,7 +6546,7 @@ $effect(() => {
                           {#if getSpacePublicPath(space)}
                             <button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy public link">
                               <code class="min-w-0 truncate font-mono">{getSpacePublicPath(space)}</code>
-                              {#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />{/if}
+                              {#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}
                             </button>
                           {:else}
                             <span class="min-w-0 truncate text-text-placeholder">No public slug</span>
@@ -6592,10 +6560,6 @@ $effect(() => {
                       {/if}
                     </div>
                   </div>
-
-                  {#if spaceProfileError}
-                    <div class="mt-3 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{spaceProfileError}</div>
-                  {/if}
                 </div>
               </div>
               {#if !spaceHasMinimalAccess}
@@ -6608,23 +6572,46 @@ $effect(() => {
                     <Settings class="w-3.5 h-3.5" />
                     Settings
                   </a>
-                  <button
-                    type="button"
-                    class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-brand-border bg-brand-muted text-brand hover:bg-brand-muted-hover' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
-                    onclick={() => handleCreateNewSession()}
-                    disabled={!canCreateSession}
-                  >
-                    {#if creatingSession}
-                      <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                      Creating…
-                    {:else}
-                      <Plus class="w-3.5 h-3.5" />
-                      New chat
-                    {/if}
-                  </button>
                 </div>
               {/if}
             </div>
+
+            <div class="mt-4 border-t border-border-subtle pt-4">
+              {#if spaceProfileEditingField === "description" && canEditSpaceProfile}
+                <div class="space-y-2">
+                  <textarea
+                    aria-label="Space description"
+                    bind:value={spaceProfileDraft}
+                    rows="3"
+                    maxlength="2000"
+                    disabled={spaceProfileSaving === "description"}
+                    onkeydown={handleSpaceProfileEditKeydown}
+                    class="min-h-20 w-full resize-y rounded-[6px] border border-brand/40 bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:outline-none disabled:opacity-60"
+                    placeholder="Describe what this space is for…"
+                  ></textarea>
+                  <div class="flex items-center gap-2">
+                    <button type="button" onclick={() => void saveSpaceProfileField()} disabled={spaceProfileSaving === "description"} class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">
+                      {#if spaceProfileSaving === "description"}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+                      Save
+                    </button>
+                    <button type="button" onclick={cancelSpaceProfileEdit} disabled={spaceProfileSaving === "description"} class="rounded-[5px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50">Cancel</button>
+                    <span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter to save</span>
+                  </div>
+                </div>
+              {:else if canEditSpaceProfile}
+                <button type="button" onclick={() => beginSpaceProfileEdit("description")} class="group/edit -ml-1 block w-full rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Edit description">
+                  <span class="text-[13px] leading-6 {space?.description ? 'text-text-secondary' : 'text-text-placeholder'}">{space?.description || "Add a short description for this space."}</span>
+                  <Pencil class="ml-1 inline h-3 w-3 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
+                </button>
+              {:else if space?.description}
+                <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
+              {/if}
+            </div>
+
+            {#if spaceProfileError}
+              <div class="mt-3 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{spaceProfileError}</div>
+            {/if}
+
             {#if bootstrapStatus === "failed"}
               <div class="mt-4 rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3">
                 <div class="flex items-center gap-1.5 text-[12px] text-error-soft font-medium mb-1">
