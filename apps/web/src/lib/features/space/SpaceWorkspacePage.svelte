@@ -61,11 +61,13 @@ import {
 	Share2,
 	Terminal,
 	Trash2,
+	Upload,
 	UserRound,
 	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
+import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
@@ -255,6 +257,7 @@ function hasAccessPermission(permission: Permission): boolean {
 const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
 // True when the backend returned only minimal info (session-level access only)
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
+const canEditSpaceProfile = $derived(hasAccessPermission("space.edit"));
 let spaceSessions = $state<SessionRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
@@ -267,6 +270,12 @@ let renamingSpace = $state(false);
 let renameInput = $state("");
 let renameSaving = $state(false);
 let renameError = $state("");
+type SpaceProfileEditableField = "description";
+let spaceProfileEditingField = $state<SpaceProfileEditableField | null>(null);
+let spaceProfileDraft = $state("");
+let spaceProfileSaving = $state<SpaceProfileEditableField | null>(null);
+let spaceProfileError = $state("");
+let spaceAvatarUploading = $state(false);
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -377,8 +386,6 @@ let inlineFileCopied = $state(false);
 let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let gitRepoCopied = $state(false);
-let gitRepoCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let previewPanelWidth = $state(480);
 let previewPanelResizeCleanup: (() => void) | null = null;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
@@ -1108,37 +1115,6 @@ const bootstrapErrorMessage = $derived.by<string | null>(() => {
 	const value = bootstrapMeta?.errorMessage;
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
-const bootstrapSourceLabel = $derived.by(() => {
-	const source = bootstrapMeta?.source;
-	if (!source || typeof source !== "object" || Array.isArray(source))
-		return "Blank";
-	const type = (source as Record<string, unknown>).type;
-	if (type === "git_repo") return "Git Repo";
-	if (type === "checkpoint") return "Checkpoint";
-	return "Blank";
-});
-const bootstrapStatusTone = $derived.by(() => {
-	if (bootstrapStatus === "failed")
-		return "text-error-soft border-error-soft/20 bg-error-soft/8";
-	if (bootstrapStatus === "ready")
-		return "text-success-soft border-success-soft/20 bg-success-soft/8";
-	return "text-text-secondary border-border-subtle bg-bg-surface";
-});
-const gitSshUrl = $derived.by(() => {
-	const info = space?.gitInfo;
-	const repoName = space?.storageRepoName;
-	if (!info || !repoName) return null;
-	return `git@${info.giteaHost}:${info.giteaUsername}/${repoName}.git`;
-});
-async function handleCopyGitUrl() {
-	if (!gitSshUrl) return;
-	await navigator.clipboard.writeText(gitSshUrl);
-	gitRepoCopied = true;
-	if (gitRepoCopiedTimer) clearTimeout(gitRepoCopiedTimer);
-	gitRepoCopiedTimer = setTimeout(() => {
-		gitRepoCopied = false;
-	}, 1800);
-}
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
@@ -2133,6 +2109,96 @@ async function handleRenameSpace(newName: string) {
 	} finally {
 		renameSaving = false;
 	}
+}
+function beginSpaceProfileEdit(field: SpaceProfileEditableField) {
+	if (!canEditSpaceProfile || spaceProfileSaving || spaceAvatarUploading)
+		return;
+	spaceProfileError = "";
+	spaceProfileEditingField = field;
+	spaceProfileDraft = field === "description" ? (space?.description ?? "") : "";
+}
+function cancelSpaceProfileEdit() {
+	if (spaceProfileSaving) return;
+	spaceProfileEditingField = null;
+	spaceProfileDraft = "";
+	spaceProfileError = "";
+}
+function handleSpaceProfileEditKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		cancelSpaceProfileEdit();
+		return;
+	}
+	if (
+		(event.metaKey || event.ctrlKey) &&
+		event.key === "Enter" &&
+		!isComposingKeyboardEvent(event)
+	) {
+		event.preventDefault();
+		void saveSpaceProfileField();
+	}
+}
+async function saveSpaceProfileField() {
+	if (!spaceProfileEditingField || spaceProfileSaving) return;
+	const field = spaceProfileEditingField;
+	spaceProfileSaving = field;
+	spaceProfileError = "";
+	try {
+		const result = await sdk.space(spaceId).profile({
+			description: spaceProfileDraft.trim() || null,
+		});
+		space = result.space;
+		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+		spaceProfileEditingField = null;
+		spaceProfileDraft = "";
+	} catch (error) {
+		spaceProfileError =
+			error instanceof Error ? error.message : "Failed to save space profile";
+	} finally {
+		spaceProfileSaving = null;
+	}
+}
+async function uploadSpaceAvatar(file: File) {
+	if (!canEditSpaceProfile || spaceAvatarUploading) return;
+	spaceAvatarUploading = true;
+	spaceProfileError = "";
+	try {
+		const avatarFile = await normalizeAvatarToWebp(file);
+		const plan = await sdk.publicAssets.createUpload({
+			purpose: "space_avatar",
+			spaceId,
+			file: {
+				size: avatarFile.size,
+				mimeType: "image/webp",
+			},
+		});
+		const formData = new FormData();
+		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
+			formData.append(key, value);
+		}
+		formData.append("file", avatarFile);
+		const response = await fetch(plan.asset.uploadUrl, {
+			method: plan.asset.uploadMethod,
+			body: formData,
+		});
+		if (!response.ok) throw new Error("Failed to upload avatar image.");
+		const result = await sdk.space(spaceId).profile({
+			avatarUrl: plan.asset.publicUrl,
+		});
+		space = result.space;
+		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+	} catch (error) {
+		spaceProfileError =
+			error instanceof Error ? error.message : "Failed to upload space avatar";
+	} finally {
+		spaceAvatarUploading = false;
+	}
+}
+function handleSpaceAvatarFileChange(event: Event) {
+	const input = event.currentTarget as HTMLInputElement;
+	const file = input.files?.[0];
+	input.value = "";
+	if (file && canEditSpaceProfile) void uploadSpaceAvatar(file);
 }
 // ── Session rename (header inline edit) ────────────────────────────────
 function startSessionRename() {
@@ -4399,24 +4465,6 @@ async function togglePinFilePath(path: string) {
 	}
 }
 
-async function handleForkLatestCheckpoint() {
-	const latest = spaceCheckpoints[0];
-	if (!latest || !space) return;
-	try {
-		const result = await sdk.spaces.create({
-			name: `${space.name ?? "space"}-fork-${Date.now().toString(36).slice(-4)}`,
-			description: space.description ?? undefined,
-			source: "web",
-			bootstrapSource: { type: "checkpoint", checkpointId: latest.id },
-		});
-		window.dispatchEvent(new CustomEvent("cohub:space-created"));
-		await goto(`/spaces/${result.space.id}`);
-	} catch (error) {
-		createSessionError =
-			error instanceof Error ? error.message : "Failed to fork";
-	}
-}
-
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	creatingSession = true;
@@ -6285,163 +6333,136 @@ $effect(() => {
               <span>{spaceStatusNotice}</span>
             </div>
           {/if}
-          <!-- Space Header -->
-          <div class="flex items-start justify-between gap-4">
-            <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" />
-            <div class="min-w-0 flex-1 space-y-1.5">
-              <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
-              <div class="flex items-center gap-1.5 group">
-                {#if renamingSpace}
-                  <input
-                    type="text"
-                    bind:value={renameInput}
-                    disabled={renameSaving}
-                    class="text-[20px] font-medium text-text-primary bg-bg-input border border-border-subtle rounded-[6px] px-2 py-1 focus:border-brand/40 focus:outline-none transition-colors w-full max-w-xs disabled:opacity-60"
-                    onkeydown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        !renameSaving &&
-                        !isComposingKeyboardEvent(e)
-                      ) {
-                        e.preventDefault();
-                        const trimmed = renameInput.trim();
-                        if (trimmed && trimmed !== space?.name) {
-                          void handleRenameSpace(trimmed);
-                        } else {
-                          renamingSpace = false;
-                          renameError = "";
-                        }
-                      }
-                      if (e.key === "Escape" && !renameSaving) {
-                        renamingSpace = false;
-                        renameError = "";
-                      }
-                    }}
-                  />
+          <!-- Space Profile -->
+          <section class="rounded-[12px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div class="flex min-w-0 flex-1 items-start gap-4">
+                <div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
+                  {#if canEditSpaceProfile}
+                    <label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title="Change space avatar" aria-label="Change space avatar">
+                      <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-full w-full rounded-full border-0 shadow-none" />
+                      <span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                        {#if spaceAvatarUploading}
+                          <Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />
+                        {:else}
+                          <Upload class="h-4 w-4 text-overlay-control-text" />
+                        {/if}
+                      </span>
+                      <input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+                    </label>
+                    <label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-50' : ''}">
+                      {#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
+                      <span>{space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
+                      <input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+                    </label>
+                  {:else}
+                    <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
+                  {/if}
+                </div>
+                <div class="min-w-0 flex-1 pt-0.5">
+                  <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
+                  <div class="mt-1 flex min-w-0 items-center gap-1.5 group">
+                    {#if renamingSpace && canEditSpaceProfile}
+                      <input
+                        type="text"
+                        bind:value={renameInput}
+                        disabled={renameSaving}
+                        class="min-w-0 flex-1 rounded-[6px] border border-brand/40 bg-bg-input px-2 py-1 text-[20px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60"
+                        onkeydown={(e) => {
+                          if (e.key === "Enter" && !renameSaving && !isComposingKeyboardEvent(e)) {
+                            e.preventDefault();
+                            const trimmed = renameInput.trim();
+                            if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed);
+                            else { renamingSpace = false; renameError = ""; }
+                          }
+                          if (e.key === "Escape" && !renameSaving) { renamingSpace = false; renameError = ""; }
+                        }}
+                      />
+                      <button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save" disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ""; } }}>
+                        {#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+                      </button>
+                      <button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel" disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ""; }}>
+                        <X class="h-3.5 w-3.5" />
+                      </button>
+                    {:else if canEditSpaceProfile}
+                      <button type="button" onclick={() => { renameInput = space?.name ?? ""; renamingSpace = true; renameError = ""; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Rename space">
+                        <span class="min-w-0 truncate text-[20px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span>
+                        <Pencil class="h-3.5 w-3.5 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
+                      </button>
+                    {:else}
+                      <h1 class="min-w-0 truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
+                    {/if}
+                  </div>
+                  {#if renameError}
+                    <div class="mt-1 text-[11px] text-status-error">{renameError}</div>
+                  {/if}
+
+                  <div class="mt-2 min-w-0">
+                    {#if spaceProfileEditingField === "description" && canEditSpaceProfile}
+                      <div class="space-y-2">
+                        <textarea
+                          aria-label="Space description"
+                          bind:value={spaceProfileDraft}
+                          rows="3"
+                          maxlength="2000"
+                          disabled={spaceProfileSaving === "description"}
+                          onkeydown={handleSpaceProfileEditKeydown}
+                          class="min-h-20 w-full resize-y rounded-[6px] border border-brand/40 bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:outline-none disabled:opacity-60"
+                          placeholder="Describe what this space is for…"
+                        ></textarea>
+                        <div class="flex items-center gap-2">
+                          <button type="button" onclick={() => void saveSpaceProfileField()} disabled={spaceProfileSaving === "description"} class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">
+                            {#if spaceProfileSaving === "description"}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+                            Save
+                          </button>
+                          <button type="button" onclick={cancelSpaceProfileEdit} disabled={spaceProfileSaving === "description"} class="rounded-[5px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50">Cancel</button>
+                          <span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter to save</span>
+                        </div>
+                      </div>
+                    {:else if canEditSpaceProfile}
+                      <button type="button" onclick={() => beginSpaceProfileEdit("description")} class="group/edit -ml-1 block max-w-full rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Edit description">
+                        <span class="text-[13px] leading-6 {space?.description ? 'text-text-secondary' : 'text-text-placeholder'}">{space?.description || "Add a short description for this space."}</span>
+                        <Pencil class="ml-1 inline h-3 w-3 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
+                      </button>
+                    {:else if space?.description}
+                      <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
+                    {/if}
+                  </div>
+
+                  {#if spaceProfileError}
+                    <div class="mt-3 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{spaceProfileError}</div>
+                  {/if}
+                </div>
+              </div>
+              {#if !spaceHasMinimalAccess}
+                <div class="flex shrink-0 items-center gap-2">
+                  <a
+                    href={`/spaces/${spaceId}/settings`}
+                    class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:text-text-primary hover:bg-bg-hover"
+                    title="Space settings"
+                  >
+                    <Settings class="w-3.5 h-3.5" />
+                    Settings
+                  </a>
                   <button
                     type="button"
-                    class="shrink-0 p-1 rounded text-success-soft hover:text-success hover:bg-bg-hover transition-colors disabled:opacity-50"
-                    title="Save"
-                    disabled={renameSaving}
-                    onclick={() => {
-                      const trimmed = renameInput.trim();
-                      if (trimmed && trimmed !== space?.name) {
-                        void handleRenameSpace(trimmed);
-                      } else {
-                        renamingSpace = false;
-                        renameError = "";
-                      }
-                    }}
+                    class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-brand-border bg-brand-muted text-brand hover:bg-brand-muted-hover' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
+                    onclick={() => handleCreateNewSession()}
+                    disabled={!canCreateSession}
                   >
-                    {#if renameSaving}
-                      <Loader2 class="w-4 h-4 animate-spin" />
+                    {#if creatingSession}
+                      <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                      Creating…
                     {:else}
-                      <Check class="w-4 h-4" />
+                      <Plus class="w-3.5 h-3.5" />
+                      New chat
                     {/if}
                   </button>
-                  <button
-                    type="button"
-                    class="shrink-0 p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
-                    title="Cancel"
-                    disabled={renameSaving}
-                    onclick={() => { renamingSpace = false; renameError = ""; }}
-                  >
-                    <X class="w-4 h-4" />
-                  </button>
-                  {#if renameError}
-                    <span class="text-[11px] text-status-error ml-1">{renameError}</span>
-                  {/if}
-                {:else}
-                  <h1 class="truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
-                  <button
-                    type="button"
-                    class="shrink-0 p-1 rounded text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-text-secondary hover:bg-bg-hover transition-all"
-                    title="Rename space"
-                    onclick={() => { renameInput = space?.name ?? ""; renamingSpace = true; renameError = ""; }}
-                  >
-                    <Pencil class="w-3.5 h-3.5" />
-                  </button>
-                {/if}
-              </div>
-              {#if space?.description}
-                <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
+                </div>
               {/if}
             </div>
-            {#if !spaceHasMinimalAccess}
-              <div class="flex shrink-0 items-center gap-2">
-                <a
-                  href={`/spaces/${spaceId}/settings`}
-                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:text-text-primary hover:bg-bg-hover"
-                  title="Space settings"
-                >
-                  <Settings class="w-3.5 h-3.5" />
-                  Settings
-                </a>
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {spaceCheckpoints.length > 0 ? 'border-border-subtle bg-bg-input text-text-secondary hover:text-text-primary hover:bg-bg-hover' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
-                  onclick={() => void handleForkLatestCheckpoint()}
-                  disabled={spaceCheckpoints.length === 0}
-                  title={spaceCheckpoints.length === 0 ? 'No saves yet' : 'Fork latest save'}
-                >
-                  <GitCommitHorizontal class="w-3.5 h-3.5" />
-                  Fork
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {canCreateSession ? 'border-brand-border bg-brand-muted text-brand hover:bg-brand-muted-hover' : 'border-border-subtle bg-bg-input text-text-tertiary'}"
-                  onclick={() => handleCreateNewSession()}
-                  disabled={!canCreateSession}
-                >
-                {#if creatingSession}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                  Creating…
-                {:else}
-                  <Plus class="w-3.5 h-3.5" />
-                  New chat
-                {/if}
-                </button>
-              </div>
-            {/if}
-          </div>
-          <!-- Repository -->
-          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-4">
-            {#if gitSshUrl}
-              <div>
-                <div class="flex items-center gap-2">
-                  <GitCommitHorizontal class="w-4 h-4 text-text-tertiary" />
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Repository</div>
-                </div>
-                <div class="mt-2 flex items-center gap-2">
-                  <code class="flex-1 text-[12px] font-mono text-text-secondary bg-bg-code px-2.5 py-1.5 rounded-[5px] border border-border-subtle truncate select-all">{gitSshUrl}</code>
-                  <button
-                    type="button"
-                    class="shrink-0 p-2 rounded-[5px] border border-border-subtle bg-bg-hover hover:bg-bg-hover-strong text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-                    title="Copy SSH URL"
-                    onclick={() => void handleCopyGitUrl()}
-                  >
-                    {#if gitRepoCopied}
-                      <Check class="w-4 h-4 text-status-running" />
-                    {:else}
-                      <Copy class="w-4 h-4" />
-                    {/if}
-                  </button>
-                </div>
-              </div>
-            {/if}
-            {#if bootstrapSourceLabel !== "Blank"}
-              {@const source = bootstrapMeta?.source as Record<string, unknown> | undefined}
-              <div class="text-[13px] text-text-secondary">
-                Source: <span class="text-text-primary">{bootstrapSourceLabel}</span>
-                {#if bootstrapSourceLabel === "Git Repo" && source?.repoUrl}
-                  <span class="text-text-tertiary ml-1 font-mono text-[11px]">{String(source.repoUrl)}</span>
-                {:else if bootstrapSourceLabel === "Checkpoint" && source?.checkpointId}
-                  <span class="text-text-tertiary ml-1 font-mono text-[11px]">{String(source.checkpointId).slice(0, 8)}</span>
-                {/if}
-              </div>
-            {/if}
             {#if bootstrapStatus === "failed"}
-              <div class="rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3">
+              <div class="mt-4 rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3">
                 <div class="flex items-center gap-1.5 text-[12px] text-error-soft font-medium mb-1">
                   <AlertCircle class="w-3.5 h-3.5" />
                   Initialization failed
