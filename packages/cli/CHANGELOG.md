@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.6.3
+
+### Patch Changes
+
+- 872b08c: Clear full auth session on 401 responses instead of only the device code, preventing stale tokens from causing repeated auth failures.
+- Updated dependencies [872b08c]
+  - @neta-art/cohub@1.14.0
+
 ## 1.6.2
 
 ### Patch Changes
